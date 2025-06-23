@@ -33,15 +33,10 @@ serve(async (req) => {
       throw new Error('No authorization header');
     }
 
-    // Create Supabase client with user's auth token
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      }
-    });
+    // Create Supabase client with the anon key
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Set the auth header for this request
+    // Set the JWT token for this session
     const token = authHeader.replace('Bearer ', '');
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     
@@ -50,7 +45,9 @@ serve(async (req) => {
       throw new Error('Authentication failed');
     }
 
-    // Fetch all user's items using the authenticated client
+    console.log('Authenticated user:', user.id);
+
+    // Fetch all user's items with explicit auth context
     const { data: items, error: itemsError } = await supabase
       .from('items')
       .select('*')
@@ -59,23 +56,29 @@ serve(async (req) => {
 
     if (itemsError) {
       console.error('Items fetch error:', itemsError);
-      throw new Error('Failed to fetch user items');
+      throw new Error(`Failed to fetch user items: ${itemsError.message}`);
     }
 
+    console.log(`Found ${items?.length || 0} items for user`);
+
     // Prepare context about all content
-    let contentContext = `You are an AI assistant helping the user work with their personal content collection. The user has ${items.length} items in their stash.
+    let contentContext = `You are an AI assistant helping the user work with their personal content collection. The user has ${items?.length || 0} items in their stash.
 
 Here's a summary of their content:
 
 `;
 
-    items.forEach((item, index) => {
-      contentContext += `${index + 1}. Type: ${item.type}`;
-      if (item.title) contentContext += `, Title: "${item.title}"`;
-      if (item.content) contentContext += `, Content: "${item.content.substring(0, 200)}${item.content.length > 200 ? '...' : ''}"`;
-      if (item.description) contentContext += `, AI Description: "${item.description.substring(0, 100)}${item.description.length > 100 ? '...' : ''}"`;
-      contentContext += '\n';
-    });
+    if (items && items.length > 0) {
+      items.forEach((item, index) => {
+        contentContext += `${index + 1}. Type: ${item.type}`;
+        if (item.title) contentContext += `, Title: "${item.title}"`;
+        if (item.content) contentContext += `, Content: "${item.content.substring(0, 200)}${item.content.length > 200 ? '...' : ''}"`;
+        if (item.description) contentContext += `, AI Description: "${item.description.substring(0, 100)}${item.description.length > 100 ? '...' : ''}"`;
+        contentContext += '\n';
+      });
+    } else {
+      contentContext += "No items found in the user's stash.\n";
+    }
 
     contentContext += `
 You can help the user:
@@ -88,6 +91,8 @@ You can help the user:
 - Suggest connections between items
 
 Be helpful and conversational while working with their entire content collection.`;
+
+    console.log('Sending request to OpenAI with context for', items?.length || 0, 'items');
 
     // Prepare messages for OpenAI
     const messages = [
@@ -116,13 +121,18 @@ Be helpful and conversational while working with their entire content collection
       }),
     });
 
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+    }
+
     const data = await response.json();
     
     if (!data.choices?.[0]?.message?.content) {
-      throw new Error('No response generated');
+      throw new Error('No response generated from OpenAI');
     }
 
     const aiResponse = data.choices[0].message.content.trim();
+    console.log('OpenAI response generated successfully');
 
     return new Response(JSON.stringify({ response: aiResponse }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
