@@ -41,6 +41,17 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
   };
 
   const processFile = async (file: File) => {
+    // Check file size (20MB limit)
+    const maxSize = 20 * 1024 * 1024; // 20MB in bytes
+    if (file.size > maxSize) {
+      toast({
+        title: "File too large",
+        description: "Maximum file size is 20MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsProcessing(true);
     try {
       const type = detectContentType(file);
@@ -55,16 +66,35 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
         });
       }
 
-      await onAddContent(type, {
-        title: file.name,
-        file,
-        fileData,
-        content: type === 'text' ? await file.text() : undefined
-      });
+      // Special handling for PDFs with placeholder content
+      if (type === 'pdf') {
+        await onAddContent(type, {
+          title: file.name,
+          file,
+          content: `📄 PDF Processing...
+
+This PDF file is currently being processed to extract its text content. 
+
+File: ${file.name}
+Size: ${Math.round(file.size / 1024)}KB
+
+The content will be automatically updated once text extraction is complete and embeddings are generated for search functionality.`,
+          isProcessing: true
+        });
+      } else {
+        await onAddContent(type, {
+          title: file.name,
+          file,
+          fileData,
+          content: type === 'text' ? await file.text() : undefined
+        });
+      }
 
       toast({
         title: "Success",
-        description: `${type.charAt(0).toUpperCase() + type.slice(1)} uploaded and processed!`,
+        description: type === 'pdf' 
+          ? `PDF uploaded! Text extraction is in progress...`
+          : `${type.charAt(0).toUpperCase() + type.slice(1)} uploaded and processed!`,
       });
     } catch (error) {
       toast({
@@ -100,6 +130,9 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
               <h3 className="text-lg font-semibold mb-2">Upload Media Files</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Drag and drop files here, or click to browse. AI will automatically describe your content.
+              </p>
+              <p className="text-xs text-muted-foreground mb-4">
+                Maximum file size: 20MB
               </p>
             </div>
 

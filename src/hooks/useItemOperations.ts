@@ -45,6 +45,44 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
     }
   };
 
+  const processPdfContent = async (itemId: string, filePath: string) => {
+    try {
+      // Get the public URL for the file
+      const { data: urlData } = supabase.storage
+        .from('stash-media')
+        .getPublicUrl(filePath);
+
+      if (!urlData?.publicUrl) {
+        throw new Error('Failed to get file URL');
+      }
+
+      // Call the PDF extraction function
+      const { error } = await supabase.functions.invoke('extract-pdf-text', {
+        body: {
+          fileUrl: urlData.publicUrl,
+          itemId
+        }
+      });
+
+      if (error) throw error;
+
+      // Refresh items to show updated content
+      fetchItems();
+      
+      toast({
+        title: "PDF Processed",
+        description: "PDF text has been extracted and is now searchable!",
+      });
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      toast({
+        title: "PDF Processing Failed",
+        description: "Failed to extract text from PDF",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleAddContent = async (type: string, data: any) => {
     if (!user) return;
 
@@ -68,8 +106,10 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
         }
       }
 
-      // Generate AI description
-      const aiDescription = await generateDescription(type, data);
+      // Generate AI description (skip for PDFs with placeholder content)
+      const aiDescription = data.isProcessing ? 
+        "PDF file uploaded - text extraction in progress" : 
+        await generateDescription(type, data);
 
       // Prepare the item data
       const itemData = {
@@ -100,18 +140,26 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
 
       console.log('Item inserted successfully:', insertedItem);
 
-      // Generate embeddings for textual content
-      const textForEmbedding = [
-        data.title,
-        data.content,
-        aiDescription,
-        data.url,
-        data.ogData?.title,
-        data.ogData?.description
-      ].filter(Boolean).join(' ');
+      // Handle PDF processing separately
+      if (type === 'pdf' && filePath) {
+        // Process PDF in the background
+        setTimeout(() => {
+          processPdfContent(insertedItem.id, filePath);
+        }, 1000);
+      } else {
+        // Generate embeddings for non-PDF textual content
+        const textForEmbedding = [
+          data.title,
+          data.content,
+          aiDescription,
+          data.url,
+          data.ogData?.title,
+          data.ogData?.description
+        ].filter(Boolean).join(' ');
 
-      if (textForEmbedding.trim()) {
-        await generateEmbeddings(insertedItem.id, textForEmbedding);
+        if (textForEmbedding.trim()) {
+          await generateEmbeddings(insertedItem.id, textForEmbedding);
+        }
       }
 
       toast({
