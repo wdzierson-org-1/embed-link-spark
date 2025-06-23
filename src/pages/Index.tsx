@@ -14,6 +14,7 @@ import MediaUploadTab from '@/components/MediaUploadTab';
 import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
 import ChatInterface from '@/components/ChatInterface';
+import GlobalChatInterface from '@/components/GlobalChatInterface';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -21,6 +22,7 @@ const Index = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [chatItem, setChatItem] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [globalChatOpen, setGlobalChatOpen] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -45,10 +47,7 @@ const Index = () => {
   };
 
   const handleOpenChat = () => {
-    toast({
-      title: "Coming soon",
-      description: "Global chat functionality will be available soon!",
-    });
+    setGlobalChatOpen(true);
   };
 
   const handleOpenSearch = () => {
@@ -120,6 +119,11 @@ const Index = () => {
         isOpen={chatOpen}
         onClose={() => setChatOpen(false)}
         item={chatItem}
+      />
+
+      <GlobalChatInterface
+        isOpen={globalChatOpen}
+        onClose={() => setGlobalChatOpen(false)}
       />
     </div>
   );
