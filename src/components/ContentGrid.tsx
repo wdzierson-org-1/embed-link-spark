@@ -1,5 +1,4 @@
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,6 +29,45 @@ interface ContentGridProps {
 const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: ContentGridProps) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
+  const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
+
+  // Fetch tags for all items
+  useEffect(() => {
+    const fetchItemTags = async () => {
+      if (items.length === 0) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('item_tags')
+          .select(`
+            item_id,
+            tags (name)
+          `)
+          .in('item_id', items.map(item => item.id));
+
+        if (error) {
+          console.error('Error fetching item tags:', error);
+          return;
+        }
+
+        const tagsMap: Record<string, string[]> = {};
+        data?.forEach(itemTag => {
+          if (!tagsMap[itemTag.item_id]) {
+            tagsMap[itemTag.item_id] = [];
+          }
+          if (itemTag.tags) {
+            tagsMap[itemTag.item_id].push(itemTag.tags.name);
+          }
+        });
+
+        setItemTags(tagsMap);
+      } catch (error) {
+        console.error('Exception while fetching item tags:', error);
+      }
+    };
+
+    fetchItemTags();
+  }, [items]);
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -136,6 +174,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
         const imageUrl = getImageUrl(item);
         const fileUrl = getFileUrl(item);
         const showImage = imageUrl && !imageErrors.has(item.id);
+        const tags = itemTags[item.id] || [];
 
         return (
           <Card key={item.id} className="group">
@@ -241,16 +280,16 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
                   </a>
                 </div>
               )}
-              {item.tags && item.tags.length > 0 && (
+              {tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
-                  {item.tags.slice(0, 3).map((tag, index) => (
+                  {tags.slice(0, 3).map((tag, index) => (
                     <Badge key={index} variant="outline" className="text-xs">
                       {tag}
                     </Badge>
                   ))}
-                  {item.tags.length > 3 && (
+                  {tags.length > 3 && (
                     <Badge variant="outline" className="text-xs">
-                      +{item.tags.length - 3}
+                      +{tags.length - 3}
                     </Badge>
                   )}
                 </div>

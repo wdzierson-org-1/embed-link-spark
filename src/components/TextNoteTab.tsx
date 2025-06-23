@@ -5,13 +5,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import TagInput from './TagInput';
 
 interface TextNoteTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
+  getSuggestedTags: () => string[];
 }
 
-const TextNoteTab = ({ onAddContent }: TextNoteTabProps) => {
+const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   const [textInput, setTextInput] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
 
@@ -22,10 +25,13 @@ const TextNoteTab = ({ onAddContent }: TextNoteTabProps) => {
     try {
       await onAddContent('text', {
         content: textInput,
-        title: textInput.slice(0, 50) + (textInput.length > 50 ? '...' : '')
+        title: textInput.slice(0, 50) + (textInput.length > 50 ? '...' : ''),
+        tags
       });
       
+      // Reset form
       setTextInput('');
+      setTags([]);
       
       toast({
         title: "Success",
@@ -54,7 +60,7 @@ const TextNoteTab = ({ onAddContent }: TextNoteTabProps) => {
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
           <FileText className="h-5 w-5" />
-          <span>Add Text Note</span>
+          <span>New Text Note</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -70,6 +76,16 @@ const TextNoteTab = ({ onAddContent }: TextNoteTabProps) => {
           <p className="text-xs text-muted-foreground mt-2">
             Tip: Press Cmd/Ctrl + Enter to save quickly
           </p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium mb-2 block">Tags (optional)</label>
+          <TagInput
+            tags={tags}
+            onTagsChange={setTags}
+            suggestions={getSuggestedTags()}
+            placeholder="Add tags to organize your note..."
+          />
         </div>
 
         <Button

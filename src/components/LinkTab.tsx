@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Link as LinkIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import LinkPreview from './LinkPreview';
+import TagInput from './TagInput';
 
 interface OpenGraphData {
   title?: string;
@@ -17,10 +18,12 @@ interface OpenGraphData {
 
 interface LinkTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
+  getSuggestedTags: () => string[];
 }
 
-const LinkTab = ({ onAddContent }: LinkTabProps) => {
+const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
   const [linkInput, setLinkInput] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
   const [ogData, setOgData] = useState<OpenGraphData | null>(null);
   const [isLoadingOg, setIsLoadingOg] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -96,10 +99,13 @@ const LinkTab = ({ onAddContent }: LinkTabProps) => {
       await onAddContent('link', {
         url: linkInput.trim(),
         title: ogData?.title || new URL(linkInput.trim()).hostname,
-        ogData
+        ogData,
+        tags
       });
       
+      // Reset form
       setLinkInput('');
+      setTags([]);
       setOgData(null);
       
       toast({
@@ -129,7 +135,7 @@ const LinkTab = ({ onAddContent }: LinkTabProps) => {
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
           <LinkIcon className="h-5 w-5" />
-          <span>Add Link</span>
+          <span>Paste Link</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -153,6 +159,16 @@ const LinkTab = ({ onAddContent }: LinkTabProps) => {
         )}
 
         {ogData && <LinkPreview ogData={ogData} />}
+
+        <div>
+          <label className="text-sm font-medium mb-2 block">Tags (optional)</label>
+          <TagInput
+            tags={tags}
+            onTagsChange={setTags}
+            suggestions={getSuggestedTags()}
+            placeholder="Add tags to organize your link..."
+          />
+        </div>
 
         <Button
           onClick={handleSubmit}
