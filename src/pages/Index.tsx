@@ -8,6 +8,9 @@ import Navbar from '@/components/Navbar';
 import AddContentDialog from '@/components/AddContentDialog';
 import ContentGrid from '@/components/ContentGrid';
 import { Button } from '@/components/ui/button';
+import type { Database } from '@/integrations/supabase/types';
+
+type ItemType = Database['public']['Enums']['item_type'];
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -71,7 +74,7 @@ const Index = () => {
       // Insert item into database
       const { error } = await supabase.from('items').insert({
         user_id: user.id,
-        type,
+        type: type as ItemType,
         title: data.title,
         content: data.content,
         url: data.url,
