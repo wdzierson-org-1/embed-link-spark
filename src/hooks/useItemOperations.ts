@@ -14,6 +14,10 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
   const { user } = useAuth();
   const { toast } = useToast();
 
+  const showToast = (toastData: { title: string; description: string; variant?: 'destructive' }) => {
+    toast(toastData);
+  };
+
   const handleAddContent = async (type: string, data: any) => {
     if (!user) {
       console.error('No user found');
@@ -75,11 +79,11 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
         // Process PDF in the background with a longer delay
         setTimeout(async () => {
           try {
-            await processPdfContent(insertedItem.id, filePath, fetchItems);
+            await processPdfContent(insertedItem.id, filePath, fetchItems, showToast);
           } catch (error) {
             console.error('Background PDF processing failed:', error);
           }
-        }, 3000); // Increased to 3 seconds
+        }, 3000);
       } else {
         // Generate embeddings for non-PDF textual content
         const textForEmbedding = [
@@ -112,11 +116,11 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
   };
 
   const handleSaveItem = async (id: string, updates: any) => {
-    await saveItem(id, updates, fetchItems);
+    await saveItem(id, updates, fetchItems, showToast);
   };
 
   const handleDeleteItem = async (id: string) => {
-    await deleteItem(id, fetchItems);
+    await deleteItem(id, fetchItems, showToast);
   };
 
   return {

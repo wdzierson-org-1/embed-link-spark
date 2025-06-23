@@ -1,14 +1,12 @@
 
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
 
 export const processPdfContent = async (
   itemId: string, 
   filePath: string, 
-  fetchItems: () => Promise<void>
+  fetchItems: () => Promise<void>,
+  showToast: (toast: { title: string; description: string; variant?: 'destructive' }) => void
 ) => {
-  const { toast } = useToast();
-  
   try {
     // Get the public URL for the file
     const { data: urlData } = supabase.storage
@@ -45,13 +43,13 @@ export const processPdfContent = async (
       await fetchItems();
     }, 1000);
     
-    toast({
+    showToast({
       title: "PDF Processed",
       description: "PDF text has been extracted and is now searchable!",
     });
   } catch (error) {
     console.error('Error processing PDF:', error);
-    toast({
+    showToast({
       title: "PDF Processing Failed",
       description: error.message || "Failed to extract text from PDF",
       variant: "destructive",
