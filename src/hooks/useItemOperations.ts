@@ -56,6 +56,8 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
         throw new Error('Failed to get file URL');
       }
 
+      console.log('Processing PDF with URL:', urlData.publicUrl, 'for item:', itemId);
+
       // Call the PDF extraction function
       const { error } = await supabase.functions.invoke('extract-pdf-text', {
         body: {
@@ -84,7 +86,10 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
   };
 
   const handleAddContent = async (type: string, data: any) => {
-    if (!user) return;
+    if (!user) {
+      console.error('No user found');
+      return;
+    }
 
     try {
       console.log('Adding content:', { type, data, userId: user.id });
@@ -97,19 +102,26 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
         const fileName = `${Date.now()}.${fileExt}`;
         filePath = `${user.id}/${fileName}`;
 
+        console.log('Uploading file to path:', filePath);
+
         const { error: uploadError } = await supabase.storage
           .from('stash-media')
           .upload(filePath, data.file);
 
         if (uploadError) {
+          console.error('Upload error:', uploadError);
           throw uploadError;
         }
+
+        console.log('File uploaded successfully');
       }
 
       // Generate AI description (skip for PDFs with placeholder content)
       const aiDescription = data.isProcessing ? 
         "PDF file uploaded - text extraction in progress" : 
         await generateDescription(type, data);
+
+      console.log('Generated description:', aiDescription);
 
       // Prepare the item data
       const itemData = {
@@ -140,8 +152,12 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
 
       console.log('Item inserted successfully:', insertedItem);
 
+      // Immediately refresh items to show the new item
+      await fetchItems();
+
       // Handle PDF processing separately
       if (type === 'document' && filePath) {
+        console.log('Starting PDF processing for item:', insertedItem.id);
         // Process PDF in the background
         setTimeout(() => {
           processPdfContent(insertedItem.id, filePath);
@@ -167,7 +183,6 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
         description: "Content added to your stash!",
       });
 
-      fetchItems();
     } catch (error: any) {
       console.error('Error in handleAddContent:', error);
       toast({
