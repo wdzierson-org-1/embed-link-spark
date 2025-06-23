@@ -19,7 +19,7 @@ export const useUserPreferences = () => {
     
     try {
       const { data, error } = await supabase
-        .from('user_preferences' as any)
+        .from('user_preferences')
         .select('hide_add_section')
         .eq('user_id', user.id)
         .single();
@@ -27,8 +27,7 @@ export const useUserPreferences = () => {
       if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
         console.error('Error fetching preferences:', error);
       } else if (data) {
-        const preferences = data as UserPreference;
-        setHideAddSection(preferences.hide_add_section);
+        setHideAddSection(data.hide_add_section);
       }
     } catch (error) {
       console.error('Exception while fetching preferences:', error);
@@ -42,7 +41,7 @@ export const useUserPreferences = () => {
 
     try {
       const { error } = await supabase
-        .from('user_preferences' as any)
+        .from('user_preferences')
         .upsert({
           user_id: user.id,
           hide_add_section: hideAdd,

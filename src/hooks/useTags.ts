@@ -20,7 +20,7 @@ export const useTags = () => {
     
     try {
       const { data, error } = await supabase
-        .from('tags' as any)
+        .from('tags')
         .select('id, name, usage_count')
         .eq('user_id', user.id)
         .order('usage_count', { ascending: false });
@@ -29,7 +29,7 @@ export const useTags = () => {
         console.error('Error fetching tags:', error);
         setTags([]);
       } else {
-        setTags((data as Tag[]) || []);
+        setTags(data || []);
       }
     } catch (error) {
       console.error('Exception while fetching tags:', error);
@@ -48,7 +48,7 @@ export const useTags = () => {
         const trimmedName = tagName.trim().toLowerCase();
         if (!trimmedName) continue;
 
-        const { data: tagId, error } = await supabase.rpc('increment_tag_usage' as any, {
+        const { data: tagId, error } = await supabase.rpc('increment_tag_usage', {
           tag_name: trimmedName,
           user_uuid: user.id
         });
@@ -68,7 +68,7 @@ export const useTags = () => {
 
       if (itemTagData.length > 0) {
         const { error: relationError } = await supabase
-          .from('item_tags' as any)
+          .from('item_tags')
           .insert(itemTagData);
 
         if (relationError) {

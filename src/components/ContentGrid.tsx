@@ -45,7 +45,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
       
       try {
         const { data, error } = await supabase
-          .from('item_tags' as any)
+          .from('item_tags')
           .select(`
             item_id,
             tags (name)
@@ -58,8 +58,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
         }
 
         const tagsMap: Record<string, string[]> = {};
-        const itemTagData = data as ItemTag[];
-        itemTagData?.forEach((itemTag) => {
+        data?.forEach((itemTag) => {
           if (!tagsMap[itemTag.item_id]) {
             tagsMap[itemTag.item_id] = [];
           }
