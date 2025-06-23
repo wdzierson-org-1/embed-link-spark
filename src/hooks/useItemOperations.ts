@@ -68,8 +68,9 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
 
       if (error) throw error;
 
-      // Refresh items to show updated content
-      fetchItems();
+      // Force refresh items to show updated content
+      console.log('PDF processing completed, refreshing items...');
+      await fetchItems();
       
       toast({
         title: "PDF Processed",
@@ -158,10 +159,10 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
       // Handle PDF processing separately
       if (type === 'document' && filePath) {
         console.log('Starting PDF processing for item:', insertedItem.id);
-        // Process PDF in the background
-        setTimeout(() => {
-          processPdfContent(insertedItem.id, filePath);
-        }, 1000);
+        // Process PDF in the background with a longer delay to ensure the item is visible first
+        setTimeout(async () => {
+          await processPdfContent(insertedItem.id, filePath);
+        }, 2000);
       } else {
         // Generate embeddings for non-PDF textual content
         const textForEmbedding = [
