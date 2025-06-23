@@ -4,8 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Badge } from '@/components/ui/badge';
-import { X, Send, Bot, User, FileText } from 'lucide-react';
+import { X, Send, Bot, User, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -16,18 +15,16 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-interface ContentItem {
-  id: string;
-  type: string;
-  title?: string;
-  content?: string;
-  description?: string;
-}
-
 interface ChatInterfaceProps {
   isOpen: boolean;
   onClose: () => void;
-  item?: ContentItem;
+  item: {
+    id: string;
+    type: string;
+    title?: string;
+    content?: string;
+    description?: string;
+  } | null;
 }
 
 const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
@@ -47,7 +44,7 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
 
   useEffect(() => {
     if (isOpen && item) {
-      // Initialize chat with context about the item
+      // Initialize chat with welcome message
       const welcomeMessage: ChatMessage = {
         id: 'welcome',
         role: 'assistant',
@@ -55,9 +52,20 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
         timestamp: new Date()
       };
       setMessages([welcomeMessage]);
+      
+      // Prevent background scrolling
+      document.body.style.overflow = 'hidden';
     } else if (!isOpen) {
       setMessages([]);
+      
+      // Restore background scrolling
+      document.body.style.overflow = 'unset';
     }
+    
+    // Cleanup on unmount
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
   }, [isOpen, item]);
 
   const sendMessage = async () => {
@@ -78,13 +86,7 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
       const { data, error } = await supabase.functions.invoke('chat-with-content', {
         body: {
           message: inputMessage,
-          item: {
-            id: item.id,
-            type: item.type,
-            title: item.title,
-            content: item.content,
-            description: item.description
-          },
+          item,
           conversationHistory: messages.map(msg => ({
             role: msg.role,
             content: msg.content
@@ -121,35 +123,28 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !item) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl h-[600px] flex flex-col">
-        <CardHeader className="flex-shrink-0">
+      <Card className="w-full max-w-2xl h-[80vh] max-h-[600px] flex flex-col">
+        <CardHeader className="flex-shrink-0 border-b">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <Bot className="h-5 w-5" />
+              <MessageSquare className="h-5 w-5" />
               <CardTitle>Chat with Content</CardTitle>
             </div>
             <Button variant="ghost" size="sm" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
-          {item && (
-            <div className="flex items-center space-x-2 mt-2">
-              <FileText className="h-4 w-4" />
-              <span className="text-sm text-muted-foreground truncate">
-                {item.title || `${item.type} content`}
-              </span>
-              <Badge variant="outline" className="text-xs">
-                {item.type}
-              </Badge>
-            </div>
-          )}
+          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+            <span className="capitalize bg-secondary px-2 py-1 rounded text-xs">{item.type}</span>
+            <span className="truncate">{item.title || 'Untitled'}</span>
+          </div>
         </CardHeader>
         
-        <CardContent className="flex-1 flex flex-col p-0">
+        <CardContent className="flex-1 flex flex-col min-h-0 p-0">
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-4">
               {messages.map((message) => (
@@ -198,13 +193,13 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
             <div ref={messagesEndRef} />
           </ScrollArea>
           
-          <div className="p-4 border-t">
+          <div className="flex-shrink-0 p-4 border-t bg-background">
             <div className="flex space-x-2">
               <Textarea
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder="Ask something about this content..."
+                placeholder="Ask about this content..."
                 className="flex-1 min-h-[60px] resize-none"
                 disabled={isLoading}
               />
