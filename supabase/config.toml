@@ -1,1 +1,8 @@
+
 project_id = "uqqsgmwkvslaomzxptnp"
+
+[functions.generate-description]
+verify_jwt = true
+
+[functions.generate-embeddings]
+verify_jwt = true

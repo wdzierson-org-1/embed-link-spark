@@ -1,9 +1,8 @@
-
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video, Trash2, ExternalLink } from 'lucide-react';
+import { FileText, Link as LinkIcon, Image, Mic, Video, Trash2, ExternalLink, Edit } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface ContentItem {
@@ -21,9 +20,10 @@ interface ContentItem {
 interface ContentGridProps {
   items: ContentItem[];
   onDeleteItem: (id: string) => void;
+  onEditItem: (item: ContentItem) => void;
 }
 
-const ContentGrid = ({ items, onDeleteItem }: ContentGridProps) => {
+const ContentGrid = ({ items, onDeleteItem, onEditItem }: ContentGridProps) => {
   const getIcon = (type: string) => {
     switch (type) {
       case 'text': return <FileText className="h-4 w-4" />;
@@ -77,6 +77,14 @@ const ContentGrid = ({ items, onDeleteItem }: ContentGridProps) => {
                 <Button
                   variant="ghost"
                   size="sm"
+                  onClick={() => onEditItem(item)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => onDeleteItem(item.id)}
                   className="opacity-0 group-hover:opacity-100 transition-opacity"
                 >
@@ -89,15 +97,21 @@ const ContentGrid = ({ items, onDeleteItem }: ContentGridProps) => {
             )}
           </CardHeader>
           <CardContent>
-            {item.content && (
-              <p className="text-sm text-muted-foreground mb-2 line-clamp-3">
-                {item.content}
-              </p>
-            )}
             {item.description && (
-              <p className="text-sm text-muted-foreground mb-2 line-clamp-2">
-                {item.description}
-              </p>
+              <div className="mb-2">
+                <p className="text-sm font-medium text-blue-600 mb-1">AI Description:</p>
+                <p className="text-sm text-muted-foreground line-clamp-3">
+                  {item.description}
+                </p>
+              </div>
+            )}
+            {item.content && (
+              <div className="mb-2">
+                <p className="text-sm font-medium mb-1">Content:</p>
+                <p className="text-sm text-muted-foreground line-clamp-3">
+                  {item.content}
+                </p>
+              </div>
             )}
             {item.url && item.type === 'link' && (
               <p className="text-sm text-blue-600 mb-2 truncate">

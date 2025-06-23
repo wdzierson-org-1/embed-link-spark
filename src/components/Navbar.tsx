@@ -1,15 +1,15 @@
 
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { LogOut, Plus, MessageSquare, Search } from 'lucide-react';
+import { LogOut, MessageSquare, Search } from 'lucide-react';
 
 interface NavbarProps {
-  onAddContent: () => void;
+  onAddContent: () => void; // Keep for compatibility but not used
   onOpenChat: () => void;
   onOpenSearch: () => void;
 }
 
-const Navbar = ({ onAddContent, onOpenChat, onOpenSearch }: NavbarProps) => {
+const Navbar = ({ onOpenChat, onOpenSearch }: NavbarProps) => {
   const { user, signOut } = useAuth();
 
   return (
@@ -40,14 +40,6 @@ const Navbar = ({ onAddContent, onOpenChat, onOpenSearch }: NavbarProps) => {
           >
             <MessageSquare className="h-4 w-4 mr-2" />
             Chat
-          </Button>
-          
-          <Button
-            size="sm"
-            onClick={onAddContent}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add
           </Button>
           
           <Button
