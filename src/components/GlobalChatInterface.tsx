@@ -207,53 +207,6 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
       </Card>
     </div>
   );
-
-  async function sendMessage() {
-    if (!inputMessage.trim() || isLoading) return;
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: inputMessage,
-      timestamp: new Date()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInputMessage('');
-    setIsLoading(true);
-
-    try {
-      const { data, error } = await supabase.functions.invoke('chat-with-all-content', {
-        body: {
-          message: inputMessage,
-          conversationHistory: messages.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          }))
-        }
-      });
-
-      if (error) throw error;
-
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.response,
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Error in global chat:', error);
-      toast({
-        title: "Error",
-        description: "Failed to get response from AI",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }
 };
 
 export default GlobalChatInterface;
