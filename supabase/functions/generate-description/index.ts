@@ -44,7 +44,7 @@ serve(async (req) => {
         }
       ];
     } else {
-      // For text, links, and other content
+      // For text, links, PDFs, and other content
       let contentToAnalyze = content || url || 'Unknown content';
       let prompt = '';
       
@@ -60,11 +60,14 @@ serve(async (req) => {
             prompt = `Based on this URL, provide a brief description of what this link might contain: "${contentToAnalyze}"`;
           }
           break;
+        case 'pdf':
+          prompt = `This is a PDF document named "${contentToAnalyze}". Based on the filename, please provide a brief description of what this PDF document likely contains. Focus on the subject matter, document type, and potential content.`;
+          break;
         case 'audio':
-          prompt = 'This is an audio file. Please provide a generic description for audio content.';
+          prompt = `This is an audio file named "${contentToAnalyze}". Based on the filename, provide a brief description of what this audio content might contain.`;
           break;
         case 'video':
-          prompt = 'This is a video file. Please provide a generic description for video content.';
+          prompt = `This is a video file named "${contentToAnalyze}". Based on the filename, provide a brief description of what this video content might contain.`;
           break;
         default:
           prompt = `Please provide a brief description of this content: "${contentToAnalyze}"`;

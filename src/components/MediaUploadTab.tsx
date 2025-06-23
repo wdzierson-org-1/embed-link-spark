@@ -19,6 +19,7 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
     if (file.type.startsWith('image/')) return 'image';
     if (file.type.startsWith('audio/')) return 'audio';
     if (file.type.startsWith('video/')) return 'video';
+    if (file.type === 'application/pdf') return 'pdf';
     return 'text';
   };
 
@@ -117,7 +118,7 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
               </div>
               <div className="flex items-center space-x-1 text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
                 <FileText className="h-3 w-3" />
-                <span>Documents</span>
+                <span>Documents & PDFs</span>
               </div>
             </div>
 
