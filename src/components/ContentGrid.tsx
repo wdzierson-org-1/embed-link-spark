@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,7 +39,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
       
       try {
         const { data, error } = await supabase
-          .from('item_tags')
+          .from('item_tags' as any)
           .select(`
             item_id,
             tags (name)
@@ -51,7 +52,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
         }
 
         const tagsMap: Record<string, string[]> = {};
-        data?.forEach(itemTag => {
+        data?.forEach((itemTag: any) => {
           if (!tagsMap[itemTag.item_id]) {
             tagsMap[itemTag.item_id] = [];
           }

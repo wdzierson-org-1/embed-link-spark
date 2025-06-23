@@ -15,7 +15,7 @@ export const useUserPreferences = () => {
     
     try {
       const { data, error } = await supabase
-        .from('user_preferences')
+        .from('user_preferences' as any)
         .select('hide_add_section')
         .eq('user_id', user.id)
         .single();
@@ -37,7 +37,7 @@ export const useUserPreferences = () => {
 
     try {
       const { error } = await supabase
-        .from('user_preferences')
+        .from('user_preferences' as any)
         .upsert({
           user_id: user.id,
           hide_add_section: hideAdd,

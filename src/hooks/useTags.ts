@@ -20,7 +20,7 @@ export const useTags = () => {
     
     try {
       const { data, error } = await supabase
-        .from('tags')
+        .from('tags' as any)
         .select('id, name, usage_count')
         .eq('user_id', user.id)
         .order('usage_count', { ascending: false });
@@ -46,7 +46,7 @@ export const useTags = () => {
         const trimmedName = tagName.trim().toLowerCase();
         if (!trimmedName) continue;
 
-        const { data: tagId, error } = await supabase.rpc('increment_tag_usage', {
+        const { data: tagId, error } = await supabase.rpc('increment_tag_usage' as any, {
           tag_name: trimmedName,
           user_uuid: user.id
         });
@@ -54,7 +54,7 @@ export const useTags = () => {
         if (error) {
           console.error('Error processing tag:', error);
         } else if (tagId) {
-          tagIds.push(tagId);
+          tagIds.push(tagId as string);
         }
       }
 
@@ -66,7 +66,7 @@ export const useTags = () => {
 
       if (itemTagData.length > 0) {
         const { error: relationError } = await supabase
-          .from('item_tags')
+          .from('item_tags' as any)
           .insert(itemTagData);
 
         if (relationError) {
