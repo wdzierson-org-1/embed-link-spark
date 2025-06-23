@@ -90,9 +90,9 @@ const Index = () => {
       <main className="container mx-auto px-4 py-6">
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
-            <Tabs defaultValue="media" className="flex-1">
+            <Tabs defaultValue="media" className="w-full">
               <div className="flex items-center justify-between">
-                <TabsList className="grid grid-cols-3" style={{ width: 'auto' }}>
+                <TabsList className="grid grid-cols-3 w-full">
                   <TabsTrigger value="media">Add media</TabsTrigger>
                   <TabsTrigger value="note">New note</TabsTrigger>
                   <TabsTrigger value="link">Paste link</TabsTrigger>
