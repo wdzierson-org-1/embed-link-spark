@@ -10,19 +10,33 @@ export const useItems = () => {
   const { toast } = useToast();
 
   const fetchItems = async () => {
-    const { data, error } = await supabase
-      .from('items')
-      .select('*')
-      .order('created_at', { ascending: false });
+    if (!user) return;
+    
+    try {
+      console.log('Fetching items for user:', user.id);
+      const { data, error } = await supabase
+        .from('items')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (error) {
+      if (error) {
+        console.error('Error fetching items:', error);
+        toast({
+          title: "Error",
+          description: "Failed to fetch items",
+          variant: "destructive",
+        });
+      } else {
+        console.log('Fetched items:', data);
+        setItems(data || []);
+      }
+    } catch (error) {
+      console.error('Exception while fetching items:', error);
       toast({
         title: "Error",
         description: "Failed to fetch items",
         variant: "destructive",
       });
-    } else {
-      setItems(data || []);
     }
   };
 

@@ -49,6 +49,8 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
     if (!user) return;
 
     try {
+      console.log('Adding content:', { type, data, userId: user.id });
+      
       let filePath = null;
       
       // Handle file upload if there's a file
@@ -69,19 +71,8 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
       // Generate AI description
       const aiDescription = await generateDescription(type, data);
 
-      // Prepare metadata for links with OG data
-      let metadata = null;
-      if (data.ogData) {
-        metadata = {
-          ogTitle: data.ogData.title,
-          ogDescription: data.ogData.description,
-          ogImage: data.ogData.image,
-          ogSiteName: data.ogData.siteName
-        };
-      }
-
-      // Insert item into database
-      const { data: insertedItem, error } = await supabase.from('items').insert({
+      // Prepare the item data
+      const itemData = {
         user_id: user.id,
         type: type as ItemType,
         title: data.title,
@@ -91,12 +82,23 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
         file_path: filePath,
         file_size: data.file?.size,
         mime_type: data.file?.type,
-        metadata
-      }).select().single();
+      };
+
+      console.log('Inserting item data:', itemData);
+
+      // Insert item into database
+      const { data: insertedItem, error } = await supabase
+        .from('items')
+        .insert(itemData)
+        .select()
+        .single();
 
       if (error) {
+        console.error('Error inserting item:', error);
         throw error;
       }
+
+      console.log('Item inserted successfully:', insertedItem);
 
       // Generate embeddings for textual content
       const textForEmbedding = [
@@ -114,11 +116,12 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
 
       toast({
         title: "Success",
-        description: "Content added to your stash with AI description!",
+        description: "Content added to your stash!",
       });
 
       fetchItems();
     } catch (error: any) {
+      console.error('Error in handleAddContent:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to add content",
