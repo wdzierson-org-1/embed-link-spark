@@ -33,12 +33,13 @@ serve(async (req) => {
       throw new Error('No authorization header');
     }
 
-    // Create Supabase client with the anon key
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Create Supabase client with service role key for admin access
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Set the JWT token for this session
+    // Extract and verify the JWT token
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
     
     if (userError || !user) {
       console.error('Authentication error:', userError);
@@ -47,8 +48,8 @@ serve(async (req) => {
 
     console.log('Authenticated user:', user.id);
 
-    // Fetch all user's items with explicit auth context
-    const { data: items, error: itemsError } = await supabase
+    // Fetch all user's items using service role for reliable access
+    const { data: items, error: itemsError } = await supabaseAdmin
       .from('items')
       .select('*')
       .eq('user_id', user.id)
