@@ -127,10 +127,6 @@ const TagInput = ({
           </div>
         )}
       </div>
-      
-      <p className="text-xs text-muted-foreground">
-        Press Enter or comma to add tags. {tags.length}/{maxTags} tags used.
-      </p>
     </div>
   );
 };

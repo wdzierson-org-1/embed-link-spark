@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -33,7 +32,7 @@ const Index = () => {
   const { items, fetchItems } = useItems();
   const { handleAddContent, handleSaveItem, handleDeleteItem } = useItemOperations(fetchItems);
   const { hideAddSection, updatePreference, loading: preferencesLoading } = useUserPreferences();
-  const { getSuggestedTags, addTagsToItem } = useTags();
+  const { getSuggestedTags } = useTags();
 
   // Redirect to auth if not authenticated
   useEffect(() => {
@@ -61,30 +60,6 @@ const Index = () => {
       title: "Coming soon",
       description: "Search functionality will be available soon!",
     });
-  };
-
-  const handleAddContentWithTags = async (type: string, data: any) => {
-    try {
-      // First add the content
-      await handleAddContent(type, data);
-      
-      // If tags were provided, add them to the item
-      if (data.tags && data.tags.length > 0) {
-        // We need to get the item ID from the most recent item
-        // This is a bit of a workaround - in a production app you'd want to return the ID from handleAddContent
-        setTimeout(async () => {
-          await fetchItems(); // Refresh items to get the new one
-          // The new item should be at the top of the list
-          const latestItem = items[0];
-          if (latestItem) {
-            await addTagsToItem(latestItem.id, data.tags);
-            await fetchItems(); // Refresh again to show the tags
-          }
-        }, 1000);
-      }
-    } catch (error) {
-      console.error('Error adding content with tags:', error);
-    }
   };
 
   const toggleAddSection = () => {
@@ -145,21 +120,21 @@ const Index = () => {
               
               <TabsContent value="media" className="mt-6">
                 <MediaUploadTab 
-                  onAddContent={handleAddContentWithTags}
+                  onAddContent={handleAddContent}
                   getSuggestedTags={getSuggestedTags}
                 />
               </TabsContent>
               
               <TabsContent value="note" className="mt-6">
                 <TextNoteTab 
-                  onAddContent={handleAddContentWithTags}
+                  onAddContent={handleAddContent}
                   getSuggestedTags={getSuggestedTags}
                 />
               </TabsContent>
               
               <TabsContent value="link" className="mt-6">
                 <LinkTab 
-                  onAddContent={handleAddContentWithTags}
+                  onAddContent={handleAddContent}
                   getSuggestedTags={getSuggestedTags}
                 />
               </TabsContent>

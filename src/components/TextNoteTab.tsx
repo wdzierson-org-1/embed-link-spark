@@ -5,7 +5,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import TagInput from './TagInput';
 
 interface TextNoteTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -14,7 +13,6 @@ interface TextNoteTabProps {
 
 const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   const [textInput, setTextInput] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
 
@@ -25,13 +23,11 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     try {
       await onAddContent('text', {
         content: textInput,
-        title: textInput.slice(0, 50) + (textInput.length > 50 ? '...' : ''),
-        tags
+        title: textInput.slice(0, 50) + (textInput.length > 50 ? '...' : '')
       });
       
       // Reset form
       setTextInput('');
-      setTags([]);
       
       toast({
         title: "Success",
@@ -76,16 +72,6 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
           <p className="text-xs text-muted-foreground mt-2">
             Tip: Press Cmd/Ctrl + Enter to save quickly
           </p>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium mb-2 block">Tags (optional)</label>
-          <TagInput
-            tags={tags}
-            onTagsChange={setTags}
-            suggestions={getSuggestedTags()}
-            placeholder="Add tags to organize your note..."
-          />
         </div>
 
         <Button

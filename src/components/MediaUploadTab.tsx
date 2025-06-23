@@ -4,7 +4,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Upload, Image, Mic, Video, FileText } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import TagInput from './TagInput';
 
 interface MediaUploadTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -14,7 +13,6 @@ interface MediaUploadTabProps {
 const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [tags, setTags] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -74,7 +72,6 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
         await onAddContent(type, {
           title: file.name,
           file,
-          tags,
           content: `📄 PDF Processing...
 
 We're working on extracting the text and generating a summary of this document.
@@ -90,13 +87,9 @@ The content will be automatically updated once text extraction is complete and e
           title: file.name,
           file,
           fileData,
-          tags,
           content: type === 'text' ? await file.text() : undefined
         });
       }
-
-      // Reset form
-      setTags([]);
 
       toast({
         title: "Success",
@@ -190,16 +183,6 @@ The content will be automatically updated once text extraction is complete and e
               </div>
             )}
           </div>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium mb-2 block">Tags (optional)</label>
-          <TagInput
-            tags={tags}
-            onTagsChange={setTags}
-            suggestions={getSuggestedTags()}
-            placeholder="Add tags to organize your content..."
-          />
         </div>
       </CardContent>
     </Card>
