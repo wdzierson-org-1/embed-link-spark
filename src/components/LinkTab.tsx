@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Link as LinkIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import LinkPreview from './LinkPreview';
-import TagInput from './TagInput';
 
 interface OpenGraphData {
   title?: string;
@@ -23,7 +22,6 @@ interface LinkTabProps {
 
 const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
   const [linkInput, setLinkInput] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
   const [ogData, setOgData] = useState<OpenGraphData | null>(null);
   const [isLoadingOg, setIsLoadingOg] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -99,13 +97,11 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       await onAddContent('link', {
         url: linkInput.trim(),
         title: ogData?.title || new URL(linkInput.trim()).hostname,
-        ogData,
-        tags
+        ogData
       });
       
       // Reset form
       setLinkInput('');
-      setTags([]);
       setOgData(null);
       
       toast({
@@ -159,16 +155,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
         )}
 
         {ogData && <LinkPreview ogData={ogData} />}
-
-        <div>
-          <label className="text-sm font-medium mb-2 block">Tags (optional)</label>
-          <TagInput
-            tags={tags}
-            onTagsChange={setTags}
-            suggestions={getSuggestedTags()}
-            placeholder="Add tags to organize your link..."
-          />
-        </div>
 
         <Button
           onClick={handleSubmit}
