@@ -27,11 +27,13 @@ export const useTags = () => {
 
       if (error) {
         console.error('Error fetching tags:', error);
+        setTags([]);
       } else {
-        setTags(data || []);
+        setTags((data as Tag[]) || []);
       }
     } catch (error) {
       console.error('Exception while fetching tags:', error);
+      setTags([]);
     }
   };
 

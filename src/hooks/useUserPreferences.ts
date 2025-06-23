@@ -4,6 +4,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
+interface UserPreference {
+  hide_add_section: boolean;
+}
+
 export const useUserPreferences = () => {
   const { user } = useAuth();
   const [hideAddSection, setHideAddSection] = useState(false);
@@ -23,7 +27,8 @@ export const useUserPreferences = () => {
       if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
         console.error('Error fetching preferences:', error);
       } else if (data) {
-        setHideAddSection(data.hide_add_section);
+        const preferences = data as UserPreference;
+        setHideAddSection(preferences.hide_add_section);
       }
     } catch (error) {
       console.error('Exception while fetching preferences:', error);

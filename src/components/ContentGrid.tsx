@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +26,13 @@ interface ContentGridProps {
   onChatWithItem?: (item: ContentItem) => void;
 }
 
+interface ItemTag {
+  item_id: string;
+  tags: {
+    name: string;
+  };
+}
+
 const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: ContentGridProps) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
@@ -52,7 +58,8 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
         }
 
         const tagsMap: Record<string, string[]> = {};
-        data?.forEach((itemTag: any) => {
+        const itemTagData = data as ItemTag[];
+        itemTagData?.forEach((itemTag) => {
           if (!tagsMap[itemTag.item_id]) {
             tagsMap[itemTag.item_id] = [];
           }
