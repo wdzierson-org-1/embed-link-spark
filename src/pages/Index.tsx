@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -102,18 +101,12 @@ const Index = () => {
                   variant="ghost"
                   size="sm"
                   onClick={toggleAddSection}
-                  className="flex items-center space-x-1 ml-4"
+                  className="flex items-center ml-4"
                 >
                   {hideAddSection ? (
-                    <>
-                      <ChevronDown className="h-4 w-4" />
-                      <span>Show</span>
-                    </>
+                    <ChevronDown className="h-4 w-4" />
                   ) : (
-                    <>
-                      <ChevronUp className="h-4 w-4" />
-                      <span>Hide</span>
-                    </>
+                    <ChevronUp className="h-4 w-4" />
                   )}
                 </Button>
               </div>

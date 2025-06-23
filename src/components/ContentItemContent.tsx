@@ -1,6 +1,5 @@
 
 import React from 'react';
-import { Download } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface ContentItem {
@@ -19,14 +18,6 @@ interface ContentItemContentProps {
 }
 
 const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: ContentItemContentProps) => {
-  const getFileUrl = (item: ContentItem) => {
-    if (item.file_path) {
-      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-      return data.publicUrl;
-    }
-    return null;
-  };
-
   const renderContent = () => {
     if (!item.content) return null;
 
@@ -55,8 +46,6 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: Conten
     );
   };
 
-  const fileUrl = getFileUrl(item);
-
   return (
     <>
       {item.description && (
@@ -74,20 +63,6 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: Conten
         <p className="text-sm text-blue-600 mb-2 truncate">
           {item.url}
         </p>
-      )}
-      
-      {fileUrl && (
-        <div className="mb-2">
-          <a 
-            href={fileUrl} 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="text-sm text-blue-600 hover:underline flex items-center"
-          >
-            <Download className="h-3 w-3 mr-1" />
-            View original file
-          </a>
-        </div>
       )}
     </>
   );
