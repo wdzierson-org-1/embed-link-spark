@@ -46,6 +46,8 @@ export const useUserPreferences = () => {
           user_id: user.id,
           hide_add_section: hideAdd,
           updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id'
         });
 
       if (error) {
