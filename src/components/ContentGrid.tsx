@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { FileText, Link as LinkIcon, Image, Mic, Video, Trash2, ExternalLink, Edit, MessageCircle, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import ItemTagsManager from '@/components/ItemTagsManager';
 
 interface ContentItem {
   id: string;
@@ -39,40 +40,40 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
 
   // Fetch tags for all items
-  useEffect(() => {
-    const fetchItemTags = async () => {
-      if (items.length === 0) return;
-      
-      try {
-        const { data, error } = await supabase
-          .from('item_tags')
-          .select(`
-            item_id,
-            tags (name)
-          `)
-          .in('item_id', items.map(item => item.id));
+  const fetchItemTags = async () => {
+    if (items.length === 0) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('item_tags')
+        .select(`
+          item_id,
+          tags (name)
+        `)
+        .in('item_id', items.map(item => item.id));
 
-        if (error) {
-          console.error('Error fetching item tags:', error);
-          return;
-        }
-
-        const tagsMap: Record<string, string[]> = {};
-        data?.forEach((itemTag) => {
-          if (!tagsMap[itemTag.item_id]) {
-            tagsMap[itemTag.item_id] = [];
-          }
-          if (itemTag.tags) {
-            tagsMap[itemTag.item_id].push(itemTag.tags.name);
-          }
-        });
-
-        setItemTags(tagsMap);
-      } catch (error) {
-        console.error('Exception while fetching item tags:', error);
+      if (error) {
+        console.error('Error fetching item tags:', error);
+        return;
       }
-    };
 
+      const tagsMap: Record<string, string[]> = {};
+      data?.forEach((itemTag) => {
+        if (!tagsMap[itemTag.item_id]) {
+          tagsMap[itemTag.item_id] = [];
+        }
+        if (itemTag.tags) {
+          tagsMap[itemTag.item_id].push(itemTag.tags.name);
+        }
+      });
+
+      setItemTags(tagsMap);
+    } catch (error) {
+      console.error('Exception while fetching item tags:', error);
+    }
+  };
+
+  useEffect(() => {
     fetchItemTags();
   }, [items]);
 
@@ -287,20 +288,15 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
                   </a>
                 </div>
               )}
-              {tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {tags.slice(0, 3).map((tag, index) => (
-                    <Badge key={index} variant="outline" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {tags.length > 3 && (
-                    <Badge variant="outline" className="text-xs">
-                      +{tags.length - 3}
-                    </Badge>
-                  )}
-                </div>
-              )}
+              
+              <div className="mb-2">
+                <ItemTagsManager
+                  itemId={item.id}
+                  currentTags={tags}
+                  onTagsUpdated={fetchItemTags}
+                />
+              </div>
+              
               <p className="text-xs text-muted-foreground">
                 {format(new Date(item.created_at), 'MMM d, yyyy')}
               </p>
