@@ -1,9 +1,8 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import ContentItem from '@/components/ContentItem';
 
-interface ContentItem {
+interface ContentItemData {
   id: string;
   type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
   title?: string;
@@ -17,10 +16,10 @@ interface ContentItem {
 }
 
 interface ContentGridProps {
-  items: ContentItem[];
+  items: ContentItemData[];
   onDeleteItem: (id: string) => void;
-  onEditItem: (item: ContentItem) => void;
-  onChatWithItem?: (item: ContentItem) => void;
+  onEditItem: (item: ContentItemData) => void;
+  onChatWithItem?: (item: ContentItemData) => void;
 }
 
 const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: ContentGridProps) => {
