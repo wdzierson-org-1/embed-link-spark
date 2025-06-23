@@ -3,88 +3,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import type { Database } from '@/integrations/supabase/types';
+import { generateDescription, generateEmbeddings } from '@/utils/aiOperations';
+import { processPdfContent } from '@/utils/pdfProcessor';
+import { uploadFile } from '@/utils/fileUploader';
+import { saveItem, deleteItem } from '@/utils/itemOperations';
 
 type ItemType = Database['public']['Enums']['item_type'];
 
 export const useItemOperations = (fetchItems: () => Promise<void>) => {
   const { user } = useAuth();
   const { toast } = useToast();
-
-  const generateDescription = async (type: string, data: any) => {
-    try {
-      const { data: result, error } = await supabase.functions.invoke('generate-description', {
-        body: {
-          content: data.content,
-          type,
-          url: data.url,
-          fileData: data.fileData,
-          ogData: data.ogData
-        }
-      });
-
-      if (error) throw error;
-      return result.description;
-    } catch (error) {
-      console.error('Error generating description:', error);
-      return null;
-    }
-  };
-
-  const generateEmbeddings = async (itemId: string, textContent: string) => {
-    try {
-      const { error } = await supabase.functions.invoke('generate-embeddings', {
-        body: {
-          itemId,
-          textContent
-        }
-      });
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error generating embeddings:', error);
-    }
-  };
-
-  const processPdfContent = async (itemId: string, filePath: string) => {
-    try {
-      // Get the public URL for the file
-      const { data: urlData } = supabase.storage
-        .from('stash-media')
-        .getPublicUrl(filePath);
-
-      if (!urlData?.publicUrl) {
-        throw new Error('Failed to get file URL');
-      }
-
-      console.log('Processing PDF with URL:', urlData.publicUrl, 'for item:', itemId);
-
-      // Call the PDF extraction function
-      const { error } = await supabase.functions.invoke('extract-pdf-text', {
-        body: {
-          fileUrl: urlData.publicUrl,
-          itemId
-        }
-      });
-
-      if (error) throw error;
-
-      // Force refresh items to show updated content
-      console.log('PDF processing completed, refreshing items...');
-      await fetchItems();
-      
-      toast({
-        title: "PDF Processed",
-        description: "PDF text has been extracted and is now searchable!",
-      });
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      toast({
-        title: "PDF Processing Failed",
-        description: "Failed to extract text from PDF",
-        variant: "destructive",
-      });
-    }
-  };
 
   const handleAddContent = async (type: string, data: any) => {
     if (!user) {
@@ -99,22 +27,7 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
       
       // Handle file upload if there's a file
       if (data.file) {
-        const fileExt = data.file.name.split('.').pop();
-        const fileName = `${Date.now()}.${fileExt}`;
-        filePath = `${user.id}/${fileName}`;
-
-        console.log('Uploading file to path:', filePath);
-
-        const { error: uploadError } = await supabase.storage
-          .from('stash-media')
-          .upload(filePath, data.file);
-
-        if (uploadError) {
-          console.error('Upload error:', uploadError);
-          throw uploadError;
-        }
-
-        console.log('File uploaded successfully');
+        filePath = await uploadFile(data.file, user.id);
       }
 
       // Generate AI description (skip for PDFs with placeholder content)
@@ -161,7 +74,7 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
         console.log('Starting PDF processing for item:', insertedItem.id);
         // Process PDF in the background with a longer delay to ensure the item is visible first
         setTimeout(async () => {
-          await processPdfContent(insertedItem.id, filePath);
+          await processPdfContent(insertedItem.id, filePath, fetchItems);
         }, 2000);
       } else {
         // Generate embeddings for non-PDF textual content
@@ -195,62 +108,11 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
   };
 
   const handleSaveItem = async (id: string, updates: any) => {
-    try {
-      const { error } = await supabase
-        .from('items')
-        .update(updates)
-        .eq('id', id);
-
-      if (error) throw error;
-
-      // Regenerate embeddings if textual content changed
-      const textForEmbedding = [
-        updates.title,
-        updates.content,
-        updates.description
-      ].filter(Boolean).join(' ');
-
-      if (textForEmbedding.trim()) {
-        // Delete old embeddings
-        await supabase.from('embeddings').delete().eq('item_id', id);
-        // Generate new embeddings
-        await generateEmbeddings(id, textForEmbedding);
-      }
-
-      toast({
-        title: "Success",
-        description: "Item updated successfully!",
-      });
-
-      fetchItems();
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update item",
-        variant: "destructive",
-      });
-    }
+    await saveItem(id, updates, fetchItems);
   };
 
   const handleDeleteItem = async (id: string) => {
-    const { error } = await supabase
-      .from('items')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete item",
-        variant: "destructive",
-      });
-    } else {
-      toast({
-        title: "Success",
-        description: "Item deleted from your stash",
-      });
-      fetchItems();
-    }
+    await deleteItem(id, fetchItems);
   };
 
   return {
