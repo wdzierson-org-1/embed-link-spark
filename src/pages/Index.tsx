@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -89,57 +90,60 @@ const Index = () => {
       <main className="container mx-auto px-4 py-6">
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Quick Add</h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleAddSection}
-              className="flex items-center space-x-1"
-            >
-              {hideAddSection ? (
+            <Tabs defaultValue="media" className="flex-1">
+              <div className="flex items-center justify-between">
+                <TabsList className="grid grid-cols-3" style={{ width: 'auto' }}>
+                  <TabsTrigger value="media">Add media</TabsTrigger>
+                  <TabsTrigger value="note">New note</TabsTrigger>
+                  <TabsTrigger value="link">Paste link</TabsTrigger>
+                </TabsList>
+                
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleAddSection}
+                  className="flex items-center space-x-1 ml-4"
+                >
+                  {hideAddSection ? (
+                    <>
+                      <ChevronDown className="h-4 w-4" />
+                      <span>Show</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronUp className="h-4 w-4" />
+                      <span>Hide</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {!hideAddSection && (
                 <>
-                  <ChevronDown className="h-4 w-4" />
-                  <span>Show</span>
-                </>
-              ) : (
-                <>
-                  <ChevronUp className="h-4 w-4" />
-                  <span>Hide</span>
+                  <TabsContent value="media" className="mt-6">
+                    <MediaUploadTab 
+                      onAddContent={handleAddContent}
+                      getSuggestedTags={getSuggestedTags}
+                    />
+                  </TabsContent>
+                  
+                  <TabsContent value="note" className="mt-6">
+                    <TextNoteTab 
+                      onAddContent={handleAddContent}
+                      getSuggestedTags={getSuggestedTags}
+                    />
+                  </TabsContent>
+                  
+                  <TabsContent value="link" className="mt-6">
+                    <LinkTab 
+                      onAddContent={handleAddContent}
+                      getSuggestedTags={getSuggestedTags}
+                    />
+                  </TabsContent>
                 </>
               )}
-            </Button>
-          </div>
-
-          {!hideAddSection && (
-            <Tabs defaultValue="media" className="mb-6">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="media">Add media</TabsTrigger>
-                <TabsTrigger value="note">New note</TabsTrigger>
-                <TabsTrigger value="link">Paste link</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="media" className="mt-6">
-                <MediaUploadTab 
-                  onAddContent={handleAddContent}
-                  getSuggestedTags={getSuggestedTags}
-                />
-              </TabsContent>
-              
-              <TabsContent value="note" className="mt-6">
-                <TextNoteTab 
-                  onAddContent={handleAddContent}
-                  getSuggestedTags={getSuggestedTags}
-                />
-              </TabsContent>
-              
-              <TabsContent value="link" className="mt-6">
-                <LinkTab 
-                  onAddContent={handleAddContent}
-                  getSuggestedTags={getSuggestedTags}
-                />
-              </TabsContent>
             </Tabs>
-          )}
+          </div>
         </div>
         
         <StashHeader itemCount={items.length} />
