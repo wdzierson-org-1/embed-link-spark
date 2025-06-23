@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { FileText, Link as LinkIcon, Image, Mic, Video, Trash2, ExternalLink, Edit, MessageCircle, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
-import { getPdfFileUrl } from '@/utils/pdfProcessor';
 
 interface ContentItem {
   id: string;
@@ -30,6 +29,7 @@ interface ContentGridProps {
 
 const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: ContentGridProps) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -82,19 +82,44 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
     }
   };
 
-  const renderPdfThumbnail = (item: ContentItem) => {
-    if (item.type === 'document' && item.mime_type === 'application/pdf') {
-      return (
-        <div className="mb-3 bg-red-50 border border-red-200 rounded-md p-4 flex items-center justify-center">
-          <div className="text-center">
-            <FileText className="h-12 w-12 text-red-600 mx-auto mb-2" />
-            <p className="text-sm text-red-700 font-medium">PDF Document</p>
-            <p className="text-xs text-red-600">{item.title}</p>
-          </div>
+  const toggleContentExpansion = (itemId: string) => {
+    setExpandedContent(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  };
+
+  const renderContent = (item: ContentItem) => {
+    if (!item.content) return null;
+
+    const isExpanded = expandedContent.has(item.id);
+    const lines = item.content.split('\n');
+    const shouldShowMore = lines.length > 3;
+    const displayLines = isExpanded ? lines.slice(0, 15) : lines.slice(0, 3);
+    
+    return (
+      <div className="mb-2">
+        <p className="text-sm font-medium mb-1">Content:</p>
+        <div className="text-sm text-muted-foreground">
+          {displayLines.map((line, index) => (
+            <div key={index} className="line-clamp-1">{line}</div>
+          ))}
+          {shouldShowMore && (
+            <button
+              onClick={() => toggleContentExpansion(item.id)}
+              className="text-blue-600 hover:text-blue-800 text-sm mt-1 font-medium"
+            >
+              {isExpanded ? 'show less...' : 'more...'}
+            </button>
+          )}
         </div>
-      );
-    }
-    return null;
+      </div>
+    );
   };
 
   if (items.length === 0) {
@@ -187,8 +212,6 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
                 </div>
               )}
               
-              {renderPdfThumbnail(item)}
-              
               {item.description && (
                 <div className="mb-2">
                   <p className="text-sm font-medium text-blue-600 mb-1">AI Description:</p>
@@ -197,14 +220,9 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
                   </p>
                 </div>
               )}
-              {item.content && (
-                <div className="mb-2">
-                  <p className="text-sm font-medium mb-1">Content:</p>
-                  <p className="text-sm text-muted-foreground line-clamp-3">
-                    {item.content}
-                  </p>
-                </div>
-              )}
+              
+              {renderContent(item)}
+              
               {item.url && item.type === 'link' && (
                 <p className="text-sm text-blue-600 mb-2 truncate">
                   {item.url}
