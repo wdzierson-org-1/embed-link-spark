@@ -73,10 +73,10 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
           file,
           content: `📄 PDF Processing...
 
-We're working on extracting the summary of this document.
+We're working on extracting the text and generating a summary of this document.
 
 File: ${file.name}
-Size: ${Math.round(file.size / 1024)}KB
+Size: ${(file.size / 1024 / 1024).toFixed(2)}MB
 
 The content will be automatically updated once text extraction is complete and embeddings are generated for search functionality.`,
           isProcessing: true
