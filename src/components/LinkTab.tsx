@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon } from 'lucide-react';
+import { Link as LinkIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import LinkPreview from './LinkPreview';
 
@@ -15,12 +15,12 @@ interface OpenGraphData {
   siteName?: string;
 }
 
-interface TextLinkInputProps {
+interface LinkTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
 }
 
-const TextLinkInput = ({ onAddContent }: TextLinkInputProps) => {
-  const [textInput, setTextInput] = useState('');
+const LinkTab = ({ onAddContent }: LinkTabProps) => {
+  const [linkInput, setLinkInput] = useState('');
   const [ogData, setOgData] = useState<OpenGraphData | null>(null);
   const [isLoadingOg, setIsLoadingOg] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -38,8 +38,14 @@ const TextLinkInput = ({ onAddContent }: TextLinkInputProps) => {
   const fetchOpenGraph = async (url: string) => {
     setIsLoadingOg(true);
     try {
-      // Use a CORS proxy or your own endpoint to fetch OG data
-      const response = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      const response = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}&timeout=2000`, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
       const data = await response.json();
       
       if (data.status === 'success') {
@@ -52,57 +58,58 @@ const TextLinkInput = ({ onAddContent }: TextLinkInputProps) => {
         });
       }
     } catch (error) {
-      console.error('Error fetching OG data:', error);
+      console.log('OG fetch failed or timed out:', error);
+      try {
+        const urlObj = new URL(url);
+        setOgData({
+          title: urlObj.hostname,
+          url: url,
+          siteName: urlObj.hostname
+        });
+      } catch {
+        setOgData(null);
+      }
     } finally {
       setIsLoadingOg(false);
     }
   };
 
   useEffect(() => {
-    const trimmedInput = textInput.trim();
+    const trimmedInput = linkInput.trim();
     
     if (isValidUrl(trimmedInput)) {
       const timeoutId = setTimeout(() => {
         fetchOpenGraph(trimmedInput);
-      }, 500); // Debounce for 500ms
+      }, 200);
       
       return () => clearTimeout(timeoutId);
     } else {
       setOgData(null);
     }
-  }, [textInput]);
+  }, [linkInput]);
 
   const handleSubmit = async () => {
-    if (!textInput.trim()) return;
+    if (!linkInput.trim() || !isValidUrl(linkInput.trim())) return;
     
     setIsProcessing(true);
     try {
-      const isUrl = isValidUrl(textInput.trim());
+      await onAddContent('link', {
+        url: linkInput.trim(),
+        title: ogData?.title || new URL(linkInput.trim()).hostname,
+        ogData
+      });
       
-      if (isUrl) {
-        await onAddContent('link', {
-          url: textInput.trim(),
-          title: ogData?.title || new URL(textInput.trim()).hostname,
-          ogData
-        });
-      } else {
-        await onAddContent('text', {
-          content: textInput,
-          title: textInput.slice(0, 50) + (textInput.length > 50 ? '...' : '')
-        });
-      }
-      
-      setTextInput('');
+      setLinkInput('');
       setOgData(null);
       
       toast({
         title: "Success",
-        description: `${isUrl ? 'Link' : 'Text note'} added to your stash!`,
+        description: "Link added to your stash!",
       });
     } catch (error) {
       toast({
         title: "Error",
-        description: `Failed to add ${isValidUrl(textInput.trim()) ? 'link' : 'text note'}`,
+        description: "Failed to add link",
         variant: "destructive",
       });
     } finally {
@@ -111,32 +118,31 @@ const TextLinkInput = ({ onAddContent }: TextLinkInputProps) => {
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter') {
       e.preventDefault();
       handleSubmit();
     }
   };
 
   return (
-    <Card className="mb-6">
+    <Card>
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
-          <FileText className="h-5 w-5" />
-          <span>Add Text or Link</span>
+          <LinkIcon className="h-5 w-5" />
+          <span>Add Link</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <Textarea
-            placeholder="Type your text or paste a link here..."
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
+          <Input
+            placeholder="Paste a link here..."
+            value={linkInput}
+            onChange={(e) => setLinkInput(e.target.value)}
             onKeyDown={handleKeyPress}
             disabled={isProcessing}
-            className="min-h-[120px] resize-none"
           />
           <p className="text-xs text-muted-foreground mt-2">
-            Tip: Press Cmd/Ctrl + Enter to save quickly
+            Tip: Press Enter to save quickly
           </p>
         </div>
 
@@ -150,20 +156,15 @@ const TextLinkInput = ({ onAddContent }: TextLinkInputProps) => {
 
         <Button
           onClick={handleSubmit}
-          disabled={isProcessing || !textInput.trim()}
+          disabled={isProcessing || !linkInput.trim() || !isValidUrl(linkInput.trim())}
           className="w-full"
         >
           {isProcessing ? (
             'Processing...'
-          ) : isValidUrl(textInput.trim()) ? (
+          ) : (
             <>
               <LinkIcon className="h-4 w-4 mr-2" />
               Save Link
-            </>
-          ) : (
-            <>
-              <FileText className="h-4 w-4 mr-2" />
-              Save Text
             </>
           )}
         </Button>
@@ -172,4 +173,4 @@ const TextLinkInput = ({ onAddContent }: TextLinkInputProps) => {
   );
 };
 
-export default TextLinkInput;
+export default LinkTab;

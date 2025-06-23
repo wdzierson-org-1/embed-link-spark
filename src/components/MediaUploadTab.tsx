@@ -5,11 +5,11 @@ import { Upload, Image, Mic, Video, FileText } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
-interface UnifiedUploadBoxProps {
+interface MediaUploadTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
 }
 
-const UnifiedUploadBox = ({ onAddContent }: UnifiedUploadBoxProps) => {
+const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -77,7 +77,7 @@ const UnifiedUploadBox = ({ onAddContent }: UnifiedUploadBoxProps) => {
   };
 
   return (
-    <Card className="mb-6">
+    <Card>
       <CardContent className="p-6">
         <div
           className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
@@ -96,7 +96,7 @@ const UnifiedUploadBox = ({ onAddContent }: UnifiedUploadBoxProps) => {
             </div>
             
             <div>
-              <h3 className="text-lg font-semibold mb-2">Add Content to Your Stash</h3>
+              <h3 className="text-lg font-semibold mb-2">Upload Media Files</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 Drag and drop files here, or click to browse. AI will automatically describe your content.
               </p>
@@ -151,4 +151,4 @@ const UnifiedUploadBox = ({ onAddContent }: UnifiedUploadBoxProps) => {
   );
 };
 
-export default UnifiedUploadBox;
+export default MediaUploadTab;

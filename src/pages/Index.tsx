@@ -5,12 +5,14 @@ import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Navbar from '@/components/Navbar';
 import ContentGrid from '@/components/ContentGrid';
-import UnifiedUploadBox from '@/components/UnifiedUploadBox';
 import EditItemDialog from '@/components/EditItemDialog';
-import TextLinkInput from '@/components/TextLinkInput';
 import StashHeader from '@/components/StashHeader';
+import MediaUploadTab from '@/components/MediaUploadTab';
+import TextNoteTab from '@/components/TextNoteTab';
+import LinkTab from '@/components/LinkTab';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -69,8 +71,25 @@ const Index = () => {
       />
       
       <main className="container mx-auto px-4 py-6">
-        <UnifiedUploadBox onAddContent={handleAddContent} />
-        <TextLinkInput onAddContent={handleAddContent} />
+        <Tabs defaultValue="media" className="mb-6">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="media">Media</TabsTrigger>
+            <TabsTrigger value="note">Note</TabsTrigger>
+            <TabsTrigger value="link">Link</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="media" className="mt-6">
+            <MediaUploadTab onAddContent={handleAddContent} />
+          </TabsContent>
+          
+          <TabsContent value="note" className="mt-6">
+            <TextNoteTab onAddContent={handleAddContent} />
+          </TabsContent>
+          
+          <TabsContent value="link" className="mt-6">
+            <LinkTab onAddContent={handleAddContent} />
+          </TabsContent>
+        </Tabs>
         
         <StashHeader itemCount={items.length} />
 
