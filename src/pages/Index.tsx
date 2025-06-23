@@ -13,11 +13,14 @@ import StashHeader from '@/components/StashHeader';
 import MediaUploadTab from '@/components/MediaUploadTab';
 import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
+import ChatInterface from '@/components/ChatInterface';
 
 const Index = () => {
   const { user, loading } = useAuth();
   const [editingItem, setEditingItem] = useState(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [chatItem, setChatItem] = useState(null);
+  const [chatOpen, setChatOpen] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -36,10 +39,15 @@ const Index = () => {
     setEditDialogOpen(true);
   };
 
+  const handleChatWithItem = (item: any) => {
+    setChatItem(item);
+    setChatOpen(true);
+  };
+
   const handleOpenChat = () => {
     toast({
       title: "Coming soon",
-      description: "Chat functionality will be available soon!",
+      description: "Global chat functionality will be available soon!",
     });
   };
 
@@ -97,6 +105,7 @@ const Index = () => {
           items={items}
           onDeleteItem={handleDeleteItem}
           onEditItem={handleEditItem}
+          onChatWithItem={handleChatWithItem}
         />
       </main>
 
@@ -105,6 +114,12 @@ const Index = () => {
         onOpenChange={setEditDialogOpen}
         item={editingItem}
         onSave={handleSaveItem}
+      />
+
+      <ChatInterface
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        item={chatItem}
       />
     </div>
   );
