@@ -69,13 +69,17 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
       // Immediately refresh items to show the new item
       await fetchItems();
 
-      // Handle PDF processing separately
+      // Handle PDF processing separately with longer delay
       if (type === 'document' && filePath) {
         console.log('Starting PDF processing for item:', insertedItem.id);
-        // Process PDF in the background with a longer delay to ensure the item is visible first
+        // Process PDF in the background with a longer delay
         setTimeout(async () => {
-          await processPdfContent(insertedItem.id, filePath, fetchItems);
-        }, 2000);
+          try {
+            await processPdfContent(insertedItem.id, filePath, fetchItems);
+          } catch (error) {
+            console.error('Background PDF processing failed:', error);
+          }
+        }, 3000); // Increased to 3 seconds
       } else {
         // Generate embeddings for non-PDF textual content
         const textForEmbedding = [

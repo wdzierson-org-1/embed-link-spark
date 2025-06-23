@@ -22,18 +22,28 @@ export const processPdfContent = async (
     console.log('Processing PDF with URL:', urlData.publicUrl, 'for item:', itemId);
 
     // Call the PDF extraction function
-    const { error } = await supabase.functions.invoke('extract-pdf-text', {
+    const { data: result, error } = await supabase.functions.invoke('extract-pdf-text', {
       body: {
         fileUrl: urlData.publicUrl,
         itemId
       }
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('PDF extraction error:', error);
+      throw error;
+    }
 
-    // Force refresh items to show updated content
+    console.log('PDF extraction result:', result);
+
+    // Force refresh items multiple times to ensure UI updates
     console.log('PDF processing completed, refreshing items...');
     await fetchItems();
+    
+    // Add a small delay and fetch again to ensure the update is reflected
+    setTimeout(async () => {
+      await fetchItems();
+    }, 1000);
     
     toast({
       title: "PDF Processed",
@@ -43,8 +53,15 @@ export const processPdfContent = async (
     console.error('Error processing PDF:', error);
     toast({
       title: "PDF Processing Failed",
-      description: "Failed to extract text from PDF",
+      description: error.message || "Failed to extract text from PDF",
       variant: "destructive",
     });
   }
+};
+
+export const getPdfFileUrl = (filePath: string): string => {
+  const { data } = supabase.storage
+    .from('stash-media')
+    .getPublicUrl(filePath);
+  return data.publicUrl;
 };

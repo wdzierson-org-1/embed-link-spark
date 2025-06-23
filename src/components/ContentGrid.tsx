@@ -3,9 +3,10 @@ import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video, Trash2, ExternalLink, Edit, MessageCircle } from 'lucide-react';
+import { FileText, Link as LinkIcon, Image, Mic, Video, Trash2, ExternalLink, Edit, MessageCircle, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { getPdfFileUrl } from '@/utils/pdfProcessor';
 
 interface ContentItem {
   id: string;
@@ -17,6 +18,7 @@ interface ContentItem {
   description?: string;
   tags?: string[];
   created_at: string;
+  mime_type?: string;
 }
 
 interface ContentGridProps {
@@ -61,8 +63,38 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
     return null;
   };
 
+  const getFileUrl = (item: ContentItem) => {
+    if (item.file_path) {
+      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+      return data.publicUrl;
+    }
+    return null;
+  };
+
   const handleImageError = (itemId: string) => {
     setImageErrors(prev => new Set([...prev, itemId]));
+  };
+
+  const handleDownloadFile = (item: ContentItem) => {
+    const fileUrl = getFileUrl(item);
+    if (fileUrl) {
+      window.open(fileUrl, '_blank');
+    }
+  };
+
+  const renderPdfThumbnail = (item: ContentItem) => {
+    if (item.type === 'document' && item.mime_type === 'application/pdf') {
+      return (
+        <div className="mb-3 bg-red-50 border border-red-200 rounded-md p-4 flex items-center justify-center">
+          <div className="text-center">
+            <FileText className="h-12 w-12 text-red-600 mx-auto mb-2" />
+            <p className="text-sm text-red-700 font-medium">PDF Document</p>
+            <p className="text-xs text-red-600">{item.title}</p>
+          </div>
+        </div>
+      );
+    }
+    return null;
   };
 
   if (items.length === 0) {
@@ -77,6 +109,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {items.map((item) => {
         const imageUrl = getImageUrl(item);
+        const fileUrl = getFileUrl(item);
         const showImage = imageUrl && !imageErrors.has(item.id);
 
         return (
@@ -97,6 +130,17 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
                       title="Chat with this item"
                     >
                       <MessageCircle className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {fileUrl && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDownloadFile(item)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Download original file"
+                    >
+                      <Download className="h-4 w-4" />
                     </Button>
                   )}
                   {item.url && (
@@ -143,6 +187,8 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
                 </div>
               )}
               
+              {renderPdfThumbnail(item)}
+              
               {item.description && (
                 <div className="mb-2">
                   <p className="text-sm font-medium text-blue-600 mb-1">AI Description:</p>
@@ -163,6 +209,19 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
                 <p className="text-sm text-blue-600 mb-2 truncate">
                   {item.url}
                 </p>
+              )}
+              {fileUrl && (
+                <div className="mb-2">
+                  <a 
+                    href={fileUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-sm text-blue-600 hover:underline flex items-center"
+                  >
+                    <Download className="h-3 w-3 mr-1" />
+                    View original file
+                  </a>
+                </div>
               )}
               {item.tags && item.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
