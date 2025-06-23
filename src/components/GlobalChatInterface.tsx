@@ -109,7 +109,7 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-2xl h-[600px] flex flex-col">
-        <CardHeader className="flex-shrink-0">
+        <CardHeader className="flex-shrink-0 border-b">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <MessageSquare className="h-5 w-5" />
@@ -124,7 +124,7 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
           </p>
         </CardHeader>
         
-        <CardContent className="flex-1 flex flex-col p-0">
+        <CardContent className="flex-1 flex flex-col min-h-0 p-0">
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-4">
               {messages.map((message) => (
@@ -173,7 +173,7 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
             <div ref={messagesEndRef} />
           </ScrollArea>
           
-          <div className="p-4 border-t">
+          <div className="flex-shrink-0 p-4 border-t bg-background">
             <div className="flex space-x-2">
               <Textarea
                 value={inputMessage}
