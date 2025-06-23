@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface ContentItem {
   id: string;
-  type: 'text' | 'link' | 'image' | 'audio' | 'video';
+  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
   title?: string;
   content?: string;
   url?: string;
@@ -36,6 +36,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
       case 'image': return <Image className="h-4 w-4" />;
       case 'audio': return <Mic className="h-4 w-4" />;
       case 'video': return <Video className="h-4 w-4" />;
+      case 'document': return <FileText className="h-4 w-4" />;
       default: return <FileText className="h-4 w-4" />;
     }
   };
@@ -47,6 +48,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
       case 'image': return 'bg-purple-100 text-purple-800';
       case 'audio': return 'bg-orange-100 text-orange-800';
       case 'video': return 'bg-red-100 text-red-800';
+      case 'document': return 'bg-yellow-100 text-yellow-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -83,7 +85,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
               <div className="flex items-center justify-between">
                 <Badge className={getTypeColor(item.type)}>
                   {getIcon(item.type)}
-                  <span className="ml-1 capitalize">{item.type}</span>
+                  <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
                 </Badge>
                 <div className="flex items-center space-x-1">
                   {onChatWithItem && (

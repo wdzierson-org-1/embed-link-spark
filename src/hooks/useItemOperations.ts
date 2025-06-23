@@ -141,7 +141,7 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
       console.log('Item inserted successfully:', insertedItem);
 
       // Handle PDF processing separately
-      if (type === 'pdf' && filePath) {
+      if (type === 'document' && filePath) {
         // Process PDF in the background
         setTimeout(() => {
           processPdfContent(insertedItem.id, filePath);

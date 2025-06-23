@@ -19,7 +19,7 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
     if (file.type.startsWith('image/')) return 'image';
     if (file.type.startsWith('audio/')) return 'audio';
     if (file.type.startsWith('video/')) return 'video';
-    if (file.type === 'application/pdf') return 'pdf';
+    if (file.type === 'application/pdf') return 'document';
     return 'text';
   };
 
@@ -67,13 +67,13 @@ const MediaUploadTab = ({ onAddContent }: MediaUploadTabProps) => {
       }
 
       // Special handling for PDFs with placeholder content
-      if (type === 'pdf') {
+      if (type === 'document') {
         await onAddContent(type, {
           title: file.name,
           file,
           content: `📄 PDF Processing...
 
-This PDF file is currently being processed to extract its text content. 
+We're working on extracting the summary of this document.
 
 File: ${file.name}
 Size: ${Math.round(file.size / 1024)}KB
@@ -92,7 +92,7 @@ The content will be automatically updated once text extraction is complete and e
 
       toast({
         title: "Success",
-        description: type === 'pdf' 
+        description: type === 'document' 
           ? `PDF uploaded! Text extraction is in progress...`
           : `${type.charAt(0).toUpperCase() + type.slice(1)} uploaded and processed!`,
       });
