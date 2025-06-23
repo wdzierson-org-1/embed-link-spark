@@ -17,7 +17,7 @@ serve(async (req) => {
     const { message, conversationHistory } = await req.json();
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY');
 
     if (!openAIApiKey) {
       throw new Error('OpenAI API key not configured');
@@ -33,26 +33,24 @@ serve(async (req) => {
       throw new Error('No authorization header');
     }
 
-    // Create Supabase client with user's auth
+    // Create Supabase client with user's auth token
     const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
-      },
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
+      }
     });
 
-    // Get user from auth header
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    // Set the auth header for this request
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    
     if (userError || !user) {
+      console.error('Authentication error:', userError);
       throw new Error('Authentication failed');
     }
 
-    // Fetch all user's items
+    // Fetch all user's items using the authenticated client
     const { data: items, error: itemsError } = await supabase
       .from('items')
       .select('*')
@@ -60,6 +58,7 @@ serve(async (req) => {
       .order('created_at', { ascending: false });
 
     if (itemsError) {
+      console.error('Items fetch error:', itemsError);
       throw new Error('Failed to fetch user items');
     }
 
