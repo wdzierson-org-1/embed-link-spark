@@ -14,7 +14,7 @@ serve(async (req) => {
   }
 
   try {
-    const { content, type, url, fileData } = await req.json();
+    const { content, type, url, fileData, ogData } = await req.json();
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
     if (!openAIApiKey) {
@@ -45,7 +45,7 @@ serve(async (req) => {
       ];
     } else {
       // For text, links, and other content
-      const contentToAnalyze = content || url || 'Unknown content';
+      let contentToAnalyze = content || url || 'Unknown content';
       let prompt = '';
       
       switch (type) {
@@ -53,7 +53,12 @@ serve(async (req) => {
           prompt = `Please provide a brief summary or description of this text content: "${contentToAnalyze}"`;
           break;
         case 'link':
-          prompt = `Based on this URL, provide a brief description of what this link might contain: "${contentToAnalyze}"`;
+          if (ogData) {
+            const ogContext = `Title: ${ogData.title || 'N/A'}, Description: ${ogData.description || 'N/A'}, Site: ${ogData.siteName || 'N/A'}`;
+            prompt = `Based on this link and its Open Graph data, provide a brief description: URL: "${contentToAnalyze}", Open Graph: ${ogContext}`;
+          } else {
+            prompt = `Based on this URL, provide a brief description of what this link might contain: "${contentToAnalyze}"`;
+          }
           break;
         case 'audio':
           prompt = 'This is an audio file. Please provide a generic description for audio content.';

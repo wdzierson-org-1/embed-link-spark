@@ -8,6 +8,7 @@ import AddContentDialog from '@/components/AddContentDialog';
 import ContentGrid from '@/components/ContentGrid';
 import UnifiedUploadBox from '@/components/UnifiedUploadBox';
 import EditItemDialog from '@/components/EditItemDialog';
+import TextLinkInput from '@/components/TextLinkInput';
 import type { Database } from '@/integrations/supabase/types';
 
 type ItemType = Database['public']['Enums']['item_type'];
@@ -58,7 +59,8 @@ const Index = () => {
           content: data.content,
           type,
           url: data.url,
-          fileData: data.fileData
+          fileData: data.fileData,
+          ogData: data.ogData
         }
       });
 
@@ -109,6 +111,17 @@ const Index = () => {
       // Generate AI description
       const aiDescription = await generateDescription(type, data);
 
+      // Prepare metadata for links with OG data
+      let metadata = null;
+      if (data.ogData) {
+        metadata = {
+          ogTitle: data.ogData.title,
+          ogDescription: data.ogData.description,
+          ogImage: data.ogData.image,
+          ogSiteName: data.ogData.siteName
+        };
+      }
+
       // Insert item into database
       const { data: insertedItem, error } = await supabase.from('items').insert({
         user_id: user.id,
@@ -120,6 +133,7 @@ const Index = () => {
         file_path: filePath,
         file_size: data.file?.size,
         mime_type: data.file?.type,
+        metadata
       }).select().single();
 
       if (error) {
@@ -131,7 +145,9 @@ const Index = () => {
         data.title,
         data.content,
         aiDescription,
-        data.url
+        data.url,
+        data.ogData?.title,
+        data.ogData?.description
       ].filter(Boolean).join(' ');
 
       if (textForEmbedding.trim()) {
@@ -253,6 +269,7 @@ const Index = () => {
       
       <main className="container mx-auto px-4 py-6">
         <UnifiedUploadBox onAddContent={handleAddContent} />
+        <TextLinkInput onAddContent={handleAddContent} />
         
         <div className="flex items-center justify-between mb-6">
           <div>
