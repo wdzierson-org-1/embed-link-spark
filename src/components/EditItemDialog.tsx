@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -11,7 +12,14 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import { generateDescription } from '@/utils/aiOperations';
-import { Editor } from 'novel';
+import {
+  EditorRoot,
+  EditorContent,
+  EditorCommand,
+  EditorCommandItem,
+  EditorBubble,
+  EditorBubbleItem,
+} from 'novel';
 
 interface EditItemDialogProps {
   open: boolean;
@@ -334,14 +342,27 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
             <div>
               <Label className="text-base font-medium mb-3 block">Content</Label>
               <div className="border rounded-md">
-                <Editor
-                  defaultValue={content}
-                  onDebouncedUpdate={(editor) => {
-                    const html = editor?.getHTML() || '';
-                    setContent(html);
-                  }}
-                  className="min-h-[300px]"
-                />
+                <EditorRoot>
+                  <EditorContent
+                    initialContent={content}
+                    onUpdate={({ editor }) => {
+                      const html = editor.getHTML();
+                      setContent(html);
+                    }}
+                    className="min-h-[300px] p-4"
+                  >
+                    <EditorCommand className="z-50 h-auto max-h-[330px] overflow-y-auto rounded-md border border-muted bg-background px-1 py-2 shadow-md transition-all">
+                      <EditorCommandItem
+                        value="paragraph"
+                        onCommand={(val) => console.log(val)}
+                      />
+                    </EditorCommand>
+                    <EditorBubble className="flex w-fit max-w-[90vw] overflow-hidden rounded-md border border-muted bg-background shadow-xl">
+                      <EditorBubbleItem>Bold</EditorBubbleItem>
+                      <EditorBubbleItem>Italic</EditorBubbleItem>
+                    </EditorBubble>
+                  </EditorContent>
+                </EditorRoot>
               </div>
             </div>
 
