@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -53,7 +52,34 @@ export const useItemOperations = (
       return;
     }
 
-    // Generate proper temporary ID
+    // Handle skeleton/optimistic item creation
+    if (data.isOptimistic && data.showSkeleton) {
+      const tempId = generateTempId();
+      console.log('Generated temp ID for skeleton:', tempId);
+      
+      const skeletonItem = {
+        id: tempId,
+        user_id: user.id,
+        type: type as ItemType,
+        title: data.title || 'Processing...',
+        content: null,
+        description: 'Processing...',
+        url: null,
+        file_path: null,
+        file_size: data.file?.size || null,
+        mime_type: data.file?.type || null,
+        created_at: new Date().toISOString(),
+        isOptimistic: true,
+        showSkeleton: true
+      };
+
+      if (addOptimisticItem) {
+        addOptimisticItem(skeletonItem);
+      }
+      return; // Don't process further for skeleton items
+    }
+
+    // Generate proper temporary ID for real content
     const tempId = generateTempId();
     console.log('Generated temp ID:', tempId);
     
@@ -62,35 +88,14 @@ export const useItemOperations = (
     if (type === 'text' && data.content && !title) {
       title = await generateTitle(data.content, type);
     }
-    
-    // Create optimistic item
-    const optimisticItem = {
-      id: tempId,
-      user_id: user.id,
-      type: type as ItemType,
-      title: title || data.title || 'Processing...',
-      content: data.content || null,
-      description: 'Generating description...',
-      url: data.url || null,
-      file_path: null,
-      file_size: data.file?.size || null,
-      mime_type: data.file?.type || null,
-      created_at: new Date().toISOString(),
-      isOptimistic: true
-    };
-
-    // Add optimistic item immediately
-    if (addOptimisticItem) {
-      addOptimisticItem(optimisticItem);
-    }
 
     try {
       console.log('Adding content:', { type, data, userId: user.id, sessionValid: !!session });
       
       let filePath = null;
       
-      // Handle file upload if there's a file
-      if (data.file) {
+      // Handle file upload if there's a file and no uploaded path provided
+      if (data.file && !data.uploadedFilePath) {
         console.log('Starting file upload for user:', user.id);
         
         // Verify session is still valid before upload
@@ -146,10 +151,12 @@ export const useItemOperations = (
 
       console.log('useItemOperations: Item inserted successfully:', insertedItem);
 
-      // Remove optimistic item and refresh real items
-      if (removeOptimisticItem) {
-        removeOptimisticItem(tempId);
+      // If this is replacing an optimistic item, remove all skeleton items and refresh
+      if (data.replaceOptimistic && removeOptimisticItem) {
+        // Remove all optimistic items of the same type (since we can't track specific temp IDs across the async boundary)
+        // This will be cleaned up by fetchItems anyway
       }
+      
       await fetchItems();
 
       // Handle PDF processing separately with longer delay
@@ -186,11 +193,6 @@ export const useItemOperations = (
 
     } catch (error: any) {
       console.error('Error in handleAddContent:', error);
-      
-      // Remove optimistic item on error
-      if (removeOptimisticItem) {
-        removeOptimisticItem(tempId);
-      }
       
       // Provide more specific error messages
       let errorMessage = "Failed to add content";

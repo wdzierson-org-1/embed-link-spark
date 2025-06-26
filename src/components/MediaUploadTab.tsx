@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -99,10 +98,23 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
 
     setIsUploading(true);
     try {
+      // Process files sequentially to show skeleton loading states
       for (const file of files) {
         const fileType = file.type.startsWith('image/') ? 'image' :
                         file.type.startsWith('video/') ? 'video' :
                         file.type.startsWith('audio/') ? 'audio' : 'document';
+
+        console.log('MediaUploadTab: Starting upload for file:', file.name);
+
+        // Immediately add optimistic item to show skeleton
+        await onAddContent(fileType, {
+          file,
+          title: file.name,
+          description: 'Processing...',
+          tags: [],
+          isOptimistic: true, // Flag to show skeleton
+          showSkeleton: true
+        });
 
         // For images, use the centralized upload service and generate AI description
         if (fileType === 'image') {
@@ -126,14 +138,16 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
             
             console.log('MediaUploadTab: AI description generated:', aiDescription);
             
-            // Pass the AI description to useItemOperations
+            // Now add the actual content to replace the skeleton
             await onAddContent(fileType, {
               file,
               title: file.name,
-              description: aiDescription || '', // Pass AI description here
+              description: aiDescription || '',
               tags: [],
               uploadedFilePath: result.filePath,
-              uploadedUrl: result.publicUrl
+              uploadedUrl: result.publicUrl,
+              isOptimistic: false, // This is the real content
+              replaceOptimistic: true // Flag to replace skeleton
             });
           } catch (error) {
             console.error('MediaUploadTab: Error uploading image or generating description:', error);
@@ -142,16 +156,20 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
               file,
               title: file.name,
               description: '',
-              tags: []
+              tags: [],
+              isOptimistic: false,
+              replaceOptimistic: true
             });
           }
         } else {
-          // For non-image files, use the original flow
+          // For non-image files, process normally but still replace the skeleton
           await onAddContent(fileType, {
             file,
             title: file.name,
             description: '',
-            tags: []
+            tags: [],
+            isOptimistic: false,
+            replaceOptimistic: true
           });
         }
       }

@@ -30,6 +30,8 @@ export const useItems = () => {
       } else {
         console.log('Fetched items:', data);
         setItems(data || []);
+        // Clear optimistic items after successful fetch
+        setOptimisticItems(prev => prev.filter(item => item.showSkeleton && !item.isOptimistic));
       }
     } catch (error) {
       console.error('Exception while fetching items:', error);
@@ -42,10 +44,12 @@ export const useItems = () => {
   };
 
   const addOptimisticItem = (tempItem: any) => {
+    console.log('Adding optimistic item:', tempItem);
     setOptimisticItems(prev => [tempItem, ...prev]);
   };
 
   const removeOptimisticItem = (tempId: string) => {
+    console.log('Removing optimistic item:', tempId);
     setOptimisticItems(prev => prev.filter(item => item.id !== tempId));
   };
 
