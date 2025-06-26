@@ -122,7 +122,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
                 <p className="mb-2 text-sm text-gray-500">
                   <span className="font-semibold">Click to upload</span> or drag and drop
                 </p>
-                <div className="flex items-center space-x-4 text-xs text-gray-500">
+                <div className="flex items-center justify-center flex-wrap gap-x-4 gap-y-2 text-xs text-gray-500 px-4">
                   <div className="flex items-center space-x-1">
                     <Image className="w-3 h-3" />
                     <span>Images</span>

@@ -12,13 +12,62 @@ interface ItemTagsManagerProps {
   itemId: string;
   currentTags: string[];
   onTagsUpdated: () => void;
+  itemContent?: {
+    title?: string;
+    content?: string;
+    description?: string;
+  };
 }
 
-const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated }: ItemTagsManagerProps) => {
+const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: ItemTagsManagerProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [newTags, setNewTags] = useState<string[]>([]);
+  const [relevantSuggestions, setRelevantSuggestions] = useState<string[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const { getSuggestedTags, addTagsToItem } = useTags();
   const { toast } = useToast();
+
+  const fetchRelevantSuggestions = async () => {
+    if (!itemContent) return;
+    
+    setLoadingSuggestions(true);
+    try {
+      const availableTags = getSuggestedTags(50).filter(tag => 
+        !currentTags.includes(tag) && !newTags.includes(tag)
+      );
+      
+      if (availableTags.length === 0) {
+        setRelevantSuggestions([]);
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('get-relevant-tags', {
+        body: {
+          content: itemContent.content || '',
+          title: itemContent.title || '',
+          description: itemContent.description || '',
+          availableTags
+        }
+      });
+
+      if (error) {
+        console.error('Error getting relevant tags:', error);
+        setRelevantSuggestions([]);
+      } else {
+        setRelevantSuggestions(data?.relevantTags || []);
+      }
+    } catch (error) {
+      console.error('Exception getting relevant tags:', error);
+      setRelevantSuggestions([]);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
+
+  const handleStartEditing = () => {
+    setIsEditing(true);
+    fetchRelevantSuggestions();
+  };
 
   const handleAddTags = async () => {
     if (newTags.length === 0) {
@@ -30,6 +79,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated }: ItemTagsManager
       await addTagsToItem(itemId, newTags);
       setNewTags([]);
       setIsEditing(false);
+      setRelevantSuggestions([]);
       onTagsUpdated();
       toast({
         title: "Success",
@@ -89,17 +139,15 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated }: ItemTagsManager
   const handleSuggestionClick = (suggestion: string) => {
     if (!newTags.includes(suggestion)) {
       setNewTags([...newTags, suggestion]);
+      setRelevantSuggestions(prev => prev.filter(tag => tag !== suggestion));
     }
   };
 
   const handleCancel = () => {
     setNewTags([]);
     setIsEditing(false);
+    setRelevantSuggestions([]);
   };
-
-  const suggestions = getSuggestedTags(10).filter(tag => 
-    !currentTags.includes(tag) && !newTags.includes(tag)
-  );
 
   if (isEditing) {
     return (
@@ -146,12 +194,16 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated }: ItemTagsManager
           maxTags={5}
         />
         
-        {/* Suggested tags */}
-        {suggestions.length > 0 && (
+        {/* AI-suggested relevant tags */}
+        {loadingSuggestions && (
+          <div className="text-xs text-muted-foreground">Finding relevant tags...</div>
+        )}
+        
+        {!loadingSuggestions && relevantSuggestions.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Suggested:</p>
+            <p className="text-xs font-medium text-muted-foreground">Suggested for this content:</p>
             <div className="flex flex-wrap gap-1">
-              {suggestions.map((suggestion, index) => (
+              {relevantSuggestions.map((suggestion, index) => (
                 <Button
                   key={index}
                   variant="outline"
@@ -188,7 +240,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated }: ItemTagsManager
       <Button
         variant="outline"
         size="sm"
-        onClick={() => setIsEditing(true)}
+        onClick={handleStartEditing}
         className="h-6 text-xs"
       >
         <Plus className="h-3 w-3 mr-1" />

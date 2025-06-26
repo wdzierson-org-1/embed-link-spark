@@ -19,7 +19,7 @@ const LinkPreview = ({ ogData }: LinkPreviewProps) => {
   return (
     <Card className="mt-4 border border-gray-200">
       <CardContent className="p-0">
-        <div className="flex h-24">
+        <div className="flex min-h-24">
           {ogData.image && (
             <div className="flex-shrink-0 w-24">
               <img
@@ -42,7 +42,7 @@ const LinkPreview = ({ ogData }: LinkPreviewProps) => {
               </h3>
             )}
             {ogData.description && (
-              <p className="text-xs text-gray-600 line-clamp-2">
+              <p className="text-xs text-gray-600 line-clamp-3 leading-relaxed">
                 {ogData.description}
               </p>
             )}

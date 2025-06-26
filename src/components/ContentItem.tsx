@@ -186,6 +186,11 @@ const ContentItem = ({
                 itemId={item.id}
                 currentTags={tags}
                 onTagsUpdated={onTagsUpdated}
+                itemContent={{
+                  title: item.title,
+                  content: item.content,
+                  description: item.description
+                }}
               />
             </div>
           </div>
