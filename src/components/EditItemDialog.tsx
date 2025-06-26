@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -74,7 +75,7 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   }, [item]);
 
   const getFileUrl = (item: ContentItem) => {
-    if (item.file_path) {
+    if (item?.file_path) {
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
       return data.publicUrl;
     }
@@ -100,17 +101,33 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
         return;
       }
 
-      // Update the item to remove file reference
-      await onSave(item.id, {
-        file_path: null,
-        mime_type: null,
-        type: 'text' // Convert to text type
-      });
+      // Update the item to remove file reference - need to use direct Supabase call
+      const { error: updateError } = await supabase
+        .from('items')
+        .update({
+          file_path: null,
+          mime_type: null,
+          type: 'text'
+        })
+        .eq('id', item.id);
+
+      if (updateError) {
+        console.error('Error updating item:', updateError);
+        toast({
+          title: "Error",
+          description: "Failed to update item",
+          variant: "destructive",
+        });
+        return;
+      }
 
       toast({
         title: "Success",
         description: "Media file removed successfully",
       });
+
+      // Close dialog to refresh parent
+      onOpenChange(false);
 
     } catch (error) {
       console.error('Error removing media:', error);
@@ -160,9 +177,10 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
     // The ItemTagsManager handles the actual updates
   };
 
-  const handleImageUpdate = async (newImage: string) => {
-    if (!item) return;
-    await onSave(item.id, { file_path: newImage });
+  const handleImageUpdate = async (hasImage: boolean, imageUrl: string) => {
+    // This is handled by the EditItemImageSection component directly
+    // We just need to refresh the dialog
+    onOpenChange(false);
   };
 
   const fileUrl = getFileUrl(item);
@@ -179,11 +197,16 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
             <EditItemTitleSection
               title={title}
               onTitleChange={setTitle}
+              onSave={handleTitleSave}
             />
 
             <EditItemDescriptionSection
+              itemId={item.id}
               description={description}
+              content={content}
+              title={title}
               onDescriptionChange={setDescription}
+              onSave={handleDescriptionSave}
             />
 
             {/* Media Section */}
@@ -230,8 +253,10 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
 
             {item.type === 'image' && (
               <EditItemImageSection
-                item={item}
-                onImageUpdate={handleImageUpdate}
+                itemId={item.id}
+                hasImage={!!item.file_path}
+                imageUrl={fileUrl || ''}
+                onImageStateChange={handleImageUpdate}
               />
             )}
 
@@ -239,7 +264,8 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
               <EditItemContentEditor
                 content={content}
                 onContentChange={setContent}
-                getSuggestedTags={async () => []}
+                itemId={item.id}
+                editorInstanceKey={editorInstanceKey}
               />
             )}
 
