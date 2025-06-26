@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -66,6 +67,13 @@ const Index = () => {
     updatePreference(!hideAddSection);
   };
 
+  const handleTabChange = (value: string) => {
+    // If the add section is hidden and user clicks on a tab, expand it
+    if (hideAddSection) {
+      updatePreference(false);
+    }
+  };
+
   if (loading || preferencesLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -89,7 +97,7 @@ const Index = () => {
       <main className="container mx-auto px-4 py-6">
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
-            <Tabs defaultValue="media" className="w-full">
+            <Tabs defaultValue="media" className="w-full" onValueChange={handleTabChange}>
               <div className="flex items-center justify-between">
                 <TabsList className="grid grid-cols-3 w-full">
                   <TabsTrigger value="media">Add media</TabsTrigger>
