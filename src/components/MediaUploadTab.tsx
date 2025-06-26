@@ -118,7 +118,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
             // Wait a moment to ensure the file is accessible
             await new Promise(resolve => setTimeout(resolve, 1000));
             
-            // Generate AI description for the uploaded image - pass the public URL directly
+            // Generate AI description for the uploaded image
             const aiDescription = await generateDescription('image', {
               fileData: result.publicUrl,
               content: file.name
@@ -126,10 +126,11 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
             
             console.log('MediaUploadTab: AI description generated:', aiDescription);
             
+            // Pass the AI description to useItemOperations
             await onAddContent(fileType, {
               file,
               title: file.name,
-              description: aiDescription || '', // Use AI description if available
+              description: aiDescription || '', // Pass AI description here
               tags: [],
               uploadedFilePath: result.filePath,
               uploadedUrl: result.publicUrl

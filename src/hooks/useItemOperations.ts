@@ -104,12 +104,18 @@ export const useItemOperations = (
         console.log('File uploaded successfully:', filePath);
       }
 
-      // Generate AI description (skip for PDFs with placeholder content)
-      const aiDescription = data.isProcessing ? 
-        "PDF file uploaded - text extraction in progress" : 
-        await generateDescription(type, data);
-
-      console.log('Generated description:', aiDescription);
+      // Use provided description or generate AI description
+      let aiDescription = data.description; // This comes from MediaUploadTab for images
+      
+      if (!aiDescription && !data.isProcessing) {
+        console.log('useItemOperations: No description provided, generating AI description');
+        aiDescription = await generateDescription(type, data);
+        console.log('useItemOperations: Generated AI description:', aiDescription);
+      } else if (data.isProcessing) {
+        aiDescription = "PDF file uploaded - text extraction in progress";
+      } else {
+        console.log('useItemOperations: Using provided description:', aiDescription);
+      }
 
       // Prepare the item data
       const itemData = {
@@ -117,14 +123,14 @@ export const useItemOperations = (
         type: type as ItemType,
         title: title || data.title,
         content: data.content,
-        description: aiDescription,
+        description: aiDescription || null, // Ensure we use the AI description
         url: data.url,
-        file_path: filePath,
+        file_path: filePath || data.uploadedFilePath, // Use uploaded file path if provided
         file_size: data.file?.size,
         mime_type: data.file?.type,
       };
 
-      console.log('Inserting item data:', itemData);
+      console.log('useItemOperations: Inserting item data:', itemData);
 
       // Insert item into database
       const { data: insertedItem, error } = await supabase
@@ -138,7 +144,7 @@ export const useItemOperations = (
         throw error;
       }
 
-      console.log('Item inserted successfully:', insertedItem);
+      console.log('useItemOperations: Item inserted successfully:', insertedItem);
 
       // Remove optimistic item and refresh real items
       if (removeOptimisticItem) {
@@ -147,12 +153,12 @@ export const useItemOperations = (
       await fetchItems();
 
       // Handle PDF processing separately with longer delay
-      if (type === 'document' && filePath) {
+      if (type === 'document' && (filePath || data.uploadedFilePath)) {
         console.log('Starting PDF processing for item:', insertedItem.id);
         // Process PDF in the background with a longer delay
         setTimeout(async () => {
           try {
-            await processPdfContent(insertedItem.id, filePath, fetchItems, showToast);
+            await processPdfContent(insertedItem.id, filePath || data.uploadedFilePath, fetchItems, showToast);
           } catch (error) {
             console.error('Background PDF processing failed:', error);
           }
