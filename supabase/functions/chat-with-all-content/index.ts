@@ -50,6 +50,7 @@ serve(async (req) => {
 
     // First, try semantic search using vector embeddings if we have a specific query
     let relevantChunks = [];
+    let sourceItems = new Map(); // Track source items for response
     
     try {
       // Generate embedding for the user's query
@@ -82,8 +83,23 @@ serve(async (req) => {
           relevantChunks = similarChunks.map(chunk => ({
             content: chunk.content_chunk,
             similarity: chunk.similarity,
-            item_id: chunk.item_id
+            item_id: chunk.item_id,
+            item_title: chunk.item_title,
+            item_type: chunk.item_type,
+            item_url: chunk.item_url
           }));
+
+          // Track source items
+          similarChunks.forEach(chunk => {
+            if (!sourceItems.has(chunk.item_id)) {
+              sourceItems.set(chunk.item_id, {
+                id: chunk.item_id,
+                title: chunk.item_title || 'Untitled',
+                type: chunk.item_type,
+                url: chunk.item_url
+              });
+            }
+          });
         }
       }
     } catch (embeddingError) {
@@ -104,10 +120,24 @@ serve(async (req) => {
         const itemChunks = items.map(item => ({
           content: `${item.title || ''} ${item.description || ''} ${item.content || ''}`.trim(),
           item_id: item.id,
-          type: item.type
+          item_title: item.title,
+          item_type: item.type,
+          item_url: item.url
         })).filter(chunk => chunk.content.length > 0);
         
         relevantChunks = [...relevantChunks, ...itemChunks];
+
+        // Track additional source items
+        items.forEach(item => {
+          if (!sourceItems.has(item.id)) {
+            sourceItems.set(item.id, {
+              id: item.id,
+              title: item.title || 'Untitled',
+              type: item.type,
+              url: item.url
+            });
+          }
+        });
       }
     }
 
@@ -157,7 +187,7 @@ User's question: ${message}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-2025-04-14', // Most advanced model for best RAG performance
+        model: 'gpt-4-turbo-2024-04-09', // Use the most advanced available model
         messages,
         max_tokens: 1500, // Increased for more comprehensive responses
         temperature: 0.3, // Lower temperature for more factual, consistent responses
@@ -177,7 +207,11 @@ User's question: ${message}`;
     const aiResponse = data.choices[0].message.content.trim();
     console.log('OpenAI response generated successfully');
 
-    return new Response(JSON.stringify({ response: aiResponse }), {
+    // Return response with source information
+    return new Response(JSON.stringify({ 
+      response: aiResponse,
+      sources: Array.from(sourceItems.values())
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {

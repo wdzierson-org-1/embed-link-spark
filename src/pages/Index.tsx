@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -66,6 +67,21 @@ const Index = () => {
 
   const toggleInputUI = () => {
     setIsInputUICollapsed(!isInputUICollapsed);
+  };
+
+  const handleSourceClick = (sourceId: string) => {
+    const item = items.find(item => item.id === sourceId);
+    if (item) {
+      setEditingItem(item);
+    }
+  };
+
+  const handleViewAllSources = (sourceIds: string[]) => {
+    // Create a filter that shows only the source items
+    const sourceTagFilter = sourceIds;
+    // For now, we'll implement this as showing all items
+    // In the future, you could enhance this to filter by specific item IDs
+    setSelectedTags([]);
   };
 
   if (!user) {
@@ -198,6 +214,8 @@ const Index = () => {
       <GlobalChatInterface
         isOpen={showGlobalChat}
         onClose={() => setShowGlobalChat(false)}
+        onSourceClick={handleSourceClick}
+        onViewAllSources={handleViewAllSources}
       />
     </div>
   );

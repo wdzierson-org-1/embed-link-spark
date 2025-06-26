@@ -7,20 +7,31 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { X, Send, Bot, User, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import ReactMarkdown from 'react-markdown';
+import ChatMessageSources from './ChatMessageSources';
+import ChatMessageFeedback from './ChatMessageFeedback';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  sources?: Array<{
+    id: string;
+    title: string;
+    type: string;
+    url?: string;
+  }>;
 }
 
 interface GlobalChatInterfaceProps {
   isOpen: boolean;
   onClose: () => void;
+  onSourceClick?: (sourceId: string) => void;
+  onViewAllSources?: (sourceIds: string[]) => void;
 }
 
-const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
+const GlobalChatInterface = ({ isOpen, onClose, onSourceClick, onViewAllSources }: GlobalChatInterfaceProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -71,6 +82,7 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
       timestamp: new Date()
     };
 
+    const currentInput = inputMessage;
     setMessages(prev => [...prev, userMessage]);
     setInputMessage('');
     setIsLoading(true);
@@ -78,7 +90,7 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
     try {
       const { data, error } = await supabase.functions.invoke('chat-with-all-content', {
         body: {
-          message: inputMessage,
+          message: currentInput,
           conversationHistory: messages.map(msg => ({
             role: msg.role,
             content: msg.content
@@ -92,7 +104,8 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: data.response,
-        timestamp: new Date()
+        timestamp: new Date(),
+        sources: data.sources || []
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -103,6 +116,10 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
         description: "Failed to get response from AI",
         variant: "destructive",
       });
+      
+      // Remove the user message on error and restore input
+      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+      setInputMessage(currentInput);
     } finally {
       setIsLoading(false);
     }
@@ -113,6 +130,16 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
       e.preventDefault();
       sendMessage();
     }
+  };
+
+  const handleSourceClick = (sourceId: string) => {
+    onClose();
+    onSourceClick?.(sourceId);
+  };
+
+  const handleViewAllSources = (sourceIds: string[]) => {
+    onClose();
+    onViewAllSources?.(sourceIds);
   };
 
   if (!isOpen) return null;
@@ -150,17 +177,40 @@ const GlobalChatInterface = ({ isOpen, onClose }: GlobalChatInterfaceProps) => {
                       <Bot className="h-4 w-4" />
                     </div>
                   )}
-                  <div
-                    className={`max-w-[80%] p-3 rounded-lg ${
-                      message.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
-                    }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  <div className={`max-w-[80%] ${message.role === 'user' ? 'order-1' : ''}`}>
+                    <div
+                      className={`p-3 rounded-lg ${
+                        message.role === 'user'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted'
+                      }`}
+                    >
+                      {message.role === 'assistant' ? (
+                        <ReactMarkdown className="text-sm prose prose-sm max-w-none dark:prose-invert">
+                          {message.content}
+                        </ReactMarkdown>
+                      ) : (
+                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                      )}
+                    </div>
+                    
+                    {message.role === 'assistant' && message.sources && (
+                      <>
+                        <ChatMessageSources
+                          sources={message.sources}
+                          onSourceClick={handleSourceClick}
+                          onViewAllSources={handleViewAllSources}
+                        />
+                        <ChatMessageFeedback
+                          question={messages[messages.indexOf(message) - 1]?.content || ''}
+                          answer={message.content}
+                          sourceItemIds={message.sources.map(s => s.id)}
+                        />
+                      </>
+                    )}
                   </div>
                   {message.role === 'user' && (
-                    <div className="flex-shrink-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+                    <div className="flex-shrink-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center order-2">
                       <User className="h-4 w-4 text-primary-foreground" />
                     </div>
                   )}
