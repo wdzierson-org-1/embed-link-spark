@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
-import { FileText } from 'lucide-react';
 import {
   EditorRoot,
   EditorContent,
@@ -22,6 +21,7 @@ interface TextNoteTabProps {
 const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [editorInstance, setEditorInstance] = useState<EditorInstance | null>(null);
   const extensions = createEditorExtensions();
 
   const initialContent: JSONContent = {
@@ -34,6 +34,13 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     ]
   };
 
+  const clearEditor = () => {
+    if (editorInstance) {
+      editorInstance.commands.setContent(initialContent);
+    }
+    setContent('');
+  };
+
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!content.trim()) return;
@@ -44,7 +51,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
         content: content.trim(),
         tags: []
       });
-      setContent('');
+      clearEditor();
     } catch (error) {
       console.error('Error adding note:', error);
     } finally {
@@ -76,10 +83,6 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     <Card>
       <CardContent className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex items-center gap-2 mb-4">
-            <FileText className="h-5 w-5 text-blue-600" />
-          </div>
-
           <div>
             <div className="flex items-center justify-between mb-3">
               <Label className="text-base font-medium">Content</Label>
@@ -101,6 +104,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
                     }
                   }}
                   onUpdate={({ editor }: { editor: EditorInstance }) => {
+                    setEditorInstance(editor);
                     // Save as JSON to preserve formatting
                     const json = editor.getJSON();
                     handleContentChange(JSON.stringify(json));

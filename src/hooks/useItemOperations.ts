@@ -10,6 +10,25 @@ import { saveItem, deleteItem } from '@/utils/itemOperations';
 
 type ItemType = Database['public']['Enums']['item_type'];
 
+const generateTitle = async (content: string, type: string): Promise<string> => {
+  try {
+    const { data: result, error } = await supabase.functions.invoke('generate-title', {
+      body: { content }
+    });
+
+    if (error) throw error;
+    return result.title || 'Untitled Note';
+  } catch (error) {
+    console.error('Error generating title:', error);
+    // Fallback to a simple title based on content
+    if (type === 'text' && content) {
+      const plainText = content.length > 50 ? content.substring(0, 47) + '...' : content;
+      return plainText || 'Untitled Note';
+    }
+    return 'Untitled Note';
+  }
+};
+
 export const useItemOperations = (
   fetchItems: () => Promise<void>,
   addOptimisticItem?: (item: any) => void,
@@ -31,12 +50,18 @@ export const useItemOperations = (
     // Generate temporary ID for optimistic update
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     
+    // Generate title for text notes
+    let title = data.title;
+    if (type === 'text' && data.content && !title) {
+      title = await generateTitle(data.content, type);
+    }
+    
     // Create optimistic item
     const optimisticItem = {
       id: tempId,
       user_id: user.id,
       type: type as ItemType,
-      title: data.title || 'Processing...',
+      title: title || data.title || 'Processing...',
       content: data.content || null,
       description: 'Generating description...',
       url: data.url || null,
@@ -73,7 +98,7 @@ export const useItemOperations = (
       const itemData = {
         user_id: user.id,
         type: type as ItemType,
-        title: data.title,
+        title: title || data.title,
         content: data.content,
         description: aiDescription,
         url: data.url,
@@ -118,7 +143,7 @@ export const useItemOperations = (
       } else {
         // Generate embeddings for non-PDF textual content
         const textForEmbedding = [
-          data.title,
+          title || data.title,
           data.content,
           aiDescription,
           data.url,
