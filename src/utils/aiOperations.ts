@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 
 export const generateDescription = async (type: string, data: any) => {
@@ -30,16 +29,24 @@ export const generateDescription = async (type: string, data: any) => {
 
 export const generateEmbeddings = async (itemId: string, textContent: string) => {
   try {
+    console.log('Generating embeddings for item:', itemId, 'with text length:', textContent.length);
+    
     const { error } = await supabase.functions.invoke('generate-embeddings', {
       body: {
         itemId,
-        textContent
+        textContent: textContent.trim()
       }
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error generating embeddings:', error);
+      throw error;
+    }
+    
+    console.log('Embeddings generated successfully for item:', itemId);
   } catch (error) {
     console.error('Error generating embeddings:', error);
+    throw error;
   }
 };
 

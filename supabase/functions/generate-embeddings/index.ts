@@ -15,6 +15,8 @@ serve(async (req) => {
 
   try {
     const { itemId, textContent } = await req.json();
+    console.log('Generate embeddings called for item:', itemId, 'with text length:', textContent?.length);
+    
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -23,18 +25,43 @@ serve(async (req) => {
       throw new Error('Missing required environment variables');
     }
 
+    if (!textContent || !textContent.trim()) {
+      console.log('No text content provided, skipping embedding generation');
+      return new Response(JSON.stringify({ success: true, chunksProcessed: 0 }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Split text into chunks for embedding
-    const chunkSize = 1000;
+    // Clean and prepare text content - remove extra whitespace and normalize
+    const cleanedText = textContent.trim().replace(/\s+/g, ' ');
+    console.log('Cleaned text length:', cleanedText.length);
+
+    // Split text into chunks for embedding (smaller chunks for better retrieval)
+    const chunkSize = 800; // Reduced chunk size for better granularity
     const chunks = [];
-    for (let i = 0; i < textContent.length; i += chunkSize) {
-      chunks.push(textContent.slice(i, i + chunkSize));
+    
+    if (cleanedText.length <= chunkSize) {
+      // If text is small enough, use as single chunk
+      chunks.push(cleanedText);
+    } else {
+      // Split into overlapping chunks
+      const overlap = 100;
+      for (let i = 0; i < cleanedText.length; i += chunkSize - overlap) {
+        const chunk = cleanedText.slice(i, i + chunkSize);
+        if (chunk.trim().length > 50) { // Only add chunks with meaningful content
+          chunks.push(chunk.trim());
+        }
+      }
     }
+
+    console.log('Created', chunks.length, 'chunks for embedding');
 
     // Generate embeddings for each chunk
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
+      console.log(`Processing chunk ${i + 1}/${chunks.length}, length: ${chunk.length}`);
       
       const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
@@ -48,10 +75,17 @@ serve(async (req) => {
         }),
       });
 
+      if (!embeddingResponse.ok) {
+        const errorText = await embeddingResponse.text();
+        console.error('OpenAI API error:', embeddingResponse.status, errorText);
+        throw new Error(`OpenAI API error: ${embeddingResponse.status} ${errorText}`);
+      }
+
       const embeddingData = await embeddingResponse.json();
       
       if (!embeddingData.data?.[0]?.embedding) {
-        throw new Error('Failed to generate embedding');
+        console.error('Invalid embedding response:', embeddingData);
+        throw new Error('Failed to generate embedding - invalid response');
       }
 
       const embedding = embeddingData.data[0].embedding;
@@ -69,6 +103,8 @@ serve(async (req) => {
         throw error;
       }
     }
+
+    console.log('Successfully processed', chunks.length, 'chunks for item:', itemId);
 
     return new Response(JSON.stringify({ success: true, chunksProcessed: chunks.length }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

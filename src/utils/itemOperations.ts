@@ -1,6 +1,6 @@
-
 import { supabase } from '@/integrations/supabase/client';
 import { generateEmbeddings } from './aiOperations';
+import { extractPlainTextFromNovelContent } from './contentExtractor';
 
 export const saveItem = async (
   id: string, 
@@ -20,16 +20,34 @@ export const saveItem = async (
     if (error) throw error;
 
     // Regenerate embeddings if textual content changed
-    const textForEmbedding = [
-      updates.title,
-      updates.content,
-      updates.description
-    ].filter(Boolean).join(' ');
+    const textualContent = [];
+    
+    if (updates.title) {
+      textualContent.push(updates.title);
+    }
+    
+    if (updates.description) {
+      textualContent.push(updates.description);
+    }
+    
+    // Extract plain text from Novel editor content, stripping formatting
+    if (updates.content) {
+      const plainTextContent = extractPlainTextFromNovelContent(updates.content);
+      if (plainTextContent.trim()) {
+        textualContent.push(plainTextContent);
+      }
+    }
 
-    if (textForEmbedding.trim()) {
+    const textForEmbedding = textualContent.join(' ').trim();
+
+    if (textForEmbedding) {
+      console.log('Updating embeddings for item:', id);
+      console.log('Text for embedding (length):', textForEmbedding.length);
+      
       // Delete old embeddings
       await supabase.from('embeddings').delete().eq('item_id', id);
-      // Generate new embeddings
+      
+      // Generate new embeddings with plain text
       await generateEmbeddings(id, textForEmbedding);
     }
 
@@ -44,6 +62,7 @@ export const saveItem = async (
       fetchItems();
     }
   } catch (error: any) {
+    console.error('Error saving item:', error);
     showToast({
       title: "Error",
       description: error.message || "Failed to update item",
