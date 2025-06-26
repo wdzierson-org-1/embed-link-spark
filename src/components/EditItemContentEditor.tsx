@@ -17,9 +17,10 @@ interface EditItemContentEditorProps {
   content: string;
   onContentChange: (content: string) => void;
   itemId?: string;
+  editorInstanceKey?: string; // External key to control when editor recreates
 }
 
-const EditItemContentEditor = ({ content, onContentChange, itemId }: EditItemContentEditorProps) => {
+const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanceKey }: EditItemContentEditorProps) => {
   const { user } = useAuth();
   const editorRef = useRef<EditorInstance | null>(null);
 
@@ -46,34 +47,28 @@ const EditItemContentEditor = ({ content, onContentChange, itemId }: EditItemCon
 
   const extensions = createEditorExtensions(handleImageUpload);
 
-  // Create editor key that changes when content or item changes
+  // Only recreate editor when itemId or editorInstanceKey changes, NOT on content changes
   const { initialContent, editorKey } = useMemo(() => {
     console.log('EditItemContentEditor: Processing content', { 
-      content: content.slice(0, 100), 
-      contentLength: content.length, 
-      itemId 
+      itemId,
+      editorInstanceKey,
+      contentLength: content.length,
+      contentPreview: content.slice(0, 50)
     });
     
     const jsonContent = convertToJsonContent(content);
     console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
     
-    // Create a hash of the content to detect actual content changes
-    const contentHash = content ? 
-      content.split('').reduce((a, b) => {
-        a = ((a << 5) - a) + b.charCodeAt(0);
-        return a & a;
-      }, 0).toString(36) : 'empty';
+    // Use stable key based only on itemId and editorInstanceKey, NOT content
+    const key = `editor-${itemId || 'new'}-${editorInstanceKey || 'default'}`;
     
-    // Combine itemId and content hash to ensure editor recreates on content change
-    const key = `editor-${itemId || 'new'}-${contentHash}`;
-    
-    console.log('EditItemContentEditor: Generated key', { key, contentHash });
+    console.log('EditItemContentEditor: Generated stable key', { key });
     
     return {
       initialContent: jsonContent,
       editorKey: key
     };
-  }, [content, itemId]); // Depend on both content and itemId
+  }, [itemId, editorInstanceKey]); // Remove content from dependencies
 
   console.log('EditItemContentEditor: Rendering', { 
     hasInitialContent: !!initialContent,

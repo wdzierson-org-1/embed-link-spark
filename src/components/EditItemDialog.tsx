@@ -35,7 +35,17 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   const [hasImage, setHasImage] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  const [editorInstanceKey, setEditorInstanceKey] = useState('');
   const { toast } = useToast();
+
+  // Generate new editor instance key when dialog opens or item changes
+  useEffect(() => {
+    if (open && item) {
+      const newInstanceKey = `${item.id}-${Date.now()}`;
+      setEditorInstanceKey(newInstanceKey);
+      console.log('EditItemDialog: Generated new editor instance key', { newInstanceKey, itemId: item.id });
+    }
+  }, [open, item?.id]);
 
   useEffect(() => {
     if (item) {
@@ -138,6 +148,7 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
               content={content}
               onContentChange={setContent}
               itemId={item?.id}
+              editorInstanceKey={editorInstanceKey}
             />
 
             {/* AI Description Section */}
