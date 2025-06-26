@@ -5,6 +5,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import LinkPreview from '@/components/LinkPreview';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface LinkTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -17,6 +19,7 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const isValidUrl = (string: string) => {
     try {
@@ -24,6 +27,36 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       return true;
     } catch (_) {
       return false;
+    }
+  };
+
+  const downloadAndStoreImage = async (imageUrl: string): Promise<string | null> => {
+    if (!user) return null;
+    
+    try {
+      // Fetch the image
+      const response = await fetch(imageUrl, { mode: 'cors' });
+      if (!response.ok) return null;
+      
+      const blob = await response.blob();
+      const fileExt = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+      const fileName = `preview_${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/previews/${fileName}`;
+
+      // Upload to Supabase storage
+      const { error: uploadError } = await supabase.storage
+        .from('stash-media')
+        .upload(filePath, blob);
+
+      if (uploadError) {
+        console.error('Error uploading preview image:', uploadError);
+        return null;
+      }
+
+      return filePath;
+    } catch (error) {
+      console.error('Error downloading and storing image:', error);
+      return null;
     }
   };
 
@@ -107,12 +140,22 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
 
     setIsSubmitting(true);
     try {
+      let previewImagePath = null;
+      
+      // Download and store preview image if available
+      if (ogData?.image) {
+        previewImagePath = await downloadAndStoreImage(ogData.image);
+      }
+
       await onAddContent('link', {
         url: trimmedUrl,
         title: ogData?.title || trimmedUrl,
         description: ogData?.description || '',
         tags: [],
-        ogData
+        ogData: {
+          ...ogData,
+          storedImagePath: previewImagePath
+        }
       });
 
       // Reset form

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface TextNoteTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -14,6 +15,24 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+
+  const generateTitle = async (noteContent: string): Promise<string> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-title', {
+        body: { content: noteContent }
+      });
+
+      if (error) {
+        console.error('Error generating title:', error);
+        return 'Untitled Note';
+      }
+
+      return data.title || 'Untitled Note';
+    } catch (error) {
+      console.error('Error generating title:', error);
+      return 'Untitled Note';
+    }
+  };
 
   const handleSubmit = async () => {
     if (!content.trim()) {
@@ -27,8 +46,11 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
 
     setIsSubmitting(true);
     try {
+      // Generate AI title
+      const aiTitle = await generateTitle(content.trim());
+
       await onAddContent('text', {
-        title: 'Untitled Note',
+        title: aiTitle,
         content: content.trim(),
         tags: []
       });
