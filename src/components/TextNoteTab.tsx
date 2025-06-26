@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   EditorRoot,
@@ -108,11 +107,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     <Card>
       <CardContent className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <Label className="text-base font-medium">Content</Label>
-              <span className="text-sm text-gray-400">Press / for formatting options</span>
-            </div>
+          <div className="relative">
             <div className="border rounded-md">
               <EditorRoot>
                 <EditorContent
@@ -125,7 +120,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
                     },
                     attributes: {
                       class: 'prose prose-sm dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-3xl prose-h1:font-bold prose-h2:text-2xl prose-h2:font-bold prose-h3:text-xl prose-h3:font-bold prose-h4:text-lg prose-h4:font-bold prose-h5:text-base prose-h5:font-bold prose-h6:text-sm prose-h6:font-bold',
-                      'data-placeholder': 'Press \'/\' for commands or start typing...'
+                      'data-placeholder': 'Start typing...'
                     }
                   }}
                   onUpdate={({ editor }: { editor: EditorInstance }) => {
@@ -138,6 +133,9 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
                   <EditorCommandMenu />
                 </EditorContent>
               </EditorRoot>
+            </div>
+            <div className="absolute bottom-2 right-2 text-xs text-gray-400 pointer-events-none">
+              Press / for formatting options
             </div>
           </div>
 

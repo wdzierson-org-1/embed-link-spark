@@ -13,6 +13,7 @@ interface MediaUploadTabProps {
 const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps) => {
   const [files, setFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -39,6 +40,27 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
     }
 
     setFiles(prev => [...prev, ...validFiles]);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    
+    const droppedFiles = e.dataTransfer.files;
+    handleFileSelect(droppedFiles);
   };
 
   const removeFile = (index: number) => {
@@ -117,7 +139,14 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
             />
             <label
               htmlFor="file-upload"
-              className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
+              className={`flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                isDragOver 
+                  ? 'border-blue-400 bg-blue-50' 
+                  : 'border-gray-300 bg-gray-50 hover:bg-gray-100'
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
               <div className="flex flex-col items-center justify-center pt-5 pb-6">
                 <Upload className="w-8 h-8 mb-4 text-gray-500" />
