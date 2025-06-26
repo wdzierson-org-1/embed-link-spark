@@ -42,3 +42,27 @@ export const generateEmbeddings = async (itemId: string, textContent: string) =>
     console.error('Error generating embeddings:', error);
   }
 };
+
+export const getSuggestedTags = async (content: any) => {
+  try {
+    console.log('aiOperations: Getting suggested tags', { content });
+    
+    const { data: result, error } = await supabase.functions.invoke('get-relevant-tags', {
+      body: {
+        content: content.content || content.title || content.description || '',
+        type: 'suggestion'
+      }
+    });
+
+    if (error) {
+      console.error('aiOperations: Error from get-relevant-tags function:', error);
+      return [];
+    }
+    
+    console.log('aiOperations: Suggested tags retrieved:', result?.tags);
+    return result?.tags || [];
+  } catch (error) {
+    console.error('aiOperations: Error getting suggested tags:', error);
+    return [];
+  }
+};

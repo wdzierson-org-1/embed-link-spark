@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { X, Filter } from 'lucide-react';
+import { X, Filter, Plus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -15,12 +15,16 @@ interface Tag {
 interface StashHeaderProps {
   itemCount: number;
   onTagFiltersChange?: (selectedTags: string[]) => void;
+  onAddContent: () => void;
+  onShowGlobalChat: () => void;
+  tags: Tag[];
+  selectedTags: string[];
+  onTagFilterChange: (tags: string[]) => void;
 }
 
-const StashHeader = ({ itemCount, onTagFiltersChange }: StashHeaderProps) => {
+const StashHeader = ({ itemCount, onTagFiltersChange, onAddContent, onShowGlobalChat, tags, selectedTags, onTagFilterChange }: StashHeaderProps) => {
   const [showTagFilter, setShowTagFilter] = useState(false);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const { user } = useAuth();
 
   const fetchTags = async () => {
@@ -56,24 +60,30 @@ const StashHeader = ({ itemCount, onTagFiltersChange }: StashHeaderProps) => {
       ? selectedTags.filter(tag => tag !== tagName)
       : [...selectedTags, tagName];
     
-    setSelectedTags(newSelectedTags);
-    onTagFiltersChange?.(newSelectedTags);
+    onTagFilterChange(newSelectedTags);
   };
 
   const handleClearFilters = () => {
-    setSelectedTags([]);
-    onTagFiltersChange?.([]);
+    onTagFilterChange([]);
   };
 
   const handleHideFilter = () => {
     setShowTagFilter(false);
-    setSelectedTags([]);
-    onTagFiltersChange?.([]);
+    onTagFilterChange([]);
   };
 
   return (
     <div className="mb-6">
-      <div className="flex items-center justify-end mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={onAddContent}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Content
+          </Button>
+        </div>
         <div className="flex items-center gap-4">
           <p className="text-muted-foreground">
             {itemCount} {itemCount === 1 ? 'item' : 'items'}
