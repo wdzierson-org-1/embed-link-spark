@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -57,8 +56,12 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <StashHeader 
+        onAddContent={() => setIsAddDialogOpen(true)}
+        onShowGlobalChat={() => setShowGlobalChat(true)}
         itemCount={items.filter(item => !item.isOptimistic).length}
-        onTagFiltersChange={handleTagFilterChange}
+        tags={tags}
+        selectedTags={selectedTags}
+        onTagFilterChange={handleTagFilterChange}
       />
       
       <main className="container mx-auto px-4 pt-24 pb-8">
@@ -75,6 +78,7 @@ const Index = () => {
         open={isAddDialogOpen}
         onOpenChange={setIsAddDialogOpen}
         onAddContent={handleAddContent}
+        getSuggestedTags={getSuggestedTags}
       />
 
       <EditItemDialog
@@ -85,8 +89,8 @@ const Index = () => {
       />
 
       <GlobalChatInterface
-        isOpen={showGlobalChat}
-        onClose={() => setShowGlobalChat(false)}
+        open={showGlobalChat}
+        onOpenChange={setShowGlobalChat}
       />
     </div>
   );

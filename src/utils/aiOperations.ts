@@ -42,19 +42,3 @@ export const generateEmbeddings = async (itemId: string, textContent: string) =>
     console.error('Error generating embeddings:', error);
   }
 };
-
-export const getSuggestedTags = async (content: { title?: string; content?: string; description?: string }) => {
-  try {
-    const { data, error } = await supabase.functions.invoke('get-relevant-tags', {
-      body: {
-        content: [content.title, content.content, content.description].filter(Boolean).join(' ')
-      }
-    });
-
-    if (error) throw error;
-    return data?.tags || [];
-  } catch (error) {
-    console.error('Error getting suggested tags:', error);
-    return [];
-  }
-};
