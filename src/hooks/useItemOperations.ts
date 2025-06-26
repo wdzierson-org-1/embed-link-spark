@@ -7,6 +7,7 @@ import { generateDescription, generateEmbeddings } from '@/utils/aiOperations';
 import { processPdfContent } from '@/utils/pdfProcessor';
 import { uploadFile } from '@/utils/fileUploader';
 import { saveItem, deleteItem } from '@/utils/itemOperations';
+import { generateTempId, validateUuid } from '@/utils/tempIdGenerator';
 
 type ItemType = Database['public']['Enums']['item_type'];
 
@@ -34,7 +35,7 @@ export const useItemOperations = (
   addOptimisticItem?: (item: any) => void,
   removeOptimisticItem?: (tempId: string) => void
 ) => {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { toast } = useToast();
 
   const showToast = (toastData: { title: string; description: string; variant?: 'destructive' }) => {
@@ -42,13 +43,19 @@ export const useItemOperations = (
   };
 
   const handleAddContent = async (type: string, data: any) => {
-    if (!user) {
-      console.error('No user found');
+    if (!user || !session) {
+      console.error('No user or session found for content creation');
+      toast({
+        title: "Authentication Error",
+        description: "Please log in to add content",
+        variant: "destructive",
+      });
       return;
     }
 
-    // Generate temporary ID for optimistic update
-    const tempId = `temp-${Date.now()}-${Math.random()}`;
+    // Generate proper temporary ID
+    const tempId = generateTempId();
+    console.log('Generated temp ID:', tempId);
     
     // Generate title for text notes
     let title = data.title;
@@ -78,13 +85,23 @@ export const useItemOperations = (
     }
 
     try {
-      console.log('Adding content:', { type, data, userId: user.id });
+      console.log('Adding content:', { type, data, userId: user.id, sessionValid: !!session });
       
       let filePath = null;
       
       // Handle file upload if there's a file
       if (data.file) {
+        console.log('Starting file upload for user:', user.id);
+        
+        // Verify session is still valid before upload
+        const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError || !currentSession) {
+          console.error('Session validation failed before file upload:', sessionError);
+          throw new Error('Session expired. Please log in again.');
+        }
+        
         filePath = await uploadFile(data.file, user.id);
+        console.log('File uploaded successfully:', filePath);
       }
 
       // Generate AI description (skip for PDFs with placeholder content)
@@ -169,19 +186,49 @@ export const useItemOperations = (
         removeOptimisticItem(tempId);
       }
       
+      // Provide more specific error messages
+      let errorMessage = "Failed to add content";
+      if (error.message?.includes('Session expired')) {
+        errorMessage = "Your session has expired. Please refresh and log in again.";
+      } else if (error.message?.includes('RLS')) {
+        errorMessage = "Permission denied. Please refresh and try again.";
+      }
+      
       toast({
         title: "Error",
-        description: error.message || "Failed to add content",
+        description: errorMessage,
         variant: "destructive",
       });
     }
   };
 
   const handleSaveItem = async (id: string, updates: any) => {
+    // Validate the ID before proceeding
+    if (!validateUuid(id)) {
+      console.error('Invalid UUID provided for save operation:', id);
+      toast({
+        title: "Error",
+        description: "Invalid item ID. Please refresh and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     await saveItem(id, updates, fetchItems, showToast);
   };
 
   const handleDeleteItem = async (id: string) => {
+    // Validate the ID before proceeding
+    if (!validateUuid(id)) {
+      console.error('Invalid UUID provided for delete operation:', id);
+      toast({
+        title: "Error",
+        description: "Invalid item ID. Please refresh and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     await deleteItem(id, fetchItems, showToast);
   };
 

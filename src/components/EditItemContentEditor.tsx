@@ -41,19 +41,33 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
       throw new Error('User not authenticated');
     }
 
-    // Validate session is still active
+    // Validate session is still active and get fresh session
     const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !currentSession) {
+    if (sessionError || !currentSession || !currentSession.user) {
       console.error('EditItemContentEditor: Session validation failed', sessionError);
       toast.error('Your session has expired. Please log in again.');
       throw new Error('Session expired');
+    }
+
+    // Verify user consistency
+    if (currentSession.user.id !== user.id) {
+      console.error('EditItemContentEditor: User ID mismatch', {
+        sessionUserId: currentSession.user.id,
+        stateUserId: user.id
+      });
+      toast.error('Authentication error. Please refresh and try again.');
+      throw new Error('User ID mismatch');
     }
 
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}.${fileExt}`;
     const filePath = `${user.id}/${fileName}`;
 
-    console.log('EditItemContentEditor: Uploading to path', { filePath });
+    console.log('EditItemContentEditor: Uploading to path', { 
+      filePath,
+      userFromSession: currentSession.user.id,
+      userFromState: user.id
+    });
 
     // Retry mechanism with exponential backoff
     const maxRetries = 3;
@@ -70,6 +84,13 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         if (uploadError) {
           console.error(`EditItemContentEditor: Upload error (attempt ${attempt}):`, uploadError);
           lastError = uploadError;
+          
+          // If it's an RLS error, don't retry
+          if (uploadError.message?.includes('RLS') || uploadError.message?.includes('policy')) {
+            console.error('EditItemContentEditor: RLS policy violation detected');
+            toast.error('Permission denied. Please refresh the page and try again.');
+            throw uploadError;
+          }
           
           if (attempt < maxRetries) {
             const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
@@ -92,6 +113,14 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         console.error(`EditItemContentEditor: Upload attempt ${attempt} failed:`, error);
         lastError = error as Error;
         
+        // Don't retry for authentication or permission errors
+        if (error instanceof Error && 
+            (error.message?.includes('RLS') || 
+             error.message?.includes('policy') || 
+             error.message?.includes('Session expired'))) {
+          break;
+        }
+        
         if (attempt < maxRetries) {
           const delay = Math.pow(2, attempt) * 1000;
           await new Promise(resolve => setTimeout(resolve, delay));
@@ -100,7 +129,11 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
     }
 
     console.error('EditItemContentEditor: All upload attempts failed');
-    toast.error('Failed to upload image. Please try again.');
+    const errorMessage = lastError?.message?.includes('RLS') || lastError?.message?.includes('policy') 
+      ? 'Permission denied. Please refresh the page and try again.'
+      : 'Failed to upload image. Please try again.';
+    
+    toast.error(errorMessage);
     throw lastError || new Error('Upload failed after all retries');
   };
 
