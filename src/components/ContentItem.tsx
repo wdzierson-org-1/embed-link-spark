@@ -107,7 +107,7 @@ const ContentItem = ({
 
   return (
     <TooltipProvider>
-      <Card className="group">
+      <Card className="group flex flex-col h-full">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0 pr-2">
@@ -161,34 +161,36 @@ const ContentItem = ({
             </DropdownMenu>
           </div>
         </CardHeader>
-        <CardContent>
-          <ContentItemImage
-            item={item}
-            imageErrors={imageErrors}
-            onImageError={onImageError}
-          />
-          
-          {ogData && item.type === 'link' && (
-            <div className="mb-3">
-              <LinkPreview ogData={ogData} />
-            </div>
-          )}
-          
-          <ContentItemContent
-            item={item}
-            expandedContent={expandedContent}
-            onToggleExpansion={onToggleExpansion}
-          />
-          
-          <div className="mb-2">
-            <ItemTagsManager
-              itemId={item.id}
-              currentTags={tags}
-              onTagsUpdated={onTagsUpdated}
+        <CardContent className="flex flex-col flex-1">
+          <div className="flex-1">
+            <ContentItemImage
+              item={item}
+              imageErrors={imageErrors}
+              onImageError={onImageError}
             />
+            
+            {ogData && item.type === 'link' && (
+              <div className="mb-3">
+                <LinkPreview ogData={ogData} />
+              </div>
+            )}
+            
+            <ContentItemContent
+              item={item}
+              expandedContent={expandedContent}
+              onToggleExpansion={onToggleExpansion}
+            />
+            
+            <div className="mb-2">
+              <ItemTagsManager
+                itemId={item.id}
+                currentTags={tags}
+                onTagsUpdated={onTagsUpdated}
+              />
+            </div>
           </div>
           
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mt-auto pt-2">
             <Badge className={getTypeColor(item.type)}>
               {getIcon(item.type)}
               <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
