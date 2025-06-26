@@ -13,7 +13,6 @@ import {
   type JSONContent,
   type EditorInstance,
 } from 'novel';
-import { defaultExtensions } from 'novel/extensions';
 
 interface EditItemContentEditorProps {
   content: string;
@@ -80,7 +79,6 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
         <EditorRoot>
           <EditorContent
             initialContent={initialContent}
-            extensions={defaultExtensions}
             className="min-h-[300px] p-4 prose prose-sm max-w-none"
             editorProps={{
               attributes: {
