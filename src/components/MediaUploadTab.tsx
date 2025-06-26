@@ -107,13 +107,18 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
         // For images, use the centralized upload service and generate AI description
         if (fileType === 'image') {
           try {
+            console.log('MediaUploadTab: Uploading image and generating AI description');
             const result = await uploadImage({
               file,
               userId: user.id
             });
             
-            // Generate AI description for the uploaded image
-            console.log('MediaUploadTab: Generating AI description for image');
+            console.log('MediaUploadTab: Image uploaded successfully, generating AI description');
+            
+            // Wait a moment to ensure the file is accessible
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Generate AI description for the uploaded image - pass the public URL directly
             const aiDescription = await generateDescription('image', {
               fileData: result.publicUrl,
               content: file.name
@@ -130,7 +135,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
               uploadedUrl: result.publicUrl
             });
           } catch (error) {
-            console.error('Error uploading image or generating description:', error);
+            console.error('MediaUploadTab: Error uploading image or generating description:', error);
             // Fall back to the original flow for images if centralized service fails
             await onAddContent(fileType, {
               file,
@@ -161,7 +166,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
         description: `Uploaded ${files.length} file(s) successfully!`,
       });
     } catch (error) {
-      console.error('Error uploading files:', error);
+      console.error('MediaUploadTab: Error uploading files:', error);
       toast({
         title: "Upload failed",
         description: "There was an error uploading your files. Please try again.",

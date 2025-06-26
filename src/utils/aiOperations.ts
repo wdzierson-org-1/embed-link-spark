@@ -3,6 +3,8 @@ import { supabase } from '@/integrations/supabase/client';
 
 export const generateDescription = async (type: string, data: any) => {
   try {
+    console.log('aiOperations: Generating description', { type, data });
+    
     const { data: result, error } = await supabase.functions.invoke('generate-description', {
       body: {
         content: data.content,
@@ -13,10 +15,15 @@ export const generateDescription = async (type: string, data: any) => {
       }
     });
 
-    if (error) throw error;
-    return result.description;
+    if (error) {
+      console.error('aiOperations: Error from generate-description function:', error);
+      throw error;
+    }
+    
+    console.log('aiOperations: Description generated successfully:', result?.description);
+    return result?.description;
   } catch (error) {
-    console.error('Error generating description:', error);
+    console.error('aiOperations: Error generating description:', error);
     return null;
   }
 };
