@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
   EditorContent,
@@ -16,24 +16,13 @@ import { useAuth } from '@/hooks/useAuth';
 interface EditItemContentEditorProps {
   content: string;
   onContentChange: (content: string) => void;
+  itemId?: string; // Add itemId to create stable keys
+  resetTrigger?: number; // Add reset trigger for manual resets
 }
 
-// Simple hash function for strings (safe for Unicode)
-const simpleHash = (str: string): string => {
-  let hash = 0;
-  if (str.length === 0) return 'empty';
-  
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  
-  return Math.abs(hash).toString(36);
-};
-
-const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
+const EditItemContentEditor = ({ content, onContentChange, itemId, resetTrigger }: EditItemContentEditorProps) => {
   const { user } = useAuth();
+  const editorRef = useRef<EditorInstance | null>(null);
 
   const handleImageUpload = async (file: File): Promise<string> => {
     if (!user) {
@@ -60,14 +49,13 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
 
   // Convert content to JSON synchronously and create a stable key
   const { initialContent, editorKey } = useMemo(() => {
-    console.log('EditItemContentEditor: Processing content', { content, contentLength: content.length });
+    console.log('EditItemContentEditor: Processing content', { content, contentLength: content.length, itemId });
     
     const jsonContent = convertToJsonContent(content);
     console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
     
-    // Create a stable key based on content hash - only change when content structure changes
-    const contentHash = simpleHash(content);
-    const key = `editor-${contentHash}`;
+    // Create a stable key based on itemId and resetTrigger - only change when switching items or manually resetting
+    const key = `editor-${itemId || 'new'}-${resetTrigger || 0}`;
     
     console.log('EditItemContentEditor: Generated key', { key });
     
@@ -75,7 +63,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
       initialContent: jsonContent,
       editorKey: key
     };
-  }, [content]);
+  }, [itemId, resetTrigger, content]); // Keep content in deps but use itemId for key
 
   console.log('EditItemContentEditor: Rendering', { 
     hasInitialContent: !!initialContent,
@@ -112,6 +100,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
               console.log('EditItemContentEditor: Content updated');
+              editorRef.current = editor;
               // Save as JSON to preserve formatting
               const json = editor.getJSON();
               onContentChange(JSON.stringify(json));

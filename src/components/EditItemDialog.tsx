@@ -35,6 +35,7 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   const [hasImage, setHasImage] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  const [resetTrigger, setResetTrigger] = useState(0);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -55,6 +56,14 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
       }
     }
   }, [item]);
+
+  // Reset editor when dialog closes
+  useEffect(() => {
+    if (!open) {
+      // Increment reset trigger to force editor recreation on next open
+      setResetTrigger(prev => prev + 1);
+    }
+  }, [open]);
 
   const handleSave = async () => {
     if (!item) return;
@@ -131,6 +140,8 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
             <EditItemContentEditor
               content={content}
               onContentChange={setContent}
+              itemId={item?.id}
+              resetTrigger={resetTrigger}
             />
 
             {/* AI Description Section */}
