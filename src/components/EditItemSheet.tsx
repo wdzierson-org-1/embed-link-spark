@@ -40,6 +40,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     activeTab,
     saveStatus,
     showDraftRestore,
+    lastSaved,
     setActiveTab,
     handleTitleChange,
     handleDescriptionChange,
@@ -115,7 +116,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
             />
           </Tabs>
 
-          <EditItemAutoSaveIndicator saveStatus={saveStatus} />
+          <EditItemAutoSaveIndicator saveStatus={saveStatus} lastSaved={lastSaved} />
         </SheetContent>
       </Sheet>
     </TooltipProvider>
