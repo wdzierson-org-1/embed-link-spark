@@ -25,7 +25,8 @@ export const processAndInsertContent = async (
   userId: string,
   sessionValid: boolean,
   fetchItems: () => Promise<void>,
-  showToast: (toast: { title: string; description: string; variant?: 'destructive' }) => void
+  showToast: (toast: { title: string; description: string; variant?: 'destructive' }) => void,
+  clearSkeletonItems?: () => void
 ) => {
   console.log('Processing content:', { type, data, userId, sessionValid });
   
@@ -79,6 +80,11 @@ export const processAndInsertContent = async (
   };
 
   console.log('processAndInsertContent: Inserting item data:', itemData);
+
+  // Clear skeleton items before inserting actual content
+  if (clearSkeletonItems) {
+    clearSkeletonItems();
+  }
 
   // Insert item into database
   const { data: insertedItem, error } = await supabase

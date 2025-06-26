@@ -30,8 +30,6 @@ export const useItems = () => {
       } else {
         console.log('Fetched items:', data);
         setItems(data || []);
-        // Only remove optimistic items that have been processed (not skeletons)
-        setOptimisticItems(prev => prev.filter(item => item.showSkeleton === true));
       }
     } catch (error) {
       console.error('Exception while fetching items:', error);
@@ -53,6 +51,11 @@ export const useItems = () => {
     setOptimisticItems(prev => prev.filter(item => item.id !== tempId));
   };
 
+  const clearSkeletonItems = () => {
+    console.log('Clearing all skeleton items');
+    setOptimisticItems(prev => prev.filter(item => !item.showSkeleton));
+  };
+
   const getAllItems = () => {
     return [...optimisticItems, ...items];
   };
@@ -68,6 +71,7 @@ export const useItems = () => {
     fetchItems,
     setItems,
     addOptimisticItem,
-    removeOptimisticItem
+    removeOptimisticItem,
+    clearSkeletonItems
   };
 };

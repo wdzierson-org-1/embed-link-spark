@@ -9,7 +9,8 @@ import { processAndInsertContent } from '@/utils/contentProcessor';
 export const useItemOperations = (
   fetchItems: () => Promise<void>,
   addOptimisticItem?: (item: any) => void,
-  removeOptimisticItem?: (tempId: string) => void
+  removeOptimisticItem?: (tempId: string) => void,
+  clearSkeletonItems?: () => void
 ) => {
   const { user, session } = useAuth();
   const { toast } = useToast();
@@ -46,7 +47,8 @@ export const useItemOperations = (
         user.id, 
         !!session, 
         fetchItems, 
-        showToast
+        showToast,
+        clearSkeletonItems
       );
 
       toast({
