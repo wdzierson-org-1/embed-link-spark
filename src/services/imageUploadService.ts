@@ -107,8 +107,7 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
         console.error(`ImageUploadService: Upload error (attempt ${attempt}):`, {
           error: uploadError,
           errorMessage: uploadError.message,
-          statusCode: uploadError.statusCode,
-          errorCode: uploadError.error
+          errorName: uploadError.name
         });
         
         lastError = uploadError;
@@ -116,7 +115,7 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
         // Handle specific error types
         if (uploadError.message?.includes('RLS') || 
             uploadError.message?.includes('policy') ||
-            uploadError.statusCode === '403') {
+            uploadError.message?.includes('Unauthorized')) {
           console.error('ImageUploadService: RLS/Authorization error detected');
           
           // If this is an RLS error and we haven't exhausted retries, try refreshing auth
