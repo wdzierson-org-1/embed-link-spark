@@ -1,99 +1,136 @@
 
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { FileText } from 'lucide-react';
+import TagInput from '@/components/TagInput';
+import {
+  EditorRoot,
+  EditorContent,
+  type JSONContent,
+  type EditorInstance,
+  handleCommandNavigation,
+} from 'novel';
+import { createEditorExtensions } from './editor/EditorExtensions';
+import EditorCommandMenu from './editor/EditorCommandMenu';
 
 interface TextNoteTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
-  getSuggestedTags: (limit?: number) => string[];
+  getSuggestedTags: (content: { title?: string; content?: string; description?: string }) => Promise<string[]>;
 }
 
 const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
+  const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const { toast } = useToast();
+  const [tags, setTags] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const extensions = createEditorExtensions();
 
-  const generateTitle = async (noteContent: string): Promise<string> => {
-    try {
-      const { data, error } = await supabase.functions.invoke('generate-title', {
-        body: { content: noteContent }
-      });
-
-      if (error) {
-        console.error('Error generating title:', error);
-        return 'Untitled Note';
+  const initialContent: JSONContent = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        content: []
       }
+    ]
+  };
 
-      return data.title || 'Untitled Note';
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!content.trim()) return;
+
+    setIsLoading(true);
+    try {
+      await onAddContent('text', {
+        title: title.trim() || undefined,
+        content: content.trim(),
+        tags
+      });
+      setTitle('');
+      setContent('');
+      setTags([]);
     } catch (error) {
-      console.error('Error generating title:', error);
-      return 'Untitled Note';
+      console.error('Error adding note:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleSubmit = async () => {
-    if (!content.trim()) {
-      toast({
-        title: "Content required",
-        description: "Please enter some content for your note.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      // Generate AI title
-      const aiTitle = await generateTitle(content.trim());
-
-      await onAddContent('text', {
-        title: aiTitle,
-        content: content.trim(),
-        tags: []
-      });
-
-      // Reset form
-      setContent('');
-
-      toast({
-        title: "Success",
-        description: "Note added successfully!",
-      });
-    } catch (error) {
-      console.error('Error adding note:', error);
-      toast({
-        title: "Error",
-        description: "Failed to add note. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handleGetSuggestedTags = async () => {
+    if (!content.trim()) return [];
+    return await getSuggestedTags({
+      title: title.trim() || undefined,
+      content: content.trim()
+    });
   };
 
   return (
     <Card>
-      <CardContent className="pt-6">
-        <div className="space-y-4">
-          <Textarea
-            placeholder="Write your note here..."
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={6}
-            className="resize-none"
+      <CardContent className="p-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex items-center gap-2 mb-4">
+            <FileText className="h-5 w-5 text-blue-600" />
+            <h3 className="text-lg font-medium">Create New Note</h3>
+          </div>
+
+          <div>
+            <Label htmlFor="note-title">Title (optional)</Label>
+            <Input
+              id="note-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Enter a title for your note..."
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label className="text-base font-medium mb-3 block">Content</Label>
+            <div className="border rounded-md">
+              <EditorRoot>
+                <EditorContent
+                  initialContent={initialContent}
+                  extensions={extensions}
+                  className="min-h-[200px] w-full max-w-none"
+                  editorProps={{
+                    handleDOMEvents: {
+                      keydown: (_view, event) => handleCommandNavigation(event),
+                    },
+                    attributes: {
+                      class: 'prose prose-sm dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-3xl prose-h1:font-bold prose-h2:text-2xl prose-h2:font-bold prose-h3:text-xl prose-h3:font-bold prose-h4:text-lg prose-h4:font-bold prose-h5:text-base prose-h5:font-bold prose-h6:text-sm prose-h6:font-bold'
+                    }
+                  }}
+                  onUpdate={({ editor }: { editor: EditorInstance }) => {
+                    // Save as JSON to preserve formatting
+                    const json = editor.getJSON();
+                    setContent(JSON.stringify(json));
+                  }}
+                  placeholder="Press '/' for commands or start typing..."
+                >
+                  <EditorCommandMenu />
+                </EditorContent>
+              </EditorRoot>
+            </div>
+          </div>
+
+          <TagInput
+            tags={tags}
+            onTagsChange={setTags}
+            getSuggestedTags={handleGetSuggestedTags}
+            placeholder="Add tags (optional)..."
           />
 
           <Button 
-            onClick={handleSubmit} 
-            disabled={!content.trim() || isSubmitting}
+            type="submit" 
+            disabled={!content.trim() || isLoading}
             className="w-full"
           >
-            {isSubmitting ? 'Adding Note...' : 'Add Note'}
+            {isLoading ? 'Adding Note...' : 'Add Note'}
           </Button>
-        </div>
+        </form>
       </CardContent>
     </Card>
   );

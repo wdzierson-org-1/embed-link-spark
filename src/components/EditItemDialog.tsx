@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -105,28 +105,27 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
         side="right" 
         className="w-full sm:max-w-2xl p-0 flex flex-col"
       >
-        <SheetHeader className="flex-shrink-0 border-b p-6 pb-4">
-          <SheetTitle>Edit Note</SheetTitle>
-        </SheetHeader>
-        
         <ScrollArea className="flex-1">
           <div className="p-6 space-y-6">
-            {/* Title Section */}
-            <div>
+            {/* Title Section - moved to top */}
+            <div className="border-b pb-4">
               <EditItemTitleSection
                 title={title}
                 onTitleChange={setTitle}
                 onSave={handleTitleSave}
               />
+              
+              {/* Add Image Link */}
+              <div className="mt-2">
+                <EditItemImageSection
+                  itemId={item?.id || ''}
+                  hasImage={hasImage}
+                  imageUrl={imageUrl}
+                  onImageStateChange={handleImageStateChange}
+                  asLink={true}
+                />
+              </div>
             </div>
-
-            {/* Image Section */}
-            <EditItemImageSection
-              itemId={item?.id || ''}
-              hasImage={hasImage}
-              imageUrl={imageUrl}
-              onImageStateChange={handleImageStateChange}
-            />
 
             {/* Content Section */}
             <EditItemContentEditor

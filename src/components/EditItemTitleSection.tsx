@@ -40,26 +40,29 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
 
   if (isEditing) {
     return (
-      <Input
-        value={title}
-        onChange={(e) => onTitleChange(e.target.value)}
-        onKeyPress={handleKeyPress}
-        onBlur={handleSave}
-        className="text-2xl font-bold border-none p-0 shadow-none focus-visible:ring-0"
-        placeholder="Enter title..."
-        autoFocus
-      />
+      <div className="relative">
+        <Input
+          value={title}
+          onChange={(e) => onTitleChange(e.target.value)}
+          onKeyPress={handleKeyPress}
+          onBlur={handleSave}
+          className="text-2xl font-bold border-none p-0 shadow-none focus-visible:ring-0 h-auto resize-none"
+          placeholder="Enter title..."
+          autoFocus
+          style={{ fontSize: '1.5rem', lineHeight: '2rem' }}
+        />
+      </div>
     );
   }
 
   return (
     <h1 
-      className="text-2xl font-bold cursor-pointer hover:bg-yellow-50 p-2 rounded transition-colors"
+      className="text-2xl font-bold cursor-pointer hover:bg-yellow-50 p-2 rounded transition-colors flex items-center"
       onClick={() => setIsEditing(true)}
       title="Click to edit title"
     >
-      {title || 'Untitled Note'}
-      <Edit className="inline-block ml-2 h-4 w-4 opacity-50" />
+      <span className="flex-1">{title || 'Untitled Note'}</span>
+      <Edit className="ml-2 h-4 w-4 opacity-50 flex-shrink-0" />
     </h1>
   );
 };
