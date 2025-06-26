@@ -36,24 +36,6 @@ const Navbar = () => {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
               <h1 className="text-xl font-bold text-primary">Stash</h1>
-              {user && (
-                <div className="hidden md:flex items-center space-x-4">
-                  <Button
-                    variant="ghost"
-                    onClick={() => navigate('/')}
-                    className="text-sm"
-                  >
-                    Dashboard
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setShowSettings(true)}
-                    className="text-sm"
-                  >
-                    Settings
-                  </Button>
-                </div>
-              )}
             </div>
 
             <div className="flex items-center space-x-4">
