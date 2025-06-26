@@ -191,6 +191,15 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
     setUrl(value);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
+
+  const hasContent = url.trim().length > 0;
+
   return (
     <Card>
       <CardContent className="pt-6">
@@ -199,6 +208,7 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
             placeholder="https://example.com"
             value={url}
             onChange={handleUrlChange}
+            onKeyDown={handleKeyDown}
             type="url"
           />
           
@@ -208,13 +218,19 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
           
           {ogData && <LinkPreview ogData={ogData} />}
 
-          <Button 
-            onClick={handleSubmit} 
-            disabled={!url.trim() || isSubmitting}
-            className="w-full"
-          >
-            {isSubmitting ? 'Adding Link...' : 'Add Link'}
-          </Button>
+          <div className="text-xs text-gray-500">
+            Press cmd + enter to save quickly
+          </div>
+
+          {hasContent && (
+            <Button 
+              onClick={handleSubmit} 
+              disabled={isSubmitting}
+              className="w-full"
+            >
+              {isSubmitting ? 'Adding Link...' : 'Add Link'}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

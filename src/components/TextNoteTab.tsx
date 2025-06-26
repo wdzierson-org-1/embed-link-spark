@@ -1,11 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { FileText } from 'lucide-react';
-import TagInput from '@/components/TagInput';
 import {
   EditorRoot,
   EditorContent,
@@ -22,11 +20,8 @@ interface TextNoteTabProps {
 }
 
 const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
-  const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const extensions = createEditorExtensions();
 
   const initialContent: JSONContent = {
@@ -39,21 +34,17 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     ]
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!content.trim()) return;
 
     setIsLoading(true);
     try {
       await onAddContent('text', {
-        title: title.trim() || undefined,
         content: content.trim(),
-        tags
+        tags: []
       });
-      setTitle('');
       setContent('');
-      setTags([]);
-      setSuggestedTags([]);
     } catch (error) {
       console.error('Error adding note:', error);
     } finally {
@@ -61,27 +52,25 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     }
   };
 
-  const handleGetSuggestedTags = async () => {
-    if (!content.trim() && !title.trim()) return;
-    
-    try {
-      const suggestions = await getSuggestedTags({
-        title: title.trim() || undefined,
-        content: content.trim() || undefined
-      });
-      setSuggestedTags(suggestions);
-    } catch (error) {
-      console.error('Error getting suggested tags:', error);
+  const handleContentChange = (newContent: string) => {
+    setContent(newContent);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
     }
   };
 
-  const handleContentChange = (newContent: string) => {
-    setContent(newContent);
-    // Clear previous suggestions when content changes
-    if (suggestedTags.length > 0) {
-      setSuggestedTags([]);
-    }
-  };
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [content]);
+
+  const hasContent = content.trim().length > 0;
 
   return (
     <Card>
@@ -89,22 +78,13 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <FileText className="h-5 w-5 text-blue-600" />
-            <h3 className="text-lg font-medium">Create New Note</h3>
           </div>
 
           <div>
-            <Label htmlFor="note-title">Title (optional)</Label>
-            <Input
-              id="note-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter a title for your note..."
-              className="mt-1"
-            />
-          </div>
-
-          <div>
-            <Label className="text-base font-medium mb-3 block">Content</Label>
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-base font-medium">Content</Label>
+              <span className="text-sm text-gray-400">Press / for formatting options</span>
+            </div>
             <div className="border rounded-md">
               <EditorRoot>
                 <EditorContent
@@ -132,36 +112,19 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
             </div>
           </div>
 
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Label className="text-base font-medium">Tags (optional)</Label>
-              {(content.trim() || title.trim()) && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleGetSuggestedTags}
-                  className="text-xs text-blue-600 hover:text-blue-800"
-                >
-                  Get suggestions
-                </Button>
-              )}
-            </div>
-            <TagInput
-              tags={tags}
-              onTagsChange={setTags}
-              suggestions={suggestedTags}
-              placeholder="Add tags..."
-            />
+          <div className="text-xs text-gray-500">
+            Press cmd + enter to save quickly
           </div>
 
-          <Button 
-            type="submit" 
-            disabled={!content.trim() || isLoading}
-            className="w-full"
-          >
-            {isLoading ? 'Adding Note...' : 'Add Note'}
-          </Button>
+          {hasContent && (
+            <Button 
+              type="submit" 
+              disabled={isLoading}
+              className="w-full"
+            >
+              {isLoading ? 'Adding Note...' : 'Add Note'}
+            </Button>
+          )}
         </form>
       </CardContent>
     </Card>

@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 
 interface MediaUploadTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
-  getSuggestedTags: (limit?: number) => string[];
+  getSuggestedTags: (content: { title?: string; content?: string; description?: string }) => Promise<string[]>;
 }
 
 const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps) => {
@@ -99,6 +99,8 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
     }
   };
 
+  const hasFiles = files.length > 0;
+
   return (
     <Card>
       <CardContent className="pt-6">
@@ -166,13 +168,15 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
             </div>
           )}
 
-          <Button 
-            onClick={handleUpload} 
-            disabled={files.length === 0 || isUploading}
-            className="w-full"
-          >
-            {isUploading ? 'Uploading...' : 'Upload Files'}
-          </Button>
+          {hasFiles && (
+            <Button 
+              onClick={handleUpload} 
+              disabled={isUploading}
+              className="w-full"
+            >
+              {isUploading ? 'Uploading...' : 'Upload Files'}
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
