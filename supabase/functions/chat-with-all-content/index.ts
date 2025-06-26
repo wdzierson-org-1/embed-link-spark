@@ -48,54 +48,96 @@ serve(async (req) => {
 
     console.log('Authenticated user:', user.id);
 
-    // Fetch all user's items using service role for reliable access
-    const { data: items, error: itemsError } = await supabaseAdmin
-      .from('items')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    // First, try semantic search using vector embeddings if we have a specific query
+    let relevantChunks = [];
+    
+    try {
+      // Generate embedding for the user's query
+      const queryEmbeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAIApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'text-embedding-3-small',
+          input: message,
+        }),
+      });
 
-    if (itemsError) {
-      console.error('Items fetch error:', itemsError);
-      throw new Error(`Failed to fetch user items: ${itemsError.message}`);
+      if (queryEmbeddingResponse.ok) {
+        const queryEmbeddingData = await queryEmbeddingResponse.json();
+        const queryEmbedding = queryEmbeddingData.data[0].embedding;
+
+        // Search for similar content chunks with optimized parameters
+        const { data: similarChunks, error: searchError } = await supabaseAdmin.rpc('search_similar_content', {
+          query_embedding: queryEmbedding,
+          match_threshold: 0.6, // Lower threshold for more inclusive results
+          match_count: 20, // More results to capture comprehensive information
+          user_id: user.id
+        });
+
+        if (!searchError && similarChunks && similarChunks.length > 0) {
+          console.log(`Found ${similarChunks.length} relevant chunks via semantic search`);
+          relevantChunks = similarChunks.map(chunk => ({
+            content: chunk.content_chunk,
+            similarity: chunk.similarity,
+            item_id: chunk.item_id
+          }));
+        }
+      }
+    } catch (embeddingError) {
+      console.error('Embedding search failed, falling back to basic search:', embeddingError);
     }
 
-    console.log(`Found ${items?.length || 0} items for user`);
+    // If semantic search didn't work or returned few results, fall back to fetching user's items
+    if (relevantChunks.length < 5) {
+      console.log('Supplementing with user items for broader context');
+      const { data: items, error: itemsError } = await supabaseAdmin
+        .from('items')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(30); // Get more recent items for context
 
-    // Prepare context about all content
-    let contentContext = `You are an AI assistant helping the user work with their personal content collection. The user has ${items?.length || 0} items in their stash.
+      if (!itemsError && items) {
+        const itemChunks = items.map(item => ({
+          content: `${item.title || ''} ${item.description || ''} ${item.content || ''}`.trim(),
+          item_id: item.id,
+          type: item.type
+        })).filter(chunk => chunk.content.length > 0);
+        
+        relevantChunks = [...relevantChunks, ...itemChunks];
+      }
+    }
 
-Here's a summary of their content:
+    console.log(`Total chunks for context: ${relevantChunks.length}`);
+
+    // Prepare enhanced context for the LLM
+    let contentContext = `You are an AI assistant helping the user work with their personal content collection. You have access to their notes, saved articles, recordings, and other personal information.
+
+IMPORTANT: When providing information, be comprehensive and include ALL relevant details you find. If there are multiple pieces of information about the same topic (like pricing from different stores), include ALL of them.
+
+Here's the relevant content from their collection:
 
 `;
 
-    if (items && items.length > 0) {
-      items.forEach((item, index) => {
-        contentContext += `${index + 1}. Type: ${item.type}`;
-        if (item.title) contentContext += `, Title: "${item.title}"`;
-        if (item.content) contentContext += `, Content: "${item.content.substring(0, 200)}${item.content.length > 200 ? '...' : ''}"`;
-        if (item.description) contentContext += `, AI Description: "${item.description.substring(0, 100)}${item.description.length > 100 ? '...' : ''}"`;
-        contentContext += '\n';
+    if (relevantChunks.length > 0) {
+      relevantChunks.forEach((chunk, index) => {
+        contentContext += `[${index + 1}] ${chunk.content}\n\n`;
       });
     } else {
-      contentContext += "No items found in the user's stash.\n";
+      contentContext += "No specific relevant content found in the user's collection.\n\n";
     }
 
     contentContext += `
-You can help the user:
-- Search and find specific content
-- Summarize their collection
-- Answer questions about any items
-- Help organize or categorize their content
-- Provide insights across their entire collection
-- Compare different items
-- Suggest connections between items
+Please provide a helpful, comprehensive response based on ALL the relevant information above. If you find multiple related pieces of information (like different prices, different sources, etc.), make sure to include all of them in your response. Be conversational and helpful while being thorough.
 
-Be helpful and conversational while working with their entire content collection.`;
+User's question: ${message}`;
 
-    console.log('Sending request to OpenAI with context for', items?.length || 0, 'items');
+    console.log('Sending request to OpenAI GPT-4.1 with context for', relevantChunks.length, 'chunks');
 
-    // Prepare messages for OpenAI
+    // Prepare messages for OpenAI with the most advanced model
     const messages = [
       {
         role: 'system',
@@ -115,10 +157,10 @@ Be helpful and conversational while working with their entire content collection
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-2025-04-14', // Most advanced model for best RAG performance
         messages,
-        max_tokens: 1000,
-        temperature: 0.7,
+        max_tokens: 1500, // Increased for more comprehensive responses
+        temperature: 0.3, // Lower temperature for more factual, consistent responses
       }),
     });
 

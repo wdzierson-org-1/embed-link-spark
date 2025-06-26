@@ -34,24 +34,49 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Clean and prepare text content - remove extra whitespace and normalize
+    // Clean and prepare text content
     const cleanedText = textContent.trim().replace(/\s+/g, ' ');
     console.log('Cleaned text length:', cleanedText.length);
 
-    // Split text into chunks for embedding (smaller chunks for better retrieval)
-    const chunkSize = 800; // Reduced chunk size for better granularity
+    // Optimized chunking strategy for personal notes and discrete information
     const chunks = [];
     
-    if (cleanedText.length <= chunkSize) {
-      // If text is small enough, use as single chunk
+    if (cleanedText.length <= 1200) {
+      // For shorter content (most personal notes), use as single chunk
       chunks.push(cleanedText);
     } else {
-      // Split into overlapping chunks
-      const overlap = 100;
-      for (let i = 0; i < cleanedText.length; i += chunkSize - overlap) {
-        const chunk = cleanedText.slice(i, i + chunkSize);
-        if (chunk.trim().length > 50) { // Only add chunks with meaningful content
-          chunks.push(chunk.trim());
+      // For longer content, use smaller chunks with more overlap to preserve context
+      const chunkSize = 600; // Smaller chunks for better granularity
+      const overlap = 150; // More overlap to preserve relationships
+      
+      // Try to split on natural boundaries first (paragraphs, sentences)
+      const paragraphs = cleanedText.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+      
+      if (paragraphs.length > 1) {
+        // Process paragraph by paragraph, combining small ones
+        let currentChunk = '';
+        
+        for (const paragraph of paragraphs) {
+          if (currentChunk.length + paragraph.length + 2 <= chunkSize) {
+            currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+          } else {
+            if (currentChunk.trim()) {
+              chunks.push(currentChunk.trim());
+            }
+            currentChunk = paragraph;
+          }
+        }
+        
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+        }
+      } else {
+        // Fall back to sliding window for very long single paragraphs
+        for (let i = 0; i < cleanedText.length; i += chunkSize - overlap) {
+          const chunk = cleanedText.slice(i, i + chunkSize);
+          if (chunk.trim().length > 100) { // Only add meaningful chunks
+            chunks.push(chunk.trim());
+          }
         }
       }
     }
