@@ -8,7 +8,6 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
-import EditItemImageSection from '@/components/EditItemImageSection';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
 import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
 
@@ -32,8 +31,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [hasImage, setHasImage] = useState(false);
-  const [imageUrl, setImageUrl] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [editorInstanceKey, setEditorInstanceKey] = useState('');
   const { toast } = useToast();
@@ -59,16 +56,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
       setDescription(item.description || '');
       setContent(item.content || '');
       setTags(item.tags || []);
-      
-      // Check if item has an image
-      if (item.file_path && item.type === 'image') {
-        setHasImage(true);
-        const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-        setImageUrl(data.publicUrl);
-      } else {
-        setHasImage(false);
-        setImageUrl('');
-      }
     }
   }, [item]);
 
@@ -105,11 +92,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
     await onSave(item.id, { description: newDescription || undefined });
   };
 
-  const handleImageStateChange = (newHasImage: boolean, newImageUrl: string) => {
-    setHasImage(newHasImage);
-    setImageUrl(newImageUrl);
-  };
-
   const handleTagsUpdated = () => {
     // This will be called when tags are updated
     // The ItemTagsManager handles the actual updates
@@ -123,24 +105,13 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
       >
         <ScrollArea className="flex-1">
           <div className="p-6 space-y-6">
-            {/* Title Section - moved to top */}
+            {/* Title Section */}
             <div className="border-b pb-4">
               <EditItemTitleSection
                 title={title}
                 onTitleChange={setTitle}
                 onSave={handleTitleSave}
               />
-              
-              {/* Add Image Link */}
-              <div className="mt-2">
-                <EditItemImageSection
-                  itemId={item?.id || ''}
-                  hasImage={hasImage}
-                  imageUrl={imageUrl}
-                  onImageStateChange={handleImageStateChange}
-                  asLink={true}
-                />
-              </div>
             </div>
 
             {/* Content Section */}

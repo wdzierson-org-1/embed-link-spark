@@ -98,7 +98,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
 
     setIsUploading(true);
     try {
-      // Process files sequentially to show skeleton loading states
+      // Process files and show skeletons immediately
       for (const file of files) {
         const fileType = file.type.startsWith('image/') ? 'image' :
                         file.type.startsWith('video/') ? 'video' :
@@ -106,72 +106,68 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
 
         console.log('MediaUploadTab: Starting upload for file:', file.name);
 
-        // Immediately add optimistic item to show skeleton
+        // First, add skeleton item
         await onAddContent(fileType, {
           file,
           title: file.name,
           description: 'Processing...',
           tags: [],
-          isOptimistic: true, // Flag to show skeleton
+          isOptimistic: true,
           showSkeleton: true
         });
 
-        // For images, use the centralized upload service and generate AI description
-        if (fileType === 'image') {
+        // Then process the actual file in the background
+        setTimeout(async () => {
           try {
-            console.log('MediaUploadTab: Uploading image and generating AI description');
-            const result = await uploadImage({
-              file,
-              userId: user.id
-            });
-            
-            console.log('MediaUploadTab: Image uploaded successfully, generating AI description');
-            
-            // Wait a moment to ensure the file is accessible
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            // Generate AI description for the uploaded image
-            const aiDescription = await generateDescription('image', {
-              fileData: result.publicUrl,
-              content: file.name
-            });
-            
-            console.log('MediaUploadTab: AI description generated:', aiDescription);
-            
-            // Now add the actual content to replace the skeleton
-            await onAddContent(fileType, {
-              file,
-              title: file.name,
-              description: aiDescription || '',
-              tags: [],
-              uploadedFilePath: result.filePath,
-              uploadedUrl: result.publicUrl,
-              isOptimistic: false, // This is the real content
-              replaceOptimistic: true // Flag to replace skeleton
-            });
+            if (fileType === 'image') {
+              // For images, use the centralized upload service and generate AI description
+              const result = await uploadImage({
+                file,
+                userId: user.id
+              });
+              
+              console.log('MediaUploadTab: Image uploaded successfully, generating AI description');
+              
+              // Wait a moment to ensure the file is accessible
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+              // Generate AI description for the uploaded image
+              const aiDescription = await generateDescription('image', {
+                fileData: result.publicUrl,
+                content: file.name
+              });
+              
+              console.log('MediaUploadTab: AI description generated:', aiDescription);
+              
+              // Now add the actual content
+              await onAddContent(fileType, {
+                file,
+                title: file.name,
+                description: aiDescription || '',
+                tags: [],
+                uploadedFilePath: result.filePath,
+                uploadedUrl: result.publicUrl,
+                isOptimistic: false
+              });
+            } else {
+              // For non-image files, process normally
+              await onAddContent(fileType, {
+                file,
+                title: file.name,
+                description: '',
+                tags: [],
+                isOptimistic: false
+              });
+            }
           } catch (error) {
-            console.error('MediaUploadTab: Error uploading image or generating description:', error);
-            // Fall back to the original flow for images if centralized service fails
-            await onAddContent(fileType, {
-              file,
-              title: file.name,
-              description: '',
-              tags: [],
-              isOptimistic: false,
-              replaceOptimistic: true
+            console.error('MediaUploadTab: Error processing file:', error);
+            toast({
+              title: "Upload failed",
+              description: `Failed to process ${file.name}. Please try again.`,
+              variant: "destructive",
             });
           }
-        } else {
-          // For non-image files, process normally but still replace the skeleton
-          await onAddContent(fileType, {
-            file,
-            title: file.name,
-            description: '',
-            tags: [],
-            isOptimistic: false,
-            replaceOptimistic: true
-          });
-        }
+        }, 100); // Small delay to ensure skeleton is shown first
       }
 
       // Reset form
@@ -181,14 +177,14 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
       }
 
       toast({
-        title: "Success",
-        description: `Uploaded ${files.length} file(s) successfully!`,
+        title: "Upload started",
+        description: `Processing ${files.length} file(s)...`,
       });
     } catch (error) {
-      console.error('MediaUploadTab: Error uploading files:', error);
+      console.error('MediaUploadTab: Error starting upload:', error);
       toast({
         title: "Upload failed",
-        description: "There was an error uploading your files. Please try again.",
+        description: "There was an error starting the upload. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -278,7 +274,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
               disabled={isUploading}
               className="w-full"
             >
-              {isUploading ? 'Uploading...' : 'Upload Files'}
+              {isUploading ? 'Starting Upload...' : 'Upload Files'}
             </Button>
           )}
         </div>

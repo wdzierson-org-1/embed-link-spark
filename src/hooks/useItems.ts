@@ -30,8 +30,8 @@ export const useItems = () => {
       } else {
         console.log('Fetched items:', data);
         setItems(data || []);
-        // Clear optimistic items after successful fetch
-        setOptimisticItems(prev => prev.filter(item => item.showSkeleton && !item.isOptimistic));
+        // Only remove optimistic items that have been processed (not skeletons)
+        setOptimisticItems(prev => prev.filter(item => item.showSkeleton === true));
       }
     } catch (error) {
       console.error('Exception while fetching items:', error);
