@@ -18,7 +18,6 @@ import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
 import ChatInterface from '@/components/ChatInterface';
 import GlobalChatInterface from '@/components/GlobalChatInterface';
-import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -91,33 +90,6 @@ const Index = () => {
 
   const handleTagFiltersChange = (selectedTags: string[]) => {
     setTagFilters(selectedTags);
-  };
-
-  // AI-based suggested tags function that analyzes content
-  const getAISuggestedTags = async (content: { title?: string; content?: string; description?: string }): Promise<string[]> => {
-    if (!user) return [];
-    
-    try {
-      const { data, error } = await supabase.functions.invoke('get-relevant-tags', {
-        body: {
-          title: content.title || '',
-          content: content.content || '',
-          description: content.description || ''
-        }
-      });
-
-      if (error) {
-        console.error('Error getting AI suggested tags:', error);
-        // Fallback to popular tags
-        return getPopularTags(5);
-      }
-
-      return data?.tags || getPopularTags(5);
-    } catch (error) {
-      console.error('Exception getting AI suggested tags:', error);
-      // Fallback to popular tags
-      return getPopularTags(5);
-    }
   };
 
   // Create a wrapper function that matches LinkTab's expected signature
