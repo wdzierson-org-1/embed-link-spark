@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import { generateDescription } from '@/utils/aiOperations';
-import { EditorInstance } from 'novel';
+import { Editor } from 'novel';
 
 interface EditItemDialogProps {
   open: boolean;
@@ -334,7 +334,7 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
             <div>
               <Label className="text-base font-medium mb-3 block">Content</Label>
               <div className="border rounded-md">
-                <EditorInstance
+                <Editor
                   defaultValue={content}
                   onDebouncedUpdate={(editor) => {
                     const html = editor?.getHTML() || '';
