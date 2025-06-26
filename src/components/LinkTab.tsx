@@ -97,7 +97,7 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       await onAddContent('link', {
         url: linkInput.trim(),
         title: ogData?.title || new URL(linkInput.trim()).hostname,
-        ogData
+        content: JSON.stringify({ ogData })
       });
       
       // Reset form

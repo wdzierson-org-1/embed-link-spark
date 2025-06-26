@@ -2,12 +2,14 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { FileText, Link as LinkIcon, Image, Mic, Video } from 'lucide-react';
 import { format } from 'date-fns';
 import ContentItemActions from '@/components/ContentItemActions';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemImage from '@/components/ContentItemImage';
 import ItemTagsManager from '@/components/ItemTagsManager';
+import LinkPreview from '@/components/LinkPreview';
 
 interface ContentItem {
   id: string;
@@ -71,51 +73,85 @@ const ContentItem = ({
     }
   };
 
+  // Parse OG data from content if it's a link
+  let ogData = null;
+  if (item.type === 'link' && item.content) {
+    try {
+      const contentData = JSON.parse(item.content);
+      if (contentData.ogData) {
+        ogData = contentData.ogData;
+      }
+    } catch (e) {
+      // If content is not JSON, ignore
+    }
+  }
+
   return (
-    <Card className="group">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <Badge className={getTypeColor(item.type)}>
-            {getIcon(item.type)}
-            <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
-          </Badge>
-          <ContentItemActions
+    <TooltipProvider>
+      <Card className="group">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0 pr-2">
+              {item.title && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <CardTitle className="text-lg truncate cursor-help">
+                      {item.title}
+                    </CardTitle>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs break-words">{item.title}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+            <div className="flex items-center space-x-2 flex-shrink-0">
+              <Badge className={getTypeColor(item.type)}>
+                {getIcon(item.type)}
+                <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
+              </Badge>
+              <ContentItemActions
+                item={item}
+                onDeleteItem={onDeleteItem}
+                onEditItem={onEditItem}
+                onChatWithItem={onChatWithItem}
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ContentItemImage
             item={item}
-            onDeleteItem={onDeleteItem}
-            onEditItem={onEditItem}
-            onChatWithItem={onChatWithItem}
+            imageErrors={imageErrors}
+            onImageError={onImageError}
           />
-        </div>
-        {item.title && (
-          <CardTitle className="text-lg">{item.title}</CardTitle>
-        )}
-      </CardHeader>
-      <CardContent>
-        <ContentItemImage
-          item={item}
-          imageErrors={imageErrors}
-          onImageError={onImageError}
-        />
-        
-        <ContentItemContent
-          item={item}
-          expandedContent={expandedContent}
-          onToggleExpansion={onToggleExpansion}
-        />
-        
-        <div className="mb-2">
-          <ItemTagsManager
-            itemId={item.id}
-            currentTags={tags}
-            onTagsUpdated={onTagsUpdated}
+          
+          {ogData && item.type === 'link' && (
+            <div className="mb-3">
+              <LinkPreview ogData={ogData} />
+            </div>
+          )}
+          
+          <ContentItemContent
+            item={item}
+            expandedContent={expandedContent}
+            onToggleExpansion={onToggleExpansion}
           />
-        </div>
-        
-        <p className="text-xs text-muted-foreground">
-          {format(new Date(item.created_at), 'MMM d, yyyy')}
-        </p>
-      </CardContent>
-    </Card>
+          
+          <div className="mb-2">
+            <ItemTagsManager
+              itemId={item.id}
+              currentTags={tags}
+              onTagsUpdated={onTagsUpdated}
+            />
+          </div>
+          
+          <p className="text-xs text-muted-foreground">
+            {format(new Date(item.created_at), 'MMM d, yyyy')}
+          </p>
+        </CardContent>
+      </Card>
+    </TooltipProvider>
   );
 };
 
