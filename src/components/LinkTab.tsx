@@ -152,10 +152,12 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
         title: ogData?.title || trimmedUrl,
         description: ogData?.description || '',
         tags: [],
-        ogData: {
-          ...ogData,
-          storedImagePath: previewImagePath
-        }
+        content: JSON.stringify({
+          ogData: {
+            ...ogData,
+            storedImagePath: previewImagePath
+          }
+        })
       });
 
       // Reset form
