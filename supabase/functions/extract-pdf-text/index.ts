@@ -40,13 +40,20 @@ serve(async (req) => {
     const pdfBuffer = await response.arrayBuffer();
     console.log('PDF fetched successfully, size:', pdfBuffer.byteLength, 'bytes');
     
-    // Convert PDF to base64 for OpenAI API
-    const base64String = btoa(String.fromCharCode(...new Uint8Array(pdfBuffer)));
+    // Convert to base64 safely for large files
+    const uint8Array = new Uint8Array(pdfBuffer);
+    let base64String = '';
+    const chunkSize = 1024;
     
-    console.log('Using OpenAI PDF extraction API to analyze document content...');
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.slice(i, i + chunkSize);
+      base64String += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+    }
     
-    // Use OpenAI's new PDF input API to extract and analyze content
-    const extractionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    console.log('Using OpenAI PDF input API to analyze document content...');
+    
+    // Use OpenAI's new PDF input API with the responses endpoint
+    const extractionResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openAIApiKey}`,
@@ -54,30 +61,22 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a document analysis expert. Extract and analyze the actual content from this PDF document. Provide a comprehensive summary that accurately reflects what is actually written in the document.'
-          },
+        input: [
           {
             role: 'user',
             content: [
               {
-                type: 'text',
-                text: 'Please extract and analyze the content from this PDF document. Provide:\n1. Document type and main purpose\n2. Key sections and topics covered\n3. Important details, terms, or data points\n4. Main conclusions or outcomes\n\nBase your analysis ONLY on the actual content visible in the document.'
+                type: 'input_file',
+                filename: 'document.pdf',
+                file_data: `data:application/pdf;base64,${base64String}`
               },
               {
-                type: 'image_url',
-                image_url: {
-                  url: `data:application/pdf;base64,${base64String}`,
-                  detail: 'high'
-                }
+                type: 'input_text',
+                text: 'Please extract and analyze the complete content from this PDF document. Provide:\n1. Document type and main purpose\n2. Key sections and topics covered\n3. Important details, terms, or data points\n4. Main conclusions or outcomes\n\nBase your analysis ONLY on the actual content visible in the document. Be comprehensive and accurate.'
               }
             ]
           }
-        ],
-        max_tokens: 1500,
-        temperature: 0.1
+        ]
       }),
     });
 
@@ -88,7 +87,7 @@ serve(async (req) => {
     }
 
     const extractionData = await extractionResponse.json();
-    const extractedText = extractionData.choices[0].message.content;
+    const extractedText = extractionData.output_text;
 
     console.log('PDF content extracted successfully, length:', extractedText.length);
 
