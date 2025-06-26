@@ -25,28 +25,39 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
+    console.log('Processing chat request for message:', message.substring(0, 100) + '...');
+
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
     const { user, supabaseAdmin } = await authenticateUser(authHeader);
 
-    // Semantic search with stricter filtering
+    // Semantic search with multiple fallback strategies
     let relevantChunks: ContentChunk[] = [];
     
     try {
+      console.log('Starting semantic search...');
       // Generate embedding for the user's query
       const queryEmbedding = await generateQueryEmbedding(message, openAIApiKey);
+      console.log('Query embedding generated successfully');
       
       // Search for similar content chunks
       relevantChunks = await searchSimilarContent(queryEmbedding, user.id, supabaseAdmin);
+      console.log(`Semantic search returned ${relevantChunks.length} chunks`);
     } catch (embeddingError) {
       console.error('Embedding search failed:', embeddingError);
     }
 
-    // If we don't have enough high-quality semantic matches, supplement with recent items
-    if (relevantChunks.length < 3) {
-      console.log('Supplementing with recent user items for broader context');
+    // If we don't have enough semantic matches, get recent items
+    if (relevantChunks.length < 5) {
+      console.log(`Only ${relevantChunks.length} semantic matches found, supplementing with recent items`);
       const recentItems = await getRecentItems(user.id, supabaseAdmin);
-      relevantChunks = [...relevantChunks, ...recentItems];
+      console.log(`Retrieved ${recentItems.length} recent items`);
+      
+      // Combine and deduplicate based on item_id
+      const itemIds = new Set(relevantChunks.map(chunk => chunk.item_id));
+      const newRecentItems = recentItems.filter(item => !itemIds.has(item.item_id));
+      
+      relevantChunks = [...relevantChunks, ...newRecentItems];
     }
 
     console.log(`Total chunks for context: ${relevantChunks.length}`);
@@ -56,6 +67,7 @@ serve(async (req) => {
     console.log(`Potential sources identified: ${potentialSources.size}`);
 
     const finalSources = await evaluateSourceRelevance(message, potentialSources, openAIApiKey);
+    console.log(`LLM selected ${finalSources.length} relevant sources`);
 
     // Generate AI response
     const contentContext = buildContextPrompt(relevantChunks, message);
@@ -63,7 +75,6 @@ serve(async (req) => {
 
     const aiResponse = await generateChatResponse(contentContext, conversationHistory, message, openAIApiKey);
     console.log('OpenAI response generated successfully');
-    console.log(`Returning ${finalSources.length} curated sources`);
 
     // Return response with curated source information
     const response: ChatResponse = {
@@ -76,6 +87,7 @@ serve(async (req) => {
       }))
     };
 
+    console.log(`Returning response with ${finalSources.length} curated sources`);
     return new Response(JSON.stringify(response), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
