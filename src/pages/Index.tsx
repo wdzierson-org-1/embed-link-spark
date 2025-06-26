@@ -6,7 +6,7 @@ import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { FileText, Link, Upload, MessageSquare, LogOut } from 'lucide-react';
+import { FileText, Link, Upload, MessageSquare, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import StashHeader from '@/components/StashHeader';
 import ContentGrid from '@/components/ContentGrid';
@@ -31,6 +31,8 @@ const Index = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
   const [showGlobalChat, setShowGlobalChat] = useState(false);
+  const [isInputUICollapsed, setIsInputUICollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState('text');
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
@@ -53,6 +55,18 @@ const Index = () => {
 
   const handleTagFilterChange = (tags) => {
     setSelectedTags(tags);
+  };
+
+  const handleTabChange = (value) => {
+    setActiveTab(value);
+    // If UI is collapsed and user clicks a tab, expand it
+    if (isInputUICollapsed) {
+      setIsInputUICollapsed(false);
+    }
+  };
+
+  const toggleInputUI = () => {
+    setIsInputUICollapsed(!isInputUICollapsed);
   };
 
   if (!user) {
@@ -89,46 +103,68 @@ const Index = () => {
         </div>
       </div>
       
-      {/* Full-width tab bar */}
-      <div className="w-full border-b bg-background">
+      {/* Full-width tab bar with collapse button */}
+      <div className="w-full bg-background">
         <div className="container mx-auto px-4">
-          <Tabs defaultValue="text" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 h-12">
-              <TabsTrigger value="text" className="flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Text Note
-              </TabsTrigger>
-              <TabsTrigger value="link" className="flex items-center gap-2">
-                <Link className="h-4 w-4" />
-                Link
-              </TabsTrigger>
-              <TabsTrigger value="media" className="flex items-center gap-2">
-                <Upload className="h-4 w-4" />
-                Upload
-              </TabsTrigger>
-            </TabsList>
+          <div className="flex items-center justify-between">
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
+              <TabsList className="grid w-full grid-cols-3 h-12">
+                <TabsTrigger value="text" className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Text Note
+                </TabsTrigger>
+                <TabsTrigger value="link" className="flex items-center gap-2">
+                  <Link className="h-4 w-4" />
+                  Link
+                </TabsTrigger>
+                <TabsTrigger value="media" className="flex items-center gap-2">
+                  <Upload className="h-4 w-4" />
+                  Upload
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             
-            <TabsContent value="text" className="mt-6 pb-6">
-              <TextNoteTab
-                onAddContent={handleAddContent}
-                getSuggestedTags={getSuggestedTags}
-              />
-            </TabsContent>
-            
-            <TabsContent value="link" className="mt-6 pb-6">
-              <LinkTab
-                onAddContent={handleAddContent}
-                getSuggestedTags={() => []}
-              />
-            </TabsContent>
-            
-            <TabsContent value="media" className="mt-6 pb-6">
-              <MediaUploadTab
-                onAddContent={handleAddContent}
-                getSuggestedTags={getSuggestedTags}
-              />
-            </TabsContent>
-          </Tabs>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleInputUI}
+              className="ml-4 flex items-center gap-1"
+            >
+              {isInputUICollapsed ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronUp className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          
+          {/* Input UI Area with animation */}
+          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+            isInputUICollapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'
+          }`}>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsContent value="text" className="mt-6 pb-6">
+                <TextNoteTab
+                  onAddContent={handleAddContent}
+                  getSuggestedTags={getSuggestedTags}
+                />
+              </TabsContent>
+              
+              <TabsContent value="link" className="mt-6 pb-6">
+                <LinkTab
+                  onAddContent={handleAddContent}
+                  getSuggestedTags={() => []}
+                />
+              </TabsContent>
+              
+              <TabsContent value="media" className="mt-6 pb-6">
+                <MediaUploadTab
+                  onAddContent={handleAddContent}
+                  getSuggestedTags={getSuggestedTags}
+                />
+              </TabsContent>
+            </Tabs>
+          </div>
         </div>
       </div>
 
