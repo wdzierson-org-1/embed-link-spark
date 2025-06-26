@@ -40,19 +40,36 @@ serve(async (req) => {
     const pdfBuffer = await response.arrayBuffer();
     console.log('PDF fetched successfully, size:', pdfBuffer.byteLength, 'bytes');
     
-    // Convert to base64 safely for large files
-    const uint8Array = new Uint8Array(pdfBuffer);
-    let base64String = '';
-    const chunkSize = 1024;
-    
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      const chunk = uint8Array.slice(i, i + chunkSize);
-      base64String += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+    // Create a FormData object for file upload to OpenAI
+    const formData = new FormData();
+    const pdfBlob = new Blob([pdfBuffer], { type: 'application/pdf' });
+    formData.append('file', pdfBlob, 'document.pdf');
+    formData.append('purpose', 'user_data');
+
+    console.log('Uploading PDF to OpenAI Files API...');
+
+    // Upload file to OpenAI Files API
+    const uploadResponse = await fetch('https://api.openai.com/v1/files', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+      },
+      body: formData,
+    });
+
+    if (!uploadResponse.ok) {
+      const errorData = await uploadResponse.json();
+      console.error('OpenAI file upload error:', errorData);
+      throw new Error(`OpenAI file upload error: ${errorData.error?.message || 'Unknown error'}`);
     }
+
+    const uploadData = await uploadResponse.json();
+    const fileId = uploadData.id;
+    console.log('File uploaded successfully with ID:', fileId);
+
+    console.log('Using OpenAI Responses API to analyze document content...');
     
-    console.log('Using OpenAI PDF input API to analyze document content...');
-    
-    // Use OpenAI's new PDF input API with the responses endpoint
+    // Use OpenAI's responses API with the uploaded file ID
     const extractionResponse = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -67,8 +84,7 @@ serve(async (req) => {
             content: [
               {
                 type: 'input_file',
-                filename: 'document.pdf',
-                file_data: `data:application/pdf;base64,${base64String}`
+                file_id: fileId
               },
               {
                 type: 'input_text',
@@ -90,6 +106,19 @@ serve(async (req) => {
     const extractedText = extractionData.output_text;
 
     console.log('PDF content extracted successfully, length:', extractedText.length);
+
+    // Clean up the uploaded file (optional)
+    try {
+      await fetch(`https://api.openai.com/v1/files/${fileId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${openAIApiKey}`,
+        },
+      });
+      console.log('Uploaded file cleaned up successfully');
+    } catch (cleanupError) {
+      console.warn('Failed to cleanup uploaded file:', cleanupError);
+    }
 
     // Generate a concise description based on the extracted content
     const descriptionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
