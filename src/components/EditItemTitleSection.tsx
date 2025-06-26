@@ -39,7 +39,7 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
 
   if (isEditing) {
     return (
-      <div className="relative" style={{ marginLeft: '-10px' }}>
+      <div className="relative" style={{ marginLeft: '-8px' }}>
         <Input
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
@@ -59,7 +59,7 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
       className="text-2xl font-bold cursor-pointer hover:bg-yellow-50 p-2 rounded transition-colors"
       onClick={() => setIsEditing(true)}
       title="Click to edit title"
-      style={{ marginLeft: '-10px' }}
+      style={{ marginLeft: '-8px' }}
     >
       {title || 'Untitled Note'}
     </h1>
