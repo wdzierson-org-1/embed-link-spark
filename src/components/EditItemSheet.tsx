@@ -39,6 +39,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [editorKey, setEditorKey] = useState<string>('');
   const [activeTab, setActiveTab] = useState('details');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [saveTimeoutId, setSaveTimeoutId] = useState<NodeJS.Timeout | null>(null);
 
   // Generate a unique editor key when item changes or sheet opens
   useEffect(() => {
@@ -75,8 +76,12 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setEditorKey('');
       setActiveTab('details');
       setSaveStatus('idle');
+      if (saveTimeoutId) {
+        clearTimeout(saveTimeoutId);
+        setSaveTimeoutId(null);
+      }
     }
-  }, [open]);
+  }, [open, saveTimeoutId]);
 
   const checkForImage = () => {
     if (!item) return;
@@ -107,12 +112,18 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     }
   };
 
-  // Auto-save functionality with debouncing
-  useEffect(() => {
+  // Unified auto-save function that handles all types of changes
+  const triggerAutoSave = async (changeType: 'content' | 'tags' | 'media' = 'content') => {
     if (!item || isContentLoading) return;
     
+    // Clear existing timeout
+    if (saveTimeoutId) {
+      clearTimeout(saveTimeoutId);
+    }
+    
+    setSaveStatus('saving');
+    
     const timeoutId = setTimeout(async () => {
-      setSaveStatus('saving');
       try {
         await onSave(item.id, {
           title: title.trim() || undefined,
@@ -129,10 +140,26 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
         console.error('Auto-save failed:', error);
         setSaveStatus('idle');
       }
+      setSaveTimeoutId(null);
     }, 1000); // 1 second debounce
+    
+    setSaveTimeoutId(timeoutId);
+  };
 
-    return () => clearTimeout(timeoutId);
-  }, [title, description, content, item?.id, onSave, isContentLoading]);
+  // Auto-save functionality with debouncing for content changes
+  useEffect(() => {
+    triggerAutoSave('content');
+  }, [title, description, content, item?.id]);
+
+  // Handle tags changes callback
+  const handleTagsChange = () => {
+    triggerAutoSave('tags');
+  };
+
+  // Handle media changes callback
+  const handleMediaChange = () => {
+    triggerAutoSave('media');
+  };
 
   const handleTitleSave = async (newTitle: string) => {
     if (!item) return;
@@ -164,6 +191,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     if (item) {
       setTimeout(() => checkForImage(), 500);
     }
+    // Trigger auto-save for media changes
+    handleMediaChange();
   };
 
   const getSaveStatusText = () => {
@@ -235,10 +264,10 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 />
 
                 {/* Media Section */}
-                <EditItemMediaSection item={item} />
+                <EditItemMediaSection item={item} onMediaChange={handleMediaChange} />
 
                 {/* Tags Section */}
-                <EditItemTagsSection item={item} />
+                <EditItemTagsSection item={item} onTagsChange={handleTagsChange} />
               </div>
             </TabsContent>
 
