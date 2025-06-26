@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
@@ -36,6 +37,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [imageUrl, setImageUrl] = useState('');
   const [isContentLoading, setIsContentLoading] = useState(false);
   const [editorKey, setEditorKey] = useState<string>('');
+  const [activeTab, setActiveTab] = useState('details');
 
   // Generate a unique editor key when item changes or sheet opens
   useEffect(() => {
@@ -57,7 +59,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       
       checkForImage();
     }
-  }, [item?.id, open]); // Only depend on item ID and open state
+  }, [item?.id, open]);
 
   // Clear editor state when sheet closes
   useEffect(() => {
@@ -70,6 +72,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setImageUrl('');
       setIsContentLoading(false);
       setEditorKey('');
+      setActiveTab('details');
     }
   }, [open]);
 
@@ -162,73 +165,82 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
               <SheetTitle>Edit Item</SheetTitle>
             </SheetHeader>
 
-            <div className="flex-1 overflow-y-auto">
-              <div className="p-6 space-y-8">
-                
-                {/* Image Section */}
-                {hasImage && (
-                  <div className="relative inline-block">
-                    <img
-                      src={imageUrl}
-                      alt="Item image"
-                      className="w-full max-w-md rounded-lg border"
-                    />
-                    <EditItemImageSection
-                      itemId={item?.id || ''}
-                      hasImage={hasImage}
-                      imageUrl={imageUrl}
-                      onImageStateChange={handleImageStateChange}
-                      asLink={true}
-                    />
-                  </div>
-                )}
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+              <TabsList className="mx-6 mt-4 w-fit">
+                <TabsTrigger value="details">Note Details</TabsTrigger>
+                {hasImage && <TabsTrigger value="image">Image</TabsTrigger>}
+              </TabsList>
 
-                {/* Title Section */}
-                <EditItemTitleSection
-                  title={title}
-                  onTitleChange={setTitle}
-                  onSave={handleTitleSave}
-                />
+              <TabsContent value="details" className="flex-1 overflow-y-auto m-0">
+                <div className="p-6 space-y-8">
+                  {/* Title Section */}
+                  <EditItemTitleSection
+                    title={title}
+                    onTitleChange={setTitle}
+                    onSave={handleTitleSave}
+                  />
 
-                {/* Content Section - Always shown */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Content</label>
-                  <div className="relative">
-                    {isContentLoading ? (
-                      <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
-                        Loading editor...
+                  {/* Content Section */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Content</label>
+                    <div className="relative">
+                      {isContentLoading ? (
+                        <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
+                          Loading editor...
+                        </div>
+                      ) : (
+                        <EditItemContentEditor
+                          content={content}
+                          onContentChange={setContent}
+                          itemId={item?.id}
+                          editorInstanceKey={editorKey}
+                        />
+                      )}
+                      <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
+                        Press / for formatting options
                       </div>
-                    ) : (
-                      <EditItemContentEditor
-                        content={content}
-                        onContentChange={setContent}
-                        itemId={item?.id}
-                        editorInstanceKey={editorKey}
-                      />
-                    )}
-                    <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
-                      Press / for formatting options
                     </div>
                   </div>
+
+                  {/* Summary Section */}
+                  <EditItemDescriptionSection
+                    itemId={item?.id || ''}
+                    description={description}
+                    content={content}
+                    title={title}
+                    onDescriptionChange={setDescription}
+                    onSave={handleDescriptionSave}
+                  />
+
+                  {/* Media Section */}
+                  <EditItemMediaSection item={item} />
+
+                  {/* Tags Section */}
+                  <EditItemTagsSection item={item} />
                 </div>
+              </TabsContent>
 
-                {/* Summary Section */}
-                <EditItemDescriptionSection
-                  itemId={item?.id || ''}
-                  description={description}
-                  content={content}
-                  title={title}
-                  onDescriptionChange={setDescription}
-                  onSave={handleDescriptionSave}
-                />
-
-                {/* Media Section */}
-                <EditItemMediaSection item={item} />
-
-                {/* Tags Section */}
-                <EditItemTagsSection item={item} />
-              </div>
-            </div>
+              <TabsContent value="image" className="flex-1 overflow-y-auto m-0">
+                <div className="p-6">
+                  {hasImage && (
+                    <div className="relative inline-block">
+                      <img
+                        src={imageUrl}
+                        alt="Item image"
+                        className="w-full max-w-md rounded-lg border"
+                      />
+                      <EditItemImageSection
+                        itemId={item?.id || ''}
+                        hasImage={hasImage}
+                        imageUrl={imageUrl}
+                        onImageStateChange={handleImageStateChange}
+                        asLink={true}
+                      />
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
 
             {/* Auto-save indicator */}
             <div className="px-6 py-3 border-t bg-muted/30">

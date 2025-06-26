@@ -31,7 +31,7 @@ const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const { toast } = useToast();
   const { user } = useAuth();
-  const { addTagsToItem, fetchTags, getSuggestedTags } = useTags();
+  const { addTagsToItem, fetchTags, getSuggestedTags, getAISuggestedTags } = useTags();
 
   useEffect(() => {
     if (item) {
@@ -44,8 +44,8 @@ const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
     if (!item) return;
     
     try {
-      // Get AI-suggested tags
-      const aiSuggestions = await getSuggestedTagsFromApi({
+      // Get AI-suggested tags based on content
+      const aiSuggestions = await getAISuggestedTags({
         title: item.title || '',
         content: item.content || '',
         description: item.description || ''
@@ -54,13 +54,23 @@ const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
       // Get popular tags from user's existing tags
       const popularTags = getSuggestedTags(10);
       
-      // Combine and deduplicate
+      // Combine and deduplicate, prioritizing AI suggestions
       const allSuggestions = [...new Set([...aiSuggestions, ...popularTags])];
-      setTagSuggestions(allSuggestions);
+      
+      // Filter out tags that are already applied to this item
+      const filteredSuggestions = allSuggestions.filter(tag => 
+        !itemTags.includes(tag.toLowerCase())
+      );
+      
+      setTagSuggestions(filteredSuggestions.slice(0, 10)); // Limit to 10 suggestions
     } catch (error) {
       console.error('Error loading tag suggestions:', error);
       // Fallback to popular tags only
-      setTagSuggestions(getSuggestedTags(10));
+      const popularTags = getSuggestedTags(10);
+      const filteredSuggestions = popularTags.filter(tag => 
+        !itemTags.includes(tag.toLowerCase())
+      );
+      setTagSuggestions(filteredSuggestions);
     }
   };
 
@@ -97,6 +107,8 @@ const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
       setIsEditingTags(false);
       await fetchItemTags();
       await fetchTags();
+      // Reload suggestions after adding tags
+      await loadTagSuggestions();
       toast({
         title: "Success",
         description: `Added ${newTags.length} tag(s) to item`,
@@ -133,6 +145,8 @@ const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
 
       await fetchItemTags();
       await fetchTags();
+      // Reload suggestions after removing tags
+      await loadTagSuggestions();
       toast({
         title: "Success",
         description: "Tag removed from item",
