@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-react';
 import StashHeader from '@/components/StashHeader';
 import ContentGrid from '@/components/ContentGrid';
 import AddContentDialog from '@/components/AddContentDialog';
@@ -56,12 +58,28 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Header with Add Content Button */}
+      <div className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <h1 className="text-xl font-bold">Stash</h1>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <Button onClick={() => setIsAddDialogOpen(true)} className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Add Content
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <StashHeader 
         itemCount={items.filter(item => !item.isOptimistic).length}
         onTagFiltersChange={handleTagFilterChange}
       />
       
-      <main className="container mx-auto px-4 pt-8 pb-8">
+      <main className="container mx-auto px-4 pt-24 pb-8">
         <ContentGrid 
           items={items} 
           onDeleteItem={handleDeleteItem}
@@ -75,7 +93,6 @@ const Index = () => {
         open={isAddDialogOpen}
         onOpenChange={setIsAddDialogOpen}
         onAddContent={handleAddContent}
-        getSuggestedTags={getSuggestedTags}
       />
 
       <EditItemDialog
