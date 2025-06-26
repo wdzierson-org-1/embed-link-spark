@@ -6,6 +6,7 @@ import {
   EditorContent,
   type JSONContent,
   type EditorInstance,
+  handleCommandNavigation,
 } from 'novel';
 import { createEditorExtensions } from './editor/EditorExtensions';
 import { convertHtmlToJson } from './editor/EditorUtils';
@@ -46,6 +47,9 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
             extensions={extensions}
             className="min-h-[300px] w-full max-w-none"
             editorProps={{
+              handleDOMEvents: {
+                keydown: (_view, event) => handleCommandNavigation(event),
+              },
               attributes: {
                 class: 'prose prose-sm dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4'
               }

@@ -16,6 +16,7 @@ import {
   GlobalDragHandle,
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
+import { slashCommand } from './SlashCommand';
 
 export const createEditorExtensions = () => [
   StarterKit.configure({
@@ -104,4 +105,5 @@ export const createEditorExtensions = () => [
   }),
   CustomKeymap,
   GlobalDragHandle,
+  slashCommand,
 ];
