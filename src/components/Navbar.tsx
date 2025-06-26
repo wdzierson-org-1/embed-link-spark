@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -12,82 +13,95 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { LogOut, Settings } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import SettingsModal from '@/components/SettingsModal';
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const [showSettings, setShowSettings] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/auth');
   };
 
-  return (
-    <nav className="bg-white shadow-sm border-b">
-      <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center h-16">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-xl font-bold text-primary">Stash</h1>
-            {user && (
-              <div className="hidden md:flex items-center space-x-4">
-                <Button
-                  variant="ghost"
-                  onClick={() => navigate('/')}
-                  className="text-sm"
-                >
-                  Dashboard
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => navigate('/settings')}
-                  className="text-sm"
-                >
-                  Settings
-                </Button>
-              </div>
-            )}
-          </div>
+  const getUserInitials = (email: string) => {
+    return email?.charAt(0).toUpperCase() || 'U';
+  };
 
-          <div className="flex items-center space-x-4">
-            {user ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>
-                        {user.email?.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+  return (
+    <>
+      <nav className="bg-white shadow-sm border-b">
+        <div className="container mx-auto px-4">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-4">
+              <h1 className="text-xl font-bold text-primary">Stash</h1>
+              {user && (
+                <div className="hidden md:flex items-center space-x-4">
+                  <Button
+                    variant="ghost"
+                    onClick={() => navigate('/')}
+                    className="text-sm"
+                  >
+                    Dashboard
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
-                  <DropdownMenuLabel className="font-normal">
-                    <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">
-                        {user.email}
-                      </p>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate('/settings')}>
-                    <Settings className="mr-2 h-4 w-4" />
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowSettings(true)}
+                    className="text-sm"
+                  >
                     Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleSignOut}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Sign Out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button onClick={() => navigate('/auth')}>
-                Sign In
-              </Button>
-            )}
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-4">
+              {user ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
+                      <Avatar className="h-10 w-10 bg-purple-400">
+                        <AvatarFallback className="bg-purple-400 text-white font-medium">
+                          {getUserInitials(user.email || '')}
+                        </AvatarFallback>
+                      </Avatar>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56" align="end" forceMount>
+                    <DropdownMenuLabel className="font-normal">
+                      <div className="flex flex-col space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                          {user.email}
+                        </p>
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setShowSettings(true)}>
+                      <Settings className="mr-2 h-4 w-4" />
+                      Settings
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleSignOut}>
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button onClick={() => navigate('/auth')}>
+                  Sign In
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+
+      <SettingsModal 
+        open={showSettings} 
+        onOpenChange={setShowSettings}
+      />
+    </>
   );
 };
 
