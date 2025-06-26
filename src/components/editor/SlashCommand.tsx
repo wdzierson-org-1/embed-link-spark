@@ -12,6 +12,9 @@ import {
   TextQuote,
 } from 'lucide-react';
 import { Command, createSuggestionItems, renderItems } from 'novel';
+import { useAuth } from '@/hooks/useAuth';
+import { uploadImage } from '@/services/imageUploadService';
+import { toast } from 'sonner';
 
 export const suggestionItems = createSuggestionItems([
   {
@@ -99,30 +102,35 @@ export const suggestionItems = createSuggestionItems([
     icon: <ImageIcon size={18} />,
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run();
-      // upload image
+      
+      // Create file input
       const input = document.createElement("input");
       input.type = "file";
       input.accept = "image/*";
       input.onchange = async () => {
         if (input.files?.length) {
           const file = input.files[0];
-          const pos = editor.view.state.selection.from;
-          
-          // Create a simple image upload function
-          const uploadImage = async (file: File): Promise<string> => {
-            // This is a placeholder - in a real app you'd upload to your storage service
-            return new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.readAsDataURL(file);
-            });
-          };
           
           try {
-            const url = await uploadImage(file);
-            editor.chain().focus().setImage({ src: url }).run();
+            // Get user from auth context - this will need to be passed or accessed
+            // For now, we'll use a direct Supabase call
+            const { supabase } = await import('@/integrations/supabase/client');
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            if (!session?.user) {
+              toast.error("Please log in to upload images");
+              return;
+            }
+            
+            const result = await uploadImage({
+              file,
+              userId: session.user.id
+            });
+            
+            editor.chain().focus().setImage({ src: result.publicUrl }).run();
           } catch (error) {
             console.error('Error uploading image:', error);
+            toast.error('Failed to upload image');
           }
         }
       };
