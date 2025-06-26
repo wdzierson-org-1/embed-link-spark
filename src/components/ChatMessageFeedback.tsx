@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 interface ChatMessageFeedbackProps {
   question: string;
@@ -15,14 +16,18 @@ const ChatMessageFeedback = ({ question, answer, sourceItemIds }: ChatMessageFee
   const [rating, setRating] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const handleFeedback = async (feedbackRating: number) => {
+    if (!user) return;
+    
     setIsSubmitting(true);
     
     try {
       const { error } = await supabase
         .from('chat_feedback')
         .insert({
+          user_id: user.id,
           question,
           answer,
           source_item_ids: sourceItemIds,

@@ -186,9 +186,11 @@ const GlobalChatInterface = ({ isOpen, onClose, onSourceClick, onViewAllSources 
                       }`}
                     >
                       {message.role === 'assistant' ? (
-                        <ReactMarkdown className="text-sm prose prose-sm max-w-none dark:prose-invert">
-                          {message.content}
-                        </ReactMarkdown>
+                        <div className="text-sm prose prose-sm max-w-none dark:prose-invert">
+                          <ReactMarkdown>
+                            {message.content}
+                          </ReactMarkdown>
+                        </div>
                       ) : (
                         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                       )}
