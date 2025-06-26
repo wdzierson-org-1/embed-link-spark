@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -40,7 +39,7 @@ const Index = () => {
     removeOptimisticItem
   );
   const { hideAddSection, updatePreference, loading: preferencesLoading } = useUserPreferences();
-  const { getSuggestedTags: getPopularTags } = useTags();
+  const { getSuggestedTags: getPopularTags, getAISuggestedTags } = useTags();
 
   // Redirect to auth if not authenticated
   useEffect(() => {
@@ -121,6 +120,11 @@ const Index = () => {
     }
   };
 
+  // Create a wrapper function that matches LinkTab's expected signature
+  const getPopularTagsForLink = (limit: number = 5): string[] => {
+    return getPopularTags(limit);
+  };
+
   // Filter items based on selected tags
   const filteredItems = tagFilters.length === 0 
     ? items 
@@ -194,7 +198,7 @@ const Index = () => {
                   <TabsContent value="link" className="mt-6">
                     <LinkTab 
                       onAddContent={handleAddContent}
-                      getSuggestedTags={getPopularTags}
+                      getSuggestedTags={getPopularTagsForLink}
                     />
                   </TabsContent>
                 </>
