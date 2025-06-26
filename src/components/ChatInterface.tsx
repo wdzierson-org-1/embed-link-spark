@@ -118,8 +118,8 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
   if (!isOpen || !item) return null;
 
   return (
-    <div className="flex flex-col h-full p-6">
-      <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex flex-col h-full">
+      <div className="flex-1 flex flex-col min-h-0 p-6">
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
             {messages.map((message) => (

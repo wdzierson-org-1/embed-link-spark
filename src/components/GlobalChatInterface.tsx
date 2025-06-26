@@ -21,8 +21,8 @@ const GlobalChatInterface = ({ open, onOpenChange }: GlobalChatInterfaceProps) =
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl max-h-[80vh] flex flex-col p-0">
-        <DialogHeader className="px-6 py-4 border-b">
+      <DialogContent className="sm:max-w-4xl w-full max-w-[90vw] h-[80vh] max-h-[80vh] flex flex-col p-0">
+        <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
             Chat with All Content
@@ -32,7 +32,7 @@ const GlobalChatInterface = ({ open, onOpenChange }: GlobalChatInterfaceProps) =
           </DialogDescription>
         </DialogHeader>
         
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <ChatInterface
             isOpen={open}
             onClose={() => onOpenChange(false)}
