@@ -10,7 +10,11 @@ import { saveItem, deleteItem } from '@/utils/itemOperations';
 
 type ItemType = Database['public']['Enums']['item_type'];
 
-export const useItemOperations = (fetchItems: () => Promise<void>) => {
+export const useItemOperations = (
+  fetchItems: () => Promise<void>,
+  addOptimisticItem?: (item: any) => void,
+  removeOptimisticItem?: (tempId: string) => void
+) => {
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -22,6 +26,30 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
     if (!user) {
       console.error('No user found');
       return;
+    }
+
+    // Generate temporary ID for optimistic update
+    const tempId = `temp-${Date.now()}-${Math.random()}`;
+    
+    // Create optimistic item
+    const optimisticItem = {
+      id: tempId,
+      user_id: user.id,
+      type: type as ItemType,
+      title: data.title || 'Processing...',
+      content: data.content || null,
+      description: 'Generating description...',
+      url: data.url || null,
+      file_path: null,
+      file_size: data.file?.size || null,
+      mime_type: data.file?.type || null,
+      created_at: new Date().toISOString(),
+      isOptimistic: true
+    };
+
+    // Add optimistic item immediately
+    if (addOptimisticItem) {
+      addOptimisticItem(optimisticItem);
     }
 
     try {
@@ -70,7 +98,10 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
 
       console.log('Item inserted successfully:', insertedItem);
 
-      // Immediately refresh items to show the new item
+      // Remove optimistic item and refresh real items
+      if (removeOptimisticItem) {
+        removeOptimisticItem(tempId);
+      }
       await fetchItems();
 
       // Handle PDF processing separately with longer delay
@@ -107,6 +138,12 @@ export const useItemOperations = (fetchItems: () => Promise<void>) => {
 
     } catch (error: any) {
       console.error('Error in handleAddContent:', error);
+      
+      // Remove optimistic item on error
+      if (removeOptimisticItem) {
+        removeOptimisticItem(tempId);
+      }
+      
       toast({
         title: "Error",
         description: error.message || "Failed to add content",

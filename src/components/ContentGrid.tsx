@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import ContentItem from '@/components/ContentItem';
+import ContentItemSkeleton from '@/components/ContentItemSkeleton';
 
 interface ContentItemData {
   id: string;
@@ -13,6 +14,7 @@ interface ContentItemData {
   tags?: string[];
   created_at: string;
   mime_type?: string;
+  isOptimistic?: boolean;
 }
 
 interface ContentGridProps {
@@ -82,10 +84,14 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
     });
   };
 
-  // Filter items based on selected tags
+  // Separate optimistic and real items
+  const optimisticItems = items.filter(item => item.isOptimistic);
+  const realItems = items.filter(item => !item.isOptimistic);
+
+  // Filter real items based on selected tags
   const filteredItems = tagFilters.length === 0 
-    ? items 
-    : items.filter(item => {
+    ? realItems 
+    : realItems.filter(item => {
         const itemTagsArray = itemTags[item.id] || [];
         // Check if the item has ALL selected tags (combinatorial AND logic)
         return tagFilters.every(filterTag => 
@@ -93,7 +99,10 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
         );
       });
 
-  if (filteredItems.length === 0 && tagFilters.length > 0) {
+  // Combine optimistic items (always shown) with filtered real items
+  const allItemsToShow = [...optimisticItems, ...filteredItems];
+
+  if (allItemsToShow.length === 0 && tagFilters.length > 0) {
     return (
       <div className="text-center py-12">
         <p className="text-muted-foreground">No items found with the selected tag filters.</p>
@@ -101,7 +110,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
     );
   }
 
-  if (filteredItems.length === 0) {
+  if (allItemsToShow.length === 0) {
     return (
       <div className="text-center py-12">
         <p className="text-muted-foreground">No content yet. Start adding items to your stash!</p>
@@ -111,7 +120,12 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {filteredItems.map((item) => {
+      {allItemsToShow.map((item) => {
+        // Render skeleton for optimistic items
+        if (item.isOptimistic) {
+          return <ContentItemSkeleton key={item.id} />;
+        }
+
         const tags = itemTags[item.id] || [];
 
         return (

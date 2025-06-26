@@ -31,8 +31,12 @@ const Index = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   
-  const { items, fetchItems } = useItems();
-  const { handleAddContent, handleSaveItem, handleDeleteItem } = useItemOperations(fetchItems);
+  const { items, fetchItems, addOptimisticItem, removeOptimisticItem } = useItems();
+  const { handleAddContent, handleSaveItem, handleDeleteItem } = useItemOperations(
+    fetchItems, 
+    addOptimisticItem, 
+    removeOptimisticItem
+  );
   const { hideAddSection, updatePreference, loading: preferencesLoading } = useUserPreferences();
   const { getSuggestedTags } = useTags();
 

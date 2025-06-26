@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 export const useItems = () => {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
+  const [optimisticItems, setOptimisticItems] = useState([]);
   const { toast } = useToast();
 
   const fetchItems = async () => {
@@ -40,6 +41,18 @@ export const useItems = () => {
     }
   };
 
+  const addOptimisticItem = (tempItem: any) => {
+    setOptimisticItems(prev => [tempItem, ...prev]);
+  };
+
+  const removeOptimisticItem = (tempId: string) => {
+    setOptimisticItems(prev => prev.filter(item => item.id !== tempId));
+  };
+
+  const getAllItems = () => {
+    return [...optimisticItems, ...items];
+  };
+
   useEffect(() => {
     if (user) {
       fetchItems();
@@ -47,8 +60,10 @@ export const useItems = () => {
   }, [user]);
 
   return {
-    items,
+    items: getAllItems(),
     fetchItems,
-    setItems
+    setItems,
+    addOptimisticItem,
+    removeOptimisticItem
   };
 };
