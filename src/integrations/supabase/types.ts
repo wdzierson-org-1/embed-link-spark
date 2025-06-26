@@ -217,6 +217,45 @@ export type Database = {
           },
         ]
       }
+      sms_conversations: {
+        Row: {
+          channel: string
+          content: string
+          created_at: string
+          id: string
+          intent: string | null
+          media_type: string | null
+          media_url: string | null
+          message_type: string
+          phone_number: string
+          user_id: string
+        }
+        Insert: {
+          channel: string
+          content: string
+          created_at?: string
+          id?: string
+          intent?: string | null
+          media_type?: string | null
+          media_url?: string | null
+          message_type: string
+          phone_number: string
+          user_id: string
+        }
+        Update: {
+          channel?: string
+          content?: string
+          created_at?: string
+          id?: string
+          intent?: string | null
+          media_type?: string | null
+          media_url?: string | null
+          message_type?: string
+          phone_number?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       tags: {
         Row: {
           created_at: string | null
@@ -241,6 +280,33 @@ export type Database = {
           updated_at?: string | null
           usage_count?: number
           user_id?: string
+        }
+        Relationships: []
+      }
+      user_phone_numbers: {
+        Row: {
+          created_at: string
+          id: string
+          phone_number: string
+          updated_at: string
+          user_id: string
+          verified: boolean
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          phone_number: string
+          updated_at?: string
+          user_id: string
+          verified?: boolean
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          phone_number?: string
+          updated_at?: string
+          user_id?: string
+          verified?: boolean
         }
         Relationships: []
       }
