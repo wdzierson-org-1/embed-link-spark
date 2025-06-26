@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import {
   EditorRoot,
   EditorContent,
@@ -19,7 +19,6 @@ interface EditItemContentEditorProps {
 }
 
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
-  const [initialContent, setInitialContent] = useState<JSONContent | null>(null);
   const { user } = useAuth();
 
   const handleImageUpload = async (file: File): Promise<string> => {
@@ -45,17 +44,34 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
 
   const extensions = createEditorExtensions(handleImageUpload);
 
-  // Create a unique key based on content to force re-render when content changes
-  const editorKey = useMemo(() => {
-    return `editor-${Date.now()}-${content.length}`;
+  // Convert content to JSON synchronously and create a stable key
+  const { initialContent, editorKey } = useMemo(() => {
+    console.log('EditItemContentEditor: Processing content', { content, contentLength: content.length });
+    
+    const jsonContent = convertToJsonContent(content);
+    console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
+    
+    // Create a stable key based on content hash
+    const contentHash = content.length > 0 ? 
+      btoa(content).slice(0, 10) : 'empty';
+    const key = `editor-${contentHash}-${content.length}`;
+    
+    console.log('EditItemContentEditor: Generated key', { key });
+    
+    return {
+      initialContent: jsonContent,
+      editorKey: key
+    };
   }, [content]);
 
-  useEffect(() => {
-    const jsonContent = convertToJsonContent(content);
-    setInitialContent(jsonContent);
-  }, [content]);
+  console.log('EditItemContentEditor: Rendering', { 
+    hasInitialContent: !!initialContent,
+    editorKey,
+    contentPreview: content.slice(0, 50)
+  });
 
   if (!initialContent) {
+    console.log('EditItemContentEditor: No initial content, showing loading');
     return (
       <div>
         <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
@@ -82,6 +98,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
               }
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
+              console.log('EditItemContentEditor: Content updated');
               // Save as JSON to preserve formatting
               const json = editor.getJSON();
               onContentChange(JSON.stringify(json));
