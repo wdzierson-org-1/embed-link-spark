@@ -20,7 +20,7 @@ interface EditItemContentEditorProps {
 
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
   const [initialContent, setInitialContent] = useState<JSONContent | null>(null);
-  const [editorKey, setEditorKey] = useState(0); // Force re-render when content changes
+  const [editorInstance, setEditorInstance] = useState<EditorInstance | null>(null);
   const { user } = useAuth();
   const previousContentRef = useRef<string>('');
 
@@ -51,12 +51,18 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
     // Only update if content actually changed
     if (content !== previousContentRef.current) {
       const jsonContent = convertToJsonContent(content);
-      setInitialContent(jsonContent);
-      // Force editor to re-render with new content
-      setEditorKey(prev => prev + 1);
+      
+      // If we have an editor instance, update its content directly
+      if (editorInstance && jsonContent) {
+        editorInstance.commands.setContent(jsonContent);
+      } else {
+        // If no editor instance yet, set initial content
+        setInitialContent(jsonContent);
+      }
+      
       previousContentRef.current = content;
     }
-  }, [content]);
+  }, [content, editorInstance]);
 
   if (!initialContent) {
     return (
@@ -71,7 +77,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
   return (
     <div>
       <div className="border rounded-md">
-        <EditorRoot key={editorKey}>
+        <EditorRoot>
           <EditorContent
             initialContent={initialContent}
             extensions={extensions}
@@ -85,6 +91,10 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
               }
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
+              // Store the editor instance for future content updates
+              if (!editorInstance) {
+                setEditorInstance(editor);
+              }
               // Save as JSON to preserve formatting
               const json = editor.getJSON();
               onContentChange(JSON.stringify(json));
