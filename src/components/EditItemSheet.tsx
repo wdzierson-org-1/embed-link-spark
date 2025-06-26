@@ -159,93 +159,93 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="w-[800px] sm:max-w-[800px] p-0">
-          <div className="h-full flex flex-col">
-            <SheetHeader className="px-6 py-4 border-b">
-              <SheetTitle>Edit Item</SheetTitle>
-            </SheetHeader>
+        <SheetContent className="w-[800px] sm:max-w-[800px] p-0 flex flex-col">
+          <SheetHeader className="px-6 py-4 border-b flex-shrink-0">
+            <SheetTitle>Edit Item</SheetTitle>
+          </SheetHeader>
 
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-              <TabsList className="mx-6 mt-4 w-fit">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+            <div className="px-6 mt-4 flex-shrink-0">
+              <TabsList className="w-fit">
                 <TabsTrigger value="details">Note Details</TabsTrigger>
                 {hasImage && <TabsTrigger value="image">Image</TabsTrigger>}
               </TabsList>
+            </div>
 
-              <TabsContent value="details" className="flex-1 overflow-y-auto m-0">
-                <div className="p-6 space-y-8">
-                  {/* Title Section */}
-                  <EditItemTitleSection
-                    title={title}
-                    onTitleChange={setTitle}
-                    onSave={handleTitleSave}
-                  />
+            <TabsContent value="details" className="flex-1 overflow-y-auto m-0 px-6 pb-6">
+              <div className="space-y-8 pt-4">
+                {/* Title Section */}
+                <EditItemTitleSection
+                  title={title}
+                  onTitleChange={setTitle}
+                  onSave={handleTitleSave}
+                />
 
-                  {/* Content Section */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Content</label>
-                    <div className="relative">
-                      {isContentLoading ? (
-                        <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
-                          Loading editor...
-                        </div>
-                      ) : (
-                        <EditItemContentEditor
-                          content={content}
-                          onContentChange={setContent}
-                          itemId={item?.id}
-                          editorInstanceKey={editorKey}
-                        />
-                      )}
-                      <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
-                        Press / for formatting options
+                {/* Content Section */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Content</label>
+                  <div className="relative">
+                    {isContentLoading ? (
+                      <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
+                        Loading editor...
                       </div>
+                    ) : (
+                      <EditItemContentEditor
+                        content={content}
+                        onContentChange={setContent}
+                        itemId={item?.id}
+                        editorInstanceKey={editorKey}
+                      />
+                    )}
+                    <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
+                      Press / for formatting options
                     </div>
                   </div>
-
-                  {/* Summary Section */}
-                  <EditItemDescriptionSection
-                    itemId={item?.id || ''}
-                    description={description}
-                    content={content}
-                    title={title}
-                    onDescriptionChange={setDescription}
-                    onSave={handleDescriptionSave}
-                  />
-
-                  {/* Media Section */}
-                  <EditItemMediaSection item={item} />
-
-                  {/* Tags Section */}
-                  <EditItemTagsSection item={item} />
                 </div>
-              </TabsContent>
 
-              <TabsContent value="image" className="flex-1 overflow-y-auto m-0">
-                <div className="p-6">
-                  {hasImage && (
-                    <div className="relative inline-block">
-                      <img
-                        src={imageUrl}
-                        alt="Item image"
-                        className="w-full max-w-md rounded-lg border"
-                      />
-                      <EditItemImageSection
-                        itemId={item?.id || ''}
-                        hasImage={hasImage}
-                        imageUrl={imageUrl}
-                        onImageStateChange={handleImageStateChange}
-                        asLink={true}
-                      />
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
+                {/* Summary Section */}
+                <EditItemDescriptionSection
+                  itemId={item?.id || ''}
+                  description={description}
+                  content={content}
+                  title={title}
+                  onDescriptionChange={setDescription}
+                  onSave={handleDescriptionSave}
+                />
 
-            {/* Auto-save indicator */}
-            <div className="px-6 py-3 border-t bg-muted/30">
-              <p className="text-xs text-muted-foreground">Changes are saved automatically</p>
-            </div>
+                {/* Media Section */}
+                <EditItemMediaSection item={item} />
+
+                {/* Tags Section */}
+                <EditItemTagsSection item={item} />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="image" className="flex-1 overflow-y-auto m-0 px-6 pb-6">
+              <div className="pt-4">
+                {hasImage && (
+                  <div className="relative inline-block">
+                    <img
+                      src={imageUrl}
+                      alt="Item image"
+                      className="w-full max-w-md rounded-lg border"
+                    />
+                    <EditItemImageSection
+                      itemId={item?.id || ''}
+                      hasImage={hasImage}
+                      imageUrl={imageUrl}
+                      onImageStateChange={handleImageStateChange}
+                      asLink={true}
+                    />
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          {/* Auto-save indicator */}
+          <div className="px-6 py-3 border-t bg-muted/30 flex-shrink-0">
+            <p className="text-xs text-muted-foreground">Changes are saved automatically</p>
           </div>
         </SheetContent>
       </Sheet>

@@ -8,7 +8,6 @@ import { useTags } from '@/hooks/useTags';
 import TagInput from '@/components/TagInput';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
 interface ContentItem {
   id: string;
