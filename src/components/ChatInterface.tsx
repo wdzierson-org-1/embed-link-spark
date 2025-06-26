@@ -48,7 +48,7 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
       const welcomeMessage: ChatMessage = {
         id: 'welcome',
         role: 'assistant',
-        content: `I'm here to help you with "${item.title || 'this content'}". What would you like to know or discuss about it?`,
+        content: `Hello! I'm here to help you work with all your saved content. I can help you search, summarize, organize, or answer questions about any of your items. What would you like to know?`,
         timestamp: new Date()
       };
       setMessages([welcomeMessage]);
@@ -75,10 +75,9 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('chat-with-content', {
+      const { data, error } = await supabase.functions.invoke('chat-with-all-content', {
         body: {
           message: currentInput,
-          item,
           conversationHistory: messages.map(msg => ({
             role: msg.role,
             content: msg.content
@@ -124,11 +123,6 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
   // When embedded in a dialog, render without the modal wrapper
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center space-x-2 text-sm text-muted-foreground mb-4">
-        <span className="capitalize bg-secondary px-2 py-1 rounded text-xs">{item.type}</span>
-        <span className="truncate">{item.title || 'Untitled'}</span>
-      </div>
-      
       <div className="flex-1 flex flex-col min-h-0">
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
@@ -184,7 +178,7 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder="Ask about this content..."
+              placeholder="Ask about your content collection..."
               className="flex-1 min-h-[60px] resize-none"
               disabled={isLoading}
             />
