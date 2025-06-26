@@ -22,12 +22,6 @@ interface EditItemContentEditorProps {
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
   const [initialContent, setInitialContent] = useState<JSONContent | null>(null);
   const { user } = useAuth();
-  const extensions = createEditorExtensions();
-
-  useEffect(() => {
-    const jsonContent = convertToJsonContent(content);
-    setInitialContent(jsonContent);
-  }, [content]);
 
   const handleImageUpload = async (file: File): Promise<string> => {
     if (!user) {
@@ -49,6 +43,13 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
     const { data } = supabase.storage.from('stash-media').getPublicUrl(filePath);
     return data.publicUrl;
   };
+
+  const extensions = createEditorExtensions(handleImageUpload);
+
+  useEffect(() => {
+    const jsonContent = convertToJsonContent(content);
+    setInitialContent(jsonContent);
+  }, [content]);
 
   if (!initialContent) {
     return (
@@ -83,7 +84,6 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
               const json = editor.getJSON();
               onContentChange(JSON.stringify(json));
             }}
-            handleImageUpload={handleImageUpload}
           >
             <EditorCommandMenu />
           </EditorContent>

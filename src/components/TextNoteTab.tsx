@@ -12,6 +12,8 @@ import {
 } from 'novel';
 import { createEditorExtensions } from './editor/EditorExtensions';
 import EditorCommandMenu from './editor/EditorCommandMenu';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface TextNoteTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -22,7 +24,30 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [editorInstance, setEditorInstance] = useState<EditorInstance | null>(null);
-  const extensions = createEditorExtensions();
+  const { user } = useAuth();
+
+  const handleImageUpload = async (file: File): Promise<string> => {
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}.${fileExt}`;
+    const filePath = `${user.id}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('stash-media')
+      .upload(filePath, file);
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage.from('stash-media').getPublicUrl(filePath);
+    return data.publicUrl;
+  };
+
+  const extensions = createEditorExtensions(handleImageUpload);
 
   const initialContent: JSONContent = {
     type: 'doc',

@@ -18,7 +18,7 @@ import {
 import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
 
-export const createEditorExtensions = () => [
+export const createEditorExtensions = (handleImageUpload?: (file: File) => Promise<string>) => [
   StarterKit.configure({
     heading: {
       HTMLAttributes: {
