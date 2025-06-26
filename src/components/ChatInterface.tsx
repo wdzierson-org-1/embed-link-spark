@@ -52,9 +52,6 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
         timestamp: new Date()
       };
       setMessages([welcomeMessage]);
-    } else if (!isOpen) {
-      // Clear messages when closing
-      setMessages([]);
     }
   }, [isOpen, item]);
 
@@ -68,7 +65,7 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
       timestamp: new Date()
     };
 
-    // Add user message immediately and clear input
+    // Add user message and clear input
     setMessages(prev => [...prev, userMessage]);
     const currentInput = inputMessage;
     setInputMessage('');
@@ -103,9 +100,9 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
         variant: "destructive",
       });
       
-      // Remove the user message on error
+      // Remove the user message on error and restore input
       setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
-      setInputMessage(currentInput); // Restore the input
+      setInputMessage(currentInput);
     } finally {
       setIsLoading(false);
     }
@@ -120,9 +117,8 @@ const ChatInterface = ({ isOpen, onClose, item }: ChatInterfaceProps) => {
 
   if (!isOpen || !item) return null;
 
-  // When embedded in a dialog, render without the modal wrapper
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex flex-col h-full p-6">
       <div className="flex-1 flex flex-col min-h-0">
         <ScrollArea className="flex-1 pr-4">
           <div className="space-y-4">
