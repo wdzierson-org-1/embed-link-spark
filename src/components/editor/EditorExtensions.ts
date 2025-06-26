@@ -75,13 +75,14 @@ export const createEditorExtensions = () => [
   }),
   TiptapLink.configure({
     HTMLAttributes: {
-      class: "text-muted-foreground underline underline-offset-[3px] hover:text-primary transition-colors cursor-pointer",
+      class: "text-blue-600 underline underline-offset-[3px] hover:text-blue-800 transition-colors cursor-pointer",
     },
+    openOnClick: false,
   }),
   TiptapImage.configure({
     allowBase64: true,
     HTMLAttributes: {
-      class: "rounded-lg border border-muted",
+      class: "rounded-lg border border-muted max-w-full h-auto",
     },
   }),
   TaskList.configure({
