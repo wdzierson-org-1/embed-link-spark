@@ -26,6 +26,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   const [content, setContent] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const extensions = createEditorExtensions();
 
   const initialContent: JSONContent = {
@@ -52,6 +53,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
       setTitle('');
       setContent('');
       setTags([]);
+      setSuggestedTags([]);
     } catch (error) {
       console.error('Error adding note:', error);
     } finally {
@@ -60,11 +62,25 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   };
 
   const handleGetSuggestedTags = async () => {
-    if (!content.trim()) return [];
-    return await getSuggestedTags({
-      title: title.trim() || undefined,
-      content: content.trim()
-    });
+    if (!content.trim() && !title.trim()) return;
+    
+    try {
+      const suggestions = await getSuggestedTags({
+        title: title.trim() || undefined,
+        content: content.trim() || undefined
+      });
+      setSuggestedTags(suggestions);
+    } catch (error) {
+      console.error('Error getting suggested tags:', error);
+    }
+  };
+
+  const handleContentChange = (newContent: string) => {
+    setContent(newContent);
+    // Clear previous suggestions when content changes
+    if (suggestedTags.length > 0) {
+      setSuggestedTags([]);
+    }
   };
 
   return (
@@ -100,15 +116,15 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
                       keydown: (_view, event) => handleCommandNavigation(event),
                     },
                     attributes: {
-                      class: 'prose prose-sm dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-3xl prose-h1:font-bold prose-h2:text-2xl prose-h2:font-bold prose-h3:text-xl prose-h3:font-bold prose-h4:text-lg prose-h4:font-bold prose-h5:text-base prose-h5:font-bold prose-h6:text-sm prose-h6:font-bold'
+                      class: 'prose prose-sm dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-3xl prose-h1:font-bold prose-h2:text-2xl prose-h2:font-bold prose-h3:text-xl prose-h3:font-bold prose-h4:text-lg prose-h4:font-bold prose-h5:text-base prose-h5:font-bold prose-h6:text-sm prose-h6:font-bold',
+                      'data-placeholder': 'Press \'/\' for commands or start typing...'
                     }
                   }}
                   onUpdate={({ editor }: { editor: EditorInstance }) => {
                     // Save as JSON to preserve formatting
                     const json = editor.getJSON();
-                    setContent(JSON.stringify(json));
+                    handleContentChange(JSON.stringify(json));
                   }}
-                  placeholder="Press '/' for commands or start typing..."
                 >
                   <EditorCommandMenu />
                 </EditorContent>
@@ -116,12 +132,28 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
             </div>
           </div>
 
-          <TagInput
-            tags={tags}
-            onTagsChange={setTags}
-            getSuggestedTags={handleGetSuggestedTags}
-            placeholder="Add tags (optional)..."
-          />
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Label className="text-base font-medium">Tags (optional)</Label>
+              {(content.trim() || title.trim()) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleGetSuggestedTags}
+                  className="text-xs text-blue-600 hover:text-blue-800"
+                >
+                  Get suggestions
+                </Button>
+              )}
+            </div>
+            <TagInput
+              tags={tags}
+              onTagsChange={setTags}
+              suggestions={suggestedTags}
+              placeholder="Add tags..."
+            />
+          </div>
 
           <Button 
             type="submit" 

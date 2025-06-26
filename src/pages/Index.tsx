@@ -92,6 +92,11 @@ const Index = () => {
     setTagFilters(selectedTags);
   };
 
+  // Wrapper function to match the expected signature for TextNoteTab
+  const handleGetSuggestedTags = async (content: { title?: string; content?: string; description?: string }) => {
+    return await getSuggestedTags(content);
+  };
+
   // Filter items based on selected tags
   const filteredItems = tagFilters.length === 0 
     ? items 
@@ -151,21 +156,21 @@ const Index = () => {
                   <TabsContent value="media" className="mt-6">
                     <MediaUploadTab 
                       onAddContent={handleAddContent}
-                      getSuggestedTags={getSuggestedTags}
+                      getSuggestedTags={handleGetSuggestedTags}
                     />
                   </TabsContent>
                   
                   <TabsContent value="note" className="mt-6">
                     <TextNoteTab 
                       onAddContent={handleAddContent}
-                      getSuggestedTags={getSuggestedTags}
+                      getSuggestedTags={handleGetSuggestedTags}
                     />
                   </TabsContent>
                   
                   <TabsContent value="link" className="mt-6">
                     <LinkTab 
                       onAddContent={handleAddContent}
-                      getSuggestedTags={getSuggestedTags}
+                      getSuggestedTags={handleGetSuggestedTags}
                     />
                   </TabsContent>
                 </>
