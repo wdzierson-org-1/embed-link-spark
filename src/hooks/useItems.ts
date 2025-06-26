@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -10,7 +10,7 @@ export const useItems = () => {
   const [optimisticItems, setOptimisticItems] = useState([]);
   const { toast } = useToast();
 
-  const fetchItems = async () => {
+  const fetchItems = useCallback(async () => {
     if (!user) return;
     
     try {
@@ -39,32 +39,32 @@ export const useItems = () => {
         variant: "destructive",
       });
     }
-  };
+  }, [user, toast]);
 
-  const addOptimisticItem = (tempItem: any) => {
+  const addOptimisticItem = useCallback((tempItem: any) => {
     console.log('Adding optimistic item:', tempItem);
     setOptimisticItems(prev => [tempItem, ...prev]);
-  };
+  }, []);
 
-  const removeOptimisticItem = (tempId: string) => {
+  const removeOptimisticItem = useCallback((tempId: string) => {
     console.log('Removing optimistic item:', tempId);
     setOptimisticItems(prev => prev.filter(item => item.id !== tempId));
-  };
+  }, []);
 
-  const clearSkeletonItems = () => {
+  const clearSkeletonItems = useCallback(() => {
     console.log('Clearing all skeleton items');
     setOptimisticItems(prev => prev.filter(item => !item.showSkeleton));
-  };
+  }, []);
 
-  const getAllItems = () => {
+  const getAllItems = useCallback(() => {
     return [...optimisticItems, ...items];
-  };
+  }, [optimisticItems, items]);
 
   useEffect(() => {
     if (user) {
       fetchItems();
     }
-  }, [user]);
+  }, [user, fetchItems]);
 
   return {
     items: getAllItems(),

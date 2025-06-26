@@ -1,3 +1,5 @@
+
+import { useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { validateUuid } from '@/utils/tempIdGenerator';
@@ -14,11 +16,11 @@ export const useItemOperations = (
   const { user, session } = useAuth();
   const { toast } = useToast();
 
-  const showToast = (toastData: { title: string; description: string; variant?: 'destructive' }) => {
+  const showToast = useCallback((toastData: { title: string; description: string; variant?: 'destructive' }) => {
     toast(toastData);
-  };
+  }, [toast]);
 
-  const handleAddContent = async (type: string, data: any) => {
+  const handleAddContent = useCallback(async (type: string, data: any) => {
     if (!user || !session) {
       console.error('No user or session found for content creation');
       toast({
@@ -72,9 +74,9 @@ export const useItemOperations = (
         variant: "destructive",
       });
     }
-  };
+  }, [user, session, fetchItems, showToast, addOptimisticItem, clearSkeletonItems, toast]);
 
-  const handleSaveItem = async (
+  const handleSaveItem = useCallback(async (
     id: string, 
     updates: any, 
     options: { showSuccessToast?: boolean; refreshItems?: boolean } = {}
@@ -91,9 +93,9 @@ export const useItemOperations = (
     }
     
     await saveItem(id, updates, fetchItems, showToast, options);
-  };
+  }, [fetchItems, showToast, toast]);
 
-  const handleDeleteItem = async (id: string) => {
+  const handleDeleteItem = useCallback(async (id: string) => {
     // Validate the ID before proceeding
     if (!validateUuid(id)) {
       console.error('Invalid UUID provided for delete operation:', id);
@@ -106,7 +108,7 @@ export const useItemOperations = (
     }
     
     await deleteItem(id, fetchItems, showToast);
-  };
+  }, [fetchItems, showToast, toast]);
 
   return {
     handleAddContent,
