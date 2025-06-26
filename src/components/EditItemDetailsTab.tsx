@@ -52,7 +52,7 @@ const EditItemDetailsTab = ({
   onMediaChange,
 }: EditItemDetailsTabProps) => {
   return (
-    <TabsContent value="details" className="space-y-8 mt-0">
+    <TabsContent value="details" className="space-y-8 mt-0 px-6 pb-6">
       {/* Title Section */}
       <EditItemTitleSection
         title={title}

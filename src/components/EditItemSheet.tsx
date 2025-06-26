@@ -59,7 +59,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
 
           <div className="flex-1 overflow-y-auto">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
-              <div className="px-6 py-4 border-b">
+              <div className="px-6 py-4">
                 <EditItemTabNavigation hasImage={hasImage} />
               </div>
 
