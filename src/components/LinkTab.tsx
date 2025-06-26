@@ -34,7 +34,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
     if (!user) return null;
     
     try {
-      // Fetch the image
       const response = await fetch(imageUrl, { mode: 'cors' });
       if (!response.ok) return null;
       
@@ -43,7 +42,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       const fileName = `preview_${Date.now()}.${fileExt}`;
       const filePath = `${user.id}/previews/${fileName}`;
 
-      // Upload to Supabase storage
       const { error: uploadError } = await supabase.storage
         .from('stash-media')
         .upload(filePath, blob);
@@ -65,7 +63,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
     
     setIsLoadingPreview(true);
     try {
-      // Simple fetch to get basic info - in a real app you'd use a service
       const response = await fetch(urlToFetch, { 
         mode: 'cors',
         headers: {
@@ -95,7 +92,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       }
     } catch (error) {
       console.log('Could not fetch preview data:', error);
-      // Fallback to basic URL info
       setOgData({
         url: urlToFetch,
         title: urlToFetch
@@ -112,7 +108,7 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       } else {
         setOgData(null);
       }
-    }, 1000); // Debounce by 1 second
+    }, 1000);
 
     return () => clearTimeout(timeoutId);
   }, [url]);
@@ -147,17 +143,15 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
         previewImagePath = await downloadAndStoreImage(ogData.image);
       }
 
+      // Store link data in proper structure
       await onAddContent('link', {
         url: trimmedUrl,
-        title: ogData?.title || trimmedUrl,
-        description: ogData?.description || '',
+        title: ogData?.title || trimmedUrl, // OG title goes to title field
+        description: ogData?.description || '', // OG description goes to description field
+        content: '', // Leave content empty for user notes
         tags: [],
-        content: JSON.stringify({
-          ogData: {
-            ...ogData,
-            storedImagePath: previewImagePath
-          }
-        })
+        // Store preview image path for retrieval
+        previewImagePath: previewImagePath
       });
 
       // Reset form
@@ -183,7 +177,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value;
     
-    // Auto-add https:// if no protocol is present
     if (value && !value.startsWith('http://') && !value.startsWith('https://')) {
       if (value.includes('.') && !value.includes(' ')) {
         value = 'https://' + value;

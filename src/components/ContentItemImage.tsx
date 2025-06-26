@@ -39,30 +39,21 @@ const ContentItemImage = ({ item, imageErrors, onImageError }: ContentItemImageP
     );
   }
 
-  // Handle link preview images
-  if (item.type === 'link' && item.content) {
-    try {
-      const contentData = JSON.parse(item.content);
-      const storedImagePath = contentData.ogData?.storedImagePath;
-      
-      if (storedImagePath && !imageErrors.has(item.id)) {
-        const { data } = supabase.storage.from('stash-media').getPublicUrl(storedImagePath);
-        const imageUrl = data.publicUrl;
+  // Handle link preview images - now stored in file_path
+  if (item.type === 'link' && item.file_path && !imageErrors.has(item.id)) {
+    const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+    const imageUrl = data.publicUrl;
 
-        return (
-          <div className="w-full h-48 overflow-hidden">
-            <img
-              src={imageUrl}
-              alt={item.title || 'Link preview'}
-              className="w-full h-full object-cover"
-              onError={() => onImageError(item.id)}
-            />
-          </div>
-        );
-      }
-    } catch (e) {
-      // If content is not JSON, ignore
-    }
+    return (
+      <div className="w-full h-48 overflow-hidden">
+        <img
+          src={imageUrl}
+          alt={item.title || 'Link preview'}
+          className="w-full h-full object-cover"
+          onError={() => onImageError(item.id)}
+        />
+      </div>
+    );
   }
 
   return null;

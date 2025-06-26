@@ -17,6 +17,7 @@ interface ContentData {
   title?: string;
   isProcessing?: boolean;
   ogData?: any;
+  previewImagePath?: string; // New field for link preview images
 }
 
 export const processAndInsertContent = async (
@@ -36,7 +37,6 @@ export const processAndInsertContent = async (
   if (data.file && !data.uploadedFilePath) {
     console.log('Starting file upload for user:', userId);
     
-    // Verify session is still valid before upload
     const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !currentSession) {
       console.error('Session validation failed before file upload:', sessionError);
@@ -47,6 +47,11 @@ export const processAndInsertContent = async (
     console.log('File uploaded successfully:', filePath);
   }
 
+  // For links, use the preview image path if provided
+  if (type === 'link' && data.previewImagePath) {
+    filePath = data.previewImagePath;
+  }
+
   // Generate title for text notes
   let title = data.title;
   if (type === 'text' && data.content && !title) {
@@ -54,7 +59,7 @@ export const processAndInsertContent = async (
   }
 
   // Use provided description or generate AI description
-  let aiDescription = data.description; // This comes from MediaUploadTab for images
+  let aiDescription = data.description;
   
   if (!aiDescription && !data.isProcessing) {
     console.log('processAndInsertContent: No description provided, generating AI description');
@@ -66,12 +71,12 @@ export const processAndInsertContent = async (
     console.log('processAndInsertContent: Using provided description:', aiDescription);
   }
 
-  // Prepare the item data
+  // Prepare the item data - for links, store clean structured data
   const itemData = {
     user_id: userId,
     type: type as ItemType,
     title: title || data.title,
-    content: data.content,
+    content: data.content, // For links, this should be empty initially (user notes)
     description: aiDescription || null,
     url: data.url,
     file_path: filePath || data.uploadedFilePath,
@@ -81,12 +86,10 @@ export const processAndInsertContent = async (
 
   console.log('processAndInsertContent: Inserting item data:', itemData);
 
-  // Clear skeleton items before inserting actual content
   if (clearSkeletonItems) {
     clearSkeletonItems();
   }
 
-  // Insert item into database
   const { data: insertedItem, error } = await supabase
     .from('items')
     .insert(itemData)
@@ -105,7 +108,6 @@ export const processAndInsertContent = async (
   // Handle PDF processing separately with longer delay
   if (type === 'document' && (filePath || data.uploadedFilePath)) {
     console.log('Starting PDF processing for item:', insertedItem.id);
-    // Process PDF in the background with a longer delay
     setTimeout(async () => {
       try {
         await processPdfContent(insertedItem.id, filePath || data.uploadedFilePath, fetchItems, showToast);
@@ -114,14 +116,12 @@ export const processAndInsertContent = async (
       }
     }, 3000);
   } else {
-    // Generate embeddings for non-PDF textual content
+    // Generate embeddings for textual content
     const textForEmbedding = [
       title || data.title,
       data.content,
       aiDescription,
-      data.url,
-      data.ogData?.title,
-      data.ogData?.description
+      data.url
     ].filter(Boolean).join(' ');
 
     if (textForEmbedding.trim()) {

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs } from '@/components/ui/tabs';
@@ -35,6 +34,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [imageUrl, setImageUrl] = useState('');
   const [isContentLoading, setIsContentLoading] = useState(false);
   const [editorKey, setEditorKey] = useState<string>('');
+  const [editorInstanceKey, setEditorInstanceKey] = useState<string>('');
   const [activeTab, setActiveTab] = useState('details');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [saveTimeoutId, setSaveTimeoutId] = useState<NodeJS.Timeout | null>(null);
@@ -44,10 +44,12 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     if (item && open) {
       setIsContentLoading(true);
       const newKey = `editor-${item.id}-${Date.now()}`;
-      setEditorKey(newKey);
+      setEditorInstanceKey(newKey);
       
       setTitle(item.title || '');
       setDescription(item.description || '');
+      
+      // For links, use content as-is (should be user notes, not OG data)
       setContent(item.content || '');
       
       setTimeout(() => {
@@ -68,6 +70,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setImageUrl('');
       setIsContentLoading(false);
       setEditorKey('');
+      setEditorInstanceKey('');
       setActiveTab('details');
       setSaveStatus('idle');
       if (saveTimeoutId) {
@@ -84,19 +87,11 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
       setHasImage(true);
       setImageUrl(data.publicUrl);
-    } else if (item.type === 'link' && item.content) {
-      try {
-        const contentData = JSON.parse(item.content);
-        const storedImagePath = contentData.ogData?.storedImagePath;
-        
-        if (storedImagePath) {
-          const { data } = supabase.storage.from('stash-media').getPublicUrl(storedImagePath);
-          setHasImage(true);
-          setImageUrl(data.publicUrl);
-        }
-      } catch (e) {
-        // If content is not JSON, ignore
-      }
+    } else if (item.type === 'link' && item.file_path) {
+      // For links, check if there's a preview image stored in file_path
+      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+      setHasImage(true);
+      setImageUrl(data.publicUrl);
     } else {
       setHasImage(false);
       setImageUrl('');
@@ -115,11 +110,14 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     
     const timeoutId = setTimeout(async () => {
       try {
-        await onSave(item.id, {
+        // For links, preserve the file_path (preview image) during auto-save
+        const updates: any = {
           title: title.trim() || undefined,
           description: description.trim() || undefined,
           content: content.trim() || undefined,
-        });
+        };
+
+        await onSave(item.id, updates);
         setSaveStatus('saved');
         
         setTimeout(() => {
