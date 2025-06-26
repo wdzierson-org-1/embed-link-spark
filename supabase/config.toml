@@ -1,14 +1,1 @@
-
 project_id = "uqqsgmwkvslaomzxptnp"
-
-[functions.generate-description]
-verify_jwt = true
-
-[functions.generate-embeddings]
-verify_jwt = true
-
-[functions.chat-with-content]
-verify_jwt = true
-
-[functions.chat-with-all-content]
-verify_jwt = true
