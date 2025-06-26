@@ -18,6 +18,20 @@ interface EditItemContentEditorProps {
   onContentChange: (content: string) => void;
 }
 
+// Simple hash function for strings (safe for Unicode)
+const simpleHash = (str: string): string => {
+  let hash = 0;
+  if (str.length === 0) return 'empty';
+  
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  return Math.abs(hash).toString(36);
+};
+
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
   const { user } = useAuth();
 
@@ -51,10 +65,9 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
     const jsonContent = convertToJsonContent(content);
     console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
     
-    // Create a stable key based on content hash
-    const contentHash = content.length > 0 ? 
-      btoa(content).slice(0, 10) : 'empty';
-    const key = `editor-${contentHash}-${content.length}`;
+    // Create a stable key based on content hash - only change when content structure changes
+    const contentHash = simpleHash(content);
+    const key = `editor-${contentHash}`;
     
     console.log('EditItemContentEditor: Generated key', { key });
     
