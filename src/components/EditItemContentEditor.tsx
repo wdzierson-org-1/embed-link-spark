@@ -9,7 +9,7 @@ import {
   handleCommandNavigation,
 } from 'novel';
 import { createEditorExtensions } from './editor/EditorExtensions';
-import { convertHtmlToJson } from './editor/EditorUtils';
+import { convertToJsonContent } from './editor/EditorUtils';
 import EditorCommandMenu from './editor/EditorCommandMenu';
 
 interface EditItemContentEditorProps {
@@ -22,7 +22,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
   const extensions = createEditorExtensions();
 
   useEffect(() => {
-    const jsonContent = convertHtmlToJson(content);
+    const jsonContent = convertToJsonContent(content);
     setInitialContent(jsonContent);
   }, [content]);
 
@@ -55,8 +55,9 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
               }
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
-              const html = editor.getHTML();
-              onContentChange(html);
+              // Save as JSON to preserve formatting
+              const json = editor.getJSON();
+              onContentChange(JSON.stringify(json));
             }}
           >
             <EditorCommandMenu />
