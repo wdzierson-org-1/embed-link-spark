@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +10,6 @@ import { format } from 'date-fns';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemImage from '@/components/ContentItemImage';
 import ItemTagsManager from '@/components/ItemTagsManager';
-import LinkPreview from '@/components/LinkPreview';
 import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
 import { supabase } from '@/integrations/supabase/client';
@@ -95,19 +95,6 @@ const ContentItem = ({
 
   const fileUrl = getFileUrl(item);
 
-  // Parse OG data from content if it's a link
-  let ogData = null;
-  if (item.type === 'link' && item.content) {
-    try {
-      const contentData = JSON.parse(item.content);
-      if (contentData.ogData) {
-        ogData = contentData.ogData;
-      }
-    } catch (e) {
-      // If content is not JSON, ignore
-    }
-  }
-
   return (
     <TooltipProvider>
       <Card className="group flex flex-col h-full hover:border-gray-400 transition-colors duration-200 overflow-hidden">
@@ -130,12 +117,6 @@ const ContentItem = ({
               >
                 <Play className="h-8 w-8 ml-1" />
               </Button>
-            </div>
-          )}
-          
-          {ogData && item.type === 'link' && (
-            <div className="p-4 pb-0">
-              <LinkPreview ogData={ogData} />
             </div>
           )}
         </div>
