@@ -97,16 +97,15 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
       },
       openOnClick: false,
     }),
-    TiptapImage.extend({
-      addProseMirrorPlugins() {
-        return uploadFn ? [
-          uploadFn
-        ] : [];
-      },
-    }).configure({
+    // Configure TiptapImage with proper plugin handling
+    TiptapImage.configure({
       allowBase64: true,
       HTMLAttributes: {
         class: "rounded-lg border border-muted max-w-full h-auto",
+      },
+    }).extend({
+      addProseMirrorPlugins() {
+        return uploadFn ? [uploadFn] : [];
       },
     }),
     TaskList.configure({
