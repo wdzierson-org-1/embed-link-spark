@@ -28,11 +28,11 @@ const ContentItemImage = ({ item, imageErrors, onImageError }: ContentItemImageP
     }
 
     return (
-      <div className="mb-3">
+      <div className="w-full h-48 overflow-hidden">
         <img
           src={imageUrl}
           alt={item.title || 'Content thumbnail'}
-          className="w-full h-32 object-cover rounded-md"
+          className="w-full h-full object-cover"
           onError={() => onImageError(item.id)}
         />
       </div>
@@ -50,11 +50,11 @@ const ContentItemImage = ({ item, imageErrors, onImageError }: ContentItemImageP
         const imageUrl = data.publicUrl;
 
         return (
-          <div className="mb-3">
+          <div className="w-full h-48 overflow-hidden">
             <img
               src={imageUrl}
               alt={item.title || 'Link preview'}
-              className="w-full h-32 object-cover rounded-md"
+              className="w-full h-full object-cover"
               onError={() => onImageError(item.id)}
             />
           </div>

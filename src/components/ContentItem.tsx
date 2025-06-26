@@ -107,23 +107,76 @@ const ContentItem = ({
 
   return (
     <TooltipProvider>
-      <Card className="group flex flex-col h-full">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between">
-            <div className="flex-1 min-w-0 pr-2">
-              {item.title && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <CardTitle className="text-lg truncate cursor-help">
-                      {item.title}
-                    </CardTitle>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="max-w-xs break-words">{item.title}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
+      <Card className="group flex flex-col h-full hover:border-gray-400 transition-colors duration-200 overflow-hidden">
+        {/* Image at the top, clipped to card edges */}
+        <div className="relative">
+          <ContentItemImage
+            item={item}
+            imageErrors={imageErrors}
+            onImageError={onImageError}
+          />
+          
+          {ogData && item.type === 'link' && (
+            <div className="p-4 pb-0">
+              <LinkPreview ogData={ogData} />
             </div>
+          )}
+        </div>
+
+        <div className="flex flex-col flex-1 p-4">
+          {/* Title section */}
+          {item.title && (
+            <div className="mb-3">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <h3 className="text-lg font-semibold leading-tight line-clamp-2 cursor-help">
+                    {item.title}
+                  </h3>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs break-words">{item.title}</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+          
+          {/* Content section */}
+          <div className="flex-1 mb-4">
+            <ContentItemContent
+              item={item}
+              expandedContent={expandedContent}
+              onToggleExpansion={onToggleExpansion}
+            />
+          </div>
+          
+          {/* Tags - hidden by default, shown on hover */}
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mb-4">
+            <ItemTagsManager
+              itemId={item.id}
+              currentTags={tags}
+              onTagsUpdated={onTagsUpdated}
+              itemContent={{
+                title: item.title,
+                content: item.content,
+                description: item.description
+              }}
+            />
+          </div>
+          
+          {/* Bottom section with date, type badge, and menu */}
+          <div className="flex items-center justify-between mt-auto">
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-muted-foreground">
+                {format(new Date(item.created_at), 'MMM d, yyyy')}
+              </p>
+              {/* Type badge - hidden by default, shown on hover */}
+              <Badge className={`opacity-0 group-hover:opacity-100 transition-opacity duration-200 ${getTypeColor(item.type)}`}>
+                {getIcon(item.type)}
+                <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
+              </Badge>
+            </div>
+            
+            {/* Menu dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -160,51 +213,7 @@ const ContentItem = ({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </CardHeader>
-        <CardContent className="flex flex-col flex-1">
-          <div className="flex-1">
-            <ContentItemImage
-              item={item}
-              imageErrors={imageErrors}
-              onImageError={onImageError}
-            />
-            
-            {ogData && item.type === 'link' && (
-              <div className="mb-3">
-                <LinkPreview ogData={ogData} />
-              </div>
-            )}
-            
-            <ContentItemContent
-              item={item}
-              expandedContent={expandedContent}
-              onToggleExpansion={onToggleExpansion}
-            />
-            
-            <div className="mb-2">
-              <ItemTagsManager
-                itemId={item.id}
-                currentTags={tags}
-                onTagsUpdated={onTagsUpdated}
-                itemContent={{
-                  title: item.title,
-                  content: item.content,
-                  description: item.description
-                }}
-              />
-            </div>
-          </div>
-          
-          <div className="flex items-center justify-between mt-auto pt-2">
-            <Badge className={getTypeColor(item.type)}>
-              {getIcon(item.type)}
-              <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
-            </Badge>
-            <p className="text-xs text-muted-foreground">
-              {format(new Date(item.created_at), 'MMM d, yyyy')}
-            </p>
-          </div>
-        </CardContent>
+        </div>
       </Card>
     </TooltipProvider>
   );
