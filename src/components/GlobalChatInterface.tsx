@@ -10,6 +10,15 @@ interface GlobalChatInterfaceProps {
 }
 
 const GlobalChatInterface = ({ open, onOpenChange }: GlobalChatInterfaceProps) => {
+  // Create a mock item for global chat
+  const globalChatItem = {
+    id: 'global-chat',
+    type: 'all-content',
+    title: 'All Content',
+    content: '',
+    description: 'Chat with all content in your stash'
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[80vh] flex flex-col">
@@ -25,9 +34,9 @@ const GlobalChatInterface = ({ open, onOpenChange }: GlobalChatInterfaceProps) =
         
         <div className="flex-1 min-h-0">
           <ChatInterface
-            itemId={null}
-            itemTitle="All Content"
-            chatEndpoint="chat-with-all-content"
+            isOpen={open}
+            onClose={() => onOpenChange(false)}
+            item={globalChatItem}
           />
         </div>
       </DialogContent>
