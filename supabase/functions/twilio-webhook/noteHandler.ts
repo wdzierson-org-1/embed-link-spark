@@ -1,6 +1,7 @@
 
 import { processImage } from './imageProcessor.ts';
 import { processAudio } from './audioProcessor.ts';
+import { processVideo } from './videoProcessor.ts';
 import { saveMediaToStorage } from './mediaStorage.ts';
 import { successMessages } from './constants.ts';
 
@@ -29,6 +30,8 @@ export async function handleNoteIntent(
         processedMedia = await processImage(mediaUrl, openaiApiKey);
       } else if (mediaContentType.startsWith('audio/')) {
         processedMedia = await processAudio(mediaUrl, openaiApiKey);
+      } else if (mediaContentType.startsWith('video/')) {
+        processedMedia = await processVideo(mediaUrl, openaiApiKey);
       }
       
       if (processedMedia) {
@@ -42,6 +45,8 @@ export async function handleNoteIntent(
       itemType = 'image';
     } else if (mediaContentType?.startsWith('audio/')) {
       itemType = 'audio';
+    } else if (mediaContentType?.startsWith('video/')) {
+      itemType = 'video';
     }
 
     // Save to items table
@@ -51,7 +56,7 @@ export async function handleNoteIntent(
         user_id: userId,
         type: itemType,
         content: contentToSave,
-        title: generateTitleFromContent(contentToSave),
+        title: generateTitleFromContent(contentToSave, itemType),
         file_path: savedMediaPath,
         mime_type: mediaContentType || null,
         description: processedMedia || null
@@ -91,8 +96,20 @@ export async function handleNoteIntent(
   }
 }
 
-function generateTitleFromContent(content: string): string {
-  if (!content) return 'SMS Note';
+function generateTitleFromContent(content: string, itemType: string = 'text'): string {
+  if (!content) {
+    // Generate appropriate default titles based on type
+    switch (itemType) {
+      case 'video':
+        return 'Video Note';
+      case 'audio':
+        return 'Audio Note';
+      case 'image':
+        return 'Image Note';
+      default:
+        return 'SMS Note';
+    }
+  }
   
   // Take first 50 characters and clean up
   const title = content.substring(0, 50).replace(/\n/g, ' ').trim();
