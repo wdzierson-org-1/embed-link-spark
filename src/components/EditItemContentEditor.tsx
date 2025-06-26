@@ -8,11 +8,24 @@ import {
   EditorCommandItem,
   EditorCommandList,
   EditorCommandEmpty,
-  EditorBubble,
-  EditorBubbleItem,
   type JSONContent,
   type EditorInstance,
+  StarterKit,
+  Placeholder,
+  TiptapLink,
+  TiptapImage,
+  TaskList,
+  TaskItem,
+  HorizontalRule,
+  CodeBlockLowlight,
+  TiptapUnderline,
+  TextStyle,
+  Color,
+  HighlightExtension,
+  CustomKeymap,
+  GlobalDragHandle,
 } from 'novel';
+import { createLowlight, common } from 'lowlight';
 
 interface EditItemContentEditorProps {
   content: string;
@@ -21,6 +34,96 @@ interface EditItemContentEditorProps {
 
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
   const [initialContent, setInitialContent] = useState<JSONContent | null>(null);
+
+  // Configure extensions similar to the Novel example
+  const extensions = [
+    StarterKit.configure({
+      bulletList: {
+        HTMLAttributes: {
+          class: "list-disc list-outside leading-3 -mt-2",
+        },
+      },
+      orderedList: {
+        HTMLAttributes: {
+          class: "list-decimal list-outside leading-3 -mt-2",
+        },
+      },
+      listItem: {
+        HTMLAttributes: {
+          class: "leading-normal -mb-2",
+        },
+      },
+      blockquote: {
+        HTMLAttributes: {
+          class: "border-l-4 border-primary",
+        },
+      },
+      codeBlock: {
+        HTMLAttributes: {
+          class: "rounded-md bg-muted text-muted-foreground border p-5 font-mono font-medium",
+        },
+      },
+      code: {
+        HTMLAttributes: {
+          class: "rounded-md bg-muted px-1.5 py-1 font-mono font-medium",
+          spellcheck: "false",
+        },
+      },
+      horizontalRule: false,
+      dropcursor: {
+        color: "#DBEAFE",
+        width: 4,
+      },
+      gapcursor: false,
+    }),
+    Placeholder.configure({
+      placeholder: ({ node }) => {
+        if (node.type.name === "heading") {
+          return `Heading ${node.attrs.level}`;
+        }
+        return "Press '/' for commands or start typing...";
+      },
+      includeChildren: true,
+    }),
+    TiptapLink.configure({
+      HTMLAttributes: {
+        class: "text-muted-foreground underline underline-offset-[3px] hover:text-primary transition-colors cursor-pointer",
+      },
+    }),
+    TiptapImage.configure({
+      allowBase64: true,
+      HTMLAttributes: {
+        class: "rounded-lg border border-muted",
+      },
+    }),
+    TaskList.configure({
+      HTMLAttributes: {
+        class: "not-prose pl-2",
+      },
+    }),
+    TaskItem.configure({
+      HTMLAttributes: {
+        class: "flex gap-2 items-start my-4",
+      },
+      nested: true,
+    }),
+    HorizontalRule.configure({
+      HTMLAttributes: {
+        class: "mt-4 mb-6 border-t border-muted-foreground",
+      },
+    }),
+    CodeBlockLowlight.configure({
+      lowlight: createLowlight(common),
+    }),
+    TiptapUnderline,
+    TextStyle,
+    Color,
+    HighlightExtension.configure({
+      multicolor: true,
+    }),
+    CustomKeymap,
+    GlobalDragHandle,
+  ];
 
   // Convert HTML string to JSONContent for the editor
   const convertHtmlToJson = (htmlString: string): JSONContent => {
@@ -79,10 +182,11 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
         <EditorRoot>
           <EditorContent
             initialContent={initialContent}
-            className="min-h-[300px] p-4 prose prose-sm max-w-none"
+            extensions={extensions}
+            className="min-h-[300px] w-full max-w-none"
             editorProps={{
               attributes: {
-                class: 'focus:outline-none'
+                class: 'prose prose-sm dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4'
               }
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
@@ -95,7 +199,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
               <EditorCommandList>
                 <EditorCommandItem
                   value="paragraph"
-                  onCommand={(val) => console.log('Paragraph command:', val)}
+                  onCommand={() => {}}
                   className="flex w-full items-center space-x-2 rounded-md px-2 py-1 text-left text-sm hover:bg-accent aria-selected:bg-accent"
                 >
                   <div className="flex h-8 w-8 items-center justify-center rounded-md border border-muted bg-background">
@@ -108,11 +212,6 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
                 </EditorCommandItem>
               </EditorCommandList>
             </EditorCommand>
-            
-            <EditorBubble className="flex w-fit max-w-[90vw] overflow-hidden rounded-md border border-muted bg-background shadow-xl">
-              <EditorBubbleItem>Bold</EditorBubbleItem>
-              <EditorBubbleItem>Italic</EditorBubbleItem>
-            </EditorBubble>
           </EditorContent>
         </EditorRoot>
       </div>
