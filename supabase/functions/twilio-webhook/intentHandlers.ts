@@ -1,6 +1,7 @@
 
 import { processImage } from './imageProcessor.ts';
 import { processAudio } from './audioProcessor.ts';
+import { saveMediaToStorage } from './mediaStorage.ts';
 import { successMessages } from './constants.ts';
 
 export async function handleNoteIntent(
@@ -14,9 +15,16 @@ export async function handleNoteIntent(
   try {
     let contentToSave = message || '';
     let processedMedia = '';
+    let savedMediaPath = null;
 
     // Handle media if present
     if (mediaUrl && mediaContentType) {
+      console.log('Processing media:', mediaContentType, mediaUrl);
+      
+      // Save original media to storage
+      savedMediaPath = await saveMediaToStorage(mediaUrl, mediaContentType, userId, supabase);
+      
+      // Process media with AI
       if (mediaContentType.startsWith('image/')) {
         processedMedia = await processImage(mediaUrl, openaiApiKey);
       } else if (mediaContentType.startsWith('audio/')) {
@@ -28,16 +36,25 @@ export async function handleNoteIntent(
       }
     }
 
-    // Save to items table using the existing content processor pattern
+    // Determine item type based on media
+    let itemType = 'text';
+    if (mediaContentType?.startsWith('image/')) {
+      itemType = 'image';
+    } else if (mediaContentType?.startsWith('audio/')) {
+      itemType = 'audio';
+    }
+
+    // Save to items table
     const { data: item, error } = await supabase
       .from('items')
       .insert({
         user_id: userId,
-        type: 'text',
+        type: itemType,
         content: contentToSave,
         title: generateTitleFromContent(contentToSave),
-        file_path: mediaUrl || null,
-        mime_type: mediaContentType || null
+        file_path: savedMediaPath,
+        mime_type: mediaContentType || null,
+        description: processedMedia || null
       })
       .select()
       .single();
@@ -59,7 +76,14 @@ export async function handleNoteIntent(
     }
 
     const randomMessage = successMessages[Math.floor(Math.random() * successMessages.length)];
-    return processedMedia ? `${randomMessage} ${processedMedia.substring(0, 100)}...` : randomMessage;
+    
+    if (processedMedia) {
+      return `${randomMessage} ${processedMedia.substring(0, 100)}...`;
+    } else if (savedMediaPath) {
+      return `${randomMessage} Media saved successfully!`;
+    } else {
+      return randomMessage;
+    }
 
   } catch (error) {
     console.error('Error handling note intent:', error);
