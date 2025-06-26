@@ -75,8 +75,8 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header with logo and chat/logout buttons */}
-      <div className="w-full border-b bg-background">
+      {/* Header with logo and chat/logout buttons - removed border-b */}
+      <div className="w-full bg-background">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center">
             <h1 className="text-2xl font-bold ml-4 mt-2">Stash</h1>
