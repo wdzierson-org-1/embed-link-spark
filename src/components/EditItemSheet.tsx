@@ -1,14 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import EditItemTitleSection from '@/components/EditItemTitleSection';
-import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
-import EditItemImageSection from '@/components/EditItemImageSection';
-import EditItemContentEditor from '@/components/EditItemContentEditor';
-import EditItemMediaSection from '@/components/EditItemMediaSection';
-import EditItemTagsSection from '@/components/EditItemTagsSection';
+import EditItemTabNavigation from '@/components/EditItemTabNavigation';
+import EditItemDetailsTab from '@/components/EditItemDetailsTab';
+import EditItemImageTab from '@/components/EditItemImageTab';
+import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
 import { supabase } from '@/integrations/supabase/client';
 import { generateTitle } from '@/utils/titleGenerator';
 
@@ -45,16 +43,13 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   useEffect(() => {
     if (item && open) {
       setIsContentLoading(true);
-      // Create a unique key combining item ID and timestamp to force editor recreation
       const newKey = `editor-${item.id}-${Date.now()}`;
       setEditorKey(newKey);
       
-      // Set content state
       setTitle(item.title || '');
       setDescription(item.description || '');
       setContent(item.content || '');
       
-      // Small delay to ensure state is updated before showing editor
       setTimeout(() => {
         setIsContentLoading(false);
       }, 100);
@@ -66,7 +61,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   // Clear editor state when sheet closes
   useEffect(() => {
     if (!open) {
-      // Reset all state when sheet closes to ensure clean state
       setTitle('');
       setDescription('');
       setContent('');
@@ -86,14 +80,11 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const checkForImage = () => {
     if (!item) return;
     
-    // Check for regular image files
     if (item.type === 'image' && item.file_path) {
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
       setHasImage(true);
       setImageUrl(data.publicUrl);
-    }
-    // Check for link preview images
-    else if (item.type === 'link' && item.content) {
+    } else if (item.type === 'link' && item.content) {
       try {
         const contentData = JSON.parse(item.content);
         const storedImagePath = contentData.ogData?.storedImagePath;
@@ -116,7 +107,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const triggerAutoSave = async (changeType: 'content' | 'tags' | 'media' = 'content') => {
     if (!item || isContentLoading) return;
     
-    // Clear existing timeout
     if (saveTimeoutId) {
       clearTimeout(saveTimeoutId);
     }
@@ -132,7 +122,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
         });
         setSaveStatus('saved');
         
-        // Reset to idle after showing "saved" for 2 seconds
         setTimeout(() => {
           setSaveStatus('idle');
         }, 2000);
@@ -141,7 +130,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
         setSaveStatus('idle');
       }
       setSaveTimeoutId(null);
-    }, 1000); // 1 second debounce
+    }, 1000);
     
     setSaveTimeoutId(timeoutId);
   };
@@ -151,12 +140,10 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     triggerAutoSave('content');
   }, [title, description, content, item?.id]);
 
-  // Handle tags changes callback
   const handleTagsChange = () => {
     triggerAutoSave('tags');
   };
 
-  // Handle media changes callback
   const handleMediaChange = () => {
     triggerAutoSave('media');
   };
@@ -164,7 +151,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const handleTitleSave = async (newTitle: string) => {
     if (!item) return;
     
-    // If title is empty, generate one from content
     let finalTitle = newTitle;
     if (!finalTitle && content) {
       try {
@@ -187,23 +173,10 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const handleImageStateChange = (newHasImage: boolean, newImageUrl: string) => {
     setHasImage(newHasImage);
     setImageUrl(newImageUrl);
-    // Refetch the item to update the UI properly
     if (item) {
       setTimeout(() => checkForImage(), 500);
     }
-    // Trigger auto-save for media changes
     handleMediaChange();
-  };
-
-  const getSaveStatusText = () => {
-    switch (saveStatus) {
-      case 'saving':
-        return 'Saving...';
-      case 'saved':
-        return 'Saved';
-      default:
-        return 'Changes are saved automatically';
-    }
   };
 
   return (
@@ -215,90 +188,33 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
           </SheetHeader>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-            <div className="px-6 mt-4 flex-shrink-0">
-              <TabsList className="w-fit">
-                <TabsTrigger value="details">Note Details</TabsTrigger>
-                {hasImage && <TabsTrigger value="image">Image</TabsTrigger>}
-              </TabsList>
-            </div>
+            <EditItemTabNavigation hasImage={hasImage} />
 
-            <TabsContent value="details" className="flex-1 overflow-y-auto m-0 px-6 pb-6">
-              <div className="space-y-8 pt-4">
-                {/* Title Section */}
-                <EditItemTitleSection
-                  title={title}
-                  onTitleChange={setTitle}
-                  onSave={handleTitleSave}
-                />
+            <EditItemDetailsTab
+              item={item}
+              title={title}
+              description={description}
+              content={content}
+              isContentLoading={isContentLoading}
+              editorKey={editorKey}
+              onTitleChange={setTitle}
+              onDescriptionChange={setDescription}
+              onContentChange={setContent}
+              onTitleSave={handleTitleSave}
+              onDescriptionSave={handleDescriptionSave}
+              onTagsChange={handleTagsChange}
+              onMediaChange={handleMediaChange}
+            />
 
-                {/* Content Section */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Content</label>
-                  <div className="relative">
-                    {isContentLoading ? (
-                      <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
-                        Loading editor...
-                      </div>
-                    ) : (
-                      <EditItemContentEditor
-                        content={content}
-                        onContentChange={setContent}
-                        itemId={item?.id}
-                        editorInstanceKey={editorKey}
-                      />
-                    )}
-                    <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
-                      Press / for formatting options
-                    </div>
-                  </div>
-                </div>
-
-                {/* Summary Section */}
-                <EditItemDescriptionSection
-                  itemId={item?.id || ''}
-                  description={description}
-                  content={content}
-                  title={title}
-                  onDescriptionChange={setDescription}
-                  onSave={handleDescriptionSave}
-                />
-
-                {/* Media Section */}
-                <EditItemMediaSection item={item} onMediaChange={handleMediaChange} />
-
-                {/* Tags Section */}
-                <EditItemTagsSection item={item} onTagsChange={handleTagsChange} />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="image" className="flex-1 overflow-y-auto m-0 px-6 pb-6">
-              <div className="pt-4">
-                {hasImage && (
-                  <div className="relative inline-block">
-                    <img
-                      src={imageUrl}
-                      alt="Item image"
-                      className="w-full max-w-md rounded-lg border"
-                    />
-                    <EditItemImageSection
-                      itemId={item?.id || ''}
-                      hasImage={hasImage}
-                      imageUrl={imageUrl}
-                      onImageStateChange={handleImageStateChange}
-                      asLink={true}
-                    />
-                  </div>
-                )}
-              </div>
-            </TabsContent>
+            <EditItemImageTab
+              item={item}
+              hasImage={hasImage}
+              imageUrl={imageUrl}
+              onImageStateChange={handleImageStateChange}
+            />
           </Tabs>
 
-          {/* Auto-save indicator */}
-          <div className="px-6 py-3 border-t bg-muted/30 flex-shrink-0">
-            <p className={`text-xs ${saveStatus === 'saving' ? 'text-blue-600' : saveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'}`}>
-              {getSaveStatusText()}
-            </p>
-          </div>
+          <EditItemAutoSaveIndicator saveStatus={saveStatus} />
         </SheetContent>
       </Sheet>
     </TooltipProvider>
