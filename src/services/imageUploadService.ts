@@ -43,25 +43,55 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
 
   console.log('ImageUploadService: Generated file path', { filePath });
 
-  // Enhanced authentication validation with session refresh
-  console.log('ImageUploadService: Refreshing session before upload');
-  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  // Enhanced authentication validation with multiple session refresh attempts
+  console.log('ImageUploadService: Validating authentication');
   
-  if (sessionError) {
-    console.error('ImageUploadService: Session refresh failed', sessionError);
-    throw new Error('Failed to refresh authentication session');
+  let session = null;
+  let sessionAttempts = 0;
+  const maxSessionAttempts = 3;
+  
+  while (!session && sessionAttempts < maxSessionAttempts) {
+    sessionAttempts++;
+    console.log(`ImageUploadService: Session attempt ${sessionAttempts}/${maxSessionAttempts}`);
+    
+    // Force session refresh
+    const { data: { session: refreshedSession }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error(`ImageUploadService: Session error (attempt ${sessionAttempts}):`, sessionError);
+      if (sessionAttempts === maxSessionAttempts) {
+        throw new Error('Failed to authenticate - session error');
+      }
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      continue;
+    }
+
+    if (!refreshedSession?.user) {
+      console.error(`ImageUploadService: No user in session (attempt ${sessionAttempts})`);
+      if (sessionAttempts === maxSessionAttempts) {
+        throw new Error('Authentication required for file upload');
+      }
+      // Try to refresh the session
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        console.error('ImageUploadService: Session refresh failed:', refreshError);
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      continue;
+    }
+
+    session = refreshedSession;
   }
 
-  if (!session || !session.user) {
-    console.error('ImageUploadService: No valid session found after refresh');
-    throw new Error('Authentication required for file upload');
+  if (!session) {
+    throw new Error('Failed to obtain valid session after multiple attempts');
   }
 
   // Log detailed authentication information
-  console.log('ImageUploadService: Authentication details', {
+  console.log('ImageUploadService: Authentication successful', {
     sessionUserId: session.user.id,
     providedUserId: userId,
-    sessionValid: !!session,
     userMatches: session.user.id === userId,
     sessionExpiry: session.expires_at,
     currentTime: new Date().toISOString()
@@ -88,15 +118,24 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
         sessionUser: session.user.id
       });
 
-      // Re-validate session before each upload attempt
+      // Re-validate session before each upload attempt (except first)
       if (attempt > 1) {
         console.log('ImageUploadService: Re-validating session for retry');
         const { data: { session: retrySession }, error: retrySessionError } = await supabase.auth.getSession();
         
-        if (retrySessionError || !retrySession) {
+        if (retrySessionError) {
           console.error('ImageUploadService: Session validation failed on retry', retrySessionError);
-          throw new Error('Session expired during retry');
+          lastError = new Error('Session expired during retry');
+          continue;
         }
+        
+        if (!retrySession?.user) {
+          console.error('ImageUploadService: No user in retry session');
+          lastError = new Error('Session expired during retry');
+          continue;
+        }
+        
+        session = retrySession;
       }
       
       const { error: uploadError } = await supabase.storage
@@ -115,10 +154,11 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
         // Handle specific error types
         if (uploadError.message?.includes('RLS') || 
             uploadError.message?.includes('policy') ||
-            uploadError.message?.includes('Unauthorized')) {
+            uploadError.message?.includes('Unauthorized') ||
+            uploadError.message?.includes('row-level security')) {
           console.error('ImageUploadService: RLS/Authorization error detected');
           
-          // If this is an RLS error and we haven't exhausted retries, try refreshing auth
+          // For RLS errors, try refreshing auth and retrying
           if (attempt < maxRetries) {
             console.log('ImageUploadService: Attempting session refresh for RLS error');
             const { error: refreshError } = await supabase.auth.refreshSession();
@@ -126,11 +166,11 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
               console.error('ImageUploadService: Session refresh failed', refreshError);
             } else {
               console.log('ImageUploadService: Session refreshed successfully');
-              const delay = Math.pow(2, attempt) * 1000;
-              console.log(`ImageUploadService: Retrying in ${delay}ms after RLS error...`);
-              await new Promise(resolve => setTimeout(resolve, delay));
-              continue;
             }
+            const delay = Math.pow(2, attempt) * 1000;
+            console.log(`ImageUploadService: Retrying in ${delay}ms after RLS error...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
           }
           throw uploadError;
         }
@@ -157,14 +197,13 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
       
       lastError = error as Error;
       
-      // Don't retry for authentication or permission errors unless it's the first attempt
+      // Don't retry for certain types of errors
       if (error instanceof Error && 
           (error.message?.includes('Session expired') || 
-           error.message?.includes('User ID mismatch')) &&
-          attempt === 1) {
+           error.message?.includes('User ID mismatch'))) {
         // Allow one retry for session issues
         if (attempt < maxRetries) {
-          const delay = 1000; // Shorter delay for auth issues
+          const delay = 1000;
           console.log(`ImageUploadService: Retrying auth error in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
@@ -184,7 +223,8 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
   if (lastError) {
     const errorMessage = lastError.message?.includes('RLS') || 
                         lastError.message?.includes('policy') || 
-                        lastError.message?.includes('Unauthorized')
+                        lastError.message?.includes('Unauthorized') ||
+                        lastError.message?.includes('row-level security')
       ? 'Permission denied. Please refresh the page and try again.'
       : `Failed to upload image: ${lastError.message}. Please try again.`;
     

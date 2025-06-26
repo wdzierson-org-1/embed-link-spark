@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -11,6 +12,7 @@ import { convertToJsonContent } from './editor/EditorUtils';
 import EditorCommandMenu from './editor/EditorCommandMenu';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadImage } from '@/services/imageUploadService';
+import { toast } from 'sonner';
 
 interface EditItemContentEditorProps {
   content: string;
@@ -37,6 +39,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
 
     if (!user || !session) {
       console.error('EditItemContentEditor: No user or session found');
+      toast.error('Please log in to upload images');
       throw new Error('User not authenticated');
     }
 
@@ -53,9 +56,21 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         timeUntilExpiryMin: Math.floor(timeUntilExpiry / 1000 / 60)
       });
 
-      // If session expires in less than 5 minutes, warn but continue
+      // If session expires in less than 5 minutes, refresh it
       if (timeUntilExpiry < 5 * 60 * 1000) {
-        console.warn('EditItemContentEditor: Session expires soon, upload may fail');
+        console.log('EditItemContentEditor: Session expires soon, refreshing...');
+        try {
+          const { error } = await supabase.auth.refreshSession();
+          if (error) {
+            console.error('EditItemContentEditor: Failed to refresh session', error);
+            toast.error('Session expired. Please refresh the page and try again.');
+            throw new Error('Session expired');
+          }
+        } catch (refreshError) {
+          console.error('EditItemContentEditor: Session refresh failed', refreshError);
+          toast.error('Session expired. Please refresh the page and try again.');
+          throw refreshError;
+        }
       }
     }
 
@@ -80,6 +95,25 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         itemId,
         fileName: file.name
       });
+      
+      // Provide more specific error messages based on the error type
+      if (error instanceof Error) {
+        if (error.message.includes('RLS') || 
+            error.message.includes('policy') || 
+            error.message.includes('Unauthorized') ||
+            error.message.includes('row-level security')) {
+          toast.error('Permission denied. Please refresh the page and try again.');
+        } else if (error.message.includes('Session expired')) {
+          toast.error('Session expired. Please refresh the page and try again.');
+        } else if (error.message.includes('User ID mismatch')) {
+          toast.error('Authentication error. Please refresh the page and try again.');
+        } else {
+          toast.error(`Upload failed: ${error.message}`);
+        }
+      } else {
+        toast.error('Failed to upload image. Please try again.');
+      }
+      
       throw error;
     }
   };

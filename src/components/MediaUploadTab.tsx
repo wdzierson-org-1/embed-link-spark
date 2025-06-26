@@ -6,6 +6,7 @@ import { Upload, File, X, Image, Video, Mic, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadImage } from '@/services/imageUploadService';
+import { generateDescription } from '@/utils/aiOperations';
 
 interface MediaUploadTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -103,7 +104,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
                         file.type.startsWith('video/') ? 'video' :
                         file.type.startsWith('audio/') ? 'audio' : 'document';
 
-        // For images, use the centralized upload service
+        // For images, use the centralized upload service and generate AI description
         if (fileType === 'image') {
           try {
             const result = await uploadImage({
@@ -111,16 +112,25 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
               userId: user.id
             });
             
+            // Generate AI description for the uploaded image
+            console.log('MediaUploadTab: Generating AI description for image');
+            const aiDescription = await generateDescription('image', {
+              fileData: result.publicUrl,
+              content: file.name
+            });
+            
+            console.log('MediaUploadTab: AI description generated:', aiDescription);
+            
             await onAddContent(fileType, {
               file,
               title: file.name,
-              description: '',
+              description: aiDescription || '', // Use AI description if available
               tags: [],
               uploadedFilePath: result.filePath,
               uploadedUrl: result.publicUrl
             });
           } catch (error) {
-            console.error('Error uploading image:', error);
+            console.error('Error uploading image or generating description:', error);
             // Fall back to the original flow for images if centralized service fails
             await onAddContent(fileType, {
               file,
