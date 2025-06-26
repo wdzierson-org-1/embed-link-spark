@@ -1,93 +1,98 @@
 
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { FileText } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import TagInput from '@/components/TagInput';
 import { useToast } from '@/hooks/use-toast';
 
 interface TextNoteTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
-  getSuggestedTags: () => string[];
+  getSuggestedTags: (limit?: number) => string[];
 }
 
 const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
-  const [textInput, setTextInput] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
   const handleSubmit = async () => {
-    if (!textInput.trim()) return;
-    
-    setIsProcessing(true);
+    if (!content.trim()) {
+      toast({
+        title: "Content required",
+        description: "Please enter some content for your note.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       await onAddContent('text', {
-        content: textInput,
-        title: textInput.slice(0, 50) + (textInput.length > 50 ? '...' : '')
+        title: title.trim() || 'Untitled Note',
+        content: content.trim(),
+        tags
       });
-      
+
       // Reset form
-      setTextInput('');
-      
+      setTitle('');
+      setContent('');
+      setTags([]);
+
       toast({
         title: "Success",
-        description: "Text note added to your stash!",
+        description: "Note added successfully!",
       });
     } catch (error) {
+      console.error('Error adding note:', error);
       toast({
         title: "Error",
-        description: "Failed to add text note",
+        description: "Failed to add note. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
+      setIsSubmitting(false);
     }
   };
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center space-x-2">
-          <FileText className="h-5 w-5" />
-          <span>New Text Note</span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <Textarea
-            placeholder="Type your text note here..."
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={handleKeyPress}
-            disabled={isProcessing}
-            className="min-h-[120px] resize-none"
+      <CardContent className="pt-6">
+        <div className="space-y-4">
+          <Input
+            placeholder="Note title (optional)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground mt-2">
-            Tip: Press Cmd/Ctrl + Enter to save quickly
-          </p>
-        </div>
 
-        <Button
-          onClick={handleSubmit}
-          disabled={isProcessing || !textInput.trim()}
-          className="w-full"
-        >
-          {isProcessing ? (
-            'Processing...'
-          ) : (
-            <>
-              <FileText className="h-4 w-4 mr-2" />
-              Save Text Note
-            </>
-          )}
-        </Button>
+          <Textarea
+            placeholder="Write your note here..."
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={6}
+            className="resize-none"
+          />
+
+          <div>
+            <p className="text-sm font-medium mb-2">Tags</p>
+            <TagInput
+              tags={tags}
+              onTagsChange={setTags}
+              suggestions={getSuggestedTags()}
+            />
+          </div>
+
+          <Button 
+            onClick={handleSubmit} 
+            disabled={!content.trim() || isSubmitting}
+            className="w-full"
+          >
+            {isSubmitting ? 'Adding Note...' : 'Add Note'}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

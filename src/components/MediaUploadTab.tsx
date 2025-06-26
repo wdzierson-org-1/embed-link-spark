@@ -1,188 +1,185 @@
 
 import React, { useState, useRef } from 'react';
-import { useToast } from '@/hooks/use-toast';
-import { Upload, Image, Mic, Video, FileText } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Upload, File, X } from 'lucide-react';
+import TagInput from '@/components/TagInput';
+import { useToast } from '@/hooks/use-toast';
 
 interface MediaUploadTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
-  getSuggestedTags: () => string[];
+  getSuggestedTags: (limit?: number) => string[];
 }
 
 const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const detectContentType = (file: File): string => {
-    if (file.type.startsWith('image/')) return 'image';
-    if (file.type.startsWith('audio/')) return 'audio';
-    if (file.type.startsWith('video/')) return 'video';
-    if (file.type === 'application/pdf') return 'document';
-    return 'text';
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
+  const handleFileSelect = (selectedFiles: FileList | null) => {
+    if (!selectedFiles) return;
     
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      await processFile(files[0]);
-    }
-  };
+    const newFiles = Array.from(selectedFiles);
+    const validFiles = newFiles.filter(file => {
+      // Allow images, videos, audio, and documents
+      const validTypes = [
+        'image/', 'video/', 'audio/',
+        'application/pdf', 'text/', 'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ];
+      return validTypes.some(type => file.type.startsWith(type));
+    });
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      await processFile(files[0]);
-    }
-  };
-
-  const processFile = async (file: File) => {
-    // Check file size (20MB limit)
-    const maxSize = 20 * 1024 * 1024; // 20MB in bytes
-    if (file.size > maxSize) {
+    if (validFiles.length !== newFiles.length) {
       toast({
-        title: "File too large",
-        description: "Maximum file size is 20MB",
+        title: "Some files were skipped",
+        description: "Only images, videos, audio files, and documents are supported.",
+        variant: "destructive",
+      });
+    }
+
+    setFiles(prev => [...prev, ...validFiles]);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpload = async () => {
+    if (files.length === 0) {
+      toast({
+        title: "No files selected",
+        description: "Please select at least one file to upload.",
         variant: "destructive",
       });
       return;
     }
 
-    setIsProcessing(true);
+    setIsUploading(true);
     try {
-      const type = detectContentType(file);
-      let fileData = null;
+      for (const file of files) {
+        const fileType = file.type.startsWith('image/') ? 'image' :
+                        file.type.startsWith('video/') ? 'video' :
+                        file.type.startsWith('audio/') ? 'audio' : 'document';
 
-      // For images, convert to base64 for AI processing
-      if (type === 'image') {
-        fileData = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.readAsDataURL(file);
+        await onAddContent(fileType, {
+          file,
+          title: title || file.name,
+          description,
+          tags
         });
       }
 
-      // Special handling for PDFs with placeholder content
-      if (type === 'document') {
-        await onAddContent(type, {
-          title: file.name,
-          file,
-          content: `📄 PDF Processing...
-
-We're working on extracting the text and generating a summary of this document.
-
-File: ${file.name}
-Size: ${(file.size / 1024 / 1024).toFixed(2)}MB
-
-The content will be automatically updated once text extraction is complete and embeddings are generated for search functionality.`,
-          isProcessing: true
-        });
-      } else {
-        await onAddContent(type, {
-          title: file.name,
-          file,
-          fileData,
-          content: type === 'text' ? await file.text() : undefined
-        });
+      // Reset form
+      setFiles([]);
+      setTitle('');
+      setDescription('');
+      setTags([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
 
       toast({
         title: "Success",
-        description: type === 'document' 
-          ? `PDF uploaded! Text extraction is in progress...`
-          : `${type.charAt(0).toUpperCase() + type.slice(1)} uploaded and processed!`,
+        description: `Uploaded ${files.length} file(s) successfully!`,
       });
     } catch (error) {
+      console.error('Error uploading files:', error);
       toast({
-        title: "Error",
-        description: "Failed to process file",
+        title: "Upload failed",
+        description: "There was an error uploading your files. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsProcessing(false);
+      setIsUploading(false);
     }
   };
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Add Media Files</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div
-          className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-            isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'
-          } ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-        >
-          <div className="space-y-4">
-            <div className="flex justify-center">
-              <Upload className="h-12 w-12 text-muted-foreground" />
-            </div>
-            
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Upload Media Files</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Drag and drop files here, or click to browse. AI will automatically describe your content.
-              </p>
-              <p className="text-xs text-muted-foreground mb-4">
-                Maximum file size: 20MB
-              </p>
-            </div>
-
-            <div className="flex flex-wrap justify-center gap-2 mb-4">
-              <div className="flex items-center space-x-1 text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                <Image className="h-3 w-3" />
-                <span>Images</span>
-              </div>
-              <div className="flex items-center space-x-1 text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                <Mic className="h-3 w-3" />
-                <span>Audio</span>
-              </div>
-              <div className="flex items-center space-x-1 text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                <Video className="h-3 w-3" />
-                <span>Video</span>
-              </div>
-              <div className="flex items-center space-x-1 text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                <FileText className="h-3 w-3" />
-                <span>Documents & PDFs</span>
-              </div>
-            </div>
-
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
-              className="mx-auto"
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Choose Files
-            </Button>
-            
-            <input
+      <CardContent className="pt-6">
+        <div className="space-y-4">
+          <div>
+            <Input
               ref={fileInputRef}
               type="file"
+              multiple
+              accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
+              onChange={(e) => handleFileSelect(e.target.files)}
               className="hidden"
-              onChange={handleFileSelect}
-              accept="image/*,audio/*,video/*,.txt,.md,.pdf"
+              id="file-upload"
             />
-
-            {isProcessing && (
-              <div className="text-sm text-muted-foreground">
-                Processing content and generating AI description...
+            <label
+              htmlFor="file-upload"
+              className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
+            >
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <Upload className="w-8 h-8 mb-4 text-gray-500" />
+                <p className="mb-2 text-sm text-gray-500">
+                  <span className="font-semibold">Click to upload</span> or drag and drop
+                </p>
+                <p className="text-xs text-gray-500">Images, videos, audio, PDFs, documents</p>
               </div>
-            )}
+            </label>
           </div>
+
+          {files.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Selected files:</p>
+              {files.map((file, index) => (
+                <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                  <div className="flex items-center space-x-2">
+                    <File className="w-4 h-4" />
+                    <span className="text-sm truncate">{file.name}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeFile(index)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <Input
+            placeholder="Title (optional)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+
+          <Textarea
+            placeholder="Description (optional)"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+          />
+
+          <div>
+            <p className="text-sm font-medium mb-2">Tags</p>
+            <TagInput
+              tags={tags}
+              onTagsChange={setTags}
+              suggestions={getSuggestedTags()}
+            />
+          </div>
+
+          <Button 
+            onClick={handleUpload} 
+            disabled={files.length === 0 || isUploading}
+            className="w-full"
+          >
+            {isUploading ? 'Uploading...' : 'Upload Files'}
+          </Button>
         </div>
       </CardContent>
     </Card>

@@ -20,9 +20,10 @@ interface ContentGridProps {
   onDeleteItem: (id: string) => void;
   onEditItem: (item: ContentItemData) => void;
   onChatWithItem?: (item: ContentItemData) => void;
+  tagFilters?: string[];
 }
 
-const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: ContentGridProps) => {
+const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilters = [] }: ContentGridProps) => {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
@@ -81,7 +82,26 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
     });
   };
 
-  if (items.length === 0) {
+  // Filter items based on selected tags
+  const filteredItems = tagFilters.length === 0 
+    ? items 
+    : items.filter(item => {
+        const itemTagsArray = itemTags[item.id] || [];
+        // Check if the item has ALL selected tags (combinatorial AND logic)
+        return tagFilters.every(filterTag => 
+          itemTagsArray.some(itemTag => itemTag.toLowerCase() === filterTag.toLowerCase())
+        );
+      });
+
+  if (filteredItems.length === 0 && tagFilters.length > 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-muted-foreground">No items found with the selected tag filters.</p>
+      </div>
+    );
+  }
+
+  if (filteredItems.length === 0) {
     return (
       <div className="text-center py-12">
         <p className="text-muted-foreground">No content yet. Start adding items to your stash!</p>
@@ -91,7 +111,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem }: Conten
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {items.map((item) => {
+      {filteredItems.map((item) => {
         const tags = itemTags[item.id] || [];
 
         return (

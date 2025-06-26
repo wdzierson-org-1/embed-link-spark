@@ -27,6 +27,7 @@ const Index = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [globalChatOpen, setGlobalChatOpen] = useState(false);
   const [currentTab, setCurrentTab] = useState('media');
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -82,6 +83,19 @@ const Index = () => {
     }
     setCurrentTab(value);
   };
+
+  const handleTagFiltersChange = (selectedTags: string[]) => {
+    setTagFilters(selectedTags);
+  };
+
+  // Filter items based on selected tags
+  const filteredItems = tagFilters.length === 0 
+    ? items 
+    : items.filter(item => {
+        // Get item tags from the database
+        // This will be handled by the ContentGrid component
+        return true; // For now, we'll let ContentGrid handle the filtering
+      });
 
   if (loading || preferencesLoading) {
     return (
@@ -156,13 +170,17 @@ const Index = () => {
           </div>
         </div>
         
-        <StashHeader itemCount={items.length} />
+        <StashHeader 
+          itemCount={filteredItems.length} 
+          onTagFiltersChange={handleTagFiltersChange}
+        />
 
         <ContentGrid
-          items={items}
+          items={filteredItems}
           onDeleteItem={handleDeleteItem}
           onEditItem={handleEditItem}
           onChatWithItem={handleChatWithItem}
+          tagFilters={tagFilters}
         />
       </main>
 
