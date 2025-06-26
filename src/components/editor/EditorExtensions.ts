@@ -15,6 +15,7 @@ import {
   CustomKeymap,
   GlobalDragHandle,
   createImageUpload,
+  UploadImagesPlugin,
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
@@ -82,6 +83,8 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
       },
       gapcursor: false,
     }),
+    // Add UploadImagesPlugin if we have an upload function
+    ...(uploadFn ? [UploadImagesPlugin({ imageClass: "rounded-lg border border-muted max-w-full h-auto" })] : []),
     Placeholder.configure({
       placeholder: ({ node }) => {
         if (node.type.name === "heading") {
@@ -105,7 +108,10 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
       },
     }).extend({
       addProseMirrorPlugins() {
-        return uploadFn ? [uploadFn] : [];
+        return uploadFn ? [
+          // Return the upload images plugin here
+          UploadImagesPlugin({ imageClass: "rounded-lg border border-muted max-w-full h-auto" })
+        ] : [];
       },
     }),
     TaskList.configure({
