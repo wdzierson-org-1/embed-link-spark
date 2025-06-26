@@ -1,9 +1,21 @@
+
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Upload, Trash2, Image as ImageIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 interface EditItemImageSectionProps {
   itemId: string;
@@ -120,14 +132,29 @@ const EditItemImageSection = ({
       <div className="flex items-center gap-2 text-sm">
         {hasImage ? (
           <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleImageRemove}
-              className="text-red-600 hover:text-red-800 p-0 h-auto"
-            >
-              Remove image
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-600 hover:text-red-800 p-0 h-auto"
+                >
+                  Remove image
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Remove image?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently remove the image from this note. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleImageRemove}>Remove</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </>
         ) : (
           <>
@@ -161,7 +188,6 @@ const EditItemImageSection = ({
 
   return (
     <div>
-      <Label className="text-base font-medium mb-3 block">Image</Label>
       {hasImage ? (
         <div className="space-y-3">
           <div className="relative">
@@ -171,14 +197,29 @@ const EditItemImageSection = ({
               className="w-full max-w-md rounded-lg border"
             />
           </div>
-          <Button
-            variant="outline"
-            onClick={handleImageRemove}
-            className="text-red-600 hover:text-red-700"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Remove Image
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                className="text-red-600 hover:text-red-700"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Remove Image
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove image?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently remove the image from this note. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleImageRemove}>Remove</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       ) : (
         <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6">

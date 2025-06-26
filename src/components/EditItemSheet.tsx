@@ -2,17 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { useTags } from '@/hooks/useTags';
 import { Play, Plus, X } from 'lucide-react';
 import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
 import TagInput from '@/components/TagInput';
+import EditItemTitleSection from '@/components/EditItemTitleSection';
+import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
+import EditItemImageSection from '@/components/EditItemImageSection';
+import EditItemContentEditor from '@/components/EditItemContentEditor';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { generateTitle } from '@/utils/titleGenerator';
 
 interface ContentItem {
   id: string;
@@ -39,6 +43,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [newTags, setNewTags] = useState<string[]>([]);
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
+  const [hasImage, setHasImage] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
   const { toast } = useToast();
   const { user } = useAuth();
   const { addTagsToItem, fetchTags } = useTags();
@@ -49,8 +55,38 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setDescription(item.description || '');
       setContent(item.content || '');
       fetchItemTags();
+      checkForImage();
     }
   }, [item]);
+
+  const checkForImage = () => {
+    if (!item) return;
+    
+    // Check for regular image files
+    if (item.type === 'image' && item.file_path) {
+      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+      setHasImage(true);
+      setImageUrl(data.publicUrl);
+    }
+    // Check for link preview images
+    else if (item.type === 'link' && item.content) {
+      try {
+        const contentData = JSON.parse(item.content);
+        const storedImagePath = contentData.ogData?.storedImagePath;
+        
+        if (storedImagePath) {
+          const { data } = supabase.storage.from('stash-media').getPublicUrl(storedImagePath);
+          setHasImage(true);
+          setImageUrl(data.publicUrl);
+        }
+      } catch (e) {
+        // If content is not JSON, ignore
+      }
+    } else {
+      setHasImage(false);
+      setImageUrl('');
+    }
+  };
 
   const fetchItemTags = async () => {
     if (!item || !user) return;
@@ -102,6 +138,29 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
 
     return () => clearTimeout(timeoutId);
   }, [title, description, content, item?.id, onSave]);
+
+  const handleTitleSave = async (newTitle: string) => {
+    if (!item) return;
+    
+    // If title is empty, generate one from content
+    let finalTitle = newTitle;
+    if (!finalTitle && content) {
+      try {
+        finalTitle = await generateTitle(content, item.type || 'text');
+      } catch (error) {
+        console.error('Error generating title:', error);
+        finalTitle = 'Untitled Note';
+      }
+    }
+    
+    setTitle(finalTitle);
+    await onSave(item.id, { title: finalTitle });
+  };
+
+  const handleDescriptionSave = async (newDescription: string) => {
+    if (!item) return;
+    await onSave(item.id, { description: newDescription });
+  };
 
   const handleAddTags = async () => {
     if (!item || newTags.length === 0) return;
@@ -162,163 +221,177 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     }
   };
 
+  const handleImageStateChange = (newHasImage: boolean, newImageUrl: string) => {
+    setHasImage(newHasImage);
+    setImageUrl(newImageUrl);
+    // Refetch the item to update the UI properly
+    if (item) {
+      setTimeout(() => checkForImage(), 500);
+    }
+  };
+
   const fileUrl = getFileUrl(item);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[800px] sm:max-w-[800px] p-0">
-        <div className="h-full flex flex-col">
-          <SheetHeader className="px-6 py-4 border-b">
-            <SheetTitle>Edit Item</SheetTitle>
-          </SheetHeader>
+    <TooltipProvider>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent className="w-[800px] sm:max-w-[800px] p-0">
+          <div className="h-full flex flex-col">
+            <SheetHeader className="px-6 py-4 border-b">
+              <SheetTitle>Edit Item</SheetTitle>
+            </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-6 space-y-8">
-              {/* Title Section */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground">Title</label>
-                <Input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Enter title..."
-                  className="border-0 border-b border-border rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
-                />
-              </div>
-
-              {/* Description Section */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-muted-foreground">Description</label>
-                <Textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Enter description..."
-                  className="border-0 border-b border-border rounded-none px-0 resize-none focus-visible:ring-0 focus-visible:border-primary"
-                  rows={3}
-                />
-              </div>
-
-              {/* Media Section */}
-              {item?.file_path && (item.type === 'audio' || item.type === 'video') && (
-                <div className="space-y-4">
-                  <label className="text-sm font-medium text-muted-foreground">Media</label>
-                  
-                  {item.type === 'audio' && fileUrl && (
-                    <MediaPlayer
-                      src={fileUrl}
-                      fileName={item.title || 'Audio file'}
-                      showRemove={false}
-                    />
-                  )}
-
-                  {item.type === 'video' && fileUrl && (
-                    <div className="space-y-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => setIsVideoLightboxOpen(true)}
-                        className="w-full justify-center gap-2"
-                      >
-                        <Play className="h-4 w-4" />
-                        Preview Video
-                      </Button>
-                      <VideoLightbox
-                        src={fileUrl}
-                        fileName={item.title || 'Video file'}
-                        isOpen={isVideoLightboxOpen}
-                        onClose={() => setIsVideoLightboxOpen(false)}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Content Section */}
-              {(item?.type === 'text' || item?.type === 'link') && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Content</label>
-                  <Textarea
-                    value={content}
-                    onChange={(e) => setContent(e.target.value)}
-                    placeholder="Enter content..."
-                    className="border-0 border-b border-border rounded-none px-0 min-h-[200px] resize-none focus-visible:ring-0 focus-visible:border-primary"
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-6 space-y-8">
+                
+                {/* Image Section */}
+                {hasImage && (
+                  <EditItemImageSection
+                    itemId={item?.id || ''}
+                    hasImage={hasImage}
+                    imageUrl={imageUrl}
+                    onImageStateChange={handleImageStateChange}
                   />
-                </div>
-              )}
+                )}
 
-              {/* Tags Section */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium text-muted-foreground">Tags</label>
-                  {!isEditingTags && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsEditingTags(true)}
-                      className="h-auto p-1 text-xs"
-                    >
-                      <Plus className="h-3 w-3 mr-1" />
-                      Add tags
-                    </Button>
+                {/* Title Section */}
+                <EditItemTitleSection
+                  title={title}
+                  onTitleChange={setTitle}
+                  onSave={handleTitleSave}
+                />
+
+                {/* Content Section - Given spatial priority */}
+                {(item?.type === 'text' || item?.type === 'link') && (
+                  <div className="space-y-2">
+                    <EditItemContentEditor
+                      content={content}
+                      onContentChange={setContent}
+                      itemId={item?.id}
+                      editorInstanceKey={item?.id}
+                    />
+                  </div>
+                )}
+
+                {/* Summary Section */}
+                <EditItemDescriptionSection
+                  itemId={item?.id || ''}
+                  description={description}
+                  content={content}
+                  title={title}
+                  onDescriptionChange={setDescription}
+                  onSave={handleDescriptionSave}
+                />
+
+                {/* Media Section */}
+                {item?.file_path && (item.type === 'audio' || item.type === 'video') && (
+                  <div className="space-y-4">
+                    
+                    {item.type === 'audio' && fileUrl && (
+                      <MediaPlayer
+                        src={fileUrl}
+                        fileName={item.title || 'Audio file'}
+                        showRemove={false}
+                      />
+                    )}
+
+                    {item.type === 'video' && fileUrl && (
+                      <div className="space-y-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsVideoLightboxOpen(true)}
+                          className="w-full justify-center gap-2"
+                        >
+                          <Play className="h-4 w-4" />
+                          Preview Video
+                        </Button>
+                        <VideoLightbox
+                          src={fileUrl}
+                          fileName={item.title || 'Video file'}
+                          isOpen={isVideoLightboxOpen}
+                          onClose={() => setIsVideoLightboxOpen(false)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tags Section */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-muted-foreground">Tags</label>
+                    {!isEditingTags && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsEditingTags(true)}
+                        className="h-auto p-1 text-xs"
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Add tags
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Current Tags */}
+                  {itemTags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {itemTags.map((tag, index) => (
+                        <Badge key={index} variant="secondary" className="text-xs">
+                          {tag}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto p-0 ml-1 hover:bg-transparent"
+                            onClick={() => handleRemoveTag(tag)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Tag Input */}
+                  {isEditingTags && (
+                    <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
+                      <TagInput
+                        tags={newTags}
+                        onTagsChange={setNewTags}
+                        suggestions={[]}
+                        placeholder="Type to add tags..."
+                        maxTags={5}
+                      />
+                      
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={handleAddTags} disabled={newTags.length === 0}>
+                          Add Tags
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => {
+                            setIsEditingTags(false);
+                            setNewTags([]);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
                   )}
                 </div>
-
-                {/* Current Tags */}
-                {itemTags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {itemTags.map((tag, index) => (
-                      <Badge key={index} variant="secondary" className="text-xs">
-                        {tag}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-auto p-0 ml-1 hover:bg-transparent"
-                          onClick={() => handleRemoveTag(tag)}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-
-                {/* Tag Input */}
-                {isEditingTags && (
-                  <div className="space-y-3 p-4 bg-muted/30 rounded-lg">
-                    <TagInput
-                      tags={newTags}
-                      onTagsChange={setNewTags}
-                      suggestions={[]}
-                      placeholder="Type to add tags..."
-                      maxTags={5}
-                    />
-                    
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleAddTags} disabled={newTags.length === 0}>
-                        Add Tags
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        onClick={() => {
-                          setIsEditingTags(false);
-                          setNewTags([]);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
-          </div>
 
-          {/* Auto-save indicator */}
-          <div className="px-6 py-3 border-t bg-muted/30">
-            <p className="text-xs text-muted-foreground">Changes are saved automatically</p>
+            {/* Auto-save indicator */}
+            <div className="px-6 py-3 border-t bg-muted/30">
+              <p className="text-xs text-muted-foreground">Changes are saved automatically</p>
+            </div>
           </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+        </SheetContent>
+      </Sheet>
+    </TooltipProvider>
   );
 };
 
