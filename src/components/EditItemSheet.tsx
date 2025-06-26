@@ -17,6 +17,7 @@ import EditItemContentEditor from '@/components/EditItemContentEditor';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { generateTitle } from '@/utils/titleGenerator';
+import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
 interface ContentItem {
   id: string;
@@ -42,12 +43,13 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [itemTags, setItemTags] = useState<string[]>([]);
   const [newTags, setNewTags] = useState<string[]>([]);
   const [isEditingTags, setIsEditingTags] = useState(false);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [hasImage, setHasImage] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const { toast } = useToast();
   const { user } = useAuth();
-  const { addTagsToItem, fetchTags } = useTags();
+  const { addTagsToItem, fetchTags, getSuggestedTags } = useTags();
 
   useEffect(() => {
     if (item) {
@@ -56,8 +58,33 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setContent(item.content || '');
       fetchItemTags();
       checkForImage();
+      loadTagSuggestions();
     }
   }, [item]);
+
+  const loadTagSuggestions = async () => {
+    if (!item) return;
+    
+    try {
+      // Get AI-suggested tags
+      const aiSuggestions = await getSuggestedTagsFromApi({
+        title: item.title || '',
+        content: item.content || '',
+        description: item.description || ''
+      });
+      
+      // Get popular tags from user's existing tags
+      const popularTags = getSuggestedTags(10);
+      
+      // Combine and deduplicate
+      const allSuggestions = [...new Set([...aiSuggestions, ...popularTags])];
+      setTagSuggestions(allSuggestions);
+    } catch (error) {
+      console.error('Error loading tag suggestions:', error);
+      // Fallback to popular tags only
+      setTagSuggestions(getSuggestedTags(10));
+    }
+  };
 
   const checkForImage = () => {
     if (!item) return;
@@ -246,12 +273,20 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 
                 {/* Image Section */}
                 {hasImage && (
-                  <EditItemImageSection
-                    itemId={item?.id || ''}
-                    hasImage={hasImage}
-                    imageUrl={imageUrl}
-                    onImageStateChange={handleImageStateChange}
-                  />
+                  <div className="relative inline-block">
+                    <img
+                      src={imageUrl}
+                      alt="Item image"
+                      className="w-full max-w-md rounded-lg border"
+                    />
+                    <EditItemImageSection
+                      itemId={item?.id || ''}
+                      hasImage={hasImage}
+                      imageUrl={imageUrl}
+                      onImageStateChange={handleImageStateChange}
+                      asLink={true}
+                    />
+                  </div>
                 )}
 
                 {/* Title Section */}
@@ -261,17 +296,21 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   onSave={handleTitleSave}
                 />
 
-                {/* Content Section - Given spatial priority */}
-                {(item?.type === 'text' || item?.type === 'link') && (
-                  <div className="space-y-2">
+                {/* Content Section - Always shown */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Content</label>
+                  <div className="relative">
                     <EditItemContentEditor
                       content={content}
                       onContentChange={setContent}
                       itemId={item?.id}
                       editorInstanceKey={item?.id}
                     />
+                    <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
+                      Press / for formatting options
+                    </div>
                   </div>
-                )}
+                </div>
 
                 {/* Summary Section */}
                 <EditItemDescriptionSection
@@ -358,7 +397,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                       <TagInput
                         tags={newTags}
                         onTagsChange={setNewTags}
-                        suggestions={[]}
+                        suggestions={tagSuggestions}
                         placeholder="Type to add tags..."
                         maxTags={5}
                       />

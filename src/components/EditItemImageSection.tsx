@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Upload, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Upload, Trash2, Image as ImageIcon, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -129,58 +129,31 @@ const EditItemImageSection = ({
 
   if (asLink) {
     return (
-      <div className="flex items-center gap-2 text-sm">
-        {hasImage ? (
-          <>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-red-600 hover:text-red-800 p-0 h-auto"
-                >
-                  Remove image
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Remove image?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently remove the image from this note. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleImageRemove}>Remove</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </>
-        ) : (
-          <>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              disabled={isUploading}
-              className="hidden"
-              id={`image-upload-${itemId}`}
-            />
-            <label htmlFor={`image-upload-${itemId}`}>
+      <div className="absolute top-2 right-2 z-10">
+        {hasImage && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
-                asChild
-                disabled={isUploading}
-                className="text-blue-600 hover:text-blue-800 p-0 h-auto cursor-pointer"
+                className="h-8 w-8 p-0 bg-black/50 hover:bg-black/70 text-white border-0"
               >
-                <span className="flex items-center gap-1">
-                  <ImageIcon className="h-3 w-3" />
-                  {isUploading ? 'Uploading...' : 'Add image'}
-                </span>
+                <X className="h-4 w-4" />
               </Button>
-            </label>
-          </>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove image?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently remove the image from this note. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleImageRemove}>Remove</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         )}
       </div>
     );
