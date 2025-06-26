@@ -30,13 +30,13 @@ export async function handleQuestionIntent(message: string, userId: string, supa
       return await performKeywordSearch(message, userId, supabase, openaiApiKey);
     }
 
-    // Search for similar content chunks using the embedding
+    // Search for similar content chunks using the correct function name
     const { data: chunks, error: searchError } = await supabase
-      .rpc('search_content_chunks', {
+      .rpc('search_similar_content', {
         query_embedding: queryEmbedding,
         match_threshold: 0.3,
         match_count: 5,
-        user_id_param: userId
+        target_user_id: userId
       });
 
     if (searchError) {
@@ -52,7 +52,7 @@ export async function handleQuestionIntent(message: string, userId: string, supa
 
     // Build context from the chunks
     const contextItems = chunks.map((chunk: any) => 
-      `Title: ${chunk.item_title}\nContent: ${chunk.content}\n`
+      `Title: ${chunk.item_title}\nContent: ${chunk.content_chunk}\n`
     ).join('\n---\n');
 
     // Generate response using OpenAI
