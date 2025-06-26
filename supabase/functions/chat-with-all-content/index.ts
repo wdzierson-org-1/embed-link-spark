@@ -48,9 +48,9 @@ serve(async (req) => {
 
     console.log('Authenticated user:', user.id);
 
-    // First, try semantic search using vector embeddings if we have a specific query
+    // Semantic search with stricter filtering
     let relevantChunks = [];
-    let sourceItems = new Map(); // Track source items for response
+    let potentialSources = new Map(); // Track potential source items
     
     try {
       // Generate embedding for the user's query
@@ -70,17 +70,23 @@ serve(async (req) => {
         const queryEmbeddingData = await queryEmbeddingResponse.json();
         const queryEmbedding = queryEmbeddingData.data[0].embedding;
 
-        // Search for similar content chunks with optimized parameters
+        // Search for similar content chunks with higher threshold and fewer results
         const { data: similarChunks, error: searchError } = await supabaseAdmin.rpc('search_similar_content', {
           query_embedding: queryEmbedding,
-          match_threshold: 0.6, // Lower threshold for more inclusive results
-          match_count: 20, // More results to capture comprehensive information
+          match_threshold: 0.75, // Higher threshold for more relevant matches
+          match_count: 10, // Fewer results to focus on quality
           user_id: user.id
         });
 
         if (!searchError && similarChunks && similarChunks.length > 0) {
-          console.log(`Found ${similarChunks.length} relevant chunks via semantic search`);
-          relevantChunks = similarChunks.map(chunk => ({
+          console.log(`Found ${similarChunks.length} high-confidence chunks via semantic search`);
+          
+          // Sort by similarity score (highest first) and take top chunks
+          const topChunks = similarChunks
+            .sort((a, b) => b.similarity - a.similarity)
+            .slice(0, 8); // Take only top 8 chunks
+          
+          relevantChunks = topChunks.map(chunk => ({
             content: chunk.content_chunk,
             similarity: chunk.similarity,
             item_id: chunk.item_id,
@@ -89,32 +95,35 @@ serve(async (req) => {
             item_url: chunk.item_url
           }));
 
-          // Track source items
-          similarChunks.forEach(chunk => {
-            if (!sourceItems.has(chunk.item_id)) {
-              sourceItems.set(chunk.item_id, {
+          // Track potential sources with their highest similarity scores
+          topChunks.forEach(chunk => {
+            const existingSource = potentialSources.get(chunk.item_id);
+            if (!existingSource || chunk.similarity > existingSource.maxSimilarity) {
+              potentialSources.set(chunk.item_id, {
                 id: chunk.item_id,
                 title: chunk.item_title || 'Untitled',
                 type: chunk.item_type,
-                url: chunk.item_url
+                url: chunk.item_url,
+                maxSimilarity: chunk.similarity,
+                content: chunk.content_chunk
               });
             }
           });
         }
       }
     } catch (embeddingError) {
-      console.error('Embedding search failed, falling back to basic search:', embeddingError);
+      console.error('Embedding search failed:', embeddingError);
     }
 
-    // If semantic search didn't work or returned few results, fall back to fetching user's items
-    if (relevantChunks.length < 5) {
-      console.log('Supplementing with user items for broader context');
+    // If we don't have enough high-quality semantic matches, supplement with recent items
+    if (relevantChunks.length < 3) {
+      console.log('Supplementing with recent user items for broader context');
       const { data: items, error: itemsError } = await supabaseAdmin
         .from('items')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(30); // Get more recent items for context
+        .limit(10);
 
       if (!itemsError && items) {
         const itemChunks = items.map(item => ({
@@ -122,19 +131,22 @@ serve(async (req) => {
           item_id: item.id,
           item_title: item.title,
           item_type: item.type,
-          item_url: item.url
+          item_url: item.url,
+          similarity: 0.5 // Lower similarity for fallback items
         })).filter(chunk => chunk.content.length > 0);
         
         relevantChunks = [...relevantChunks, ...itemChunks];
 
-        // Track additional source items
+        // Add fallback items to potential sources
         items.forEach(item => {
-          if (!sourceItems.has(item.id)) {
-            sourceItems.set(item.id, {
+          if (!potentialSources.has(item.id)) {
+            potentialSources.set(item.id, {
               id: item.id,
               title: item.title || 'Untitled',
               type: item.type,
-              url: item.url
+              url: item.url,
+              maxSimilarity: 0.5,
+              content: `${item.title || ''} ${item.description || ''} ${item.content || ''}`.trim()
             });
           }
         });
@@ -142,11 +154,77 @@ serve(async (req) => {
     }
 
     console.log(`Total chunks for context: ${relevantChunks.length}`);
+    console.log(`Potential sources identified: ${potentialSources.size}`);
 
-    // Prepare enhanced context for the LLM
+    // Use LLM to determine most relevant sources
+    let finalSources = [];
+    if (potentialSources.size > 0) {
+      const sourceEvaluationPrompt = `Given the user's question: "${message}"
+
+Here are the potential sources with their content snippets:
+${Array.from(potentialSources.values()).map((source, index) => 
+  `${index + 1}. ID: ${source.id}, Title: "${source.title}", Content snippet: "${source.content.substring(0, 200)}..."`
+).join('\n')}
+
+Please identify the 1-3 most relevant sources that directly relate to answering the user's question. Return only the source IDs in a JSON array format, ordered by relevance (most relevant first).
+
+For example: ["id1", "id2", "id3"]
+
+Be selective - only include sources that directly help answer the question. If no sources are truly relevant, return an empty array.`;
+
+      try {
+        const sourceEvalResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openAIApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4-turbo-2024-04-09',
+            messages: [
+              { role: 'system', content: 'You are a precise source evaluator. Return only a JSON array of the most relevant source IDs.' },
+              { role: 'user', content: sourceEvaluationPrompt }
+            ],
+            max_tokens: 200,
+            temperature: 0.1,
+          }),
+        });
+
+        if (sourceEvalResponse.ok) {
+          const evalData = await sourceEvalResponse.json();
+          const evalContent = evalData.choices[0].message.content.trim();
+          
+          try {
+            const relevantSourceIds = JSON.parse(evalContent);
+            console.log('LLM selected source IDs:', relevantSourceIds);
+            
+            // Build final sources list based on LLM selection
+            finalSources = relevantSourceIds
+              .map(id => potentialSources.get(id))
+              .filter(source => source)
+              .slice(0, 3); // Maximum 3 sources
+              
+          } catch (parseError) {
+            console.error('Failed to parse LLM source evaluation:', parseError);
+            // Fallback: use top 3 sources by similarity
+            finalSources = Array.from(potentialSources.values())
+              .sort((a, b) => b.maxSimilarity - a.maxSimilarity)
+              .slice(0, 3);
+          }
+        }
+      } catch (sourceEvalError) {
+        console.error('Source evaluation failed:', sourceEvalError);
+        // Fallback: use top 3 sources by similarity
+        finalSources = Array.from(potentialSources.values())
+          .sort((a, b) => b.maxSimilarity - a.maxSimilarity)
+          .slice(0, 3);
+      }
+    }
+
+    // Prepare enhanced context for the main LLM
     let contentContext = `You are an AI assistant helping the user work with their personal content collection. You have access to their notes, saved articles, recordings, and other personal information.
 
-IMPORTANT: When providing information, be comprehensive and include ALL relevant details you find. If there are multiple pieces of information about the same topic (like pricing from different stores), include ALL of them.
+IMPORTANT: When providing information, be comprehensive and include ALL relevant details you find. Focus on the most relevant content pieces.
 
 Here's the relevant content from their collection:
 
@@ -161,13 +239,13 @@ Here's the relevant content from their collection:
     }
 
     contentContext += `
-Please provide a helpful, comprehensive response based on ALL the relevant information above. If you find multiple related pieces of information (like different prices, different sources, etc.), make sure to include all of them in your response. Be conversational and helpful while being thorough.
+Please provide a helpful, comprehensive response based on the relevant information above. Be conversational and helpful while being thorough.
 
 User's question: ${message}`;
 
     console.log('Sending request to OpenAI GPT-4.1 with context for', relevantChunks.length, 'chunks');
 
-    // Prepare messages for OpenAI with the most advanced model
+    // Prepare messages for OpenAI
     const messages = [
       {
         role: 'system',
@@ -187,10 +265,10 @@ User's question: ${message}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4-turbo-2024-04-09', // Use the most advanced available model
+        model: 'gpt-4-turbo-2024-04-09',
         messages,
-        max_tokens: 1500, // Increased for more comprehensive responses
-        temperature: 0.3, // Lower temperature for more factual, consistent responses
+        max_tokens: 1500,
+        temperature: 0.3,
       }),
     });
 
@@ -206,11 +284,17 @@ User's question: ${message}`;
 
     const aiResponse = data.choices[0].message.content.trim();
     console.log('OpenAI response generated successfully');
+    console.log(`Returning ${finalSources.length} curated sources`);
 
-    // Return response with source information
+    // Return response with curated source information
     return new Response(JSON.stringify({ 
       response: aiResponse,
-      sources: Array.from(sourceItems.values())
+      sources: finalSources.map(source => ({
+        id: source.id,
+        title: source.title,
+        type: source.type,
+        url: source.url
+      }))
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
