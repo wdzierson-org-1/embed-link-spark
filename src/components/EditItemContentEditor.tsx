@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   EditorRoot,
   EditorContent,
@@ -20,9 +20,7 @@ interface EditItemContentEditorProps {
 
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
   const [initialContent, setInitialContent] = useState<JSONContent | null>(null);
-  const [editorInstance, setEditorInstance] = useState<EditorInstance | null>(null);
   const { user } = useAuth();
-  const previousContentRef = useRef<string>('');
 
   const handleImageUpload = async (file: File): Promise<string> => {
     if (!user) {
@@ -48,21 +46,9 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
   const extensions = createEditorExtensions(handleImageUpload);
 
   useEffect(() => {
-    // Only update if content actually changed
-    if (content !== previousContentRef.current) {
-      const jsonContent = convertToJsonContent(content);
-      
-      // If we have an editor instance, update its content directly
-      if (editorInstance && jsonContent) {
-        editorInstance.commands.setContent(jsonContent);
-      } else {
-        // If no editor instance yet, set initial content
-        setInitialContent(jsonContent);
-      }
-      
-      previousContentRef.current = content;
-    }
-  }, [content, editorInstance]);
+    const jsonContent = convertToJsonContent(content);
+    setInitialContent(jsonContent);
+  }, [content]);
 
   if (!initialContent) {
     return (
@@ -91,10 +77,6 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
               }
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
-              // Store the editor instance for future content updates
-              if (!editorInstance) {
-                setEditorInstance(editor);
-              }
               // Save as JSON to preserve formatting
               const json = editor.getJSON();
               onContentChange(JSON.stringify(json));
