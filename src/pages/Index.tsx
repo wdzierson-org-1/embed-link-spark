@@ -197,8 +197,8 @@ const Index = () => {
       />
 
       <GlobalChatInterface
-        open={showGlobalChat}
-        onOpenChange={setShowGlobalChat}
+        isOpen={showGlobalChat}
+        onClose={() => setShowGlobalChat(false)}
       />
     </div>
   );
