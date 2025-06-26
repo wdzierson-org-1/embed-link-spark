@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-import { Label } from '@/components/ui/label';
 import {
   EditorRoot,
   EditorContent,
@@ -54,7 +53,6 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
   if (!initialContent) {
     return (
       <div>
-        <Label className="text-base font-medium mb-3 block">Content</Label>
         <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
           Loading editor...
         </div>
@@ -64,7 +62,6 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
 
   return (
     <div>
-      <Label className="text-base font-medium mb-3 block">Content</Label>
       <div className="border rounded-md">
         <EditorRoot>
           <EditorContent

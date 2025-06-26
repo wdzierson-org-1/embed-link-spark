@@ -5,13 +5,13 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  ImageIcon,
   List,
   ListOrdered,
-  MessageSquarePlus,
   Text,
   TextQuote,
-} from "lucide-react";
-import { Command, createSuggestionItems, renderItems } from "novel";
+} from 'lucide-react';
+import { Command, createSuggestionItems, renderItems } from 'novel';
 
 export const suggestionItems = createSuggestionItems([
   {
@@ -20,7 +20,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["p", "paragraph"],
     icon: <Text size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).toggleNode("paragraph", "paragraph").run();
+      editor.chain().focus().deleteRange(range).clearNodes().run();
     },
   },
   {
@@ -83,7 +83,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["blockquote"],
     icon: <TextQuote size={18} />,
     command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).toggleNode("paragraph", "paragraph").toggleBlockquote().run(),
+      editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
   },
   {
     title: "Code",
@@ -91,6 +91,43 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["codeblock"],
     icon: <Code size={18} />,
     command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
+  },
+  {
+    title: "Image",
+    description: "Upload an image from your computer.",
+    searchTerms: ["photo", "picture", "media"],
+    icon: <ImageIcon size={18} />,
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run();
+      // upload image
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.onchange = async () => {
+        if (input.files?.length) {
+          const file = input.files[0];
+          const pos = editor.view.state.selection.from;
+          
+          // Create a simple image upload function
+          const uploadImage = async (file: File): Promise<string> => {
+            // This is a placeholder - in a real app you'd upload to your storage service
+            return new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.readAsDataURL(file);
+            });
+          };
+          
+          try {
+            const url = await uploadImage(file);
+            editor.chain().focus().setImage({ src: url }).run();
+          } catch (error) {
+            console.error('Error uploading image:', error);
+          }
+        }
+      };
+      input.click();
+    },
   },
 ]);
 
