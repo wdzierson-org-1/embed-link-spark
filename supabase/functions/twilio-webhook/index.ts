@@ -83,8 +83,8 @@ serve(async (req) => {
       // Handle as a note to save
       responseMessage = await handleNoteIntent(messageBody, mediaUrl, mediaContentType, userId, supabase, openaiApiKey || '');
     } else if (intent === 'question') {
-      // Handle as a question to answer
-      responseMessage = await handleQuestionIntent(messageBody, supabase);
+      // Handle as a question to answer - now with proper implementation
+      responseMessage = await handleQuestionIntent(messageBody, userId, supabase, openaiApiKey || '');
     } else {
       // Handle as command or unclear intent
       responseMessage = await handleCommandIntent(messageBody, userId, supabase, openaiApiKey || '');
