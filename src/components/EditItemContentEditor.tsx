@@ -16,11 +16,10 @@ import { useAuth } from '@/hooks/useAuth';
 interface EditItemContentEditorProps {
   content: string;
   onContentChange: (content: string) => void;
-  itemId?: string; // Add itemId to create stable keys
-  resetTrigger?: number; // Add reset trigger for manual resets
+  itemId?: string;
 }
 
-const EditItemContentEditor = ({ content, onContentChange, itemId, resetTrigger }: EditItemContentEditorProps) => {
+const EditItemContentEditor = ({ content, onContentChange, itemId }: EditItemContentEditorProps) => {
   const { user } = useAuth();
   const editorRef = useRef<EditorInstance | null>(null);
 
@@ -47,23 +46,34 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, resetTrigger 
 
   const extensions = createEditorExtensions(handleImageUpload);
 
-  // Convert content to JSON synchronously and create a stable key
+  // Create editor key that changes when content or item changes
   const { initialContent, editorKey } = useMemo(() => {
-    console.log('EditItemContentEditor: Processing content', { content, contentLength: content.length, itemId });
+    console.log('EditItemContentEditor: Processing content', { 
+      content: content.slice(0, 100), 
+      contentLength: content.length, 
+      itemId 
+    });
     
     const jsonContent = convertToJsonContent(content);
     console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
     
-    // Create a stable key based on itemId and resetTrigger - only change when switching items or manually resetting
-    const key = `editor-${itemId || 'new'}-${resetTrigger || 0}`;
+    // Create a hash of the content to detect actual content changes
+    const contentHash = content ? 
+      content.split('').reduce((a, b) => {
+        a = ((a << 5) - a) + b.charCodeAt(0);
+        return a & a;
+      }, 0).toString(36) : 'empty';
     
-    console.log('EditItemContentEditor: Generated key', { key });
+    // Combine itemId and content hash to ensure editor recreates on content change
+    const key = `editor-${itemId || 'new'}-${contentHash}`;
+    
+    console.log('EditItemContentEditor: Generated key', { key, contentHash });
     
     return {
       initialContent: jsonContent,
       editorKey: key
     };
-  }, [itemId, resetTrigger, content]); // Keep content in deps but use itemId for key
+  }, [content, itemId]); // Depend on both content and itemId
 
   console.log('EditItemContentEditor: Rendering', { 
     hasInitialContent: !!initialContent,
