@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -31,12 +30,33 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
       hasUser: !!user,
       hasSession: !!session,
       userId: user?.id,
-      itemId
+      itemId,
+      sessionExpiry: session?.expires_at,
+      currentTime: new Date().toISOString()
     });
 
     if (!user || !session) {
       console.error('EditItemContentEditor: No user or session found');
       throw new Error('User not authenticated');
+    }
+
+    // Check if session is close to expiry
+    if (session.expires_at) {
+      const expiryTime = new Date(session.expires_at * 1000);
+      const currentTime = new Date();
+      const timeUntilExpiry = expiryTime.getTime() - currentTime.getTime();
+      
+      console.log('EditItemContentEditor: Session timing', {
+        expiryTime: expiryTime.toISOString(),
+        currentTime: currentTime.toISOString(),
+        timeUntilExpiryMs: timeUntilExpiry,
+        timeUntilExpiryMin: Math.floor(timeUntilExpiry / 1000 / 60)
+      });
+
+      // If session expires in less than 5 minutes, warn but continue
+      if (timeUntilExpiry < 5 * 60 * 1000) {
+        console.warn('EditItemContentEditor: Session expires soon, upload may fail');
+      }
     }
 
     try {
@@ -46,9 +66,20 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         itemId: itemId // This will trigger database update if provided
       });
       
+      console.log('EditItemContentEditor: Upload completed successfully', {
+        publicUrl: result.publicUrl,
+        filePath: result.filePath
+      });
+      
       return result.publicUrl;
     } catch (error) {
-      console.error('EditItemContentEditor: Upload failed', error);
+      console.error('EditItemContentEditor: Upload failed', {
+        error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        userId: user.id,
+        itemId,
+        fileName: file.name
+      });
       throw error;
     }
   };
