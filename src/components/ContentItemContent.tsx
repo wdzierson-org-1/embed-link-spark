@@ -50,7 +50,7 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: Conten
     <>
       {item.description && (
         <div className="mb-2">
-          <p className="text-sm font-medium text-blue-600 mb-1">AI Description:</p>
+          <p className="text-sm font-medium text-blue-600 mb-1">Summary:</p>
           <p className="text-sm text-muted-foreground line-clamp-3">
             {item.description}
           </p>

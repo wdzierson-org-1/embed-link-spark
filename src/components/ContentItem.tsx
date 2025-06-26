@@ -3,13 +3,15 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { FileText, Link as LinkIcon, Image, Mic, Video } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { FileText, Link as LinkIcon, Image, Mic, Video, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
-import ContentItemActions from '@/components/ContentItemActions';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemImage from '@/components/ContentItemImage';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import LinkPreview from '@/components/LinkPreview';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ContentItem {
   id: string;
@@ -73,6 +75,23 @@ const ContentItem = ({
     }
   };
 
+  const getFileUrl = (item: ContentItem) => {
+    if (item.file_path) {
+      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+      return data.publicUrl;
+    }
+    return null;
+  };
+
+  const handleDownloadFile = (item: ContentItem) => {
+    const fileUrl = getFileUrl(item);
+    if (fileUrl) {
+      window.open(fileUrl, '_blank');
+    }
+  };
+
+  const fileUrl = getFileUrl(item);
+
   // Parse OG data from content if it's a link
   let ogData = null;
   if (item.type === 'link' && item.content) {
@@ -105,18 +124,41 @@ const ContentItem = ({
                 </Tooltip>
               )}
             </div>
-            <div className="flex items-center space-x-2 flex-shrink-0">
-              <Badge className={getTypeColor(item.type)}>
-                {getIcon(item.type)}
-                <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
-              </Badge>
-              <ContentItemActions
-                item={item}
-                onDeleteItem={onDeleteItem}
-                onEditItem={onEditItem}
-                onChatWithItem={onChatWithItem}
-              />
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {onChatWithItem && (
+                  <DropdownMenuItem onClick={() => onChatWithItem(item)}>
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Chat with item
+                  </DropdownMenuItem>
+                )}
+                {fileUrl && (
+                  <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </DropdownMenuItem>
+                )}
+                {item.url && (
+                  <DropdownMenuItem onClick={() => window.open(item.url, '_blank')}>
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Open link
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => onEditItem(item)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardHeader>
         <CardContent>
@@ -146,9 +188,15 @@ const ContentItem = ({
             />
           </div>
           
-          <p className="text-xs text-muted-foreground">
-            {format(new Date(item.created_at), 'MMM d, yyyy')}
-          </p>
+          <div className="flex items-center justify-between">
+            <Badge className={getTypeColor(item.type)}>
+              {getIcon(item.type)}
+              <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
+            </Badge>
+            <p className="text-xs text-muted-foreground">
+              {format(new Date(item.created_at), 'MMM d, yyyy')}
+            </p>
+          </div>
         </CardContent>
       </Card>
     </TooltipProvider>
