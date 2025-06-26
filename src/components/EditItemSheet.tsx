@@ -39,17 +39,87 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [activeTab, setActiveTab] = useState('details');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   
-  // Use refs to track the latest values without causing re-renders
+  // Use refs to track the latest values and auto-save state
   const titleRef = useRef(title);
   const descriptionRef = useRef(description);
   const contentRef = useRef(content);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isLoadingRef = useRef(false);
+  const itemRef = useRef(item);
 
   // Update refs when state changes
   useEffect(() => { titleRef.current = title; }, [title]);
   useEffect(() => { descriptionRef.current = description; }, [description]);
   useEffect(() => { contentRef.current = content; }, [content]);
+  useEffect(() => { itemRef.current = item; }, [item]);
+
+  // Stable auto-save function using refs
+  const performAutoSave = useCallback(async () => {
+    const currentItem = itemRef.current;
+    if (!currentItem || isLoadingRef.current) return;
+    
+    setSaveStatus('saving');
+    
+    try {
+      const updates: any = {
+        title: titleRef.current.trim() || undefined,
+        description: descriptionRef.current.trim() || undefined,
+        content: contentRef.current.trim() || undefined,
+      };
+
+      // Use silent save (no toast, no refresh) for auto-saves
+      await onSave(currentItem.id, updates, { showSuccessToast: false, refreshItems: false });
+      setSaveStatus('saved');
+      
+      setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000);
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+      setSaveStatus('idle');
+    }
+  }, [onSave]);
+
+  // Stable debounced auto-save trigger
+  const triggerAutoSave = useCallback(() => {
+    if (!itemRef.current || isLoadingRef.current) return;
+    
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(() => {
+      performAutoSave();
+      saveTimeoutRef.current = null;
+    }, 1000);
+  }, [performAutoSave]);
+
+  // Stable change handlers
+  const handleTitleChange = useCallback((newTitle: string) => {
+    setTitle(newTitle);
+    triggerAutoSave();
+  }, [triggerAutoSave]);
+
+  const handleDescriptionChange = useCallback((newDescription: string) => {
+    setDescription(newDescription);
+    triggerAutoSave();
+  }, [triggerAutoSave]);
+
+  // CRITICAL: Make this callback completely stable
+  const handleContentChange = useCallback((newContent: string) => {
+    setContent(newContent);
+    // Use the ref-based auto-save trigger to avoid recreating this callback
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(() => {
+      if (itemRef.current && !isLoadingRef.current) {
+        performAutoSave();
+      }
+      saveTimeoutRef.current = null;
+    }, 1000);
+  }, [performAutoSave]);
 
   // Generate a unique editor key when item changes or sheet opens
   useEffect(() => {
@@ -61,8 +131,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       
       setTitle(item.title || '');
       setDescription(item.description || '');
-      
-      // For links, use content as-is (should be user notes, not OG data)
       setContent(item.content || '');
       
       setTimeout(() => {
@@ -111,62 +179,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setImageUrl('');
     }
   };
-
-  // Debounced auto-save function
-  const debouncedAutoSave = useCallback(async () => {
-    if (!item || isLoadingRef.current) return;
-    
-    setSaveStatus('saving');
-    
-    try {
-      const updates: any = {
-        title: titleRef.current.trim() || undefined,
-        description: descriptionRef.current.trim() || undefined,
-        content: contentRef.current.trim() || undefined,
-      };
-
-      // Use silent save (no toast, no refresh) for auto-saves
-      await onSave(item.id, updates, { showSuccessToast: false, refreshItems: false });
-      setSaveStatus('saved');
-      
-      setTimeout(() => {
-        setSaveStatus('idle');
-      }, 2000);
-    } catch (error) {
-      console.error('Auto-save failed:', error);
-      setSaveStatus('idle');
-    }
-  }, [item?.id, onSave]);
-
-  // Trigger auto-save with debouncing
-  const triggerAutoSave = useCallback(() => {
-    if (!item || isLoadingRef.current) return;
-    
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    
-    saveTimeoutRef.current = setTimeout(() => {
-      debouncedAutoSave();
-      saveTimeoutRef.current = null;
-    }, 1000);
-  }, [debouncedAutoSave, item]);
-
-  // Individual change handlers that trigger auto-save
-  const handleTitleChange = useCallback((newTitle: string) => {
-    setTitle(newTitle);
-    triggerAutoSave();
-  }, [triggerAutoSave]);
-
-  const handleDescriptionChange = useCallback((newDescription: string) => {
-    setDescription(newDescription);
-    triggerAutoSave();
-  }, [triggerAutoSave]);
-
-  const handleContentChange = useCallback((newContent: string) => {
-    setContent(newContent);
-    triggerAutoSave();
-  }, [triggerAutoSave]);
 
   const handleTagsChange = () => {
     triggerAutoSave();
