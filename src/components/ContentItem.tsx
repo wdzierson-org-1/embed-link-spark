@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Play } from 'lucide-react';
+import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Play, Expand } from 'lucide-react';
 import { format } from 'date-fns';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemImage from '@/components/ContentItemImage';
@@ -98,26 +98,37 @@ const ContentItem = ({
   return (
     <TooltipProvider>
       <Card className="group flex flex-col h-full hover:border-gray-400 transition-colors duration-200 overflow-hidden">
-        {/* Image at the top, clipped to card edges */}
+        {/* Image or Video at the top, clipped to card edges */}
         <div className="relative">
-          <ContentItemImage
-            item={item}
-            imageErrors={imageErrors}
-            onImageError={onImageError}
-          />
-          
-          {/* Video play button overlay */}
-          {item.type === 'video' && fileUrl && (
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/20">
-              <Button
-                variant="ghost"
-                size="lg"
-                onClick={() => setIsVideoLightboxOpen(true)}
-                className="h-16 w-16 rounded-full bg-white/90 hover:bg-white text-black"
+          {item.type === 'video' && fileUrl ? (
+            <div className="relative w-full h-48 bg-black rounded-t-lg overflow-hidden">
+              <video
+                src={fileUrl}
+                className="w-full h-full object-cover"
+                controls
+                preload="metadata"
               >
-                <Play className="h-8 w-8 ml-1" />
-              </Button>
+                Your browser does not support the video tag.
+              </video>
+              
+              {/* Expand button overlay - shown on hover */}
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsVideoLightboxOpen(true)}
+                  className="h-8 w-8 rounded-full bg-black/50 hover:bg-black/70 text-white p-0"
+                >
+                  <Expand className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
+          ) : (
+            <ContentItemImage
+              item={item}
+              imageErrors={imageErrors}
+              onImageError={onImageError}
+            />
           )}
         </div>
 
@@ -138,9 +149,9 @@ const ContentItem = ({
             </div>
           )}
           
-          {/* Audio player - shown on hover */}
+          {/* Audio player - always visible */}
           {item.type === 'audio' && fileUrl && (
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mb-4">
+            <div className="mb-4">
               <MediaPlayer
                 src={fileUrl}
                 fileName={item.title || 'Audio file'}
