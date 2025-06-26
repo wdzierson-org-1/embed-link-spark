@@ -6,8 +6,11 @@ export const saveItem = async (
   id: string, 
   updates: any, 
   fetchItems: () => Promise<void>,
-  showToast: (toast: { title: string; description: string; variant?: 'destructive' }) => void
+  showToast: (toast: { title: string; description: string; variant?: 'destructive' }) => void,
+  options: { showSuccessToast?: boolean; refreshItems?: boolean } = {}
 ) => {
+  const { showSuccessToast = true, refreshItems = true } = options;
+  
   try {
     const { error } = await supabase
       .from('items')
@@ -30,12 +33,16 @@ export const saveItem = async (
       await generateEmbeddings(id, textForEmbedding);
     }
 
-    showToast({
-      title: "Success",
-      description: "Item updated successfully!",
-    });
+    if (showSuccessToast) {
+      showToast({
+        title: "Success",
+        description: "Item updated successfully!",
+      });
+    }
 
-    fetchItems();
+    if (refreshItems) {
+      fetchItems();
+    }
   } catch (error: any) {
     showToast({
       title: "Error",

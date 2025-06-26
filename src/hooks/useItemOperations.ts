@@ -1,4 +1,3 @@
-
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { validateUuid } from '@/utils/tempIdGenerator';
@@ -75,7 +74,11 @@ export const useItemOperations = (
     }
   };
 
-  const handleSaveItem = async (id: string, updates: any) => {
+  const handleSaveItem = async (
+    id: string, 
+    updates: any, 
+    options: { showSuccessToast?: boolean; refreshItems?: boolean } = {}
+  ) => {
     // Validate the ID before proceeding
     if (!validateUuid(id)) {
       console.error('Invalid UUID provided for save operation:', id);
@@ -87,7 +90,7 @@ export const useItemOperations = (
       return;
     }
     
-    await saveItem(id, updates, fetchItems, showToast);
+    await saveItem(id, updates, fetchItems, showToast, options);
   };
 
   const handleDeleteItem = async (id: string) => {

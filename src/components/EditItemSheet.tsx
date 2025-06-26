@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -23,7 +24,7 @@ interface EditItemSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
 const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps) => {
@@ -37,12 +38,24 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [editorInstanceKey, setEditorInstanceKey] = useState<string>('');
   const [activeTab, setActiveTab] = useState('details');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [saveTimeoutId, setSaveTimeoutId] = useState<NodeJS.Timeout | null>(null);
+  
+  // Use refs to track the latest values without causing re-renders
+  const titleRef = useRef(title);
+  const descriptionRef = useRef(description);
+  const contentRef = useRef(content);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isLoadingRef = useRef(false);
+
+  // Update refs when state changes
+  useEffect(() => { titleRef.current = title; }, [title]);
+  useEffect(() => { descriptionRef.current = description; }, [description]);
+  useEffect(() => { contentRef.current = content; }, [content]);
 
   // Generate a unique editor key when item changes or sheet opens
   useEffect(() => {
     if (item && open) {
       setIsContentLoading(true);
+      isLoadingRef.current = true;
       const newKey = `editor-${item.id}-${Date.now()}`;
       setEditorInstanceKey(newKey);
       
@@ -54,6 +67,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       
       setTimeout(() => {
         setIsContentLoading(false);
+        isLoadingRef.current = false;
       }, 100);
       
       checkForImage();
@@ -73,12 +87,12 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setEditorInstanceKey('');
       setActiveTab('details');
       setSaveStatus('idle');
-      if (saveTimeoutId) {
-        clearTimeout(saveTimeoutId);
-        setSaveTimeoutId(null);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
       }
     }
-  }, [open, saveTimeoutId]);
+  }, [open]);
 
   const checkForImage = () => {
     if (!item) return;
@@ -98,52 +112,68 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     }
   };
 
-  // Unified auto-save function that handles all types of changes
-  const triggerAutoSave = async (changeType: 'content' | 'tags' | 'media' = 'content') => {
-    if (!item || isContentLoading) return;
-    
-    if (saveTimeoutId) {
-      clearTimeout(saveTimeoutId);
-    }
+  // Debounced auto-save function
+  const debouncedAutoSave = useCallback(async () => {
+    if (!item || isLoadingRef.current) return;
     
     setSaveStatus('saving');
     
-    const timeoutId = setTimeout(async () => {
-      try {
-        // For links, preserve the file_path (preview image) during auto-save
-        const updates: any = {
-          title: title.trim() || undefined,
-          description: description.trim() || undefined,
-          content: content.trim() || undefined,
-        };
+    try {
+      const updates: any = {
+        title: titleRef.current.trim() || undefined,
+        description: descriptionRef.current.trim() || undefined,
+        content: contentRef.current.trim() || undefined,
+      };
 
-        await onSave(item.id, updates);
-        setSaveStatus('saved');
-        
-        setTimeout(() => {
-          setSaveStatus('idle');
-        }, 2000);
-      } catch (error) {
-        console.error('Auto-save failed:', error);
+      // Use silent save (no toast, no refresh) for auto-saves
+      await onSave(item.id, updates, { showSuccessToast: false, refreshItems: false });
+      setSaveStatus('saved');
+      
+      setTimeout(() => {
         setSaveStatus('idle');
-      }
-      setSaveTimeoutId(null);
-    }, 1000);
-    
-    setSaveTimeoutId(timeoutId);
-  };
+      }, 2000);
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+      setSaveStatus('idle');
+    }
+  }, [item?.id, onSave]);
 
-  // Auto-save functionality with debouncing for content changes
-  useEffect(() => {
-    triggerAutoSave('content');
-  }, [title, description, content, item?.id]);
+  // Trigger auto-save with debouncing
+  const triggerAutoSave = useCallback(() => {
+    if (!item || isLoadingRef.current) return;
+    
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    saveTimeoutRef.current = setTimeout(() => {
+      debouncedAutoSave();
+      saveTimeoutRef.current = null;
+    }, 1000);
+  }, [debouncedAutoSave, item]);
+
+  // Individual change handlers that trigger auto-save
+  const handleTitleChange = useCallback((newTitle: string) => {
+    setTitle(newTitle);
+    triggerAutoSave();
+  }, [triggerAutoSave]);
+
+  const handleDescriptionChange = useCallback((newDescription: string) => {
+    setDescription(newDescription);
+    triggerAutoSave();
+  }, [triggerAutoSave]);
+
+  const handleContentChange = useCallback((newContent: string) => {
+    setContent(newContent);
+    triggerAutoSave();
+  }, [triggerAutoSave]);
 
   const handleTagsChange = () => {
-    triggerAutoSave('tags');
+    triggerAutoSave();
   };
 
   const handleMediaChange = () => {
-    triggerAutoSave('media');
+    triggerAutoSave();
   };
 
   const handleTitleSave = async (newTitle: string) => {
@@ -195,9 +225,9 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
               content={content}
               isContentLoading={isContentLoading}
               editorKey={editorKey}
-              onTitleChange={setTitle}
-              onDescriptionChange={setDescription}
-              onContentChange={setContent}
+              onTitleChange={handleTitleChange}
+              onDescriptionChange={handleDescriptionChange}
+              onContentChange={handleContentChange}
               onTitleSave={handleTitleSave}
               onDescriptionSave={handleDescriptionSave}
               onTagsChange={handleTagsChange}
