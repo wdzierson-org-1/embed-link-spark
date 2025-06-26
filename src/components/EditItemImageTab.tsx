@@ -12,8 +12,8 @@ interface EditItemImageTabProps {
 
 const EditItemImageTab = ({ item, hasImage, imageUrl, onImageStateChange }: EditItemImageTabProps) => {
   return (
-    <TabsContent value="image" className="flex-1 overflow-y-auto m-0 px-6 pb-6">
-      <div className="pt-4">
+    <TabsContent value="image" className="px-6 pb-6 mt-0">
+      <div className="pt-6">
         {hasImage && (
           <div className="relative inline-block">
             <img

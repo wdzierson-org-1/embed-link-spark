@@ -50,8 +50,8 @@ const EditItemDetailsTab = ({
   onMediaChange,
 }: EditItemDetailsTabProps) => {
   return (
-    <TabsContent value="details" className="flex-1 overflow-y-auto m-0 px-6 pb-6">
-      <div className="space-y-8 pt-4">
+    <TabsContent value="details" className="px-6 pb-6 mt-0">
+      <div className="space-y-8 pt-6">
         {/* Title Section */}
         <EditItemTitleSection
           title={title}

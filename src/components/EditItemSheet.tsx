@@ -3,8 +3,6 @@ import React from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Button } from '@/components/ui/button';
-import { AlertCircle } from 'lucide-react';
 import EditItemTabNavigation from '@/components/EditItemTabNavigation';
 import EditItemDetailsTab from '@/components/EditItemDetailsTab';
 import EditItemImageTab from '@/components/EditItemImageTab';
@@ -39,7 +37,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     editorKey,
     activeTab,
     saveStatus,
-    showDraftRestore,
     lastSaved,
     setActiveTab,
     handleTitleChange,
@@ -50,8 +47,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     handleTagsChange,
     handleMediaChange,
     handleImageStateChange,
-    handleRestoreDraft,
-    handleDiscardDraft,
   } = useEditItemSheet({ open, item, onSave });
 
   return (
@@ -62,59 +57,36 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
             <SheetTitle>Edit Item</SheetTitle>
           </SheetHeader>
 
-          {/* Draft Restoration Banner */}
-          {showDraftRestore && (
-            <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 flex items-center justify-between">
-              <div className="flex items-center gap-2 text-amber-800">
-                <AlertCircle className="h-4 w-4" />
-                <span className="text-sm font-medium">Unsaved changes found</span>
+          <div className="flex-1 overflow-y-auto">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
+              <div className="px-6 py-4 border-b">
+                <EditItemTabNavigation hasImage={hasImage} />
               </div>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleDiscardDraft}
-                  className="text-xs"
-                >
-                  Discard
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleRestoreDraft}
-                  className="text-xs"
-                >
-                  Restore
-                </Button>
-              </div>
-            </div>
-          )}
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-            <EditItemTabNavigation hasImage={hasImage} />
+              <EditItemDetailsTab
+                item={item}
+                title={title}
+                description={description}
+                content={content}
+                isContentLoading={isContentLoading}
+                editorKey={editorKey}
+                onTitleChange={handleTitleChange}
+                onDescriptionChange={handleDescriptionChange}
+                onContentChange={handleContentChange}
+                onTitleSave={handleTitleSave}
+                onDescriptionSave={handleDescriptionSave}
+                onTagsChange={handleTagsChange}
+                onMediaChange={handleMediaChange}
+              />
 
-            <EditItemDetailsTab
-              item={item}
-              title={title}
-              description={description}
-              content={content}
-              isContentLoading={isContentLoading}
-              editorKey={editorKey}
-              onTitleChange={handleTitleChange}
-              onDescriptionChange={handleDescriptionChange}
-              onContentChange={handleContentChange}
-              onTitleSave={handleTitleSave}
-              onDescriptionSave={handleDescriptionSave}
-              onTagsChange={handleTagsChange}
-              onMediaChange={handleMediaChange}
-            />
-
-            <EditItemImageTab
-              item={item}
-              hasImage={hasImage}
-              imageUrl={imageUrl}
-              onImageStateChange={handleImageStateChange}
-            />
-          </Tabs>
+              <EditItemImageTab
+                item={item}
+                hasImage={hasImage}
+                imageUrl={imageUrl}
+                onImageStateChange={handleImageStateChange}
+              />
+            </Tabs>
+          </div>
 
           <EditItemAutoSaveIndicator saveStatus={saveStatus} lastSaved={lastSaved} />
         </SheetContent>

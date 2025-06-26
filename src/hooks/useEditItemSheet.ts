@@ -44,11 +44,8 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
 
   // Draft management
   const {
-    showDraftRestore,
     saveToLocalStorage,
     clearDraft,
-    handleRestoreDraft: baseDraftRestore,
-    handleDiscardDraft,
   } = useEditItemDraft({ itemId: item?.id || null, open });
 
   // Save management
@@ -104,11 +101,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
       }, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef]);
-
-  // Handle draft restoration with proper parameters
-  const handleRestoreDraft = useCallback(() => {
-    baseDraftRestore(setTitle, setDescription, setContent, titleRef, descriptionRef, contentRef);
-  }, [baseDraftRestore, setTitle, setDescription, setContent, titleRef, descriptionRef, contentRef]);
 
   // Save to server when sheet closes (final save)
   useEffect(() => {
@@ -190,7 +182,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     editorKey,
     activeTab,
     saveStatus,
-    showDraftRestore,
     lastSaved,
     setActiveTab,
     
@@ -203,7 +194,5 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleTagsChange,
     handleMediaChange,
     handleImageStateChange,
-    handleRestoreDraft,
-    handleDiscardDraft,
   };
 };
