@@ -120,7 +120,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
                 <EditorContent
                   initialContent={initialContent}
                   extensions={extensions}
-                  className="min-h-[200px] w-full max-w-none"
+                  className="min-h-[200px] max-h-[60vh] overflow-y-auto w-full max-w-none"
                   editorProps={{
                     handleDOMEvents: {
                       keydown: (_view, event) => handleCommandNavigation(event),
