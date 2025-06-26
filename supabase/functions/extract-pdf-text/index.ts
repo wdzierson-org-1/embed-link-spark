@@ -105,20 +105,28 @@ serve(async (req) => {
     const extractionData = await extractionResponse.json();
     console.log('OpenAI response data:', JSON.stringify(extractionData, null, 2));
     
-    // Check if the response has the expected structure
+    // Parse the OpenAI responses API structure correctly
     let extractedText = '';
-    if (extractionData.output_text) {
+    
+    if (extractionData.output && Array.isArray(extractionData.output) && extractionData.output.length > 0) {
+      // Handle responses API format: output[0].content[0].text
+      const firstOutput = extractionData.output[0];
+      if (firstOutput.content && Array.isArray(firstOutput.content) && firstOutput.content.length > 0) {
+        const firstContent = firstOutput.content[0];
+        if (firstContent.text) {
+          extractedText = firstContent.text;
+        }
+      }
+    } else if (extractionData.output_text) {
+      // Handle direct output_text format
       extractedText = extractionData.output_text;
-    } else if (extractionData.output && extractionData.output.text) {
-      extractedText = extractionData.output.text;
     } else if (extractionData.choices && extractionData.choices[0] && extractionData.choices[0].message) {
+      // Handle chat completions format
       extractedText = extractionData.choices[0].message.content;
-    } else {
-      console.error('Unexpected response structure from OpenAI:', extractionData);
-      throw new Error('Unable to extract text from OpenAI response');
     }
 
     if (!extractedText || extractedText.length === 0) {
+      console.error('Unable to extract text from OpenAI response. Response structure:', extractionData);
       throw new Error('No text content extracted from PDF');
     }
 
