@@ -11,9 +11,8 @@ import {
 } from 'novel';
 import { createEditorExtensions } from './editor/EditorExtensions';
 import EditorCommandMenu from './editor/EditorCommandMenu';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { toast } from 'sonner';
+import { uploadImage } from '@/services/imageUploadService';
 
 interface TextNoteTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -35,74 +34,23 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
       userId: user?.id 
     });
 
-    // Enhanced authentication validation
     if (!user || !session) {
       console.error('TextNoteTab: No user or session found');
-      toast.error('Please log in to upload images');
       throw new Error('User not authenticated');
     }
 
-    // Validate session is still active
-    const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !currentSession) {
-      console.error('TextNoteTab: Session validation failed', sessionError);
-      toast.error('Your session has expired. Please log in again.');
-      throw new Error('Session expired');
+    try {
+      const result = await uploadImage({
+        file,
+        userId: user.id
+        // No itemId provided since this is for new content creation
+      });
+      
+      return result.publicUrl;
+    } catch (error) {
+      console.error('TextNoteTab: Upload failed', error);
+      throw error;
     }
-
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}.${fileExt}`;
-    const filePath = `${user.id}/${fileName}`;
-
-    console.log('TextNoteTab: Uploading to path', { filePath });
-
-    // Retry mechanism with exponential backoff
-    const maxRetries = 3;
-    let lastError: Error | null = null;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`TextNoteTab: Upload attempt ${attempt}/${maxRetries}`);
-        
-        const { error: uploadError } = await supabase.storage
-          .from('stash-media')
-          .upload(filePath, file);
-
-        if (uploadError) {
-          console.error(`TextNoteTab: Upload error (attempt ${attempt}):`, uploadError);
-          lastError = uploadError;
-          
-          if (attempt < maxRetries) {
-            const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
-            console.log(`TextNoteTab: Retrying in ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            continue;
-          }
-          throw uploadError;
-        }
-
-        console.log('TextNoteTab: Upload successful');
-        
-        const { data } = supabase.storage.from('stash-media').getPublicUrl(filePath);
-        console.log('TextNoteTab: Generated public URL', { url: data.publicUrl });
-        
-        toast.success('Image uploaded successfully!');
-        return data.publicUrl;
-        
-      } catch (error) {
-        console.error(`TextNoteTab: Upload attempt ${attempt} failed:`, error);
-        lastError = error as Error;
-        
-        if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    console.error('TextNoteTab: All upload attempts failed');
-    toast.error('Failed to upload image. Please try again.');
-    throw lastError || new Error('Upload failed after all retries');
   };
 
   const extensions = createEditorExtensions(handleImageUpload);

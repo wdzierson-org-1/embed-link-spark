@@ -10,9 +10,8 @@ import {
 import { createEditorExtensions } from './editor/EditorExtensions';
 import { convertToJsonContent } from './editor/EditorUtils';
 import EditorCommandMenu from './editor/EditorCommandMenu';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { toast } from 'sonner';
+import { uploadImage } from '@/services/imageUploadService';
 
 interface EditItemContentEditorProps {
   content: string;
@@ -31,110 +30,27 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
       fileSize: file.size, 
       hasUser: !!user,
       hasSession: !!session,
-      userId: user?.id 
+      userId: user?.id,
+      itemId
     });
 
-    // Enhanced authentication validation
     if (!user || !session) {
       console.error('EditItemContentEditor: No user or session found');
-      toast.error('Please log in to upload images');
       throw new Error('User not authenticated');
     }
 
-    // Validate session is still active and get fresh session
-    const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !currentSession || !currentSession.user) {
-      console.error('EditItemContentEditor: Session validation failed', sessionError);
-      toast.error('Your session has expired. Please log in again.');
-      throw new Error('Session expired');
-    }
-
-    // Verify user consistency
-    if (currentSession.user.id !== user.id) {
-      console.error('EditItemContentEditor: User ID mismatch', {
-        sessionUserId: currentSession.user.id,
-        stateUserId: user.id
+    try {
+      const result = await uploadImage({
+        file,
+        userId: user.id,
+        itemId: itemId // This will trigger database update if provided
       });
-      toast.error('Authentication error. Please refresh and try again.');
-      throw new Error('User ID mismatch');
+      
+      return result.publicUrl;
+    } catch (error) {
+      console.error('EditItemContentEditor: Upload failed', error);
+      throw error;
     }
-
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}.${fileExt}`;
-    const filePath = `${user.id}/${fileName}`;
-
-    console.log('EditItemContentEditor: Uploading to path', { 
-      filePath,
-      userFromSession: currentSession.user.id,
-      userFromState: user.id
-    });
-
-    // Retry mechanism with exponential backoff
-    const maxRetries = 3;
-    let lastError: Error | null = null;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`EditItemContentEditor: Upload attempt ${attempt}/${maxRetries}`);
-        
-        const { error: uploadError } = await supabase.storage
-          .from('stash-media')
-          .upload(filePath, file);
-
-        if (uploadError) {
-          console.error(`EditItemContentEditor: Upload error (attempt ${attempt}):`, uploadError);
-          lastError = uploadError;
-          
-          // If it's an RLS error, don't retry
-          if (uploadError.message?.includes('RLS') || uploadError.message?.includes('policy')) {
-            console.error('EditItemContentEditor: RLS policy violation detected');
-            toast.error('Permission denied. Please refresh the page and try again.');
-            throw uploadError;
-          }
-          
-          if (attempt < maxRetries) {
-            const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
-            console.log(`EditItemContentEditor: Retrying in ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            continue;
-          }
-          throw uploadError;
-        }
-
-        console.log('EditItemContentEditor: Upload successful');
-        
-        const { data } = supabase.storage.from('stash-media').getPublicUrl(filePath);
-        console.log('EditItemContentEditor: Generated public URL', { url: data.publicUrl });
-        
-        toast.success('Image uploaded successfully!');
-        return data.publicUrl;
-        
-      } catch (error) {
-        console.error(`EditItemContentEditor: Upload attempt ${attempt} failed:`, error);
-        lastError = error as Error;
-        
-        // Don't retry for authentication or permission errors
-        if (error instanceof Error && 
-            (error.message?.includes('RLS') || 
-             error.message?.includes('policy') || 
-             error.message?.includes('Session expired'))) {
-          break;
-        }
-        
-        if (attempt < maxRetries) {
-          const delay = Math.pow(2, attempt) * 1000;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    console.error('EditItemContentEditor: All upload attempts failed');
-    const errorMessage = lastError?.message?.includes('RLS') || lastError?.message?.includes('policy') 
-      ? 'Permission denied. Please refresh the page and try again.'
-      : 'Failed to upload image. Please try again.';
-    
-    toast.error(errorMessage);
-    throw lastError || new Error('Upload failed after all retries');
   };
 
   const extensions = createEditorExtensions(handleImageUpload);

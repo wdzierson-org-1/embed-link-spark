@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Upload, File, X, Image, Video, Mic, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { uploadImage } from '@/services/imageUploadService';
 
 interface MediaUploadTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -16,6 +18,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const handleFileSelect = (selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -84,6 +87,15 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
       return;
     }
 
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "Please log in to upload files.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsUploading(true);
     try {
       for (const file of files) {
@@ -91,12 +103,41 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
                         file.type.startsWith('video/') ? 'video' :
                         file.type.startsWith('audio/') ? 'audio' : 'document';
 
-        await onAddContent(fileType, {
-          file,
-          title: file.name,
-          description: '',
-          tags: []
-        });
+        // For images, use the centralized upload service
+        if (fileType === 'image') {
+          try {
+            const result = await uploadImage({
+              file,
+              userId: user.id
+            });
+            
+            await onAddContent(fileType, {
+              file,
+              title: file.name,
+              description: '',
+              tags: [],
+              uploadedFilePath: result.filePath,
+              uploadedUrl: result.publicUrl
+            });
+          } catch (error) {
+            console.error('Error uploading image:', error);
+            // Fall back to the original flow for images if centralized service fails
+            await onAddContent(fileType, {
+              file,
+              title: file.name,
+              description: '',
+              tags: []
+            });
+          }
+        } else {
+          // For non-image files, use the original flow
+          await onAddContent(fileType, {
+            file,
+            title: file.name,
+            description: '',
+            tags: []
+          });
+        }
       }
 
       // Reset form
