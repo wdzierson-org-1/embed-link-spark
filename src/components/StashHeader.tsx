@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { X, Filter, Plus } from 'lucide-react';
+import { X, Filter } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -15,14 +15,13 @@ interface Tag {
 interface StashHeaderProps {
   itemCount: number;
   onTagFiltersChange?: (selectedTags: string[]) => void;
-  onAddContent: () => void;
   onShowGlobalChat: () => void;
   tags: Tag[];
   selectedTags: string[];
   onTagFilterChange: (tags: string[]) => void;
 }
 
-const StashHeader = ({ itemCount, onTagFiltersChange, onAddContent, onShowGlobalChat, tags, selectedTags, onTagFilterChange }: StashHeaderProps) => {
+const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, selectedTags, onTagFilterChange }: StashHeaderProps) => {
   const [showTagFilter, setShowTagFilter] = useState(false);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const { user } = useAuth();
@@ -76,13 +75,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onAddContent, onShowGlobal
     <div className="mb-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
-          <Button
-            onClick={onAddContent}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Content
-          </Button>
+          <h1 className="text-2xl font-bold">Stash</h1>
         </div>
         <div className="flex items-center gap-4">
           <p className="text-muted-foreground">
