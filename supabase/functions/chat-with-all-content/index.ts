@@ -25,56 +25,65 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
-    console.log('Processing chat request for message:', message.substring(0, 100) + '...');
+    console.log('🚀 Processing chat request');
+    console.log('💬 User message:', message.substring(0, 100) + (message.length > 100 ? '...' : ''));
+    console.log('📚 Conversation history length:', conversationHistory?.length || 0);
 
     // Authenticate user
     const authHeader = req.headers.get('Authorization');
     const { user, supabaseAdmin } = await authenticateUser(authHeader);
+    console.log('✅ User authenticated:', user.id);
 
     // Semantic search with multiple fallback strategies
     let relevantChunks: ContentChunk[] = [];
     
     try {
-      console.log('Starting semantic search...');
+      console.log('🔍 Starting semantic search process...');
+      
       // Generate embedding for the user's query
       const queryEmbedding = await generateQueryEmbedding(message, openAIApiKey);
-      console.log('Query embedding generated successfully');
       
       // Search for similar content chunks
       relevantChunks = await searchSimilarContent(queryEmbedding, user.id, supabaseAdmin);
-      console.log(`Semantic search returned ${relevantChunks.length} chunks`);
+      console.log(`📊 Semantic search returned ${relevantChunks.length} chunks`);
+      
     } catch (embeddingError) {
-      console.error('Embedding search failed:', embeddingError);
+      console.error('❌ Embedding search failed:', embeddingError);
+      console.log('🔄 Proceeding with fallback strategy');
     }
 
     // If we don't have enough semantic matches, get recent items
-    if (relevantChunks.length < 5) {
-      console.log(`Only ${relevantChunks.length} semantic matches found, supplementing with recent items`);
+    if (relevantChunks.length < 3) {
+      console.log(`⚠️ Only ${relevantChunks.length} semantic matches found, supplementing with recent items`);
       const recentItems = await getRecentItems(user.id, supabaseAdmin);
-      console.log(`Retrieved ${recentItems.length} recent items`);
+      console.log(`📥 Retrieved ${recentItems.length} recent items`);
       
       // Combine and deduplicate based on item_id
       const itemIds = new Set(relevantChunks.map(chunk => chunk.item_id));
       const newRecentItems = recentItems.filter(item => !itemIds.has(item.item_id));
       
       relevantChunks = [...relevantChunks, ...newRecentItems];
+      console.log(`📈 Combined total: ${relevantChunks.length} chunks for context`);
     }
 
-    console.log(`Total chunks for context: ${relevantChunks.length}`);
+    console.log('📋 Final chunks summary:');
+    relevantChunks.forEach((chunk, index) => {
+      console.log(`  ${index + 1}. "${chunk.item_title}" (${chunk.item_type}) - similarity: ${chunk.similarity.toFixed(3)}`);
+    });
 
     // Build potential sources and evaluate relevance
     const potentialSources = buildPotentialSources(relevantChunks);
-    console.log(`Potential sources identified: ${potentialSources.size}`);
+    console.log(`🎯 Potential sources identified: ${potentialSources.size}`);
 
     const finalSources = await evaluateSourceRelevance(message, potentialSources, openAIApiKey);
-    console.log(`LLM selected ${finalSources.length} relevant sources`);
+    console.log(`🔍 LLM selected ${finalSources.length} relevant sources`);
 
     // Generate AI response
     const contentContext = buildContextPrompt(relevantChunks, message);
-    console.log('Sending request to OpenAI with context for', relevantChunks.length, 'chunks');
+    console.log('📤 Sending request to OpenAI...');
 
     const aiResponse = await generateChatResponse(contentContext, conversationHistory, message, openAIApiKey);
-    console.log('OpenAI response generated successfully');
+    console.log('✅ OpenAI response generated successfully');
 
     // Return response with curated source information
     const response: ChatResponse = {
@@ -87,12 +96,17 @@ serve(async (req) => {
       }))
     };
 
-    console.log(`Returning response with ${finalSources.length} curated sources`);
+    console.log(`🎉 Returning response with ${finalSources.length} curated sources`);
+    console.log('📊 Response summary:');
+    console.log(`  - AI response length: ${aiResponse.length} characters`);
+    console.log(`  - Sources: ${finalSources.length}`);
+    
     return new Response(JSON.stringify(response), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in chat-with-all-content function:', error);
+    console.error('💥 Error in chat-with-all-content function:', error);
+    console.error('Stack trace:', error.stack);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
