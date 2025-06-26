@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   EditorRoot,
   EditorContent,
@@ -20,9 +20,7 @@ interface EditItemContentEditorProps {
 
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
   const [initialContent, setInitialContent] = useState<JSONContent | null>(null);
-  const [editorInstance, setEditorInstance] = useState<EditorInstance | null>(null);
   const { user } = useAuth();
-  const contentRef = useRef<string>('');
 
   const handleImageUpload = async (file: File): Promise<string> => {
     if (!user) {
@@ -47,17 +45,15 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
 
   const extensions = createEditorExtensions(handleImageUpload);
 
+  // Create a unique key based on content to force re-render when content changes
+  const editorKey = useMemo(() => {
+    return `editor-${Date.now()}-${content.length}`;
+  }, [content]);
+
   useEffect(() => {
     const jsonContent = convertToJsonContent(content);
     setInitialContent(jsonContent);
-    contentRef.current = content;
-
-    // Update editor content if editor instance exists and content has changed
-    if (editorInstance && content !== contentRef.current) {
-      editorInstance.commands.setContent(jsonContent);
-      contentRef.current = content;
-    }
-  }, [content, editorInstance]);
+  }, [content]);
 
   if (!initialContent) {
     return (
@@ -72,7 +68,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
   return (
     <div>
       <div className="border rounded-md">
-        <EditorRoot>
+        <EditorRoot key={editorKey}>
           <EditorContent
             initialContent={initialContent}
             extensions={extensions}
@@ -84,9 +80,6 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
               attributes: {
                 class: 'prose prose-lg dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800'
               }
-            }}
-            onCreate={({ editor }: { editor: EditorInstance }) => {
-              setEditorInstance(editor);
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
               // Save as JSON to preserve formatting
