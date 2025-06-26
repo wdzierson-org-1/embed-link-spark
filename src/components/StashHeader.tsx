@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -72,25 +71,20 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
   };
 
   return (
-    <div className="mb-6">
+    <div>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold">Stash</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <p className="text-muted-foreground">
-            {itemCount} {itemCount === 1 ? 'item' : 'items'}
-          </p>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowTagFilter(!showTagFilter)}
-            className="flex items-center gap-2"
-          >
-            <Filter className="h-4 w-4" />
-            Filter by tag
-          </Button>
-        </div>
+        <p className="text-muted-foreground">
+          {itemCount} {itemCount === 1 ? 'item' : 'items'}
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowTagFilter(!showTagFilter)}
+          className="flex items-center gap-2"
+        >
+          <Filter className="h-4 w-4" />
+          Filter by tag
+        </Button>
       </div>
 
       {showTagFilter && (

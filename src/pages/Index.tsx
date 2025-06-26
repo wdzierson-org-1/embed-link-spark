@@ -5,7 +5,9 @@ import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Link, Upload } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { FileText, Link, Upload, MessageSquare, LogOut } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 import StashHeader from '@/components/StashHeader';
 import ContentGrid from '@/components/ContentGrid';
 import EditItemDialog from '@/components/EditItemDialog';
@@ -59,13 +61,33 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <StashHeader 
-        onShowGlobalChat={() => setShowGlobalChat(true)}
-        itemCount={items.filter(item => !item.isOptimistic).length}
-        tags={tags}
-        selectedTags={selectedTags}
-        onTagFilterChange={handleTagFilterChange}
-      />
+      {/* Header with logo and chat/logout buttons */}
+      <div className="w-full border-b bg-background">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center">
+            <h1 className="text-2xl font-bold ml-4 mt-2">Stash</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowGlobalChat(true)}
+              className="flex items-center gap-2"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Chat
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => supabase.auth.signOut()}
+              className="flex items-center gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
       
       {/* Full-width tab bar */}
       <div className="w-full border-b bg-background">
@@ -109,8 +131,19 @@ const Index = () => {
           </Tabs>
         </div>
       </div>
+
+      {/* Item count and filter section */}
+      <div className="container mx-auto px-4 pt-6 pb-4">
+        <StashHeader 
+          onShowGlobalChat={() => setShowGlobalChat(true)}
+          itemCount={items.filter(item => !item.isOptimistic).length}
+          tags={tags}
+          selectedTags={selectedTags}
+          onTagFilterChange={handleTagFilterChange}
+        />
+      </div>
       
-      <main className="container mx-auto px-4 pt-8 pb-8">
+      <main className="container mx-auto px-4 pb-8">
         <ContentGrid 
           items={items} 
           onDeleteItem={handleDeleteItem}
