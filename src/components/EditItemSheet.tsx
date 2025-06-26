@@ -38,6 +38,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [isContentLoading, setIsContentLoading] = useState(false);
   const [editorKey, setEditorKey] = useState<string>('');
   const [activeTab, setActiveTab] = useState('details');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   // Generate a unique editor key when item changes or sheet opens
   useEffect(() => {
@@ -73,6 +74,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       setIsContentLoading(false);
       setEditorKey('');
       setActiveTab('details');
+      setSaveStatus('idle');
     }
   }, [open]);
 
@@ -110,14 +112,22 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     if (!item || isContentLoading) return;
     
     const timeoutId = setTimeout(async () => {
+      setSaveStatus('saving');
       try {
         await onSave(item.id, {
           title: title.trim() || undefined,
           description: description.trim() || undefined,
           content: content.trim() || undefined,
         });
+        setSaveStatus('saved');
+        
+        // Reset to idle after showing "saved" for 2 seconds
+        setTimeout(() => {
+          setSaveStatus('idle');
+        }, 2000);
       } catch (error) {
         console.error('Auto-save failed:', error);
+        setSaveStatus('idle');
       }
     }, 1000); // 1 second debounce
 
@@ -153,6 +163,17 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     // Refetch the item to update the UI properly
     if (item) {
       setTimeout(() => checkForImage(), 500);
+    }
+  };
+
+  const getSaveStatusText = () => {
+    switch (saveStatus) {
+      case 'saving':
+        return 'Saving...';
+      case 'saved':
+        return 'Saved';
+      default:
+        return 'Changes are saved automatically';
     }
   };
 
@@ -245,7 +266,9 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
 
           {/* Auto-save indicator */}
           <div className="px-6 py-3 border-t bg-muted/30 flex-shrink-0">
-            <p className="text-xs text-muted-foreground">Changes are saved automatically</p>
+            <p className={`text-xs ${saveStatus === 'saving' ? 'text-blue-600' : saveStatus === 'saved' ? 'text-green-600' : 'text-muted-foreground'}`}>
+              {getSaveStatusText()}
+            </p>
           </div>
         </SheetContent>
       </Sheet>

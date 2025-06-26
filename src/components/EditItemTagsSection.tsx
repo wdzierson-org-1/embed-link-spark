@@ -21,9 +21,10 @@ interface ContentItem {
 
 interface EditItemTagsSectionProps {
   item: ContentItem | null;
+  onTagsChange?: () => void; // Optional callback for parent to know when tags change
 }
 
-const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
+const EditItemTagsSection = ({ item, onTagsChange }: EditItemTagsSectionProps) => {
   const [itemTags, setItemTags] = useState<string[]>([]);
   const [newTags, setNewTags] = useState<string[]>([]);
   const [isEditingTags, setIsEditingTags] = useState(false);
@@ -108,10 +109,13 @@ const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
       await fetchTags();
       // Reload suggestions after adding tags
       await loadTagSuggestions();
-      toast({
-        title: "Success",
-        description: `Added ${newTags.length} tag(s) to item`,
-      });
+      
+      // Notify parent component about tag changes for auto-save
+      if (onTagsChange) {
+        onTagsChange();
+      }
+      
+      // Don't show toast for auto-save scenario
     } catch (error) {
       console.error('Error adding tags:', error);
       toast({
@@ -146,10 +150,13 @@ const EditItemTagsSection = ({ item }: EditItemTagsSectionProps) => {
       await fetchTags();
       // Reload suggestions after removing tags
       await loadTagSuggestions();
-      toast({
-        title: "Success",
-        description: "Tag removed from item",
-      });
+      
+      // Notify parent component about tag changes for auto-save
+      if (onTagsChange) {
+        onTagsChange();
+      }
+      
+      // Don't show toast for auto-save scenario
     } catch (error) {
       console.error('Error removing tag:', error);
       toast({
