@@ -91,6 +91,32 @@ export const useTags = () => {
       .map(tag => tag.name);
   };
 
+  const getAISuggestedTags = async (content: { title?: string; content?: string; description?: string }): Promise<string[]> => {
+    if (!user) return getSuggestedTags(5);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('get-relevant-tags', {
+        body: {
+          title: content.title || '',
+          content: content.content || '',
+          description: content.description || ''
+        }
+      });
+
+      if (error) {
+        console.error('Error getting AI suggested tags:', error);
+        // Fallback to popular tags
+        return getSuggestedTags(5);
+      }
+
+      return data?.tags || getSuggestedTags(5);
+    } catch (error) {
+      console.error('Exception getting AI suggested tags:', error);
+      // Fallback to popular tags
+      return getSuggestedTags(5);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       fetchTags();
@@ -101,6 +127,7 @@ export const useTags = () => {
     tags,
     addTagsToItem,
     getSuggestedTags,
+    getAISuggestedTags,
     fetchTags
   };
 };

@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -18,6 +19,7 @@ import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
 import ChatInterface from '@/components/ChatInterface';
 import GlobalChatInterface from '@/components/GlobalChatInterface';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -38,7 +40,7 @@ const Index = () => {
     removeOptimisticItem
   );
   const { hideAddSection, updatePreference, loading: preferencesLoading } = useUserPreferences();
-  const { getSuggestedTags } = useTags();
+  const { getSuggestedTags: getPopularTags } = useTags();
 
   // Redirect to auth if not authenticated
   useEffect(() => {
@@ -92,9 +94,31 @@ const Index = () => {
     setTagFilters(selectedTags);
   };
 
-  // Wrapper function to match the expected signature for TextNoteTab
-  const handleGetSuggestedTags = async (content: { title?: string; content?: string; description?: string }) => {
-    return await getSuggestedTags(content);
+  // AI-based suggested tags function that analyzes content
+  const getAISuggestedTags = async (content: { title?: string; content?: string; description?: string }): Promise<string[]> => {
+    if (!user) return [];
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('get-relevant-tags', {
+        body: {
+          title: content.title || '',
+          content: content.content || '',
+          description: content.description || ''
+        }
+      });
+
+      if (error) {
+        console.error('Error getting AI suggested tags:', error);
+        // Fallback to popular tags
+        return getPopularTags(5);
+      }
+
+      return data?.tags || getPopularTags(5);
+    } catch (error) {
+      console.error('Exception getting AI suggested tags:', error);
+      // Fallback to popular tags
+      return getPopularTags(5);
+    }
   };
 
   // Filter items based on selected tags
@@ -156,21 +180,21 @@ const Index = () => {
                   <TabsContent value="media" className="mt-6">
                     <MediaUploadTab 
                       onAddContent={handleAddContent}
-                      getSuggestedTags={handleGetSuggestedTags}
+                      getSuggestedTags={getAISuggestedTags}
                     />
                   </TabsContent>
                   
                   <TabsContent value="note" className="mt-6">
                     <TextNoteTab 
                       onAddContent={handleAddContent}
-                      getSuggestedTags={handleGetSuggestedTags}
+                      getSuggestedTags={getAISuggestedTags}
                     />
                   </TabsContent>
                   
                   <TabsContent value="link" className="mt-6">
                     <LinkTab 
                       onAddContent={handleAddContent}
-                      getSuggestedTags={handleGetSuggestedTags}
+                      getSuggestedTags={getPopularTags}
                     />
                   </TabsContent>
                 </>
