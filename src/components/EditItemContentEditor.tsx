@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -13,6 +12,7 @@ import EditorCommandMenu from './editor/EditorCommandMenu';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadImage } from '@/services/imageUploadService';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 interface EditItemContentEditorProps {
   content: string;
