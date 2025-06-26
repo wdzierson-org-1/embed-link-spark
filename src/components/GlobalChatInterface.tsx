@@ -145,19 +145,19 @@ const GlobalChatInterface = ({ isOpen, onClose, onSourceClick, onViewAllSources 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-2xl h-[80vh] max-h-[600px] flex flex-col">
-        <CardHeader className="flex-shrink-0 border-b">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-0 sm:p-4">
+      <Card className="w-full h-full sm:max-w-2xl sm:h-[80vh] sm:max-h-[600px] flex flex-col rounded-none sm:rounded-lg">
+        <CardHeader className="flex-shrink-0 border-b px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <MessageSquare className="h-5 w-5" />
-              <CardTitle>Chat with All Content</CardTitle>
+              <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5" />
+              <CardTitle className="text-lg sm:text-xl">Chat with All Content</CardTitle>
             </div>
             <Button variant="ghost" size="sm" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground hidden sm:block">
             Ask questions about your entire content collection
           </p>
         </CardHeader>

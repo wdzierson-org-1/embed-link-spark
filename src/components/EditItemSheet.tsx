@@ -52,7 +52,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="w-[800px] sm:max-w-[800px] p-0 flex flex-col">
+        <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col">
           <SheetHeader className="px-6 py-4 border-b flex-shrink-0">
             <SheetTitle>Edit Item</SheetTitle>
           </SheetHeader>
