@@ -1,11 +1,10 @@
 
 import React, { useState } from 'react';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { RefreshCw, Trash2 } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Sparkles, Save } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { generateDescription } from '@/utils/aiOperations';
+import { supabase } from '@/integrations/supabase/client';
 
 interface EditItemDescriptionSectionProps {
   itemId: string;
@@ -16,94 +15,112 @@ interface EditItemDescriptionSectionProps {
   onSave: (description: string) => Promise<void>;
 }
 
-const EditItemDescriptionSection = ({ 
-  itemId, 
-  description, 
-  content, 
-  title, 
-  onDescriptionChange, 
-  onSave 
+const EditItemDescriptionSection = ({
+  itemId,
+  description,
+  content,
+  title,
+  onDescriptionChange,
+  onSave,
 }: EditItemDescriptionSectionProps) => {
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const handleRefreshDescription = async () => {
-    setIsRefreshing(true);
-    try {
-      const newDescription = await generateDescription('text', {
-        content: content,
-        title: title
+  const handleGenerateDescription = async () => {
+    if (!content?.trim() && !title?.trim()) {
+      toast({
+        title: "No content to summarize",
+        description: "Add some content or title first to generate a summary.",
+        variant: "destructive",
       });
-      
-      if (newDescription) {
-        onDescriptionChange(newDescription);
-        await onSave(newDescription);
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-description', {
+        body: { 
+          content: content || '', 
+          title: title || '',
+          itemId 
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.description) {
+        onDescriptionChange(data.description);
         toast({
-          title: "Success",
-          description: "Description refreshed",
+          title: "Summary generated",
+          description: "AI summary has been generated successfully.",
         });
       }
     } catch (error) {
-      console.error('Error refreshing description:', error);
+      console.error('Error generating description:', error);
       toast({
         title: "Error",
-        description: "Failed to refresh description",
+        description: "Failed to generate summary. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsRefreshing(false);
+      setIsGenerating(false);
     }
   };
 
-  const handleRemoveDescription = async () => {
+  const handleSave = async () => {
+    setIsSaving(true);
     try {
-      onDescriptionChange('');
-      await onSave('');
+      await onSave(description);
       toast({
         title: "Success",
-        description: "Description removed",
+        description: "Summary saved successfully.",
       });
     } catch (error) {
-      console.error('Error removing description:', error);
+      console.error('Error saving description:', error);
       toast({
         title: "Error",
-        description: "Failed to remove description",
+        description: "Failed to save summary. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  if (!description) return null;
-
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <Label className="text-base font-medium">AI Summary</Label>
-        <div className="flex space-x-2">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-sm font-medium text-muted-foreground">AI Summary</label>
+        <div className="flex gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={handleRefreshDescription}
-            disabled={isRefreshing}
+            onClick={handleGenerateDescription}
+            disabled={isGenerating || (!content?.trim() && !title?.trim())}
+            className="h-7 px-2 text-xs"
           >
-            <RefreshCw className={`h-4 w-4 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            <Sparkles className="h-3 w-3 mr-1" />
+            {isGenerating ? 'Generating...' : 'Generate'}
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={handleRemoveDescription}
+            onClick={handleSave}
+            disabled={isSaving || !description?.trim()}
+            className="h-7 px-2 text-xs"
           >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Remove
+            <Save className="h-3 w-3 mr-1" />
+            {isSaving ? 'Saving...' : 'Save'}
           </Button>
         </div>
       </div>
-      <Card>
-        <CardContent className="p-4">
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </CardContent>
-      </Card>
+      <Textarea
+        value={description}
+        onChange={(e) => onDescriptionChange(e.target.value)}
+        placeholder="Enter a summary or description..."
+        className="min-h-[100px] resize-none"
+      />
     </div>
   );
 };
