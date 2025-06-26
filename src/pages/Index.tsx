@@ -6,7 +6,16 @@ import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { FileText, Link, Upload, MessageSquare, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { FileText, Link, Upload, MessageSquare, Settings, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import StashHeader from '@/components/StashHeader';
 import ContentGrid from '@/components/ContentGrid';
@@ -15,6 +24,7 @@ import GlobalChatInterface from '@/components/GlobalChatInterface';
 import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
 import MediaUploadTab from '@/components/MediaUploadTab';
+import SettingsModal from '@/components/SettingsModal';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
 const Index = () => {
@@ -31,12 +41,21 @@ const Index = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
   const [showGlobalChat, setShowGlobalChat] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [isInputUICollapsed, setIsInputUICollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState('text');
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
     return await getSuggestedTagsFromApi(content);
+  };
+
+  const getUserInitials = (email: string) => {
+    return email?.charAt(0).toUpperCase() || 'U';
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
   };
 
   useEffect(() => {
@@ -90,7 +109,7 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header with logo and chat/logout buttons - removed border-b */}
+      {/* Header with logo and chat/user menu buttons */}
       <div className="w-full bg-background">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center">
@@ -106,14 +125,36 @@ const Index = () => {
               <MessageSquare className="h-4 w-4" />
               Chat
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => supabase.auth.signOut()}
-              className="flex items-center gap-2"
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
+                  <Avatar className="h-10 w-10 bg-purple-400">
+                    <AvatarFallback className="bg-purple-400 text-white font-medium">
+                      {getUserInitials(user.email || '')}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">
+                      {user.email}
+                    </p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowSettings(true)}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleSignOut}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -216,6 +257,11 @@ const Index = () => {
         onClose={() => setShowGlobalChat(false)}
         onSourceClick={handleSourceClick}
         onViewAllSources={handleViewAllSources}
+      />
+
+      <SettingsModal 
+        open={showSettings} 
+        onOpenChange={setShowSettings}
       />
     </div>
   );
