@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -27,6 +26,7 @@ const Index = () => {
   const [chatItem, setChatItem] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [globalChatOpen, setGlobalChatOpen] = useState(false);
+  const [currentTab, setCurrentTab] = useState('media');
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -68,10 +68,19 @@ const Index = () => {
   };
 
   const handleTabChange = (value: string) => {
-    // If the add section is hidden and user clicks on a tab, expand it
+    // If the add section is hidden and user clicks on any tab (including current), expand it
     if (hideAddSection) {
       updatePreference(false);
     }
+    setCurrentTab(value);
+  };
+
+  const handleTabClick = (value: string) => {
+    // If clicking on the currently active tab and section is hidden, expand it
+    if (value === currentTab && hideAddSection) {
+      updatePreference(false);
+    }
+    setCurrentTab(value);
   };
 
   if (loading || preferencesLoading) {
@@ -97,12 +106,12 @@ const Index = () => {
       <main className="container mx-auto px-4 py-6">
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
-            <Tabs defaultValue="media" className="w-full" onValueChange={handleTabChange}>
+            <Tabs defaultValue="media" className="w-full" value={currentTab} onValueChange={handleTabChange}>
               <div className="flex items-center justify-between">
                 <TabsList className="grid grid-cols-3 w-full">
-                  <TabsTrigger value="media">Add media</TabsTrigger>
-                  <TabsTrigger value="note">New note</TabsTrigger>
-                  <TabsTrigger value="link">Paste link</TabsTrigger>
+                  <TabsTrigger value="media" onClick={() => handleTabClick('media')}>Add media</TabsTrigger>
+                  <TabsTrigger value="note" onClick={() => handleTabClick('note')}>New note</TabsTrigger>
+                  <TabsTrigger value="link" onClick={() => handleTabClick('link')}>Paste link</TabsTrigger>
                 </TabsList>
                 
                 <Button
