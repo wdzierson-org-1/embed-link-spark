@@ -1,17 +1,12 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import React, { useState, useEffect } from 'react';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import EditItemTitleSection from '@/components/EditItemTitleSection';
-import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
-import EditItemImageSection from '@/components/EditItemImageSection';
-import EditItemContentEditor from '@/components/EditItemContentEditor';
-import MediaPlayer from '@/components/MediaPlayer';
-import VideoLightbox from '@/components/VideoLightbox';
-import MediaRemovalItem from '@/components/MediaRemovalItem';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import EditItemDialogHeader from '@/components/EditItemDialogHeader';
+import EditItemDialogContent from '@/components/EditItemDialogContent';
+import EditItemDialogFooter from '@/components/EditItemDialogFooter';
 
 interface ContentItem {
   id: string;
@@ -46,7 +41,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   const [tags, setTags] = useState<string[]>([]);
   const [editorInstanceKey, setEditorInstanceKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -172,11 +166,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
     await onSave(item.id, { description: newDescription || undefined });
   };
 
-  const handleTagsUpdated = () => {
-    // This will be called when tags are updated
-    // The ItemTagsManager handles the actual updates
-  };
-
   const handleImageUpdate = async (hasImage: boolean, imageUrl: string) => {
     // This is handled by the EditItemImageSection component directly
     // We just need to refresh the dialog
@@ -188,102 +177,32 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Edit Item</DialogTitle>
-        </DialogHeader>
+        <EditItemDialogHeader />
 
         {item && (
-          <div className="space-y-6">
-            <EditItemTitleSection
+          <>
+            <EditItemDialogContent
+              item={item}
               title={title}
-              onTitleChange={setTitle}
-              onSave={handleTitleSave}
-            />
-
-            <EditItemDescriptionSection
-              itemId={item.id}
               description={description}
               content={content}
-              title={title}
+              editorInstanceKey={editorInstanceKey}
+              fileUrl={fileUrl}
+              onTitleChange={setTitle}
               onDescriptionChange={setDescription}
-              onSave={handleDescriptionSave}
+              onContentChange={setContent}
+              onTitleSave={handleTitleSave}
+              onDescriptionSave={handleDescriptionSave}
+              onImageUpdate={handleImageUpdate}
+              onRemoveMedia={handleRemoveMedia}
             />
 
-            {/* Media Section */}
-            {item.file_path && (item.type === 'audio' || item.type === 'video') && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Media</h3>
-                
-                {/* Media removal item */}
-                <MediaRemovalItem
-                  fileName={item.title || 'Media file'}
-                  fileType={item.type as 'audio' | 'video'}
-                  onRemove={handleRemoveMedia}
-                />
-
-                {/* Audio player */}
-                {item.type === 'audio' && fileUrl && (
-                  <MediaPlayer
-                    src={fileUrl}
-                    fileName={item.title || 'Audio file'}
-                    showRemove={false}
-                  />
-                )}
-
-                {/* Video preview */}
-                {item.type === 'video' && fileUrl && (
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsVideoLightboxOpen(true)}
-                      className="w-full"
-                    >
-                      Preview Video
-                    </Button>
-                    <VideoLightbox
-                      src={fileUrl}
-                      fileName={item.title || 'Video file'}
-                      isOpen={isVideoLightboxOpen}
-                      onClose={() => setIsVideoLightboxOpen(false)}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {item.type === 'image' && (
-              <EditItemImageSection
-                itemId={item.id}
-                hasImage={!!item.file_path}
-                imageUrl={fileUrl || ''}
-                onImageStateChange={handleImageUpdate}
-              />
-            )}
-
-            {(item.type === 'text' || item.type === 'link') && (
-              <EditItemContentEditor
-                content={content}
-                onContentChange={setContent}
-                itemId={item.id}
-                editorInstanceKey={editorInstanceKey}
-              />
-            )}
-
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={isSaving}
-              >
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </div>
-          </div>
+            <EditItemDialogFooter
+              onCancel={() => onOpenChange(false)}
+              onSave={handleSave}
+              isSaving={isSaving}
+            />
+          </>
         )}
       </DialogContent>
     </Dialog>
