@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { generateTitle } from '@/utils/titleGenerator';
+import { useLocalStorageDraft } from './useLocalStorageDraft';
 
 interface ContentItem {
   id: string;
@@ -30,88 +31,47 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
   const [editorInstanceKey, setEditorInstanceKey] = useState<string>('');
   const [activeTab, setActiveTab] = useState('details');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [showDraftRestore, setShowDraftRestore] = useState(false);
   
-  // Use refs to track the latest values and auto-save state
-  const titleRef = useRef(title);
-  const descriptionRef = useRef(description);
-  const contentRef = useRef(content);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isLoadingRef = useRef(false);
   const itemRef = useRef(item);
+  const initialLoadRef = useRef(false);
 
-  // Update refs when state changes
-  useEffect(() => { titleRef.current = title; }, [title]);
-  useEffect(() => { descriptionRef.current = description; }, [description]);
-  useEffect(() => { contentRef.current = content; }, [content]);
+  // Use the local storage draft hook
+  const {
+    hasDraft,
+    updateCurrentData,
+    getSavedDraft,
+    clearDraft,
+    cleanupOldDrafts
+  } = useLocalStorageDraft({ itemId: item?.id || null, isOpen: open });
+
+  // Update refs when item changes
   useEffect(() => { itemRef.current = item; }, [item]);
 
-  // Stable auto-save function using refs
-  const performAutoSave = useCallback(async () => {
-    const currentItem = itemRef.current;
-    if (!currentItem || isLoadingRef.current) return;
-    
-    setSaveStatus('saving');
-    
-    try {
-      const updates: any = {
-        title: titleRef.current.trim() || undefined,
-        description: descriptionRef.current.trim() || undefined,
-        content: contentRef.current.trim() || undefined,
-      };
+  // Clean up old drafts periodically
+  useEffect(() => {
+    cleanupOldDrafts();
+  }, [cleanupOldDrafts]);
 
-      // Use silent save (no toast, no refresh) for auto-saves
-      await onSave(currentItem.id, updates, { showSuccessToast: false, refreshItems: false });
-      setSaveStatus('saved');
-      
-      setTimeout(() => {
-        setSaveStatus('idle');
-      }, 2000);
-    } catch (error) {
-      console.error('Auto-save failed:', error);
-      setSaveStatus('idle');
+  // Update current data in localStorage whenever state changes
+  useEffect(() => {
+    if (open && item && !isContentLoading) {
+      updateCurrentData(title, description, content);
     }
-  }, [onSave]);
+  }, [title, description, content, open, item, isContentLoading, updateCurrentData]);
 
-  // Stable debounced auto-save trigger
-  const triggerAutoSave = useCallback(() => {
-    if (!itemRef.current || isLoadingRef.current) return;
-    
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    
-    saveTimeoutRef.current = setTimeout(() => {
-      performAutoSave();
-      saveTimeoutRef.current = null;
-    }, 1000);
-  }, [performAutoSave]);
-
-  // Stable change handlers
+  // Simple change handlers without auto-save
   const handleTitleChange = useCallback((newTitle: string) => {
     setTitle(newTitle);
-    triggerAutoSave();
-  }, [triggerAutoSave]);
+  }, []);
 
   const handleDescriptionChange = useCallback((newDescription: string) => {
     setDescription(newDescription);
-    triggerAutoSave();
-  }, [triggerAutoSave]);
+  }, []);
 
-  // CRITICAL: Make this callback completely stable
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
-    // Use the ref-based auto-save trigger to avoid recreating this callback
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    
-    saveTimeoutRef.current = setTimeout(() => {
-      if (itemRef.current && !isLoadingRef.current) {
-        performAutoSave();
-      }
-      saveTimeoutRef.current = null;
-    }, 1000);
-  }, [performAutoSave]);
+  }, []);
 
   const checkForImage = useCallback(() => {
     if (!item) return;
@@ -121,7 +81,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
       setHasImage(true);
       setImageUrl(data.publicUrl);
     } else if (item.type === 'link' && item.file_path) {
-      // For links, check if there's a preview image stored in file_path
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
       setHasImage(true);
       setImageUrl(data.publicUrl);
@@ -131,29 +90,80 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     }
   }, [item]);
 
+  // Handle draft restoration
+  const handleRestoreDraft = useCallback(() => {
+    const savedDraft = getSavedDraft();
+    if (savedDraft) {
+      setTitle(savedDraft.title);
+      setDescription(savedDraft.description);
+      setContent(savedDraft.content);
+    }
+    setShowDraftRestore(false);
+  }, [getSavedDraft]);
+
+  const handleDiscardDraft = useCallback(() => {
+    clearDraft();
+    setShowDraftRestore(false);
+  }, [clearDraft]);
+
   // Generate a unique editor key when item changes or sheet opens
   useEffect(() => {
     if (item && open) {
       setIsContentLoading(true);
-      isLoadingRef.current = true;
+      initialLoadRef.current = true;
       const newKey = `editor-${item.id}-${Date.now()}`;
       setEditorInstanceKey(newKey);
       
+      // Set initial values
       setTitle(item.title || '');
       setDescription(item.description || '');
       setContent(item.content || '');
       
+      // Check for draft after setting initial values
       setTimeout(() => {
+        if (hasDraft) {
+          setShowDraftRestore(true);
+        }
         setIsContentLoading(false);
-        isLoadingRef.current = false;
+        initialLoadRef.current = false;
       }, 100);
       
       checkForImage();
     }
-  }, [item?.id, open, checkForImage]);
+  }, [item?.id, open, hasDraft, checkForImage]);
 
-  // Clear editor state when sheet closes
+  // Save to server when sheet closes
   useEffect(() => {
+    if (!open && itemRef.current && !initialLoadRef.current) {
+      // Save current state to server before closing
+      const performFinalSave = async () => {
+        setSaveStatus('saving');
+        
+        try {
+          const updates: any = {
+            title: title.trim() || undefined,
+            description: description.trim() || undefined,
+            content: content.trim() || undefined,
+          };
+
+          await onSave(itemRef.current!.id, updates, { showSuccessToast: false, refreshItems: true });
+          clearDraft(); // Clear localStorage after successful save
+          setSaveStatus('saved');
+        } catch (error) {
+          console.error('Final save failed:', error);
+          setSaveStatus('idle');
+        }
+      };
+
+      // Only save if there are actual changes
+      if (title || description || content) {
+        performFinalSave();
+      } else {
+        clearDraft();
+      }
+    }
+
+    // Clear editor state when sheet closes
     if (!open) {
       setTitle('');
       setDescription('');
@@ -165,19 +175,16 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
       setEditorInstanceKey('');
       setActiveTab('details');
       setSaveStatus('idle');
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-      }
+      setShowDraftRestore(false);
     }
-  }, [open]);
+  }, [open, title, description, content, onSave, clearDraft]);
 
   const handleTagsChange = () => {
-    triggerAutoSave();
+    // Tags changes are handled separately and don't need local storage
   };
 
   const handleMediaChange = () => {
-    triggerAutoSave();
+    // Media changes are handled separately and don't need local storage
   };
 
   const handleTitleSave = async (newTitle: string) => {
@@ -222,6 +229,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     editorKey,
     activeTab,
     saveStatus,
+    showDraftRestore,
     setActiveTab,
     
     // Handlers
@@ -233,5 +241,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleTagsChange,
     handleMediaChange,
     handleImageStateChange,
+    handleRestoreDraft,
+    handleDiscardDraft,
   };
 };

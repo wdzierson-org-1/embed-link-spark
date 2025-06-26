@@ -9,11 +9,11 @@ const EditItemAutoSaveIndicator = ({ saveStatus }: EditItemAutoSaveIndicatorProp
   const getSaveStatusText = () => {
     switch (saveStatus) {
       case 'saving':
-        return 'Saving...';
+        return 'Saving changes...';
       case 'saved':
-        return 'Saved';
+        return 'All changes saved';
       default:
-        return 'Changes are saved automatically';
+        return 'Changes are saved automatically to local storage';
     }
   };
 
