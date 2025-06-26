@@ -2,8 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { X, Filter, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Filter } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -87,7 +86,6 @@ const StashHeader = ({ itemCount, onTagFiltersChange }: StashHeaderProps) => {
           >
             <Filter className="h-4 w-4" />
             Filter by tag
-            {showTagFilter ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
         </div>
       </div>
@@ -137,21 +135,17 @@ const StashHeader = ({ itemCount, onTagFiltersChange }: StashHeaderProps) => {
             {availableTags.length === 0 ? (
               <p className="text-sm text-muted-foreground">No tags available</p>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              <div className="flex flex-wrap gap-2">
                 {availableTags.map((tag) => (
-                  <div key={tag.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`tag-${tag.id}`}
-                      checked={selectedTags.includes(tag.name)}
-                      onCheckedChange={() => handleTagToggle(tag.name)}
-                    />
-                    <label
-                      htmlFor={`tag-${tag.id}`}
-                      className="text-sm cursor-pointer flex-1 truncate"
-                    >
-                      {tag.name} ({tag.usage_count})
-                    </label>
-                  </div>
+                  <Button
+                    key={tag.id}
+                    variant={selectedTags.includes(tag.name) ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleTagToggle(tag.name)}
+                    className="h-7 text-xs"
+                  >
+                    {tag.name} ({tag.usage_count})
+                  </Button>
                 ))}
               </div>
             )}

@@ -1,10 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import TagInput from '@/components/TagInput';
+import LinkPreview from '@/components/LinkPreview';
 import { useToast } from '@/hooks/use-toast';
 
 interface LinkTabProps {
@@ -17,6 +18,8 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  const [ogData, setOgData] = useState(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -28,6 +31,73 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       return false;
     }
   };
+
+  const fetchOgData = async (urlToFetch: string) => {
+    if (!isValidUrl(urlToFetch)) return;
+    
+    setIsLoadingPreview(true);
+    try {
+      // Simple fetch to get basic info - in a real app you'd use a service
+      const response = await fetch(urlToFetch, { 
+        mode: 'cors',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)'
+        }
+      });
+      
+      if (response.ok) {
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        
+        const ogTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+                       doc.querySelector('title')?.textContent;
+        const ogDescription = doc.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+                             doc.querySelector('meta[name="description"]')?.getAttribute('content');
+        const ogImage = doc.querySelector('meta[property="og:image"]')?.getAttribute('content');
+        const ogSiteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
+        
+        setOgData({
+          title: ogTitle,
+          description: ogDescription,
+          image: ogImage,
+          url: urlToFetch,
+          siteName: ogSiteName
+        });
+        
+        // Auto-fill title if empty
+        if (!title && ogTitle) {
+          setTitle(ogTitle);
+        }
+        
+        // Auto-fill description if empty
+        if (!description && ogDescription) {
+          setDescription(ogDescription);
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch preview data:', error);
+      // Fallback to basic URL info
+      setOgData({
+        url: urlToFetch,
+        title: urlToFetch
+      });
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (url && isValidUrl(url)) {
+        fetchOgData(url);
+      } else {
+        setOgData(null);
+      }
+    }, 1000); // Debounce by 1 second
+
+    return () => clearTimeout(timeoutId);
+  }, [url]);
 
   const handleSubmit = async () => {
     const trimmedUrl = url.trim();
@@ -56,7 +126,8 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
         url: trimmedUrl,
         title: title.trim() || trimmedUrl,
         description: description.trim(),
-        tags
+        tags,
+        ogData
       });
 
       // Reset form
@@ -64,6 +135,7 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       setTitle('');
       setDescription('');
       setTags([]);
+      setOgData(null);
 
       toast({
         title: "Success",
@@ -104,6 +176,12 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
             onChange={handleUrlChange}
             type="url"
           />
+          
+          {isLoadingPreview && (
+            <div className="text-sm text-gray-500">Loading preview...</div>
+          )}
+          
+          {ogData && <LinkPreview ogData={ogData} />}
 
           <Input
             placeholder="Link title (optional)"
