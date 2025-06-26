@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   EditorRoot,
   EditorContent,
@@ -20,7 +20,9 @@ interface EditItemContentEditorProps {
 
 const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEditorProps) => {
   const [initialContent, setInitialContent] = useState<JSONContent | null>(null);
+  const [editorKey, setEditorKey] = useState(0); // Force re-render when content changes
   const { user } = useAuth();
+  const previousContentRef = useRef<string>('');
 
   const handleImageUpload = async (file: File): Promise<string> => {
     if (!user) {
@@ -46,8 +48,14 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
   const extensions = createEditorExtensions(handleImageUpload);
 
   useEffect(() => {
-    const jsonContent = convertToJsonContent(content);
-    setInitialContent(jsonContent);
+    // Only update if content actually changed
+    if (content !== previousContentRef.current) {
+      const jsonContent = convertToJsonContent(content);
+      setInitialContent(jsonContent);
+      // Force editor to re-render with new content
+      setEditorKey(prev => prev + 1);
+      previousContentRef.current = content;
+    }
   }, [content]);
 
   if (!initialContent) {
@@ -63,7 +71,7 @@ const EditItemContentEditor = ({ content, onContentChange }: EditItemContentEdit
   return (
     <div>
       <div className="border rounded-md">
-        <EditorRoot>
+        <EditorRoot key={editorKey}>
           <EditorContent
             initialContent={initialContent}
             extensions={extensions}
