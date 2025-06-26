@@ -20,14 +20,20 @@ import { slashCommand } from './SlashCommand';
 
 export const createEditorExtensions = () => [
   StarterKit.configure({
+    heading: {
+      HTMLAttributes: {
+        class: "font-title font-bold",
+      },
+      levels: [1, 2, 3, 4, 5, 6],
+    },
     bulletList: {
       HTMLAttributes: {
-        class: "list-disc list-outside leading-3 -mt-2",
+        class: "list-disc list-outside leading-3 -mt-2 ml-4",
       },
     },
     orderedList: {
       HTMLAttributes: {
-        class: "list-decimal list-outside leading-3 -mt-2",
+        class: "list-decimal list-outside leading-3 -mt-2 ml-4",
       },
     },
     listItem: {
@@ -37,7 +43,7 @@ export const createEditorExtensions = () => [
     },
     blockquote: {
       HTMLAttributes: {
-        class: "border-l-4 border-primary",
+        class: "border-l-4 border-primary pl-4 italic",
       },
     },
     codeBlock: {

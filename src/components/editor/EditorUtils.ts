@@ -26,68 +26,183 @@ export const convertToJsonContent = (input: string): JSONContent => {
     // Not JSON, continue to HTML/Markdown parsing
   }
 
-  // Handle HTML content (strip tags and create simple paragraph)
-  // In a full implementation, you'd want proper HTML to ProseMirror parsing
-  const textContent = input.replace(/<[^>]*>/g, '').trim();
-  
-  if (!textContent) {
-    return {
-      type: 'doc',
-      content: [
-        {
-          type: 'paragraph',
-          content: []
+  // Enhanced markdown parsing
+  const lines = input.split('\n');
+  const content: any[] = [];
+  let currentList: any = null;
+  let listType: 'bulletList' | 'orderedList' | 'taskList' | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    if (trimmedLine === '') {
+      // Close any open list
+      if (currentList) {
+        content.push(currentList);
+        currentList = null;
+        listType = null;
+      }
+      continue;
+    }
+
+    // Check for headings (markdown style)
+    const headingMatch = trimmedLine.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      // Close any open list
+      if (currentList) {
+        content.push(currentList);
+        currentList = null;
+        listType = null;
+      }
+      
+      content.push({
+        type: 'heading',
+        attrs: { level: headingMatch[1].length },
+        content: [{ type: 'text', text: headingMatch[2] }]
+      });
+      continue;
+    }
+
+    // Check for bold text (**text** or __text__)
+    const processBoldText = (text: string) => {
+      const boldRegex = /(\*\*|__)(.*?)\1/g;
+      const parts: any[] = [];
+      let lastIndex = 0;
+      let match;
+
+      while ((match = boldRegex.exec(text)) !== null) {
+        // Add text before the bold part
+        if (match.index > lastIndex) {
+          const beforeText = text.slice(lastIndex, match.index);
+          if (beforeText) {
+            parts.push({ type: 'text', text: beforeText });
+          }
         }
-      ]
+        
+        // Add bold text
+        parts.push({
+          type: 'text',
+          text: match[2],
+          marks: [{ type: 'bold' }]
+        });
+        
+        lastIndex = match.index + match[0].length;
+      }
+
+      // Add remaining text
+      if (lastIndex < text.length) {
+        const remainingText = text.slice(lastIndex);
+        if (remainingText) {
+          parts.push({ type: 'text', text: remainingText });
+        }
+      }
+
+      return parts.length > 0 ? parts : [{ type: 'text', text: text }];
     };
+
+    // Check for task list items (- [ ] or - [x])
+    const taskMatch = trimmedLine.match(/^[-*]\s+\[([ x])\]\s+(.+)$/);
+    if (taskMatch) {
+      const isChecked = taskMatch[1].toLowerCase() === 'x';
+      const taskText = taskMatch[2];
+
+      if (listType !== 'taskList') {
+        if (currentList) {
+          content.push(currentList);
+        }
+        currentList = { type: 'taskList', content: [] };
+        listType = 'taskList';
+      }
+
+      currentList.content.push({
+        type: 'taskItem',
+        attrs: { checked: isChecked },
+        content: [{
+          type: 'paragraph',
+          content: processBoldText(taskText)
+        }]
+      });
+      continue;
+    }
+
+    // Check for bullet list items (- or *)
+    const bulletMatch = trimmedLine.match(/^[-*]\s+(.+)$/);
+    if (bulletMatch) {
+      const bulletText = bulletMatch[1];
+
+      if (listType !== 'bulletList') {
+        if (currentList) {
+          content.push(currentList);
+        }
+        currentList = { type: 'bulletList', content: [] };
+        listType = 'bulletList';
+      }
+
+      currentList.content.push({
+        type: 'listItem',
+        content: [{
+          type: 'paragraph',
+          content: processBoldText(bulletText)
+        }]
+      });
+      continue;
+    }
+
+    // Check for numbered list items (1. 2. etc.)
+    const numberedMatch = trimmedLine.match(/^\d+\.\s+(.+)$/);
+    if (numberedMatch) {
+      const numberedText = numberedMatch[1];
+
+      if (listType !== 'orderedList') {
+        if (currentList) {
+          content.push(currentList);
+        }
+        currentList = { type: 'orderedList', content: [] };
+        listType = 'orderedList';
+      }
+
+      currentList.content.push({
+        type: 'listItem',
+        content: [{
+          type: 'paragraph',
+          content: processBoldText(numberedText)
+        }]
+      });
+      continue;
+    }
+
+    // Regular paragraph
+    if (currentList) {
+      content.push(currentList);
+      currentList = null;
+      listType = null;
+    }
+
+    if (trimmedLine) {
+      content.push({
+        type: 'paragraph',
+        content: processBoldText(trimmedLine)
+      });
+    }
   }
 
-  // For markdown content, create basic structure
-  // This is a simplified approach - for full markdown support, 
-  // you'd want to use a proper markdown to ProseMirror parser
-  if (textContent.includes('•') || textContent.includes('-') || textContent.includes('*')) {
-    // Simple bullet list detection
-    const lines = textContent.split('\n').filter(line => line.trim());
-    const listItems = lines.map(line => ({
-      type: 'listItem',
-      content: [
-        {
-          type: 'paragraph',
-          content: [
-            {
-              type: 'text',
-              text: line.replace(/^[•\-\*]\s*/, '').trim()
-            }
-          ]
-        }
-      ]
-    }));
-
-    return {
-      type: 'doc',
-      content: [
-        {
-          type: 'bulletList',
-          content: listItems
-        }
-      ]
-    };
+  // Don't forget to add any remaining list
+  if (currentList) {
+    content.push(currentList);
   }
 
-  // Default: create paragraph with text content
+  // If no content was parsed, create a simple paragraph
+  if (content.length === 0) {
+    content.push({
+      type: 'paragraph',
+      content: [{ type: 'text', text: input }]
+    });
+  }
+
   return {
     type: 'doc',
-    content: [
-      {
-        type: 'paragraph',
-        content: [
-          {
-            type: 'text',
-            text: textContent
-          }
-        ]
-      }
-    ]
+    content
   };
 };
 
@@ -116,6 +231,13 @@ export const convertJsonToHtml = (jsonContent: JSONContent): string => {
       case 'listItem':
         const itemContent = node.content?.map(convertNode).join('') || '';
         return `<li>${itemContent}</li>`;
+      case 'taskList':
+        const taskItems = node.content?.map(convertNode).join('') || '';
+        return `<ul class="task-list">${taskItems}</ul>`;
+      case 'taskItem':
+        const taskContent = node.content?.map(convertNode).join('') || '';
+        const checked = node.attrs?.checked ? 'checked' : '';
+        return `<li class="task-item"><input type="checkbox" ${checked} disabled>${taskContent}</li>`;
       case 'blockquote':
         const quoteContent = node.content?.map(convertNode).join('') || '';
         return `<blockquote>${quoteContent}</blockquote>`;
