@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -47,9 +46,54 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [hasImage, setHasImage] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
+  const [isContentLoading, setIsContentLoading] = useState(false);
+  const [editorKey, setEditorKey] = useState<string>('');
   const { toast } = useToast();
   const { user } = useAuth();
   const { addTagsToItem, fetchTags, getSuggestedTags } = useTags();
+
+  // Generate a unique editor key when item changes or sheet opens
+  useEffect(() => {
+    if (item && open) {
+      setIsContentLoading(true);
+      // Create a unique key combining item ID and timestamp to force editor recreation
+      const newKey = `editor-${item.id}-${Date.now()}`;
+      setEditorKey(newKey);
+      
+      // Set content state
+      setTitle(item.title || '');
+      setDescription(item.description || '');
+      setContent(item.content || '');
+      
+      // Small delay to ensure state is updated before showing editor
+      setTimeout(() => {
+        setIsContentLoading(false);
+      }, 100);
+      
+      fetchItemTags();
+      checkForImage();
+      loadTagSuggestions();
+    }
+  }, [item?.id, open]); // Only depend on item ID and open state
+
+  // Clear editor state when sheet closes
+  useEffect(() => {
+    if (!open) {
+      // Reset all state when sheet closes to ensure clean state
+      setTitle('');
+      setDescription('');
+      setContent('');
+      setItemTags([]);
+      setNewTags([]);
+      setIsEditingTags(false);
+      setTagSuggestions([]);
+      setIsVideoLightboxOpen(false);
+      setHasImage(false);
+      setImageUrl('');
+      setIsContentLoading(false);
+      setEditorKey('');
+    }
+  }, [open]);
 
   useEffect(() => {
     if (item) {
@@ -149,7 +193,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
 
   // Auto-save functionality with debouncing
   useEffect(() => {
-    if (!item) return;
+    if (!item || isContentLoading) return;
     
     const timeoutId = setTimeout(async () => {
       try {
@@ -164,7 +208,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     }, 1000); // 1 second debounce
 
     return () => clearTimeout(timeoutId);
-  }, [title, description, content, item?.id, onSave]);
+  }, [title, description, content, item?.id, onSave, isContentLoading]);
 
   const handleTitleSave = async (newTitle: string) => {
     if (!item) return;
@@ -300,12 +344,18 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-muted-foreground">Content</label>
                   <div className="relative">
-                    <EditItemContentEditor
-                      content={content}
-                      onContentChange={setContent}
-                      itemId={item?.id}
-                      editorInstanceKey={item?.id}
-                    />
+                    {isContentLoading ? (
+                      <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
+                        Loading editor...
+                      </div>
+                    ) : (
+                      <EditItemContentEditor
+                        content={content}
+                        onContentChange={setContent}
+                        itemId={item?.id}
+                        editorInstanceKey={editorKey}
+                      />
+                    )}
                     <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
                       Press / for formatting options
                     </div>

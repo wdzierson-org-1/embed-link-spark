@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -120,32 +121,33 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
 
   const extensions = createEditorExtensions(handleImageUpload);
 
-  // Only recreate editor when itemId or editorInstanceKey changes, NOT on content changes
-  const { initialContent, editorKey } = useMemo(() => {
-    console.log('EditItemContentEditor: Processing content', { 
+  // Recreate editor when editorInstanceKey changes or content changes from external source
+  const { initialContent, effectiveEditorKey } = useMemo(() => {
+    console.log('EditItemContentEditor: Processing content for editor recreation', { 
       itemId,
       editorInstanceKey,
       contentLength: content.length,
-      contentPreview: content.slice(0, 50)
+      contentPreview: content.slice(0, 100)
     });
     
     const jsonContent = convertToJsonContent(content);
     console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
     
-    // Use stable key based only on itemId and editorInstanceKey, NOT content
-    const key = `editor-${itemId || 'new'}-${editorInstanceKey || 'default'}`;
+    // Create a stable key that forces recreation when editorInstanceKey changes
+    // This ensures a fresh editor instance for each note
+    const key = editorInstanceKey || `editor-${itemId || 'new'}-${Date.now()}`;
     
-    console.log('EditItemContentEditor: Generated stable key', { key });
+    console.log('EditItemContentEditor: Generated editor key', { key });
     
     return {
       initialContent: jsonContent,
-      editorKey: key
+      effectiveEditorKey: key
     };
-  }, [itemId, editorInstanceKey]); // Remove content from dependencies
+  }, [editorInstanceKey, itemId, content]); // Include content to ensure sync
 
-  console.log('EditItemContentEditor: Rendering', { 
+  console.log('EditItemContentEditor: Rendering with key', { 
+    effectiveEditorKey,
     hasInitialContent: !!initialContent,
-    editorKey,
     contentPreview: content.slice(0, 50)
   });
 
@@ -163,7 +165,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
   return (
     <div>
       <div className="border rounded-md">
-        <EditorRoot key={editorKey}>
+        <EditorRoot key={effectiveEditorKey}>
           <EditorContent
             initialContent={initialContent}
             extensions={extensions}
@@ -177,7 +179,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
               }
             }}
             onUpdate={({ editor }: { editor: EditorInstance }) => {
-              console.log('EditItemContentEditor: Content updated');
+              console.log('EditItemContentEditor: Content updated in editor');
               editorRef.current = editor;
               // Save as JSON to preserve formatting
               const json = editor.getJSON();
