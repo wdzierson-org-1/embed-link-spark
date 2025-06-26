@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import TagInput from '@/components/TagInput';
 import LinkPreview from '@/components/LinkPreview';
 import { useToast } from '@/hooks/use-toast';
 
@@ -15,9 +13,6 @@ interface LinkTabProps {
 
 const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
   const [url, setUrl] = useState('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
   const [ogData, setOgData] = useState(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,16 +59,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
           url: urlToFetch,
           siteName: ogSiteName
         });
-        
-        // Auto-fill title if empty
-        if (!title && ogTitle) {
-          setTitle(ogTitle);
-        }
-        
-        // Auto-fill description if empty
-        if (!description && ogDescription) {
-          setDescription(ogDescription);
-        }
       }
     } catch (error) {
       console.log('Could not fetch preview data:', error);
@@ -124,17 +109,14 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
     try {
       await onAddContent('link', {
         url: trimmedUrl,
-        title: title.trim() || trimmedUrl,
-        description: description.trim(),
-        tags,
+        title: ogData?.title || trimmedUrl,
+        description: ogData?.description || '',
+        tags: [],
         ogData
       });
 
       // Reset form
       setUrl('');
-      setTitle('');
-      setDescription('');
-      setTags([]);
       setOgData(null);
 
       toast({
@@ -182,28 +164,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
           )}
           
           {ogData && <LinkPreview ogData={ogData} />}
-
-          <Input
-            placeholder="Link title (optional)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
-          <Textarea
-            placeholder="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-          />
-
-          <div>
-            <p className="text-sm font-medium mb-2">Tags</p>
-            <TagInput
-              tags={tags}
-              onTagsChange={setTags}
-              suggestions={getSuggestedTags()}
-            />
-          </div>
 
           <Button 
             onClick={handleSubmit} 

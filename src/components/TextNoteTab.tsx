@@ -2,9 +2,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import TagInput from '@/components/TagInput';
 import { useToast } from '@/hooks/use-toast';
 
 interface TextNoteTabProps {
@@ -13,9 +11,7 @@ interface TextNoteTabProps {
 }
 
 const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
-  const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -32,15 +28,13 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     setIsSubmitting(true);
     try {
       await onAddContent('text', {
-        title: title.trim() || 'Untitled Note',
+        title: 'Untitled Note',
         content: content.trim(),
-        tags
+        tags: []
       });
 
       // Reset form
-      setTitle('');
       setContent('');
-      setTags([]);
 
       toast({
         title: "Success",
@@ -62,12 +56,6 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
     <Card>
       <CardContent className="pt-6">
         <div className="space-y-4">
-          <Input
-            placeholder="Note title (optional)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
           <Textarea
             placeholder="Write your note here..."
             value={content}
@@ -75,15 +63,6 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
             rows={6}
             className="resize-none"
           />
-
-          <div>
-            <p className="text-sm font-medium mb-2">Tags</p>
-            <TagInput
-              tags={tags}
-              onTagsChange={setTags}
-              suggestions={getSuggestedTags()}
-            />
-          </div>
 
           <Button 
             onClick={handleSubmit} 

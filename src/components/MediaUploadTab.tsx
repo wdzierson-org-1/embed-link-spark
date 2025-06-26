@@ -2,10 +2,7 @@
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Upload, File, X } from 'lucide-react';
-import TagInput from '@/components/TagInput';
+import { Upload, File, X, Image, Video, Mic, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface MediaUploadTabProps {
@@ -15,9 +12,6 @@ interface MediaUploadTabProps {
 
 const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps) => {
   const [files, setFiles] = useState<File[]>([]);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -51,6 +45,13 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const getFileIcon = (file: File) => {
+    if (file.type.startsWith('image/')) return <Image className="w-4 h-4" />;
+    if (file.type.startsWith('video/')) return <Video className="w-4 h-4" />;
+    if (file.type.startsWith('audio/')) return <Mic className="w-4 h-4" />;
+    return <FileText className="w-4 h-4" />;
+  };
+
   const handleUpload = async () => {
     if (files.length === 0) {
       toast({
@@ -70,17 +71,14 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
 
         await onAddContent(fileType, {
           file,
-          title: title || file.name,
-          description,
-          tags
+          title: file.name,
+          description: '',
+          tags: []
         });
       }
 
       // Reset form
       setFiles([]);
-      setTitle('');
-      setDescription('');
-      setTags([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -106,7 +104,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
       <CardContent className="pt-6">
         <div className="space-y-4">
           <div>
-            <Input
+            <input
               ref={fileInputRef}
               type="file"
               multiple
@@ -124,7 +122,24 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
                 <p className="mb-2 text-sm text-gray-500">
                   <span className="font-semibold">Click to upload</span> or drag and drop
                 </p>
-                <p className="text-xs text-gray-500">Images, videos, audio, PDFs, documents</p>
+                <div className="flex items-center space-x-4 text-xs text-gray-500">
+                  <div className="flex items-center space-x-1">
+                    <Image className="w-3 h-3" />
+                    <span>Images</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <Video className="w-3 h-3" />
+                    <span>Videos</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <Mic className="w-3 h-3" />
+                    <span>Audio</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <FileText className="w-3 h-3" />
+                    <span>Documents</span>
+                  </div>
+                </div>
               </div>
             </label>
           </div>
@@ -135,7 +150,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
               {files.map((file, index) => (
                 <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                   <div className="flex items-center space-x-2">
-                    <File className="w-4 h-4" />
+                    {getFileIcon(file)}
                     <span className="text-sm truncate">{file.name}</span>
                   </div>
                   <Button
@@ -150,28 +165,6 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
               ))}
             </div>
           )}
-
-          <Input
-            placeholder="Title (optional)"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
-          <Textarea
-            placeholder="Description (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-          />
-
-          <div>
-            <p className="text-sm font-medium mb-2">Tags</p>
-            <TagInput
-              tags={tags}
-              onTagsChange={setTags}
-              suggestions={getSuggestedTags()}
-            />
-          </div>
 
           <Button 
             onClick={handleUpload} 
