@@ -1,15 +1,26 @@
-
-import React, { useState, useEffect } from 'react';
-import { Sheet, SheetContent } from '@/components/ui/sheet';
+import React, { useState, useEffect, useRef } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
-import ItemTagsManager from '@/components/ItemTagsManager';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
-import EditItemContentEditor from '@/components/EditItemContentEditor';
 import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
+import EditItemImageSection from '@/components/EditItemImageSection';
+import EditItemContentEditor from '@/components/EditItemContentEditor';
+import MediaPlayer from '@/components/MediaPlayer';
+import VideoLightbox from '@/components/VideoLightbox';
+import MediaRemovalItem from '@/components/MediaRemovalItem';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+
+interface ContentItem {
+  id: string;
+  title?: string;
+  description?: string;
+  content?: string;
+  file_path?: string;
+  type?: string;
+  tags?: string[];
+}
 
 interface EditItemDialogProps {
   open: boolean;
@@ -33,7 +44,10 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   const [isLoading, setIsLoading] = useState(false);
   const [tags, setTags] = useState<string[]>([]);
   const [editorInstanceKey, setEditorInstanceKey] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Generate new editor instance key when dialog opens or item changes
   useEffect(() => {
@@ -58,6 +72,55 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
       setTags(item.tags || []);
     }
   }, [item]);
+
+  const getFileUrl = (item: ContentItem) => {
+    if (item.file_path) {
+      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+      return data.publicUrl;
+    }
+    return null;
+  };
+
+  const handleRemoveMedia = async () => {
+    if (!item?.file_path) return;
+
+    try {
+      // Remove file from storage
+      const { error: storageError } = await supabase.storage
+        .from('stash-media')
+        .remove([item.file_path]);
+
+      if (storageError) {
+        console.error('Error removing file from storage:', storageError);
+        toast({
+          title: "Error",
+          description: "Failed to remove media file",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Update the item to remove file reference
+      await onSave(item.id, {
+        file_path: null,
+        mime_type: null,
+        type: 'text' // Convert to text type
+      });
+
+      toast({
+        title: "Success",
+        description: "Media file removed successfully",
+      });
+
+    } catch (error) {
+      console.error('Error removing media:', error);
+      toast({
+        title: "Error",
+        description: "Failed to remove media file",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleSave = async () => {
     if (!item) return;
@@ -97,66 +160,107 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
     // The ItemTagsManager handles the actual updates
   };
 
+  const handleImageUpdate = async (newImage: string) => {
+    if (!item) return;
+    await onSave(item.id, { file_path: newImage });
+  };
+
+  const fileUrl = getFileUrl(item);
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent 
-        side="right" 
-        className="w-full sm:max-w-2xl p-0 flex flex-col"
-      >
-        <ScrollArea className="flex-1">
-          <div className="p-6 space-y-6">
-            {/* Title Section */}
-            <div className="border-b pb-4">
-              <EditItemTitleSection
-                title={title}
-                onTitleChange={setTitle}
-                onSave={handleTitleSave}
-              />
-            </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Edit Item</DialogTitle>
+        </DialogHeader>
 
-            {/* Content Section */}
-            <EditItemContentEditor
-              content={content}
-              onContentChange={setContent}
-              itemId={item?.id}
-              editorInstanceKey={editorInstanceKey}
-            />
-
-            {/* AI Description Section */}
-            <EditItemDescriptionSection
-              itemId={item?.id || ''}
-              description={description}
-              content={content}
+        {item && (
+          <div className="space-y-6">
+            <EditItemTitleSection
               title={title}
-              onDescriptionChange={setDescription}
-              onSave={handleDescriptionSave}
+              onTitleChange={setTitle}
             />
 
-            {/* Tags Section */}
-            <div>
-              <Label className="text-base font-medium mb-3 block">Tags</Label>
-              <ItemTagsManager
-                itemId={item?.id || ''}
-                currentTags={tags}
-                onTagsUpdated={handleTagsUpdated}
-                itemContent={{
-                  title: title,
-                  content: content,
-                  description: description
-                }}
+            <EditItemDescriptionSection
+              description={description}
+              onDescriptionChange={setDescription}
+            />
+
+            {/* Media Section */}
+            {item.file_path && (item.type === 'audio' || item.type === 'video') && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Media</h3>
+                
+                {/* Media removal item */}
+                <MediaRemovalItem
+                  fileName={item.title || 'Media file'}
+                  fileType={item.type as 'audio' | 'video'}
+                  onRemove={handleRemoveMedia}
+                />
+
+                {/* Audio player */}
+                {item.type === 'audio' && fileUrl && (
+                  <MediaPlayer
+                    src={fileUrl}
+                    fileName={item.title || 'Audio file'}
+                    showRemove={false}
+                  />
+                )}
+
+                {/* Video preview */}
+                {item.type === 'video' && fileUrl && (
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsVideoLightboxOpen(true)}
+                      className="w-full"
+                    >
+                      Preview Video
+                    </Button>
+                    <VideoLightbox
+                      src={fileUrl}
+                      fileName={item.title || 'Video file'}
+                      isOpen={isVideoLightboxOpen}
+                      onClose={() => setIsVideoLightboxOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {item.type === 'image' && (
+              <EditItemImageSection
+                item={item}
+                onImageUpdate={handleImageUpdate}
               />
+            )}
+
+            {(item.type === 'text' || item.type === 'link') && (
+              <EditItemContentEditor
+                content={content}
+                onContentChange={setContent}
+                getSuggestedTags={async () => []}
+              />
+            )}
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </Button>
             </div>
           </div>
-        </ScrollArea>
-
-        {/* Save Button */}
-        <div className="flex-shrink-0 p-6 pt-4 border-t bg-background">
-          <Button onClick={handleSave} disabled={isLoading} className="w-full">
-            {isLoading ? 'Saving...' : 'Save Changes'}
-          </Button>
-        </div>
-      </SheetContent>
-    </Sheet>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 };
 

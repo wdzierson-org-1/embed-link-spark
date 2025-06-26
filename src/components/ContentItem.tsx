@@ -1,16 +1,17 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2 } from 'lucide-react';
+import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Play } from 'lucide-react';
 import { format } from 'date-fns';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemImage from '@/components/ContentItemImage';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import LinkPreview from '@/components/LinkPreview';
+import MediaPlayer from '@/components/MediaPlayer';
+import VideoLightbox from '@/components/VideoLightbox';
 import { supabase } from '@/integrations/supabase/client';
 
 interface ContentItem {
@@ -51,13 +52,15 @@ const ContentItem = ({
   onChatWithItem,
   onTagsUpdated
 }: ContentItemProps) => {
+  const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'text': return <FileText className="h-4 w-4" />;
       case 'link': return <LinkIcon className="h-4 w-4" />;
       case 'image': return <Image className="h-4 w-4" />;
       case 'audio': return <Mic className="h-4 w-4" />;
-      case 'video': return <Video className="h-4 w-4" />;
+      case 'video': return <VideoIcon className="h-4 w-4" />;
       case 'document': return <FileText className="h-4 w-4" />;
       default: return <FileText className="h-4 w-4" />;
     }
@@ -116,6 +119,20 @@ const ContentItem = ({
             onImageError={onImageError}
           />
           
+          {/* Video play button overlay */}
+          {item.type === 'video' && fileUrl && (
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-black/20">
+              <Button
+                variant="ghost"
+                size="lg"
+                onClick={() => setIsVideoLightboxOpen(true)}
+                className="h-16 w-16 rounded-full bg-white/90 hover:bg-white text-black"
+              >
+                <Play className="h-8 w-8 ml-1" />
+              </Button>
+            </div>
+          )}
+          
           {ogData && item.type === 'link' && (
             <div className="p-4 pb-0">
               <LinkPreview ogData={ogData} />
@@ -137,6 +154,16 @@ const ContentItem = ({
                   <p className="max-w-xs break-words">{item.title}</p>
                 </TooltipContent>
               </Tooltip>
+            </div>
+          )}
+          
+          {/* Audio player - shown on hover */}
+          {item.type === 'audio' && fileUrl && (
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mb-4">
+              <MediaPlayer
+                src={fileUrl}
+                fileName={item.title || 'Audio file'}
+              />
             </div>
           )}
           
@@ -214,6 +241,16 @@ const ContentItem = ({
             </DropdownMenu>
           </div>
         </div>
+
+        {/* Video Lightbox */}
+        {item.type === 'video' && fileUrl && (
+          <VideoLightbox
+            src={fileUrl}
+            fileName={item.title || 'Video file'}
+            isOpen={isVideoLightboxOpen}
+            onClose={() => setIsVideoLightboxOpen(false)}
+          />
+        )}
       </Card>
     </TooltipProvider>
   );
