@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -12,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import { generateDescription } from '@/utils/aiOperations';
-import { Editor } from 'novel';
+import { EditorInstance } from 'novel';
 
 interface EditItemDialogProps {
   open: boolean;
@@ -335,7 +334,7 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
             <div>
               <Label className="text-base font-medium mb-3 block">Content</Label>
               <div className="border rounded-md">
-                <Editor
+                <EditorInstance
                   defaultValue={content}
                   onDebouncedUpdate={(editor) => {
                     const html = editor?.getHTML() || '';
