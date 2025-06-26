@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -10,7 +9,7 @@ import { FileText, Link, Upload, MessageSquare, LogOut, ChevronUp, ChevronDown }
 import { supabase } from '@/integrations/supabase/client';
 import StashHeader from '@/components/StashHeader';
 import ContentGrid from '@/components/ContentGrid';
-import EditItemDialog from '@/components/EditItemDialog';
+import EditItemSheet from '@/components/EditItemSheet';
 import GlobalChatInterface from '@/components/GlobalChatInterface';
 import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
@@ -189,7 +188,7 @@ const Index = () => {
         />
       </main>
 
-      <EditItemDialog
+      <EditItemSheet
         open={!!editingItem}
         onOpenChange={(open) => !open && setEditingItem(null)}
         item={editingItem}
