@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect } from 'react';
 import { generateTitle } from '@/utils/titleGenerator';
 import { useEditItemState } from './useEditItemState';
@@ -21,19 +20,6 @@ interface UseEditItemSheetProps {
   item: ContentItem | null;
   onSave: (id: string, updates: { title?: string; description?: string; content?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
-
-// Helper function to validate JSON content from Novel editor
-const isValidNovelContent = (content: string): boolean => {
-  if (!content) return false;
-  
-  try {
-    const parsed = JSON.parse(content);
-    // Check if it's a valid Novel/TipTap JSON structure
-    return parsed && typeof parsed === 'object' && parsed.type;
-  } catch {
-    return false;
-  }
-};
 
 export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) => {
   // State management
@@ -77,11 +63,10 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleImageStateChange,
   } = useEditItemMedia({ item });
 
-  // Handle content changes with improved synchronization
+  // Handle content changes - SIMPLIFIED to mirror TextNoteTab
   const handleTitleChange = useCallback((newTitle: string) => {
-    console.log('handleTitleChange called:', { newTitle: newTitle?.slice(0, 50) });
+    console.log('handleTitleChange:', { newTitle: newTitle?.slice(0, 50) });
     
-    // Update both state and ref synchronously
     titleRef.current = newTitle;
     setTitle(newTitle);
     
@@ -92,20 +77,13 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
         content: contentRef.current || undefined
       };
       
-      console.log('Calling debouncedSave from handleTitleChange:', {
-        title: updates.title?.slice(0, 50),
-        description: updates.description?.slice(0, 50),
-        hasContent: !!updates.content,
-        contentLength: updates.content?.length
-      });
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setTitle]);
 
   const handleDescriptionChange = useCallback((newDescription: string) => {
-    console.log('handleDescriptionChange called:', { newDescription: newDescription?.slice(0, 50) });
+    console.log('handleDescriptionChange:', { newDescription: newDescription?.slice(0, 50) });
     
-    // Update both state and ref synchronously
     descriptionRef.current = newDescription;
     setDescription(newDescription);
     
@@ -116,83 +94,47 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
         content: contentRef.current || undefined
       };
       
-      console.log('Calling debouncedSave from handleDescriptionChange:', {
-        title: updates.title?.slice(0, 50),
-        description: updates.description?.slice(0, 50),
-        hasContent: !!updates.content,
-        contentLength: updates.content?.length
-      });
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setDescription]);
 
+  // SIMPLIFIED content change handler - mirror TextNoteTab approach
   const handleContentChange = useCallback((newContent: string) => {
-    console.log('handleContentChange called - FIXED VERSION:', { 
-      newContent: newContent?.slice(0, 100),
+    console.log('handleContentChange - SIMPLIFIED:', { 
       contentLength: newContent?.length,
       itemId: item?.id,
-      isValidJSON: isValidNovelContent(newContent),
-      contentRef: contentRef.current?.slice(0, 50)
+      hasNewContent: !!newContent
     });
     
-    // Accept any non-empty content - removed overly restrictive validation
-    if (!newContent) {
-      console.log('handleContentChange: Empty content received, skipping update');
-      return;
-    }
-
-    console.log('handleContentChange: Content validation passed, proceeding with update');
-    
-    // Check if content actually changed to prevent unnecessary updates
-    if (newContent === contentRef.current) {
-      console.log('handleContentChange: Content unchanged, skipping update');
-      return;
-    }
-    
-    // Update both state and ref synchronously - CRITICAL FIX
+    // Direct content update like TextNoteTab - no complex validation
     contentRef.current = newContent;
     setContent(newContent);
     
-    console.log('handleContentChange: Content updated in refs and state:', {
-      refContent: contentRef.current?.slice(0, 100),
-      stateContentLength: newContent.length
-    });
+    console.log('Content updated in state and ref');
     
-    if (item?.id) {
+    if (item?.id && newContent) {
       const updates = { 
         title: titleRef.current || undefined,
         description: descriptionRef.current || undefined,
-        content: newContent // Keep the full JSON content
+        content: newContent // Direct JSON content like TextNoteTab
       };
       
-      console.log('handleContentChange: Calling debouncedSave with updates:', {
+      console.log('Calling debouncedSave with content:', {
         itemId: item.id,
-        hasTitle: !!updates.title,
-        hasDescription: !!updates.description,
         hasContent: !!updates.content,
-        contentLength: updates.content?.length,
-        contentPreview: updates.content?.slice(0, 100)
+        contentLength: updates.content?.length
       });
       
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
-    } else {
-      console.warn('handleContentChange: No item.id available for save');
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setContent]);
 
-  // Enhanced final save when sheet closes
+  // Final save when sheet closes - SIMPLIFIED
   useEffect(() => {
     if (!open && itemRef.current && !initialLoadRef.current) {
       const performFinalSave = async () => {
         try {
-          console.log('Sheet closing, performing final save for item:', itemRef.current?.id);
-          console.log('Final save content check:', {
-            title: titleRef.current?.slice(0, 50),
-            description: descriptionRef.current?.slice(0, 50),
-            contentLength: contentRef.current?.length,
-            hasContent: !!contentRef.current,
-            contentPreview: contentRef.current?.slice(0, 100)
-          });
+          console.log('Sheet closing - performing final save');
           
           await flushAndFinalSave(
             itemRef.current!.id,
@@ -205,7 +147,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
             clearDraft(itemRef.current.id);
           }
           
-          console.log('Final save completed successfully');
+          console.log('Final save completed');
         } catch (error) {
           console.error('Final save failed:', error);
         }
@@ -213,14 +155,8 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
 
       // Perform final save if we have any content
       if (titleRef.current || descriptionRef.current || contentRef.current) {
-        console.log('Triggering final save with content:', {
-          hasTitle: !!titleRef.current,
-          hasDescription: !!descriptionRef.current,
-          hasContent: !!contentRef.current
-        });
         performFinalSave();
       } else if (itemRef.current?.id) {
-        console.log('No content to save, just clearing draft');
         clearDraft(itemRef.current.id);
       }
     }
@@ -230,7 +166,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     }
   }, [open, flushAndFinalSave, clearDraft, clearSaveState, titleRef, descriptionRef, contentRef, itemRef, initialLoadRef]);
 
-  // Handlers that don't need auto-save
   const handleTagsChange = () => {
     // Tags changes are handled separately and don't need auto-save
   };

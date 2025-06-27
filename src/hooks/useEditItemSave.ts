@@ -20,13 +20,10 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   ) => {
     if (!itemId) return;
     
-    console.log('Saving to localStorage immediately:', {
+    console.log('Saving to localStorage:', {
       itemId,
-      title: titleRef.current?.slice(0, 50),
-      description: descriptionRef.current?.slice(0, 50),
-      contentLength: contentRef.current?.length,
       hasContent: !!contentRef.current,
-      contentPreview: contentRef.current?.slice(0, 100)
+      contentLength: contentRef.current?.length
     });
     
     saveToLocalStorage(itemId, {
@@ -36,7 +33,7 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     });
   }, [saveToLocalStorage]);
 
-  // Debounced server save function - reduced to 1 second
+  // SIMPLIFIED debounced server save - mirror TextNoteTab approach
   const debouncedServerSave = useCallback(
     debounce(async (
       itemId: string, 
@@ -44,41 +41,30 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     ) => {
       if (!itemId) return;
       
-      console.log('Starting debounced server save - ENHANCED LOGGING:', { 
+      console.log('Starting server save:', { 
         itemId, 
-        updates: {
-          title: updates.title?.slice(0, 50),
-          description: updates.description?.slice(0, 50),
-          contentLength: updates.content?.length,
-          hasContent: !!updates.content,
-          contentPreview: updates.content?.slice(0, 100)
-        }
+        hasContent: !!updates.content,
+        contentLength: updates.content?.length
       });
       
       setSaveStatus('saving');
       
       try {
-        console.log('Calling onSave with updates:', {
-          itemId,
-          updatesKeys: Object.keys(updates),
-          contentIncluded: 'content' in updates,
-          contentNotEmpty: !!updates.content
-        });
-        
+        // Direct save like TextNoteTab - no complex validation
         await onSave(itemId, updates, { showSuccessToast: false, refreshItems: false });
         
         setSaveStatus('saved');
         setLastSaved(new Date());
-        console.log('Debounced server save completed successfully - content should be saved');
+        console.log('Server save completed successfully');
       } catch (error) {
-        console.error('Debounced server save failed:', error);
+        console.error('Server save failed:', error);
         setSaveStatus('idle');
       }
     }, 1000),
     [onSave]
   );
 
-  // Combined save function that handles both immediate localStorage and debounced server save
+  // SIMPLIFIED combined save function
   const debouncedSave = useCallback((
     itemId: string, 
     updates: { title?: string; description?: string; content?: string },
@@ -88,21 +74,10 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   ) => {
     if (!itemId) return;
     
-    console.log('debouncedSave called - ENHANCED:', { 
+    console.log('debouncedSave called:', { 
       itemId, 
-      updates: {
-        title: updates.title?.slice(0, 50),
-        description: updates.description?.slice(0, 50),
-        contentLength: updates.content?.length,
-        hasContent: !!updates.content,
-        contentPreview: updates.content?.slice(0, 100)
-      },
-      refsContent: {
-        titleRef: titleRef.current?.slice(0, 50),
-        descriptionRef: descriptionRef.current?.slice(0, 50),
-        contentRefLength: contentRef.current?.length,
-        contentRefPreview: contentRef.current?.slice(0, 100)
-      }
+      hasContent: !!updates.content,
+      contentLength: updates.content?.length
     });
     
     // Immediate localStorage save
@@ -112,7 +87,7 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     debouncedServerSave(itemId, updates);
   }, [saveToLocalStorageImmediate, debouncedServerSave]);
 
-  // Force flush any pending saves and perform final save
+  // SIMPLIFIED final save
   const flushAndFinalSave = useCallback(async (
     itemId: string,
     titleRef: React.MutableRefObject<string>,
@@ -121,11 +96,10 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   ) => {
     if (!itemId) return;
     
-    console.log('Flushing pending saves and performing final save - ENHANCED:', { 
+    console.log('Performing final save:', { 
       itemId,
-      contentLength: contentRef.current?.length,
       hasContent: !!contentRef.current,
-      contentPreview: contentRef.current?.slice(0, 100)
+      contentLength: contentRef.current?.length
     });
     
     // Cancel pending debounced save
@@ -138,18 +112,9 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
       content: contentRef.current || undefined,
     };
     
-    console.log('Final save updates - ENHANCED:', {
-      title: updates.title?.slice(0, 50),
-      description: updates.description?.slice(0, 50),
-      contentLength: updates.content?.length,
-      hasContent: !!updates.content,
-      contentPreview: updates.content?.slice(0, 100)
-    });
-    
     try {
-      console.log('Executing final save to database...');
       await onSave(itemId, updates, { showSuccessToast: false, refreshItems: true });
-      console.log('Final save completed successfully - content saved to database');
+      console.log('Final save completed successfully');
     } catch (error) {
       console.error('Final save failed:', error);
       throw error;

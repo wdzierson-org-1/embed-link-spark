@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -28,22 +27,17 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
   const { user, session } = useAuth();
   const editorRef = useRef<EditorInstance | null>(null);
   const lastContentRef = useRef<string>('');
-  const initialContentRef = useRef<string>('');
 
   const handleImageUpload = async (file: File): Promise<string> => {
-    console.log('EditItemContentEditor: Starting image upload', { 
+    console.log('Starting image upload', { 
       fileName: file.name, 
       fileSize: file.size, 
       hasUser: !!user,
-      hasSession: !!session,
-      userId: user?.id,
-      itemId,
-      sessionExpiry: session?.expires_at,
-      currentTime: new Date().toISOString()
+      hasSession: !!session
     });
 
     if (!user || !session) {
-      console.error('EditItemContentEditor: No user or session found');
+      console.error('No user or session found');
       toast.error('Please log in to upload images');
       throw new Error('User not authenticated');
     }
@@ -53,24 +47,17 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
       const currentTime = new Date();
       const timeUntilExpiry = expiryTime.getTime() - currentTime.getTime();
       
-      console.log('EditItemContentEditor: Session timing', {
-        expiryTime: expiryTime.toISOString(),
-        currentTime: currentTime.toISOString(),
-        timeUntilExpiryMs: timeUntilExpiry,
-        timeUntilExpiryMin: Math.floor(timeUntilExpiry / 1000 / 60)
-      });
-
       if (timeUntilExpiry < 5 * 60 * 1000) {
-        console.log('EditItemContentEditor: Session expires soon, refreshing...');
+        console.log('Session expires soon, refreshing...');
         try {
           const { error } = await supabase.auth.refreshSession();
           if (error) {
-            console.error('EditItemContentEditor: Failed to refresh session', error);
+            console.error('Failed to refresh session', error);
             toast.error('Session expired. Please refresh the page and try again.');
             throw new Error('Session expired');
           }
         } catch (refreshError) {
-          console.error('EditItemContentEditor: Session refresh failed', refreshError);
+          console.error('Session refresh failed', refreshError);
           toast.error('Session expired. Please refresh the page and try again.');
           throw refreshError;
         }
@@ -84,20 +71,14 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         itemId: itemId
       });
       
-      console.log('EditItemContentEditor: Upload completed successfully', {
+      console.log('Upload completed successfully', {
         publicUrl: result.publicUrl,
         filePath: result.filePath
       });
       
       return result.publicUrl;
     } catch (error) {
-      console.error('EditItemContentEditor: Upload failed', {
-        error,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        userId: user.id,
-        itemId,
-        fileName: file.name
-      });
+      console.error('Upload failed', error);
       
       if (error instanceof Error) {
         if (error.message.includes('RLS') || 
@@ -122,85 +103,33 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
 
   const extensions = createEditorExtensions(handleImageUpload);
 
-  // Create stable editor key that only changes when itemId or editorInstanceKey changes
+  // Create stable editor key
   const effectiveEditorKey = useMemo(() => {
-    console.log('EditItemContentEditor: Creating stable editor key', { 
-      itemId,
-      editorInstanceKey
-    });
-    
     const key = editorInstanceKey || `editor-${itemId || 'new'}-stable`;
-    
-    console.log('EditItemContentEditor: Generated stable editor key', { key });
-    
+    console.log('Generated stable editor key:', { key });
     return key;
   }, [editorInstanceKey, itemId]);
 
-  // Handle initial content loading and updates - IMPROVED
-  useEffect(() => {
-    if (content !== undefined) {
-      console.log('EditItemContentEditor: Content prop changed - ENHANCED:', { 
-        contentLength: content.length,
-        contentPreview: content.slice(0, 100),
-        isInitialLoad: !initialContentRef.current,
-        lastContentLength: lastContentRef.current.length
-      });
-      
-      // Store initial content for comparison
-      if (!initialContentRef.current) {
-        initialContentRef.current = content;
-        lastContentRef.current = content;
-        console.log('EditItemContentEditor: Set initial content');
-      }
-      
-      // Only update editor if content significantly changed (avoid conflicts during typing)
-      if (editorRef.current && content !== lastContentRef.current) {
-        const lengthDiff = Math.abs(content.length - lastContentRef.current.length);
-        console.log('EditItemContentEditor: Content length difference:', lengthDiff);
-        
-        if (lengthDiff > 50) {
-          console.log('EditItemContentEditor: Updating editor with new content due to significant change');
-          try {
-            const jsonContent = convertToJsonContent(content);
-            if (jsonContent) {
-              editorRef.current.commands.setContent(jsonContent);
-              lastContentRef.current = content;
-            }
-          } catch (error) {
-            console.error('EditItemContentEditor: Error updating editor content:', error);
-          }
-        }
-      }
-    }
-  }, [content]);
-
+  // SIMPLIFIED content handling - mirror TextNoteTab approach
   const getInitialContent = () => {
-    const contentToUse = content || initialContentRef.current || '';
-    console.log('EditItemContentEditor: Converting initial content - ENHANCED:', { 
-      contentLength: contentToUse.length,
-      contentPreview: contentToUse.slice(0, 100)
+    const contentToUse = content || '';
+    console.log('Converting initial content:', { 
+      contentLength: contentToUse.length
     });
     
     const jsonContent = convertToJsonContent(contentToUse);
-    console.log('EditItemContentEditor: Converted to JSON - ENHANCED:', { 
-      jsonContent: jsonContent ? 'Valid JSON content' : 'No valid JSON content',
-      hasContent: !!jsonContent
-    });
-    
     lastContentRef.current = contentToUse;
     return jsonContent;
   };
 
   const initialJsonContent = getInitialContent();
 
-  console.log('EditItemContentEditor: Rendering with stable key - ENHANCED:', { 
+  console.log('Rendering editor:', { 
     effectiveEditorKey,
-    hasInitialContent: !!initialJsonContent,
-    contentPreview: content?.slice(0, 50) || 'No content'
+    hasInitialContent: !!initialJsonContent
   });
 
   if (!initialJsonContent) {
-    console.log('EditItemContentEditor: No initial content, showing loading');
     return (
       <div>
         <div className={`flex items-center justify-center text-muted-foreground ${isMaximized ? 'h-96' : 'border rounded-md p-4 min-h-[300px]'}`}>
@@ -226,27 +155,23 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
             }
           }}
           onUpdate={({ editor }: { editor: EditorInstance }) => {
-            console.log('EditItemContentEditor: onUpdate called - ENHANCED');
+            console.log('Editor onUpdate called - SIMPLIFIED');
             editorRef.current = editor;
+            
+            // DIRECT JSON content handling like TextNoteTab
             const json = editor.getJSON();
             const jsonString = JSON.stringify(json);
             
-            console.log('EditItemContentEditor: Editor content updated - ENHANCED:', {
-              previousLength: lastContentRef.current?.length || 0,
-              newLength: jsonString.length,
-              preview: jsonString.slice(0, 100),
-              hasChanged: jsonString !== lastContentRef.current,
-              contentChanged: true
+            console.log('Editor content updated:', {
+              contentLength: jsonString.length,
+              hasChanged: jsonString !== lastContentRef.current
             });
             
-            // Always call onContentChange when editor updates - CRITICAL FIX
+            // Always call onContentChange - SIMPLIFIED like TextNoteTab
             if (jsonString !== lastContentRef.current) {
-              console.log('EditItemContentEditor: Content changed, calling onContentChange - ENHANCED');
-              
+              console.log('Content changed, calling onContentChange');
               lastContentRef.current = jsonString;
               onContentChange(jsonString);
-            } else {
-              console.log('EditItemContentEditor: Content unchanged, skipping onContentChange');
             }
           }}
         >
