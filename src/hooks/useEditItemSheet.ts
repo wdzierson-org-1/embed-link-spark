@@ -106,12 +106,19 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
   const handleContentChange = useCallback((newContent: string) => {
     console.log('handleContentChange called:', { 
       newContent: newContent?.slice(0, 100),
-      contentLength: newContent?.length 
+      contentLength: newContent?.length,
+      itemId: item?.id
     });
     
-    // Validate content - don't save empty content if we had content before
-    if (!newContent?.trim() && contentRef.current?.trim()) {
-      console.warn('Ignoring empty content update when we have existing content');
+    // Enhanced content validation
+    if (!newContent?.trim()) {
+      console.warn('handleContentChange: Ignoring empty content update');
+      return;
+    }
+    
+    // Check if content actually changed
+    if (newContent === contentRef.current) {
+      console.log('handleContentChange: Content unchanged, skipping update');
       return;
     }
     
@@ -126,7 +133,11 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
         content: newContent.trim() || undefined
       };
       
-      console.log('Calling debouncedSave from handleContentChange:', updates);
+      console.log('Calling debouncedSave from handleContentChange:', {
+        itemId: item.id,
+        updates,
+        contentLength: newContent.length
+      });
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setContent]);

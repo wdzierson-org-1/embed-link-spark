@@ -28,6 +28,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
   const { user, session } = useAuth();
   const editorRef = useRef<EditorInstance | null>(null);
   const lastContentRef = useRef<string>('');
+  const initialContentRef = useRef<string>('');
 
   const handleImageUpload = async (file: File): Promise<string> => {
     console.log('EditItemContentEditor: Starting image upload', { 
@@ -121,37 +122,79 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
 
   const extensions = createEditorExtensions(handleImageUpload);
 
+  // Create stable editor key that only changes when item or editorInstanceKey changes
   const { initialContent, effectiveEditorKey } = useMemo(() => {
-    console.log('EditItemContentEditor: Processing content for editor recreation', { 
+    console.log('EditItemContentEditor: Creating stable editor key', { 
       itemId,
       editorInstanceKey,
-      contentLength: content.length,
-      contentPreview: content.slice(0, 100)
+      hasContent: !!content
     });
     
-    const jsonContent = convertToJsonContent(content);
-    console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
+    const key = editorInstanceKey || `editor-${itemId || 'new'}-stable`;
     
-    const key = editorInstanceKey || `editor-${itemId || 'new'}-${Date.now()}`;
-    
-    console.log('EditItemContentEditor: Generated editor key', { key });
-    
-    // Store the initial content for comparison
-    lastContentRef.current = content;
+    console.log('EditItemContentEditor: Generated stable editor key', { key });
     
     return {
-      initialContent: jsonContent,
+      initialContent: null, // Will be set in useEffect
       effectiveEditorKey: key
     };
-  }, [editorInstanceKey, itemId, content]);
+  }, [editorInstanceKey, itemId]); // Removed content from dependencies
 
-  console.log('EditItemContentEditor: Rendering with key', { 
+  // Handle initial content loading and updates
+  useEffect(() => {
+    if (content !== undefined) {
+      console.log('EditItemContentEditor: Content updated', { 
+        contentLength: content.length,
+        contentPreview: content.slice(0, 100),
+        isInitialLoad: !initialContentRef.current
+      });
+      
+      // Store initial content for comparison
+      if (!initialContentRef.current) {
+        initialContentRef.current = content;
+        lastContentRef.current = content;
+        console.log('EditItemContentEditor: Set initial content');
+      }
+      
+      // Only update editor content if it's significantly different to avoid conflicts
+      if (editorRef.current && Math.abs(content.length - lastContentRef.current.length) > 10) {
+        console.log('EditItemContentEditor: Updating editor with new content due to significant change');
+        try {
+          const jsonContent = convertToJsonContent(content);
+          if (jsonContent) {
+            editorRef.current.commands.setContent(jsonContent);
+            lastContentRef.current = content;
+          }
+        } catch (error) {
+          console.error('EditItemContentEditor: Error updating editor content:', error);
+        }
+      }
+    }
+  }, [content]);
+
+  const getInitialContent = () => {
+    const contentToUse = content || initialContentRef.current || '';
+    console.log('EditItemContentEditor: Converting initial content', { 
+      contentLength: contentToUse.length,
+      contentPreview: contentToUse.slice(0, 100)
+    });
+    
+    const jsonContent = convertToJsonContent(contentToUse);
+    console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
+    
+    lastContentRef.current = contentToUse;
+    return jsonContent;
+  };
+
+  const initialJsonContent = getInitialContent();
+
+  console.log('EditItemContentEditor: Rendering with stable key', { 
     effectiveEditorKey,
-    hasInitialContent: !!initialContent,
-    contentPreview: content.slice(0, 50)
+    hasInitialContent: !!initialJsonContent,
+    contentPreview: content?.slice(0, 50) || 'No content'
   });
 
-  if (!initialContent) {
+  if (!initialJsonContent) {
     console.log('EditItemContentEditor: No initial content, showing loading');
     return (
       <div>
@@ -166,7 +209,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
     <div className={isMaximized ? "h-full flex flex-col" : "border rounded-md"}>
       <EditorRoot key={effectiveEditorKey}>
         <EditorContent
-          initialContent={initialContent}
+          initialContent={initialJsonContent}
           extensions={extensions}
           className={isMaximized ? "flex-1 w-full max-w-none overflow-y-auto" : "min-h-[300px] w-full max-w-none"}
           editorProps={{
@@ -183,10 +226,16 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
             const json = editor.getJSON();
             const jsonString = JSON.stringify(json);
             
-            // Only call onContentChange if content actually changed
-            if (jsonString !== lastContentRef.current) {
+            // Validate content - don't save empty content if we had content before
+            if (!jsonString?.trim() && lastContentRef.current?.trim()) {
+              console.warn('EditItemContentEditor: Ignoring empty content update when we have existing content');
+              return;
+            }
+            
+            // Only call onContentChange if content actually changed and is meaningful
+            if (jsonString !== lastContentRef.current && jsonString.trim()) {
               console.log('EditItemContentEditor: Content changed, calling onContentChange', {
-                previousLength: lastContentRef.current.length,
+                previousLength: lastContentRef.current?.length || 0,
                 newLength: jsonString.length,
                 preview: jsonString.slice(0, 100)
               });
@@ -194,7 +243,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
               lastContentRef.current = jsonString;
               onContentChange(jsonString);
             } else {
-              console.log('EditItemContentEditor: Content unchanged, skipping onContentChange');
+              console.log('EditItemContentEditor: Content unchanged or empty, skipping onContentChange');
             }
           }}
         >

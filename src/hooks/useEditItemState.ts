@@ -37,13 +37,20 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
     itemRef.current = item; 
   }, [item]);
 
-  // Generate a unique editor key when item changes or sheet opens
+  // Generate a stable editor key when item changes or sheet opens
   useEffect(() => {
     if (item && open) {
       setIsContentLoading(true);
       initialLoadRef.current = true;
-      const newKey = `editor-${item.id}-${Date.now()}`;
+      
+      // Create stable editor key that doesn't change during editing session
+      const newKey = `editor-${item.id}-stable`;
       setEditorInstanceKey(newKey);
+      
+      console.log('useEditItemState: Generated stable editor key for item', { 
+        itemId: item.id, 
+        editorKey: newKey 
+      });
       
       // Set initial values in both state and refs
       const initialTitle = item.title || '';
@@ -80,6 +87,8 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       titleRef.current = '';
       descriptionRef.current = '';
       contentRef.current = '';
+      
+      console.log('useEditItemState: Cleared editor state on sheet close');
     }
   }, [open]);
 
@@ -89,7 +98,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
     description,
     content,
     isContentLoading,
-    editorKey,
+    editorKey: editorInstanceKey, // Use editorInstanceKey as the main editor key
     activeTab,
     setActiveTab,
     
