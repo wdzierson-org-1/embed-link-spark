@@ -1,3 +1,4 @@
+
 import { useEditItemState } from './useEditItemState';
 import { useEditItemDraft } from './useEditItemDraft';
 import { useEditItemSave } from './useEditItemSave';
@@ -48,14 +49,20 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     clearDraft,
   } = useEditItemDraft({ itemId: item?.id || null, open });
 
-  // Save management
+  // Save management - now passing refs
   const {
     saveStatus,
     lastSaved,
     debouncedSave,
     flushAndFinalSave,
     clearSaveState,
-  } = useEditItemSave({ onSave, saveToLocalStorage });
+  } = useEditItemSave({ 
+    onSave, 
+    saveToLocalStorage,
+    titleRef,
+    descriptionRef,
+    contentRef
+  });
 
   // Media management
   const {

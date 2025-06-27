@@ -5,19 +5,23 @@ import { debounce } from 'lodash';
 interface UseEditItemSaveProps {
   onSave: (id: string, updates: { title?: string; description?: string; content?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
   saveToLocalStorage: (itemId: string, data: { title: string; description: string; content: string }) => void;
+  titleRef: React.MutableRefObject<string>;
+  descriptionRef: React.MutableRefObject<string>;
+  contentRef: React.MutableRefObject<string>;
 }
 
-export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveProps) => {
+export const useEditItemSave = ({ 
+  onSave, 
+  saveToLocalStorage, 
+  titleRef, 
+  descriptionRef, 
+  contentRef 
+}: UseEditItemSaveProps) => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   // Immediate localStorage save function
-  const saveToLocalStorageImmediate = useCallback((
-    itemId: string,
-    titleRef: React.MutableRefObject<string>,
-    descriptionRef: React.MutableRefObject<string>,
-    contentRef: React.MutableRefObject<string>
-  ) => {
+  const saveToLocalStorageImmediate = useCallback((itemId: string) => {
     if (!itemId) return;
     
     console.log('Saving to localStorage:', {
@@ -31,7 +35,7 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
       description: descriptionRef.current,
       content: contentRef.current
     });
-  }, [saveToLocalStorage]);
+  }, [saveToLocalStorage, titleRef, descriptionRef, contentRef]);
 
   // SIMPLIFIED debounced server save - mirror TextNoteTab approach
   const debouncedServerSave = useCallback(
@@ -67,10 +71,7 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   // SIMPLIFIED combined save function
   const debouncedSave = useCallback((
     itemId: string, 
-    updates: { title?: string; description?: string; content?: string },
-    titleRef: React.MutableRefObject<string>,
-    descriptionRef: React.MutableRefObject<string>,
-    contentRef: React.MutableRefObject<string>
+    updates: { title?: string; description?: string; content?: string }
   ) => {
     if (!itemId) return;
     
@@ -81,19 +82,14 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     });
     
     // Immediate localStorage save
-    saveToLocalStorageImmediate(itemId, titleRef, descriptionRef, contentRef);
+    saveToLocalStorageImmediate(itemId);
     
     // Debounced server save
     debouncedServerSave(itemId, updates);
   }, [saveToLocalStorageImmediate, debouncedServerSave]);
 
   // SIMPLIFIED final save
-  const flushAndFinalSave = useCallback(async (
-    itemId: string,
-    titleRef: React.MutableRefObject<string>,
-    descriptionRef: React.MutableRefObject<string>,
-    contentRef: React.MutableRefObject<string>
-  ) => {
+  const flushAndFinalSave = useCallback(async (itemId: string) => {
     if (!itemId) return;
     
     console.log('Performing final save:', { 
@@ -119,7 +115,7 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
       console.error('Final save failed:', error);
       throw error;
     }
-  }, [debouncedServerSave, onSave]);
+  }, [debouncedServerSave, onSave, titleRef, descriptionRef, contentRef]);
 
   // Clear save state when sheet closes
   const clearSaveState = useCallback(() => {
