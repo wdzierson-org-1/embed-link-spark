@@ -71,29 +71,47 @@ export const useEditItemContent = ({
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setDescription]);
 
   const handleContentChange = useCallback((newContent: string) => {
-    console.log('handleContentChange:', { 
+    console.log('handleContentChange: ENTRY', { 
       contentLength: newContent?.length,
       itemId: item?.id,
-      hasNewContent: !!newContent
+      hasNewContent: !!newContent,
+      hasItemId: !!item?.id
     });
     
+    // CRITICAL: Update ref FIRST, THEN state, THEN save
     contentRef.current = newContent;
     setContent(newContent);
     
-    if (item?.id && newContent) {
+    console.log('handleContentChange: Refs and state updated', {
+      contentRefLength: contentRef.current?.length,
+      titleRefLength: titleRef.current?.length,
+      descriptionRefLength: descriptionRef.current?.length
+    });
+    
+    // SIMPLIFIED: Save if we have an item ID (remove content filtering)
+    if (item?.id) {
       const updates = { 
         title: titleRef.current || undefined,
         description: descriptionRef.current || undefined,
-        content: newContent
+        content: newContent || undefined  // Use newContent directly, not from ref
       };
       
-      console.log('Calling debouncedSave with content:', {
+      console.log('handleContentChange: Calling debouncedSave', {
         itemId: item.id,
         hasContent: !!updates.content,
-        contentLength: updates.content?.length
+        contentLength: updates.content?.length,
+        hasTitle: !!updates.title,
+        hasDescription: !!updates.description
       });
       
       debouncedSave(item.id, updates);
+      
+      console.log('handleContentChange: debouncedSave called successfully');
+    } else {
+      console.log('handleContentChange: No save - missing item ID', {
+        hasItem: !!item,
+        itemId: item?.id
+      });
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setContent]);
 

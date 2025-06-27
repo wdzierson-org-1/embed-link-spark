@@ -33,8 +33,9 @@ const EditorContainer = ({
 
   const getInitialContent = () => {
     const contentToUse = content || '';
-    console.log('Converting initial content:', { 
-      contentLength: contentToUse.length
+    console.log('EditorContainer: Converting initial content:', { 
+      contentLength: contentToUse.length,
+      editorKey
     });
     
     const jsonContent = convertToJsonContent(contentToUse);
@@ -44,7 +45,7 @@ const EditorContainer = ({
 
   const initialJsonContent = getInitialContent();
 
-  console.log('Rendering editor:', { 
+  console.log('EditorContainer: Rendering editor:', { 
     editorKey,
     hasInitialContent: !!initialJsonContent
   });
@@ -75,22 +76,47 @@ const EditorContainer = ({
             }
           }}
           onUpdate={({ editor }: { editor: EditorInstance }) => {
-            console.log('Editor onUpdate called - SIMPLIFIED');
+            // ENHANCED DEBUGGING - trace the complete flow
+            console.log('EditorContainer: onUpdate triggered', {
+              editorKey,
+              timestamp: new Date().toISOString()
+            });
             
-            // DIRECT JSON content handling like TextNoteTab
+            // Get JSON content like TextNoteTab
             const json = editor.getJSON();
             const jsonString = JSON.stringify(json);
             
-            console.log('Editor content updated:', {
-              contentLength: jsonString.length,
-              hasChanged: jsonString !== lastContentRef.current
+            console.log('EditorContainer: Content comparison:', {
+              editorKey,
+              currentLength: jsonString.length,
+              lastLength: lastContentRef.current.length,
+              hasChanged: jsonString !== lastContentRef.current,
+              contentPreview: jsonString.slice(0, 100) + '...'
             });
             
-            // Always call onContentChange - SIMPLIFIED like TextNoteTab
+            // ALWAYS call onContentChange when content changes - simplified like TextNoteTab
             if (jsonString !== lastContentRef.current) {
-              console.log('Content changed, calling onContentChange');
+              console.log('EditorContainer: Content changed, calling onContentChange', {
+                editorKey,
+                newContentLength: jsonString.length,
+                willTriggerSave: true
+              });
+              
+              // Update ref IMMEDIATELY before calling onContentChange
               lastContentRef.current = jsonString;
+              
+              // Call onContentChange - this should trigger the save
               onContentChange(jsonString);
+              
+              console.log('EditorContainer: onContentChange called successfully', {
+                editorKey,
+                contentSent: jsonString.length > 0
+              });
+            } else {
+              console.log('EditorContainer: No content change detected', {
+                editorKey,
+                reason: 'jsonString === lastContentRef.current'
+              });
             }
           }}
         >
