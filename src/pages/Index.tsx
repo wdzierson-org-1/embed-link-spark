@@ -162,7 +162,7 @@ const Index = () => {
       {/* Tab bar with integrated collapse button - contained style with rounded corners */}
       <div className="w-full bg-background">
         <div className="container mx-auto px-4">
-          <div className="inline-flex items-center bg-muted rounded-lg p-1 w-full max-w-md">
+          <div className="flex items-center bg-muted rounded-lg p-1 w-full">
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
               <TabsList className="grid w-full grid-cols-3 h-12 bg-transparent border-0">
                 <TabsTrigger value="text" className="flex items-center gap-2">
@@ -225,7 +225,7 @@ const Index = () => {
       </div>
 
       {/* Chat button and filter section - moved down by 18px */}
-      <div className="container mx-auto px-4 pt-4 pb-4">
+      <div className="container mx-auto px-4 pt-6 pb-4">
         <div className="flex items-center justify-between mb-4">
           <Button
             variant="outline"
