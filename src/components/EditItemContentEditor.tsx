@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -155,7 +154,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
     console.log('EditItemContentEditor: No initial content, showing loading');
     return (
       <div>
-        <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
+        <div className="flex items-center justify-center text-muted-foreground h-96">
           Loading editor...
         </div>
       </div>
@@ -163,33 +162,31 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
   }
 
   return (
-    <div>
-      <div className="border rounded-md">
-        <EditorRoot key={effectiveEditorKey}>
-          <EditorContent
-            initialContent={initialContent}
-            extensions={extensions}
-            className="min-h-[300px] w-full max-w-none"
-            editorProps={{
-              handleDOMEvents: {
-                keydown: (_view, event) => handleCommandNavigation(event),
-              },
-              attributes: {
-                class: 'prose prose-lg dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800'
-              }
-            }}
-            onUpdate={({ editor }: { editor: EditorInstance }) => {
-              console.log('EditItemContentEditor: Content updated in editor');
-              editorRef.current = editor;
-              // Save as JSON to preserve formatting
-              const json = editor.getJSON();
-              onContentChange(JSON.stringify(json));
-            }}
-          >
-            <EditorCommandMenu />
-          </EditorContent>
-        </EditorRoot>
-      </div>
+    <div className="h-96 overflow-y-auto">
+      <EditorRoot key={effectiveEditorKey}>
+        <EditorContent
+          initialContent={initialContent}
+          extensions={extensions}
+          className="h-full w-full max-w-none"
+          editorProps={{
+            handleDOMEvents: {
+              keydown: (_view, event) => handleCommandNavigation(event),
+            },
+            attributes: {
+              class: 'prose prose-lg dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800'
+            }
+          }}
+          onUpdate={({ editor }: { editor: EditorInstance }) => {
+            console.log('EditItemContentEditor: Content updated in editor');
+            editorRef.current = editor;
+            // Save as JSON to preserve formatting
+            const json = editor.getJSON();
+            onContentChange(JSON.stringify(json));
+          }}
+        >
+          <EditorCommandMenu />
+        </EditorContent>
+      </EditorRoot>
     </div>
   );
 };
