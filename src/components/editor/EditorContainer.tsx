@@ -46,6 +46,7 @@ const EditorContainer = ({
       currentLength: jsonString.length,
       lastLength: lastContentRef.current.length,
       hasChanged: jsonString !== lastContentRef.current,
+      hasImageInContent: jsonString.includes('"type":"image"'),
       newContentPreview: jsonString.slice(0, 100) + '...',
       lastContentPreview: lastContentRef.current.slice(0, 100) + '...'
     });
@@ -55,6 +56,7 @@ const EditorContainer = ({
       console.log('EditorContainer: Content changed, calling onContentChange', {
         editorKey,
         newContentLength: jsonString.length,
+        hasImageInContent: jsonString.includes('"type":"image"'),
         willTriggerSave: true
       });
       

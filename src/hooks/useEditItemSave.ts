@@ -1,3 +1,4 @@
+
 import { useState, useCallback } from 'react';
 import { debounce } from 'lodash';
 
@@ -27,6 +28,7 @@ export const useEditItemSave = ({
       itemId,
       hasContent: !!contentRef.current,
       contentLength: contentRef.current?.length,
+      hasImageInContent: contentRef.current?.includes('"type":"image"'),
       hasTitle: !!titleRef.current,
       hasDescription: !!descriptionRef.current
     });
@@ -38,7 +40,7 @@ export const useEditItemSave = ({
     });
   }, [saveToLocalStorage, titleRef, descriptionRef, contentRef]);
 
-  // FIXED: Enhanced debounced server save with refreshItems enabled for UI updates
+  // ENHANCED: Debounced server save with better image detection logging
   const debouncedServerSave = useCallback(
     debounce(async (
       itemId: string, 
@@ -50,6 +52,7 @@ export const useEditItemSave = ({
         itemId, 
         hasContent: !!updates.content,
         contentLength: updates.content?.length,
+        hasImageInContent: updates.content?.includes('"type":"image"'),
         hasTitle: !!updates.title,
         hasDescription: !!updates.description,
         timestamp: new Date().toISOString()
@@ -58,14 +61,14 @@ export const useEditItemSave = ({
       setSaveStatus('saving');
       
       try {
-        // CRITICAL FIX: Enable refreshItems to update the frontend UI
         console.log('useEditItemSave: Calling onSave with refreshItems enabled:', {
           itemId,
           updates: {
             hasTitle: !!updates.title,
             hasDescription: !!updates.description,
             hasContent: !!updates.content,
-            contentLength: updates.content?.length
+            contentLength: updates.content?.length,
+            hasImageInContent: updates.content?.includes('"type":"image"')
           }
         });
         
@@ -85,7 +88,7 @@ export const useEditItemSave = ({
     [onSave]
   );
 
-  // ENHANCED combined save function with detailed logging
+  // ENHANCED: Combined save function with improved logging
   const debouncedSave = useCallback((
     itemId: string, 
     updates: { title?: string; description?: string; content?: string }
@@ -99,6 +102,7 @@ export const useEditItemSave = ({
       itemId, 
       hasContent: !!updates.content,
       contentLength: updates.content?.length,
+      hasImageInContent: updates.content?.includes('"type":"image"'),
       hasTitle: !!updates.title,
       hasDescription: !!updates.description,
       timestamp: new Date().toISOString()
@@ -112,14 +116,15 @@ export const useEditItemSave = ({
     debouncedServerSave(itemId, updates);
   }, [saveToLocalStorageImmediate, debouncedServerSave]);
 
-  // Final save remains the same
+  // ENHANCED: Final save with improved logging
   const flushAndFinalSave = useCallback(async (itemId: string) => {
     if (!itemId) return;
     
     console.log('useEditItemSave: Performing final save:', { 
       itemId,
       hasContent: !!contentRef.current,
-      contentLength: contentRef.current?.length
+      contentLength: contentRef.current?.length,
+      hasImageInContent: contentRef.current?.includes('"type":"image"')
     });
     
     // Cancel pending debounced save

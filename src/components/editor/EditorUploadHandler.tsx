@@ -9,21 +9,22 @@ interface EditorUploadHandlerProps {
 
 export const useEditorUploadHandler = ({ handleImageUpload, editorKey, onContentChange }: EditorUploadHandlerProps) => {
   return useCallback(async (file: File, view: any, pos: number) => {
-    console.log('EditorContainer: Upload function called', {
+    console.log('EditorUploadHandler: Upload function called', {
       fileName: file.name,
       fileType: file.type,
       fileSize: file.size,
-      editorKey
+      editorKey,
+      hasOnContentChange: !!onContentChange
     });
 
     if (!handleImageUpload) {
-      console.error('EditorContainer: No upload handler provided');
+      console.error('EditorUploadHandler: No upload handler provided');
       return;
     }
 
     try {
       const url = await handleImageUpload(file);
-      console.log('EditorContainer: Upload successful, inserting image', { url });
+      console.log('EditorUploadHandler: Upload successful, inserting image', { url });
       
       // Insert the image at the specified position
       const { schema } = view.state;
@@ -32,19 +33,36 @@ export const useEditorUploadHandler = ({ handleImageUpload, editorKey, onContent
         const transaction = view.state.tr.replaceWith(pos, pos, node);
         view.dispatch(transaction);
         
-        // CRITICAL: Trigger content change after image insertion
-        setTimeout(() => {
-          console.log('EditorContainer: Triggering content change after image upload');
+        // CRITICAL: Multiple attempts to trigger content change after image insertion
+        const triggerContentChange = () => {
           if (onContentChange) {
+            console.log('EditorUploadHandler: Attempting to extract content after image insertion');
             const json = view.state.doc.toJSON ? view.state.doc.toJSON() : { type: 'doc', content: [] };
             const jsonString = JSON.stringify(json);
+            
+            console.log('EditorUploadHandler: Content extracted after image upload:', {
+              contentLength: jsonString.length,
+              hasImageInContent: jsonString.includes('"type":"image"'),
+              editorKey
+            });
+            
             onContentChange(jsonString);
-            console.log('EditorContainer: Content change triggered after image upload');
+            console.log('EditorUploadHandler: Content change triggered successfully after image upload');
           }
-        }, 100); // Small delay to ensure DOM is updated
+        };
+
+        // Immediate attempt
+        triggerContentChange();
+        
+        // Backup attempts with increasing delays to ensure editor state is fully updated
+        setTimeout(triggerContentChange, 50);
+        setTimeout(triggerContentChange, 150);
+        setTimeout(triggerContentChange, 300);
+        
+        console.log('EditorUploadHandler: Set up multiple content change triggers for image upload');
       }
     } catch (error) {
-      console.error('EditorContainer: Upload failed', error);
+      console.error('EditorUploadHandler: Upload failed', error);
       // Error handling is done in the upload function itself
     }
   }, [handleImageUpload, editorKey, onContentChange]);
