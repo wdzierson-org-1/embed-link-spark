@@ -14,21 +14,35 @@ export interface ImageUploadResult {
   filePath: string;
 }
 
+const SUPPORTED_IMAGE_TYPES = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'image/bmp',
+  'image/tiff'
+];
+
 export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUploadResult> => {
   const { file, userId, itemId, onProgress } = options;
   
   console.log('ImageUploadService: Starting upload', { 
     fileName: file.name, 
     fileSize: file.size, 
+    fileType: file.type,
     userId,
     itemId,
     isUpdate: !!itemId
   });
 
-  // Validate file type and size first
-  if (!file.type.includes("image/")) {
-    toast.error("File type not supported.");
-    throw new Error("File type not supported");
+  // Enhanced file type validation
+  if (!SUPPORTED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
+    const errorMsg = `File type "${file.type}" not supported. Supported types: ${SUPPORTED_IMAGE_TYPES.join(', ')}`;
+    console.error('ImageUploadService: Invalid file type', { fileType: file.type, supportedTypes: SUPPORTED_IMAGE_TYPES });
+    toast.error(errorMsg);
+    throw new Error(errorMsg);
   }
   
   if (file.size / 1024 / 1024 > 20) {
@@ -37,8 +51,8 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
   }
 
   // Generate file path immediately
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${Date.now()}.${fileExt}`;
+  const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
   const filePath = `${userId}/${fileName}`;
 
   console.log('ImageUploadService: Generated file path', { filePath });
@@ -94,12 +108,16 @@ export const uploadImage = async (options: ImageUploadOptions): Promise<ImageUpl
       console.log(`ImageUploadService: Upload attempt ${attempt}/${maxRetries}`, {
         filePath,
         fileSize: file.size,
+        fileType: file.type,
         sessionUser: session.user.id
       });
 
       const { error: uploadError } = await supabase.storage
         .from('stash-media')
-        .upload(filePath, file);
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
       if (uploadError) {
         console.error(`ImageUploadService: Upload error (attempt ${attempt}):`, {

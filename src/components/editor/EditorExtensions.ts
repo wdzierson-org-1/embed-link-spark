@@ -16,6 +16,8 @@ import {
   GlobalDragHandle,
   createImageUpload,
   UploadImagesPlugin,
+  handleImageDrop,
+  handleImagePaste,
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
@@ -23,10 +25,31 @@ import { toast } from 'sonner';
 
 export const createEditorExtensions = (handleImageUpload?: (file: File) => Promise<string>) => {
   const uploadFn = handleImageUpload ? createImageUpload({
-    onUpload: handleImageUpload,
+    onUpload: async (file: File) => {
+      console.log('EditorExtensions: Starting image upload', {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type
+      });
+      
+      try {
+        const result = await handleImageUpload(file);
+        console.log('EditorExtensions: Upload successful', { result });
+        return result;
+      } catch (error) {
+        console.error('EditorExtensions: Upload failed', error);
+        throw error;
+      }
+    },
     validateFn: (file) => {
+      console.log('EditorExtensions: Validating file', {
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size
+      });
+      
       if (!file.type.includes("image/")) {
-        toast.error("File type not supported.");
+        toast.error("File type not supported. Please upload an image file.");
         return false;
       }
       if (file.size / 1024 / 1024 > 20) {
@@ -98,7 +121,7 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
       },
       openOnClick: false,
     }),
-    // Configure TiptapImage with proper plugin handling
+    // Enhanced TiptapImage configuration with proper plugin handling
     TiptapImage.configure({
       allowBase64: true,
       HTMLAttributes: {

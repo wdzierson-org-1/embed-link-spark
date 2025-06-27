@@ -6,6 +6,8 @@ import {
   type JSONContent,
   type EditorInstance,
   handleCommandNavigation,
+  handleImageDrop,
+  handleImagePaste,
 } from 'novel';
 import { createEditorExtensions } from './EditorExtensions';
 import { convertToJsonContent } from './EditorUtils';
@@ -31,6 +33,37 @@ const EditorContainer = ({
   const initializationRef = useRef<boolean>(false);
 
   const extensions = createEditorExtensions(handleImageUpload);
+
+  // Enhanced upload function with proper error handling
+  const uploadFn = handleImageUpload ? async (file: File, view: any, pos: number) => {
+    console.log('EditorContainer: Upload function called', {
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      editorKey
+    });
+
+    if (!handleImageUpload) {
+      console.error('EditorContainer: No upload handler provided');
+      return;
+    }
+
+    try {
+      const url = await handleImageUpload(file);
+      console.log('EditorContainer: Upload successful, inserting image', { url });
+      
+      // Insert the image at the specified position
+      const { schema } = view.state;
+      const node = schema.nodes.image?.create({ src: url });
+      if (node) {
+        const transaction = view.state.tr.replaceWith(pos, pos, node);
+        view.dispatch(transaction);
+      }
+    } catch (error) {
+      console.error('EditorContainer: Upload failed', error);
+      // Error handling is done in the upload function itself
+    }
+  } : undefined;
 
   // ENHANCED: Track content prop changes
   useEffect(() => {
@@ -77,7 +110,8 @@ const EditorContainer = ({
   console.log('EditorContainer: Rendering editor:', { 
     editorKey,
     hasInitialContent: !!initialJsonContent,
-    contentLength: content?.length || 0
+    contentLength: content?.length || 0,
+    hasUploadHandler: !!handleImageUpload
   });
 
   if (!initialJsonContent) {
@@ -101,6 +135,14 @@ const EditorContainer = ({
             handleDOMEvents: {
               keydown: (_view, event) => handleCommandNavigation(event),
             },
+            handlePaste: uploadFn ? (view, event) => {
+              console.log('EditorContainer: Paste event detected');
+              return handleImagePaste(view, event, uploadFn);
+            } : undefined,
+            handleDrop: uploadFn ? (view, event, moved) => {
+              console.log('EditorContainer: Drop event detected');
+              return handleImageDrop(view, event, moved, uploadFn);
+            } : undefined,
             attributes: {
               class: 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 prose-ul:leading-normal prose-ol:leading-normal prose-li:leading-normal prose-li:mb-1 prose-p:leading-normal prose-p:mb-2'
             }
