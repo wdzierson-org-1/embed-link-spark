@@ -77,7 +77,7 @@ const EditItemDetailsTab = ({
   }
 
   const contentComponent = (
-    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-38px)' }}>
+    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-26px)' }}>
       {/* Title Section */}
       <EditItemTitleSection
         title={title}
