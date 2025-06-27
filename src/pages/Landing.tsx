@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -35,7 +34,7 @@ const Landing = () => {
       {/* Hero Section */}
       <section className="relative px-6 py-20 max-w-7xl mx-auto text-center">
         <Badge className="mb-6 bg-pink-100 text-pink-700 border-pink-200">
-          Your Personal Life Assistant
+          You & Improved
         </Badge>
         
         <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
