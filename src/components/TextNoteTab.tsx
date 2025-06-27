@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -10,6 +11,7 @@ import {
 } from 'novel';
 import { createEditorExtensions } from './editor/EditorExtensions';
 import EditorCommandMenu from './editor/EditorCommandMenu';
+import EditorBubbleMenu from './editor/EditorBubbleMenu';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadImage } from '@/services/imageUploadService';
 
@@ -137,6 +139,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
                   }}
                 >
                   <EditorCommandMenu />
+                  <EditorBubbleMenu />
                 </EditorContent>
               </EditorRoot>
             </div>

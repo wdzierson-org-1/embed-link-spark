@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -9,6 +10,7 @@ import {
 import { createEditorExtensions } from './editor/EditorExtensions';
 import { convertToJsonContent } from './editor/EditorUtils';
 import EditorCommandMenu from './editor/EditorCommandMenu';
+import EditorBubbleMenu from './editor/EditorBubbleMenu';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadImage } from '@/services/imageUploadService';
 import { toast } from 'sonner';
@@ -179,6 +181,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
           }}
         >
           <EditorCommandMenu />
+          <EditorBubbleMenu />
         </EditorContent>
       </EditorRoot>
     </div>
