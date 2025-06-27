@@ -12,7 +12,7 @@ export const useEditorContentManager = ({ content, editorKey }: EditorContentMan
   const lastContentRef = useRef<string>('');
   const initializationRef = useRef<boolean>(false);
 
-  // CRITICAL: Initialize lastContentRef properly when content prop changes
+  // CRITICAL: Properly sync lastContentRef with database content
   useEffect(() => {
     console.log('EditorContentManager: Content prop changed:', {
       editorKey,
@@ -23,9 +23,13 @@ export const useEditorContentManager = ({ content, editorKey }: EditorContentMan
     });
     
     // ALWAYS update the ref when content prop changes (from database load)
-    // This ensures we start with the correct baseline for comparison
-    console.log('EditorContentManager: Updating lastContentRef to match database content');
-    lastContentRef.current = content || '';
+    // This ensures proper content comparison baseline
+    const contentToSet = content || '';
+    console.log('EditorContentManager: Updating lastContentRef to match database content', {
+      editorKey,
+      contentLength: contentToSet.length
+    });
+    lastContentRef.current = contentToSet;
   }, [content, editorKey]);
 
   const getInitialContent = (): JSONContent | null => {
@@ -38,14 +42,13 @@ export const useEditorContentManager = ({ content, editorKey }: EditorContentMan
     
     const jsonContent = convertToJsonContent(contentToUse);
     
-    // CRITICAL: Ensure lastContentRef matches the initial content exactly
-    lastContentRef.current = contentToUse;
+    // Set initialization flag to skip first onUpdate
     initializationRef.current = true;
     
     console.log('EditorContentManager: Initial content setup complete:', {
       editorKey,
       hasJsonContent: !!jsonContent,
-      lastContentRefSet: lastContentRef.current.length,
+      lastContentRefLength: lastContentRef.current.length,
       initializationFlagSet: initializationRef.current
     });
     

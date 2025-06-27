@@ -40,7 +40,7 @@ const EditorContainer = ({
       timestamp: new Date().toISOString()
     });
     
-    // Get JSON content
+    // Get JSON content from editor
     const json = editor.getJSON();
     const jsonString = JSON.stringify(json);
     
@@ -54,12 +54,12 @@ const EditorContainer = ({
       lastLength: lastContentRef.current.length,
       hasChanged: contentChanged,
       hasImageInContent,
-      contentChangeReason: contentChanged ? 'Content differs' : 'Content identical',
+      contentChangeReason: contentChanged ? 'Content differs from last saved' : 'Content identical to last saved',
       newContentPreview: jsonString.slice(0, 150) + '...',
       lastContentPreview: lastContentRef.current.slice(0, 150) + '...'
     });
     
-    // ENHANCED: Always save when content changes, with special handling for images
+    // CRITICAL: Always save when content changes - this is the primary save mechanism
     if (contentChanged) {
       console.log('EditorContainer: Content changed, triggering save', {
         editorKey,
@@ -69,13 +69,13 @@ const EditorContainer = ({
         willTriggerSave: true
       });
       
-      // Update ref IMMEDIATELY before calling onContentChange
+      // Update ref IMMEDIATELY before calling onContentChange to prevent double saves
       lastContentRef.current = jsonString;
       
-      // Call onContentChange - this should trigger the save
+      // This is the primary save mechanism - it should work for all content changes including images
       onContentChange(jsonString);
       
-      console.log('EditorContainer: Save triggered successfully', {
+      console.log('EditorContainer: Save triggered via onUpdate', {
         editorKey,
         savedContentLength: jsonString.length,
         hasImages: hasImageInContent
@@ -83,21 +83,20 @@ const EditorContainer = ({
     } else {
       console.log('EditorContainer: No content change detected - skipping save', {
         editorKey,
-        reason: 'jsonString === lastContentRef.current',
-        bothEmpty: jsonString.length === 0 && lastContentRef.current.length === 0
+        reason: 'jsonString === lastContentRef.current'
       });
     }
   };
 
-  // ENHANCED: Add editor focus/blur handlers to catch missed content changes
+  // Enhanced focus/blur handlers for additional save safety
   const handleEditorFocus = (editor: EditorInstance) => {
     console.log('EditorContainer: Editor focused', { editorKey });
   };
 
   const handleEditorBlur = (editor: EditorInstance) => {
-    console.log('EditorContainer: Editor blurred - checking for unsaved changes', { editorKey });
+    console.log('EditorContainer: Editor blurred - performing safety save check', { editorKey });
     
-    // Extract current content and compare
+    // Safety check on blur to catch any missed saves
     const json = editor.getJSON();
     const jsonString = JSON.stringify(json);
     

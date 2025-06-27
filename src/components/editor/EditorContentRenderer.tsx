@@ -59,9 +59,22 @@ const EditorContentRenderer = ({
               class: 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 prose-ul:leading-normal prose-ol:leading-normal prose-li:leading-normal prose-li:mb-1 prose-p:leading-normal prose-p:mb-2'
             }
           }}
-          onUpdate={({ editor }: { editor: EditorInstance }) => onUpdate(editor)}
-          onFocus={onFocus ? ({ editor }: { editor: EditorInstance }) => onFocus(editor) : undefined}
-          onBlur={onBlur ? ({ editor }: { editor: EditorInstance }) => onBlur(editor) : undefined}
+          onUpdate={({ editor }: { editor: EditorInstance }) => {
+            console.log('EditorContentRenderer: onUpdate event fired', {
+              editorKey,
+              hasContent: !!editor.getJSON(),
+              contentLength: JSON.stringify(editor.getJSON()).length
+            });
+            onUpdate(editor);
+          }}
+          onFocus={onFocus ? ({ editor }: { editor: EditorInstance }) => {
+            console.log('EditorContentRenderer: onFocus event fired', { editorKey });
+            onFocus(editor);
+          } : undefined}
+          onBlur={onBlur ? ({ editor }: { editor: EditorInstance }) => {
+            console.log('EditorContentRenderer: onBlur event fired', { editorKey });
+            onBlur(editor);
+          } : undefined}
         >
           <EditorCommandMenu />
           <EditorBubbleMenu />
