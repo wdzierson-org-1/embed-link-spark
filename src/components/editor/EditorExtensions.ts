@@ -41,23 +41,23 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
     StarterKit.configure({
       heading: {
         HTMLAttributes: {
-          class: "font-title font-bold",
+          class: "font-bold",
         },
         levels: [1, 2, 3, 4, 5, 6],
       },
       bulletList: {
         HTMLAttributes: {
-          class: "list-disc list-outside leading-3 -mt-2 ml-4",
+          class: "list-disc list-outside leading-normal ml-4",
         },
       },
       orderedList: {
         HTMLAttributes: {
-          class: "list-decimal list-outside leading-3 -mt-2 ml-4",
+          class: "list-decimal list-outside leading-normal ml-4",
         },
       },
       listItem: {
         HTMLAttributes: {
-          class: "leading-normal -mb-2",
+          class: "leading-normal mb-1",
         },
       },
       blockquote: {
