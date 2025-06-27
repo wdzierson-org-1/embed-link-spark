@@ -12,6 +12,7 @@ import ContentItemImage from '@/components/ContentItemImage';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
+import ChatInterface from '@/components/ChatInterface';
 import { supabase } from '@/integrations/supabase/client';
 
 interface ContentItem {
@@ -53,6 +54,7 @@ const ContentItem = ({
   onTagsUpdated
 }: ContentItemProps) => {
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -91,6 +93,10 @@ const ContentItem = ({
     if (fileUrl) {
       window.open(fileUrl, '_blank');
     }
+  };
+
+  const handleChatWithItem = () => {
+    setIsChatOpen(true);
   };
 
   const fileUrl = getFileUrl(item);
@@ -188,49 +194,50 @@ const ContentItem = ({
               <p className="text-xs text-muted-foreground">
                 {format(new Date(item.created_at), 'MMM d, yyyy')}
               </p>
-              {/* Type badge - hidden by default, shown on hover */}
-              <Badge className={`opacity-0 group-hover:opacity-100 transition-opacity duration-200 ${getTypeColor(item.type)}`}>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {/* Type badge - always visible, positioned in bottom right */}
+              <Badge className={`${getTypeColor(item.type)}`}>
                 {getIcon(item.type)}
                 <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
               </Badge>
-            </div>
-            
-            {/* Menu dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {onChatWithItem && (
-                  <DropdownMenuItem onClick={() => onChatWithItem(item)}>
+              
+              {/* Menu dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleChatWithItem}>
                     <MessageCircle className="h-4 w-4 mr-2" />
                     Chat with item
                   </DropdownMenuItem>
-                )}
-                {fileUrl && (
-                  <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Download
+                  {fileUrl && (
+                    <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </DropdownMenuItem>
+                  )}
+                  {item.url && (
+                    <DropdownMenuItem onClick={() => window.open(item.url, '_blank')}>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Open link
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => onEditItem(item)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
                   </DropdownMenuItem>
-                )}
-                {item.url && (
-                  <DropdownMenuItem onClick={() => window.open(item.url, '_blank')}>
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Open link
+                  <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
                   </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => onEditItem(item)}>
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
 
@@ -243,6 +250,13 @@ const ContentItem = ({
             onClose={() => setIsVideoLightboxOpen(false)}
           />
         )}
+
+        {/* Individual Item Chat Interface */}
+        <ChatInterface
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          item={item}
+        />
       </Card>
     </TooltipProvider>
   );
