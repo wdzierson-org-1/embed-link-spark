@@ -71,7 +71,7 @@ const EditItemDetailsTab = ({
   }
 
   const contentComponent = (
-    <div className="space-y-8 mt-0 px-6 pb-6">
+    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-18px)' }}>
       {/* Title Section */}
       <EditItemTitleSection
         title={title}
@@ -92,10 +92,9 @@ const EditItemDetailsTab = ({
             variant="ghost"
             size="sm"
             onClick={() => setIsEditorMaximized(true)}
-            className="h-auto p-1 text-xs flex items-center gap-1"
+            className="h-8 w-8 p-0"
           >
-            <Maximize className="h-3 w-3" />
-            Maximize
+            <Maximize className="h-4 w-4" />
           </Button>
         </div>
         <div className="relative">

@@ -23,10 +23,9 @@ const EditItemLinkSection = ({ url }: EditItemLinkSectionProps) => {
           variant="ghost"
           size="sm"
           onClick={handleOpenLink}
-          className="h-7 px-2 text-xs"
+          className="h-7 w-7 p-0"
         >
-          <ExternalLink className="h-3 w-3 mr-1" />
-          Open
+          <ExternalLink className="h-3 w-3" />
         </Button>
       </div>
     </div>

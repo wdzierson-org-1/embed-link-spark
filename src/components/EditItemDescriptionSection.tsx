@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Sparkles } from 'lucide-react';
+import { RefreshCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -90,10 +90,9 @@ const EditItemDescriptionSection = ({
           size="sm"
           onClick={handleGenerateDescription}
           disabled={isGenerating || (!content?.trim() && !title?.trim())}
-          className="h-7 px-2 text-xs"
+          className="h-7 w-7 p-0"
         >
-          <Sparkles className="h-3 w-3 mr-1" />
-          {isGenerating ? 'Generating...' : description?.trim() ? 'Regenerate' : 'Generate'}
+          <RefreshCcw className={`h-3 w-3 ${isGenerating ? 'animate-spin' : ''}`} />
         </Button>
       </div>
       <Textarea
