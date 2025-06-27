@@ -7,10 +7,15 @@ interface EditItemTabNavigationProps {
 }
 
 const EditItemTabNavigation = ({ hasImage }: EditItemTabNavigationProps) => {
+  // Don't render tab navigation if there's no image
+  if (!hasImage) {
+    return null;
+  }
+
   return (
     <TabsList className="w-fit">
       <TabsTrigger value="details">Note Details</TabsTrigger>
-      {hasImage && <TabsTrigger value="image">Image</TabsTrigger>}
+      <TabsTrigger value="image">Image</TabsTrigger>
     </TabsList>
   );
 };

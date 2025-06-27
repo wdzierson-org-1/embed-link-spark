@@ -2,7 +2,8 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, Save } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -24,7 +25,6 @@ const EditItemDescriptionSection = ({
   onSave,
 }: EditItemDescriptionSectionProps) => {
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
   const handleGenerateDescription = async () => {
@@ -51,9 +51,11 @@ const EditItemDescriptionSection = ({
 
       if (data?.description) {
         onDescriptionChange(data.description);
+        // Auto-save the generated description
+        await onSave(data.description);
         toast({
           title: "Summary generated",
-          description: "AI summary has been generated successfully.",
+          description: "AI summary has been generated and saved automatically.",
         });
       }
     } catch (error) {
@@ -68,52 +70,31 @@ const EditItemDescriptionSection = ({
     }
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await onSave(description);
-      toast({
-        title: "Success",
-        description: "Summary saved successfully.",
-      });
-    } catch (error) {
-      console.error('Error saving description:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save summary. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-muted-foreground">AI Summary</label>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleGenerateDescription}
-            disabled={isGenerating || (!content?.trim() && !title?.trim())}
-            className="h-7 px-2 text-xs"
-          >
-            <Sparkles className="h-3 w-3 mr-1" />
-            {isGenerating ? 'Generating...' : 'Generate'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSave}
-            disabled={isSaving || !description?.trim()}
-            className="h-7 px-2 text-xs"
-          >
-            <Save className="h-3 w-3 mr-1" />
-            {isSaving ? 'Saving...' : 'Save'}
-          </Button>
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <label className="text-sm font-medium text-muted-foreground cursor-help">
+                AI Summary
+              </label>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>This content is used to help train the AI assistant on your content</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleGenerateDescription}
+          disabled={isGenerating || (!content?.trim() && !title?.trim())}
+          className="h-7 px-2 text-xs"
+        >
+          <Sparkles className="h-3 w-3 mr-1" />
+          {isGenerating ? 'Generating...' : description?.trim() ? 'Regenerate' : 'Generate'}
+        </Button>
       </div>
       <Textarea
         value={description}

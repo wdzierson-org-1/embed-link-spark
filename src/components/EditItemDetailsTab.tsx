@@ -1,6 +1,8 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Maximize } from 'lucide-react';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
 import EditItemImageSection from '@/components/EditItemImageSection';
@@ -8,6 +10,7 @@ import EditItemContentEditor from '@/components/EditItemContentEditor';
 import EditItemMediaSection from '@/components/EditItemMediaSection';
 import EditItemTagsSection from '@/components/EditItemTagsSection';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
+import MaximizedEditor from '@/components/MaximizedEditor';
 
 interface ContentItem {
   id: string;
@@ -51,6 +54,20 @@ const EditItemDetailsTab = ({
   onTagsChange,
   onMediaChange,
 }: EditItemDetailsTabProps) => {
+  const [isEditorMaximized, setIsEditorMaximized] = useState(false);
+
+  if (isEditorMaximized) {
+    return (
+      <MaximizedEditor
+        content={content}
+        onContentChange={onContentChange}
+        itemId={item?.id}
+        editorKey={editorKey}
+        onMinimize={() => setIsEditorMaximized(false)}
+      />
+    );
+  }
+
   return (
     <TabsContent value="details" className="space-y-8 mt-0 px-6 pb-6">
       {/* Title Section */}
@@ -67,7 +84,18 @@ const EditItemDetailsTab = ({
 
       {/* Content Section */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-muted-foreground">Content</label>
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-muted-foreground">Content</label>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsEditorMaximized(true)}
+            className="h-auto p-1 text-xs flex items-center gap-1"
+          >
+            <Maximize className="h-3 w-3" />
+            Maximize
+          </Button>
+        </div>
         <div className="relative">
           {isContentLoading ? (
             <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">

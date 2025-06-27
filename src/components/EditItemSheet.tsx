@@ -58,34 +58,55 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
           </SheetHeader>
 
           <div className="flex-1 overflow-y-auto">
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
-              <div className="px-6 py-4">
-                <EditItemTabNavigation hasImage={hasImage} />
+            {hasImage ? (
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
+                <div className="px-6 py-4">
+                  <EditItemTabNavigation hasImage={hasImage} />
+                </div>
+
+                <EditItemDetailsTab
+                  item={item}
+                  title={title}
+                  description={description}
+                  content={content}
+                  isContentLoading={isContentLoading}
+                  editorKey={editorKey}
+                  onTitleChange={handleTitleChange}
+                  onDescriptionChange={handleDescriptionChange}
+                  onContentChange={handleContentChange}
+                  onTitleSave={handleTitleSave}
+                  onDescriptionSave={handleDescriptionSave}
+                  onTagsChange={handleTagsChange}
+                  onMediaChange={handleMediaChange}
+                />
+
+                <EditItemImageTab
+                  item={item}
+                  hasImage={hasImage}
+                  imageUrl={imageUrl}
+                  onImageStateChange={handleImageStateChange}
+                />
+              </Tabs>
+            ) : (
+              // Render details directly without tabs when no image
+              <div className="pt-6">
+                <EditItemDetailsTab
+                  item={item}
+                  title={title}
+                  description={description}
+                  content={content}
+                  isContentLoading={isContentLoading}
+                  editorKey={editorKey}
+                  onTitleChange={handleTitleChange}
+                  onDescriptionChange={handleDescriptionChange}
+                  onContentChange={handleContentChange}
+                  onTitleSave={handleTitleSave}
+                  onDescriptionSave={handleDescriptionSave}
+                  onTagsChange={handleTagsChange}
+                  onMediaChange={handleMediaChange}
+                />
               </div>
-
-              <EditItemDetailsTab
-                item={item}
-                title={title}
-                description={description}
-                content={content}
-                isContentLoading={isContentLoading}
-                editorKey={editorKey}
-                onTitleChange={handleTitleChange}
-                onDescriptionChange={handleDescriptionChange}
-                onContentChange={handleContentChange}
-                onTitleSave={handleTitleSave}
-                onDescriptionSave={handleDescriptionSave}
-                onTagsChange={handleTagsChange}
-                onMediaChange={handleMediaChange}
-              />
-
-              <EditItemImageTab
-                item={item}
-                hasImage={hasImage}
-                imageUrl={imageUrl}
-                onImageStateChange={handleImageStateChange}
-              />
-            </Tabs>
+            )}
           </div>
 
           <EditItemAutoSaveIndicator saveStatus={saveStatus} lastSaved={lastSaved} />

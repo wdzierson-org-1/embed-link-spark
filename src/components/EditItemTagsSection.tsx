@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import EditItemTagDisplay from '@/components/EditItemTagDisplay';
 import EditItemTagInput from '@/components/EditItemTagInput';
+import EditItemTagSuggestions from '@/components/EditItemTagSuggestions';
 import { useEditItemTags } from '@/hooks/useEditItemTags';
 
 interface ContentItem {
@@ -18,7 +19,7 @@ interface ContentItem {
 
 interface EditItemTagsSectionProps {
   item: ContentItem | null;
-  onTagsChange?: () => void; // Optional callback for parent to know when tags change
+  onTagsChange?: () => void;
 }
 
 const EditItemTagsSection = ({ item, onTagsChange }: EditItemTagsSectionProps) => {
@@ -35,6 +36,15 @@ const EditItemTagsSection = ({ item, onTagsChange }: EditItemTagsSectionProps) =
   } = useEditItemTags(item, onTagsChange);
 
   if (!item) return null;
+
+  const handleAddSuggestedTag = (tag: string) => {
+    setNewTags([tag]);
+    setIsEditingTags(true);
+    // Auto-add the suggested tag
+    setTimeout(() => {
+      handleAddTags();
+    }, 100);
+  };
 
   return (
     <div className="space-y-4">
@@ -55,6 +65,15 @@ const EditItemTagsSection = ({ item, onTagsChange }: EditItemTagsSectionProps) =
 
       {/* Current Tags */}
       <EditItemTagDisplay tags={itemTags} onRemoveTag={handleRemoveTag} />
+
+      {/* Tag Suggestions */}
+      {!isEditingTags && (
+        <EditItemTagSuggestions
+          suggestions={tagSuggestions}
+          onAddTag={handleAddSuggestedTag}
+          existingTags={itemTags}
+        />
+      )}
 
       {/* Tag Input */}
       {isEditingTags && (
