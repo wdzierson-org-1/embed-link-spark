@@ -54,7 +54,7 @@ const EditItemDetailsTab = ({
   onDescriptionSave,
   onTagsChange,
   onMediaChange,
-  isInsideTabs = true, // Default to true for backward compatibility
+  isInsideTabs = true,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
 
@@ -71,7 +71,7 @@ const EditItemDetailsTab = ({
   }
 
   const contentComponent = (
-    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-18px)' }}>
+    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-48px)' }}>
       {/* Title Section */}
       <EditItemTitleSection
         title={title}

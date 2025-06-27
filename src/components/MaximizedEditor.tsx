@@ -20,7 +20,7 @@ const MaximizedEditor = ({
   onMinimize,
 }: MaximizedEditorProps) => {
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col">
+    <div className="absolute inset-0 bg-background flex flex-col z-10">
       <div className="flex items-center justify-between p-4 border-b">
         <h2 className="text-lg font-semibold">Editor</h2>
         <Button

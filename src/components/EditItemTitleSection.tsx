@@ -17,7 +17,7 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
       await onSave(title.trim() || '');
       setIsEditing(false);
       
-      // Trigger flash animation
+      // Trigger flash animation instead of toast
       setIsFlashing(true);
       setTimeout(() => setIsFlashing(false), 600); // Animation duration
     } catch (error) {
@@ -29,17 +29,6 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
     if (e.key === 'Enter') {
       handleSave();
     }
-  };
-
-  // Define the flash animation keyframes
-  const flashKeyframes = {
-    '0%': { backgroundColor: 'transparent' },
-    '16.66%': { backgroundColor: '#fef3c7' }, // yellow-100
-    '33.33%': { backgroundColor: '#ddd6fe' }, // purple-200
-    '50%': { backgroundColor: '#bfdbfe' }, // blue-200
-    '66.66%': { backgroundColor: '#bbf7d0' }, // green-200
-    '83.33%': { backgroundColor: '#fed7d7' }, // pink-200
-    '100%': { backgroundColor: 'transparent' }
   };
 
   if (isEditing) {
