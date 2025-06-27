@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/hooks/useAuth';
+import Landing from '@/pages/Landing';
 import Index from '@/pages/Index';
 import Auth from '@/pages/Auth';
 import Settings from '@/pages/Settings';
@@ -17,7 +18,7 @@ function App() {
         <AuthProvider>
           <div className="min-h-screen bg-background">
             <Routes>
-              <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="/" element={<Landing />} />
               <Route path="/home" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/settings" element={<Settings />} />
