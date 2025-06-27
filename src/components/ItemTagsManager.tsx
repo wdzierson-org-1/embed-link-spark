@@ -83,7 +83,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
         // First, create or get the tag
         const { data: existingTag, error: tagError } = await supabase
           .from('tags')
-          .select('id')
+          .select('id, usage_count')
           .eq('name', tagName)
           .eq('user_id', user.id)
           .single();
@@ -111,7 +111,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
           // Increment usage count
           await supabase
             .from('tags')
-            .update({ usage_count: supabase.sql`usage_count + 1` })
+            .update({ usage_count: existingTag.usage_count + 1 })
             .eq('id', tagId);
         } else {
           console.error('Error fetching tag:', tagError);
@@ -144,7 +144,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
       // Get the tag
       const { data: tag, error: tagError } = await supabase
         .from('tags')
-        .select('id')
+        .select('id, usage_count')
         .eq('name', tagName)
         .eq('user_id', user.id)
         .single();
@@ -164,7 +164,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
       // Decrement usage count
       await supabase
         .from('tags')
-        .update({ usage_count: supabase.sql`usage_count - 1` })
+        .update({ usage_count: Math.max(0, tag.usage_count - 1) })
         .eq('id', tag.id);
 
       // Update local state
