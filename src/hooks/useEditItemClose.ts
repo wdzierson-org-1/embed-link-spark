@@ -53,11 +53,18 @@ export const useEditItemClose = ({
         }
       };
 
-      // Perform final save if we have any content
-      if (titleRef.current || descriptionRef.current || contentRef.current) {
+      // ALWAYS perform final save when sheet closes - even if no text content
+      // This ensures that images uploaded without text are saved
+      console.log('useEditItemClose: Sheet closed, triggering final save regardless of content', {
+        itemId: itemRef.current?.id,
+        hasTitle: !!titleRef.current,
+        hasDescription: !!descriptionRef.current,
+        hasContent: !!contentRef.current,
+        contentLength: contentRef.current?.length || 0
+      });
+      
+      if (itemRef.current?.id) {
         performFinalSave();
-      } else if (itemRef.current?.id) {
-        clearDraft(itemRef.current.id);
       }
     }
 

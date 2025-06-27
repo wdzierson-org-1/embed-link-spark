@@ -4,9 +4,10 @@ import { useCallback } from 'react';
 interface EditorUploadHandlerProps {
   handleImageUpload?: (file: File) => Promise<string>;
   editorKey: string;
+  onContentChange?: (content: string) => void;
 }
 
-export const useEditorUploadHandler = ({ handleImageUpload, editorKey }: EditorUploadHandlerProps) => {
+export const useEditorUploadHandler = ({ handleImageUpload, editorKey, onContentChange }: EditorUploadHandlerProps) => {
   return useCallback(async (file: File, view: any, pos: number) => {
     console.log('EditorContainer: Upload function called', {
       fileName: file.name,
@@ -30,10 +31,21 @@ export const useEditorUploadHandler = ({ handleImageUpload, editorKey }: EditorU
       if (node) {
         const transaction = view.state.tr.replaceWith(pos, pos, node);
         view.dispatch(transaction);
+        
+        // CRITICAL: Trigger content change after image insertion
+        setTimeout(() => {
+          console.log('EditorContainer: Triggering content change after image upload');
+          if (onContentChange) {
+            const json = view.state.doc.toJSON ? view.state.doc.toJSON() : { type: 'doc', content: [] };
+            const jsonString = JSON.stringify(json);
+            onContentChange(jsonString);
+            console.log('EditorContainer: Content change triggered after image upload');
+          }
+        }, 100); // Small delay to ensure DOM is updated
       }
     } catch (error) {
       console.error('EditorContainer: Upload failed', error);
       // Error handling is done in the upload function itself
     }
-  }, [handleImageUpload, editorKey]);
+  }, [handleImageUpload, editorKey, onContentChange]);
 };

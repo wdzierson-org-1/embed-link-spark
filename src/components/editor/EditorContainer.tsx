@@ -18,7 +18,11 @@ const EditorContainer = ({
     editorKey
   });
 
-  const uploadFn = useEditorUploadHandler({ handleImageUpload, editorKey });
+  const uploadFn = useEditorUploadHandler({ 
+    handleImageUpload, 
+    editorKey,
+    onContentChange // Pass onContentChange to upload handler
+  });
 
   const handleEditorUpdate = (editor: EditorInstance) => {
     // Skip the first update during initialization to prevent immediate overwrite
