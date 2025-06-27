@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowRight, Zap, Brain, Search, Shield, Smartphone, Globe, FileText, Image, Mic, Video, MessageSquare, Star, CheckCircle } from 'lucide-react';
+import { ArrowRight, Zap, Brain, Search, Shield, Smartphone, Globe, FileText, Image, Mic, Video, MessageSquare, Star, CheckCircle, Heart, Calendar, Shirt } from 'lucide-react';
 
 const Landing = () => {
   return (
@@ -34,13 +34,12 @@ const Landing = () => {
       {/* Hero Section */}
       <section className="relative px-6 py-20 max-w-7xl mx-auto text-center">
         <Badge className="mb-6 bg-pink-100 text-pink-700 border-pink-200">
-          You & Improved
+          Life made organized
         </Badge>
         
         <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
-          Life made
           <span className="block bg-gradient-to-r from-pink-500 to-orange-500 bg-clip-text text-transparent">
-            organized
+            You & Improved
           </span>
         </h1>
         
@@ -96,6 +95,101 @@ const Landing = () => {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Use Cases Section */}
+      <section className="px-6 py-20 max-w-7xl mx-auto">
+        <div className="text-center mb-16">
+          <Badge className="mb-4 bg-rose-100 text-rose-700 border-rose-200">
+            Perfect For Your Life
+          </Badge>
+          <h2 className="text-4xl font-bold text-gray-900 mb-4">
+            Three ways to transform your daily life
+          </h2>
+          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+            Whether you're tracking wellness, planning experiences, or curating your style, Noodle helps you capture and organize what matters most.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <Card className="border-0 shadow-lg bg-white/80 backdrop-blur hover:shadow-xl transition-shadow">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Heart className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-semibold mb-4 text-gray-900">Health Tracking</h3>
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                Log workouts, meals, symptoms, and mood. Track your energy patterns, discover what makes you feel your best, and build healthier habits with AI insights.
+              </p>
+              <div className="space-y-2 text-sm text-gray-500">
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-pink-400 rounded-full"></div>
+                  <span>Workout logs & progress photos</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-rose-400 rounded-full"></div>
+                  <span>Meal tracking & nutrition notes</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-pink-400 rounded-full"></div>
+                  <span>Sleep & mood patterns</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-lg bg-white/80 backdrop-blur hover:shadow-xl transition-shadow">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-rose-500 to-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Calendar className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-semibold mb-4 text-gray-900">Event Planning</h3>
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                Plan perfect vacations, parties, and special moments. Save inspiration, track ideas, and create detailed itineraries. Never forget the details that make events memorable.
+              </p>
+              <div className="space-y-2 text-sm text-gray-500">
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-rose-400 rounded-full"></div>
+                  <span>Travel itineraries & bookings</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
+                  <span>Party planning & guest lists</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-rose-400 rounded-full"></div>
+                  <span>Special occasion memories</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-lg bg-white/80 backdrop-blur hover:shadow-xl transition-shadow">
+            <CardContent className="p-8 text-center">
+              <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Shirt className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-2xl font-semibold mb-4 text-gray-900">Fashion & Style</h3>
+              <p className="text-gray-600 mb-6 leading-relaxed">
+                Curate your perfect wardrobe. Save outfit ideas, track what you love wearing, and discover your personal style patterns. Never run out of inspiration again.
+              </p>
+              <div className="space-y-2 text-sm text-gray-500">
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
+                  <span>Outfit photos & combinations</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+                  <span>Style inspiration & mood boards</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
+                  <span>Shopping lists & wishlist items</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </section>
 
