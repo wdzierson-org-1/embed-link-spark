@@ -78,6 +78,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   onDescriptionSave={handleDescriptionSave}
                   onTagsChange={handleTagsChange}
                   onMediaChange={handleMediaChange}
+                  isInsideTabs={true}
                 />
 
                 <EditItemImageTab
@@ -104,6 +105,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   onDescriptionSave={handleDescriptionSave}
                   onTagsChange={handleTagsChange}
                   onMediaChange={handleMediaChange}
+                  isInsideTabs={false}
                 />
               </div>
             )}

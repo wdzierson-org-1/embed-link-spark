@@ -37,6 +37,7 @@ interface EditItemDetailsTabProps {
   onDescriptionSave: (description: string) => Promise<void>;
   onTagsChange: () => void;
   onMediaChange: () => void;
+  isInsideTabs?: boolean; // New prop to indicate if component is inside Tabs wrapper
 }
 
 const EditItemDetailsTab = ({
@@ -53,6 +54,7 @@ const EditItemDetailsTab = ({
   onDescriptionSave,
   onTagsChange,
   onMediaChange,
+  isInsideTabs = true, // Default to true for backward compatibility
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
 
@@ -68,8 +70,8 @@ const EditItemDetailsTab = ({
     );
   }
 
-  return (
-    <TabsContent value="details" className="space-y-8 mt-0 px-6 pb-6">
+  const contentComponent = (
+    <div className="space-y-8 mt-0 px-6 pb-6">
       {/* Title Section */}
       <EditItemTitleSection
         title={title}
@@ -130,7 +132,16 @@ const EditItemDetailsTab = ({
 
       {/* Tags Section */}
       <EditItemTagsSection item={item} onTagsChange={onTagsChange} />
+    </div>
+  );
+
+  // Conditionally wrap with TabsContent only if inside Tabs
+  return isInsideTabs ? (
+    <TabsContent value="details" className="space-y-8 mt-0">
+      {contentComponent}
     </TabsContent>
+  ) : (
+    contentComponent
   );
 };
 
