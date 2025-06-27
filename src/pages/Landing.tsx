@@ -39,7 +39,7 @@ const Landing = () => {
         
         <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
           <span className="block bg-gradient-to-r from-pink-500 to-orange-500 bg-clip-text text-transparent">
-            You & Improved
+            You & Improved.
           </span>
         </h1>
         
