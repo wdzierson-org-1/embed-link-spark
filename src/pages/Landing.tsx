@@ -44,7 +44,7 @@ const Landing = () => {
         </h1>
         
         <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto leading-relaxed">
-          Capture everything that matters - from workout logs to travel plans, health records to daily thoughts. 
+          Capture everything that matters - from workout logs to travel plans, health information tracking to daily thoughts. 
           Noodle keeps your life organized and helps you discover patterns and insights you never knew existed.
         </p>
         
