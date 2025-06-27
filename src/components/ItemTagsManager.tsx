@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { X, Plus, Check } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { getSuggestedTags } from '@/utils/aiOperations';
+import { useTags } from '@/hooks/useTags';
 
 interface ItemTagsManagerProps {
   itemId: string;
@@ -21,6 +21,7 @@ interface ItemTagsManagerProps {
 
 const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: ItemTagsManagerProps) => {
   const { user } = useAuth();
+  const { getAISuggestedTags, getSuggestedTags } = useTags();
   const [isEditing, setIsEditing] = useState(false);
   const [newTags, setNewTags] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -35,27 +36,39 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
     if (isEditing) {
       fetchTagSuggestions();
     }
-  }, [isEditing]);
+  }, [isEditing, itemTags]);
 
   const fetchTagSuggestions = async () => {
     if (!user) return;
     
-    const content = [itemContent.title, itemContent.content, itemContent.description]
-      .filter(Boolean)
-      .join(' ');
-    
-    if (content.trim()) {
-      try {
-        const suggestions = await getSuggestedTags(content);
-        // Filter out tags that are already applied
-        const filteredSuggestions = suggestions.filter(
-          suggestion => !itemTags.includes(suggestion)
-        );
-        setTagSuggestions(filteredSuggestions);
-      } catch (error) {
-        console.error('Error fetching tag suggestions:', error);
-        setTagSuggestions([]);
-      }
+    try {
+      // Get AI-suggested tags based on content
+      const aiSuggestions = await getAISuggestedTags({
+        title: itemContent.title || '',
+        content: itemContent.content || '',
+        description: itemContent.description || ''
+      });
+      
+      // Get popular tags from user's existing tags
+      const popularTags = getSuggestedTags(10);
+      
+      // Combine and deduplicate, prioritizing AI suggestions
+      const allSuggestions = [...new Set([...aiSuggestions, ...popularTags])];
+      
+      // Filter out tags that are already applied to this item
+      const filteredSuggestions = allSuggestions.filter(tag => 
+        !itemTags.includes(tag.toLowerCase())
+      );
+      
+      setTagSuggestions(filteredSuggestions.slice(0, 6)); // Limit to 6 suggestions
+    } catch (error) {
+      console.error('Error fetching tag suggestions:', error);
+      // Fallback to popular tags only
+      const popularTags = getSuggestedTags(10);
+      const filteredSuggestions = popularTags.filter(tag => 
+        !itemTags.includes(tag.toLowerCase())
+      );
+      setTagSuggestions(filteredSuggestions.slice(0, 6));
     }
   };
 
@@ -132,6 +145,9 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
       setNewTags([]);
       setIsEditing(false);
       onTagsUpdated();
+      
+      // Refresh suggestions after adding tags
+      await fetchTagSuggestions();
     } catch (error) {
       console.error('Error saving tags:', error);
     }
@@ -170,6 +186,9 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
       // Update local state
       setItemTags(itemTags.filter(t => t !== tagName));
       onTagsUpdated();
+      
+      // Refresh suggestions after removing tags
+      await fetchTagSuggestions();
     } catch (error) {
       console.error('Error removing tag:', error);
     }
@@ -260,18 +279,21 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
           
           {/* Tag suggestions */}
           {tagSuggestions.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {tagSuggestions.slice(0, 5).map((suggestion) => (
-                <Button
-                  key={suggestion}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleSuggestionClick(suggestion)}
-                  className="h-6 px-2 text-xs"
-                >
-                  {suggestion}
-                </Button>
-              ))}
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Suggested tags:</p>
+              <div className="flex flex-wrap gap-1">
+                {tagSuggestions.map((suggestion) => (
+                  <Button
+                    key={suggestion}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    className="h-6 px-2 text-xs"
+                  >
+                    {suggestion}
+                  </Button>
+                ))}
+              </div>
             </div>
           )}
         </div>
