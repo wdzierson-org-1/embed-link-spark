@@ -139,7 +139,7 @@ const EditorContainer = ({
               console.log('EditorContainer: Paste event detected');
               return handleImagePaste(view, event, uploadFn);
             } : undefined,
-            handleDrop: uploadFn ? (view, event, moved) => {
+            handleDrop: uploadFn ? (view, event, _slice, moved) => {
               console.log('EditorContainer: Drop event detected');
               return handleImageDrop(view, event, moved, uploadFn);
             } : undefined,
