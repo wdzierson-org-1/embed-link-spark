@@ -122,7 +122,7 @@ const Index = () => {
           <div className="flex items-center space-x-4">
             {/* Logo */}
             <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-gray-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">N</span>
               </div>
               <span className="text-xl font-bold text-gray-900">Noodle</span>
@@ -138,8 +138,8 @@ const Index = () => {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
-                  <Avatar className="h-10 w-10 bg-blue-400">
-                    <AvatarFallback className="bg-blue-400 text-white font-medium">
+                  <Avatar className="h-10 w-10 bg-purple-400">
+                    <AvatarFallback className="bg-purple-400 text-white font-medium">
                       {getUserInitials(user.email || '')}
                     </AvatarFallback>
                   </Avatar>
