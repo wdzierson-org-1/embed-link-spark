@@ -35,25 +35,25 @@ const Landing = () => {
       {/* Hero Section */}
       <section className="relative px-6 py-20 max-w-7xl mx-auto text-center">
         <Badge className="mb-6 bg-pink-100 text-pink-700 border-pink-200">
-          Your Smart Content Companion
+          Your Personal Life Assistant
         </Badge>
         
         <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
-          Thinking made
+          Life made
           <span className="block bg-gradient-to-r from-pink-500 to-orange-500 bg-clip-text text-transparent">
-            simple
+            organized
           </span>
         </h1>
         
         <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto leading-relaxed">
-          Capture, organize, and chat with your content. From quick notes to complex documents, 
-          Noodle helps you remember everything and find insights you never knew existed.
+          Capture everything that matters - from workout logs to travel plans, health records to daily thoughts. 
+          Noodle keeps your life organized and helps you discover patterns and insights you never knew existed.
         </p>
         
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16">
           <Link to="/auth">
             <Button size="lg" className="bg-gradient-to-r from-pink-500 to-orange-500 hover:from-pink-600 hover:to-orange-600 text-lg px-8 py-4">
-              Start for Free
+              Start Organizing
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
           </Link>
@@ -69,29 +69,29 @@ const Landing = () => {
               <div className="space-y-4">
                 <div className="flex items-center space-x-2 text-sm text-gray-500">
                   <FileText className="h-4 w-4" />
-                  <span>Meeting Notes - Today</span>
+                  <span>Health Log - Today</span>
                 </div>
-                <h3 className="text-lg font-semibold">Product Strategy Meeting</h3>
+                <h3 className="text-lg font-semibold">Morning Workout & Vitamins</h3>
                 <p className="text-gray-600 text-sm">
-                  Discussed Q4 roadmap, user feedback integration, and new AI features...
+                  45min cardio session, felt energized. Took vitamin D and B12. Weight: 165lbs...
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="text-xs">strategy</Badge>
-                  <Badge variant="secondary" className="text-xs">roadmap</Badge>
-                  <Badge variant="secondary" className="text-xs">AI</Badge>
+                  <Badge variant="secondary" className="text-xs">fitness</Badge>
+                  <Badge variant="secondary" className="text-xs">health</Badge>
+                  <Badge variant="secondary" className="text-xs">routine</Badge>
                 </div>
               </div>
               <div className="bg-gradient-to-br from-pink-50 to-orange-50 rounded-lg p-4">
                 <div className="flex items-center space-x-2 mb-3">
                   <MessageSquare className="h-4 w-4 text-pink-600" />
-                  <span className="text-sm font-medium text-pink-700">AI Chat</span>
+                  <span className="text-sm font-medium text-pink-700">AI Insights</span>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="bg-white rounded-lg p-2 text-gray-600">
-                    "What were the key decisions from today's meeting?"
+                    "How's my fitness progress this month?"
                   </div>
                   <div className="bg-pink-100 rounded-lg p-2 text-pink-700">
-                    Based on your notes, you decided to prioritize user feedback integration and explore new AI-powered features for Q4...
+                    You've worked out 18 days this month! Your energy levels are highest on days you exercise in the morning. Consider scheduling more AM workouts...
                   </div>
                 </div>
               </div>
@@ -104,10 +104,10 @@ const Landing = () => {
       <section className="px-6 py-20 max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
-            Everything you need to grow your team
+            Everything you need to organize your life
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Powerful features that adapt to how you work, helping you capture ideas and find insights effortlessly.
+            Powerful features that adapt to how you live, helping you capture moments and discover insights effortlessly.
           </p>
         </div>
 
@@ -117,9 +117,9 @@ const Landing = () => {
               <div className="w-12 h-12 bg-gradient-to-br from-pink-500 to-rose-500 rounded-lg flex items-center justify-center mb-4">
                 <Brain className="h-6 w-6 text-white" />
               </div>
-              <h3 className="text-xl font-semibold mb-2">Smart Capture</h3>
+              <h3 className="text-xl font-semibold mb-2">Universal Capture</h3>
               <p className="text-gray-600">
-                Capture text, images, audio, video, and documents. Noodle automatically organizes and tags everything for easy retrieval.
+                Capture text, photos, voice memos, videos, and documents. Noodle automatically organizes everything from workouts to recipes to travel plans.
               </p>
             </CardContent>
           </Card>
@@ -129,9 +129,9 @@ const Landing = () => {
               <div className="w-12 h-12 bg-gradient-to-br from-rose-500 to-orange-500 rounded-lg flex items-center justify-center mb-4">
                 <MessageSquare className="h-6 w-6 text-white" />
               </div>
-              <h3 className="text-xl font-semibold mb-2">AI-Powered Chat</h3>
+              <h3 className="text-xl font-semibold mb-2">AI Life Insights</h3>
               <p className="text-gray-600">
-                Chat with your content using advanced AI. Ask questions, get summaries, and discover insights from everything you've saved.
+                Chat with your life data using AI. Ask about your habits, health patterns, or find that recipe you saved months ago.
               </p>
             </CardContent>
           </Card>
@@ -141,9 +141,9 @@ const Landing = () => {
               <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg flex items-center justify-center mb-4">
                 <Search className="h-6 w-6 text-white" />
               </div>
-              <h3 className="text-xl font-semibold mb-2">Instant Search</h3>
+              <h3 className="text-xl font-semibold mb-2">Smart Search</h3>
               <p className="text-gray-600">
-                Find anything instantly with intelligent search that understands context, content, and connections between your items.
+                Find anything instantly with intelligent search that understands context - from that doctor's note to your vacation photos.
               </p>
             </CardContent>
           </Card>
@@ -155,13 +155,13 @@ const Landing = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           <div>
             <Badge className="mb-4 bg-rose-100 text-rose-700 border-rose-200">
-              Multiple Content Types
+              All Life Content Types
             </Badge>
             <h2 className="text-4xl font-bold text-gray-900 mb-6">
-              Manage the entire hiring workflow
+              Capture your entire life
             </h2>
             <p className="text-xl text-gray-600 mb-8">
-              From quick voice memos to detailed documents, Noodle handles every type of content you throw at it. Everything is searchable, organized, and ready when you need it.
+              From quick voice memos about meal ideas to detailed travel itineraries, Noodle handles every aspect of your life. Everything is searchable, organized, and ready when you need it.
             </p>
             
             <div className="space-y-4">
@@ -169,25 +169,25 @@ const Landing = () => {
                 <div className="w-8 h-8 bg-pink-100 rounded-lg flex items-center justify-center">
                   <FileText className="h-4 w-4 text-pink-600" />
                 </div>
-                <span className="text-gray-700">Rich text notes and documents</span>
+                <span className="text-gray-700">Journal entries, goals, and daily reflections</span>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-rose-100 rounded-lg flex items-center justify-center">
                   <Image className="h-4 w-4 text-rose-600" />
                 </div>
-                <span className="text-gray-700">Images with automatic text extraction</span>
+                <span className="text-gray-700">Photos from workouts, meals, and life moments</span>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center">
                   <Mic className="h-4 w-4 text-orange-600" />
                 </div>
-                <span className="text-gray-700">Audio recordings and transcriptions</span>
+                <span className="text-gray-700">Voice notes about ideas and daily experiences</span>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
                   <Video className="h-4 w-4 text-amber-600" />
                 </div>
-                <span className="text-gray-700">Video content and analysis</span>
+                <span className="text-gray-700">Video logs of progress and special moments</span>
               </div>
             </div>
           </div>
@@ -197,29 +197,29 @@ const Landing = () => {
               <Card className="bg-gradient-to-br from-pink-50 to-pink-100 border-pink-200">
                 <CardContent className="p-4">
                   <FileText className="h-8 w-8 text-pink-600 mb-2" />
-                  <h4 className="font-semibold text-pink-900">Notes</h4>
-                  <p className="text-sm text-pink-700">Rich text editing</p>
+                  <h4 className="font-semibold text-pink-900">Journal</h4>
+                  <p className="text-sm text-pink-700">Daily thoughts</p>
                 </CardContent>
               </Card>
               <Card className="bg-gradient-to-br from-rose-50 to-rose-100 border-rose-200">
                 <CardContent className="p-4">
                   <Image className="h-8 w-8 text-rose-600 mb-2" />
-                  <h4 className="font-semibold text-rose-900">Images</h4>
-                  <p className="text-sm text-rose-700">OCR & analysis</p>
+                  <h4 className="font-semibold text-rose-900">Photos</h4>
+                  <p className="text-sm text-rose-700">Life moments</p>
                 </CardContent>
               </Card>
               <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
                 <CardContent className="p-4">
                   <Mic className="h-8 w-8 text-orange-600 mb-2" />
-                  <h4 className="font-semibold text-orange-900">Audio</h4>
-                  <p className="text-sm text-orange-700">Auto transcription</p>
+                  <h4 className="font-semibold text-orange-900">Voice</h4>
+                  <p className="text-sm text-orange-700">Quick thoughts</p>
                 </CardContent>
               </Card>
               <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200">
                 <CardContent className="p-4">
                   <Video className="h-8 w-8 text-amber-600 mb-2" />
                   <h4 className="font-semibold text-amber-900">Video</h4>
-                  <p className="text-sm text-amber-700">Content extraction</p>
+                  <p className="text-sm text-amber-700">Progress logs</p>
                 </CardContent>
               </Card>
             </div>
@@ -236,17 +236,17 @@ const Landing = () => {
                 <div className="w-8 h-8 bg-gradient-to-br from-pink-400 to-orange-400 rounded-lg flex items-center justify-center">
                   <MessageSquare className="h-4 w-4 text-white" />
                 </div>
-                <span className="font-medium">AI Assistant</span>
+                <span className="font-medium">AI Life Coach</span>
               </div>
               
               <div className="space-y-4">
                 <div className="bg-gray-700/50 rounded-lg p-3">
                   <p className="text-sm text-gray-300">You:</p>
-                  <p className="text-white">"Summarize my meeting notes from last week"</p>
+                  <p className="text-white">"What's been helping my energy levels lately?"</p>
                 </div>
                 <div className="bg-gradient-to-r from-pink-600/20 to-orange-600/20 rounded-lg p-3 border border-pink-500/30">
                   <p className="text-sm text-pink-300">Noodle:</p>
-                  <p className="text-white text-sm">I found 3 meeting notes from last week. Key themes include product roadmap discussions, budget approvals for Q4, and team restructuring. The main decisions were...</p>
+                  <p className="text-white text-sm">Based on your logs, you have the most energy on days when you exercise in the morning and get 7+ hours of sleep. Your mood also improves when you spend time outdoors...</p>
                 </div>
               </div>
             </div>
@@ -254,13 +254,13 @@ const Landing = () => {
           
           <div className="order-1 lg:order-2">
             <Badge className="mb-4 bg-pink-100 text-pink-700 border-pink-200">
-              AI-Powered Intelligence
+              AI-Powered Life Intelligence
             </Badge>
             <h2 className="text-4xl font-bold text-gray-900 mb-6">
-              Keep track of everything
+              Discover patterns in your life
             </h2>
             <p className="text-xl text-gray-600 mb-8">
-              Never lose an idea again. Our AI understands your content and helps you find connections, patterns, and insights you might have missed.
+              Never lose track of what matters. Our AI understands your lifestyle and helps you find connections, patterns, and insights that improve your well-being.
             </p>
             
             <div className="space-y-6">
@@ -269,8 +269,8 @@ const Landing = () => {
                   <CheckCircle className="h-5 w-5 text-pink-600" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">Smart Summaries</h4>
-                  <p className="text-gray-600">Get instant summaries of your content, meetings, and documents.</p>
+                  <h4 className="font-semibold text-gray-900 mb-1">Health Insights</h4>
+                  <p className="text-gray-600">Track patterns in your wellness, mood, and energy levels.</p>
                 </div>
               </div>
               
@@ -279,8 +279,8 @@ const Landing = () => {
                   <CheckCircle className="h-5 w-5 text-rose-600" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">Content Connections</h4>
-                  <p className="text-gray-600">Discover relationships between different pieces of content automatically.</p>
+                  <h4 className="font-semibold text-gray-900 mb-1">Life Connections</h4>
+                  <p className="text-gray-600">Discover how different aspects of your life influence each other.</p>
                 </div>
               </div>
               
@@ -289,8 +289,8 @@ const Landing = () => {
                   <CheckCircle className="h-5 w-5 text-orange-600" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">Intelligent Search</h4>
-                  <p className="text-gray-600">Ask questions in natural language and get precise answers from your content.</p>
+                  <h4 className="font-semibold text-gray-900 mb-1">Smart Reminders</h4>
+                  <p className="text-gray-600">Get intelligent suggestions based on your habits and goals.</p>
                 </div>
               </div>
             </div>
@@ -302,13 +302,13 @@ const Landing = () => {
       <section className="px-6 py-20 max-w-7xl mx-auto">
         <div className="text-center mb-16">
           <Badge className="mb-4 bg-rose-100 text-rose-700 border-rose-200">
-            Works Everywhere
+            Access Anywhere
           </Badge>
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
-            Work together
+            Life happens everywhere
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Access your content from anywhere. Noodle works seamlessly across all your devices and integrates with the tools you already use.
+            Capture moments from anywhere. Noodle works seamlessly across all your devices, plus you can text or message us directly.
           </p>
         </div>
 
@@ -317,32 +317,32 @@ const Landing = () => {
             <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-pink-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Globe className="h-8 w-8 text-white" />
             </div>
-            <h4 className="font-semibold text-gray-900">Web App</h4>
-            <p className="text-sm text-gray-600">Full-featured web interface</p>
+            <h4 className="font-semibold text-gray-900">Web & Mobile</h4>
+            <p className="text-sm text-gray-600">Full-featured on any device</p>
           </div>
           
           <div className="text-center">
             <div className="w-16 h-16 bg-gradient-to-br from-rose-500 to-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Smartphone className="h-8 w-8 text-white" />
+              <MessageSquare className="h-8 w-8 text-white" />
             </div>
-            <h4 className="font-semibold text-gray-900">Mobile Ready</h4>
-            <p className="text-sm text-gray-600">Optimized for all devices</p>
+            <h4 className="font-semibold text-gray-900">SMS & WhatsApp</h4>
+            <p className="text-sm text-gray-600">Text us your thoughts</p>
           </div>
           
           <div className="text-center">
             <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Shield className="h-8 w-8 text-white" />
             </div>
-            <h4 className="font-semibold text-gray-900">Secure</h4>
-            <p className="text-sm text-gray-600">End-to-end encryption</p>
+            <h4 className="font-semibold text-gray-900">Private & Secure</h4>
+            <p className="text-sm text-gray-600">Your data stays yours</p>
           </div>
           
           <div className="text-center">
             <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Zap className="h-8 w-8 text-white" />
             </div>
-            <h4 className="font-semibold text-gray-900">Fast</h4>
-            <p className="text-sm text-gray-600">Lightning-quick search</p>
+            <h4 className="font-semibold text-gray-900">Instant</h4>
+            <p className="text-sm text-gray-600">Lightning-quick capture</p>
           </div>
         </div>
       </section>
@@ -351,21 +351,21 @@ const Landing = () => {
       <section className="px-6 py-20 max-w-4xl mx-auto text-center">
         <div className="bg-gradient-to-br from-pink-500 to-orange-500 rounded-3xl p-12 text-white">
           <h2 className="text-4xl font-bold mb-4">
-            Get to hiring in minutes
+            Start organizing your life today
           </h2>
           <p className="text-xl mb-8 text-pink-100">
-            Join thousands of teams who have streamlined their content workflow with Noodle. Start capturing, organizing, and discovering insights today.
+            Join thousands of people who have transformed how they track, organize, and understand their lives with Noodle. Start capturing moments and discovering insights today.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/auth">
               <Button size="lg" className="bg-white text-pink-600 hover:bg-gray-100 text-lg px-8 py-4">
-                Start Free Trial
+                Start Free
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
             <Button variant="outline" size="lg" className="border-white text-white hover:bg-white/10 text-lg px-8 py-4">
-              Schedule Demo
+              See How It Works
             </Button>
           </div>
           
@@ -388,7 +388,7 @@ const Landing = () => {
             <span className="text-xl font-bold text-gray-900">Noodle</span>
           </div>
           <p className="text-gray-600 mb-6">
-            Your smart content companion for capturing, organizing, and discovering insights.
+            Your personal life assistant for capturing, organizing, and understanding what matters most.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
