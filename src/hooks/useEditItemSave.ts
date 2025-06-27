@@ -24,7 +24,8 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
       itemId,
       title: titleRef.current?.slice(0, 50),
       description: descriptionRef.current?.slice(0, 50),
-      content: contentRef.current?.slice(0, 50)
+      contentLength: contentRef.current?.length,
+      hasContent: !!contentRef.current
     });
     
     saveToLocalStorage(itemId, {
@@ -42,7 +43,16 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     ) => {
       if (!itemId) return;
       
-      console.log('Starting debounced server save:', { itemId, updates });
+      console.log('Starting debounced server save:', { 
+        itemId, 
+        updates: {
+          title: updates.title?.slice(0, 50),
+          description: updates.description?.slice(0, 50),
+          contentLength: updates.content?.length,
+          hasContent: !!updates.content
+        }
+      });
+      
       setSaveStatus('saving');
       
       try {
@@ -69,7 +79,15 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   ) => {
     if (!itemId) return;
     
-    console.log('debouncedSave called with:', { itemId, updates });
+    console.log('debouncedSave called with:', { 
+      itemId, 
+      updates: {
+        title: updates.title?.slice(0, 50),
+        description: updates.description?.slice(0, 50),
+        contentLength: updates.content?.length,
+        hasContent: !!updates.content
+      }
+    });
     
     // Immediate localStorage save
     saveToLocalStorageImmediate(itemId, titleRef, descriptionRef, contentRef);
@@ -87,7 +105,11 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   ) => {
     if (!itemId) return;
     
-    console.log('Flushing pending saves and performing final save:', { itemId });
+    console.log('Flushing pending saves and performing final save:', { 
+      itemId,
+      contentLength: contentRef.current?.length,
+      hasContent: !!contentRef.current
+    });
     
     // Cancel pending debounced save
     debouncedServerSave.cancel();
@@ -96,10 +118,15 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     const updates = {
       title: titleRef.current?.trim() || undefined,
       description: descriptionRef.current?.trim() || undefined,
-      content: contentRef.current?.trim() || undefined,
+      content: contentRef.current || undefined, // Don't trim JSON content
     };
     
-    console.log('Final save updates:', updates);
+    console.log('Final save updates:', {
+      title: updates.title?.slice(0, 50),
+      description: updates.description?.slice(0, 50),
+      contentLength: updates.content?.length,
+      hasContent: !!updates.content
+    });
     
     try {
       await onSave(itemId, updates, { showSuccessToast: false, refreshItems: true });

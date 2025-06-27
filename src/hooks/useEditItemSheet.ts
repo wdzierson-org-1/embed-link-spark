@@ -22,6 +22,34 @@ interface UseEditItemSheetProps {
   onSave: (id: string, updates: { title?: string; description?: string; content?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
+// Helper function to validate JSON content from Novel editor
+const isValidNovelContent = (content: string): boolean => {
+  if (!content) return false;
+  
+  try {
+    const parsed = JSON.parse(content);
+    // Check if it's a valid Novel/TipTap JSON structure
+    return parsed && typeof parsed === 'object' && parsed.type;
+  } catch {
+    return false;
+  }
+};
+
+// Helper function to check if content has meaningful changes
+const hasSignificantContent = (content: string): boolean => {
+  if (!content) return false;
+  
+  try {
+    const parsed = JSON.parse(content);
+    // Check if the content has actual text content beyond empty structure
+    const contentString = JSON.stringify(parsed);
+    // Basic heuristic: if the JSON is longer than empty structure, it likely has content
+    return contentString.length > 100; // Adjust threshold as needed
+  } catch {
+    return content.trim().length > 0;
+  }
+};
+
 export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) => {
   // State management
   const {
@@ -76,7 +104,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
       const updates = { 
         title: newTitle.trim() || undefined,
         description: descriptionRef.current.trim() || undefined,
-        content: contentRef.current.trim() || undefined
+        content: contentRef.current || undefined
       };
       
       console.log('Calling debouncedSave from handleTitleChange:', updates);
@@ -95,7 +123,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
       const updates = { 
         title: titleRef.current.trim() || undefined,
         description: newDescription.trim() || undefined,
-        content: contentRef.current.trim() || undefined
+        content: contentRef.current || undefined
       };
       
       console.log('Calling debouncedSave from handleDescriptionChange:', updates);
@@ -107,12 +135,20 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     console.log('handleContentChange called:', { 
       newContent: newContent?.slice(0, 100),
       contentLength: newContent?.length,
-      itemId: item?.id
+      itemId: item?.id,
+      isValidJSON: isValidNovelContent(newContent),
+      hasSignificant: hasSignificantContent(newContent)
     });
     
-    // Enhanced content validation
-    if (!newContent?.trim()) {
-      console.warn('handleContentChange: Ignoring empty content update');
+    // Enhanced content validation - accept both valid JSON and meaningful text
+    if (!newContent) {
+      console.warn('handleContentChange: Empty content received, skipping update');
+      return;
+    }
+
+    // For Novel editor, we expect JSON content - validate it properly
+    if (!isValidNovelContent(newContent)) {
+      console.warn('handleContentChange: Invalid Novel JSON content, skipping update');
       return;
     }
     
@@ -126,18 +162,24 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     contentRef.current = newContent;
     setContent(newContent);
     
+    console.log('handleContentChange: Content updated in refs and state');
+    
     if (item?.id) {
       const updates = { 
         title: titleRef.current.trim() || undefined,
         description: descriptionRef.current.trim() || undefined,
-        content: newContent.trim() || undefined
+        content: newContent // Don't trim JSON content
       };
       
       console.log('Calling debouncedSave from handleContentChange:', {
         itemId: item.id,
-        updates,
-        contentLength: newContent.length
+        updates: {
+          ...updates,
+          content: updates.content?.slice(0, 100) + '...' // Log preview only
+        },
+        contentFull: !!updates.content
       });
+      
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setContent]);
@@ -148,6 +190,12 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
       const performFinalSave = async () => {
         try {
           console.log('Sheet closing, performing final save for item:', itemRef.current?.id);
+          console.log('Final save content check:', {
+            title: titleRef.current?.slice(0, 50),
+            description: descriptionRef.current?.slice(0, 50),
+            contentLength: contentRef.current?.length,
+            hasContent: !!contentRef.current
+          });
           
           await flushAndFinalSave(
             itemRef.current!.id,
