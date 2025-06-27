@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -99,6 +98,10 @@ const ContentItem = ({
     setIsChatOpen(true);
   };
 
+  const handleTitleClick = () => {
+    onEditItem(item);
+  };
+
   const fileUrl = getFileUrl(item);
 
   return (
@@ -139,17 +142,22 @@ const ContentItem = ({
         </div>
 
         <div className="flex flex-col flex-1 p-4">
-          {/* Title section */}
+          {/* Title section with clickable link */}
           {item.title && (
             <div className="mb-3">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <h3 className="text-lg font-semibold leading-tight line-clamp-2 cursor-help">
-                    {item.title}
-                  </h3>
+                  <button
+                    onClick={handleTitleClick}
+                    className="text-left w-full group/title"
+                  >
+                    <h3 className="text-lg font-semibold leading-tight line-clamp-2 group-hover/title:underline transition-all duration-200 cursor-pointer">
+                      {item.title}
+                    </h3>
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="max-w-xs break-words">{item.title}</p>
+                  <p className="max-w-xs break-words">Click to edit: {item.title}</p>
                 </TooltipContent>
               </Tooltip>
             </div>
