@@ -86,7 +86,7 @@ const EditItemDescriptionSection = ({
           </Tooltip>
         </TooltipProvider>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={handleGenerateDescription}
           disabled={isGenerating || (!content?.trim() && !title?.trim())}
