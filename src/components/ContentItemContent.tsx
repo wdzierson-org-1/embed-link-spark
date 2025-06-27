@@ -77,7 +77,7 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: Conten
     
     return (
       <div className="mb-2">
-        <p className="text-sm font-medium mb-1">Content:</p>
+        <p className="text-sm font-medium mb-1">Note content</p>
         <div className="text-sm text-muted-foreground">
           {displayLines.map((line, index) => (
             <div key={index} className="line-clamp-1">{line}</div>
@@ -99,7 +99,6 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: Conten
     <>
       {item.description && (
         <div className="mb-2">
-          <p className="text-sm font-medium text-blue-600 mb-1">Summary:</p>
           <p className="text-sm text-muted-foreground line-clamp-3">
             {item.description}
           </p>

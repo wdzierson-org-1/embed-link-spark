@@ -1,18 +1,18 @@
 
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import React, { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Plus, X } from 'lucide-react';
-import { useTags } from '@/hooks/useTags';
-import TagInput from '@/components/TagInput';
-import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { X, Plus, Check } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { getSuggestedTags } from '@/utils/aiOperations';
 
 interface ItemTagsManagerProps {
   itemId: string;
   currentTags: string[];
   onTagsUpdated: () => void;
-  itemContent?: {
+  itemContent: {
     title?: string;
     content?: string;
     description?: string;
@@ -20,232 +20,262 @@ interface ItemTagsManagerProps {
 }
 
 const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: ItemTagsManagerProps) => {
+  const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [newTags, setNewTags] = useState<string[]>([]);
-  const [relevantSuggestions, setRelevantSuggestions] = useState<string[]>([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const { getSuggestedTags, addTagsToItem } = useTags();
-  const { toast } = useToast();
+  const [inputValue, setInputValue] = useState('');
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [itemTags, setItemTags] = useState<string[]>(currentTags);
 
-  const fetchRelevantSuggestions = async () => {
-    if (!itemContent) return;
+  useEffect(() => {
+    setItemTags(currentTags);
+  }, [currentTags]);
+
+  useEffect(() => {
+    if (isEditing) {
+      fetchTagSuggestions();
+    }
+  }, [isEditing]);
+
+  const fetchTagSuggestions = async () => {
+    if (!user) return;
     
-    setLoadingSuggestions(true);
-    try {
-      const availableTags = getSuggestedTags(50).filter(tag => 
-        !currentTags.includes(tag) && !newTags.includes(tag)
-      );
-      
-      if (availableTags.length === 0) {
-        setRelevantSuggestions([]);
-        return;
+    const content = [itemContent.title, itemContent.content, itemContent.description]
+      .filter(Boolean)
+      .join(' ');
+    
+    if (content.trim()) {
+      try {
+        const suggestions = await getSuggestedTags(content);
+        // Filter out tags that are already applied
+        const filteredSuggestions = suggestions.filter(
+          suggestion => !itemTags.includes(suggestion)
+        );
+        setTagSuggestions(filteredSuggestions);
+      } catch (error) {
+        console.error('Error fetching tag suggestions:', error);
+        setTagSuggestions([]);
       }
-
-      const { data, error } = await supabase.functions.invoke('get-relevant-tags', {
-        body: {
-          content: itemContent.content || '',
-          title: itemContent.title || '',
-          description: itemContent.description || '',
-          availableTags
-        }
-      });
-
-      if (error) {
-        console.error('Error getting relevant tags:', error);
-        setRelevantSuggestions([]);
-      } else {
-        setRelevantSuggestions(data?.relevantTags || []);
-      }
-    } catch (error) {
-      console.error('Exception getting relevant tags:', error);
-      setRelevantSuggestions([]);
-    } finally {
-      setLoadingSuggestions(false);
     }
   };
 
-  const handleStartEditing = () => {
-    setIsEditing(true);
-    fetchRelevantSuggestions();
+  const handleAddTag = (tagName: string) => {
+    if (tagName.trim() && !newTags.includes(tagName.trim()) && !itemTags.includes(tagName.trim())) {
+      setNewTags([...newTags, tagName.trim()]);
+      setInputValue('');
+    }
   };
 
-  const handleAddTags = async () => {
-    if (newTags.length === 0) {
+  const handleRemoveNewTag = (tagToRemove: string) => {
+    setNewTags(newTags.filter(tag => tag !== tagToRemove));
+  };
+
+  const handleSaveTags = async () => {
+    if (!user || newTags.length === 0) {
       setIsEditing(false);
+      setNewTags([]);
       return;
     }
 
     try {
-      await addTagsToItem(itemId, newTags);
+      // Add new tags to the item
+      for (const tagName of newTags) {
+        // First, create or get the tag
+        const { data: existingTag, error: tagError } = await supabase
+          .from('tags')
+          .select('id')
+          .eq('name', tagName)
+          .eq('user_id', user.id)
+          .single();
+
+        let tagId;
+        if (tagError && tagError.code === 'PGRST116') {
+          // Tag doesn't exist, create it
+          const { data: newTag, error: createError } = await supabase
+            .from('tags')
+            .insert({
+              name: tagName,
+              user_id: user.id,
+              usage_count: 1
+            })
+            .select('id')
+            .single();
+
+          if (createError) {
+            console.error('Error creating tag:', createError);
+            continue;
+          }
+          tagId = newTag.id;
+        } else if (existingTag) {
+          tagId = existingTag.id;
+          // Increment usage count
+          await supabase
+            .from('tags')
+            .update({ usage_count: supabase.sql`usage_count + 1` })
+            .eq('id', tagId);
+        } else {
+          console.error('Error fetching tag:', tagError);
+          continue;
+        }
+
+        // Add the tag to the item
+        await supabase
+          .from('item_tags')
+          .insert({
+            item_id: itemId,
+            tag_id: tagId
+          });
+      }
+
+      // Update local state
+      setItemTags([...itemTags, ...newTags]);
       setNewTags([]);
       setIsEditing(false);
-      setRelevantSuggestions([]);
       onTagsUpdated();
-      toast({
-        title: "Success",
-        description: `Added ${newTags.length} tag(s) to item`,
-      });
     } catch (error) {
-      console.error('Error adding tags:', error);
-      toast({
-        title: "Error",
-        description: "Failed to add tags",
-        variant: "destructive",
-      });
+      console.error('Error saving tags:', error);
     }
   };
 
   const handleRemoveTag = async (tagName: string) => {
+    if (!user) return;
+
     try {
-      // Get the tag ID
-      const { data: tagData, error: tagError } = await supabase
+      // Get the tag
+      const { data: tag, error: tagError } = await supabase
         .from('tags')
         .select('id')
-        .eq('name', tagName.toLowerCase())
+        .eq('name', tagName)
+        .eq('user_id', user.id)
         .single();
 
-      if (tagError) {
+      if (tagError || !tag) {
         console.error('Error finding tag:', tagError);
         return;
       }
 
-      // Remove the item-tag relationship
-      const { error: relationError } = await supabase
+      // Remove the tag from the item
+      await supabase
         .from('item_tags')
         .delete()
         .eq('item_id', itemId)
-        .eq('tag_id', tagData.id);
+        .eq('tag_id', tag.id);
 
-      if (relationError) {
-        console.error('Error removing tag relationship:', relationError);
-        throw relationError;
-      }
+      // Decrement usage count
+      await supabase
+        .from('tags')
+        .update({ usage_count: supabase.sql`usage_count - 1` })
+        .eq('id', tag.id);
 
+      // Update local state
+      setItemTags(itemTags.filter(t => t !== tagName));
       onTagsUpdated();
-      toast({
-        title: "Success",
-        description: "Tag removed from item",
-      });
     } catch (error) {
       console.error('Error removing tag:', error);
-      toast({
-        title: "Error",
-        description: "Failed to remove tag",
-        variant: "destructive",
-      });
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && inputValue.trim()) {
+      handleAddTag(inputValue);
     }
   };
 
   const handleSuggestionClick = (suggestion: string) => {
-    if (!newTags.includes(suggestion)) {
-      setNewTags([...newTags, suggestion]);
-      setRelevantSuggestions(prev => prev.filter(tag => tag !== suggestion));
-    }
+    handleAddTag(suggestion);
   };
 
-  const handleCancel = () => {
-    setNewTags([]);
-    setIsEditing(false);
-    setRelevantSuggestions([]);
-  };
-
-  if (isEditing) {
-    return (
-      <div className="space-y-3 p-3 border rounded-md bg-gray-50">
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-medium">Add Tags</h4>
+  return (
+    <div className="space-y-2">
+      {/* Current tags */}
+      <div className="flex flex-wrap gap-1">
+        {itemTags.map((tag) => (
+          <Badge key={tag} variant="secondary" className="text-xs">
+            {tag}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto p-0 ml-1 hover:bg-transparent"
+              onClick={() => handleRemoveTag(tag)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </Badge>
+        ))}
+        
+        {/* Add tags button */}
+        {!isEditing && (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={handleCancel}
-            className="h-6 w-6 p-0"
+            onClick={() => setIsEditing(true)}
+            className="h-5 px-2 text-xs lowercase opacity-70 hover:opacity-100"
           >
-            <X className="h-3 w-3" />
+            <Plus className="h-3 w-3 mr-1" />
+            add tags
           </Button>
+        )}
+      </div>
+
+      {/* New tags being added */}
+      {newTags.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {newTags.map((tag) => (
+            <Badge key={tag} variant="default" className="text-xs">
+              {tag}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto p-0 ml-1 hover:bg-transparent"
+                onClick={() => handleRemoveNewTag(tag)}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </Badge>
+          ))}
         </div>
-        
-        {/* Current tags with remove option */}
-        {currentTags.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Current tags:</p>
-            <div className="flex flex-wrap gap-1">
-              {currentTags.map((tag, index) => (
-                <Badge key={index} variant="secondary" className="text-xs">
-                  {tag}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-auto p-0 ml-1 hover:bg-transparent"
-                    onClick={() => handleRemoveTag(tag)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </Badge>
-              ))}
-            </div>
+      )}
+
+      {/* Tag input */}
+      {isEditing && (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              placeholder="Add tags..."
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              className="h-8 text-xs"
+              autoFocus
+            />
+            <Button
+              size="sm"
+              onClick={handleSaveTags}
+              className="h-8 px-2"
+            >
+              <Check className="h-3 w-3" />
+            </Button>
           </div>
-        )}
-        
-        <TagInput
-          tags={newTags}
-          onTagsChange={setNewTags}
-          suggestions={[]}
-          placeholder="Type to add tags..."
-          maxTags={5}
-        />
-        
-        {/* AI-suggested relevant tags */}
-        {loadingSuggestions && (
-          <div className="text-xs text-muted-foreground">Finding relevant tags...</div>
-        )}
-        
-        {!loadingSuggestions && relevantSuggestions.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Suggested for this content:</p>
+          
+          {/* Tag suggestions */}
+          {tagSuggestions.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {relevantSuggestions.map((suggestion, index) => (
+              {tagSuggestions.slice(0, 5).map((suggestion) => (
                 <Button
-                  key={index}
+                  key={suggestion}
                   variant="outline"
                   size="sm"
-                  className="h-6 text-xs"
                   onClick={() => handleSuggestionClick(suggestion)}
+                  className="h-6 px-2 text-xs"
                 >
                   {suggestion}
                 </Button>
               ))}
             </div>
-          </div>
-        )}
-        
-        <div className="flex gap-2">
-          <Button size="sm" onClick={handleAddTags}>
-            Add to Note
-          </Button>
-          <Button size="sm" variant="outline" onClick={handleCancel}>
-            Cancel
-          </Button>
+          )}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {currentTags.map((tag, index) => (
-        <Badge key={index} variant="outline" className="text-xs">
-          {tag}
-        </Badge>
-      ))}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleStartEditing}
-        className="h-6 text-xs"
-      >
-        <Plus className="h-3 w-3 mr-1" />
-        Add tags
-      </Button>
+      )}
     </div>
   );
 };

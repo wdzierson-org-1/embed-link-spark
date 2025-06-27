@@ -121,7 +121,7 @@ const Index = () => {
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center ml-2.5">
             <h1 className="text-2xl font-bold mt-2">
-              <span className="font-bold">Noodle Notes</span>
+              <span className="font-bold">Noodle</span>
               <span className="text-muted-foreground font-normal"> / {currentDate}</span>
             </h1>
           </div>
@@ -159,8 +159,8 @@ const Index = () => {
         </div>
       </div>
       
-      {/* Tab bar with integrated collapse button - contained style with rounded corners */}
-      <div className="w-full bg-background">
+      {/* Tab bar with integrated collapse button - moved down by 5px */}
+      <div className="w-full bg-background" style={{ marginTop: '5px' }}>
         <div className="container mx-auto px-4">
           <div className="flex items-center bg-muted rounded-lg p-1 w-full">
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
