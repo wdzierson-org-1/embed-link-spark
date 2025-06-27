@@ -37,6 +37,9 @@ const EditItemAutoSaveIndicator = ({ saveStatus, lastSaved }: EditItemAutoSaveIn
         {saveStatus === 'saving' && (
           <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
         )}
+        {saveStatus === 'saved' && (
+          <div className="rounded-full h-3 w-3 bg-green-500"></div>
+        )}
         <p className={`text-xs ${getStatusColor()}`}>
           {getSaveStatusText()}
         </p>

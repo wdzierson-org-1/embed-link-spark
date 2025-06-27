@@ -27,6 +27,7 @@ interface EditItemContentEditorProps {
 const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanceKey, isMaximized = false }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
   const editorRef = useRef<EditorInstance | null>(null);
+  const lastContentRef = useRef<string>('');
 
   const handleImageUpload = async (file: File): Promise<string> => {
     console.log('EditItemContentEditor: Starting image upload', { 
@@ -135,6 +136,9 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
     
     console.log('EditItemContentEditor: Generated editor key', { key });
     
+    // Store the initial content for comparison
+    lastContentRef.current = content;
+    
     return {
       initialContent: jsonContent,
       effectiveEditorKey: key
@@ -177,7 +181,21 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
             console.log('EditItemContentEditor: Content updated in editor');
             editorRef.current = editor;
             const json = editor.getJSON();
-            onContentChange(JSON.stringify(json));
+            const jsonString = JSON.stringify(json);
+            
+            // Only call onContentChange if content actually changed
+            if (jsonString !== lastContentRef.current) {
+              console.log('EditItemContentEditor: Content changed, calling onContentChange', {
+                previousLength: lastContentRef.current.length,
+                newLength: jsonString.length,
+                preview: jsonString.slice(0, 100)
+              });
+              
+              lastContentRef.current = jsonString;
+              onContentChange(jsonString);
+            } else {
+              console.log('EditItemContentEditor: Content unchanged, skipping onContentChange');
+            }
           }}
         >
           <EditorCommandMenu />

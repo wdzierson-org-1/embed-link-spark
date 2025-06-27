@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect } from 'react';
 import { generateTitle } from '@/utils/titleGenerator';
 import { useEditItemState } from './useEditItemState';
@@ -52,6 +53,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     saveStatus,
     lastSaved,
     debouncedSave,
+    flushAndFinalSave,
     clearSaveState,
   } = useEditItemSave({ onSave, saveToLocalStorage });
 
@@ -62,66 +64,98 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleImageStateChange,
   } = useEditItemMedia({ item });
 
-  // Handle content changes with debounced save
+  // Handle content changes with improved synchronization
   const handleTitleChange = useCallback((newTitle: string) => {
+    console.log('handleTitleChange called:', { newTitle: newTitle?.slice(0, 50) });
+    
+    // Update both state and ref synchronously
     titleRef.current = newTitle;
     setTitle(newTitle);
     
     if (item?.id) {
-      debouncedSave(item.id, { 
+      const updates = { 
         title: newTitle.trim() || undefined,
         description: descriptionRef.current.trim() || undefined,
         content: contentRef.current.trim() || undefined
-      }, titleRef, descriptionRef, contentRef);
+      };
+      
+      console.log('Calling debouncedSave from handleTitleChange:', updates);
+      debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setTitle]);
 
   const handleDescriptionChange = useCallback((newDescription: string) => {
+    console.log('handleDescriptionChange called:', { newDescription: newDescription?.slice(0, 50) });
+    
+    // Update both state and ref synchronously
     descriptionRef.current = newDescription;
     setDescription(newDescription);
     
     if (item?.id) {
-      debouncedSave(item.id, { 
+      const updates = { 
         title: titleRef.current.trim() || undefined,
         description: newDescription.trim() || undefined,
         content: contentRef.current.trim() || undefined
-      }, titleRef, descriptionRef, contentRef);
+      };
+      
+      console.log('Calling debouncedSave from handleDescriptionChange:', updates);
+      debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setDescription]);
 
   const handleContentChange = useCallback((newContent: string) => {
+    console.log('handleContentChange called:', { 
+      newContent: newContent?.slice(0, 100),
+      contentLength: newContent?.length 
+    });
+    
+    // Validate content - don't save empty content if we had content before
+    if (!newContent?.trim() && contentRef.current?.trim()) {
+      console.warn('Ignoring empty content update when we have existing content');
+      return;
+    }
+    
+    // Update both state and ref synchronously
     contentRef.current = newContent;
+    setContent(newContent);
     
     if (item?.id) {
-      debouncedSave(item.id, { 
+      const updates = { 
         title: titleRef.current.trim() || undefined,
         description: descriptionRef.current.trim() || undefined,
         content: newContent.trim() || undefined
-      }, titleRef, descriptionRef, contentRef);
+      };
+      
+      console.log('Calling debouncedSave from handleContentChange:', updates);
+      debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
-  }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef]);
+  }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setContent]);
 
-  // Save to server when sheet closes (final save)
+  // Enhanced final save when sheet closes
   useEffect(() => {
     if (!open && itemRef.current && !initialLoadRef.current) {
       const performFinalSave = async () => {
         try {
-          const updates: any = {
-            title: titleRef.current.trim() || undefined,
-            description: descriptionRef.current.trim() || undefined,
-            content: contentRef.current.trim() || undefined,
-          };
-
-          await onSave(itemRef.current!.id, updates, { showSuccessToast: false, refreshItems: true });
+          console.log('Sheet closing, performing final save for item:', itemRef.current?.id);
+          
+          await flushAndFinalSave(
+            itemRef.current!.id,
+            titleRef,
+            descriptionRef,
+            contentRef
+          );
           
           if (itemRef.current?.id) {
             clearDraft(itemRef.current.id);
           }
+          
+          console.log('Final save completed successfully');
         } catch (error) {
           console.error('Final save failed:', error);
         }
       };
 
+      // Only perform final save if we have any content
       if (titleRef.current || descriptionRef.current || contentRef.current) {
         performFinalSave();
       } else if (itemRef.current?.id) {
@@ -132,7 +166,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     if (!open) {
       clearSaveState();
     }
-  }, [open, onSave, clearDraft, clearSaveState, titleRef, descriptionRef, contentRef, itemRef, initialLoadRef]);
+  }, [open, flushAndFinalSave, clearDraft, clearSaveState, titleRef, descriptionRef, contentRef, itemRef, initialLoadRef]);
 
   // Handlers that don't need auto-save
   const handleTagsChange = () => {
