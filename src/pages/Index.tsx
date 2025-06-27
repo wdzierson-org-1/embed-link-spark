@@ -159,12 +159,12 @@ const Index = () => {
         </div>
       </div>
       
-      {/* Full-width tab bar with collapse button integrated */}
-      <div className="w-full bg-background">
+      {/* Unified tab bar and collapse button container */}
+      <div className="w-full bg-muted">
         <div className="container mx-auto px-4">
-          <div className="flex items-center">
+          <div className="flex items-center bg-muted rounded-md p-1">
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
-              <TabsList className="grid w-full grid-cols-3 h-12">
+              <TabsList className="grid w-full grid-cols-3 h-12 bg-muted border-0">
                 <TabsTrigger value="text" className="flex items-center gap-2">
                   <FileText className="h-4 w-4" />
                   Text Note
@@ -184,7 +184,7 @@ const Index = () => {
               variant="ghost"
               size="sm"
               onClick={toggleInputUI}
-              className="ml-4 flex items-center gap-1"
+              className="ml-2 flex items-center gap-1 bg-transparent hover:bg-muted-foreground/10"
             >
               {isInputUICollapsed ? (
                 <ChevronDown className="h-4 w-4" />
@@ -224,8 +224,8 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Chat button and filter section - moved up additional 20px (total 38px from original) */}
-      <div className="container mx-auto px-4 pt-2 pb-4">
+      {/* Chat button and filter section - moved up additional 18px from previous */}
+      <div className="container mx-auto px-4 pt-0 pb-4">
         <div className="flex items-center justify-between mb-4">
           <Button
             variant="outline"
