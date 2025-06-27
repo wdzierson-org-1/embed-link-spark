@@ -37,44 +37,75 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
     itemRef.current = item; 
   }, [item]);
 
-  // Generate a stable editor key when item changes or sheet opens
+  // ENHANCED: Better content loading and initialization
   useEffect(() => {
     if (item && open) {
+      console.log('useEditItemState: Item opened/changed', { 
+        itemId: item.id, 
+        hasContent: !!item.content,
+        contentLength: item.content?.length || 0,
+        contentPreview: item.content ? item.content.slice(0, 100) + '...' : 'No content'
+      });
+      
       setIsContentLoading(true);
       initialLoadRef.current = true;
       
       // Create stable editor key that doesn't change during editing session
-      const newKey = `editor-${item.id}-stable`;
+      const newKey = `editor-${item.id}-${Date.now()}`; // Add timestamp to force refresh
       setEditorInstanceKey(newKey);
       
-      console.log('useEditItemState: Generated stable editor key for item', { 
+      console.log('useEditItemState: Generated new editor key for fresh load', { 
         itemId: item.id, 
         editorKey: newKey 
       });
       
-      // Set initial values in both state and refs
+      // CRITICAL: Set initial values in both state and refs from DATABASE content
       const initialTitle = item.title || '';
       const initialDescription = item.description || '';
       const initialContent = item.content || '';
       
+      console.log('useEditItemState: Setting initial content from database', {
+        itemId: item.id,
+        titleLength: initialTitle.length,
+        descriptionLength: initialDescription.length,
+        contentLength: initialContent.length,
+        contentPreview: initialContent.slice(0, 100) + '...'
+      });
+      
+      // Update state
       setTitle(initialTitle);
       setDescription(initialDescription);
       setContent(initialContent);
       
+      // Update refs to match database content
       titleRef.current = initialTitle;
       descriptionRef.current = initialDescription;
       contentRef.current = initialContent;
       
+      console.log('useEditItemState: State and refs updated with database content', {
+        itemId: item.id,
+        stateContentLength: initialContent.length,
+        refContentLength: initialContent.length,
+        contentMatch: contentRef.current === initialContent
+      });
+      
+      // Shorter delay to reduce loading time while ensuring proper initialization
       setTimeout(() => {
         setIsContentLoading(false);
         initialLoadRef.current = false;
-      }, 100);
+        console.log('useEditItemState: Content loading completed', {
+          itemId: item.id,
+          finalContentLength: contentRef.current.length
+        });
+      }, 50);
     }
-  }, [item?.id, open]);
+  }, [item?.id, item?.content, open]); // Added item?.content to dependencies
 
   // Clear editor state when sheet closes
   useEffect(() => {
     if (!open) {
+      console.log('useEditItemState: Clearing editor state on sheet close');
+      
       setTitle('');
       setDescription('');
       setContent('');
@@ -88,7 +119,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       descriptionRef.current = '';
       contentRef.current = '';
       
-      console.log('useEditItemState: Cleared editor state on sheet close');
+      console.log('useEditItemState: Editor state cleared completely');
     }
   }, [open]);
 

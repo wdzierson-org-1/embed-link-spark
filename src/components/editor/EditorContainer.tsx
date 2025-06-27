@@ -1,5 +1,5 @@
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import {
   EditorRoot,
   EditorContent,
@@ -28,18 +28,47 @@ const EditorContainer = ({
   isMaximized = false 
 }: EditorContainerProps) => {
   const lastContentRef = useRef<string>('');
+  const initializationRef = useRef<boolean>(false);
 
   const extensions = createEditorExtensions(handleImageUpload);
+
+  // ENHANCED: Track content prop changes
+  useEffect(() => {
+    console.log('EditorContainer: Content prop changed:', {
+      editorKey,
+      newContentLength: content?.length || 0,
+      lastContentLength: lastContentRef.current?.length || 0,
+      contentChanged: content !== lastContentRef.current,
+      contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
+    });
+    
+    // Update the ref when content prop changes (from database load)
+    if (content !== lastContentRef.current) {
+      console.log('EditorContainer: Updating lastContentRef due to prop change');
+      lastContentRef.current = content || '';
+    }
+  }, [content, editorKey]);
 
   const getInitialContent = () => {
     const contentToUse = content || '';
     console.log('EditorContainer: Converting initial content:', { 
       contentLength: contentToUse.length,
-      editorKey
+      editorKey,
+      contentPreview: contentToUse.slice(0, 100) + '...'
     });
     
     const jsonContent = convertToJsonContent(contentToUse);
+    
+    // CRITICAL: Ensure lastContentRef matches the initial content
     lastContentRef.current = contentToUse;
+    initializationRef.current = true;
+    
+    console.log('EditorContainer: Initial content conversion complete:', {
+      editorKey,
+      hasJsonContent: !!jsonContent,
+      lastContentRefLength: lastContentRef.current.length
+    });
+    
     return jsonContent;
   };
 
@@ -47,7 +76,8 @@ const EditorContainer = ({
 
   console.log('EditorContainer: Rendering editor:', { 
     editorKey,
-    hasInitialContent: !!initialJsonContent
+    hasInitialContent: !!initialJsonContent,
+    contentLength: content?.length || 0
   });
 
   if (!initialJsonContent) {
@@ -76,7 +106,13 @@ const EditorContainer = ({
             }
           }}
           onUpdate={({ editor }: { editor: EditorInstance }) => {
-            // ENHANCED DEBUGGING - trace the complete flow
+            // Skip the first update during initialization to prevent immediate overwrite
+            if (initializationRef.current) {
+              console.log('EditorContainer: Skipping initialization update to prevent overwrite');
+              initializationRef.current = false;
+              return;
+            }
+
             console.log('EditorContainer: onUpdate triggered', {
               editorKey,
               timestamp: new Date().toISOString()
@@ -91,10 +127,11 @@ const EditorContainer = ({
               currentLength: jsonString.length,
               lastLength: lastContentRef.current.length,
               hasChanged: jsonString !== lastContentRef.current,
-              contentPreview: jsonString.slice(0, 100) + '...'
+              newContentPreview: jsonString.slice(0, 100) + '...',
+              lastContentPreview: lastContentRef.current.slice(0, 100) + '...'
             });
             
-            // ALWAYS call onContentChange when content changes - simplified like TextNoteTab
+            // ALWAYS call onContentChange when content changes
             if (jsonString !== lastContentRef.current) {
               console.log('EditorContainer: Content changed, calling onContentChange', {
                 editorKey,

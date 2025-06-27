@@ -71,44 +71,49 @@ export const useEditItemContent = ({
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setDescription]);
 
   const handleContentChange = useCallback((newContent: string) => {
-    console.log('handleContentChange: ENTRY', { 
-      contentLength: newContent?.length,
+    console.log('useEditItemContent: handleContentChange ENTRY', { 
+      contentLength: newContent?.length || 0,
       itemId: item?.id,
       hasNewContent: !!newContent,
-      hasItemId: !!item?.id
+      hasItemId: !!item?.id,
+      contentPreview: newContent ? newContent.slice(0, 100) + '...' : 'No content',
+      timestamp: new Date().toISOString()
     });
     
     // CRITICAL: Update ref FIRST, THEN state, THEN save
+    console.log('useEditItemContent: Updating contentRef and state');
     contentRef.current = newContent;
     setContent(newContent);
     
-    console.log('handleContentChange: Refs and state updated', {
-      contentRefLength: contentRef.current?.length,
-      titleRefLength: titleRef.current?.length,
-      descriptionRefLength: descriptionRef.current?.length
+    console.log('useEditItemContent: Refs and state updated', {
+      contentRefLength: contentRef.current?.length || 0,
+      titleRefLength: titleRef.current?.length || 0,
+      descriptionRefLength: descriptionRef.current?.length || 0,
+      refsMatch: contentRef.current === newContent
     });
     
-    // SIMPLIFIED: Save if we have an item ID (remove content filtering)
+    // ALWAYS save if we have an item ID - no content filtering
     if (item?.id) {
       const updates = { 
         title: titleRef.current || undefined,
         description: descriptionRef.current || undefined,
-        content: newContent || undefined  // Use newContent directly, not from ref
+        content: newContent || undefined  // Use newContent directly
       };
       
-      console.log('handleContentChange: Calling debouncedSave', {
+      console.log('useEditItemContent: Calling debouncedSave', {
         itemId: item.id,
         hasContent: !!updates.content,
-        contentLength: updates.content?.length,
+        contentLength: updates.content?.length || 0,
         hasTitle: !!updates.title,
-        hasDescription: !!updates.description
+        hasDescription: !!updates.description,
+        updatePreview: updates.content ? updates.content.slice(0, 100) + '...' : 'No content'
       });
       
       debouncedSave(item.id, updates);
       
-      console.log('handleContentChange: debouncedSave called successfully');
+      console.log('useEditItemContent: debouncedSave called successfully');
     } else {
-      console.log('handleContentChange: No save - missing item ID', {
+      console.log('useEditItemContent: No save - missing item ID', {
         hasItem: !!item,
         itemId: item?.id
       });

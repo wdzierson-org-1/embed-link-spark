@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEditorImageUpload } from './editor/EditorImageUpload';
 import EditorContainer from './editor/EditorContainer';
@@ -31,14 +31,27 @@ const EditItemContentEditor = ({
     return key;
   }, [editorInstanceKey, itemId]);
 
+  // ENHANCED: Track content prop changes for debugging
+  useEffect(() => {
+    console.log('EditItemContentEditor: Content prop changed:', {
+      itemId,
+      contentLength: content?.length || 0,
+      hasContent: !!content,
+      contentPreview: content ? content.slice(0, 100) + '...' : 'No content',
+      editorKey: effectiveEditorKey
+    });
+  }, [content, itemId, effectiveEditorKey]);
+
   // Enhanced onContentChange with debugging
   const handleContentChange = useMemo(() => {
     return (newContent: string) => {
       console.log('EditItemContentEditor: handleContentChange called:', {
         itemId,
-        contentLength: newContent?.length,
-        hasContent: !!newContent,
-        editorKey: effectiveEditorKey
+        newContentLength: newContent?.length || 0,
+        hasNewContent: !!newContent,
+        contentChanged: newContent !== content,
+        editorKey: effectiveEditorKey,
+        newContentPreview: newContent ? newContent.slice(0, 100) + '...' : 'No content'
       });
       
       // Call the parent's onContentChange
@@ -46,14 +59,15 @@ const EditItemContentEditor = ({
       
       console.log('EditItemContentEditor: Parent onContentChange called successfully');
     };
-  }, [onContentChange, itemId, effectiveEditorKey]);
+  }, [onContentChange, itemId, effectiveEditorKey, content]);
 
   console.log('EditItemContentEditor: Rendering with props:', {
     itemId,
-    contentLength: content?.length,
+    contentLength: content?.length || 0,
     hasContent: !!content,
     editorKey: effectiveEditorKey,
-    isMaximized
+    isMaximized,
+    contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
   });
 
   return (
