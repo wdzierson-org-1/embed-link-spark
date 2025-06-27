@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -126,7 +125,7 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
                       keydown: (_view, event) => handleCommandNavigation(event),
                     },
                     attributes: {
-                      class: 'prose prose-sm dark:prose-invert prose-headings:font-title font-default focus:outline-none max-w-full p-4 prose-h1:text-3xl prose-h1:font-bold prose-h2:text-2xl prose-h2:font-bold prose-h3:text-xl prose-h3:font-bold prose-h4:text-lg prose-h4:font-bold prose-h5:text-base prose-h5:font-bold prose-h6:text-sm prose-h6:font-bold',
+                      class: 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-4 prose-h1:text-2xl prose-h1:font-bold prose-h2:text-xl prose-h2:font-bold prose-h3:text-lg prose-h3:font-bold prose-h4:text-base prose-h4:font-bold prose-h5:text-sm prose-h5:font-bold prose-h6:text-xs prose-h6:font-bold prose-p:leading-normal prose-p:mb-2 prose-ul:leading-normal prose-ol:leading-normal prose-li:leading-normal prose-li:mb-1',
                       'data-placeholder': 'Start typing...'
                     }
                   }}
