@@ -20,6 +20,8 @@ interface EditorContentRendererProps {
   handleImageUpload?: (file: File) => Promise<string>;
   uploadFn?: (file: File, view: any, pos: number) => Promise<void>;
   onUpdate: (editor: EditorInstance) => void;
+  onFocus?: (editor: EditorInstance) => void;
+  onBlur?: (editor: EditorInstance) => void;
 }
 
 const EditorContentRenderer = ({
@@ -28,7 +30,9 @@ const EditorContentRenderer = ({
   isMaximized,
   handleImageUpload,
   uploadFn,
-  onUpdate
+  onUpdate,
+  onFocus,
+  onBlur
 }: EditorContentRendererProps) => {
   const extensions = createEditorExtensions(handleImageUpload);
 
@@ -44,11 +48,11 @@ const EditorContentRenderer = ({
               keydown: (_view, event) => handleCommandNavigation(event),
             },
             handlePaste: uploadFn ? (view, event) => {
-              console.log('EditorContainer: Paste event detected');
+              console.log('EditorContentRenderer: Paste event detected');
               return handleImagePaste(view, event, uploadFn);
             } : undefined,
             handleDrop: uploadFn ? (view, event, _slice, moved) => {
-              console.log('EditorContainer: Drop event detected');
+              console.log('EditorContentRenderer: Drop event detected');
               return handleImageDrop(view, event, moved, uploadFn);
             } : undefined,
             attributes: {
@@ -56,6 +60,8 @@ const EditorContentRenderer = ({
             }
           }}
           onUpdate={({ editor }: { editor: EditorInstance }) => onUpdate(editor)}
+          onFocus={onFocus ? ({ editor }: { editor: EditorInstance }) => onFocus(editor) : undefined}
+          onBlur={onBlur ? ({ editor }: { editor: EditorInstance }) => onBlur(editor) : undefined}
         >
           <EditorCommandMenu />
           <EditorBubbleMenu />

@@ -21,13 +21,16 @@ const EditorContainer = ({
   const uploadFn = useEditorUploadHandler({ 
     handleImageUpload, 
     editorKey,
-    onContentChange // Pass onContentChange to upload handler
+    onContentChange 
   });
 
   const handleEditorUpdate = (editor: EditorInstance) => {
     // Skip the first update during initialization to prevent immediate overwrite
     if (initializationRef.current) {
-      console.log('EditorContainer: Skipping initialization update to prevent overwrite');
+      console.log('EditorContainer: Skipping initialization update to prevent overwrite', {
+        editorKey,
+        reason: 'initializationRef.current === true'
+      });
       initializationRef.current = false;
       return;
     }
@@ -37,26 +40,32 @@ const EditorContainer = ({
       timestamp: new Date().toISOString()
     });
     
-    // Get JSON content like TextNoteTab
+    // Get JSON content
     const json = editor.getJSON();
     const jsonString = JSON.stringify(json);
     
-    console.log('EditorContainer: Content comparison:', {
+    // Enhanced content comparison with detailed logging
+    const hasImageInContent = jsonString.includes('"type":"image"');
+    const contentChanged = jsonString !== lastContentRef.current;
+    
+    console.log('EditorContainer: Content analysis:', {
       editorKey,
       currentLength: jsonString.length,
       lastLength: lastContentRef.current.length,
-      hasChanged: jsonString !== lastContentRef.current,
-      hasImageInContent: jsonString.includes('"type":"image"'),
-      newContentPreview: jsonString.slice(0, 100) + '...',
-      lastContentPreview: lastContentRef.current.slice(0, 100) + '...'
+      hasChanged: contentChanged,
+      hasImageInContent,
+      contentChangeReason: contentChanged ? 'Content differs' : 'Content identical',
+      newContentPreview: jsonString.slice(0, 150) + '...',
+      lastContentPreview: lastContentRef.current.slice(0, 150) + '...'
     });
     
-    // ALWAYS call onContentChange when content changes
-    if (jsonString !== lastContentRef.current) {
-      console.log('EditorContainer: Content changed, calling onContentChange', {
+    // ENHANCED: Always save when content changes, with special handling for images
+    if (contentChanged) {
+      console.log('EditorContainer: Content changed, triggering save', {
         editorKey,
         newContentLength: jsonString.length,
-        hasImageInContent: jsonString.includes('"type":"image"'),
+        hasImageInContent,
+        changeType: hasImageInContent ? 'Content with images' : 'Text content',
         willTriggerSave: true
       });
       
@@ -66,15 +75,41 @@ const EditorContainer = ({
       // Call onContentChange - this should trigger the save
       onContentChange(jsonString);
       
-      console.log('EditorContainer: onContentChange called successfully', {
+      console.log('EditorContainer: Save triggered successfully', {
         editorKey,
-        contentSent: jsonString.length > 0
+        savedContentLength: jsonString.length,
+        hasImages: hasImageInContent
       });
     } else {
-      console.log('EditorContainer: No content change detected', {
+      console.log('EditorContainer: No content change detected - skipping save', {
         editorKey,
-        reason: 'jsonString === lastContentRef.current'
+        reason: 'jsonString === lastContentRef.current',
+        bothEmpty: jsonString.length === 0 && lastContentRef.current.length === 0
       });
+    }
+  };
+
+  // ENHANCED: Add editor focus/blur handlers to catch missed content changes
+  const handleEditorFocus = (editor: EditorInstance) => {
+    console.log('EditorContainer: Editor focused', { editorKey });
+  };
+
+  const handleEditorBlur = (editor: EditorInstance) => {
+    console.log('EditorContainer: Editor blurred - checking for unsaved changes', { editorKey });
+    
+    // Extract current content and compare
+    const json = editor.getJSON();
+    const jsonString = JSON.stringify(json);
+    
+    if (jsonString !== lastContentRef.current) {
+      console.log('EditorContainer: Unsaved changes detected on blur - triggering save', {
+        editorKey,
+        contentLength: jsonString.length,
+        hasImages: jsonString.includes('"type":"image"')
+      });
+      
+      lastContentRef.current = jsonString;
+      onContentChange(jsonString);
     }
   };
 
@@ -105,6 +140,8 @@ const EditorContainer = ({
       handleImageUpload={handleImageUpload}
       uploadFn={handleImageUpload ? uploadFn : undefined}
       onUpdate={handleEditorUpdate}
+      onFocus={handleEditorFocus}
+      onBlur={handleEditorBlur}
     />
   );
 };

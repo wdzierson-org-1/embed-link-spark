@@ -12,9 +12,9 @@ export const useEditorContentManager = ({ content, editorKey }: EditorContentMan
   const lastContentRef = useRef<string>('');
   const initializationRef = useRef<boolean>(false);
 
-  // Track content prop changes
+  // CRITICAL: Initialize lastContentRef properly when content prop changes
   useEffect(() => {
-    console.log('EditorContainer: Content prop changed:', {
+    console.log('EditorContentManager: Content prop changed:', {
       editorKey,
       newContentLength: content?.length || 0,
       lastContentLength: lastContentRef.current?.length || 0,
@@ -22,16 +22,15 @@ export const useEditorContentManager = ({ content, editorKey }: EditorContentMan
       contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
     });
     
-    // Update the ref when content prop changes (from database load)
-    if (content !== lastContentRef.current) {
-      console.log('EditorContainer: Updating lastContentRef due to prop change');
-      lastContentRef.current = content || '';
-    }
+    // ALWAYS update the ref when content prop changes (from database load)
+    // This ensures we start with the correct baseline for comparison
+    console.log('EditorContentManager: Updating lastContentRef to match database content');
+    lastContentRef.current = content || '';
   }, [content, editorKey]);
 
   const getInitialContent = (): JSONContent | null => {
     const contentToUse = content || '';
-    console.log('EditorContainer: Converting initial content:', { 
+    console.log('EditorContentManager: Converting initial content:', { 
       contentLength: contentToUse.length,
       editorKey,
       contentPreview: contentToUse.slice(0, 100) + '...'
@@ -39,14 +38,15 @@ export const useEditorContentManager = ({ content, editorKey }: EditorContentMan
     
     const jsonContent = convertToJsonContent(contentToUse);
     
-    // CRITICAL: Ensure lastContentRef matches the initial content
+    // CRITICAL: Ensure lastContentRef matches the initial content exactly
     lastContentRef.current = contentToUse;
     initializationRef.current = true;
     
-    console.log('EditorContainer: Initial content conversion complete:', {
+    console.log('EditorContentManager: Initial content setup complete:', {
       editorKey,
       hasJsonContent: !!jsonContent,
-      lastContentRefLength: lastContentRef.current.length
+      lastContentRefSet: lastContentRef.current.length,
+      initializationFlagSet: initializationRef.current
     });
     
     return jsonContent;

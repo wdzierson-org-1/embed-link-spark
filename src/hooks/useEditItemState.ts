@@ -37,7 +37,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
     itemRef.current = item; 
   }, [item]);
 
-  // ENHANCED: Better content loading and initialization
+  // ENHANCED: Stable editor key generation - only changes when item ID changes
   useEffect(() => {
     if (item && open) {
       console.log('useEditItemState: Item opened/changed', { 
@@ -50,14 +50,24 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       setIsContentLoading(true);
       initialLoadRef.current = true;
       
-      // Create stable editor key that doesn't change during editing session
-      const newKey = `editor-${item.id}-${Date.now()}`; // Add timestamp to force refresh
-      setEditorInstanceKey(newKey);
+      // CRITICAL: Create stable editor key that only changes when item.id changes
+      // This prevents editor re-initialization during editing sessions
+      const stableKey = `editor-${item.id}-stable`;
       
-      console.log('useEditItemState: Generated new editor key for fresh load', { 
-        itemId: item.id, 
-        editorKey: newKey 
-      });
+      // Only update editor key if it's different (item changed)
+      if (editorInstanceKey !== stableKey) {
+        setEditorInstanceKey(stableKey);
+        console.log('useEditItemState: Updated editor key for new item', { 
+          itemId: item.id, 
+          newEditorKey: stableKey,
+          previousKey: editorInstanceKey
+        });
+      } else {
+        console.log('useEditItemState: Keeping existing stable editor key', {
+          itemId: item.id,
+          editorKey: stableKey
+        });
+      }
       
       // CRITICAL: Set initial values in both state and refs from DATABASE content
       const initialTitle = item.title || '';
@@ -99,7 +109,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
         });
       }, 50);
     }
-  }, [item?.id, item?.content, open]); // Added item?.content to dependencies
+  }, [item?.id, open]); // CRITICAL: Only depend on item.id and open, not item.content
 
   // Clear editor state when sheet closes
   useEffect(() => {
