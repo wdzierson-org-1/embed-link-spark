@@ -103,17 +103,27 @@ const Index = () => {
     setSelectedTags([]);
   };
 
+  // Get current date
+  const currentDate = new Date().toLocaleDateString('en-US', { 
+    month: 'long', 
+    day: 'numeric', 
+    year: 'numeric' 
+  });
+
   if (!user) {
     return null;
   }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header with logo and user menu */}
+      {/* Header with logo, date and user menu */}
       <div className="w-full bg-background">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center -ml-2.5">
-            <h1 className="text-2xl font-bold mt-2">Noodle notes</h1>
+          <div className="flex items-center ml-2.5">
+            <h1 className="text-2xl font-bold mt-2">
+              <span className="font-bold">Noodle Notes</span>
+              <span className="text-muted-foreground font-normal"> / {currentDate}</span>
+            </h1>
           </div>
           <div className="flex items-center gap-4">
             <DropdownMenu>
@@ -214,8 +224,8 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Chat button and filter section - moved up 18px */}
-      <div className="container mx-auto px-4 pt-4 pb-4">
+      {/* Chat button and filter section - moved up additional 20px (total 38px from original) */}
+      <div className="container mx-auto px-4 pt-2 pb-4">
         <div className="flex items-center justify-between mb-4">
           <Button
             variant="outline"
