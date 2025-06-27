@@ -17,7 +17,7 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
       await onSave(title.trim() || '');
       setIsEditing(false);
       
-      // Trigger flash animation instead of toast
+      // Trigger flash animation
       setIsFlashing(true);
       setTimeout(() => setIsFlashing(false), 600); // Animation duration
     } catch (error) {
@@ -33,16 +33,16 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
 
   if (isEditing) {
     return (
-      <div className="relative" style={{ marginLeft: '-8px' }}>
+      <div className="relative">
         <Input
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
           onKeyPress={handleKeyPress}
           onBlur={handleSave}
-          className="text-2xl font-bold border-none p-0 shadow-none focus-visible:ring-0 h-auto resize-none ml-2"
+          className="text-2xl font-bold border-none p-2 shadow-none focus-visible:ring-0 h-auto resize-none bg-transparent"
           placeholder="Enter title..."
           autoFocus
-          style={{ fontSize: '1.5rem', lineHeight: '2rem' }}
+          style={{ fontSize: '1.5rem', lineHeight: '2rem', marginLeft: '-8px' }}
         />
       </div>
     );

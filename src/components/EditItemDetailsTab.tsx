@@ -71,7 +71,7 @@ const EditItemDetailsTab = ({
   }
 
   const contentComponent = (
-    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-48px)' }}>
+    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-78px)' }}>
       {/* Title Section */}
       <EditItemTitleSection
         title={title}
@@ -108,6 +108,7 @@ const EditItemDetailsTab = ({
               onContentChange={onContentChange}
               itemId={item?.id}
               editorInstanceKey={editorKey}
+              isMaximized={false}
             />
           )}
           <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">

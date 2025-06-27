@@ -1,3 +1,4 @@
+
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -19,9 +20,10 @@ interface EditItemContentEditorProps {
   onContentChange: (content: string) => void;
   itemId?: string;
   editorInstanceKey?: string; // External key to control when editor recreates
+  isMaximized?: boolean; // New prop to indicate if editor is maximized
 }
 
-const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanceKey }: EditItemContentEditorProps) => {
+const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanceKey, isMaximized = false }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
   const editorRef = useRef<EditorInstance | null>(null);
 
@@ -154,7 +156,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
     console.log('EditItemContentEditor: No initial content, showing loading');
     return (
       <div>
-        <div className="flex items-center justify-center text-muted-foreground h-96">
+        <div className={`flex items-center justify-center text-muted-foreground ${isMaximized ? 'h-96' : 'border rounded-md p-4 min-h-[300px]'}`}>
           Loading editor...
         </div>
       </div>
@@ -162,12 +164,12 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
   }
 
   return (
-    <div className="h-96 overflow-y-auto">
+    <div className={isMaximized ? "h-96 overflow-y-auto" : "border rounded-md"}>
       <EditorRoot key={effectiveEditorKey}>
         <EditorContent
           initialContent={initialContent}
           extensions={extensions}
-          className="h-full w-full max-w-none"
+          className={isMaximized ? "h-full w-full max-w-none" : "min-h-[300px] w-full max-w-none"}
           editorProps={{
             handleDOMEvents: {
               keydown: (_view, event) => handleCommandNavigation(event),

@@ -33,13 +33,14 @@ const MaximizedEditor = ({
         </Button>
       </div>
       
-      <div className="flex-1 p-6 overflow-y-auto">
-        <div className="max-w-4xl mx-auto">
+      <div className="flex-1 p-6 overflow-hidden">
+        <div className="max-w-4xl mx-auto h-full">
           <EditItemContentEditor
             content={content}
             onContentChange={onContentChange}
             itemId={itemId}
             editorInstanceKey={editorKey}
+            isMaximized={true}
           />
         </div>
       </div>
