@@ -31,6 +31,17 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
     }
   };
 
+  // Define the flash animation keyframes
+  const flashKeyframes = {
+    '0%': { backgroundColor: 'transparent' },
+    '16.66%': { backgroundColor: '#fef3c7' }, // yellow-100
+    '33.33%': { backgroundColor: '#ddd6fe' }, // purple-200
+    '50%': { backgroundColor: '#bfdbfe' }, // blue-200
+    '66.66%': { backgroundColor: '#bbf7d0' }, // green-200
+    '83.33%': { backgroundColor: '#fed7d7' }, // pink-200
+    '100%': { backgroundColor: 'transparent' }
+  };
+
   if (isEditing) {
     return (
       <div className="relative" style={{ marginLeft: '-8px' }}>
@@ -49,32 +60,34 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
   }
 
   return (
-    <h1 
-      className={`text-2xl font-bold cursor-pointer hover:bg-yellow-50 p-2 rounded transition-colors ${
-        isFlashing ? 'animate-[flash_0.6s_ease-in-out]' : ''
-      }`}
-      onClick={() => setIsEditing(true)}
-      title="Click to edit title"
-      style={{ 
-        marginLeft: '-8px',
-        ...(isFlashing && {
-          animation: 'flash 0.6s ease-in-out'
-        })
-      }}
-    >
-      {title || 'Untitled Note'}
-      <style jsx>{`
-        @keyframes flash {
-          0% { background-color: transparent; }
-          16.66% { background-color: #fef3c7; } /* yellow-100 */
-          33.33% { background-color: #ddd6fe; } /* purple-200 */
-          50% { background-color: #bfdbfe; } /* blue-200 */
-          66.66% { background-color: #bbf7d0; } /* green-200 */
-          83.33% { background-color: #fed7d7; } /* pink-200 */
-          100% { background-color: transparent; }
-        }
-      `}</style>
-    </h1>
+    <>
+      <style>
+        {`
+          @keyframes flash {
+            0% { background-color: transparent; }
+            16.66% { background-color: #fef3c7; }
+            33.33% { background-color: #ddd6fe; }
+            50% { background-color: #bfdbfe; }
+            66.66% { background-color: #bbf7d0; }
+            83.33% { background-color: #fed7d7; }
+            100% { background-color: transparent; }
+          }
+        `}
+      </style>
+      <h1 
+        className="text-2xl font-bold cursor-pointer hover:bg-yellow-50 p-2 rounded transition-colors"
+        onClick={() => setIsEditing(true)}
+        title="Click to edit title"
+        style={{ 
+          marginLeft: '-8px',
+          ...(isFlashing && {
+            animation: 'flash 0.6s ease-in-out'
+          })
+        }}
+      >
+        {title || 'Untitled Note'}
+      </h1>
+    </>
   );
 };
 
