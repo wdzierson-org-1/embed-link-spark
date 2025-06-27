@@ -8,11 +8,11 @@ import { ArrowRight, Zap, Brain, Search, Shield, Smartphone, Globe, FileText, Im
 
 const Landing = () => {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-orange-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
       {/* Navigation */}
       <nav className="relative z-10 flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-pink-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">N</span>
           </div>
           <span className="text-xl font-bold text-gray-900">Noodle</span>
@@ -25,7 +25,7 @@ const Landing = () => {
             </Button>
           </Link>
           <Link to="/auth">
-            <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700">
+            <Button className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700">
               Get Started
             </Button>
           </Link>
@@ -34,13 +34,13 @@ const Landing = () => {
 
       {/* Hero Section */}
       <section className="relative px-6 py-20 max-w-7xl mx-auto text-center">
-        <Badge className="mb-6 bg-purple-100 text-purple-700 border-purple-200">
+        <Badge className="mb-6 bg-blue-100 text-blue-700 border-blue-200">
           Your Smart Content Companion
         </Badge>
         
         <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
           Thinking made
-          <span className="block bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+          <span className="block bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             simple
           </span>
         </h1>
@@ -52,7 +52,7 @@ const Landing = () => {
         
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16">
           <Link to="/auth">
-            <Button size="lg" className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-lg px-8 py-4">
+            <Button size="lg" className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-lg px-8 py-4">
               Start for Free
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
@@ -81,16 +81,16 @@ const Landing = () => {
                   <Badge variant="secondary" className="text-xs">AI</Badge>
                 </div>
               </div>
-              <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-4">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4">
                 <div className="flex items-center space-x-2 mb-3">
-                  <MessageSquare className="h-4 w-4 text-purple-600" />
-                  <span className="text-sm font-medium text-purple-700">AI Chat</span>
+                  <MessageSquare className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-700">AI Chat</span>
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="bg-white rounded-lg p-2 text-gray-600">
                     "What were the key decisions from today's meeting?"
                   </div>
-                  <div className="bg-purple-100 rounded-lg p-2 text-purple-700">
+                  <div className="bg-blue-100 rounded-lg p-2 text-blue-700">
                     Based on your notes, you decided to prioritize user feedback integration and explore new AI-powered features for Q4...
                   </div>
                 </div>
@@ -114,7 +114,7 @@ const Landing = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <Card className="border-0 shadow-lg bg-white/80 backdrop-blur">
             <CardContent className="p-6">
-              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center mb-4">
                 <Brain className="h-6 w-6 text-white" />
               </div>
               <h3 className="text-xl font-semibold mb-2">Smart Capture</h3>
@@ -126,7 +126,7 @@ const Landing = () => {
 
           <Card className="border-0 shadow-lg bg-white/80 backdrop-blur">
             <CardContent className="p-6">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center mb-4">
                 <MessageSquare className="h-6 w-6 text-white" />
               </div>
               <h3 className="text-xl font-semibold mb-2">AI-Powered Chat</h3>
@@ -138,7 +138,7 @@ const Landing = () => {
 
           <Card className="border-0 shadow-lg bg-white/80 backdrop-blur">
             <CardContent className="p-6">
-              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mb-4">
                 <Search className="h-6 w-6 text-white" />
               </div>
               <h3 className="text-xl font-semibold mb-2">Instant Search</h3>
@@ -154,7 +154,7 @@ const Landing = () => {
       <section className="px-6 py-20 max-w-7xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           <div>
-            <Badge className="mb-4 bg-orange-100 text-orange-700 border-orange-200">
+            <Badge className="mb-4 bg-indigo-100 text-indigo-700 border-indigo-200">
               Multiple Content Types
             </Badge>
             <h2 className="text-4xl font-bold text-gray-900 mb-6">
@@ -178,14 +178,14 @@ const Landing = () => {
                 <span className="text-gray-700">Images with automatic text extraction</span>
               </div>
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <Mic className="h-4 w-4 text-purple-600" />
+                <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <Mic className="h-4 w-4 text-indigo-600" />
                 </div>
                 <span className="text-gray-700">Audio recordings and transcriptions</span>
               </div>
               <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-                  <Video className="h-4 w-4 text-red-600" />
+                <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <Video className="h-4 w-4 text-purple-600" />
                 </div>
                 <span className="text-gray-700">Video content and analysis</span>
               </div>
@@ -208,18 +208,18 @@ const Landing = () => {
                   <p className="text-sm text-green-700">OCR & analysis</p>
                 </CardContent>
               </Card>
-              <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+              <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200">
                 <CardContent className="p-4">
-                  <Mic className="h-8 w-8 text-purple-600 mb-2" />
-                  <h4 className="font-semibold text-purple-900">Audio</h4>
-                  <p className="text-sm text-purple-700">Auto transcription</p>
+                  <Mic className="h-8 w-8 text-indigo-600 mb-2" />
+                  <h4 className="font-semibold text-indigo-900">Audio</h4>
+                  <p className="text-sm text-indigo-700">Auto transcription</p>
                 </CardContent>
               </Card>
-              <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
                 <CardContent className="p-4">
-                  <Video className="h-8 w-8 text-red-600 mb-2" />
-                  <h4 className="font-semibold text-red-900">Video</h4>
-                  <p className="text-sm text-red-700">Content extraction</p>
+                  <Video className="h-8 w-8 text-purple-600 mb-2" />
+                  <h4 className="font-semibold text-purple-900">Video</h4>
+                  <p className="text-sm text-purple-700">Content extraction</p>
                 </CardContent>
               </Card>
             </div>
@@ -233,7 +233,7 @@ const Landing = () => {
           <div className="relative order-2 lg:order-1">
             <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl shadow-2xl p-8 text-white">
               <div className="flex items-center space-x-2 mb-6">
-                <div className="w-8 h-8 bg-gradient-to-br from-purple-400 to-pink-400 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-gradient-to-br from-blue-400 to-indigo-400 rounded-lg flex items-center justify-center">
                   <MessageSquare className="h-4 w-4 text-white" />
                 </div>
                 <span className="font-medium">AI Assistant</span>
@@ -244,8 +244,8 @@ const Landing = () => {
                   <p className="text-sm text-gray-300">You:</p>
                   <p className="text-white">"Summarize my meeting notes from last week"</p>
                 </div>
-                <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-lg p-3 border border-purple-500/30">
-                  <p className="text-sm text-purple-300">Noodle:</p>
+                <div className="bg-gradient-to-r from-blue-600/20 to-indigo-600/20 rounded-lg p-3 border border-blue-500/30">
+                  <p className="text-sm text-blue-300">Noodle:</p>
                   <p className="text-white text-sm">I found 3 meeting notes from last week. Key themes include product roadmap discussions, budget approvals for Q4, and team restructuring. The main decisions were...</p>
                 </div>
               </div>
@@ -253,7 +253,7 @@ const Landing = () => {
           </div>
           
           <div className="order-1 lg:order-2">
-            <Badge className="mb-4 bg-purple-100 text-purple-700 border-purple-200">
+            <Badge className="mb-4 bg-blue-100 text-blue-700 border-blue-200">
               AI-Powered Intelligence
             </Badge>
             <h2 className="text-4xl font-bold text-gray-900 mb-6">
@@ -265,8 +265,8 @@ const Landing = () => {
             
             <div className="space-y-6">
               <div className="flex items-start space-x-4">
-                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <CheckCircle className="h-5 w-5 text-purple-600" />
+                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="h-5 w-5 text-blue-600" />
                 </div>
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-1">Smart Summaries</h4>
@@ -275,8 +275,8 @@ const Landing = () => {
               </div>
               
               <div className="flex items-start space-x-4">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <CheckCircle className="h-5 w-5 text-blue-600" />
+                <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="h-5 w-5 text-indigo-600" />
                 </div>
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-1">Content Connections</h4>
@@ -285,8 +285,8 @@ const Landing = () => {
               </div>
               
               <div className="flex items-start space-x-4">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
+                <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="h-5 w-5 text-purple-600" />
                 </div>
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-1">Intelligent Search</h4>
@@ -301,7 +301,7 @@ const Landing = () => {
       {/* Integration Section */}
       <section className="px-6 py-20 max-w-7xl mx-auto">
         <div className="text-center mb-16">
-          <Badge className="mb-4 bg-blue-100 text-blue-700 border-blue-200">
+          <Badge className="mb-4 bg-indigo-100 text-indigo-700 border-indigo-200">
             Works Everywhere
           </Badge>
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
@@ -330,7 +330,7 @@ const Landing = () => {
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Shield className="h-8 w-8 text-white" />
             </div>
             <h4 className="font-semibold text-gray-900">Secure</h4>
@@ -338,7 +338,7 @@ const Landing = () => {
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Zap className="h-8 w-8 text-white" />
             </div>
             <h4 className="font-semibold text-gray-900">Fast</h4>
@@ -349,17 +349,17 @@ const Landing = () => {
 
       {/* CTA Section */}
       <section className="px-6 py-20 max-w-4xl mx-auto text-center">
-        <div className="bg-gradient-to-br from-purple-600 to-pink-600 rounded-3xl p-12 text-white">
+        <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl p-12 text-white">
           <h2 className="text-4xl font-bold mb-4">
             Get to hiring in minutes
           </h2>
-          <p className="text-xl mb-8 text-purple-100">
+          <p className="text-xl mb-8 text-blue-100">
             Join thousands of teams who have streamlined their content workflow with Noodle. Start capturing, organizing, and discovering insights today.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/auth">
-              <Button size="lg" className="bg-white text-purple-600 hover:bg-gray-100 text-lg px-8 py-4">
+              <Button size="lg" className="bg-white text-blue-600 hover:bg-gray-100 text-lg px-8 py-4">
                 Start Free Trial
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
@@ -369,7 +369,7 @@ const Landing = () => {
             </Button>
           </div>
           
-          <div className="flex items-center justify-center space-x-1 mt-8 text-purple-200">
+          <div className="flex items-center justify-center space-x-1 mt-8 text-blue-200">
             {[1, 2, 3, 4, 5].map((star) => (
               <Star key={star} className="h-5 w-5 fill-current" />
             ))}
@@ -382,7 +382,7 @@ const Landing = () => {
       <footer className="px-6 py-12 max-w-7xl mx-auto border-t border-gray-200 mt-20">
         <div className="text-center">
           <div className="flex items-center justify-center space-x-2 mb-4">
-            <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-pink-600 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">N</span>
             </div>
             <span className="text-xl font-bold text-gray-900">Noodle</span>
