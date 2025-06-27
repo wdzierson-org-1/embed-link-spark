@@ -3,12 +3,15 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Minimize } from 'lucide-react';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
+import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
 
 interface MaximizedEditorProps {
   content: string;
   onContentChange: (content: string) => void;
   itemId?: string;
   editorKey: string;
+  saveStatus?: 'idle' | 'saving' | 'saved';
+  lastSaved?: Date | null;
   onMinimize: () => void;
 }
 
@@ -17,12 +20,14 @@ const MaximizedEditor = ({
   onContentChange,
   itemId,
   editorKey,
+  saveStatus = 'idle',
+  lastSaved,
   onMinimize,
 }: MaximizedEditorProps) => {
   return (
     <div className="absolute inset-0 bg-background flex flex-col z-10">
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-lg font-semibold">Editor</h2>
+      <div className="flex items-center justify-between px-6 py-4 border-b">
+        <h2 className="text-lg font-semibold">Content</h2>
         <Button
           variant="ghost"
           size="sm"
@@ -44,6 +49,11 @@ const MaximizedEditor = ({
           />
         </div>
       </div>
+
+      <EditItemAutoSaveIndicator 
+        saveStatus={saveStatus}
+        lastSaved={lastSaved}
+      />
     </div>
   );
 };

@@ -30,6 +30,8 @@ interface EditItemDetailsTabProps {
   content: string;
   isContentLoading: boolean;
   editorKey: string;
+  saveStatus?: 'idle' | 'saving' | 'saved';
+  lastSaved?: Date | null;
   onTitleChange: (title: string) => void;
   onDescriptionChange: (description: string) => void;
   onContentChange: (content: string) => void;
@@ -47,6 +49,8 @@ const EditItemDetailsTab = ({
   content,
   isContentLoading,
   editorKey,
+  saveStatus = 'idle',
+  lastSaved,
   onTitleChange,
   onDescriptionChange,
   onContentChange,
@@ -65,13 +69,15 @@ const EditItemDetailsTab = ({
         onContentChange={onContentChange}
         itemId={item?.id}
         editorKey={editorKey}
+        saveStatus={saveStatus}
+        lastSaved={lastSaved}
         onMinimize={() => setIsEditorMaximized(false)}
       />
     );
   }
 
   const contentComponent = (
-    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-58px)' }}>
+    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-38px)' }}>
       {/* Title Section */}
       <EditItemTitleSection
         title={title}
