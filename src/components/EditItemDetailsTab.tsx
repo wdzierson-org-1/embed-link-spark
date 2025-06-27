@@ -37,7 +37,7 @@ interface EditItemDetailsTabProps {
   onDescriptionSave: (description: string) => Promise<void>;
   onTagsChange: () => void;
   onMediaChange: () => void;
-  isInsideTabs?: boolean; // New prop to indicate if component is inside Tabs wrapper
+  isInsideTabs?: boolean;
 }
 
 const EditItemDetailsTab = ({
@@ -71,7 +71,7 @@ const EditItemDetailsTab = ({
   }
 
   const contentComponent = (
-    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-78px)' }}>
+    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-58px)' }}>
       {/* Title Section */}
       <EditItemTitleSection
         title={title}

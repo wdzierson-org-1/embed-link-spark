@@ -19,7 +19,7 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
       
       // Trigger flash animation
       setIsFlashing(true);
-      setTimeout(() => setIsFlashing(false), 600); // Animation duration
+      setTimeout(() => setIsFlashing(false), 600);
     } catch (error) {
       console.error('Error saving title:', error);
     }
@@ -42,7 +42,13 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
           className="text-2xl font-bold border-none p-2 shadow-none focus-visible:ring-0 h-auto resize-none bg-transparent"
           placeholder="Enter title..."
           autoFocus
-          style={{ fontSize: '1.5rem', lineHeight: '2rem', marginLeft: '-8px' }}
+          style={{ 
+            fontSize: '1.5rem', 
+            lineHeight: '2rem', 
+            marginLeft: '-8px',
+            marginTop: '0px',
+            marginBottom: '0px'
+          }}
         />
       </div>
     );
@@ -69,6 +75,8 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
         title="Click to edit title"
         style={{ 
           marginLeft: '-8px',
+          marginTop: '0px',
+          marginBottom: '0px',
           ...(isFlashing && {
             animation: 'flash 0.6s ease-in-out'
           })

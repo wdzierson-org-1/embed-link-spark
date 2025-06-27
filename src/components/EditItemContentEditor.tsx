@@ -1,4 +1,3 @@
-
 import React, { useMemo, useEffect, useRef } from 'react';
 import {
   EditorRoot,
@@ -19,8 +18,8 @@ interface EditItemContentEditorProps {
   content: string;
   onContentChange: (content: string) => void;
   itemId?: string;
-  editorInstanceKey?: string; // External key to control when editor recreates
-  isMaximized?: boolean; // New prop to indicate if editor is maximized
+  editorInstanceKey?: string;
+  isMaximized?: boolean;
 }
 
 const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanceKey, isMaximized = false }: EditItemContentEditorProps) => {
@@ -45,7 +44,6 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
       throw new Error('User not authenticated');
     }
 
-    // Check if session is close to expiry
     if (session.expires_at) {
       const expiryTime = new Date(session.expires_at * 1000);
       const currentTime = new Date();
@@ -58,7 +56,6 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         timeUntilExpiryMin: Math.floor(timeUntilExpiry / 1000 / 60)
       });
 
-      // If session expires in less than 5 minutes, refresh it
       if (timeUntilExpiry < 5 * 60 * 1000) {
         console.log('EditItemContentEditor: Session expires soon, refreshing...');
         try {
@@ -80,7 +77,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
       const result = await uploadImage({
         file,
         userId: user.id,
-        itemId: itemId // This will trigger database update if provided
+        itemId: itemId
       });
       
       console.log('EditItemContentEditor: Upload completed successfully', {
@@ -98,7 +95,6 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         fileName: file.name
       });
       
-      // Provide more specific error messages based on the error type
       if (error instanceof Error) {
         if (error.message.includes('RLS') || 
             error.message.includes('policy') || 
@@ -122,7 +118,6 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
 
   const extensions = createEditorExtensions(handleImageUpload);
 
-  // Recreate editor when editorInstanceKey changes or content changes from external source
   const { initialContent, effectiveEditorKey } = useMemo(() => {
     console.log('EditItemContentEditor: Processing content for editor recreation', { 
       itemId,
@@ -134,8 +129,6 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
     const jsonContent = convertToJsonContent(content);
     console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
     
-    // Create a stable key that forces recreation when editorInstanceKey changes
-    // This ensures a fresh editor instance for each note
     const key = editorInstanceKey || `editor-${itemId || 'new'}-${Date.now()}`;
     
     console.log('EditItemContentEditor: Generated editor key', { key });
@@ -144,7 +137,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
       initialContent: jsonContent,
       effectiveEditorKey: key
     };
-  }, [editorInstanceKey, itemId, content]); // Include content to ensure sync
+  }, [editorInstanceKey, itemId, content]);
 
   console.log('EditItemContentEditor: Rendering with key', { 
     effectiveEditorKey,
@@ -164,12 +157,12 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
   }
 
   return (
-    <div className={isMaximized ? "h-96 overflow-y-auto" : "border rounded-md"}>
+    <div className={isMaximized ? "h-full flex flex-col" : "border rounded-md"}>
       <EditorRoot key={effectiveEditorKey}>
         <EditorContent
           initialContent={initialContent}
           extensions={extensions}
-          className={isMaximized ? "h-full w-full max-w-none" : "min-h-[300px] w-full max-w-none"}
+          className={isMaximized ? "flex-1 w-full max-w-none overflow-y-auto" : "min-h-[300px] w-full max-w-none"}
           editorProps={{
             handleDOMEvents: {
               keydown: (_view, event) => handleCommandNavigation(event),
@@ -181,7 +174,6 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
           onUpdate={({ editor }: { editor: EditorInstance }) => {
             console.log('EditItemContentEditor: Content updated in editor');
             editorRef.current = editor;
-            // Save as JSON to preserve formatting
             const json = editor.getJSON();
             onContentChange(JSON.stringify(json));
           }}

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -44,7 +43,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   const { toast } = useToast();
   const { user } = useAuth();
 
-  // Generate new editor instance key when dialog opens or item changes
   useEffect(() => {
     if (open && item) {
       const newInstanceKey = `${item.id}-${Date.now()}`;
@@ -80,7 +78,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
     if (!item?.file_path) return;
 
     try {
-      // Remove file from storage
       const { error: storageError } = await supabase.storage
         .from('stash-media')
         .remove([item.file_path]);
@@ -95,7 +92,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
         return;
       }
 
-      // Update the item to remove file reference - need to use direct Supabase call
       const { error: updateError } = await supabase
         .from('items')
         .update({
@@ -120,7 +116,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
         description: "Media file removed successfully",
       });
 
-      // Close dialog to refresh parent
       onOpenChange(false);
 
     } catch (error) {
@@ -167,8 +162,6 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   };
 
   const handleImageUpdate = async (hasImage: boolean, imageUrl: string) => {
-    // This is handled by the EditItemImageSection component directly
-    // We just need to refresh the dialog
     onOpenChange(false);
   };
 

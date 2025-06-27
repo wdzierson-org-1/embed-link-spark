@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect } from 'react';
 import { generateTitle } from '@/utils/titleGenerator';
 import { useEditItemState } from './useEditItemState';
@@ -115,7 +114,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
 
           await onSave(itemRef.current!.id, updates, { showSuccessToast: false, refreshItems: true });
           
-          // Clear localStorage after successful save
           if (itemRef.current?.id) {
             clearDraft(itemRef.current.id);
           }
@@ -124,7 +122,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
         }
       };
 
-      // Only save if there are actual changes
       if (titleRef.current || descriptionRef.current || contentRef.current) {
         performFinalSave();
       } else if (itemRef.current?.id) {
@@ -132,7 +129,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
       }
     }
 
-    // Clear save state when sheet closes
     if (!open) {
       clearSaveState();
     }
@@ -162,17 +158,16 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     
     setTitle(finalTitle);
     titleRef.current = finalTitle;
-    await onSave(item.id, { title: finalTitle });
+    await onSave(item.id, { title: finalTitle }, { showSuccessToast: false });
   };
 
   const handleDescriptionSave = async (newDescription: string) => {
     if (!item) return;
     descriptionRef.current = newDescription;
-    await onSave(item.id, { description: newDescription });
+    await onSave(item.id, { description: newDescription }, { showSuccessToast: false });
   };
 
   return {
-    // State
     title,
     description,
     content,
@@ -185,7 +180,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     lastSaved,
     setActiveTab,
     
-    // Handlers
     handleTitleChange,
     handleDescriptionChange,
     handleContentChange,
