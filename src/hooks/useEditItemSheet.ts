@@ -35,21 +35,6 @@ const isValidNovelContent = (content: string): boolean => {
   }
 };
 
-// Helper function to check if content has meaningful changes
-const hasSignificantContent = (content: string): boolean => {
-  if (!content) return false;
-  
-  try {
-    const parsed = JSON.parse(content);
-    // Check if the content has actual text content beyond empty structure
-    const contentString = JSON.stringify(parsed);
-    // Basic heuristic: if the JSON is longer than empty structure, it likely has content
-    return contentString.length > 100; // Adjust threshold as needed
-  } catch {
-    return content.trim().length > 0;
-  }
-};
-
 export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) => {
   // State management
   const {
@@ -102,12 +87,17 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     
     if (item?.id) {
       const updates = { 
-        title: newTitle.trim() || undefined,
-        description: descriptionRef.current.trim() || undefined,
+        title: newTitle || undefined,
+        description: descriptionRef.current || undefined,
         content: contentRef.current || undefined
       };
       
-      console.log('Calling debouncedSave from handleTitleChange:', updates);
+      console.log('Calling debouncedSave from handleTitleChange:', {
+        title: updates.title?.slice(0, 50),
+        description: updates.description?.slice(0, 50),
+        hasContent: !!updates.content,
+        contentLength: updates.content?.length
+      });
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setTitle]);
@@ -121,66 +111,72 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     
     if (item?.id) {
       const updates = { 
-        title: titleRef.current.trim() || undefined,
-        description: newDescription.trim() || undefined,
+        title: titleRef.current || undefined,
+        description: newDescription || undefined,
         content: contentRef.current || undefined
       };
       
-      console.log('Calling debouncedSave from handleDescriptionChange:', updates);
+      console.log('Calling debouncedSave from handleDescriptionChange:', {
+        title: updates.title?.slice(0, 50),
+        description: updates.description?.slice(0, 50),
+        hasContent: !!updates.content,
+        contentLength: updates.content?.length
+      });
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setDescription]);
 
   const handleContentChange = useCallback((newContent: string) => {
-    console.log('handleContentChange called:', { 
+    console.log('handleContentChange called - FIXED VERSION:', { 
       newContent: newContent?.slice(0, 100),
       contentLength: newContent?.length,
       itemId: item?.id,
       isValidJSON: isValidNovelContent(newContent),
-      hasSignificant: hasSignificantContent(newContent)
+      contentRef: contentRef.current?.slice(0, 50)
     });
     
-    // Enhanced content validation - accept both valid JSON and meaningful text
+    // Accept any non-empty content - removed overly restrictive validation
     if (!newContent) {
-      console.warn('handleContentChange: Empty content received, skipping update');
+      console.log('handleContentChange: Empty content received, skipping update');
       return;
     }
 
-    // For Novel editor, we expect JSON content - validate it properly
-    if (!isValidNovelContent(newContent)) {
-      console.warn('handleContentChange: Invalid Novel JSON content, skipping update');
-      return;
-    }
+    console.log('handleContentChange: Content validation passed, proceeding with update');
     
-    // Check if content actually changed
+    // Check if content actually changed to prevent unnecessary updates
     if (newContent === contentRef.current) {
       console.log('handleContentChange: Content unchanged, skipping update');
       return;
     }
     
-    // Update both state and ref synchronously
+    // Update both state and ref synchronously - CRITICAL FIX
     contentRef.current = newContent;
     setContent(newContent);
     
-    console.log('handleContentChange: Content updated in refs and state');
+    console.log('handleContentChange: Content updated in refs and state:', {
+      refContent: contentRef.current?.slice(0, 100),
+      stateContentLength: newContent.length
+    });
     
     if (item?.id) {
       const updates = { 
-        title: titleRef.current.trim() || undefined,
-        description: descriptionRef.current.trim() || undefined,
-        content: newContent // Don't trim JSON content
+        title: titleRef.current || undefined,
+        description: descriptionRef.current || undefined,
+        content: newContent // Keep the full JSON content
       };
       
-      console.log('Calling debouncedSave from handleContentChange:', {
+      console.log('handleContentChange: Calling debouncedSave with updates:', {
         itemId: item.id,
-        updates: {
-          ...updates,
-          content: updates.content?.slice(0, 100) + '...' // Log preview only
-        },
-        contentFull: !!updates.content
+        hasTitle: !!updates.title,
+        hasDescription: !!updates.description,
+        hasContent: !!updates.content,
+        contentLength: updates.content?.length,
+        contentPreview: updates.content?.slice(0, 100)
       });
       
       debouncedSave(item.id, updates, titleRef, descriptionRef, contentRef);
+    } else {
+      console.warn('handleContentChange: No item.id available for save');
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setContent]);
 
@@ -194,7 +190,8 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
             title: titleRef.current?.slice(0, 50),
             description: descriptionRef.current?.slice(0, 50),
             contentLength: contentRef.current?.length,
-            hasContent: !!contentRef.current
+            hasContent: !!contentRef.current,
+            contentPreview: contentRef.current?.slice(0, 100)
           });
           
           await flushAndFinalSave(
@@ -214,10 +211,16 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
         }
       };
 
-      // Only perform final save if we have any content
+      // Perform final save if we have any content
       if (titleRef.current || descriptionRef.current || contentRef.current) {
+        console.log('Triggering final save with content:', {
+          hasTitle: !!titleRef.current,
+          hasDescription: !!descriptionRef.current,
+          hasContent: !!contentRef.current
+        });
         performFinalSave();
       } else if (itemRef.current?.id) {
+        console.log('No content to save, just clearing draft');
         clearDraft(itemRef.current.id);
       }
     }

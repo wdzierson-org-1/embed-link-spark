@@ -134,15 +134,16 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
     console.log('EditItemContentEditor: Generated stable editor key', { key });
     
     return key;
-  }, [editorInstanceKey, itemId]); // Removed content from dependencies to prevent recreation
+  }, [editorInstanceKey, itemId]);
 
-  // Handle initial content loading and updates
+  // Handle initial content loading and updates - IMPROVED
   useEffect(() => {
     if (content !== undefined) {
-      console.log('EditItemContentEditor: Content updated', { 
+      console.log('EditItemContentEditor: Content prop changed - ENHANCED:', { 
         contentLength: content.length,
         contentPreview: content.slice(0, 100),
-        isInitialLoad: !initialContentRef.current
+        isInitialLoad: !initialContentRef.current,
+        lastContentLength: lastContentRef.current.length
       });
       
       // Store initial content for comparison
@@ -152,11 +153,12 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
         console.log('EditItemContentEditor: Set initial content');
       }
       
-      // Only update editor content if it's significantly different to avoid conflicts
-      // This prevents the editor from being updated while user is typing
+      // Only update editor if content significantly changed (avoid conflicts during typing)
       if (editorRef.current && content !== lastContentRef.current) {
         const lengthDiff = Math.abs(content.length - lastContentRef.current.length);
-        if (lengthDiff > 50) { // Only update for significant changes
+        console.log('EditItemContentEditor: Content length difference:', lengthDiff);
+        
+        if (lengthDiff > 50) {
           console.log('EditItemContentEditor: Updating editor with new content due to significant change');
           try {
             const jsonContent = convertToJsonContent(content);
@@ -174,13 +176,16 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
 
   const getInitialContent = () => {
     const contentToUse = content || initialContentRef.current || '';
-    console.log('EditItemContentEditor: Converting initial content', { 
+    console.log('EditItemContentEditor: Converting initial content - ENHANCED:', { 
       contentLength: contentToUse.length,
       contentPreview: contentToUse.slice(0, 100)
     });
     
     const jsonContent = convertToJsonContent(contentToUse);
-    console.log('EditItemContentEditor: Converted to JSON', { jsonContent });
+    console.log('EditItemContentEditor: Converted to JSON - ENHANCED:', { 
+      jsonContent: jsonContent ? 'Valid JSON content' : 'No valid JSON content',
+      hasContent: !!jsonContent
+    });
     
     lastContentRef.current = contentToUse;
     return jsonContent;
@@ -188,7 +193,7 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
 
   const initialJsonContent = getInitialContent();
 
-  console.log('EditItemContentEditor: Rendering with stable key', { 
+  console.log('EditItemContentEditor: Rendering with stable key - ENHANCED:', { 
     effectiveEditorKey,
     hasInitialContent: !!initialJsonContent,
     contentPreview: content?.slice(0, 50) || 'No content'
@@ -221,21 +226,22 @@ const EditItemContentEditor = ({ content, onContentChange, itemId, editorInstanc
             }
           }}
           onUpdate={({ editor }: { editor: EditorInstance }) => {
-            console.log('EditItemContentEditor: Content updated in editor');
+            console.log('EditItemContentEditor: onUpdate called - ENHANCED');
             editorRef.current = editor;
             const json = editor.getJSON();
             const jsonString = JSON.stringify(json);
             
-            console.log('EditItemContentEditor: Editor content changed', {
+            console.log('EditItemContentEditor: Editor content updated - ENHANCED:', {
               previousLength: lastContentRef.current?.length || 0,
               newLength: jsonString.length,
               preview: jsonString.slice(0, 100),
-              hasChanged: jsonString !== lastContentRef.current
+              hasChanged: jsonString !== lastContentRef.current,
+              contentChanged: true
             });
             
-            // Only call onContentChange if content actually changed
+            // Always call onContentChange when editor updates - CRITICAL FIX
             if (jsonString !== lastContentRef.current) {
-              console.log('EditItemContentEditor: Content changed, calling onContentChange');
+              console.log('EditItemContentEditor: Content changed, calling onContentChange - ENHANCED');
               
               lastContentRef.current = jsonString;
               onContentChange(jsonString);

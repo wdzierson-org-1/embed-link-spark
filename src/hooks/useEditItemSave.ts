@@ -25,7 +25,8 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
       title: titleRef.current?.slice(0, 50),
       description: descriptionRef.current?.slice(0, 50),
       contentLength: contentRef.current?.length,
-      hasContent: !!contentRef.current
+      hasContent: !!contentRef.current,
+      contentPreview: contentRef.current?.slice(0, 100)
     });
     
     saveToLocalStorage(itemId, {
@@ -43,29 +44,37 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     ) => {
       if (!itemId) return;
       
-      console.log('Starting debounced server save:', { 
+      console.log('Starting debounced server save - ENHANCED LOGGING:', { 
         itemId, 
         updates: {
           title: updates.title?.slice(0, 50),
           description: updates.description?.slice(0, 50),
           contentLength: updates.content?.length,
-          hasContent: !!updates.content
+          hasContent: !!updates.content,
+          contentPreview: updates.content?.slice(0, 100)
         }
       });
       
       setSaveStatus('saving');
       
       try {
+        console.log('Calling onSave with updates:', {
+          itemId,
+          updatesKeys: Object.keys(updates),
+          contentIncluded: 'content' in updates,
+          contentNotEmpty: !!updates.content
+        });
+        
         await onSave(itemId, updates, { showSuccessToast: false, refreshItems: false });
         
         setSaveStatus('saved');
         setLastSaved(new Date());
-        console.log('Debounced server save completed successfully');
+        console.log('Debounced server save completed successfully - content should be saved');
       } catch (error) {
         console.error('Debounced server save failed:', error);
         setSaveStatus('idle');
       }
-    }, 1000), // Reduced from 2 seconds to 1 second
+    }, 1000),
     [onSave]
   );
 
@@ -79,13 +88,20 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   ) => {
     if (!itemId) return;
     
-    console.log('debouncedSave called with:', { 
+    console.log('debouncedSave called - ENHANCED:', { 
       itemId, 
       updates: {
         title: updates.title?.slice(0, 50),
         description: updates.description?.slice(0, 50),
         contentLength: updates.content?.length,
-        hasContent: !!updates.content
+        hasContent: !!updates.content,
+        contentPreview: updates.content?.slice(0, 100)
+      },
+      refsContent: {
+        titleRef: titleRef.current?.slice(0, 50),
+        descriptionRef: descriptionRef.current?.slice(0, 50),
+        contentRefLength: contentRef.current?.length,
+        contentRefPreview: contentRef.current?.slice(0, 100)
       }
     });
     
@@ -105,10 +121,11 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
   ) => {
     if (!itemId) return;
     
-    console.log('Flushing pending saves and performing final save:', { 
+    console.log('Flushing pending saves and performing final save - ENHANCED:', { 
       itemId,
       contentLength: contentRef.current?.length,
-      hasContent: !!contentRef.current
+      hasContent: !!contentRef.current,
+      contentPreview: contentRef.current?.slice(0, 100)
     });
     
     // Cancel pending debounced save
@@ -116,21 +133,23 @@ export const useEditItemSave = ({ onSave, saveToLocalStorage }: UseEditItemSaveP
     
     // Perform immediate final save with current ref values
     const updates = {
-      title: titleRef.current?.trim() || undefined,
-      description: descriptionRef.current?.trim() || undefined,
-      content: contentRef.current || undefined, // Don't trim JSON content
+      title: titleRef.current || undefined,
+      description: descriptionRef.current || undefined,
+      content: contentRef.current || undefined,
     };
     
-    console.log('Final save updates:', {
+    console.log('Final save updates - ENHANCED:', {
       title: updates.title?.slice(0, 50),
       description: updates.description?.slice(0, 50),
       contentLength: updates.content?.length,
-      hasContent: !!updates.content
+      hasContent: !!updates.content,
+      contentPreview: updates.content?.slice(0, 100)
     });
     
     try {
+      console.log('Executing final save to database...');
       await onSave(itemId, updates, { showSuccessToast: false, refreshItems: true });
-      console.log('Final save completed successfully');
+      console.log('Final save completed successfully - content saved to database');
     } catch (error) {
       console.error('Final save failed:', error);
       throw error;
