@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from 'react';
 import { debounce } from 'lodash';
 
@@ -39,7 +38,7 @@ export const useEditItemSave = ({
     });
   }, [saveToLocalStorage, titleRef, descriptionRef, contentRef]);
 
-  // ENHANCED debounced server save with detailed logging
+  // FIXED: Enhanced debounced server save with refreshItems enabled for UI updates
   const debouncedServerSave = useCallback(
     debounce(async (
       itemId: string, 
@@ -59,8 +58,8 @@ export const useEditItemSave = ({
       setSaveStatus('saving');
       
       try {
-        // Direct save with detailed logging
-        console.log('useEditItemSave: Calling onSave with updates:', {
+        // CRITICAL FIX: Enable refreshItems to update the frontend UI
+        console.log('useEditItemSave: Calling onSave with refreshItems enabled:', {
           itemId,
           updates: {
             hasTitle: !!updates.title,
@@ -70,11 +69,11 @@ export const useEditItemSave = ({
           }
         });
         
-        await onSave(itemId, updates, { showSuccessToast: false, refreshItems: false });
+        await onSave(itemId, updates, { showSuccessToast: false, refreshItems: true });
         
         setSaveStatus('saved');
         setLastSaved(new Date());
-        console.log('useEditItemSave: Server save completed successfully', {
+        console.log('useEditItemSave: Server save completed successfully with UI refresh', {
           itemId,
           timestamp: new Date().toISOString()
         });
@@ -108,12 +107,12 @@ export const useEditItemSave = ({
     // Immediate localStorage save
     saveToLocalStorageImmediate(itemId);
     
-    // Debounced server save
-    console.log('useEditItemSave: Triggering debounced server save');
+    // Debounced server save with UI refresh enabled
+    console.log('useEditItemSave: Triggering debounced server save with UI refresh');
     debouncedServerSave(itemId, updates);
   }, [saveToLocalStorageImmediate, debouncedServerSave]);
 
-  // SIMPLIFIED final save
+  // Final save remains the same
   const flushAndFinalSave = useCallback(async (itemId: string) => {
     if (!itemId) return;
     
