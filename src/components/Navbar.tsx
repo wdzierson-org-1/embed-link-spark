@@ -35,7 +35,7 @@ const Navbar = () => {
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-bold text-primary">Stash</h1>
+              <h1 className="text-xl font-bold text-primary">Noodle notes</h1>
             </div>
 
             <div className="flex items-center space-x-4">

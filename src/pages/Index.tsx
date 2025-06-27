@@ -109,23 +109,13 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header with logo and chat/user menu buttons */}
+      {/* Header with logo and user menu */}
       <div className="w-full bg-background">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center">
-            <h1 className="text-2xl font-bold ml-4 mt-2">Stash</h1>
+          <div className="flex items-center -ml-2.5">
+            <h1 className="text-2xl font-bold mt-2">Noodle notes</h1>
           </div>
           <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowGlobalChat(true)}
-              className="flex items-center gap-2"
-            >
-              <MessageSquare className="h-4 w-4" />
-              Chat
-            </Button>
-            
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
@@ -159,10 +149,10 @@ const Index = () => {
         </div>
       </div>
       
-      {/* Full-width tab bar with collapse button */}
+      {/* Full-width tab bar with collapse button integrated */}
       <div className="w-full bg-background">
         <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center">
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
               <TabsList className="grid w-full grid-cols-3 h-12">
                 <TabsTrigger value="text" className="flex items-center gap-2">
@@ -224,15 +214,26 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Item count and filter section */}
-      <div className="container mx-auto px-4 pt-6 pb-4">
-        <StashHeader 
-          onShowGlobalChat={() => setShowGlobalChat(true)}
-          itemCount={items.filter(item => !item.isOptimistic).length}
-          tags={tags}
-          selectedTags={selectedTags}
-          onTagFilterChange={handleTagFilterChange}
-        />
+      {/* Chat button and filter section - moved up 18px */}
+      <div className="container mx-auto px-4 pt-4 pb-4">
+        <div className="flex items-center justify-between mb-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowGlobalChat(true)}
+            className="flex items-center gap-2"
+          >
+            <MessageSquare className="h-4 w-4" />
+            Noodle assistant
+          </Button>
+          <StashHeader 
+            onShowGlobalChat={() => setShowGlobalChat(true)}
+            itemCount={items.filter(item => !item.isOptimistic).length}
+            tags={tags}
+            selectedTags={selectedTags}
+            onTagFilterChange={handleTagFilterChange}
+          />
+        </div>
       </div>
       
       <main className="container mx-auto px-4 pb-8">

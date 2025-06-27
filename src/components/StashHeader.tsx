@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -72,10 +73,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-muted-foreground">
-          {itemCount} {itemCount === 1 ? 'item' : 'items'}
-        </p>
+      <div className="flex items-center justify-end mb-4">
         <Button
           variant="ghost"
           size="sm"
