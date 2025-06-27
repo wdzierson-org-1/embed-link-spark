@@ -13,10 +13,12 @@ const EditItemTabNavigation = ({ hasImage }: EditItemTabNavigationProps) => {
   }
 
   return (
-    <TabsList className="w-fit">
-      <TabsTrigger value="details">Note Details</TabsTrigger>
-      <TabsTrigger value="image">Image</TabsTrigger>
-    </TabsList>
+    <div style={{ transform: 'translateY(-8px)' }}>
+      <TabsList className="w-fit">
+        <TabsTrigger value="details">Note Details</TabsTrigger>
+        <TabsTrigger value="image">Image</TabsTrigger>
+      </TabsList>
+    </div>
   );
 };
 
