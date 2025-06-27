@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
 
 interface EditItemTitleSectionProps {
   title: string;
@@ -11,23 +10,18 @@ interface EditItemTitleSectionProps {
 
 const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSectionProps) => {
   const [isEditing, setIsEditing] = useState(false);
-  const { toast } = useToast();
+  const [isFlashing, setIsFlashing] = useState(false);
 
   const handleSave = async () => {
     try {
       await onSave(title.trim() || '');
       setIsEditing(false);
-      toast({
-        title: "Success",
-        description: "Title updated",
-      });
+      
+      // Trigger flash animation
+      setIsFlashing(true);
+      setTimeout(() => setIsFlashing(false), 600); // Animation duration
     } catch (error) {
       console.error('Error saving title:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update title",
-        variant: "destructive",
-      });
     }
   };
 
@@ -56,12 +50,30 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
 
   return (
     <h1 
-      className="text-2xl font-bold cursor-pointer hover:bg-yellow-50 p-2 rounded transition-colors"
+      className={`text-2xl font-bold cursor-pointer hover:bg-yellow-50 p-2 rounded transition-colors ${
+        isFlashing ? 'animate-[flash_0.6s_ease-in-out]' : ''
+      }`}
       onClick={() => setIsEditing(true)}
       title="Click to edit title"
-      style={{ marginLeft: '-8px' }}
+      style={{ 
+        marginLeft: '-8px',
+        ...(isFlashing && {
+          animation: 'flash 0.6s ease-in-out'
+        })
+      }}
     >
       {title || 'Untitled Note'}
+      <style jsx>{`
+        @keyframes flash {
+          0% { background-color: transparent; }
+          16.66% { background-color: #fef3c7; } /* yellow-100 */
+          33.33% { background-color: #ddd6fe; } /* purple-200 */
+          50% { background-color: #bfdbfe; } /* blue-200 */
+          66.66% { background-color: #bbf7d0; } /* green-200 */
+          83.33% { background-color: #fed7d7; } /* pink-200 */
+          100% { background-color: transparent; }
+        }
+      `}</style>
     </h1>
   );
 };
