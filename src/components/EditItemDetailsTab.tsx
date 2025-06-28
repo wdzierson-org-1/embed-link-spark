@@ -95,8 +95,7 @@ const EditItemDetailsTab = ({
       )}
 
       <EditItemTagsSection
-        itemId={item?.id || ''}
-        tags={item?.tags || []}
+        item={item}
         onTagsChange={onTagsChange}
       />
     </TabContent>

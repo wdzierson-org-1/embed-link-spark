@@ -19,7 +19,7 @@ interface ContentItem {
 
 interface EditItemTagsSectionProps {
   item: ContentItem | null;
-  onTagsChange?: () => void;
+  onTagsChange?: (tags: string[]) => Promise<void>;
 }
 
 const EditItemTagsSection = ({ item, onTagsChange }: EditItemTagsSectionProps) => {
@@ -33,7 +33,12 @@ const EditItemTagsSection = ({ item, onTagsChange }: EditItemTagsSectionProps) =
     handleAddTags,
     handleRemoveTag,
     handleCancelEditing,
-  } = useEditItemTags(item, onTagsChange);
+  } = useEditItemTags(item, async () => {
+    // Call the parent's onTagsChange if provided
+    if (onTagsChange) {
+      await onTagsChange([]);
+    }
+  });
 
   if (!item) return null;
 
