@@ -72,8 +72,8 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
   };
 
   return (
-    <div>
-      <div className="flex items-center justify-end mb-4">
+    <div className="w-full">
+      <div className="flex items-center justify-start">
         <Button
           variant="ghost"
           size="sm"
@@ -81,12 +81,13 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
           className="flex items-center gap-2"
         >
           <Filter className="h-4 w-4" />
-          Filter by tag
+          <span className="hidden sm:inline">Filter by tag</span>
+          <span className="sm:hidden">Filter</span>
         </Button>
       </div>
 
       {showTagFilter && (
-        <div className="bg-gray-50 border rounded-lg p-4 mb-4">
+        <div className="bg-gray-50 border rounded-lg p-4 mt-3 w-full">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium">Filter by tags</h3>
             <Button
@@ -100,7 +101,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
           </div>
 
           {selectedTags.length > 0 && (
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
               <span className="text-xs text-muted-foreground">Selected:</span>
               {selectedTags.map((tag) => (
                 <Badge key={tag} variant="secondary" className="text-xs">
