@@ -219,12 +219,36 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
     setFilePreviews([]);
   };
 
+  const extractImagesFromContent = () => {
+    if (!editorInstance) return [];
+    
+    const json = editorInstance.getJSON();
+    const images: string[] = [];
+    
+    const extractImages = (node: any) => {
+      if (node.type === 'image' && node.attrs?.src) {
+        images.push(node.attrs.src);
+      }
+      if (node.content) {
+        node.content.forEach(extractImages);
+      }
+    };
+    
+    if (json.content) {
+      json.content.forEach(extractImages);
+    }
+    
+    return images;
+  };
+
   const handleSubmit = async () => {
     const hasContent = content.trim().length > 0;
     const hasLinks = linkPreviews.length > 0;
     const hasFiles = filePreviews.length > 0;
+    const editorImages = extractImagesFromContent();
+    const hasEditorImages = editorImages.length > 0;
 
-    if (!hasContent && !hasLinks && !hasFiles) {
+    if (!hasContent && !hasLinks && !hasFiles && !hasEditorImages) {
       toast({
         title: "No content",
         description: "Please add some content before saving.",
@@ -235,51 +259,33 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
 
     setIsLoading(true);
     try {
-      // Determine primary content type and handle accordingly
-      if (hasFiles) {
-        // If files are present, process each file
-        for (const filePreview of filePreviews) {
-          const fileType = filePreview.file.type.startsWith('image/') ? 'image' :
-                          filePreview.file.type.startsWith('video/') ? 'video' :
-                          filePreview.file.type.startsWith('audio/') ? 'audio' : 'document';
+      // Get plain text content from editor
+      const plainTextContent = editorInstance?.getText() || '';
+      
+      // Combine all content for AI analysis
+      const combinedContent = {
+        content: plainTextContent,
+        links: linkPreviews.map(link => ({ url: link.url, title: link.title, description: link.description })),
+        fileNames: filePreviews.map(file => file.file.name),
+        images: editorImages
+      };
 
-          await onAddContent(fileType, {
-            file: filePreview.file,
-            title: filePreview.file.name,
-            content: hasContent ? content.trim() : '',
-            description: '',
-            tags: []
-          });
-        }
-      } else if (hasLinks && !hasContent) {
-        // If only links, save as link entries
-        for (const linkPreview of linkPreviews) {
-          await onAddContent('link', {
-            url: linkPreview.url,
-            title: linkPreview.title || linkPreview.url,
-            description: linkPreview.description || '',
-            content: '',
-            tags: []
-          });
-        }
-      } else {
-        // Text content with possible links
-        await onAddContent('text', {
-          content: content.trim(),
-          tags: []
-        });
-        
-        // Also save any links separately if they exist
-        for (const linkPreview of linkPreviews) {
-          await onAddContent('link', {
-            url: linkPreview.url,
-            title: linkPreview.title || linkPreview.url,
-            description: linkPreview.description || '',
-            content: '',
-            tags: []
-          });
-        }
-      }
+      // Determine primary image: first from editor, then from file uploads, then from link previews
+      let primaryImage = editorImages[0] || 
+                        (filePreviews.find(f => f.preview)?.preview) || 
+                        linkPreviews.find(l => l.image)?.image;
+
+      // Create a single unified note with all content
+      await onAddContent('text', {
+        content: content.trim(),
+        title: plainTextContent.slice(0, 100) + (plainTextContent.length > 100 ? '...' : ''),
+        description: '',
+        tags: [],
+        primaryImage,
+        links: linkPreviews,
+        files: filePreviews,
+        combinedContent
+      });
 
       clearAll();
       toast({
@@ -298,19 +304,19 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
     }
   };
 
-  const hasAnyContent = content.trim().length > 0 || linkPreviews.length > 0 || filePreviews.length > 0;
+  const hasAnyContent = content.trim().length > 0 || linkPreviews.length > 0 || filePreviews.length > 0 || extractImagesFromContent().length > 0;
 
   return (
-    <Card className="w-full">
-      <CardContent className="p-6">
-        <div className="space-y-4">
-          {/* Main Editor Area */}
-          <div className="border rounded-md">
+    <div className="w-full">
+      <div className="bg-gray-50 rounded-lg p-4 border-0">
+        <div className="space-y-3">
+          {/* Main Editor Area with gray background */}
+          <div className="bg-gray-100 rounded-md border-0">
             <EditorRoot>
               <EditorContent
                 initialContent={initialContent}
                 extensions={extensions}
-                className="min-h-[200px] max-h-[60vh] overflow-y-auto w-full max-w-none"
+                className="min-h-[150px] max-h-[60vh] overflow-y-auto w-full max-w-none"
                 editorProps={{
                   handleDOMEvents: {
                     keydown: (_view, event) => handleCommandNavigation(event),
@@ -344,42 +350,45 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
             </EditorRoot>
           </div>
 
-          {/* Link Previews */}
+          {/* Inline Link Previews - smaller and side by side */}
           {linkPreviews.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-muted-foreground">
-                Detected Links {isProcessingLinks && "(processing...)"}
-              </div>
-              <div className="grid gap-2">
+            <div className="px-2">
+              <div className="flex flex-wrap gap-2">
                 {linkPreviews.map((preview) => (
-                  <LinkPreviewCard
-                    key={preview.id}
-                    preview={preview}
-                    onRemove={() => removeLinkPreview(preview.id)}
-                  />
+                  <div key={preview.id} className="flex-none w-80">
+                    <LinkPreviewCard
+                      preview={preview}
+                      onRemove={() => removeLinkPreview(preview.id)}
+                    />
+                  </div>
                 ))}
               </div>
+              {isProcessingLinks && (
+                <div className="text-xs text-muted-foreground mt-1 px-2">
+                  Processing links...
+                </div>
+              )}
             </div>
           )}
 
-          {/* File Previews */}
+          {/* File Previews - also smaller and inline */}
           {filePreviews.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-muted-foreground">Files to Upload</div>
-              <div className="grid gap-2">
+            <div className="px-2">
+              <div className="flex flex-wrap gap-2">
                 {filePreviews.map((preview) => (
-                  <FilePreviewCard
-                    key={preview.id}
-                    preview={preview}
-                    onRemove={() => removeFilePreview(preview.id)}
-                  />
+                  <div key={preview.id} className="flex-none w-80">
+                    <FilePreviewCard
+                      preview={preview}
+                      onRemove={() => removeFilePreview(preview.id)}
+                    />
+                  </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Upload Button */}
-          <div className="flex items-center justify-between pt-2 border-t">
+          {/* Bottom Controls */}
+          <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-2">
               <input
                 ref={fileInputRef}
@@ -390,13 +399,13 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
                 className="hidden"
               />
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
               >
                 <Upload className="h-4 w-4" />
-                Upload Files
+                Upload
               </Button>
               
               {hasAnyContent && (
@@ -404,9 +413,9 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
                   variant="ghost"
                   size="sm"
                   onClick={clearAll}
-                  className="text-muted-foreground"
+                  className="text-muted-foreground hover:text-foreground"
                 >
-                  Clear All
+                  Clear
                 </Button>
               )}
             </div>
@@ -417,17 +426,17 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
                 disabled={isLoading}
                 className="min-w-24"
               >
-                {isLoading ? 'Adding...' : 'Add Content'}
+                {isLoading ? 'Adding...' : 'Add Note'}
               </Button>
             )}
           </div>
-
-          <div className="text-xs text-muted-foreground">
-            Paste links to see previews • Drag files to upload • Use / for formatting
-          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+      
+      <div className="text-xs text-muted-foreground mt-2 text-center">
+        Paste links for previews • Drag files to upload • Use / for formatting
+      </div>
+    </div>
   );
 };
 

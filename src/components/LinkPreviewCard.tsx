@@ -20,11 +20,11 @@ interface LinkPreviewCardProps {
 
 const LinkPreviewCard = ({ preview, onRemove }: LinkPreviewCardProps) => {
   return (
-    <Card className="relative border border-gray-200 bg-gray-50">
+    <Card className="relative border border-gray-200 bg-white shadow-sm">
       <CardContent className="p-0">
-        <div className="flex min-h-20">
+        <div className="flex h-16">
           {preview.image && (
-            <div className="flex-shrink-0 w-20">
+            <div className="flex-shrink-0 w-16">
               <img
                 src={preview.image}
                 alt={preview.title || 'Link preview'}
@@ -32,20 +32,20 @@ const LinkPreviewCard = ({ preview, onRemove }: LinkPreviewCardProps) => {
               />
             </div>
           )}
-          <div className="flex-grow min-w-0 p-3 flex flex-col justify-center">
-            <div className="flex items-center space-x-2 mb-1">
-              <ExternalLink className="h-3 w-3 text-gray-500 flex-shrink-0" />
+          <div className="flex-grow min-w-0 p-2 flex flex-col justify-center">
+            <div className="flex items-center space-x-1 mb-1">
+              <ExternalLink className="h-3 w-3 text-gray-400 flex-shrink-0" />
               <span className="text-xs text-gray-500 truncate">
                 {preview.siteName || new URL(preview.url).hostname}
               </span>
             </div>
             {preview.title && (
-              <h3 className="font-medium text-sm text-gray-900 mb-1 line-clamp-1">
+              <h3 className="font-medium text-xs text-gray-900 line-clamp-1 mb-0.5">
                 {preview.title}
               </h3>
             )}
             {preview.description && (
-              <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
+              <p className="text-xs text-gray-600 line-clamp-1 leading-tight">
                 {preview.description}
               </p>
             )}
@@ -54,7 +54,7 @@ const LinkPreviewCard = ({ preview, onRemove }: LinkPreviewCardProps) => {
             variant="ghost"
             size="sm"
             onClick={onRemove}
-            className="absolute top-1 right-1 h-6 w-6 p-0 hover:bg-red-100"
+            className="absolute top-0.5 right-0.5 h-5 w-5 p-0 hover:bg-red-100 opacity-70 hover:opacity-100"
           >
             <X className="h-3 w-3" />
           </Button>

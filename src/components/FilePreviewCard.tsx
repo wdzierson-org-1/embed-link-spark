@@ -17,10 +17,10 @@ interface FilePreviewCardProps {
 
 const FilePreviewCard = ({ preview, onRemove }: FilePreviewCardProps) => {
   const getFileIcon = (file: File) => {
-    if (file.type.startsWith('image/')) return <Image className="w-4 h-4" />;
-    if (file.type.startsWith('video/')) return <Video className="w-4 h-4" />;
-    if (file.type.startsWith('audio/')) return <Mic className="w-4 h-4" />;
-    return <FileText className="w-4 h-4" />;
+    if (file.type.startsWith('image/')) return <Image className="w-3 h-3" />;
+    if (file.type.startsWith('video/')) return <Video className="w-3 h-3" />;
+    if (file.type.startsWith('audio/')) return <Mic className="w-3 h-3" />;
+    return <FileText className="w-3 h-3" />;
   };
 
   const formatFileSize = (bytes: number) => {
@@ -32,11 +32,11 @@ const FilePreviewCard = ({ preview, onRemove }: FilePreviewCardProps) => {
   };
 
   return (
-    <Card className="relative border border-gray-200 bg-gray-50">
+    <Card className="relative border border-gray-200 bg-white shadow-sm">
       <CardContent className="p-0">
-        <div className="flex items-center min-h-16 p-3">
+        <div className="flex items-center h-16 p-2">
           {preview.preview ? (
-            <div className="flex-shrink-0 w-12 h-12 mr-3">
+            <div className="flex-shrink-0 w-12 h-12 mr-2">
               <img
                 src={preview.preview}
                 alt={preview.file.name}
@@ -44,16 +44,16 @@ const FilePreviewCard = ({ preview, onRemove }: FilePreviewCardProps) => {
               />
             </div>
           ) : (
-            <div className="flex-shrink-0 w-12 h-12 mr-3 bg-gray-200 rounded flex items-center justify-center">
+            <div className="flex-shrink-0 w-12 h-12 mr-2 bg-gray-100 rounded flex items-center justify-center">
               {getFileIcon(preview.file)}
             </div>
           )}
           
           <div className="flex-grow min-w-0">
-            <h3 className="font-medium text-sm text-gray-900 truncate mb-1">
+            <h3 className="font-medium text-xs text-gray-900 truncate mb-0.5">
               {preview.file.name}
             </h3>
-            <div className="flex items-center space-x-2 text-xs text-gray-500">
+            <div className="flex items-center space-x-1 text-xs text-gray-500">
               <span>{formatFileSize(preview.file.size)}</span>
               <span>•</span>
               <span>{preview.file.type.split('/')[1]?.toUpperCase() || 'FILE'}</span>
@@ -64,7 +64,7 @@ const FilePreviewCard = ({ preview, onRemove }: FilePreviewCardProps) => {
             variant="ghost"
             size="sm"
             onClick={onRemove}
-            className="absolute top-1 right-1 h-6 w-6 p-0 hover:bg-red-100"
+            className="absolute top-0.5 right-0.5 h-5 w-5 p-0 hover:bg-red-100 opacity-70 hover:opacity-100"
           >
             <X className="h-3 w-3" />
           </Button>
