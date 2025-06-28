@@ -10,6 +10,7 @@ import EditItemContentEditor from '@/components/EditItemContentEditor';
 import EditItemMediaSection from '@/components/EditItemMediaSection';
 import EditItemTagsSection from '@/components/EditItemTagsSection';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
+import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
 
 interface ContentItem {
@@ -21,6 +22,7 @@ interface ContentItem {
   type?: string;
   tags?: string[];
   url?: string;
+  mime_type?: string;
 }
 
 interface EditItemDetailsTabProps {
@@ -88,6 +90,15 @@ const EditItemDetailsTab = ({
       {/* Link Section - only for link items */}
       {item?.type === 'link' && item?.url && (
         <EditItemLinkSection url={item.url} />
+      )}
+
+      {/* Document Section - only for document items */}
+      {(item?.type === 'document' || item?.type === 'pdf') && item?.file_path && (
+        <EditItemDocumentSection 
+          filePath={item.file_path} 
+          fileName={item.title}
+          mimeType={item.mime_type}
+        />
       )}
 
       {/* Content Section */}
