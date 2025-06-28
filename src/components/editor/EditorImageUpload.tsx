@@ -1,7 +1,9 @@
 
 import { useCallback } from 'react';
+import { createImageUpload } from 'novel';
 import { uploadImageForNovel } from '@/services/imageUpload/ImageUploadService';
 import type { User, Session } from '@supabase/supabase-js';
+import { toast } from 'sonner';
 
 interface UseEditorImageUploadProps {
   user: User | null;
@@ -42,7 +44,34 @@ export const useEditorImageUpload = ({ user, session, itemId }: UseEditorImageUp
     }
   }, [user, session, itemId]);
 
+  // Create the upload function using Novel's createImageUpload pattern
+  const createUploadFn = useCallback(() => {
+    if (!handleImageUpload) return undefined;
+
+    return createImageUpload({
+      onUpload: handleImageUpload,
+      validateFn: (file) => {
+        console.log('EditorImageUpload: Validating file', {
+          fileName: file.name,
+          fileType: file.type,
+          fileSize: file.size
+        });
+        
+        if (!file.type.includes("image/")) {
+          toast.error("File type not supported. Please upload an image file.");
+          return false;
+        }
+        if (file.size / 1024 / 1024 > 20) {
+          toast.error("File size too big (max 20MB).");
+          return false;
+        }
+        return true;
+      },
+    });
+  }, [handleImageUpload]);
+
   return {
-    handleImageUpload
+    handleImageUpload,
+    createUploadFn
   };
 };

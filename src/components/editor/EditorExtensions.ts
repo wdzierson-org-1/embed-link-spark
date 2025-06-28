@@ -14,52 +14,13 @@ import {
   HighlightExtension,
   CustomKeymap,
   GlobalDragHandle,
-  createImageUpload,
   UploadImagesPlugin,
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
 import { toast } from 'sonner';
 
-export const createEditorExtensions = (handleImageUpload?: (file: File) => Promise<string>) => {
-  // Create the upload function using Novel's createImageUpload
-  const uploadFn = handleImageUpload ? createImageUpload({
-    onUpload: async (file: File) => {
-      console.log('EditorExtensions: Starting image upload via Novel system', {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type
-      });
-      
-      try {
-        // This should return the final URL that will be accessible
-        const result = await handleImageUpload(file);
-        console.log('EditorExtensions: Upload successful, URL:', { result });
-        return result;
-      } catch (error) {
-        console.error('EditorExtensions: Upload failed', error);
-        throw error;
-      }
-    },
-    validateFn: (file) => {
-      console.log('EditorExtensions: Validating file', {
-        fileName: file.name,
-        fileType: file.type,
-        fileSize: file.size
-      });
-      
-      if (!file.type.includes("image/")) {
-        toast.error("File type not supported. Please upload an image file.");
-        return false;
-      }
-      if (file.size / 1024 / 1024 > 20) {
-        toast.error("File size too big (max 20MB).");
-        return false;
-      }
-      return true;
-    },
-  }) : undefined;
-
+export const createEditorExtensions = (uploadFn?: (file: File, view: any, pos: number) => void) => {
   return [
     StarterKit.configure({
       heading: {
@@ -121,19 +82,19 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
       },
       openOnClick: false,
     }),
-    // Use Novel's TiptapImage with proper upload plugin integration
-    TiptapImage.configure({
-      allowBase64: true,
-      HTMLAttributes: {
-        class: "rounded-lg border border-muted max-w-full h-auto",
-      },
-    }).extend({
+    // Use Novel's TiptapImage with UploadImagesPlugin integration
+    TiptapImage.extend({
       addProseMirrorPlugins() {
         return uploadFn ? [
           UploadImagesPlugin({ 
             imageClass: "opacity-40 rounded-lg border border-stone-200" 
           })
         ] : [];
+      },
+    }).configure({
+      allowBase64: true,
+      HTMLAttributes: {
+        class: "rounded-lg border border-muted max-w-full h-auto",
       },
     }),
     TaskList.configure({

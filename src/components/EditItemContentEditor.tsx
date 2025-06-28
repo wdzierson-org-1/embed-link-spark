@@ -22,7 +22,7 @@ const EditItemContentEditor = ({
   const { user, session } = useAuth();
 
   // Image upload functionality
-  const { handleImageUpload } = useEditorImageUpload({ user, session, itemId });
+  const { createUploadFn } = useEditorImageUpload({ user, session, itemId });
 
   // Create stable editor key
   const effectiveEditorKey = useMemo(() => {
@@ -30,6 +30,17 @@ const EditItemContentEditor = ({
     console.log('EditItemContentEditor: Generated stable editor key:', { key, itemId });
     return key;
   }, [editorInstanceKey, itemId]);
+
+  // Create the upload function using Novel's pattern
+  const uploadFn = useMemo(() => {
+    const fn = createUploadFn();
+    console.log('EditItemContentEditor: Created upload function:', {
+      hasUploadFn: !!fn,
+      itemId,
+      editorKey: effectiveEditorKey
+    });
+    return fn;
+  }, [createUploadFn, itemId, effectiveEditorKey]);
 
   // ENHANCED: Track content prop changes for debugging
   useEffect(() => {
@@ -51,6 +62,8 @@ const EditItemContentEditor = ({
         hasNewContent: !!newContent,
         contentChanged: newContent !== content,
         editorKey: effectiveEditorKey,
+        hasImages: newContent ? newContent.includes('"type":"image"') : false,
+        imageCount: newContent ? (newContent.match(/"type":"image"/g) || []).length : 0,
         newContentPreview: newContent ? newContent.slice(0, 100) + '...' : 'No content'
       });
       
@@ -67,6 +80,7 @@ const EditItemContentEditor = ({
     hasContent: !!content,
     editorKey: effectiveEditorKey,
     isMaximized,
+    hasUploadFn: !!uploadFn,
     contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
   });
 
@@ -74,7 +88,7 @@ const EditItemContentEditor = ({
     <EditorContainer
       content={content}
       onContentChange={handleContentChange}
-      handleImageUpload={handleImageUpload}
+      handleImageUpload={uploadFn}
       editorKey={effectiveEditorKey}
       isMaximized={isMaximized}
     />

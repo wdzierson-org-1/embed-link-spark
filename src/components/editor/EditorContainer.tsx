@@ -49,6 +49,8 @@ const EditorContainer = ({
       hasImageInContent,
       contentChangeReason: contentChanged ? 'Content differs from last saved' : 'Content identical to last saved',
       imageCount: (jsonString.match(/"type":"image"/g) || []).length,
+      placeholderCount: (jsonString.match(/"src":"data:image/g) || []).length,
+      finalUrlCount: (jsonString.match(/"src":"http/g) || []).length,
       newContentPreview: jsonString.slice(0, 150) + '...',
       lastContentPreview: lastContentRef.current.slice(0, 150) + '...'
     });
@@ -61,7 +63,8 @@ const EditorContainer = ({
         hasImageInContent,
         imageCount: (jsonString.match(/"type":"image"/g) || []).length,
         changeType: hasImageInContent ? 'Content with images' : 'Text content',
-        willTriggerSave: true
+        willTriggerSave: true,
+        updateType: jsonString.includes('"src":"data:image/') ? 'Placeholder phase' : 'Final URL phase'
       });
       
       // Update ref IMMEDIATELY before calling onContentChange to prevent double saves
@@ -134,8 +137,7 @@ const EditorContainer = ({
       initialContent={initialJsonContent}
       editorKey={editorKey}
       isMaximized={isMaximized}
-      handleImageUpload={handleImageUpload}
-      uploadFn={undefined} // Not used with Novel's system
+      uploadFn={handleImageUpload}
       onUpdate={handleEditorUpdate}
       onFocus={handleEditorFocus}
       onBlur={handleEditorBlur}
