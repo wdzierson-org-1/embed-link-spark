@@ -15,12 +15,13 @@ import {
   CustomKeymap,
   GlobalDragHandle,
   UploadImagesPlugin,
+  type UploadFn,
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
 import { toast } from 'sonner';
 
-export const createEditorExtensions = (uploadFn?: (file: File, view: any, pos: number) => void) => {
+export const createEditorExtensions = (uploadFn?: UploadFn) => {
   return [
     StarterKit.configure({
       heading: {

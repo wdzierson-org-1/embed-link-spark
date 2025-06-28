@@ -31,7 +31,7 @@ const EditItemContentEditor = ({
     return key;
   }, [editorInstanceKey, itemId]);
 
-  // Create the upload function using Novel's pattern
+  // Create the upload function using Novel's pattern - this returns UploadFn type
   const uploadFn = useMemo(() => {
     const fn = createUploadFn();
     console.log('EditItemContentEditor: Created upload function:', {

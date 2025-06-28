@@ -8,6 +8,7 @@ import {
   handleCommandNavigation,
   handleImageDrop,
   handleImagePaste,
+  type UploadFn,
 } from 'novel';
 import { createEditorExtensions } from './EditorExtensions';
 import EditorCommandMenu from './EditorCommandMenu';
@@ -17,7 +18,7 @@ interface EditorContentRendererProps {
   initialContent: JSONContent;
   editorKey: string;
   isMaximized: boolean;
-  uploadFn?: (file: File, view: any, pos: number) => void;
+  uploadFn?: UploadFn;
   onUpdate: (editor: EditorInstance) => void;
   onFocus?: (editor: EditorInstance) => void;
   onBlur?: (editor: EditorInstance) => void;
