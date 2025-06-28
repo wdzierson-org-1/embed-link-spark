@@ -129,8 +129,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 <input
                   type="text"
                   value={title}
-                  onChange={(e) => handleTitleChange(e.target.value)}
-                  onBlur={(e) => handleTitleSave(e.target.value)}
+                  onChange={handleTitleChange}
+                  onBlur={handleTitleSave}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter image title..."
                 />
@@ -142,8 +142,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 </label>
                 <textarea
                   value={description}
-                  onChange={(e) => handleDescriptionChange(e.target.value)}
-                  onBlur={(e) => handleDescriptionSave(e.target.value)}
+                  onChange={handleDescriptionChange}
+                  onBlur={handleDescriptionSave}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px] resize-vertical"
                   placeholder="Enter image description..."
                 />
