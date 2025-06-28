@@ -47,13 +47,16 @@ const EditorContentRenderer = ({
             handleDOMEvents: {
               keydown: (_view, event) => handleCommandNavigation(event),
             },
-            handlePaste: uploadFn ? (view, event) => {
-              console.log('EditorContentRenderer: Paste event detected');
-              return handleImagePaste(view, event, uploadFn);
+            // Use Novel's built-in image handling with our upload function
+            handlePaste: handleImageUpload ? (view, event) => {
+              console.log('EditorContentRenderer: Paste event detected, using Novel handler');
+              // Novel's createImageUpload handles this automatically through the plugin
+              return false; // Let Novel handle it
             } : undefined,
-            handleDrop: uploadFn ? (view, event, _slice, moved) => {
-              console.log('EditorContentRenderer: Drop event detected');
-              return handleImageDrop(view, event, moved, uploadFn);
+            handleDrop: handleImageUpload ? (view, event, _slice, moved) => {
+              console.log('EditorContentRenderer: Drop event detected, using Novel handler');
+              // Novel's createImageUpload handles this automatically through the plugin
+              return false; // Let Novel handle it
             } : undefined,
             attributes: {
               class: 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 prose-ul:leading-normal prose-ol:leading-normal prose-li:leading-normal prose-li:mb-1 prose-p:leading-normal prose-p:mb-2'
@@ -63,7 +66,8 @@ const EditorContentRenderer = ({
             console.log('EditorContentRenderer: onUpdate event fired', {
               editorKey,
               hasContent: !!editor.getJSON(),
-              contentLength: JSON.stringify(editor.getJSON()).length
+              contentLength: JSON.stringify(editor.getJSON()).length,
+              hasImages: JSON.stringify(editor.getJSON()).includes('"type":"image"')
             });
             onUpdate(editor);
           }}

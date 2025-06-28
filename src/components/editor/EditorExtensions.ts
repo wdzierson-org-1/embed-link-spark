@@ -16,25 +16,25 @@ import {
   GlobalDragHandle,
   createImageUpload,
   UploadImagesPlugin,
-  handleImageDrop,
-  handleImagePaste,
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
 import { toast } from 'sonner';
 
 export const createEditorExtensions = (handleImageUpload?: (file: File) => Promise<string>) => {
+  // Create the upload function using Novel's createImageUpload
   const uploadFn = handleImageUpload ? createImageUpload({
     onUpload: async (file: File) => {
-      console.log('EditorExtensions: Starting image upload', {
+      console.log('EditorExtensions: Starting image upload via Novel system', {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type
       });
       
       try {
+        // This should return the final URL that will be accessible
         const result = await handleImageUpload(file);
-        console.log('EditorExtensions: Upload successful', { result });
+        console.log('EditorExtensions: Upload successful, URL:', { result });
         return result;
       } catch (error) {
         console.error('EditorExtensions: Upload failed', error);
@@ -121,7 +121,7 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
       },
       openOnClick: false,
     }),
-    // Enhanced TiptapImage configuration with proper plugin handling
+    // Use Novel's TiptapImage with proper upload plugin integration
     TiptapImage.configure({
       allowBase64: true,
       HTMLAttributes: {
@@ -130,7 +130,9 @@ export const createEditorExtensions = (handleImageUpload?: (file: File) => Promi
     }).extend({
       addProseMirrorPlugins() {
         return uploadFn ? [
-          UploadImagesPlugin({ imageClass: "rounded-lg border border-muted max-w-full h-auto" })
+          UploadImagesPlugin({ 
+            imageClass: "opacity-40 rounded-lg border border-stone-200" 
+          })
         ] : [];
       },
     }),

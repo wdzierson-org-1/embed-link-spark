@@ -2,7 +2,6 @@
 import React from 'react';
 import type { EditorInstance } from 'novel';
 import { useEditorContentManager } from './EditorContentManager';
-import { useEditorUploadHandler } from './EditorUploadHandler';
 import EditorContentRenderer from './EditorContentRenderer';
 import type { EditorContainerProps } from './EditorContainerProps';
 
@@ -18,12 +17,6 @@ const EditorContainer = ({
     editorKey
   });
 
-  const uploadFn = useEditorUploadHandler({ 
-    handleImageUpload, 
-    editorKey,
-    onContentChange 
-  });
-
   const handleEditorUpdate = (editor: EditorInstance) => {
     // Skip the first update during initialization to prevent immediate overwrite
     if (initializationRef.current) {
@@ -35,7 +28,7 @@ const EditorContainer = ({
       return;
     }
 
-    console.log('EditorContainer: onUpdate triggered', {
+    console.log('EditorContainer: onUpdate triggered by Novel editor', {
       editorKey,
       timestamp: new Date().toISOString()
     });
@@ -48,23 +41,25 @@ const EditorContainer = ({
     const hasImageInContent = jsonString.includes('"type":"image"');
     const contentChanged = jsonString !== lastContentRef.current;
     
-    console.log('EditorContainer: Content analysis:', {
+    console.log('EditorContainer: Content analysis from Novel onUpdate:', {
       editorKey,
       currentLength: jsonString.length,
       lastLength: lastContentRef.current.length,
       hasChanged: contentChanged,
       hasImageInContent,
       contentChangeReason: contentChanged ? 'Content differs from last saved' : 'Content identical to last saved',
+      imageCount: (jsonString.match(/"type":"image"/g) || []).length,
       newContentPreview: jsonString.slice(0, 150) + '...',
       lastContentPreview: lastContentRef.current.slice(0, 150) + '...'
     });
     
-    // CRITICAL: Always save when content changes - this is the primary save mechanism
+    // Save when content changes - Novel's onUpdate handles all changes including images
     if (contentChanged) {
-      console.log('EditorContainer: Content changed, triggering save', {
+      console.log('EditorContainer: Content changed detected by Novel onUpdate, triggering save', {
         editorKey,
         newContentLength: jsonString.length,
         hasImageInContent,
+        imageCount: (jsonString.match(/"type":"image"/g) || []).length,
         changeType: hasImageInContent ? 'Content with images' : 'Text content',
         willTriggerSave: true
       });
@@ -72,16 +67,17 @@ const EditorContainer = ({
       // Update ref IMMEDIATELY before calling onContentChange to prevent double saves
       lastContentRef.current = jsonString;
       
-      // This is the primary save mechanism - it should work for all content changes including images
+      // This is triggered by Novel's onUpdate system which handles all content changes
       onContentChange(jsonString);
       
-      console.log('EditorContainer: Save triggered via onUpdate', {
+      console.log('EditorContainer: Save triggered via Novel onUpdate system', {
         editorKey,
         savedContentLength: jsonString.length,
-        hasImages: hasImageInContent
+        hasImages: hasImageInContent,
+        imageCount: (jsonString.match(/"type":"image"/g) || []).length
       });
     } else {
-      console.log('EditorContainer: No content change detected - skipping save', {
+      console.log('EditorContainer: No content change detected by Novel onUpdate - skipping save', {
         editorKey,
         reason: 'jsonString === lastContentRef.current'
       });
@@ -104,7 +100,8 @@ const EditorContainer = ({
       console.log('EditorContainer: Unsaved changes detected on blur - triggering save', {
         editorKey,
         contentLength: jsonString.length,
-        hasImages: jsonString.includes('"type":"image"')
+        hasImages: jsonString.includes('"type":"image"'),
+        imageCount: (jsonString.match(/"type":"image"/g) || []).length
       });
       
       lastContentRef.current = jsonString;
@@ -114,11 +111,12 @@ const EditorContainer = ({
 
   const initialJsonContent = getInitialContent();
 
-  console.log('EditorContainer: Rendering editor:', { 
+  console.log('EditorContainer: Rendering editor with Novel system:', { 
     editorKey,
     hasInitialContent: !!initialJsonContent,
     contentLength: content?.length || 0,
-    hasUploadHandler: !!handleImageUpload
+    hasUploadHandler: !!handleImageUpload,
+    usingNovelImageSystem: true
   });
 
   if (!initialJsonContent) {
@@ -137,7 +135,7 @@ const EditorContainer = ({
       editorKey={editorKey}
       isMaximized={isMaximized}
       handleImageUpload={handleImageUpload}
-      uploadFn={handleImageUpload ? uploadFn : undefined}
+      uploadFn={undefined} // Not used with Novel's system
       onUpdate={handleEditorUpdate}
       onFocus={handleEditorFocus}
       onBlur={handleEditorBlur}
