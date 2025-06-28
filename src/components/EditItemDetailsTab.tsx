@@ -73,15 +73,6 @@ const EditItemDetailsTab = ({
         </div>
       )}
 
-      {/* Attachments - show if they exist */}
-      {item && (item.links || item.files) && (
-        <EditItemAttachments
-          links={item.links}
-          files={item.files}
-          readonly={true}
-        />
-      )}
-
       {/* AI Summary (Description) */}
       <EditItemDescriptionSection
         itemId={item?.id || ''}
@@ -91,6 +82,15 @@ const EditItemDetailsTab = ({
         onDescriptionChange={onDescriptionChange}
         onSave={onDescriptionSave}
       />
+
+      {/* Attachments - show if they exist */}
+      {item && (item.links || item.files) && (
+        <EditItemAttachments
+          links={item.links}
+          files={item.files}
+          readonly={true}
+        />
+      )}
 
       {/* Tags */}
       <EditItemTagsSection

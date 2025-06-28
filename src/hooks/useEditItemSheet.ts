@@ -1,4 +1,3 @@
-
 import { useEditItemState } from './useEditItemState';
 import { useEditItemDraft } from './useEditItemDraft';
 import { useEditItemSave } from './useEditItemSave';
@@ -6,8 +5,6 @@ import { useEditItemMedia } from './useEditItemMedia';
 import { useEditItemContent } from './useEditItemContent';
 import { useEditItemHandlers } from './useEditItemHandlers';
 import { useEditItemClose } from './useEditItemClose';
-import { extractPrimaryImage } from '@/utils/imageExtractor';
-import { supabase } from '@/integrations/supabase/client';
 
 interface ContentItem {
   id: string;
@@ -75,12 +72,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleImageStateChange,
   } = useEditItemMedia({ item });
 
-  // Get primary image from the item
-  const primaryImagePath = item ? extractPrimaryImage(item) : null;
-  const primaryImageUrl = primaryImagePath ? 
-    (primaryImagePath.startsWith('http') ? primaryImagePath : 
-     supabase.storage.from('stash-media').getPublicUrl(primaryImagePath).data.publicUrl) : null;
-
   // Content handlers
   const {
     handleTitleChange,
@@ -123,8 +114,8 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     title,
     description,
     content,
-    hasImage: !!primaryImageUrl,
-    imageUrl: primaryImageUrl,
+    hasImage,
+    imageUrl,
     isContentLoading,
     editorKey,
     activeTab,

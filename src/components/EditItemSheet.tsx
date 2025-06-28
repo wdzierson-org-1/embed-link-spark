@@ -76,17 +76,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
             />
           </SheetHeader>
 
-          {/* Primary Image - show at top if available */}
-          {hasImage && imageUrl && (
-            <div className="w-full h-48 overflow-hidden flex-shrink-0">
-              <img
-                src={imageUrl}
-                alt={title || 'Note image'}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
-
           <div className="flex-1 overflow-y-auto">
             <div className="pt-6">
               <EditItemDetailsTab
