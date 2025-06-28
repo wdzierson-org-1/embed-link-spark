@@ -21,12 +21,13 @@ interface ItemTagsManagerProps {
 
 const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: ItemTagsManagerProps) => {
   const { user } = useAuth();
-  const { getAISuggestedTags, getSuggestedTags } = useTags();
+  const { tags } = useTags();
   const [isEditing, setIsEditing] = useState(false);
   const [newTags, setNewTags] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [itemTags, setItemTags] = useState<string[]>(currentTags);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
 
   useEffect(() => {
     setItemTags(currentTags);
@@ -34,41 +35,52 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
 
   useEffect(() => {
     if (isEditing) {
-      fetchTagSuggestions();
+      fetchAITagSuggestions();
     }
-  }, [isEditing, itemTags]);
+  }, [isEditing, itemTags, tags]);
 
-  const fetchTagSuggestions = async () => {
-    if (!user) return;
+  const fetchAITagSuggestions = async () => {
+    if (!user || tags.length === 0) {
+      setTagSuggestions([]);
+      return;
+    }
+    
+    setIsLoadingSuggestions(true);
     
     try {
-      // Get AI-suggested tags based on content
-      const aiSuggestions = await getAISuggestedTags({
-        title: itemContent.title || '',
-        content: itemContent.content || '',
-        description: itemContent.description || ''
+      // Get all available tag names from user's existing tags
+      const availableTags = tags.map(tag => tag.name);
+      
+      // Call the get-relevant-tags function with the item content and available tags
+      const { data: result, error } = await supabase.functions.invoke('get-relevant-tags', {
+        body: {
+          title: itemContent.title || '',
+          content: itemContent.content || '',
+          description: itemContent.description || '',
+          availableTags: availableTags
+        }
       });
+
+      if (error) {
+        console.error('Error getting AI tag suggestions:', error);
+        setTagSuggestions([]);
+        return;
+      }
       
-      // Get popular tags from user's existing tags
-      const popularTags = getSuggestedTags(10);
-      
-      // Combine and deduplicate, prioritizing AI suggestions
-      const allSuggestions = [...new Set([...aiSuggestions, ...popularTags])];
+      const relevantTags = result?.relevantTags || [];
+      console.log('AI suggested tags:', relevantTags);
       
       // Filter out tags that are already applied to this item
-      const filteredSuggestions = allSuggestions.filter(tag => 
-        !itemTags.includes(tag.toLowerCase())
+      const filteredSuggestions = relevantTags.filter((tag: string) => 
+        !itemTags.map(t => t.toLowerCase()).includes(tag.toLowerCase())
       );
       
       setTagSuggestions(filteredSuggestions.slice(0, 6)); // Limit to 6 suggestions
     } catch (error) {
-      console.error('Error fetching tag suggestions:', error);
-      // Fallback to popular tags only
-      const popularTags = getSuggestedTags(10);
-      const filteredSuggestions = popularTags.filter(tag => 
-        !itemTags.includes(tag.toLowerCase())
-      );
-      setTagSuggestions(filteredSuggestions.slice(0, 6));
+      console.error('Error fetching AI tag suggestions:', error);
+      setTagSuggestions([]);
+    } finally {
+      setIsLoadingSuggestions(false);
     }
   };
 
@@ -147,7 +159,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
       onTagsUpdated();
       
       // Refresh suggestions after adding tags
-      await fetchTagSuggestions();
+      await fetchAITagSuggestions();
     } catch (error) {
       console.error('Error saving tags:', error);
     }
@@ -188,7 +200,7 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
       onTagsUpdated();
       
       // Refresh suggestions after removing tags
-      await fetchTagSuggestions();
+      await fetchAITagSuggestions();
     } catch (error) {
       console.error('Error removing tag:', error);
     }
@@ -278,9 +290,11 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
           </div>
           
           {/* Tag suggestions */}
-          {tagSuggestions.length > 0 && (
+          {isLoadingSuggestions ? (
+            <div className="text-xs text-muted-foreground">Loading suggestions...</div>
+          ) : tagSuggestions.length > 0 ? (
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Suggested tags:</p>
+              <p className="text-xs text-muted-foreground">AI suggested tags:</p>
               <div className="flex flex-wrap gap-1">
                 {tagSuggestions.map((suggestion) => (
                   <Button
@@ -295,6 +309,8 @@ const ItemTagsManager = ({ itemId, currentTags, onTagsUpdated, itemContent }: It
                 ))}
               </div>
             </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">No relevant tags found in your collection</div>
           )}
         </div>
       )}
