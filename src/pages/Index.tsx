@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -117,9 +118,9 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-50">
       {/* Header with logo, date and user menu */}
-      <div className="w-full bg-background">
+      <div className="w-full bg-white border-b border-gray-200">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             {/* Logo */}
@@ -170,21 +171,21 @@ const Index = () => {
         </div>
       </div>
       
-      {/* Tab bar with integrated collapse button - moved down by 5px */}
-      <div className="w-full bg-background" style={{ marginTop: '5px' }}>
+      {/* Tab bar and input section with grey background */}
+      <div className="w-full bg-gray-100" style={{ marginTop: '5px' }}>
         <div className="container mx-auto px-4">
-          <div className="flex items-center bg-muted rounded-lg p-1 w-full">
+          <div className="flex items-center bg-gray-200 rounded-lg p-1 w-full">
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
               <TabsList className="grid w-full grid-cols-3 h-12 bg-transparent border-0">
-                <TabsTrigger value="text" className="flex items-center gap-2">
+                <TabsTrigger value="text" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                   <FileText className="h-4 w-4" />
                   Text Note
                 </TabsTrigger>
-                <TabsTrigger value="link" className="flex items-center gap-2">
+                <TabsTrigger value="link" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                   <Link className="h-4 w-4" />
                   Link
                 </TabsTrigger>
-                <TabsTrigger value="media" className="flex items-center gap-2">
+                <TabsTrigger value="media" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                   <Upload className="h-4 w-4" />
                   Upload
                 </TabsTrigger>
@@ -195,7 +196,7 @@ const Index = () => {
               variant="ghost"
               size="sm"
               onClick={toggleInputUI}
-              className="ml-2 flex items-center gap-1 bg-transparent hover:bg-muted-foreground/10"
+              className="ml-2 flex items-center gap-1 bg-transparent hover:bg-gray-300/50"
             >
               {isInputUICollapsed ? (
                 <ChevronDown className="h-4 w-4" />
@@ -235,14 +236,14 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Chat button and filter section - moved down by 18px */}
-      <div className="container mx-auto px-4 pt-6 pb-4">
+      {/* Chat button and filter section */}
+      <div className="container mx-auto px-4 pt-6 pb-4 bg-gray-50">
         <div className="flex items-center justify-between mb-4">
           <Button
             variant="outline"
             size="sm"
             onClick={() => setShowGlobalChat(true)}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50"
           >
             <MessageSquare className="h-4 w-4" />
             Noodle assistant
@@ -257,7 +258,7 @@ const Index = () => {
         </div>
       </div>
       
-      <main className="container mx-auto px-4 pb-8">
+      <main className="container mx-auto px-4 pb-8 bg-gray-50">
         <ContentGrid 
           items={items} 
           onDeleteItem={handleDeleteItem}
