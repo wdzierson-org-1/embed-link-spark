@@ -1,7 +1,6 @@
 
 import React from 'react';
 import { TabsContent } from '@/components/ui/tabs';
-import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
 import EditItemTagsSection from '@/components/EditItemTagsSection';
@@ -61,12 +60,29 @@ const EditItemDetailsTab = ({
 
   return (
     <TabContent>
-      <EditItemTitleSection
-        title={title}
-        onTitleChange={onTitleChange}
-        onSave={onTitleSave}
-      />
+      {/* Note Content Editor */}
+      {(item?.type === 'text' || item?.type === 'link' || item?.type === 'unified' || !item?.type) && (
+        <div>
+          <label className="text-sm font-medium text-muted-foreground mb-3 block">Note</label>
+          <EditItemContentEditor
+            content={content}
+            onContentChange={onContentChange}
+            itemId={item?.id}
+            editorInstanceKey={editorKey}
+          />
+        </div>
+      )}
 
+      {/* Attachments - show if they exist */}
+      {item && (item.links || item.files) && (
+        <EditItemAttachments
+          links={item.links}
+          files={item.files}
+          readonly={true}
+        />
+      )}
+
+      {/* AI Summary (Description) */}
       <EditItemDescriptionSection
         itemId={item?.id || ''}
         description={description}
@@ -76,24 +92,7 @@ const EditItemDetailsTab = ({
         onSave={onDescriptionSave}
       />
 
-      {/* Show attachments if they exist */}
-      {item && (item.links || item.files) && (
-        <EditItemAttachments
-          links={item.links}
-          files={item.files}
-          readonly={true}
-        />
-      )}
-
-      {(item?.type === 'text' || item?.type === 'link' || item?.type === 'unified' || !item?.type) && (
-        <EditItemContentEditor
-          content={content}
-          onContentChange={onContentChange}
-          itemId={item?.id}
-          editorInstanceKey={editorKey}
-        />
-      )}
-
+      {/* Tags */}
       <EditItemTagsSection
         item={item}
         onTagsChange={onTagsChange}

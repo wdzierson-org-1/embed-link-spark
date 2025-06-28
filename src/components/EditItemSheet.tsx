@@ -1,7 +1,8 @@
 
 import React from 'react';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader } from '@/components/ui/sheet';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { Input } from '@/components/ui/input';
 import EditItemDetailsTab from '@/components/EditItemDetailsTab';
 import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
 import { useEditItemSheet } from '@/hooks/useEditItemSheet';
@@ -14,6 +15,8 @@ interface ContentItem {
   file_path?: string;
   type?: string;
   tags?: string[];
+  links?: any[];
+  files?: any[];
 }
 
 interface EditItemSheetProps {
@@ -46,12 +49,31 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     handleImageStateChange,
   } = useEditItemSheet({ open, item, onSave });
 
+  const handleTitleBlur = () => {
+    if (title !== item?.title) {
+      handleTitleSave(title);
+    }
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    }
+  };
+
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col">
           <SheetHeader className="px-6 py-4 border-b flex-shrink-0">
-            <SheetTitle>{title || 'Untitled Note'}</SheetTitle>
+            <Input
+              value={title}
+              onChange={(e) => handleTitleChange(e.target.value)}
+              onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown}
+              className="text-lg font-semibold border-none p-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0"
+              placeholder="Untitled Note"
+            />
           </SheetHeader>
 
           {/* Primary Image - show at top if available */}
@@ -66,7 +88,6 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
           )}
 
           <div className="flex-1 overflow-y-auto">
-            {/* Remove tabs completely, always show details */}
             <div className="pt-6">
               <EditItemDetailsTab
                 item={item}
