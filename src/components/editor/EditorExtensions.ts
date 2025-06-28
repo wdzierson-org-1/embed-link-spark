@@ -22,7 +22,7 @@ import { slashCommand } from './SlashCommand';
 import { toast } from 'sonner';
 
 export const createEditorExtensions = (uploadFn?: UploadFn) => {
-  return [
+  const baseExtensions = [
     StarterKit.configure({
       heading: {
         HTMLAttributes: {
@@ -83,7 +83,6 @@ export const createEditorExtensions = (uploadFn?: UploadFn) => {
       },
       openOnClick: false,
     }),
-    // Configure TiptapImage without the UploadImagesPlugin - we'll add it separately
     TiptapImage.configure({
       allowBase64: true,
       HTMLAttributes: {
@@ -118,11 +117,17 @@ export const createEditorExtensions = (uploadFn?: UploadFn) => {
     CustomKeymap,
     GlobalDragHandle,
     slashCommand,
-    // Add UploadImagesPlugin as a separate extension with proper configuration
-    ...(uploadFn ? [
-      UploadImagesPlugin({ 
-        imageClass: "opacity-40 rounded-lg border border-stone-200" 
-      })
-    ] : []),
   ];
+
+  // Only add UploadImagesPlugin if uploadFn is provided
+  if (uploadFn) {
+    console.log('EditorExtensions: Adding UploadImagesPlugin with upload function');
+    baseExtensions.push(
+      UploadImagesPlugin({
+        imageClass: "opacity-40 rounded-lg border border-stone-200"
+      })
+    );
+  }
+
+  return baseExtensions;
 };
