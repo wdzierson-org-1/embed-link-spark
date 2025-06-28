@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -14,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { FileText, Link, Upload, MessageSquare, Settings, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
+import { FileText, Link, Upload, Search, Settings, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 import StashHeader from '@/components/StashHeader';
@@ -25,6 +26,7 @@ import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
 import MediaUploadTab from '@/components/MediaUploadTab';
 import SettingsModal from '@/components/SettingsModal';
+import PinnedChatWidget from '@/components/PinnedChatWidget';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
 const Index = () => {
@@ -118,8 +120,8 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header with logo, date and user menu */}
-      <div className="w-full bg-white border-b border-gray-200">
+      {/* Header with logo, date and user menu - now part of grey background */}
+      <div className="w-full bg-gray-100">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             {/* Logo */}
@@ -168,12 +170,9 @@ const Index = () => {
             </DropdownMenu>
           </div>
         </div>
-      </div>
-      
-      {/* Increased space between header and tab bar */}
-      <div className="pt-8">
-        {/* Tab bar and input section with grey background */}
-        <div className="w-full bg-gray-100 pb-8">
+        
+        {/* Tab bar and input section - all part of grey background now */}
+        <div className="pb-8">
           <div className="container mx-auto px-4">
             <div className="flex items-center bg-gray-200 rounded-lg p-1 w-full">
               <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
@@ -207,7 +206,7 @@ const Index = () => {
               </Button>
             </div>
             
-            {/* Input UI Area with reduced spacing and grey background */}
+            {/* Input UI Area */}
             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
               isInputUICollapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'
             }`}>
@@ -238,17 +237,16 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Chat button and filter section - white background */}
+      {/* Search and filter section - white background */}
       <div className="container mx-auto px-4 pt-6 pb-4 bg-white">
         <div className="flex items-center justify-between mb-4">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowGlobalChat(true)}
             className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50"
           >
-            <MessageSquare className="h-4 w-4" />
-            Noodle assistant
+            <Search className="h-4 w-4" />
+            Search notes
           </Button>
           <StashHeader 
             onShowGlobalChat={() => setShowGlobalChat(true)}
@@ -269,6 +267,9 @@ const Index = () => {
           tagFilters={selectedTags}
         />
       </main>
+
+      {/* Pinned Chat Widget */}
+      <PinnedChatWidget onExpandToModal={() => setShowGlobalChat(true)} />
 
       <EditItemSheet
         open={!!editingItem}

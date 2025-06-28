@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -106,7 +107,7 @@ const ContentItem = ({
 
   return (
     <TooltipProvider>
-      <Card className="group flex flex-col h-full bg-gray-50 border-0 hover:shadow-md transition-all duration-200 overflow-hidden">
+      <Card className="group flex flex-col h-full bg-gray-50 border border-gray-200 hover:shadow-md transition-all duration-200 overflow-hidden">
         {/* Image or Video at the top, clipped to card edges */}
         <div className="relative">
           {item.type === 'video' && fileUrl ? (
@@ -141,7 +142,7 @@ const ContentItem = ({
           )}
         </div>
 
-        <div className="flex flex-col flex-1 p-4">
+        <div className="flex flex-col flex-1 p-6">
           {/* Title section with clickable link */}
           {item.title && (
             <div className="mb-3">

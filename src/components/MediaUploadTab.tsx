@@ -1,3 +1,4 @@
+
 import React, { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -195,7 +196,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
   const hasFiles = files.length > 0;
 
   return (
-    <Card className="bg-gray-50 border-gray-200">
+    <Card className="bg-gray-50 border-0">
       <CardContent className="pt-6">
         <div className="space-y-4">
           <div>
@@ -210,10 +211,10 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
             />
             <label
               htmlFor="file-upload"
-              className={`flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-lg cursor-pointer transition-colors bg-white ${
+              className={`flex flex-col items-center justify-center w-full h-40 border-0 rounded-lg cursor-pointer transition-colors bg-white ${
                 isDragOver 
-                  ? 'border-blue-400 bg-blue-50' 
-                  : 'border-gray-300 hover:bg-gray-50'
+                  ? 'bg-blue-50' 
+                  : 'hover:bg-gray-50'
               }`}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -250,7 +251,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
             <div className="space-y-2">
               <p className="text-sm font-medium">Selected files:</p>
               {files.map((file, index) => (
-                <div key={index} className="flex items-center justify-between p-2 bg-white rounded border border-gray-200">
+                <div key={index} className="flex items-center justify-between p-2 bg-white rounded border-0">
                   <div className="flex items-center space-x-2">
                     {getFileIcon(file)}
                     <span className="text-sm truncate">{file.name}</span>
