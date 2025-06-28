@@ -46,11 +46,7 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {/* Show optimistic items first */}
       {optimisticItems.map((item) => (
-        <ContentItemSkeleton
-          key={item.id}
-          title={item.title}
-          type={item.type}
-        />
+        <ContentItemSkeleton key={item.id} />
       ))}
       
       {/* Show real items */}
@@ -58,9 +54,15 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
         <ContentItem
           key={item.id}
           item={item}
-          onDelete={onDeleteItem}
-          onEdit={onEditItem}
-          onChatWith={onChatWithItem}
+          tags={[]}
+          imageErrors={new Set()}
+          expandedContent={new Set()}
+          onImageError={() => {}}
+          onToggleExpansion={() => {}}
+          onDeleteItem={onDeleteItem}
+          onEditItem={onEditItem}
+          onChatWithItem={onChatWithItem}
+          onTagsUpdated={() => {}}
         />
       ))}
     </div>
