@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/hooks/useAuth';
 import Landing from '@/pages/Landing';
 import Index from '@/pages/Index';
+import Home2 from '@/pages/Home2';
 import Auth from '@/pages/Auth';
 import Settings from '@/pages/Settings';
 import NotFound from '@/pages/NotFound';
@@ -20,6 +21,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/home" element={<Index />} />
+              <Route path="/home2" element={<Home2 />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<NotFound />} />
