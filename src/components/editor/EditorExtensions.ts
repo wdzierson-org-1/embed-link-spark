@@ -14,7 +14,6 @@ import {
   HighlightExtension,
   CustomKeymap,
   GlobalDragHandle,
-  UploadImagesPlugin,
   type UploadFn,
 } from 'novel';
 import { createLowlight, common } from 'lowlight';
@@ -119,14 +118,8 @@ export const createEditorExtensions = (uploadFn?: UploadFn) => {
     slashCommand,
   ];
 
-  // Only add UploadImagesPlugin if uploadFn is provided
   if (uploadFn) {
-    console.log('EditorExtensions: Adding UploadImagesPlugin with upload function');
-    baseExtensions.push(
-      UploadImagesPlugin({
-        imageClass: "opacity-40 rounded-lg border border-stone-200"
-      })
-    );
+    console.log('EditorExtensions: Upload function provided, image uploads will be handled by Novel');
   }
 
   return baseExtensions;
