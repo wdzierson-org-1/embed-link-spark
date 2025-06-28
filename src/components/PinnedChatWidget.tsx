@@ -25,6 +25,7 @@ const PinnedChatWidget = ({ onExpandToModal }: PinnedChatWidgetProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -118,67 +119,80 @@ const PinnedChatWidget = ({ onExpandToModal }: PinnedChatWidgetProps) => {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-40">
+    <div className="fixed bottom-8 right-8 z-40">
       {!isExpanded ? (
-        <Button
-          onClick={handleToggleExpanded}
-          className="h-12 w-12 rounded-full bg-primary hover:bg-primary/90 shadow-lg"
-          size="sm"
+        <div
+          className="relative"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
         >
-          <MessageSquare className="h-5 w-5" />
-        </Button>
+          <Button
+            onClick={handleToggleExpanded}
+            className={`h-16 rounded-full bg-primary hover:bg-primary/90 shadow-lg transition-all duration-300 flex items-center gap-2 ${
+              isHovered ? 'w-auto px-4' : 'w-16 px-0'
+            }`}
+            size="sm"
+          >
+            <MessageSquare className={`h-6 w-6 transition-all duration-300 ${isHovered ? 'ml-0' : ''}`} />
+            <span className={`text-sm font-medium whitespace-nowrap overflow-hidden transition-all duration-300 ${
+              isHovered ? 'max-w-xs opacity-100' : 'max-w-0 opacity-0'
+            }`}>
+              Chat with your notes
+            </span>
+          </Button>
+        </div>
       ) : (
-        <Card className="w-80 h-96 shadow-xl">
-          <div className="flex items-center justify-between p-3 border-b">
+        <Card className="w-96 h-[32rem] shadow-xl">
+          <div className="flex items-center justify-between p-4 border-b">
             <div className="flex items-center space-x-2">
-              <MessageSquare className="h-4 w-4" />
-              <span className="text-sm font-medium">Noodle Assistant</span>
+              <MessageSquare className="h-5 w-5" />
+              <span className="text-base font-medium">Noodle Assistant</span>
             </div>
             <div className="flex items-center space-x-1">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={handleExpandToModal}
-                className="h-6 w-6 p-0"
+                className="h-8 w-8 p-0"
               >
-                <Expand className="h-3 w-3" />
+                <Expand className="h-4 w-4" />
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setIsExpanded(false)}
-                className="h-6 w-6 p-0"
+                className="h-8 w-8 p-0"
               >
-                <X className="h-3 w-3" />
+                <X className="h-4 w-4" />
               </Button>
             </div>
           </div>
           
-          <CardContent className="flex flex-col h-80 p-0">
-            <ScrollArea className="flex-1 p-3">
-              <div className="space-y-3">
+          <CardContent className="flex flex-col h-[26rem] p-0">
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-4">
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex items-start space-x-2 ${
+                    className={`flex items-start space-x-3 ${
                       message.role === 'user' ? 'justify-end' : 'justify-start'
                     }`}
                   >
                     {message.role === 'assistant' && (
-                      <div className="flex-shrink-0 w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center">
-                        <Bot className="h-3 w-3" />
+                      <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                        <Bot className="h-4 w-4" />
                       </div>
                     )}
-                    <div className={`max-w-[70%] ${message.role === 'user' ? 'order-1' : ''}`}>
+                    <div className={`max-w-[75%] ${message.role === 'user' ? 'order-1' : ''}`}>
                       <div
-                        className={`p-2 rounded-lg text-xs ${
+                        className={`p-3 rounded-lg text-sm ${
                           message.role === 'user'
                             ? 'bg-primary text-primary-foreground'
                             : 'bg-muted'
                         }`}
                       >
                         {message.role === 'assistant' ? (
-                          <div className="prose prose-xs max-w-none dark:prose-invert">
+                          <div className="prose prose-sm max-w-none dark:prose-invert">
                             <ReactMarkdown>
                               {message.content}
                             </ReactMarkdown>
@@ -189,22 +203,22 @@ const PinnedChatWidget = ({ onExpandToModal }: PinnedChatWidgetProps) => {
                       </div>
                     </div>
                     {message.role === 'user' && (
-                      <div className="flex-shrink-0 w-6 h-6 bg-primary rounded-full flex items-center justify-center order-2">
-                        <User className="h-3 w-3 text-primary-foreground" />
+                      <div className="flex-shrink-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center order-2">
+                        <User className="h-4 w-4 text-primary-foreground" />
                       </div>
                     )}
                   </div>
                 ))}
                 {isLoading && (
-                  <div className="flex items-start space-x-2">
-                    <div className="flex-shrink-0 w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center">
-                      <Bot className="h-3 w-3" />
+                  <div className="flex items-start space-x-3">
+                    <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                      <Bot className="h-4 w-4" />
                     </div>
-                    <div className="bg-muted p-2 rounded-lg">
+                    <div className="bg-muted p-3 rounded-lg">
                       <div className="flex space-x-1">
-                        <div className="w-1 h-1 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                        <div className="w-1 h-1 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                        <div className="w-1 h-1 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <div className="w-2 h-2 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                       </div>
                     </div>
                   </div>
@@ -213,23 +227,23 @@ const PinnedChatWidget = ({ onExpandToModal }: PinnedChatWidgetProps) => {
               <div ref={messagesEndRef} />
             </ScrollArea>
             
-            <div className="flex-shrink-0 p-3 border-t">
+            <div className="flex-shrink-0 p-4 border-t">
               <div className="flex space-x-2">
                 <Textarea
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyDown={handleKeyPress}
                   placeholder="Ask about your content..."
-                  className="flex-1 min-h-[32px] max-h-[60px] resize-none text-xs"
+                  className="flex-1 min-h-[40px] max-h-[80px] resize-none text-sm"
                   disabled={isLoading}
                 />
                 <Button
                   onClick={sendMessage}
                   disabled={isLoading || !inputMessage.trim()}
                   size="sm"
-                  className="h-8 w-8 p-0"
+                  className="h-10 w-10 p-0"
                 >
-                  <Send className="h-3 w-3" />
+                  <Send className="h-4 w-4" />
                 </Button>
               </div>
             </div>

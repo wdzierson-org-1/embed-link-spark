@@ -6,6 +6,7 @@ import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   DropdownMenu,
@@ -15,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { FileText, Link, Upload, Search, Settings, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
+import { FileText, Link, Upload, Search, Settings, LogOut, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 import StashHeader from '@/components/StashHeader';
@@ -47,6 +48,8 @@ const Index = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [isInputUICollapsed, setIsInputUICollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState('text');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchActive, setIsSearchActive] = useState(false);
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
@@ -72,7 +75,6 @@ const Index = () => {
   };
 
   const handleChatWithItem = (item) => {
-    // For now, just show the global chat when clicking chat with item
     setShowGlobalChat(true);
   };
 
@@ -82,7 +84,6 @@ const Index = () => {
 
   const handleTabChange = (value) => {
     setActiveTab(value);
-    // If UI is collapsed and user clicks a tab, expand it
     if (isInputUICollapsed) {
       setIsInputUICollapsed(false);
     }
@@ -100,11 +101,20 @@ const Index = () => {
   };
 
   const handleViewAllSources = (sourceIds: string[]) => {
-    // Create a filter that shows only the source items
-    const sourceTagFilter = sourceIds;
-    // For now, we'll implement this as showing all items
-    // In the future, you could enhance this to filter by specific item IDs
     setSelectedTags([]);
+  };
+
+  const handleSearchClick = () => {
+    setIsSearchActive(true);
+  };
+
+  const handleSearchClear = () => {
+    setSearchQuery('');
+    setIsSearchActive(false);
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
   };
 
   // Get current date
@@ -120,9 +130,9 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header with logo, date and user menu - now part of grey background */}
-      <div className="w-full bg-gray-100">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+      {/* Header with logo, date and user menu - now white background with increased height */}
+      <div className="w-full bg-white border-b border-gray-200">
+        <div className="container mx-auto px-4 h-20 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             {/* Logo */}
             <div className="flex items-center space-x-2">
@@ -170,22 +180,33 @@ const Index = () => {
             </DropdownMenu>
           </div>
         </div>
-        
-        {/* Tab bar and input section - all part of grey background now */}
-        <div className="pb-8">
+      </div>
+
+      {/* Grey background section with increased spacing */}
+      <div className="w-full bg-gray-100">
+        <div className="pt-8 pb-8">
           <div className="container mx-auto px-4">
             <div className="flex items-center bg-gray-200 rounded-lg p-1 w-full">
               <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
                 <TabsList className="grid w-full grid-cols-3 h-12 bg-transparent border-0">
-                  <TabsTrigger value="text" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                  <TabsTrigger 
+                    value="text" 
+                    className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm hover:bg-gray-300 transition-colors"
+                  >
                     <FileText className="h-4 w-4" />
                     Text Note
                   </TabsTrigger>
-                  <TabsTrigger value="link" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                  <TabsTrigger 
+                    value="link" 
+                    className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm hover:bg-gray-300 transition-colors"
+                  >
                     <Link className="h-4 w-4" />
                     Link
                   </TabsTrigger>
-                  <TabsTrigger value="media" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                  <TabsTrigger 
+                    value="media" 
+                    className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm hover:bg-gray-300 transition-colors"
+                  >
                     <Upload className="h-4 w-4" />
                     Upload
                   </TabsTrigger>
@@ -206,26 +227,26 @@ const Index = () => {
               </Button>
             </div>
             
-            {/* Input UI Area */}
+            {/* Input UI Area with reduced spacing */}
             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
               isInputUICollapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'
             }`}>
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                <TabsContent value="text" className="mt-4 pb-0">
+                <TabsContent value="text" className="mt-2 pb-0">
                   <TextNoteTab
                     onAddContent={handleAddContent}
                     getSuggestedTags={getSuggestedTags}
                   />
                 </TabsContent>
                 
-                <TabsContent value="link" className="mt-4 pb-0">
+                <TabsContent value="link" className="mt-2 pb-0">
                   <LinkTab
                     onAddContent={handleAddContent}
                     getSuggestedTags={() => []}
                   />
                 </TabsContent>
                 
-                <TabsContent value="media" className="mt-4 pb-0">
+                <TabsContent value="media" className="mt-2 pb-0">
                   <MediaUploadTab
                     onAddContent={handleAddContent}
                     getSuggestedTags={getSuggestedTags}
@@ -240,14 +261,40 @@ const Index = () => {
       {/* Search and filter section - white background */}
       <div className="container mx-auto px-4 pt-6 pb-4 bg-white">
         <div className="flex items-center justify-between mb-4">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50"
-          >
-            <Search className="h-4 w-4" />
-            Search notes
-          </Button>
+          <div className="flex items-center">
+            {!isSearchActive ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSearchClick}
+                className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50 transition-all duration-200"
+              >
+                <Search className="h-4 w-4" />
+                Search notes
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2 animate-in slide-in-from-left-2 duration-200">
+                <div className="relative flex items-center border border-gray-300 rounded-md bg-white px-3 py-2 w-64">
+                  <Search className="h-4 w-4 text-gray-400 mr-2" />
+                  <Input
+                    value={searchQuery}
+                    onChange={handleSearchChange}
+                    placeholder="Search notes..."
+                    className="border-0 p-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0"
+                    autoFocus
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSearchClear}
+                    className="h-6 w-6 p-0 ml-2 hover:bg-gray-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
           <StashHeader 
             onShowGlobalChat={() => setShowGlobalChat(true)}
             itemCount={items.filter(item => !item.isOptimistic).length}
@@ -265,10 +312,11 @@ const Index = () => {
           onEditItem={handleEditItem}
           onChatWithItem={handleChatWithItem}
           tagFilters={selectedTags}
+          searchQuery={searchQuery}
         />
       </main>
 
-      {/* Pinned Chat Widget */}
+      {/* Enhanced Pinned Chat Widget */}
       <PinnedChatWidget onExpandToModal={() => setShowGlobalChat(true)} />
 
       <EditItemSheet
