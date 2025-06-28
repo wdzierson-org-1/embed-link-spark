@@ -1,15 +1,15 @@
 
-import { useCallback } from 'react';
-
 export const useEditItemHandlers = () => {
-  
-  const handleTagsChange = useCallback(() => {
-    // Tags changes are handled separately and don't need auto-save
-  }, []);
+  const handleTagsChange = async (tags: string[]) => {
+    // Tags are handled by the EditItemTagsSection component
+    // This is just a placeholder for the parent component interface
+    console.log('Tags changed:', tags);
+  };
 
-  const handleMediaChange = useCallback(() => {
-    // Media changes are handled separately and don't need auto-save
-  }, []);
+  const handleMediaChange = () => {
+    // Media changes are handled by individual media components
+    console.log('Media changed');
+  };
 
   return {
     handleTagsChange,
