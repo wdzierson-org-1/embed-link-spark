@@ -49,6 +49,44 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     handleImageStateChange,
   } = useEditItemSheet({ open, item, onSave });
 
+  // For image items, show inline without tabs
+  if (item?.type === 'image') {
+    return (
+      <TooltipProvider>
+        <Sheet open={open} onOpenChange={onOpenChange}>
+          <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col">
+            <SheetHeader className="px-6 py-4 border-b flex-shrink-0">
+              <SheetTitle>Edit Item</SheetTitle>
+            </SheetHeader>
+
+            <div className="flex-1 overflow-y-auto pt-6">
+              <EditItemDetailsTab
+                item={item}
+                title={title}
+                description={description}
+                content={content}
+                isContentLoading={isContentLoading}
+                editorKey={editorKey}
+                onTitleChange={handleTitleChange}
+                onDescriptionChange={handleDescriptionChange}
+                onContentChange={handleContentChange}
+                onTitleSave={handleTitleSave}
+                onDescriptionSave={handleDescriptionSave}
+                onTagsChange={handleTagsChange}
+                onMediaChange={handleMediaChange}
+                isInsideTabs={false}
+                showInlineImage={true}
+                imageUrl={imageUrl}
+              />
+            </div>
+
+            <EditItemAutoSaveIndicator saveStatus={saveStatus} lastSaved={lastSaved} />
+          </SheetContent>
+        </Sheet>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>

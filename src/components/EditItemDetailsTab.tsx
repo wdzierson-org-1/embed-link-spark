@@ -42,6 +42,8 @@ interface EditItemDetailsTabProps {
   onTagsChange: () => void;
   onMediaChange: () => void;
   isInsideTabs?: boolean;
+  showInlineImage?: boolean;
+  imageUrl?: string;
 }
 
 const EditItemDetailsTab = ({
@@ -61,8 +63,16 @@ const EditItemDetailsTab = ({
   onTagsChange,
   onMediaChange,
   isInsideTabs = true,
+  showInlineImage = false,
+  imageUrl = '',
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
+
+  const handleImageClick = () => {
+    if (imageUrl) {
+      window.open(imageUrl, '_blank');
+    }
+  };
 
   if (isEditorMaximized) {
     return (
@@ -86,6 +96,19 @@ const EditItemDetailsTab = ({
         onTitleChange={onTitleChange}
         onSave={onTitleSave}
       />
+
+      {/* Inline Image for image items */}
+      {showInlineImage && imageUrl && (
+        <div className="flex justify-center">
+          <img
+            src={imageUrl}
+            alt={title || 'Content image'}
+            className="max-w-full h-auto max-h-96 rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+            onClick={handleImageClick}
+            style={{ objectFit: 'contain' }}
+          />
+        </div>
+      )}
 
       {/* Link Section - only for link items */}
       {item?.type === 'link' && item?.url && (
