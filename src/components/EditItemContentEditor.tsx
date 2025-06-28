@@ -1,8 +1,9 @@
 
-import React, { useMemo, useEffect, useCallback } from 'react';
+import React, { useMemo, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEditorImageUpload } from './editor/EditorImageUpload';
 import EditorContainer from './editor/EditorContainer';
+import type { EditorInstance } from 'novel';
 
 interface EditItemContentEditorProps {
   content: string;
@@ -20,6 +21,7 @@ const EditItemContentEditor = ({
   isMaximized = false 
 }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
+  const editorRef = useRef<EditorInstance | null>(null);
 
   // Create stable editor key
   const effectiveEditorKey = useMemo(() => {
@@ -49,18 +51,34 @@ const EditItemContentEditor = ({
     };
   }, [onContentChange, itemId, effectiveEditorKey, content]);
 
-  // Post-upload callback to force content check and save
+  // ENHANCED: Post-upload callback to explicitly trigger save with current editor content
   const handleUploadComplete = useCallback(() => {
-    console.log('EditItemContentEditor: Image upload completed, forcing content check');
+    console.log('EditItemContentEditor: Image upload completed, triggering explicit save');
     
-    // Trigger a content change detection by getting current editor content
-    // This is handled by the EditorContainer's update mechanism
+    // Wait a bit longer to ensure Novel has fully processed the image URL replacement
     setTimeout(() => {
-      console.log('EditItemContentEditor: Post-upload content verification completed');
-    }, 100);
-  }, []);
+      if (editorRef.current) {
+        const json = editorRef.current.getJSON();
+        const jsonString = JSON.stringify(json);
+        
+        console.log('EditItemContentEditor: Explicitly triggering save with current editor content:', {
+          itemId,
+          contentLength: jsonString.length,
+          hasImages: jsonString.includes('"type":"image"'),
+          imageCount: (jsonString.match(/"type":"image"/g) || []).length,
+          hasFinalUrls: jsonString.includes('"src":"http'),
+          saveReason: 'Post-upload explicit save'
+        });
+        
+        // Explicitly call onContentChange to trigger the save mechanism
+        handleContentChange(jsonString);
+      } else {
+        console.warn('EditItemContentEditor: Editor ref not available for post-upload save');
+      }
+    }, 750); // Increased delay to ensure Novel completes URL replacement
+  }, [itemId, handleContentChange]);
 
-  // Image upload functionality with post-upload callback
+  // Image upload functionality with enhanced post-upload callback
   const { createUploadFn } = useEditorImageUpload({ 
     user, 
     session, 
@@ -71,7 +89,7 @@ const EditItemContentEditor = ({
   // Create the upload function using Novel's pattern - this returns UploadFn type
   const uploadFn = useMemo(() => {
     const fn = createUploadFn();
-    console.log('EditItemContentEditor: Created upload function with post-upload callback:', {
+    console.log('EditItemContentEditor: Created upload function with explicit save callback:', {
       hasUploadFn: !!fn,
       itemId,
       editorKey: effectiveEditorKey
@@ -90,14 +108,14 @@ const EditItemContentEditor = ({
     });
   }, [content, itemId, effectiveEditorKey]);
 
-  console.log('EditItemContentEditor: Rendering with enhanced upload system:', {
+  console.log('EditItemContentEditor: Rendering with explicit save system:', {
     itemId,
     contentLength: content?.length || 0,
     hasContent: !!content,
     editorKey: effectiveEditorKey,
     isMaximized,
     hasUploadFn: !!uploadFn,
-    hasUploadCompleteCallback: true,
+    hasExplicitSaveCallback: true,
     contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
   });
 
@@ -108,6 +126,10 @@ const EditItemContentEditor = ({
       handleImageUpload={uploadFn}
       editorKey={effectiveEditorKey}
       isMaximized={isMaximized}
+      onEditorReady={(editor) => {
+        editorRef.current = editor;
+        console.log('EditItemContentEditor: Editor instance stored in ref for explicit saves');
+      }}
     />
   );
 };

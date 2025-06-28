@@ -5,19 +5,29 @@ import { useEditorContentManager } from './EditorContentManager';
 import EditorContentRenderer from './EditorContentRenderer';
 import type { EditorContainerProps } from './EditorContainerProps';
 
+interface EnhancedEditorContainerProps extends EditorContainerProps {
+  onEditorReady?: (editor: EditorInstance) => void;
+}
+
 const EditorContainer = ({ 
   content, 
   onContentChange, 
   handleImageUpload, 
   editorKey, 
-  isMaximized = false 
-}: EditorContainerProps) => {
+  isMaximized = false,
+  onEditorReady
+}: EnhancedEditorContainerProps) => {
   const { lastContentRef, initializationRef, getInitialContent } = useEditorContentManager({
     content,
     editorKey
   });
 
   const handleEditorUpdate = (editor: EditorInstance) => {
+    // Call onEditorReady when we first get the editor instance
+    if (onEditorReady && editor) {
+      onEditorReady(editor);
+    }
+
     // Skip the first update during initialization to prevent immediate overwrite
     if (initializationRef.current) {
       console.log('EditorContainer: Skipping initialization update to prevent overwrite', {
@@ -125,12 +135,13 @@ const EditorContainer = ({
 
   const initialJsonContent = getInitialContent();
 
-  console.log('EditorContainer: Rendering editor with enhanced Novel image system:', { 
+  console.log('EditorContainer: Rendering editor with enhanced save system:', { 
     editorKey,
     hasInitialContent: !!initialJsonContent,
     contentLength: content?.length || 0,
     hasUploadHandler: !!handleImageUpload,
-    usingEnhancedImageSystem: true
+    hasEditorReadyCallback: !!onEditorReady,
+    usingExplicitSaveSystem: true
   });
 
   if (!initialJsonContent) {

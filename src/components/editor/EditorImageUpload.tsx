@@ -9,7 +9,7 @@ interface UseEditorImageUploadProps {
   user: User | null;
   session: Session | null;
   itemId?: string;
-  onUploadComplete?: () => void; // New callback for post-upload actions
+  onUploadComplete?: () => void;
 }
 
 export const useEditorImageUpload = ({ user, session, itemId, onUploadComplete }: UseEditorImageUploadProps) => {
@@ -32,19 +32,19 @@ export const useEditorImageUpload = ({ user, session, itemId, onUploadComplete }
       // Use the Novel-specific upload function that returns just the URL
       const imageUrl = await uploadImageForNovel(file, user.id, itemId);
       
-      console.log('EditorImageUpload: Novel upload successful, returning URL:', {
+      console.log('EditorImageUpload: Novel upload successful, URL returned:', {
         imageUrl,
         urlValid: imageUrl && imageUrl.length > 0,
         containsSupabase: imageUrl.includes('supabase')
       });
       
-      // Add a small delay then trigger the upload complete callback
-      // This allows Novel to complete its internal image replacement process
+      // ENHANCED: Trigger upload complete callback with proper timing
+      // This delay ensures Novel has time to replace the placeholder with the final URL
       if (onUploadComplete) {
         setTimeout(() => {
-          console.log('EditorImageUpload: Triggering post-upload save callback');
+          console.log('EditorImageUpload: Triggering explicit save callback after upload completion');
           onUploadComplete();
-        }, 500); // 500ms delay to ensure Novel has updated the content
+        }, 600); // Adjusted timing to match EditItemContentEditor delay
       }
       
       return imageUrl;
@@ -58,7 +58,7 @@ export const useEditorImageUpload = ({ user, session, itemId, onUploadComplete }
   const createUploadFn = useCallback(() => {
     if (!handleImageUpload) return undefined;
 
-    console.log('EditorImageUpload: Creating Novel UploadFn with post-upload callback', {
+    console.log('EditorImageUpload: Creating Novel UploadFn with explicit save trigger', {
       hasUser: !!user,
       itemId,
       hasUploadCompleteCallback: !!onUploadComplete
