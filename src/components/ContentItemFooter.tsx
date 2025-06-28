@@ -1,0 +1,123 @@
+
+import React from 'react';
+import { Badge } from '@/components/ui/badge';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2 } from 'lucide-react';
+import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
+
+interface ContentItem {
+  id: string;
+  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
+  title?: string;
+  url?: string;
+  file_path?: string;
+  created_at: string;
+}
+
+interface ContentItemFooterProps {
+  item: ContentItem;
+  onDeleteItem: (id: string) => void;
+  onEditItem: (item: ContentItem) => void;
+  onChatWithItem?: (item: ContentItem) => void;
+}
+
+const ContentItemFooter = ({ 
+  item, 
+  onDeleteItem, 
+  onEditItem, 
+  onChatWithItem 
+}: ContentItemFooterProps) => {
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'text': return <FileText className="h-4 w-4" />;
+      case 'link': return <LinkIcon className="h-4 w-4" />;
+      case 'image': return <Image className="h-4 w-4" />;
+      case 'audio': return <Mic className="h-4 w-4" />;
+      case 'video': return <VideoIcon className="h-4 w-4" />;
+      case 'document': return <FileText className="h-4 w-4" />;
+      default: return <FileText className="h-4 w-4" />;
+    }
+  };
+
+  const getFileUrl = (item: ContentItem) => {
+    if (item.file_path) {
+      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+      return data.publicUrl;
+    }
+    return null;
+  };
+
+  const handleDownloadFile = (item: ContentItem) => {
+    const fileUrl = getFileUrl(item);
+    if (fileUrl) {
+      window.open(fileUrl, '_blank');
+    }
+  };
+
+  const handleChatWithItem = () => {
+    if (onChatWithItem) {
+      onChatWithItem(item);
+    }
+  };
+
+  const fileUrl = getFileUrl(item);
+
+  return (
+    <div className="flex items-center justify-between mt-auto">
+      <div className="flex items-center gap-2">
+        <p className="text-xs text-muted-foreground">
+          {format(new Date(item.created_at), 'MMM d, yyyy')}
+        </p>
+      </div>
+      
+      <div className="flex items-center gap-2">
+        {/* Type badge - hidden by default, shown on hover with purple background */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+          <Badge variant="purple">
+            {getIcon(item.type)}
+            <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
+          </Badge>
+        </div>
+        
+        {/* Menu dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-gray-200">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleChatWithItem}>
+              <MessageCircle className="h-4 w-4 mr-2" />
+              Chat with item
+            </DropdownMenuItem>
+            {fileUrl && (
+              <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
+                <Download className="h-4 w-4 mr-2" />
+                Download
+              </DropdownMenuItem>
+            )}
+            {item.url && (
+              <DropdownMenuItem onClick={() => window.open(item.url, '_blank')}>
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Open link
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => onEditItem(item)}>
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+};
+
+export default ContentItemFooter;

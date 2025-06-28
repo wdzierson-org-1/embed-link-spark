@@ -1,14 +1,10 @@
 
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Play, Expand } from 'lucide-react';
-import { format } from 'date-fns';
+import { Card } from '@/components/ui/card';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import ContentItemHeader from '@/components/ContentItemHeader';
 import ContentItemContent from '@/components/ContentItemContent';
-import ContentItemImage from '@/components/ContentItemImage';
+import ContentItemFooter from '@/components/ContentItemFooter';
 import ItemTagsManager from '@/components/ItemTagsManager';
 import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
@@ -56,18 +52,6 @@ const ContentItem = ({
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
-  const getIcon = (type: string) => {
-    switch (type) {
-      case 'text': return <FileText className="h-4 w-4" />;
-      case 'link': return <LinkIcon className="h-4 w-4" />;
-      case 'image': return <Image className="h-4 w-4" />;
-      case 'audio': return <Mic className="h-4 w-4" />;
-      case 'video': return <VideoIcon className="h-4 w-4" />;
-      case 'document': return <FileText className="h-4 w-4" />;
-      default: return <FileText className="h-4 w-4" />;
-    }
-  };
-
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
@@ -76,19 +60,8 @@ const ContentItem = ({
     return null;
   };
 
-  const handleDownloadFile = (item: ContentItem) => {
-    const fileUrl = getFileUrl(item);
-    if (fileUrl) {
-      window.open(fileUrl, '_blank');
-    }
-  };
-
   const handleChatWithItem = () => {
     setIsChatOpen(true);
-  };
-
-  const handleTitleClick = () => {
-    onEditItem(item);
   };
 
   const fileUrl = getFileUrl(item);
@@ -96,62 +69,15 @@ const ContentItem = ({
   return (
     <TooltipProvider>
       <Card className="group flex flex-col h-full bg-gray-50 border border-gray-200 hover:shadow-md transition-all duration-200 overflow-hidden">
-        {/* Image or Video at the top, clipped to card edges */}
-        <div className="relative">
-          {item.type === 'video' && fileUrl ? (
-            <div className="relative w-full h-48 bg-black rounded-t-lg overflow-hidden">
-              <video
-                src={fileUrl}
-                className="w-full h-full object-cover"
-                controls
-                preload="metadata"
-              >
-                Your browser does not support the video tag.
-              </video>
-              
-              {/* Expand button overlay - shown on hover */}
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsVideoLightboxOpen(true)}
-                  className="h-8 w-8 rounded-full bg-black/50 hover:bg-black/70 text-white p-0"
-                >
-                  <Expand className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <ContentItemImage
-              item={item}
-              imageErrors={imageErrors}
-              onImageError={onImageError}
-            />
-          )}
-        </div>
+        <ContentItemHeader
+          item={item}
+          imageErrors={imageErrors}
+          onImageError={onImageError}
+          onEditItem={onEditItem}
+          onVideoExpand={() => setIsVideoLightboxOpen(true)}
+        />
 
-        <div className="flex flex-col flex-1 p-6">
-          {/* Title section with clickable link */}
-          {item.title && (
-            <div className="mb-3">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={handleTitleClick}
-                    className="text-left w-full group/title"
-                  >
-                    <h3 className="text-lg font-semibold leading-tight line-clamp-2 group-hover/title:underline transition-all duration-200 cursor-pointer">
-                      {item.title}
-                    </h3>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="max-w-xs break-words">Click to edit: {item.title}</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          )}
-          
+        <div className="flex flex-col flex-1 p-6 pt-0">
           {/* Audio player - always visible */}
           {item.type === 'audio' && fileUrl && (
             <div className="mb-4">
@@ -186,58 +112,12 @@ const ContentItem = ({
           </div>
           
           {/* Bottom section with date, type badge, and menu */}
-          <div className="flex items-center justify-between mt-auto">
-            <div className="flex items-center gap-2">
-              <p className="text-xs text-muted-foreground">
-                {format(new Date(item.created_at), 'MMM d, yyyy')}
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              {/* Type badge - hidden by default, shown on hover with purple background */}
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <Badge variant="purple">
-                  {getIcon(item.type)}
-                  <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
-                </Badge>
-              </div>
-              
-              {/* Menu dropdown */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-gray-200">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleChatWithItem}>
-                    <MessageCircle className="h-4 w-4 mr-2" />
-                    Chat with item
-                  </DropdownMenuItem>
-                  {fileUrl && (
-                    <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Download
-                    </DropdownMenuItem>
-                  )}
-                  {item.url && (
-                    <DropdownMenuItem onClick={() => window.open(item.url, '_blank')}>
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Open link
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem onClick={() => onEditItem(item)}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
+          <ContentItemFooter
+            item={item}
+            onDeleteItem={onDeleteItem}
+            onEditItem={onEditItem}
+            onChatWithItem={onChatWithItem}
+          />
         </div>
 
         {/* Video Lightbox */}
