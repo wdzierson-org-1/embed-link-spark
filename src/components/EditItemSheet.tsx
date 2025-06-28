@@ -1,11 +1,8 @@
 
 import React from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Tabs } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import EditItemTabNavigation from '@/components/EditItemTabNavigation';
 import EditItemDetailsTab from '@/components/EditItemDetailsTab';
-import EditItemImageTab from '@/components/EditItemImageTab';
 import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
 import { useEditItemSheet } from '@/hooks/useEditItemSheet';
 
@@ -54,61 +51,40 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col">
           <SheetHeader className="px-6 py-4 border-b flex-shrink-0">
-            <SheetTitle>Edit Item</SheetTitle>
+            <SheetTitle>{title || 'Untitled Note'}</SheetTitle>
           </SheetHeader>
 
+          {/* Primary Image - show at top if available */}
+          {hasImage && imageUrl && (
+            <div className="w-full h-48 overflow-hidden flex-shrink-0">
+              <img
+                src={imageUrl}
+                alt={title || 'Note image'}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto">
-            {hasImage ? (
-              <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
-                <div className="px-6 py-4">
-                  <EditItemTabNavigation hasImage={hasImage} />
-                </div>
-
-                <EditItemDetailsTab
-                  item={item}
-                  title={title}
-                  description={description}
-                  content={content}
-                  isContentLoading={isContentLoading}
-                  editorKey={editorKey}
-                  onTitleChange={handleTitleChange}
-                  onDescriptionChange={handleDescriptionChange}
-                  onContentChange={handleContentChange}
-                  onTitleSave={handleTitleSave}
-                  onDescriptionSave={handleDescriptionSave}
-                  onTagsChange={handleTagsChange}
-                  onMediaChange={handleMediaChange}
-                  isInsideTabs={true}
-                />
-
-                <EditItemImageTab
-                  item={item}
-                  hasImage={hasImage}
-                  imageUrl={imageUrl}
-                  onImageStateChange={handleImageStateChange}
-                />
-              </Tabs>
-            ) : (
-              // Render details directly without tabs when no image
-              <div className="pt-6">
-                <EditItemDetailsTab
-                  item={item}
-                  title={title}
-                  description={description}
-                  content={content}
-                  isContentLoading={isContentLoading}
-                  editorKey={editorKey}
-                  onTitleChange={handleTitleChange}
-                  onDescriptionChange={handleDescriptionChange}
-                  onContentChange={handleContentChange}
-                  onTitleSave={handleTitleSave}
-                  onDescriptionSave={handleDescriptionSave}
-                  onTagsChange={handleTagsChange}
-                  onMediaChange={handleMediaChange}
-                  isInsideTabs={false}
-                />
-              </div>
-            )}
+            {/* Remove tabs completely, always show details */}
+            <div className="pt-6">
+              <EditItemDetailsTab
+                item={item}
+                title={title}
+                description={description}
+                content={content}
+                isContentLoading={isContentLoading}
+                editorKey={editorKey}
+                onTitleChange={handleTitleChange}
+                onDescriptionChange={handleDescriptionChange}
+                onContentChange={handleContentChange}
+                onTitleSave={handleTitleSave}
+                onDescriptionSave={handleDescriptionSave}
+                onTagsChange={handleTagsChange}
+                onMediaChange={handleMediaChange}
+                isInsideTabs={false}
+              />
+            </div>
           </div>
 
           <EditItemAutoSaveIndicator saveStatus={saveStatus} lastSaved={lastSaved} />

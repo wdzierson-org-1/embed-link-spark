@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -241,6 +240,28 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
     return images;
   };
 
+  const getPrimaryImage = () => {
+    // First check editor content for images
+    const editorImages = extractImagesFromContent();
+    if (editorImages.length > 0) {
+      return editorImages[0];
+    }
+    
+    // Then check file uploads for images
+    const imageFile = filePreviews.find(f => f.preview);
+    if (imageFile?.preview) {
+      return imageFile.preview;
+    }
+    
+    // Finally check link previews for images
+    const linkWithImage = linkPreviews.find(l => l.image);
+    if (linkWithImage?.image) {
+      return linkWithImage.image;
+    }
+    
+    return null;
+  };
+
   const handleSubmit = async () => {
     const hasContent = content.trim().length > 0;
     const hasLinks = linkPreviews.length > 0;
@@ -270,13 +291,11 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
         images: editorImages
       };
 
-      // Determine primary image: first from editor, then from file uploads, then from link previews
-      let primaryImage = editorImages[0] || 
-                        (filePreviews.find(f => f.preview)?.preview) || 
-                        linkPreviews.find(l => l.image)?.image;
+      // Get primary image
+      const primaryImage = getPrimaryImage();
 
-      // Create a single unified note with all content
-      await onAddContent('text', {
+      // Create a single unified note with all content - no longer specify type
+      await onAddContent('unified', {
         content: content.trim(),
         title: plainTextContent.slice(0, 100) + (plainTextContent.length > 100 ? '...' : ''),
         description: '',
@@ -350,8 +369,8 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
             </EditorRoot>
           </div>
 
-          {/* Inline Link Previews - smaller and side by side */}
-          {linkPreviews.length > 0 && (
+          {/* Combined Link and File Previews - keep on same line */}
+          {(linkPreviews.length > 0 || filePreviews.length > 0) && (
             <div className="px-2">
               <div className="flex flex-wrap gap-2">
                 {linkPreviews.map((preview) => (
@@ -362,19 +381,6 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
                     />
                   </div>
                 ))}
-              </div>
-              {isProcessingLinks && (
-                <div className="text-xs text-muted-foreground mt-1 px-2">
-                  Processing links...
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* File Previews - also smaller and inline */}
-          {filePreviews.length > 0 && (
-            <div className="px-2">
-              <div className="flex flex-wrap gap-2">
                 {filePreviews.map((preview) => (
                   <div key={preview.id} className="flex-none w-80">
                     <FilePreviewCard
@@ -384,6 +390,11 @@ const UnifiedContentInput = ({ onAddContent, getSuggestedTags }: UnifiedContentI
                   </div>
                 ))}
               </div>
+              {isProcessingLinks && (
+                <div className="text-xs text-muted-foreground mt-1 px-2">
+                  Processing links...
+                </div>
+              )}
             </div>
           )}
 
