@@ -8,12 +8,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
+import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 
 const Auth = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const { signIn, signUp, user } = useAuth();
+  const { registerPhoneNumber } = usePhoneNumber();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -60,6 +63,11 @@ const Auth = () => {
         variant: "destructive",
       });
     } else {
+      // If phone number was provided, register it
+      if (phoneNumber.trim()) {
+        await registerPhoneNumber(phoneNumber);
+      }
+      
       toast({
         title: "Account created!",
         description: "You've been signed up successfully.",
@@ -138,6 +146,17 @@ const Auth = () => {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                     />
+                    <div className="space-y-1">
+                      <Input
+                        type="tel"
+                        placeholder="Phone Number (optional)"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.
+                      </p>
+                    </div>
                   </div>
                   <Button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" disabled={loading}>
                     {loading ? "Creating account..." : "Sign Up"}

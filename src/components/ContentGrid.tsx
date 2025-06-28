@@ -1,149 +1,68 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import ContentItem from '@/components/ContentItem';
-import ContentItemSkeleton from '@/components/ContentItemSkeleton';
 
-interface ContentItemData {
-  id: string;
-  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
-  title?: string;
-  content?: string;
-  url?: string;
-  file_path?: string;
-  description?: string;
-  tags?: string[];
-  created_at: string;
-  mime_type?: string;
-  isOptimistic?: boolean;
-}
+import React from 'react';
+import ContentItem from './ContentItem';
+import ContentItemSkeleton from './ContentItemSkeleton';
+import WhatsAppInfo from './WhatsAppInfo';
 
 interface ContentGridProps {
-  items: ContentItemData[];
+  items: any[];
   onDeleteItem: (id: string) => void;
-  onEditItem: (item: ContentItemData) => void;
-  onChatWithItem?: (item: ContentItemData) => void;
-  tagFilters?: string[];
+  onEditItem: (item: any) => void;
+  onChatWithItem: (item: any) => void;
+  tagFilters: string[];
 }
 
-const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilters = [] }: ContentGridProps) => {
-  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
-  const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
-  const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
-
-  // Fetch tags for all items
-  const fetchItemTags = async () => {
-    if (items.length === 0) return;
+const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilters }: ContentGridProps) => {
+  // Filter items based on tag filters
+  const filteredItems = items.filter(item => {
+    if (!tagFilters || tagFilters.length === 0) return true;
     
-    try {
-      const { data, error } = await supabase
-        .from('item_tags')
-        .select(`
-          item_id,
-          tags (name)
-        `)
-        .in('item_id', items.map(item => item.id));
-
-      if (error) {
-        console.error('Error fetching item tags:', error);
-        return;
-      }
-
-      const tagsMap: Record<string, string[]> = {};
-      data?.forEach((itemTag) => {
-        if (!tagsMap[itemTag.item_id]) {
-          tagsMap[itemTag.item_id] = [];
-        }
-        if (itemTag.tags) {
-          tagsMap[itemTag.item_id].push(itemTag.tags.name);
-        }
-      });
-
-      setItemTags(tagsMap);
-    } catch (error) {
-      console.error('Exception while fetching item tags:', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchItemTags();
-  }, [items]);
-
-  const handleImageError = (itemId: string) => {
-    setImageErrors(prev => new Set([...prev, itemId]));
-  };
-
-  const toggleContentExpansion = (itemId: string) => {
-    setExpandedContent(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(itemId)) {
-        newSet.delete(itemId);
-      } else {
-        newSet.add(itemId);
-      }
-      return newSet;
-    });
-  };
+    const itemTags = item.tags || [];
+    return tagFilters.some(filter => 
+      itemTags.some((tag: any) => 
+        typeof tag === 'string' ? tag === filter : tag.name === filter
+      )
+    );
+  });
 
   // Separate optimistic and real items
-  const optimisticItems = items.filter(item => item.isOptimistic);
-  const realItems = items.filter(item => !item.isOptimistic);
+  const optimisticItems = filteredItems.filter(item => item.isOptimistic);
+  const realItems = filteredItems.filter(item => !item.isOptimistic);
 
-  // Filter real items based on selected tags
-  const filteredItems = tagFilters.length === 0 
-    ? realItems 
-    : realItems.filter(item => {
-        const itemTagsArray = itemTags[item.id] || [];
-        // Check if the item has ALL selected tags (combinatorial AND logic)
-        return tagFilters.every(filterTag => 
-          itemTagsArray.some(itemTag => itemTag.toLowerCase() === filterTag.toLowerCase())
-        );
-      });
-
-  // Combine optimistic items (always shown) with filtered real items
-  const allItemsToShow = [...optimisticItems, ...filteredItems];
-
-  if (allItemsToShow.length === 0 && tagFilters.length > 0) {
+  // Show WhatsApp info if no real items exist
+  if (realItems.length === 0 && optimisticItems.length === 0) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">No items found with the selected tag filters.</p>
-      </div>
-    );
-  }
-
-  if (allItemsToShow.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">No content yet. Start adding items to your stash!</p>
+      <div className="space-y-8">
+        <div className="text-center py-12">
+          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Start building your knowledge base</h2>
+          <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
+        </div>
+        <WhatsAppInfo />
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {allItemsToShow.map((item) => {
-        // Render skeleton for optimistic items
-        if (item.isOptimistic) {
-          return <ContentItemSkeleton key={item.id} />;
-        }
-
-        const tags = itemTags[item.id] || [];
-
-        return (
-          <ContentItem
-            key={item.id}
-            item={item}
-            tags={tags}
-            imageErrors={imageErrors}
-            expandedContent={expandedContent}
-            onImageError={handleImageError}
-            onToggleExpansion={toggleContentExpansion}
-            onDeleteItem={onDeleteItem}
-            onEditItem={onEditItem}
-            onChatWithItem={onChatWithItem}
-            onTagsUpdated={fetchItemTags}
-          />
-        );
-      })}
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Show optimistic items first */}
+      {optimisticItems.map((item) => (
+        <ContentItemSkeleton
+          key={item.id}
+          title={item.title}
+          type={item.type}
+        />
+      ))}
+      
+      {/* Show real items */}
+      {realItems.map((item) => (
+        <ContentItem
+          key={item.id}
+          item={item}
+          onDelete={onDeleteItem}
+          onEdit={onEditItem}
+          onChatWith={onChatWithItem}
+        />
+      ))}
     </div>
   );
 };
