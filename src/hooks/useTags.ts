@@ -1,8 +1,7 @@
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Tag {
   id: string;
@@ -11,13 +10,12 @@ interface Tag {
 }
 
 export const useTags = () => {
-  const { user } = useAuth();
   const [tags, setTags] = useState<Tag[]>([]);
-  const { toast } = useToast();
+  const { user } = useAuth();
 
   const fetchTags = async () => {
     if (!user) return;
-    
+
     try {
       const { data, error } = await supabase
         .from('tags')
@@ -38,82 +36,103 @@ export const useTags = () => {
   };
 
   const addTagsToItem = async (itemId: string, tagNames: string[]) => {
-    if (!user || tagNames.length === 0) return;
+    if (!user) return;
 
-    try {
-      // Process each tag and get/create tag IDs
-      const tagIds: string[] = [];
-      
-      for (const tagName of tagNames) {
-        const trimmedName = tagName.trim().toLowerCase();
-        if (!trimmedName) continue;
+    console.log('Adding tags to item in database:', { itemId, tagNames });
 
-        const { data: tagId, error } = await supabase.rpc('increment_tag_usage', {
-          tag_name: trimmedName,
-          user_uuid: user.id
-        });
+    for (const tagName of tagNames) {
+      try {
+        // Use the increment_tag_usage function to create or update tag
+        const { data: tagId, error: tagError } = await supabase
+          .rpc('increment_tag_usage', {
+            tag_name: tagName.toLowerCase(),
+            user_uuid: user.id
+          });
 
-        if (error) {
-          console.error('Error processing tag:', error);
-        } else if (tagId) {
-          tagIds.push(tagId as string);
+        if (tagError) {
+          console.error('Error creating/updating tag:', tagError);
+          continue;
         }
-      }
 
-      // Create item-tag relationships
-      const itemTagData = tagIds.map(tagId => ({
-        item_id: itemId,
-        tag_id: tagId
-      }));
+        console.log('Tag created/updated:', { tagName, tagId });
 
-      if (itemTagData.length > 0) {
-        const { error: relationError } = await supabase
+        // Check if the relationship already exists
+        const { data: existingRelation, error: checkError } = await supabase
           .from('item_tags')
-          .insert(itemTagData);
+          .select('id')
+          .eq('item_id', itemId)
+          .eq('tag_id', tagId)
+          .single();
 
-        if (relationError) {
-          console.error('Error creating item-tag relationships:', relationError);
-          throw relationError;
+        if (checkError && checkError.code !== 'PGRST116') {
+          console.error('Error checking existing relation:', checkError);
+          continue;
         }
-      }
 
-      // Refresh tags list
-      await fetchTags();
-    } catch (error) {
-      console.error('Exception while adding tags to item:', error);
-      throw error;
+        // Only create the relationship if it doesn't exist
+        if (!existingRelation) {
+          const { error: relationError } = await supabase
+            .from('item_tags')
+            .insert({
+              item_id: itemId,
+              tag_id: tagId
+            });
+
+          if (relationError) {
+            console.error('Error creating item-tag relation:', relationError);
+            continue;
+          }
+
+          console.log('Item-tag relation created:', { itemId, tagId, tagName });
+        } else {
+          console.log('Item-tag relation already exists:', { itemId, tagId, tagName });
+        }
+      } catch (error) {
+        console.error('Exception while adding tag:', tagName, error);
+      }
     }
+
+    // Refresh tags after adding
+    await fetchTags();
   };
 
-  const getSuggestedTags = (limit: number = 10): string[] => {
+  const getSuggestedTags = (limit: number = 10) => {
     return tags
+      .sort((a, b) => b.usage_count - a.usage_count)
       .slice(0, limit)
       .map(tag => tag.name);
   };
 
-  const getAISuggestedTags = async (content: { title?: string; content?: string; description?: string }): Promise<string[]> => {
-    if (!user) return getSuggestedTags(5);
-    
+  const getAISuggestedTags = async (content: { title: string; content: string; description: string }) => {
+    if (!user) return [];
+
     try {
-      const { data, error } = await supabase.functions.invoke('get-relevant-tags', {
+      // Get all available tag names from user's existing tags
+      const availableTags = tags.map(tag => tag.name);
+      
+      if (availableTags.length === 0) {
+        return [];
+      }
+
+      // Call the get-relevant-tags function with the item content and available tags
+      const { data: result, error } = await supabase.functions.invoke('get-relevant-tags', {
         body: {
           title: content.title || '',
           content: content.content || '',
-          description: content.description || ''
+          description: content.description || '',
+          availableTags: availableTags
         }
       });
 
       if (error) {
-        console.error('Error getting AI suggested tags:', error);
-        // Fallback to popular tags
-        return getSuggestedTags(5);
+        console.error('Error getting AI tag suggestions:', error);
+        return [];
       }
-
-      return data?.tags || getSuggestedTags(5);
+      
+      return result?.relevantTags || [];
     } catch (error) {
-      console.error('Exception getting AI suggested tags:', error);
-      // Fallback to popular tags
-      return getSuggestedTags(5);
+      console.error('Error fetching AI tag suggestions:', error);
+      return [];
     }
   };
 
@@ -125,9 +144,9 @@ export const useTags = () => {
 
   return {
     tags,
+    fetchTags,
     addTagsToItem,
     getSuggestedTags,
     getAISuggestedTags,
-    fetchTags
   };
 };

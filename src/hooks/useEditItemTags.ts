@@ -69,6 +69,7 @@ export const useEditItemTags = (item: ContentItem | null, onTagsChange?: () => v
     if (!item || !user) return;
     
     try {
+      console.log('Fetching tags for item:', item.id);
       const { data, error } = await supabase
         .from('item_tags')
         .select(`
@@ -81,6 +82,7 @@ export const useEditItemTags = (item: ContentItem | null, onTagsChange?: () => v
         setItemTags([]);
       } else {
         const tagNames = data?.map(row => row.tags.name) || [];
+        console.log('Fetched tags for item:', item.id, tagNames);
         setItemTags(tagNames);
       }
     } catch (error) {
@@ -93,6 +95,7 @@ export const useEditItemTags = (item: ContentItem | null, onTagsChange?: () => v
     if (!item || newTags.length === 0) return;
 
     try {
+      console.log('Adding tags to item:', item.id, newTags);
       await addTagsToItem(item.id, newTags);
       setNewTags([]);
       setIsEditingTags(false);
@@ -106,7 +109,7 @@ export const useEditItemTags = (item: ContentItem | null, onTagsChange?: () => v
         onTagsChange();
       }
       
-      // Don't show toast for auto-save scenario
+      console.log('Successfully added tags to item:', item.id);
     } catch (error) {
       console.error('Error adding tags:', error);
       toast({
@@ -121,10 +124,13 @@ export const useEditItemTags = (item: ContentItem | null, onTagsChange?: () => v
     if (!item) return;
     
     try {
+      console.log('Removing tag from item:', item.id, tagName);
+      
       const { data: tagData, error: tagError } = await supabase
         .from('tags')
         .select('id')
         .eq('name', tagName.toLowerCase())
+        .eq('user_id', user?.id)
         .single();
 
       if (tagError) throw tagError;
@@ -147,7 +153,7 @@ export const useEditItemTags = (item: ContentItem | null, onTagsChange?: () => v
         onTagsChange();
       }
       
-      // Don't show toast for auto-save scenario
+      console.log('Successfully removed tag from item:', item.id, tagName);
     } catch (error) {
       console.error('Error removing tag:', error);
       toast({
