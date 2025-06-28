@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Maximize } from 'lucide-react';
@@ -69,6 +69,39 @@ const EditItemDetailsTab = ({
   isMobile = false,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
+  const [mobileEditorReady, setMobileEditorReady] = useState(false);
+
+  // Enhanced mobile editor initialization fix
+  useEffect(() => {
+    if (isMobile && !isContentLoading) {
+      console.log('EditItemDetailsTab: Mobile editor initialization sequence starting', {
+        itemId: item?.id,
+        contentLength: content?.length || 0,
+        hasContent: !!content,
+        editorKey,
+        isContentLoading
+      });
+
+      // Small delay to ensure the sheet animation completes and layout is stable
+      const initTimer = setTimeout(() => {
+        console.log('EditItemDetailsTab: Setting mobile editor as ready after layout stabilization');
+        setMobileEditorReady(true);
+      }, 100);
+
+      return () => clearTimeout(initTimer);
+    } else if (!isMobile) {
+      // Desktop doesn't need this delay
+      setMobileEditorReady(true);
+    }
+  }, [isMobile, isContentLoading, item?.id, editorKey]);
+
+  // Reset mobile editor ready state when item changes
+  useEffect(() => {
+    if (isMobile) {
+      setMobileEditorReady(false);
+      console.log('EditItemDetailsTab: Reset mobile editor ready state for new item');
+    }
+  }, [item?.id, isMobile]);
 
   const handleImageClick = () => {
     if (imageUrl) {
@@ -76,19 +109,21 @@ const EditItemDetailsTab = ({
     }
   };
 
-  // Debug logging for mobile editor issues
+  // Enhanced debugging for mobile editor issues
   React.useEffect(() => {
     if (isMobile && content) {
-      console.log('EditItemDetailsTab: Mobile content editor rendered', {
+      console.log('EditItemDetailsTab: Mobile content editor state check', {
         itemId: item?.id,
         contentLength: content?.length || 0,
         isContentLoading,
         editorKey,
         isMaximized: isEditorMaximized,
-        showInlineImage
+        showInlineImage,
+        mobileEditorReady,
+        editorShouldRender: !isContentLoading && mobileEditorReady
       });
     }
-  }, [isMobile, content, isContentLoading, editorKey, isEditorMaximized, item?.id, showInlineImage]);
+  }, [isMobile, content, isContentLoading, editorKey, isEditorMaximized, item?.id, showInlineImage, mobileEditorReady]);
 
   if (isEditorMaximized) {
     return (
@@ -157,6 +192,12 @@ const EditItemDetailsTab = ({
           {isContentLoading ? (
             <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
               Loading editor...
+            </div>
+          ) : !mobileEditorReady && isMobile ? (
+            <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
+              <div className="text-center">
+                <div className="animate-pulse">Initializing editor...</div>
+              </div>
             </div>
           ) : (
             <div className={`${isMobile ? 'min-h-[400px]' : ''}`}>

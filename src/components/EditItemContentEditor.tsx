@@ -3,6 +3,7 @@ import React, { useMemo, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEditorImageUpload } from './editor/EditorImageUpload';
 import EditorContainer from './editor/EditorContainer';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { EditorInstance } from 'novel';
 
 interface EditItemContentEditorProps {
@@ -21,14 +22,44 @@ const EditItemContentEditor = ({
   isMaximized = false 
 }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
+  const isMobile = useIsMobile();
   const editorRef = useRef<EditorInstance | null>(null);
+  const [mobileRefreshKey, setMobileRefreshKey] = React.useState(0);
 
   // Create stable editor key
   const effectiveEditorKey = useMemo(() => {
-    const key = editorInstanceKey || `editor-${itemId || 'new'}-stable`;
-    console.log('EditItemContentEditor: Generated stable editor key:', { key, itemId });
-    return key;
-  }, [editorInstanceKey, itemId]);
+    const baseKey = editorInstanceKey || `editor-${itemId || 'new'}-stable`;
+    // Add mobile refresh key to force re-initialization when needed
+    const finalKey = isMobile ? `${baseKey}-mobile-${mobileRefreshKey}` : baseKey;
+    console.log('EditItemContentEditor: Generated editor key:', { 
+      baseKey, 
+      finalKey, 
+      itemId, 
+      isMobile,
+      mobileRefreshKey 
+    });
+    return finalKey;
+  }, [editorInstanceKey, itemId, isMobile, mobileRefreshKey]);
+
+  // Mobile editor initialization fix - force refresh after mount
+  useEffect(() => {
+    if (isMobile && itemId && content !== undefined) {
+      console.log('EditItemContentEditor: Mobile initialization for item', {
+        itemId,
+        contentLength: content?.length || 0,
+        hasContent: !!content,
+        currentRefreshKey: mobileRefreshKey
+      });
+
+      // Small delay to ensure proper mobile initialization
+      const refreshTimer = setTimeout(() => {
+        console.log('EditItemContentEditor: Triggering mobile editor refresh');
+        setMobileRefreshKey(prev => prev + 1);
+      }, 150);
+
+      return () => clearTimeout(refreshTimer);
+    }
+  }, [itemId, isMobile]); // Only trigger when item changes or mobile state changes
 
   // Enhanced onContentChange with debugging
   const handleContentChange = useMemo(() => {
@@ -41,7 +72,8 @@ const EditItemContentEditor = ({
         editorKey: effectiveEditorKey,
         hasImages: newContent ? newContent.includes('"type":"image"') : false,
         imageCount: newContent ? (newContent.match(/"type":"image"/g) || []).length : 0,
-        newContentPreview: newContent ? newContent.slice(0, 100) + '...' : 'No content'
+        newContentPreview: newContent ? newContent.slice(0, 100) + '...' : 'No content',
+        isMobile
       });
       
       // Call the parent's onContentChange
@@ -49,7 +81,7 @@ const EditItemContentEditor = ({
       
       console.log('EditItemContentEditor: Parent onContentChange called successfully');
     };
-  }, [onContentChange, itemId, effectiveEditorKey, content]);
+  }, [onContentChange, itemId, effectiveEditorKey, content, isMobile]);
 
   // ENHANCED: Post-upload callback to explicitly trigger save with current editor content
   const handleUploadComplete = useCallback(() => {
@@ -104,11 +136,13 @@ const EditItemContentEditor = ({
       contentLength: content?.length || 0,
       hasContent: !!content,
       contentPreview: content ? content.slice(0, 100) + '...' : 'No content',
-      editorKey: effectiveEditorKey
+      editorKey: effectiveEditorKey,
+      isMobile,
+      mobileRefreshKey
     });
-  }, [content, itemId, effectiveEditorKey]);
+  }, [content, itemId, effectiveEditorKey, isMobile, mobileRefreshKey]);
 
-  console.log('EditItemContentEditor: Rendering with explicit save system:', {
+  console.log('EditItemContentEditor: Rendering with mobile initialization fix:', {
     itemId,
     contentLength: content?.length || 0,
     hasContent: !!content,
@@ -116,7 +150,9 @@ const EditItemContentEditor = ({
     isMaximized,
     hasUploadFn: !!uploadFn,
     hasExplicitSaveCallback: true,
-    contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
+    contentPreview: content ? content.slice(0, 100) + '...' : 'No content',
+    isMobile,
+    mobileRefreshKey
   });
 
   return (
@@ -128,7 +164,10 @@ const EditItemContentEditor = ({
       isMaximized={isMaximized}
       onEditorReady={(editor) => {
         editorRef.current = editor;
-        console.log('EditItemContentEditor: Editor instance stored in ref for explicit saves');
+        console.log('EditItemContentEditor: Editor instance stored in ref for explicit saves', {
+          isMobile,
+          itemId
+        });
       }}
     />
   );
