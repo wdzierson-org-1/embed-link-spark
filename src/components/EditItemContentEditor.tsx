@@ -120,23 +120,19 @@ const EditItemContentEditor = ({
   }, [itemId, onContentChange, debouncedSave]);
 
   // Image upload functionality
-  const { createUploadFn } = useEditorImageUpload({ 
+  const { handleImageUpload } = useEditorImageUpload({ 
     user, 
     session, 
     itemId,
     onUploadComplete: handleUploadComplete
   });
 
-  const uploadFn = useMemo(() => {
-    return createUploadFn();
-  }, [createUploadFn]);
-
   console.log('EditItemContentEditor: Rendering with uncontrolled pattern:', {
     itemId,
     initialContentLength: initialContent?.length || 0,
     stableEditorKey,
     isMaximized,
-    hasUploadFn: !!uploadFn
+    hasUploadFn: !!handleImageUpload
   });
 
   return (
@@ -144,7 +140,7 @@ const EditItemContentEditor = ({
       content={initialContent}
       onContentChange={handleExplicitContentChange}
       onUpdate={handleEditorUpdate}
-      handleImageUpload={uploadFn}
+      handleImageUpload={handleImageUpload}
       editorKey={stableEditorKey}
       isMaximized={isMaximized}
       onEditorReady={(editor) => {
