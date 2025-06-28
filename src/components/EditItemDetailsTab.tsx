@@ -65,7 +65,7 @@ const EditItemDetailsTab = ({
         <div>
           <label className="text-sm font-medium text-muted-foreground mb-3 block">Note</label>
           <EditItemContentEditor
-            content={content}
+            initialContent={content}
             onContentChange={onContentChange}
             itemId={item?.id}
             editorInstanceKey={editorKey}

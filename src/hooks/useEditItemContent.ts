@@ -1,3 +1,4 @@
+
 import { useCallback } from 'react';
 import { generateTitle } from '@/utils/titleGenerator';
 
@@ -38,8 +39,9 @@ export const useEditItemContent = ({
   const handleTitleChange = useCallback((newTitle: string) => {
     console.log('handleTitleChange:', { newTitle: newTitle?.slice(0, 50) });
     
-    // OPTIMISTIC UPDATE: Update ref and state immediately
+    // Update ref immediately
     titleRef.current = newTitle;
+    // Update state for UI display
     setTitle(newTitle);
     
     if (item?.id) {
@@ -49,7 +51,6 @@ export const useEditItemContent = ({
         content: contentRef.current || undefined
       };
       
-      console.log('handleTitleChange: Triggering debounced save with UI refresh');
       debouncedSave(item.id, updates);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setTitle]);
@@ -57,8 +58,9 @@ export const useEditItemContent = ({
   const handleDescriptionChange = useCallback((newDescription: string) => {
     console.log('handleDescriptionChange:', { newDescription: newDescription?.slice(0, 50) });
     
-    // OPTIMISTIC UPDATE: Update ref and state immediately
+    // Update ref immediately
     descriptionRef.current = newDescription;
+    // Update state for UI display
     setDescription(newDescription);
     
     if (item?.id) {
@@ -68,60 +70,34 @@ export const useEditItemContent = ({
         content: contentRef.current || undefined
       };
       
-      console.log('handleDescriptionChange: Triggering debounced save with UI refresh');
       debouncedSave(item.id, updates);
     }
   }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setDescription]);
 
+  // CRITICAL: This is now called FROM the editor's debounced save, not on every keystroke
   const handleContentChange = useCallback((newContent: string) => {
-    console.log('useEditItemContent: handleContentChange ENTRY', { 
+    console.log('useEditItemContent: handleContentChange (server save):', { 
       contentLength: newContent?.length || 0,
       itemId: item?.id,
-      hasNewContent: !!newContent,
-      hasItemId: !!item?.id,
-      contentPreview: newContent ? newContent.slice(0, 100) + '...' : 'No content',
-      timestamp: new Date().toISOString()
+      reason: 'Debounced save from editor'
     });
     
-    // CRITICAL OPTIMISTIC UPDATE: Update ref FIRST, THEN state immediately
-    console.log('useEditItemContent: Applying optimistic update to refs and state');
+    // Update ref immediately
     contentRef.current = newContent;
-    setContent(newContent);
+    // DO NOT update state here - this prevents re-renders that cause focus loss
     
-    console.log('useEditItemContent: Optimistic update complete', {
-      contentRefLength: contentRef.current?.length || 0,
-      titleRefLength: titleRef.current?.length || 0,
-      descriptionRefLength: descriptionRef.current?.length || 0,
-      refsMatch: contentRef.current === newContent
-    });
-    
-    // ALWAYS save if we have an item ID - this will now trigger UI refresh
+    // Save to server
     if (item?.id) {
       const updates = { 
         title: titleRef.current || undefined,
         description: descriptionRef.current || undefined,
-        content: newContent || undefined  // Use newContent directly
+        content: newContent || undefined
       };
       
-      console.log('useEditItemContent: Calling debouncedSave with UI refresh enabled', {
-        itemId: item.id,
-        hasContent: !!updates.content,
-        contentLength: updates.content?.length || 0,
-        hasTitle: !!updates.title,
-        hasDescription: !!updates.description,
-        updatePreview: updates.content ? updates.content.slice(0, 100) + '...' : 'No content'
-      });
-      
+      console.log('useEditItemContent: Calling debouncedSave for server');
       debouncedSave(item.id, updates);
-      
-      console.log('useEditItemContent: debouncedSave called successfully - UI will refresh after save');
-    } else {
-      console.log('useEditItemContent: No save - missing item ID', {
-        hasItem: !!item,
-        itemId: item?.id
-      });
     }
-  }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef, setContent]);
+  }, [item?.id, debouncedSave, titleRef, descriptionRef, contentRef]);
 
   const handleTitleSave = async (newTitle: string) => {
     if (!item) return;

@@ -1,10 +1,12 @@
 
-import type { UploadFn } from 'novel';
+import type { EditorInstance } from 'novel';
 
 export interface EditorContainerProps {
   content: string;
   onContentChange: (content: string) => void;
-  handleImageUpload?: UploadFn;
+  onUpdate?: (editor: EditorInstance) => void;
+  handleImageUpload: (file: File) => Promise<string>;
   editorKey: string;
   isMaximized?: boolean;
+  onEditorReady?: (editor: EditorInstance) => void;
 }

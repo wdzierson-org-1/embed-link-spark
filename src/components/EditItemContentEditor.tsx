@@ -3,10 +3,11 @@ import React, { useMemo, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEditorImageUpload } from './editor/EditorImageUpload';
 import EditorContainer from './editor/EditorContainer';
+import { useDebouncedCallback } from 'use-debounce';
 import type { EditorInstance } from 'novel';
 
 interface EditItemContentEditorProps {
-  content: string;
+  initialContent: string;
   onContentChange: (content: string) => void;
   itemId?: string;
   editorInstanceKey?: string;
@@ -14,7 +15,7 @@ interface EditItemContentEditorProps {
 }
 
 const EditItemContentEditor = ({ 
-  content, 
+  initialContent, 
   onContentChange, 
   itemId, 
   editorInstanceKey, 
@@ -22,63 +23,103 @@ const EditItemContentEditor = ({
 }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
   const editorRef = useRef<EditorInstance | null>(null);
+  const hasInitialized = useRef(false);
 
-  // Create stable editor key
-  const effectiveEditorKey = useMemo(() => {
-    const key = editorInstanceKey || `editor-${itemId || 'new'}-stable`;
-    console.log('EditItemContentEditor: Generated stable editor key:', { key, itemId });
+  // Create truly stable editor key - only changes when itemId changes
+  const stableEditorKey = useMemo(() => {
+    const key = `editor-${itemId || 'new'}-stable`;
+    console.log('EditItemContentEditor: Created stable editor key:', { key, itemId });
     return key;
-  }, [editorInstanceKey, itemId]);
+  }, [itemId]);
 
-  // Enhanced onContentChange with debugging
-  const handleContentChange = useMemo(() => {
+  // Debounced save function following Novel's pattern
+  const debouncedSave = useDebouncedCallback((content: string) => {
+    console.log('EditItemContentEditor: Debounced save triggered:', {
+      itemId,
+      contentLength: content?.length || 0,
+      hasImages: content ? content.includes('"type":"image"') : false
+    });
+    
+    // Immediate localStorage save (like Novel does)
+    if (itemId) {
+      try {
+        localStorage.setItem(`draft-${itemId}`, content);
+        console.log('EditItemContentEditor: Saved to localStorage');
+      } catch (error) {
+        console.error('EditItemContentEditor: localStorage save failed:', error);
+      }
+    }
+    
+    // Call parent's onContentChange for server save
+    onContentChange(content);
+  }, 500);
+
+  // Handle editor updates - following Novel's pattern exactly
+  const handleEditorUpdate = useCallback((editor: EditorInstance) => {
+    // Skip the first update after initialization (like Novel does)
+    if (!hasInitialized.current) {
+      hasInitialized.current = true;
+      console.log('EditItemContentEditor: Skipping initial update after editor initialization');
+      return;
+    }
+
+    const json = editor.getJSON();
+    const jsonString = JSON.stringify(json);
+    
+    console.log('EditItemContentEditor: Editor content updated:', {
+      itemId,
+      contentLength: jsonString.length,
+      hasImages: jsonString.includes('"type":"image"'),
+      timestamp: new Date().toISOString()
+    });
+    
+    // Trigger debounced save
+    debouncedSave(jsonString);
+  }, [itemId, debouncedSave]);
+
+  // Reset initialization flag when editor key changes (new item)
+  useEffect(() => {
+    hasInitialized.current = false;
+    console.log('EditItemContentEditor: Reset initialization flag for new item:', { itemId });
+  }, [stableEditorKey]);
+
+  // Enhanced onContentChange - NOT used for regular updates, only for explicit saves
+  const handleExplicitContentChange = useMemo(() => {
     return (newContent: string) => {
-      console.log('EditItemContentEditor: handleContentChange called:', {
+      console.log('EditItemContentEditor: Explicit content change (not from typing):', {
         itemId,
         newContentLength: newContent?.length || 0,
-        hasNewContent: !!newContent,
-        contentChanged: newContent !== content,
-        editorKey: effectiveEditorKey,
-        hasImages: newContent ? newContent.includes('"type":"image"') : false,
-        imageCount: newContent ? (newContent.match(/"type":"image"/g) || []).length : 0,
-        newContentPreview: newContent ? newContent.slice(0, 100) + '...' : 'No content'
+        reason: 'External update'
       });
       
-      // Call the parent's onContentChange
+      // This is for external updates, not typing
       onContentChange(newContent);
-      
-      console.log('EditItemContentEditor: Parent onContentChange called successfully');
     };
-  }, [onContentChange, itemId, effectiveEditorKey, content]);
+  }, [onContentChange, itemId]);
 
-  // ENHANCED: Post-upload callback to explicitly trigger save with current editor content
+  // Post-upload callback for image uploads
   const handleUploadComplete = useCallback(() => {
-    console.log('EditItemContentEditor: Image upload completed, triggering explicit save');
+    console.log('EditItemContentEditor: Image upload completed, forcing save');
     
-    // Wait a bit longer to ensure Novel has fully processed the image URL replacement
     setTimeout(() => {
       if (editorRef.current) {
         const json = editorRef.current.getJSON();
         const jsonString = JSON.stringify(json);
         
-        console.log('EditItemContentEditor: Explicitly triggering save with current editor content:', {
+        console.log('EditItemContentEditor: Forcing save after image upload:', {
           itemId,
           contentLength: jsonString.length,
-          hasImages: jsonString.includes('"type":"image"'),
-          imageCount: (jsonString.match(/"type":"image"/g) || []).length,
-          hasFinalUrls: jsonString.includes('"src":"http'),
-          saveReason: 'Post-upload explicit save'
+          hasImages: jsonString.includes('"type":"image"')
         });
         
-        // Explicitly call onContentChange to trigger the save mechanism
-        handleContentChange(jsonString);
-      } else {
-        console.warn('EditItemContentEditor: Editor ref not available for post-upload save');
+        // Cancel pending debounced save and do immediate save
+        debouncedSave.cancel();
+        onContentChange(jsonString);
       }
-    }, 750); // Increased delay to ensure Novel completes URL replacement
-  }, [itemId, handleContentChange]);
+    }, 750);
+  }, [itemId, onContentChange, debouncedSave]);
 
-  // Image upload functionality with enhanced post-upload callback
+  // Image upload functionality
   const { createUploadFn } = useEditorImageUpload({ 
     user, 
     session, 
@@ -86,49 +127,29 @@ const EditItemContentEditor = ({
     onUploadComplete: handleUploadComplete
   });
 
-  // Create the upload function using Novel's pattern - this returns UploadFn type
   const uploadFn = useMemo(() => {
-    const fn = createUploadFn();
-    console.log('EditItemContentEditor: Created upload function with explicit save callback:', {
-      hasUploadFn: !!fn,
-      itemId,
-      editorKey: effectiveEditorKey
-    });
-    return fn;
-  }, [createUploadFn, itemId, effectiveEditorKey]);
+    return createUploadFn();
+  }, [createUploadFn]);
 
-  // ENHANCED: Track content prop changes for debugging
-  useEffect(() => {
-    console.log('EditItemContentEditor: Content prop changed:', {
-      itemId,
-      contentLength: content?.length || 0,
-      hasContent: !!content,
-      contentPreview: content ? content.slice(0, 100) + '...' : 'No content',
-      editorKey: effectiveEditorKey
-    });
-  }, [content, itemId, effectiveEditorKey]);
-
-  console.log('EditItemContentEditor: Rendering with explicit save system:', {
+  console.log('EditItemContentEditor: Rendering with uncontrolled pattern:', {
     itemId,
-    contentLength: content?.length || 0,
-    hasContent: !!content,
-    editorKey: effectiveEditorKey,
+    initialContentLength: initialContent?.length || 0,
+    stableEditorKey,
     isMaximized,
-    hasUploadFn: !!uploadFn,
-    hasExplicitSaveCallback: true,
-    contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
+    hasUploadFn: !!uploadFn
   });
 
   return (
     <EditorContainer
-      content={content}
-      onContentChange={handleContentChange}
+      content={initialContent}
+      onContentChange={handleExplicitContentChange}
+      onUpdate={handleEditorUpdate}
       handleImageUpload={uploadFn}
-      editorKey={effectiveEditorKey}
+      editorKey={stableEditorKey}
       isMaximized={isMaximized}
       onEditorReady={(editor) => {
         editorRef.current = editor;
-        console.log('EditItemContentEditor: Editor instance stored in ref for explicit saves');
+        console.log('EditItemContentEditor: Editor instance ready');
       }}
     />
   );
