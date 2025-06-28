@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { TabsContent } from '@/components/ui/tabs';
+import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
 import EditItemTagsSection from '@/components/EditItemTagsSection';
@@ -60,20 +61,12 @@ const EditItemDetailsTab = ({
 
   return (
     <TabContent>
-      {/* Note Content Editor */}
-      {(item?.type === 'text' || item?.type === 'link' || item?.type === 'unified' || !item?.type) && (
-        <div>
-          <label className="text-sm font-medium text-muted-foreground mb-3 block">Note</label>
-          <EditItemContentEditor
-            initialContent={content}
-            onContentChange={onContentChange}
-            itemId={item?.id}
-            editorInstanceKey={editorKey}
-          />
-        </div>
-      )}
+      <EditItemTitleSection
+        title={title}
+        onTitleChange={onTitleChange}
+        onSave={onTitleSave}
+      />
 
-      {/* AI Summary (Description) */}
       <EditItemDescriptionSection
         itemId={item?.id || ''}
         description={description}
@@ -83,7 +76,7 @@ const EditItemDetailsTab = ({
         onSave={onDescriptionSave}
       />
 
-      {/* Attachments - show if they exist */}
+      {/* Show attachments if they exist */}
       {item && (item.links || item.files) && (
         <EditItemAttachments
           links={item.links}
@@ -92,9 +85,18 @@ const EditItemDetailsTab = ({
         />
       )}
 
-      {/* Tags */}
+      {(item?.type === 'text' || item?.type === 'link' || item?.type === 'unified' || !item?.type) && (
+        <EditItemContentEditor
+          content={content}
+          onContentChange={onContentChange}
+          itemId={item?.id}
+          editorInstanceKey={editorKey}
+        />
+      )}
+
       <EditItemTagsSection
-        item={item}
+        itemId={item?.id || ''}
+        tags={item?.tags || []}
         onTagsChange={onTagsChange}
       />
     </TabContent>

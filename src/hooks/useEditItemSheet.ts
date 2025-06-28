@@ -1,3 +1,4 @@
+
 import { useEditItemState } from './useEditItemState';
 import { useEditItemDraft } from './useEditItemDraft';
 import { useEditItemSave } from './useEditItemSave';
@@ -14,8 +15,6 @@ interface ContentItem {
   file_path?: string;
   type?: string;
   tags?: string[];
-  links?: any[];
-  files?: any[];
 }
 
 interface UseEditItemSheetProps {

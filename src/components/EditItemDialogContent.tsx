@@ -82,7 +82,7 @@ const EditItemDialogContent = ({
 
       {(item.type === 'text' || item.type === 'link') && (
         <EditItemContentEditor
-          initialContent={content}
+          content={content}
           onContentChange={onContentChange}
           itemId={item.id}
           editorInstanceKey={editorInstanceKey}

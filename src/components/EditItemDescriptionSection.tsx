@@ -1,8 +1,9 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Wand2, Edit2, Check, X } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { RefreshCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -23,74 +24,45 @@ const EditItemDescriptionSection = ({
   onDescriptionChange,
   onSave,
 }: EditItemDescriptionSectionProps) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [tempDescription, setTempDescription] = useState(description);
   const [isGenerating, setIsGenerating] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    setTempDescription(description);
-  }, [description]);
-
-  useEffect(() => {
-    if (isEditing && textareaRef.current) {
-      textareaRef.current.focus();
-      textareaRef.current.select();
-    }
-  }, [isEditing]);
-
-  const handleEdit = () => {
-    setTempDescription(description);
-    setIsEditing(true);
-  };
-
-  const handleSave = async () => {
-    try {
-      await onSave(tempDescription);
-      setIsEditing(false);
-    } catch (error) {
-      console.error('Error saving description:', error);
+  const handleGenerateDescription = async () => {
+    if (!content?.trim() && !title?.trim()) {
       toast({
-        title: "Error",
-        description: "Failed to save description",
+        title: "No content to summarize",
+        description: "Add some content or title first to generate a summary.",
         variant: "destructive",
       });
+      return;
     }
-  };
-
-  const handleCancel = () => {
-    setTempDescription(description);
-    setIsEditing(false);
-  };
-
-  const generateDescription = async () => {
-    if (!itemId || isGenerating) return;
 
     setIsGenerating(true);
     try {
       const { data, error } = await supabase.functions.invoke('generate-description', {
         body: { 
-          content: content || title,
+          content: content || '', 
+          title: title || '',
           itemId 
         }
       });
 
       if (error) throw error;
-      
+
       if (data?.description) {
         onDescriptionChange(data.description);
+        // Auto-save the generated description
         await onSave(data.description);
         toast({
-          title: "Success",
-          description: "AI summary generated successfully",
+          title: "Summary generated",
+          description: "AI summary has been generated and saved automatically.",
         });
       }
     } catch (error) {
       console.error('Error generating description:', error);
       toast({
         title: "Error",
-        description: "Failed to generate AI summary",
+        description: "Failed to generate summary. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -99,73 +71,36 @@ const EditItemDescriptionSection = ({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-muted-foreground">AI Summary</label>
-        <div className="flex items-center gap-2">
-          {!isEditing && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={generateDescription}
-                disabled={isGenerating}
-                className="h-auto p-1 text-xs"
-              >
-                <Wand2 className="h-3 w-3 mr-1" />
-                {isGenerating ? 'Generating...' : 'Generate'}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleEdit}
-                className="h-auto p-1 text-xs"
-              >
-                <Edit2 className="h-3 w-3 mr-1" />
-                Edit
-              </Button>
-            </>
-          )}
-          {isEditing && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSave}
-                className="h-auto p-1 text-xs text-green-600 hover:text-green-700"
-              >
-                <Check className="h-3 w-3" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancel}
-                className="h-auto p-1 text-xs text-red-600 hover:text-red-700"
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            </>
-          )}
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <label className="text-sm font-medium text-muted-foreground cursor-help">
+                AI Summary
+              </label>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>This content is used to help train the AI assistant on your content</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleGenerateDescription}
+          disabled={isGenerating || (!content?.trim() && !title?.trim())}
+          className="h-7 w-7 p-0"
+        >
+          <RefreshCcw className={`h-3 w-3 ${isGenerating ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
-
-      {isEditing ? (
-        <Textarea
-          ref={textareaRef}
-          value={tempDescription}
-          onChange={(e) => setTempDescription(e.target.value)}
-          className="min-h-[80px] resize-none"
-          placeholder="Enter AI summary..."
-        />
-      ) : (
-        <div className="text-sm text-muted-foreground bg-muted/30 rounded-md p-3 min-h-[80px] border border-dashed">
-          {description || (
-            <span className="italic">
-              No AI summary yet. Click "Generate" to create one automatically.
-            </span>
-          )}
-        </div>
-      )}
+      <Textarea
+        value={description}
+        onChange={(e) => onDescriptionChange(e.target.value)}
+        placeholder="Enter a summary or description..."
+        className="min-h-[100px] resize-none"
+      />
     </div>
   );
 };
