@@ -40,31 +40,37 @@ const EditorContainer = ({
     // Enhanced content comparison with detailed logging
     const hasImageInContent = jsonString.includes('"type":"image"');
     const contentChanged = jsonString !== lastContentRef.current;
+    const hasPlaceholderImages = jsonString.includes('"src":"data:image/');
+    const hasFinalUrlImages = jsonString.includes('"src":"http');
     
-    console.log('EditorContainer: Content analysis from Novel onUpdate:', {
+    console.log('EditorContainer: Enhanced content analysis from Novel onUpdate:', {
       editorKey,
       currentLength: jsonString.length,
       lastLength: lastContentRef.current.length,
       hasChanged: contentChanged,
       hasImageInContent,
+      hasPlaceholderImages,
+      hasFinalUrlImages,
       contentChangeReason: contentChanged ? 'Content differs from last saved' : 'Content identical to last saved',
       imageCount: (jsonString.match(/"type":"image"/g) || []).length,
       placeholderCount: (jsonString.match(/"src":"data:image/g) || []).length,
       finalUrlCount: (jsonString.match(/"src":"http/g) || []).length,
+      updatePhase: hasPlaceholderImages ? 'Placeholder phase' : hasFinalUrlImages ? 'Final URL phase' : 'Text content',
       newContentPreview: jsonString.slice(0, 150) + '...',
       lastContentPreview: lastContentRef.current.slice(0, 150) + '...'
     });
     
-    // Save when content changes - Novel's onUpdate handles all changes including images
+    // ENHANCED: Save when content changes - including both placeholder and final URL phases
     if (contentChanged) {
-      console.log('EditorContainer: Content changed detected by Novel onUpdate, triggering save', {
+      console.log('EditorContainer: Content changed detected - triggering save', {
         editorKey,
         newContentLength: jsonString.length,
         hasImageInContent,
         imageCount: (jsonString.match(/"type":"image"/g) || []).length,
         changeType: hasImageInContent ? 'Content with images' : 'Text content',
         willTriggerSave: true,
-        updateType: jsonString.includes('"src":"data:image/') ? 'Placeholder phase' : 'Final URL phase'
+        updateType: hasPlaceholderImages ? 'Placeholder phase' : hasFinalUrlImages ? 'Final URL phase' : 'Text update',
+        imageUploadComplete: hasFinalUrlImages && !hasPlaceholderImages
       });
       
       // Update ref IMMEDIATELY before calling onContentChange to prevent double saves
@@ -77,7 +83,8 @@ const EditorContainer = ({
         editorKey,
         savedContentLength: jsonString.length,
         hasImages: hasImageInContent,
-        imageCount: (jsonString.match(/"type":"image"/g) || []).length
+        imageCount: (jsonString.match(/"type":"image"/g) || []).length,
+        savePhase: hasPlaceholderImages ? 'Placeholder saved' : hasFinalUrlImages ? 'Final URLs saved' : 'Text saved'
       });
     } else {
       console.log('EditorContainer: No content change detected by Novel onUpdate - skipping save', {
@@ -93,18 +100,22 @@ const EditorContainer = ({
   };
 
   const handleEditorBlur = (editor: EditorInstance) => {
-    console.log('EditorContainer: Editor blurred - performing safety save check', { editorKey });
+    console.log('EditorContainer: Editor blurred - performing enhanced safety save check', { editorKey });
     
-    // Safety check on blur to catch any missed saves
+    // Enhanced safety check on blur to catch any missed saves, especially for images
     const json = editor.getJSON();
     const jsonString = JSON.stringify(json);
+    const hasImages = jsonString.includes('"type":"image"');
+    const hasFinalUrls = jsonString.includes('"src":"http');
     
     if (jsonString !== lastContentRef.current) {
-      console.log('EditorContainer: Unsaved changes detected on blur - triggering save', {
+      console.log('EditorContainer: Unsaved changes detected on blur - triggering enhanced save', {
         editorKey,
         contentLength: jsonString.length,
-        hasImages: jsonString.includes('"type":"image"'),
-        imageCount: (jsonString.match(/"type":"image"/g) || []).length
+        hasImages,
+        hasFinalUrls,
+        imageCount: (jsonString.match(/"type":"image"/g) || []).length,
+        saveReason: 'Blur safety check'
       });
       
       lastContentRef.current = jsonString;
@@ -114,12 +125,12 @@ const EditorContainer = ({
 
   const initialJsonContent = getInitialContent();
 
-  console.log('EditorContainer: Rendering editor with Novel system:', { 
+  console.log('EditorContainer: Rendering editor with enhanced Novel image system:', { 
     editorKey,
     hasInitialContent: !!initialJsonContent,
     contentLength: content?.length || 0,
     hasUploadHandler: !!handleImageUpload,
-    usingNovelImageSystem: true
+    usingEnhancedImageSystem: true
   });
 
   if (!initialJsonContent) {

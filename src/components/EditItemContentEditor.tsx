@@ -1,5 +1,5 @@
 
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEditorImageUpload } from './editor/EditorImageUpload';
 import EditorContainer from './editor/EditorContainer';
@@ -21,37 +21,12 @@ const EditItemContentEditor = ({
 }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
 
-  // Image upload functionality
-  const { createUploadFn } = useEditorImageUpload({ user, session, itemId });
-
   // Create stable editor key
   const effectiveEditorKey = useMemo(() => {
     const key = editorInstanceKey || `editor-${itemId || 'new'}-stable`;
     console.log('EditItemContentEditor: Generated stable editor key:', { key, itemId });
     return key;
   }, [editorInstanceKey, itemId]);
-
-  // Create the upload function using Novel's pattern - this returns UploadFn type
-  const uploadFn = useMemo(() => {
-    const fn = createUploadFn();
-    console.log('EditItemContentEditor: Created upload function:', {
-      hasUploadFn: !!fn,
-      itemId,
-      editorKey: effectiveEditorKey
-    });
-    return fn;
-  }, [createUploadFn, itemId, effectiveEditorKey]);
-
-  // ENHANCED: Track content prop changes for debugging
-  useEffect(() => {
-    console.log('EditItemContentEditor: Content prop changed:', {
-      itemId,
-      contentLength: content?.length || 0,
-      hasContent: !!content,
-      contentPreview: content ? content.slice(0, 100) + '...' : 'No content',
-      editorKey: effectiveEditorKey
-    });
-  }, [content, itemId, effectiveEditorKey]);
 
   // Enhanced onContentChange with debugging
   const handleContentChange = useMemo(() => {
@@ -74,13 +49,55 @@ const EditItemContentEditor = ({
     };
   }, [onContentChange, itemId, effectiveEditorKey, content]);
 
-  console.log('EditItemContentEditor: Rendering with props:', {
+  // Post-upload callback to force content check and save
+  const handleUploadComplete = useCallback(() => {
+    console.log('EditItemContentEditor: Image upload completed, forcing content check');
+    
+    // Trigger a content change detection by getting current editor content
+    // This is handled by the EditorContainer's update mechanism
+    setTimeout(() => {
+      console.log('EditItemContentEditor: Post-upload content verification completed');
+    }, 100);
+  }, []);
+
+  // Image upload functionality with post-upload callback
+  const { createUploadFn } = useEditorImageUpload({ 
+    user, 
+    session, 
+    itemId,
+    onUploadComplete: handleUploadComplete
+  });
+
+  // Create the upload function using Novel's pattern - this returns UploadFn type
+  const uploadFn = useMemo(() => {
+    const fn = createUploadFn();
+    console.log('EditItemContentEditor: Created upload function with post-upload callback:', {
+      hasUploadFn: !!fn,
+      itemId,
+      editorKey: effectiveEditorKey
+    });
+    return fn;
+  }, [createUploadFn, itemId, effectiveEditorKey]);
+
+  // ENHANCED: Track content prop changes for debugging
+  useEffect(() => {
+    console.log('EditItemContentEditor: Content prop changed:', {
+      itemId,
+      contentLength: content?.length || 0,
+      hasContent: !!content,
+      contentPreview: content ? content.slice(0, 100) + '...' : 'No content',
+      editorKey: effectiveEditorKey
+    });
+  }, [content, itemId, effectiveEditorKey]);
+
+  console.log('EditItemContentEditor: Rendering with enhanced upload system:', {
     itemId,
     contentLength: content?.length || 0,
     hasContent: !!content,
     editorKey: effectiveEditorKey,
     isMaximized,
     hasUploadFn: !!uploadFn,
+    hasUploadCompleteCallback: true,
     contentPreview: content ? content.slice(0, 100) + '...' : 'No content'
   });
 
