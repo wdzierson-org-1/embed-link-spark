@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -17,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { FileText, Link, Upload, MessageSquare, Settings, LogOut, ChevronUp, ChevronDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useNavigate } from 'react-router-dom';
 import StashHeader from '@/components/StashHeader';
 import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
@@ -29,6 +29,7 @@ import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperation
 
 const Index = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { items, fetchItems, addOptimisticItem, removeOptimisticItem, clearSkeletonItems } = useItems();
   const { handleAddContent, handleSaveItem, handleDeleteItem } = useItemOperations(
     fetchItems, 
@@ -56,6 +57,7 @@ const Index = () => {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
+    navigate('/');
   };
 
   useEffect(() => {
