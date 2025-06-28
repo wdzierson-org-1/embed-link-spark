@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -196,7 +195,7 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
   const hasContent = url.trim().length > 0;
 
   return (
-    <Card>
+    <Card className="bg-gray-50 border-gray-200">
       <CardContent className="pt-6">
         <div className="space-y-4">
           <Input
@@ -205,6 +204,7 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
             onChange={handleUrlChange}
             onKeyDown={handleKeyDown}
             type="url"
+            className="bg-white border-gray-300"
           />
           
           {isLoadingPreview && (

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -112,11 +111,11 @@ const TextNoteTab = ({ onAddContent, getSuggestedTags }: TextNoteTabProps) => {
   const hasContent = content.trim().length > 0;
 
   return (
-    <Card>
+    <Card className="bg-gray-50 border-gray-200">
       <CardContent className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="relative">
-            <div className="border rounded-md">
+            <div className="border border-gray-300 rounded-md bg-white">
               <EditorRoot>
                 <EditorContent
                   initialContent={initialContent}

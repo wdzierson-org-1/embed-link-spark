@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -118,7 +117,7 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       {/* Header with logo, date and user menu */}
       <div className="w-full bg-white border-b border-gray-200">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -171,73 +170,76 @@ const Index = () => {
         </div>
       </div>
       
-      {/* Tab bar and input section with grey background */}
-      <div className="w-full bg-gray-100" style={{ marginTop: '5px' }}>
-        <div className="container mx-auto px-4">
-          <div className="flex items-center bg-gray-200 rounded-lg p-1 w-full">
-            <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
-              <TabsList className="grid w-full grid-cols-3 h-12 bg-transparent border-0">
-                <TabsTrigger value="text" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
-                  <FileText className="h-4 w-4" />
-                  Text Note
-                </TabsTrigger>
-                <TabsTrigger value="link" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
-                  <Link className="h-4 w-4" />
-                  Link
-                </TabsTrigger>
-                <TabsTrigger value="media" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
-                  <Upload className="h-4 w-4" />
-                  Upload
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+      {/* Increased space between header and tab bar */}
+      <div className="pt-8">
+        {/* Tab bar and input section with grey background */}
+        <div className="w-full bg-gray-100 pb-8">
+          <div className="container mx-auto px-4">
+            <div className="flex items-center bg-gray-200 rounded-lg p-1 w-full">
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1">
+                <TabsList className="grid w-full grid-cols-3 h-12 bg-transparent border-0">
+                  <TabsTrigger value="text" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                    <FileText className="h-4 w-4" />
+                    Text Note
+                  </TabsTrigger>
+                  <TabsTrigger value="link" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                    <Link className="h-4 w-4" />
+                    Link
+                  </TabsTrigger>
+                  <TabsTrigger value="media" className="flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm">
+                    <Upload className="h-4 w-4" />
+                    Upload
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleInputUI}
+                className="ml-2 flex items-center gap-1 bg-transparent hover:bg-gray-300/50"
+              >
+                {isInputUICollapsed ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronUp className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
             
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleInputUI}
-              className="ml-2 flex items-center gap-1 bg-transparent hover:bg-gray-300/50"
-            >
-              {isInputUICollapsed ? (
-                <ChevronDown className="h-4 w-4" />
-              ) : (
-                <ChevronUp className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-          
-          {/* Input UI Area with animation */}
-          <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
-            isInputUICollapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'
-          }`}>
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsContent value="text" className="mt-6 pb-6">
-                <TextNoteTab
-                  onAddContent={handleAddContent}
-                  getSuggestedTags={getSuggestedTags}
-                />
-              </TabsContent>
-              
-              <TabsContent value="link" className="mt-6 pb-6">
-                <LinkTab
-                  onAddContent={handleAddContent}
-                  getSuggestedTags={() => []}
-                />
-              </TabsContent>
-              
-              <TabsContent value="media" className="mt-6 pb-6">
-                <MediaUploadTab
-                  onAddContent={handleAddContent}
-                  getSuggestedTags={getSuggestedTags}
-                />
-              </TabsContent>
-            </Tabs>
+            {/* Input UI Area with reduced spacing and grey background */}
+            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
+              isInputUICollapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'
+            }`}>
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsContent value="text" className="mt-4 pb-0">
+                  <TextNoteTab
+                    onAddContent={handleAddContent}
+                    getSuggestedTags={getSuggestedTags}
+                  />
+                </TabsContent>
+                
+                <TabsContent value="link" className="mt-4 pb-0">
+                  <LinkTab
+                    onAddContent={handleAddContent}
+                    getSuggestedTags={() => []}
+                  />
+                </TabsContent>
+                
+                <TabsContent value="media" className="mt-4 pb-0">
+                  <MediaUploadTab
+                    onAddContent={handleAddContent}
+                    getSuggestedTags={getSuggestedTags}
+                  />
+                </TabsContent>
+              </Tabs>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Chat button and filter section */}
-      <div className="container mx-auto px-4 pt-6 pb-4 bg-gray-50">
+      {/* Chat button and filter section - white background */}
+      <div className="container mx-auto px-4 pt-6 pb-4 bg-white">
         <div className="flex items-center justify-between mb-4">
           <Button
             variant="outline"
@@ -258,7 +260,7 @@ const Index = () => {
         </div>
       </div>
       
-      <main className="container mx-auto px-4 pb-8 bg-gray-50">
+      <main className="container mx-auto px-4 pb-8 bg-white">
         <ContentGrid 
           items={items} 
           onDeleteItem={handleDeleteItem}
