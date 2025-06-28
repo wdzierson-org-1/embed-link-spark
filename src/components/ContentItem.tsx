@@ -68,18 +68,6 @@ const ContentItem = ({
     }
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'text': return 'bg-blue-100 text-blue-800';
-      case 'link': return 'bg-green-100 text-green-800';
-      case 'image': return 'bg-purple-100 text-purple-800';
-      case 'audio': return 'bg-orange-100 text-orange-800';
-      case 'video': return 'bg-red-100 text-red-800';
-      case 'document': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
@@ -206,11 +194,13 @@ const ContentItem = ({
             </div>
             
             <div className="flex items-center gap-2">
-              {/* Type badge - always visible, positioned in bottom right */}
-              <Badge className={`${getTypeColor(item.type)}`}>
-                {getIcon(item.type)}
-                <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
-              </Badge>
+              {/* Type badge - hidden by default, shown on hover with purple background */}
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <Badge variant="purple">
+                  {getIcon(item.type)}
+                  <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
+                </Badge>
+              </div>
               
               {/* Menu dropdown */}
               <DropdownMenu>

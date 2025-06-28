@@ -1,8 +1,10 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import ContentItem from './ContentItem';
 import ContentItemSkeleton from './ContentItemSkeleton';
 import WhatsAppInfo from './WhatsAppInfo';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface ContentGridProps {
   items: any[];
@@ -14,15 +16,81 @@ interface ContentGridProps {
 }
 
 const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilters, searchQuery = '' }: ContentGridProps) => {
+  const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
+  const { user } = useAuth();
+
+  // Fetch tags for all items
+  const fetchItemTags = async () => {
+    if (!user || items.length === 0) return;
+
+    try {
+      const itemIds = items.filter(item => !item.isOptimistic).map(item => item.id);
+      if (itemIds.length === 0) return;
+
+      const { data, error } = await supabase
+        .from('item_tags')
+        .select(`
+          item_id,
+          tags!inner(name)
+        `)
+        .in('item_id', itemIds);
+
+      if (error) {
+        console.error('Error fetching item tags:', error);
+        return;
+      }
+
+      // Group tags by item_id
+      const tagsByItem: Record<string, string[]> = {};
+      data?.forEach(row => {
+        const itemId = row.item_id;
+        const tagName = row.tags.name;
+        if (!tagsByItem[itemId]) {
+          tagsByItem[itemId] = [];
+        }
+        tagsByItem[itemId].push(tagName);
+      });
+
+      setItemTags(tagsByItem);
+    } catch (error) {
+      console.error('Exception fetching item tags:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchItemTags();
+  }, [user, items]);
+
+  const handleImageError = (itemId: string) => {
+    setImageErrors(prev => new Set([...prev, itemId]));
+  };
+
+  const handleToggleExpansion = (itemId: string) => {
+    setExpandedContent(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleTagsUpdated = () => {
+    // Refetch tags when they're updated
+    fetchItemTags();
+  };
+
   // Filter items based on tag filters and search query
   const filteredItems = items.filter(item => {
     // Tag filter
     if (tagFilters && tagFilters.length > 0) {
-      const itemTags = item.tags || [];
+      const currentItemTags = itemTags[item.id] || [];
       const matchesTag = tagFilters.some(filter => 
-        itemTags.some((tag: any) => 
-          typeof tag === 'string' ? tag === filter : tag.name === filter
-        )
+        currentItemTags.includes(filter)
       );
       if (!matchesTag) return false;
     }
@@ -83,15 +151,15 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
         <ContentItem
           key={item.id}
           item={item}
-          tags={[]}
-          imageErrors={new Set()}
-          expandedContent={new Set()}
-          onImageError={() => {}}
-          onToggleExpansion={() => {}}
+          tags={itemTags[item.id] || []}
+          imageErrors={imageErrors}
+          expandedContent={expandedContent}
+          onImageError={handleImageError}
+          onToggleExpansion={handleToggleExpansion}
           onDeleteItem={onDeleteItem}
           onEditItem={onEditItem}
           onChatWithItem={onChatWithItem}
-          onTagsUpdated={() => {}}
+          onTagsUpdated={handleTagsUpdated}
         />
       ))}
     </div>
