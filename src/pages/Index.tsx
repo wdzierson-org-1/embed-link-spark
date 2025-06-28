@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { FileText, Link, Upload, Search, Settings, LogOut, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { FileText, Link, Upload, Search, Settings, LogOut, ChevronUp, ChevronDown, X, MessageSquare } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 import StashHeader from '@/components/StashHeader';
@@ -27,7 +27,6 @@ import TextNoteTab from '@/components/TextNoteTab';
 import LinkTab from '@/components/LinkTab';
 import MediaUploadTab from '@/components/MediaUploadTab';
 import SettingsModal from '@/components/SettingsModal';
-import PinnedChatWidget from '@/components/PinnedChatWidget';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
 const Index = () => {
@@ -129,8 +128,8 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header with logo, date and user menu - now white background with increased height */}
+    <div className="min-h-screen bg-gray-100">
+      {/* Header with logo, date and user menu - white background with increased height */}
       <div className="w-full bg-white border-b border-gray-200">
         <div className="container mx-auto px-4 h-20 flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -258,10 +257,10 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Search and filter section - white background */}
-      <div className="container mx-auto px-4 pt-6 pb-4 bg-white">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center">
+      {/* Search and filter section - white background with reduced spacing */}
+      <div className="container mx-auto px-4 pt-3 pb-2 bg-white">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-4">
             {!isSearchActive ? (
               <Button
                 variant="outline"
@@ -294,6 +293,16 @@ const Index = () => {
                 </div>
               </div>
             )}
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowGlobalChat(true)}
+              className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50 transition-all duration-200"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Noodle assistant
+            </Button>
           </div>
           <StashHeader 
             onShowGlobalChat={() => setShowGlobalChat(true)}
@@ -315,9 +324,6 @@ const Index = () => {
           searchQuery={searchQuery}
         />
       </main>
-
-      {/* Enhanced Pinned Chat Widget */}
-      <PinnedChatWidget onExpandToModal={() => setShowGlobalChat(true)} />
 
       <EditItemSheet
         open={!!editingItem}
