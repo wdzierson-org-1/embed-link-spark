@@ -6,8 +6,6 @@ import {
   type JSONContent,
   type EditorInstance,
   handleCommandNavigation,
-  handleImageDrop,
-  handleImagePaste,
   type UploadFn,
 } from 'novel';
 import { createEditorExtensions } from './EditorExtensions';
@@ -35,6 +33,13 @@ const EditorContentRenderer = ({
 }: EditorContentRendererProps) => {
   const extensions = createEditorExtensions(uploadFn);
 
+  console.log('EditorContentRenderer: Configuring with Novel upload system:', {
+    editorKey,
+    hasUploadFn: !!uploadFn,
+    usingNovelUploadSystem: true,
+    extensionsCount: extensions.length
+  });
+
   return (
     <div className={isMaximized ? "h-full flex flex-col" : "border rounded-md"}>
       <EditorRoot key={editorKey}>
@@ -46,28 +51,25 @@ const EditorContentRenderer = ({
             handleDOMEvents: {
               keydown: (_view, event) => handleCommandNavigation(event),
             },
-            // Use Novel's built-in image handling with our upload function
-            handlePaste: uploadFn ? (view, event) => {
-              console.log('EditorContentRenderer: Paste event detected, using Novel handler');
-              return handleImagePaste(view, event, uploadFn);
-            } : undefined,
-            handleDrop: uploadFn ? (view, event, _slice, moved) => {
-              console.log('EditorContentRenderer: Drop event detected, using Novel handler');
-              return handleImageDrop(view, event, moved, uploadFn);
-            } : undefined,
+            // Let Novel's UploadImagesPlugin handle all image operations
             attributes: {
               class: 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 prose-ul:leading-normal prose-ol:leading-normal prose-li:leading-normal prose-li:mb-1 prose-p:leading-normal prose-p:mb-2'
             }
           }}
           onUpdate={({ editor }: { editor: EditorInstance }) => {
-            console.log('EditorContentRenderer: onUpdate event fired', {
+            const json = editor.getJSON();
+            const jsonString = JSON.stringify(json);
+            
+            console.log('EditorContentRenderer: Novel onUpdate fired - analyzing content:', {
               editorKey,
-              hasContent: !!editor.getJSON(),
-              contentLength: JSON.stringify(editor.getJSON()).length,
-              hasImages: JSON.stringify(editor.getJSON()).includes('"type":"image"'),
-              imageCount: (JSON.stringify(editor.getJSON()).match(/"type":"image"/g) || []).length,
-              updateReason: 'Novel editor content changed'
+              contentLength: jsonString.length,
+              hasImages: jsonString.includes('"type":"image"'),
+              imageCount: (jsonString.match(/"type":"image"/g) || []).length,
+              placeholderImages: (jsonString.match(/"src":"data:image/g) || []).length,
+              finalUrlImages: (jsonString.match(/"src":"http/g) || []).length,
+              updateTrigger: 'Novel UploadImagesPlugin system'
             });
+            
             onUpdate(editor);
           }}
           onFocus={onFocus ? ({ editor }: { editor: EditorInstance }) => {

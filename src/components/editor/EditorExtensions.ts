@@ -83,16 +83,8 @@ export const createEditorExtensions = (uploadFn?: UploadFn) => {
       },
       openOnClick: false,
     }),
-    // Use Novel's TiptapImage with UploadImagesPlugin integration
-    TiptapImage.extend({
-      addProseMirrorPlugins() {
-        return uploadFn ? [
-          UploadImagesPlugin({ 
-            imageClass: "opacity-40 rounded-lg border border-stone-200" 
-          })
-        ] : [];
-      },
-    }).configure({
+    // Configure TiptapImage without the UploadImagesPlugin - we'll add it separately
+    TiptapImage.configure({
       allowBase64: true,
       HTMLAttributes: {
         class: "rounded-lg border border-muted max-w-full h-auto",
@@ -126,5 +118,11 @@ export const createEditorExtensions = (uploadFn?: UploadFn) => {
     CustomKeymap,
     GlobalDragHandle,
     slashCommand,
+    // Add UploadImagesPlugin as a separate extension with proper configuration
+    ...(uploadFn ? [
+      UploadImagesPlugin({ 
+        imageClass: "opacity-40 rounded-lg border border-stone-200" 
+      })
+    ] : []),
   ];
 };

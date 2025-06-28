@@ -48,10 +48,15 @@ export const useEditorImageUpload = ({ user, session, itemId }: UseEditorImageUp
   const createUploadFn = useCallback(() => {
     if (!handleImageUpload) return undefined;
 
+    console.log('EditorImageUpload: Creating Novel UploadFn with proper validation', {
+      hasUser: !!user,
+      itemId
+    });
+
     return createImageUpload({
       onUpload: handleImageUpload,
       validateFn: (file) => {
-        console.log('EditorImageUpload: Validating file', {
+        console.log('EditorImageUpload: Novel validation called', {
           fileName: file.name,
           fileType: file.type,
           fileSize: file.size
@@ -65,10 +70,12 @@ export const useEditorImageUpload = ({ user, session, itemId }: UseEditorImageUp
           toast.error("File size too big (max 20MB).");
           return false;
         }
+        
+        console.log('EditorImageUpload: Novel validation passed');
         return true;
       },
     });
-  }, [handleImageUpload]);
+  }, [handleImageUpload, user, itemId]);
 
   return {
     handleImageUpload,
