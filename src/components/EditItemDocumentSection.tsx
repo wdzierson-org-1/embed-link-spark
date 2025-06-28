@@ -2,6 +2,7 @@
 import React from 'react';
 import { ExternalLink, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
 
 interface EditItemDocumentSectionProps {
   filePath: string;
@@ -12,7 +13,7 @@ interface EditItemDocumentSectionProps {
 const EditItemDocumentSection = ({ filePath, fileName, mimeType }: EditItemDocumentSectionProps) => {
   const handleOpenDocument = () => {
     // Get the public URL for the document
-    const { data } = window.supabase?.storage?.from('stash-media')?.getPublicUrl(filePath) || { data: { publicUrl: filePath } };
+    const { data } = supabase.storage.from('stash-media').getPublicUrl(filePath);
     window.open(data.publicUrl, '_blank', 'noopener,noreferrer');
   };
 
