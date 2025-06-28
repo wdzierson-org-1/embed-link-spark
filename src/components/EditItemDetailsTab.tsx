@@ -44,6 +44,7 @@ interface EditItemDetailsTabProps {
   isInsideTabs?: boolean;
   showInlineImage?: boolean;
   imageUrl?: string;
+  isMobile?: boolean;
 }
 
 const EditItemDetailsTab = ({
@@ -65,6 +66,7 @@ const EditItemDetailsTab = ({
   isInsideTabs = true,
   showInlineImage = false,
   imageUrl = '',
+  isMobile = false,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
 
@@ -73,6 +75,20 @@ const EditItemDetailsTab = ({
       window.open(imageUrl, '_blank');
     }
   };
+
+  // Debug logging for mobile editor issues
+  React.useEffect(() => {
+    if (isMobile && content) {
+      console.log('EditItemDetailsTab: Mobile content editor rendered', {
+        itemId: item?.id,
+        contentLength: content?.length || 0,
+        isContentLoading,
+        editorKey,
+        isMaximized: isEditorMaximized,
+        showInlineImage
+      });
+    }
+  }, [isMobile, content, isContentLoading, editorKey, isEditorMaximized, item?.id, showInlineImage]);
 
   if (isEditorMaximized) {
     return (
@@ -97,7 +113,7 @@ const EditItemDetailsTab = ({
         onSave={onTitleSave}
       />
 
-      {/* Inline Image for image items */}
+      {/* Inline Image for image items and links with images */}
       {showInlineImage && imageUrl && (
         <div className="flex justify-center">
           <img
@@ -143,13 +159,15 @@ const EditItemDetailsTab = ({
               Loading editor...
             </div>
           ) : (
-            <EditItemContentEditor
-              content={content}
-              onContentChange={onContentChange}
-              itemId={item?.id}
-              editorInstanceKey={editorKey}
-              isMaximized={false}
-            />
+            <div className={`${isMobile ? 'min-h-[400px]' : ''}`}>
+              <EditItemContentEditor
+                content={content}
+                onContentChange={onContentChange}
+                itemId={item?.id}
+                editorInstanceKey={editorKey}
+                isMaximized={false}
+              />
+            </div>
           )}
           <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
             Press / for formatting options

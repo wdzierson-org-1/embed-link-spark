@@ -8,6 +8,7 @@ import EditItemDetailsTab from '@/components/EditItemDetailsTab';
 import EditItemImageTab from '@/components/EditItemImageTab';
 import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
 import { useEditItemSheet } from '@/hooks/useEditItemSheet';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface ContentItem {
   id: string;
@@ -27,6 +28,7 @@ interface EditItemSheetProps {
 }
 
 const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps) => {
+  const isMobile = useIsMobile();
   const {
     title,
     description,
@@ -49,8 +51,21 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     handleImageStateChange,
   } = useEditItemSheet({ open, item, onSave });
 
-  // For image items, show inline without tabs
-  if (item?.type === 'image') {
+  // Debug logging for mobile editor issues
+  React.useEffect(() => {
+    if (open && isMobile) {
+      console.log('EditItemSheet: Mobile edit sheet opened', {
+        itemType: item?.type,
+        hasContent: !!content,
+        contentLength: content?.length || 0,
+        isContentLoading,
+        editorKey
+      });
+    }
+  }, [open, isMobile, item?.type, content, isContentLoading, editorKey]);
+
+  // For image items or links with images, show inline without tabs
+  if (item?.type === 'image' || (item?.type === 'link' && hasImage)) {
     return (
       <TooltipProvider>
         <Sheet open={open} onOpenChange={onOpenChange}>
@@ -77,6 +92,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 isInsideTabs={false}
                 showInlineImage={true}
                 imageUrl={imageUrl}
+                isMobile={isMobile}
               />
             </div>
 
@@ -117,6 +133,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   onTagsChange={handleTagsChange}
                   onMediaChange={handleMediaChange}
                   isInsideTabs={true}
+                  isMobile={isMobile}
                 />
 
                 <EditItemImageTab
@@ -144,6 +161,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   onTagsChange={handleTagsChange}
                   onMediaChange={handleMediaChange}
                   isInsideTabs={false}
+                  isMobile={isMobile}
                 />
               </div>
             )}
