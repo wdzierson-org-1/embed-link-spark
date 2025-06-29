@@ -58,44 +58,161 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
     }
   };
 
+  const parseMetaContent = (html: string, property: string): string | null => {
+    // Try multiple variations of meta tag formats
+    const patterns = [
+      new RegExp(`<meta\\s+property=["']${property}["']\\s+content=["']([^"']+)["']`, 'i'),
+      new RegExp(`<meta\\s+content=["']([^"']+)["']\\s+property=["']${property}["']`, 'i'),
+      new RegExp(`<meta\\s+name=["']${property}["']\\s+content=["']([^"']+)["']`, 'i'),
+      new RegExp(`<meta\\s+content=["']([^"']+)["']\\s+name=["']${property}["']`, 'i'),
+    ];
+
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    return null;
+  };
+
+  const extractMetaFromHtml = (html: string) => {
+    // Clean up HTML to make parsing more reliable
+    const cleanHtml = html.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+    
+    // Extract title
+    const titleMatch = cleanHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = parseMetaContent(cleanHtml, 'og:title') || 
+                 parseMetaContent(cleanHtml, 'twitter:title') || 
+                 (titleMatch ? titleMatch[1] : null);
+
+    // Extract description
+    const description = parseMetaContent(cleanHtml, 'og:description') || 
+                       parseMetaContent(cleanHtml, 'twitter:description') || 
+                       parseMetaContent(cleanHtml, 'description');
+
+    // Extract image
+    const image = parseMetaContent(cleanHtml, 'og:image') || 
+                 parseMetaContent(cleanHtml, 'twitter:image');
+
+    // Extract site name
+    const siteName = parseMetaContent(cleanHtml, 'og:site_name') || 
+                    parseMetaContent(cleanHtml, 'twitter:domain');
+
+    return {
+      title: title?.trim(),
+      description: description?.trim(),
+      image: image?.trim(),
+      siteName: siteName?.trim()
+    };
+  };
+
+  const fetchWithProxy = async (urlToFetch: string) => {
+    // Try multiple proxy services for better reliability
+    const proxyServices = [
+      `https://api.allorigins.win/get?url=${encodeURIComponent(urlToFetch)}`,
+      `https://cors-anywhere.herokuapp.com/${urlToFetch}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(urlToFetch)}`
+    ];
+
+    for (const proxyUrl of proxyServices) {
+      try {
+        const response = await fetch(proxyUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; StashBot/1.0)',
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Handle different proxy response formats
+          const html = data.contents || data.content || data;
+          return typeof html === 'string' ? html : null;
+        }
+      } catch (error) {
+        console.log(`Proxy ${proxyUrl} failed:`, error);
+        continue;
+      }
+    }
+    return null;
+  };
+
   const fetchOgData = async (urlToFetch: string) => {
     if (!isValidUrl(urlToFetch)) return;
     
     setIsLoadingPreview(true);
     try {
-      const response = await fetch(urlToFetch, { 
-        mode: 'cors',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)'
-        }
-      });
+      let html = null;
       
-      if (response.ok) {
-        const html = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+      // Try direct fetch first (works for CORS-enabled sites)
+      try {
+        const response = await fetch(urlToFetch, { 
+          mode: 'cors',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          }
+        });
         
-        const ogTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
-                       doc.querySelector('title')?.textContent;
-        const ogDescription = doc.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
-                             doc.querySelector('meta[name="description"]')?.getAttribute('content');
-        const ogImage = doc.querySelector('meta[property="og:image"]')?.getAttribute('content');
-        const ogSiteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
+        if (response.ok) {
+          html = await response.text();
+        }
+      } catch (directFetchError) {
+        console.log('Direct fetch failed, trying proxy services...');
+      }
+
+      // If direct fetch fails, try proxy services
+      if (!html) {
+        html = await fetchWithProxy(urlToFetch);
+      }
+
+      if (html) {
+        const metaData = extractMetaFromHtml(html);
+        
+        // Resolve relative URLs for images
+        let imageUrl = metaData.image;
+        if (imageUrl && !imageUrl.startsWith('http')) {
+          const baseUrl = new URL(urlToFetch);
+          if (imageUrl.startsWith('//')) {
+            imageUrl = baseUrl.protocol + imageUrl;
+          } else if (imageUrl.startsWith('/')) {
+            imageUrl = baseUrl.origin + imageUrl;
+          } else {
+            imageUrl = new URL(imageUrl, urlToFetch).toString();
+          }
+        }
         
         setOgData({
-          title: ogTitle,
-          description: ogDescription,
-          image: ogImage,
+          title: metaData.title,
+          description: metaData.description,
+          image: imageUrl,
           url: urlToFetch,
-          siteName: ogSiteName
+          siteName: metaData.siteName
+        });
+      } else {
+        // Fallback: create basic data from URL
+        const domain = new URL(urlToFetch).hostname;
+        setOgData({
+          url: urlToFetch,
+          title: domain,
+          siteName: domain
         });
       }
     } catch (error) {
-      console.log('Could not fetch preview data:', error);
-      setOgData({
-        url: urlToFetch,
-        title: urlToFetch
-      });
+      console.log('All metadata extraction methods failed:', error);
+      // Create minimal fallback data
+      try {
+        const domain = new URL(urlToFetch).hostname;
+        setOgData({
+          url: urlToFetch,
+          title: domain,
+          siteName: domain
+        });
+      } catch (urlError) {
+        setOgData({
+          url: urlToFetch,
+          title: urlToFetch
+        });
+      }
     } finally {
       setIsLoadingPreview(false);
     }
@@ -140,15 +257,20 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
       
       // Download and store preview image if available
       if (ogData?.image) {
-        previewImagePath = await downloadAndStoreImage(ogData.image);
+        try {
+          previewImagePath = await downloadAndStoreImage(ogData.image);
+        } catch (imageError) {
+          console.log('Failed to download preview image:', imageError);
+          // Continue without image - don't fail the entire operation
+        }
       }
 
       // Store link data in proper structure
       await onAddContent('link', {
         url: trimmedUrl,
-        title: ogData?.title || trimmedUrl, // OG title goes to title field
-        description: ogData?.description || '', // OG description goes to description field
-        content: '', // Leave content empty for user notes
+        title: ogData?.title || trimmedUrl,
+        description: ogData?.description || '',
+        content: '',
         tags: [],
         // Store preview image path for retrieval
         previewImagePath: previewImagePath
