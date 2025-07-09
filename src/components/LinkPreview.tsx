@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ExternalLink } from 'lucide-react';
 
@@ -18,7 +18,15 @@ interface LinkPreviewProps {
 
 const LinkPreview = ({ ogData }: LinkPreviewProps) => {
   const [imageError, setImageError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(!!ogData.image);
+  const [imageLoading, setImageLoading] = useState(false);
+
+  // Reset error state when image URL changes
+  useEffect(() => {
+    if (ogData.image) {
+      setImageError(false);
+      setImageLoading(true);
+    }
+  }, [ogData.image]);
 
   const handleImageLoad = () => {
     setImageLoading(false);
