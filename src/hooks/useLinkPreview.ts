@@ -9,6 +9,7 @@ interface OpenGraphData {
   image?: string;
   url: string;
   siteName?: string;
+  videoUrl?: string;
 }
 
 export const useLinkPreview = (url: string) => {
@@ -35,7 +36,8 @@ export const useLinkPreview = (url: string) => {
           description: data.description,
           image: data.image,
           url: urlToFetch,
-          siteName: data.siteName
+          siteName: data.siteName,
+          videoUrl: data.videoUrl
         });
       } else {
         // Fallback: create basic data from URL

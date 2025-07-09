@@ -9,6 +9,7 @@ interface OpenGraphData {
   image?: string;
   url: string;
   siteName?: string;
+  videoUrl?: string;
 }
 
 interface LinkPreviewProps {
@@ -17,33 +18,38 @@ interface LinkPreviewProps {
 
 const LinkPreview = ({ ogData }: LinkPreviewProps) => {
   const [imageError, setImageError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(true);
+  const [imageLoading, setImageLoading] = useState(!!ogData.image);
 
   const handleImageLoad = () => {
     setImageLoading(false);
   };
 
   const handleImageError = () => {
+    console.log('Image failed to load:', ogData.image);
     setImageError(true);
     setImageLoading(false);
   };
 
+  // Show image if we have one and it hasn't errored
+  const shouldShowImage = ogData.image && !imageError;
+
   return (
-    <Card className="mt-4 border border-gray-200">
+    <Card className="mt-4 border border-gray-200 hover:border-gray-300 transition-colors">
       <CardContent className="p-0">
         <div className="flex min-h-24">
-          {ogData.image && !imageError && (
+          {shouldShowImage && (
             <div className="flex-shrink-0 w-24 relative">
               {imageLoading && (
-                <div className="absolute inset-0 bg-gray-100 animate-pulse rounded-l" />
+                <div className="absolute inset-0 bg-gray-100 animate-pulse rounded-l-lg" />
               )}
               <img
                 src={ogData.image}
                 alt={ogData.title || 'Link preview'}
-                className="w-full h-full object-cover rounded-l"
+                className="w-full h-full object-cover rounded-l-lg"
                 onLoad={handleImageLoad}
                 onError={handleImageError}
                 style={{ display: imageLoading ? 'none' : 'block' }}
+                loading="lazy"
               />
             </div>
           )}
@@ -53,9 +59,14 @@ const LinkPreview = ({ ogData }: LinkPreviewProps) => {
               <span className="text-xs text-gray-500 truncate">
                 {ogData.siteName || new URL(ogData.url).hostname}
               </span>
+              {ogData.videoUrl && (
+                <span className="text-xs bg-blue-100 text-blue-600 px-1 py-0.5 rounded text-[10px]">
+                  VIDEO
+                </span>
+              )}
             </div>
             {ogData.title && (
-              <h3 className="font-medium text-sm text-gray-900 mb-1 line-clamp-1">
+              <h3 className="font-medium text-sm text-gray-900 mb-1 line-clamp-2 leading-tight">
                 {ogData.title}
               </h3>
             )}
