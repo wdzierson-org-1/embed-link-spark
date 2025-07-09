@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
-import { isValidUrl, extractMetaFromHtml, fetchWithProxy } from '@/utils/urlMetadata';
+import { isValidUrl } from '@/utils/urlMetadata';
+import { supabase } from '@/integrations/supabase/client';
 
 interface OpenGraphData {
   title?: string;
@@ -19,51 +20,22 @@ export const useLinkPreview = (url: string) => {
     
     setIsLoadingPreview(true);
     try {
-      let html = null;
-      
-      // Try direct fetch first (works for CORS-enabled sites)
-      try {
-        const response = await fetch(urlToFetch, { 
-          mode: 'cors',
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          }
-        });
-        
-        if (response.ok) {
-          html = await response.text();
-        }
-      } catch (directFetchError) {
-        console.log('Direct fetch failed, trying proxy services...');
+      const { data, error } = await supabase.functions.invoke('extract-link-metadata', {
+        body: { url: urlToFetch }
+      });
+
+      if (error) {
+        console.error('Edge function error:', error);
+        throw new Error(error.message);
       }
 
-      // If direct fetch fails, try proxy services
-      if (!html) {
-        html = await fetchWithProxy(urlToFetch);
-      }
-
-      if (html) {
-        const metaData = extractMetaFromHtml(html);
-        
-        // Resolve relative URLs for images
-        let imageUrl = metaData.image;
-        if (imageUrl && !imageUrl.startsWith('http')) {
-          const baseUrl = new URL(urlToFetch);
-          if (imageUrl.startsWith('//')) {
-            imageUrl = baseUrl.protocol + imageUrl;
-          } else if (imageUrl.startsWith('/')) {
-            imageUrl = baseUrl.origin + imageUrl;
-          } else {
-            imageUrl = new URL(imageUrl, urlToFetch).toString();
-          }
-        }
-        
+      if (data && data.success) {
         setOgData({
-          title: metaData.title,
-          description: metaData.description,
-          image: imageUrl,
+          title: data.title,
+          description: data.description,
+          image: data.image,
           url: urlToFetch,
-          siteName: metaData.siteName
+          siteName: data.siteName
         });
       } else {
         // Fallback: create basic data from URL
@@ -75,7 +47,7 @@ export const useLinkPreview = (url: string) => {
         });
       }
     } catch (error) {
-      console.log('All metadata extraction methods failed:', error);
+      console.error('Failed to extract metadata:', error);
       // Create minimal fallback data
       try {
         const domain = new URL(urlToFetch).hostname;
