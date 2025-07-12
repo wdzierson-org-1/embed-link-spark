@@ -33,6 +33,18 @@ const getUserAgent = (url: string): string => {
   if (domain.includes('instagram.com')) {
     return 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)'
   }
+  if (domain.includes('pinterest.com')) {
+    return 'Pinterest/0.2 (+https://www.pinterest.com/)'
+  }
+  if (domain.includes('reddit.com')) {
+    return 'RedditBot/1.0'
+  }
+  if (domain.includes('github.com')) {
+    return 'GitHubBot/1.0'
+  }
+  if (domain.includes('medium.com') || domain.includes('substack.com')) {
+    return 'Mozilla/5.0 (compatible; MediumBot/1.0)'
+  }
   
   // Default modern browser UA
   return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -204,6 +216,95 @@ const extractVideoMetadata = async (url: string): Promise<Partial<MetadataResult
   return null;
 };
 
+// Extract metadata for social media and other platforms
+const extractSocialMetadata = async (url: string): Promise<Partial<MetadataResult> | null> => {
+  try {
+    // Twitter/X posts
+    if ((url.includes('twitter.com') || url.includes('x.com')) && url.includes('/status/')) {
+      // Twitter doesn't have public oEmbed anymore, but we can extract from URL structure
+      const tweetMatch = url.match(/(?:twitter\.com|x\.com)\/(\w+)\/status\/(\d+)/);
+      if (tweetMatch) {
+        const username = tweetMatch[1];
+        return {
+          title: `Tweet by @${username}`,
+          description: `View this tweet on ${url.includes('x.com') ? 'X' : 'Twitter'}`,
+          siteName: url.includes('x.com') ? 'X' : 'Twitter',
+          url
+        };
+      }
+    }
+
+    // LinkedIn posts/articles
+    if (url.includes('linkedin.com')) {
+      // Try LinkedIn oEmbed (may work for some content)
+      try {
+        const oembedUrl = `https://www.linkedin.com/embed/feed/update/urn:li:share:${url}`;
+        // Note: LinkedIn oEmbed is limited, so we'll rely on HTML parsing mostly
+      } catch (e) {
+        console.log('LinkedIn specific extraction not available');
+      }
+    }
+
+    // Reddit posts
+    if (url.includes('reddit.com') && (url.includes('/r/') || url.includes('/comments/'))) {
+      // Add .json to Reddit URLs for API access
+      const jsonUrl = url.replace(/\/$/, '') + '.json';
+      try {
+        const response = await fetch(jsonUrl, { 
+          signal: AbortSignal.timeout(5000),
+          headers: { 'User-Agent': 'RedditBot/1.0' }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const post = data[0]?.data?.children?.[0]?.data;
+          if (post) {
+            return {
+              title: post.title,
+              description: `${post.ups} upvotes • r/${post.subreddit} • Reddit`,
+              image: post.thumbnail && post.thumbnail !== 'self' ? post.thumbnail : null,
+              siteName: 'Reddit',
+              url
+            };
+          }
+        }
+      } catch (e) {
+        console.log('Reddit API extraction failed:', e);
+      }
+    }
+
+    // GitHub repositories/issues
+    if (url.includes('github.com')) {
+      const repoMatch = url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (repoMatch) {
+        const [, owner, repo] = repoMatch;
+        try {
+          const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
+          const response = await fetch(apiUrl, { 
+            signal: AbortSignal.timeout(5000),
+            headers: { 'User-Agent': 'GitHubBot/1.0' }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              title: `${data.full_name}`,
+              description: data.description || `GitHub repository by ${owner}`,
+              image: data.owner.avatar_url,
+              siteName: 'GitHub',
+              url
+            };
+          }
+        } catch (e) {
+          console.log('GitHub API extraction failed:', e);
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error('Social metadata extraction failed:', error);
+  }
+  return null;
+};
+
 const extractMetaFromHtml = async (html: string, originalUrl: string) => {
   const cleanHtml = html.replace(/\n/g, ' ').replace(/\s+/g, ' ');
   
@@ -222,6 +323,17 @@ const extractMetaFromHtml = async (html: string, originalUrl: string) => {
     if (videoData && videoData.title) {
       console.log('Using video platform-specific metadata');
       return videoData;
+    }
+  }
+  
+  // Try social media and other specialized platforms
+  if (originalUrl.includes('twitter.com') || originalUrl.includes('x.com') || 
+      originalUrl.includes('reddit.com') || originalUrl.includes('github.com') ||
+      originalUrl.includes('linkedin.com')) {
+    const socialData = await extractSocialMetadata(originalUrl);
+    if (socialData && socialData.title) {
+      console.log('Using platform-specific social metadata');
+      return socialData;
     }
   }
   
@@ -315,6 +427,28 @@ const extractMetaFromHtml = async (html: string, originalUrl: string) => {
       siteName = 'Vimeo';
     } else if (originalUrl.includes('tiktok.com')) {
       siteName = 'TikTok';
+    } else if (originalUrl.includes('twitter.com')) {
+      siteName = 'Twitter';
+    } else if (originalUrl.includes('x.com')) {
+      siteName = 'X';
+    } else if (originalUrl.includes('reddit.com')) {
+      siteName = 'Reddit';
+    } else if (originalUrl.includes('github.com')) {
+      siteName = 'GitHub';
+    } else if (originalUrl.includes('linkedin.com')) {
+      siteName = 'LinkedIn';
+    } else if (originalUrl.includes('medium.com')) {
+      siteName = 'Medium';
+    } else if (originalUrl.includes('substack.com')) {
+      siteName = 'Substack';
+    } else if (originalUrl.includes('pinterest.com')) {
+      siteName = 'Pinterest';
+    } else if (originalUrl.includes('amazon.com') || originalUrl.includes('amazon.')) {
+      siteName = 'Amazon';
+    } else if (originalUrl.includes('spotify.com')) {
+      siteName = 'Spotify';
+    } else if (originalUrl.includes('soundcloud.com')) {
+      siteName = 'SoundCloud';
     }
   }
 
