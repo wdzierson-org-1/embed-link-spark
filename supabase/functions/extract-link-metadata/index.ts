@@ -118,19 +118,130 @@ const extractFallbackImage = (html: string, baseUrl: string): string | null => {
   return null;
 };
 
-const extractMetaFromHtml = (html: string, originalUrl: string) => {
+// Extract YouTube metadata using oEmbed API
+const extractYouTubeMetadata = async (url: string): Promise<Partial<MetadataResult> | null> => {
+  try {
+    // Extract video ID from various YouTube URL formats
+    const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|m\.youtube\.com\/watch\?v=)([^&\n?#]+)/);
+    if (!videoIdMatch) return null;
+    
+    const videoId = videoIdMatch[1];
+    console.log(`Extracting YouTube metadata for video ID: ${videoId}`);
+    
+    // Use YouTube oEmbed API for reliable metadata
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+    
+    const response = await fetch(oembedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)'
+      },
+      signal: AbortSignal.timeout(5000)
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('YouTube oEmbed data:', data);
+      
+      return {
+        title: data.title,
+        description: `Watch "${data.title}" by ${data.author_name} on YouTube`,
+        image: data.thumbnail_url,
+        siteName: 'YouTube',
+        videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        url: url.replace('m.youtube.com', 'www.youtube.com')
+      };
+    }
+  } catch (error) {
+    console.error('YouTube oEmbed failed:', error);
+  }
+  return null;
+};
+
+// Extract metadata for other video platforms
+const extractVideoMetadata = async (url: string): Promise<Partial<MetadataResult> | null> => {
+  try {
+    // Vimeo
+    if (url.includes('vimeo.com')) {
+      const videoIdMatch = url.match(/vimeo\.com\/(\d+)/);
+      if (videoIdMatch) {
+        const oembedUrl = `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}`;
+        const response = await fetch(oembedUrl, { signal: AbortSignal.timeout(5000) });
+        if (response.ok) {
+          const data = await response.json();
+          return {
+            title: data.title,
+            description: data.description,
+            image: data.thumbnail_url,
+            siteName: 'Vimeo',
+            videoUrl: url
+          };
+        }
+      }
+    }
+    
+    // TikTok
+    if (url.includes('tiktok.com')) {
+      const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+      try {
+        const response = await fetch(oembedUrl, { signal: AbortSignal.timeout(5000) });
+        if (response.ok) {
+          const data = await response.json();
+          return {
+            title: data.title,
+            description: data.author_name ? `Video by ${data.author_name} on TikTok` : 'TikTok Video',
+            image: data.thumbnail_url,
+            siteName: 'TikTok',
+            videoUrl: url
+          };
+        }
+      } catch (e) {
+        console.log('TikTok oEmbed failed:', e);
+      }
+    }
+  } catch (error) {
+    console.error('Video metadata extraction failed:', error);
+  }
+  return null;
+};
+
+const extractMetaFromHtml = async (html: string, originalUrl: string) => {
   const cleanHtml = html.replace(/\n/g, ' ').replace(/\s+/g, ' ');
+  
+  // Try platform-specific extraction first for better results
+  if (originalUrl.includes('youtube.com') || originalUrl.includes('youtu.be')) {
+    const youtubeData = await extractYouTubeMetadata(originalUrl);
+    if (youtubeData && youtubeData.title) {
+      console.log('Using YouTube-specific metadata');
+      return youtubeData;
+    }
+  }
+  
+  // Try other video platforms
+  if (originalUrl.includes('vimeo.com') || originalUrl.includes('tiktok.com')) {
+    const videoData = await extractVideoMetadata(originalUrl);
+    if (videoData && videoData.title) {
+      console.log('Using video platform-specific metadata');
+      return videoData;
+    }
+  }
+  
+  console.log('Falling back to HTML parsing');
   
   // Try JSON-LD first for rich structured data
   const jsonLdData = parseJsonLd(cleanHtml);
   
   // Extract title with multiple fallback strategies
   const titleMatch = cleanHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
-  const title = jsonLdData.title ||
-               parseMetaContent(cleanHtml, 'og:title') || 
-               parseMetaContent(cleanHtml, 'twitter:title') || 
-               parseMetaContent(cleanHtml, 'title') ||
-               (titleMatch ? titleMatch[1].trim() : null);
+  let title = jsonLdData.title ||
+              parseMetaContent(cleanHtml, 'og:title') || 
+              parseMetaContent(cleanHtml, 'twitter:title') || 
+              parseMetaContent(cleanHtml, 'title') ||
+              (titleMatch ? titleMatch[1].trim() : null);
+  
+  // Clean up YouTube titles
+  if (originalUrl.includes('youtube.com') && title) {
+    title = title.replace(' - YouTube', '').trim();
+  }
 
   // Extract description with multiple strategies
   const description = jsonLdData.description ||
@@ -146,6 +257,22 @@ const extractMetaFromHtml = (html: string, originalUrl: string) => {
              parseMetaContent(cleanHtml, 'twitter:image:src') ||
              parseMetaContent(cleanHtml, 'og:video:thumbnail') ||
              parseMetaContent(cleanHtml, 'twitter:player:image');
+  
+  // YouTube-specific image extraction
+  if ((originalUrl.includes('youtube.com') || originalUrl.includes('youtu.be')) && !image) {
+    const videoIdMatch = originalUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|m\.youtube\.com\/watch\?v=)([^&\n?#]+)/);
+    if (videoIdMatch) {
+      const videoId = videoIdMatch[1];
+      // Try different thumbnail qualities
+      const thumbnailOptions = [
+        `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
+        `https://img.youtube.com/vi/${videoId}/default.jpg`
+      ];
+      image = thumbnailOptions[0]; // Use highest quality by default
+    }
+  }
   
   // If no metadata image found, try to extract from page content
   if (!image) {
@@ -176,9 +303,20 @@ const extractMetaFromHtml = (html: string, originalUrl: string) => {
   }
 
   // Extract site name
-  const siteName = parseMetaContent(cleanHtml, 'og:site_name') || 
-                  parseMetaContent(cleanHtml, 'twitter:domain') ||
-                  parseMetaContent(cleanHtml, 'application-name');
+  let siteName = parseMetaContent(cleanHtml, 'og:site_name') || 
+                 parseMetaContent(cleanHtml, 'twitter:domain') ||
+                 parseMetaContent(cleanHtml, 'application-name');
+  
+  // Set appropriate site name for known platforms
+  if (!siteName) {
+    if (originalUrl.includes('youtube.com') || originalUrl.includes('youtu.be')) {
+      siteName = 'YouTube';
+    } else if (originalUrl.includes('vimeo.com')) {
+      siteName = 'Vimeo';
+    } else if (originalUrl.includes('tiktok.com')) {
+      siteName = 'TikTok';
+    }
+  }
 
   return {
     title: title?.trim(),
@@ -266,7 +404,7 @@ serve(async (req) => {
       const html = await response.text();
       console.log(`Fetched HTML length: ${html.length} characters`);
       
-      const metadata = extractMetaFromHtml(html, url);
+      const metadata = await extractMetaFromHtml(html, url);
       console.log(`Extracted metadata:`, {
         title: metadata.title ? 'Found' : 'Not found',
         description: metadata.description ? 'Found' : 'Not found',
