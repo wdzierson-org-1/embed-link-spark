@@ -2,11 +2,14 @@
 import { useState, useEffect } from 'react';
 import { isValidUrl } from '@/utils/urlMetadata';
 import { supabase } from '@/integrations/supabase/client';
+import { downloadAndStoreImage } from '@/utils/linkImageStorage';
+import { useAuth } from '@/hooks/useAuth';
 
 interface OpenGraphData {
   title?: string;
   description?: string;
   image?: string;
+  previewImageUrl?: string; // For stored image URLs that can be displayed
   url: string;
   siteName?: string;
   videoUrl?: string;
@@ -15,6 +18,7 @@ interface OpenGraphData {
 export const useLinkPreview = (url: string) => {
   const [ogData, setOgData] = useState<OpenGraphData | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const { user } = useAuth();
 
   const fetchOgData = async (urlToFetch: string) => {
     if (!isValidUrl(urlToFetch)) return;
@@ -31,14 +35,30 @@ export const useLinkPreview = (url: string) => {
       }
 
       if (data && data.success) {
-        setOgData({
+        const ogDataResult: OpenGraphData = {
           title: data.title,
           description: data.description,
           image: data.image,
           url: urlToFetch,
           siteName: data.siteName,
           videoUrl: data.videoUrl
-        });
+        };
+
+        // Try to download and store the image for preview if available
+        if (data.image && user) {
+          try {
+            const previewImagePath = await downloadAndStoreImage(data.image, user.id);
+            if (previewImagePath) {
+              const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(previewImagePath);
+              ogDataResult.previewImageUrl = urlData.publicUrl;
+            }
+          } catch (error) {
+            console.warn('Failed to download preview image:', error);
+            // Continue with original image URL as fallback
+          }
+        }
+
+        setOgData(ogDataResult);
       } else {
         // Fallback: create basic data from URL
         const domain = new URL(urlToFetch).hostname;

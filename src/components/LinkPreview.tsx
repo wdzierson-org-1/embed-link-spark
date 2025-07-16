@@ -7,6 +7,7 @@ interface OpenGraphData {
   title?: string;
   description?: string;
   image?: string;
+  previewImageUrl?: string; // For stored image URLs that can be displayed
   url: string;
   siteName?: string;
   videoUrl?: string;
@@ -22,24 +23,27 @@ const LinkPreview = ({ ogData }: LinkPreviewProps) => {
 
   // Reset error state when image URL changes
   useEffect(() => {
-    if (ogData.image) {
+    const imageUrl = ogData.previewImageUrl || ogData.image;
+    if (imageUrl) {
       setImageError(false);
       setImageLoading(true);
     }
-  }, [ogData.image]);
+  }, [ogData.previewImageUrl, ogData.image]);
 
   const handleImageLoad = () => {
     setImageLoading(false);
   };
 
   const handleImageError = () => {
-    console.log('Image failed to load:', ogData.image);
+    const imageUrl = ogData.previewImageUrl || ogData.image;
+    console.log('Image failed to load:', imageUrl);
     setImageError(true);
     setImageLoading(false);
   };
 
-  // Show image if we have one and it hasn't errored
-  const shouldShowImage = ogData.image && !imageError;
+  // Use preview image URL if available, otherwise fallback to original
+  const imageUrl = ogData.previewImageUrl || ogData.image;
+  const shouldShowImage = imageUrl && !imageError;
 
   return (
     <Card className="mt-4 border border-gray-200 hover:border-gray-300 transition-colors">
@@ -51,7 +55,7 @@ const LinkPreview = ({ ogData }: LinkPreviewProps) => {
                 <div className="absolute inset-0 bg-gray-100 animate-pulse rounded-l-lg" />
               )}
               <img
-                src={ogData.image}
+                src={imageUrl}
                 alt={ogData.title || 'Link preview'}
                 className="w-full h-full object-cover rounded-l-lg"
                 onLoad={handleImageLoad}
