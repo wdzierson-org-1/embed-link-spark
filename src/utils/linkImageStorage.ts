@@ -9,7 +9,10 @@ export const downloadAndStoreImage = async (imageUrl: string, userId: string): P
     if (!response.ok) return null;
     
     const blob = await response.blob();
-    const fileExt = imageUrl.split('.').pop()?.split('?')[0] || 'jpg';
+    // Extract file extension from URL, remove query params and clean up
+    const urlParts = imageUrl.split('?')[0].split('/');
+    const lastPart = urlParts[urlParts.length - 1];
+    const fileExt = lastPart.includes('.') ? lastPart.split('.').pop() : 'jpg';
     const fileName = `preview_${Date.now()}.${fileExt}`;
     const filePath = `${userId}/previews/${fileName}`;
 
