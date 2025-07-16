@@ -44,21 +44,23 @@ export const useLinkPreview = (url: string) => {
           videoUrl: data.videoUrl
         };
 
+        // Set initial data first
+        setOgData(ogDataResult);
+
         // Try to download and store the image for preview if available
         if (data.image && user) {
           try {
             const previewImagePath = await downloadAndStoreImage(data.image, user.id);
             if (previewImagePath) {
               const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(previewImagePath);
-              ogDataResult.previewImageUrl = urlData.publicUrl;
+              // Update the data with the preview image URL
+              setOgData(prev => prev ? { ...prev, previewImageUrl: urlData.publicUrl } : null);
             }
           } catch (error) {
             console.warn('Failed to download preview image:', error);
             // Continue with original image URL as fallback
           }
         }
-
-        setOgData(ogDataResult);
       } else {
         // Fallback: create basic data from URL
         const domain = new URL(urlToFetch).hostname;
