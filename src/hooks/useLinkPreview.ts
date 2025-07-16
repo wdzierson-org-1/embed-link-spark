@@ -44,22 +44,47 @@ export const useLinkPreview = (url: string) => {
           videoUrl: data.videoUrl
         };
 
+        console.log('🔄 Setting initial OG data:', ogDataResult);
         // Set initial data first
         setOgData(ogDataResult);
 
         // Try to download and store the image for preview if available
         if (data.image && user) {
+          console.log('📸 Attempting to download image:', data.image);
           try {
-            const previewImagePath = await downloadAndStoreImage(data.image, user.id);
+            // Add timeout for image download
+            const downloadPromise = downloadAndStoreImage(data.image, user.id);
+            const timeoutPromise = new Promise<string | null>((_, reject) => 
+              setTimeout(() => reject(new Error('Download timeout')), 10000)
+            );
+            
+            const previewImagePath = await Promise.race([downloadPromise, timeoutPromise]);
+            
             if (previewImagePath) {
+              console.log('✅ Image downloaded successfully, path:', previewImagePath);
               const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(previewImagePath);
+              console.log('🔗 Generated public URL:', urlData.publicUrl);
+              
               // Update the data with the preview image URL
-              setOgData(prev => prev ? { ...prev, previewImageUrl: urlData.publicUrl } : null);
+              setOgData(prev => {
+                if (prev) {
+                  const updated = { ...prev, previewImageUrl: urlData.publicUrl };
+                  console.log('🔄 Updating OG data with preview image:', updated);
+                  return updated;
+                }
+                return null;
+              });
+            } else {
+              console.warn('⚠️ Image download returned null path');
+              // Fallback: keep original image URL for direct display attempt
             }
           } catch (error) {
-            console.warn('Failed to download preview image:', error);
-            // Continue with original image URL as fallback
+            console.error('❌ Failed to download preview image:', error);
+            console.log('🔄 Falling back to original image URL for direct display');
+            // Keep the original image URL as fallback - don't change ogData
           }
+        } else if (data.image && !user) {
+          console.log('👤 No user logged in, keeping original image URL');
         }
       } else {
         // Fallback: create basic data from URL
