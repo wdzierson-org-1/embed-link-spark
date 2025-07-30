@@ -14,7 +14,7 @@ const Landing = () => {
           <div className="w-8 h-8 bg-gradient-to-br from-pink-500 to-orange-500 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">N</span>
           </div>
-          <span className="text-xl font-bold text-gray-900">Noodle</span>
+          <span className="text-xl font-bold text-gray-900">notes2me</span>
         </div>
         
         <div className="flex items-center space-x-4">
@@ -45,7 +45,7 @@ const Landing = () => {
         
         <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto leading-relaxed">
           Capture everything that matters - from workout logs to travel plans, health information tracking to daily thoughts. 
-          Noodle keeps your life organized and helps you discover patterns and insights you never knew existed.
+          notes2me keeps your life organized and helps you discover patterns and insights you never knew existed.
         </p>
         
         <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-16">
@@ -108,7 +108,7 @@ const Landing = () => {
             Three ways to transform your daily life
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Whether you're tracking wellness, planning experiences, or curating your style, Noodle helps you capture and organize what matters most.
+            Whether you're tracking wellness, planning experiences, or curating your style, notes2me helps you capture and organize what matters most.
           </p>
         </div>
 
@@ -212,7 +212,7 @@ const Landing = () => {
               </div>
               <h3 className="text-xl font-semibold mb-2">Universal Capture</h3>
               <p className="text-gray-600">
-                Capture text, photos, voice memos, videos, and documents. Noodle automatically organizes everything from workouts to recipes to travel plans.
+                Capture text, photos, voice memos, videos, and documents. notes2me automatically organizes everything from workouts to recipes to travel plans.
               </p>
             </CardContent>
           </Card>
@@ -254,7 +254,7 @@ const Landing = () => {
               Capture your entire life
             </h2>
             <p className="text-xl text-gray-600 mb-8">
-              From quick voice memos about meal ideas to detailed travel itineraries, Noodle handles every aspect of your life. Everything is searchable, organized, and ready when you need it.
+              From quick voice memos about meal ideas to detailed travel itineraries, notes2me handles every aspect of your life. Everything is searchable, organized, and ready when you need it.
             </p>
             
             <div className="space-y-4">
@@ -338,7 +338,7 @@ const Landing = () => {
                   <p className="text-white">"What's been helping my energy levels lately?"</p>
                 </div>
                 <div className="bg-gradient-to-r from-pink-600/20 to-orange-600/20 rounded-lg p-3 border border-pink-500/30">
-                  <p className="text-sm text-pink-300">Noodle:</p>
+                  <p className="text-sm text-pink-300">notes2me:</p>
                   <p className="text-white text-sm">Based on your logs, you have the most energy on days when you exercise in the morning and get 7+ hours of sleep. Your mood also improves when you spend time outdoors...</p>
                 </div>
               </div>
@@ -401,7 +401,7 @@ const Landing = () => {
             Life happens everywhere
           </h2>
           <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Capture moments from anywhere. Noodle works seamlessly across all your devices, plus you can text or message us directly.
+            Capture moments from anywhere. notes2me works seamlessly across all your devices, plus you can text or message us directly.
           </p>
         </div>
 
@@ -447,7 +447,7 @@ const Landing = () => {
             Start organizing your life today
           </h2>
           <p className="text-xl mb-8 text-pink-100">
-            Join thousands of people who have transformed how they track, organize, and understand their lives with Noodle. Start capturing moments and discovering insights today.
+            Join thousands of people who have transformed how they track, organize, and understand their lives with notes2me. Start capturing moments and discovering insights today.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -478,7 +478,7 @@ const Landing = () => {
             <div className="w-8 h-8 bg-gradient-to-br from-pink-500 to-orange-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">N</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">Noodle</span>
+            <span className="text-xl font-bold text-gray-900">notes2me</span>
           </div>
           <p className="text-gray-600 mb-6">
             Your personal life assistant for capturing, organizing, and understanding what matters most.
@@ -498,7 +498,7 @@ const Landing = () => {
           
           <div className="mt-8 pt-8 border-t border-gray-200">
             <p className="text-gray-500">
-              © 2024 Noodle. All rights reserved.
+              © 2024 notes2me. All rights reserved.
             </p>
           </div>
         </div>

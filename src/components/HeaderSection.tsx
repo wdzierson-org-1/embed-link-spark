@@ -46,7 +46,7 @@ const HeaderSection = ({ user, onShowSettings }: HeaderSectionProps) => {
             <div className="w-8 h-8 bg-gray-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">N</span>
             </div>
-            <span className="text-xl font-bold text-gray-900">Noodle</span>
+            <span className="text-xl font-bold text-gray-900">notes2me</span>
           </div>
           
           {/* Date */}

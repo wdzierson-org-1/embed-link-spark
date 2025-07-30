@@ -86,14 +86,14 @@ const Auth = () => {
           <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">N</span>
           </div>
-          <span className="text-xl font-bold text-gray-900">Noodle</span>
+          <span className="text-xl font-bold text-gray-900">notes2me</span>
         </div>
       </div>
 
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Welcome to Noodle</CardTitle>
+            <CardTitle className="text-2xl">Welcome to notes2me</CardTitle>
             <CardDescription>
               Your smart content companion for capturing, organizing, and discovering insights
             </CardDescription>
