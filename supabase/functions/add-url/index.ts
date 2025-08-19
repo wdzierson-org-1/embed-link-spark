@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
 
     console.log('Link item created successfully:', item.id);
 
-    // Generate embeddings for the content (title + description + user notes)
+    // Generate embeddings in the background to avoid timeout
     const contentForEmbedding = [
       finalTitle,
       finalDescription,
@@ -233,19 +233,26 @@ Deno.serve(async (req) => {
     ].filter(Boolean).join(' ');
 
     if (contentForEmbedding.trim()) {
-      try {
-        await supabase.functions.invoke('generate-embeddings', {
+      // Run embeddings generation in the background
+      EdgeRuntime.waitUntil(
+        supabase.functions.invoke('generate-embeddings', {
           body: {
             itemId: item.id,
             textContent: contentForEmbedding
           }
-        });
-        console.log('Embeddings generated for link:', item.id);
-      } catch (embeddingError) {
-        console.error('Error generating embeddings:', embeddingError);
-        // Don't fail the request if embeddings fail
-      }
+        }).then(() => {
+          console.log('Embeddings generated for link:', item.id);
+        }).catch((embeddingError) => {
+          console.error('Error generating embeddings:', embeddingError);
+        })
+      );
     }
+
+    // Return immediate success response
+    const statusCode = is_public ? 201 : 200; // 201 for public (created and published), 200 for private
+    const message = is_public 
+      ? 'URL added successfully to your public feed' 
+      : 'URL saved privately to your stash';
 
     return new Response(
       JSON.stringify({ 
@@ -255,10 +262,11 @@ Deno.serve(async (req) => {
           metadata,
           previewImagePath
         },
-        message: 'URL added successfully to your stash' 
+        message,
+        visibility: is_public ? 'public' : 'private'
       }),
       { 
-        status: 200, 
+        status: statusCode, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     );
