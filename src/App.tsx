@@ -24,7 +24,7 @@ function App() {
               <Route path="/auth" element={<Auth />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/404" element={<NotFound />} />
-              <Route path="/:username" element={<PublicFeed />} />
+              <Route path="/feed/:username" element={<PublicFeed />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             <Toaster />
