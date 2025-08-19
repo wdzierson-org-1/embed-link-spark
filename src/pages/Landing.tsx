@@ -243,8 +243,8 @@ const Landing = () => {
           <div className="relative h-80 max-w-4xl mx-auto">
             {/* Input panel image at the top */}
             <div 
-              className="absolute top-0 left-1/2 transform -translate-x-1/2 z-30 rotate-1"
-              style={{ transform: `translateX(calc(-50% + ${scrollY * 0.02}px)) translateY(${-scrollY * 0.01}px) rotate(${1 + scrollY * 0.005}deg)` }}
+              className="absolute top-2 left-1/2 transform -translate-x-1/2 z-30 rotate-1"
+              style={{ transform: `translateX(calc(-50% + ${scrollY * 0.02}px)) translateY(${10 - scrollY * 0.01}px) rotate(${1 + scrollY * 0.005}deg)` }}
             >
               <img 
                 src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png" 
@@ -255,7 +255,7 @@ const Landing = () => {
 
             {/* Left overlapping image */}
             <div 
-              className="absolute top-16 left-16 z-20 -rotate-6"
+              className="absolute top-16 left-28 z-20 -rotate-6"
               style={{ transform: `translateX(${-scrollY * 0.02}px) translateY(${scrollY * 0.01}px) rotate(-6deg)` }}
             >
               <img 
