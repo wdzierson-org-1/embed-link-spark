@@ -22,6 +22,9 @@ enable_phone_confirmations = false
 [functions.twilio-webhook]
 verify_jwt = false
 
+[functions.add-note]
+verify_jwt = false
+
 [db]
 port = 54322
 
