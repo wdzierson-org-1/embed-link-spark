@@ -62,7 +62,7 @@ const Landing = () => {
           style={{ transform: `translateX(${scrollY * 0.28}px) rotate(${-scrollY * 0.03}deg)` }}
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-52 -rotate-6">
-            <div className="w-full h-24 bg-gradient-to-br from-emerald-400 to-blue-400 rounded-md mb-2"></div>
+            <img src="/lovable-uploads/c567f7f6-ad96-43ff-a02a-57cb70891849.png" alt="Jean-Georges restaurant interior" className="w-full h-24 object-cover rounded-md mb-2" />
             <h4 className="font-mori text-sm mb-1">Restaurant Discovery</h4>
             <p className="text-xs text-muted-foreground font-mori">World's best dining spots</p>
           </div>
@@ -228,18 +228,9 @@ const Landing = () => {
             </p>
           </div>
 
-          <div className="relative h-96 max-w-4xl mx-auto">
-            {/* Main central image */}
-            <div className="absolute top-8 left-1/2 transform -translate-x-1/2 z-30 rotate-2">
-              <img 
-                src="/lovable-uploads/157b2b06-2c4f-4e1c-aea1-e690e426776b.png" 
-                alt="Content organization example"
-                className="w-80 rounded-xl shadow-2xl border border-border hover:rotate-0 transition-transform duration-300"
-              />
-            </div>
-            
+          <div className="relative h-80 max-w-4xl mx-auto">
             {/* Left overlapping image */}
-            <div className="absolute top-16 left-8 z-20 -rotate-6">
+            <div className="absolute top-8 left-16 z-20 -rotate-6">
               <img 
                 src="/lovable-uploads/4171b995-b0c1-447a-90fe-f204f543463b.png" 
                 alt="Public feed example"
@@ -248,7 +239,7 @@ const Landing = () => {
             </div>
             
             {/* Right overlapping image */}
-            <div className="absolute top-20 right-8 z-20 rotate-12">
+            <div className="absolute top-12 right-16 z-20 rotate-12">
               <img 
                 src="/lovable-uploads/0515aeee-180b-4aa5-bfa0-b96ae2b400c5.png" 
                 alt="Content management interface"
@@ -257,10 +248,19 @@ const Landing = () => {
             </div>
 
             {/* Input panel image integrated */}
-            <div className="absolute bottom-0 left-1/4 z-10 rotate-3">
+            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10 rotate-3">
               <img 
-                src="/lovable-uploads/25fb0039-f180-4905-aa44-032832c57968.png" 
+                src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png" 
                 alt="Input panel interface"
+                className="w-80 rounded-xl shadow-lg border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
+              />
+            </div>
+
+            {/* Content organization example moved to bottom */}
+            <div className="absolute bottom-0 right-1/4 z-10 -rotate-3">
+              <img 
+                src="/lovable-uploads/157b2b06-2c4f-4e1c-aea1-e690e426776b.png" 
+                alt="Content organization example"
                 className="w-64 rounded-xl shadow-lg border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
               />
             </div>
