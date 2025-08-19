@@ -11,6 +11,7 @@ interface ContentItem {
   type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
   title?: string;
   file_path?: string;
+  is_public?: boolean;
 }
 
 interface ContentItemHeaderProps {
@@ -80,26 +81,41 @@ const ContentItemHeader = ({
           isPublicView={isPublicView}
         />
           )}
+
+          {/* PUBLICLY SHARED badge for owner's main view */}
+          {!isPublicView && item.is_public && (
+            <div className="absolute top-2 right-2 z-10">
+              <div className="bg-primary text-primary-foreground px-2 py-1 rounded text-xs font-medium">
+                PUBLICLY SHARED
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Title section with clickable link */}
         {item.title && (
           <div className="mb-3 px-6 pt-6">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={handleTitleClick}
-                  className="text-left w-full group/title"
-                >
-                  <h3 className="text-lg font-semibold leading-tight line-clamp-2 group-hover/title:underline transition-all duration-200 cursor-pointer">
-                    {item.title}
-                  </h3>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="max-w-xs break-words">Click to edit: {item.title}</p>
-              </TooltipContent>
-            </Tooltip>
+            {!isPublicView ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleTitleClick}
+                    className="text-left w-full group/title"
+                  >
+                    <h3 className="text-lg font-semibold leading-tight line-clamp-2 group-hover/title:underline transition-all duration-200 cursor-pointer">
+                      {item.title}
+                    </h3>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs break-words">Click to edit: {item.title}</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <h3 className="text-lg font-semibold leading-tight line-clamp-2">
+                {item.title}
+              </h3>
+            )}
           </div>
         )}
       </div>

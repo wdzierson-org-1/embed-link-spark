@@ -22,6 +22,7 @@ interface ContentItem {
   tags?: string[];
   created_at: string;
   mime_type?: string;
+  is_public?: boolean;
 }
 
 interface ContentItemProps {
@@ -104,19 +105,21 @@ const ContentItem = ({
             />
           </div>
           
-          {/* Tags - hidden by default, shown on hover */}
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mb-4">
-            <ItemTagsManager
-              itemId={item.id}
-              currentTags={tags}
-              onTagsUpdated={onTagsUpdated}
-              itemContent={{
-                title: item.title,
-                content: item.content,
-                description: item.description
-              }}
-            />
-          </div>
+          {/* Tags - hidden by default, shown on hover - only for non-public views */}
+          {!isPublicView && (
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mb-4">
+              <ItemTagsManager
+                itemId={item.id}
+                currentTags={tags}
+                onTagsUpdated={onTagsUpdated}
+                itemContent={{
+                  title: item.title,
+                  content: item.content,
+                  description: item.description
+                }}
+              />
+            </div>
+          )}
           
           {/* Bottom section with date, type badge, and menu */}
           <ContentItemFooter
