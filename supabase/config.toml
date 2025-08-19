@@ -25,6 +25,9 @@ verify_jwt = false
 [functions.add-note]
 verify_jwt = false
 
+[functions.add-url]
+verify_jwt = false
+
 [db]
 port = 54322
 
