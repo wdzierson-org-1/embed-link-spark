@@ -7,6 +7,7 @@ import jotThoughts from '@/assets/jot-thoughts.jpg';
 import healthTracking from '@/assets/health-tracking.jpg';
 import creativeProjects from '@/assets/creative-projects.jpg';
 import readingNotes from '@/assets/reading-notes.jpg';
+import remindersMemoryAids from '@/assets/reminders-memory-aids.jpg';
 
 const Landing = () => {
   const [scrollY, setScrollY] = useState(0);
@@ -78,6 +79,17 @@ const Landing = () => {
               <span className="text-sm font-mori">Event Planning</span>
             </div>
             <p className="text-xs text-muted-foreground font-mori">Organize life's moments</p>
+          </div>
+        </div>
+
+        <div 
+          className="absolute top-[38rem] right-6 transform-gpu transition-transform duration-500 ease-out"
+          style={{ transform: `translateX(${scrollY * 0.25}px) rotate(${scrollY * 0.02}deg)` }}
+        >
+          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-48 -rotate-6">
+            <img src={remindersMemoryAids} alt="Reminders and memory aids interface" className="w-full h-24 object-cover rounded-md mb-2" />
+            <h4 className="font-mori text-sm mb-1">Reminders & Memory Aids</h4>
+            <p className="text-xs text-muted-foreground font-mori">Never forget important moments</p>
           </div>
         </div>
 
@@ -222,15 +234,30 @@ const Landing = () => {
         {/* Product Screenshots - Overlapping Cards Style */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-editorial text-foreground mb-4">See it in action</h2>
+            <h2 className="text-3xl font-editorial text-foreground mb-4">Capture everything, search anything</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
-              Real examples of how notes2me organizes the chaos of daily life into meaningful insights.
+              Voice, video, text, links, and images. We transcribe the contents and make everything searchable and conversational.
             </p>
           </div>
 
           <div className="relative h-80 max-w-4xl mx-auto">
+            {/* Input panel image at the top */}
+            <div 
+              className="absolute top-0 left-1/2 transform -translate-x-1/2 z-30 rotate-1"
+              style={{ transform: `translateX(calc(-50% + ${scrollY * 0.05}px)) translateY(${-scrollY * 0.02}px) rotate(${1 + scrollY * 0.01}deg)` }}
+            >
+              <img 
+                src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png" 
+                alt="Input panel interface"
+                className="w-80 rounded-xl shadow-xl border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
+              />
+            </div>
+
             {/* Left overlapping image */}
-            <div className="absolute top-8 left-16 z-20 -rotate-6">
+            <div 
+              className="absolute top-12 left-12 z-20 -rotate-6"
+              style={{ transform: `translateX(${-scrollY * 0.03}px) translateY(${scrollY * 0.02}px) rotate(${-6 - scrollY * 0.005}deg)` }}
+            >
               <img 
                 src="/lovable-uploads/4171b995-b0c1-447a-90fe-f204f543463b.png" 
                 alt="Public feed example"
@@ -239,7 +266,10 @@ const Landing = () => {
             </div>
             
             {/* Right overlapping image */}
-            <div className="absolute top-12 right-16 z-20 rotate-12">
+            <div 
+              className="absolute top-16 right-12 z-20 rotate-12"
+              style={{ transform: `translateX(${scrollY * 0.03}px) translateY(${scrollY * 0.02}px) rotate(${12 + scrollY * 0.005}deg)` }}
+            >
               <img 
                 src="/lovable-uploads/0515aeee-180b-4aa5-bfa0-b96ae2b400c5.png" 
                 alt="Content management interface"
@@ -247,23 +277,38 @@ const Landing = () => {
               />
             </div>
 
-            {/* Input panel image integrated */}
-            <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10 rotate-3">
-              <img 
-                src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png" 
-                alt="Input panel interface"
-                className="w-80 rounded-xl shadow-lg border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
-              />
-            </div>
-
             {/* Content organization example moved to bottom */}
-            <div className="absolute bottom-0 right-1/4 z-10 -rotate-3">
+            <div 
+              className="absolute bottom-4 right-1/4 z-10 -rotate-3"
+              style={{ transform: `translateX(${scrollY * 0.02}px) translateY(${scrollY * 0.01}px) rotate(${-3 - scrollY * 0.003}deg)` }}
+            >
               <img 
                 src="/lovable-uploads/157b2b06-2c4f-4e1c-aea1-e690e426776b.png" 
                 alt="Content organization example"
                 className="w-64 rounded-xl shadow-lg border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
               />
             </div>
+          </div>
+        </section>
+
+        {/* AI Chat Section */}
+        <section className="px-6 py-20 max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-editorial text-foreground mb-4">
+              Forget about forgetting<br />
+              <span className="text-muted-foreground">Chat with your notes, insights, memories, and photos</span>
+            </h2>
+            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+              Ask questions about anything you've saved. Our AI understands the context and connections across all your content.
+            </p>
+          </div>
+
+          <div className="max-w-3xl mx-auto">
+            <img 
+              src="/lovable-uploads/3104c97b-bf39-4633-b73a-c705a2d42a5f.png" 
+              alt="Chat with AI about your content"
+              className="w-full rounded-2xl shadow-2xl border border-border"
+            />
           </div>
         </section>
 
