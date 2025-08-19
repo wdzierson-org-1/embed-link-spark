@@ -18,10 +18,12 @@ export default {
 				'2xl': '1400px'
 			}
 		},
-		extend: {
-			fontFamily: {
-				'inter': ['Inter', 'sans-serif'],
-			},
+    extend: {
+      fontFamily: {
+        'inter': ['Inter', 'sans-serif'],
+        'editorial': ['PPEditorialNew-Regular', 'serif'],
+        'mori': ['PPMori-Regular', 'sans-serif'],
+      },
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
