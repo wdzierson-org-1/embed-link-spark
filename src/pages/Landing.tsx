@@ -255,8 +255,8 @@ const Landing = () => {
 
             {/* Left overlapping image */}
             <div 
-              className="absolute top-12 left-12 z-20 -rotate-6"
-              style={{ transform: `translateX(${-5 - scrollY * 0.05}px) translateY(${scrollY * 0.02}px) rotate(-6deg)` }}
+              className="absolute top-16 left-16 z-20 -rotate-6"
+              style={{ transform: `translateX(${-scrollY * 0.02}px) translateY(${scrollY * 0.01}px) rotate(-6deg)` }}
             >
               <img 
                 src="/lovable-uploads/4171b995-b0c1-447a-90fe-f204f543463b.png" 
@@ -267,8 +267,8 @@ const Landing = () => {
             
             {/* Right overlapping image */}
             <div 
-              className="absolute top-16 right-12 z-20 rotate-12"
-              style={{ transform: `translateX(${5 + scrollY * 0.05}px) translateY(${scrollY * 0.02}px) rotate(12deg)` }}
+              className="absolute top-20 right-16 z-20 rotate-12"
+              style={{ transform: `translateX(${scrollY * 0.02}px) translateY(${scrollY * 0.01}px) rotate(12deg)` }}
             >
               <img 
                 src="/lovable-uploads/0515aeee-180b-4aa5-bfa0-b96ae2b400c5.png" 
@@ -279,8 +279,8 @@ const Landing = () => {
 
             {/* Content organization example moved to bottom */}
             <div 
-              className="absolute bottom-4 right-1/4 z-10 -rotate-3"
-              style={{ transform: `translateX(${3 + scrollY * 0.03}px) translateY(${3 + scrollY * 0.02}px) rotate(-3deg)` }}
+              className="absolute bottom-8 right-1/4 z-10 -rotate-3"
+              style={{ transform: `translateX(${scrollY * 0.01}px) translateY(${scrollY * 0.005}px) rotate(-3deg)` }}
             >
               <img 
                 src="/lovable-uploads/157b2b06-2c4f-4e1c-aea1-e690e426776b.png" 
