@@ -7,7 +7,7 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
+  // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
@@ -147,6 +147,7 @@ export type Database = {
           file_path: string | null
           file_size: number | null
           id: string
+          is_public: boolean
           mime_type: string | null
           tags: string[] | null
           title: string | null
@@ -154,6 +155,7 @@ export type Database = {
           updated_at: string
           url: string | null
           user_id: string
+          visibility: string
         }
         Insert: {
           content?: string | null
@@ -162,6 +164,7 @@ export type Database = {
           file_path?: string | null
           file_size?: number | null
           id?: string
+          is_public?: boolean
           mime_type?: string | null
           tags?: string[] | null
           title?: string | null
@@ -169,6 +172,7 @@ export type Database = {
           updated_at?: string
           url?: string | null
           user_id: string
+          visibility?: string
         }
         Update: {
           content?: string | null
@@ -177,6 +181,7 @@ export type Database = {
           file_path?: string | null
           file_size?: number | null
           id?: string
+          is_public?: boolean
           mime_type?: string | null
           tags?: string[] | null
           title?: string | null
@@ -184,6 +189,7 @@ export type Database = {
           updated_at?: string
           url?: string | null
           user_id?: string
+          visibility?: string
         }
         Relationships: []
       }
@@ -339,6 +345,39 @@ export type Database = {
         }
         Relationships: []
       }
+      user_profiles: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          public_feed_enabled: boolean
+          updated_at: string
+          username: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          id: string
+          public_feed_enabled?: boolean
+          updated_at?: string
+          username: string
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          public_feed_enabled?: boolean
+          updated_at?: string
+          username?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -406,18 +445,18 @@ export type Database = {
       }
       search_similar_content: {
         Args: {
-          query_embedding: string
-          match_threshold?: number
           match_count?: number
+          match_threshold?: number
+          query_embedding: string
           target_user_id?: string
         }
         Returns: {
-          item_id: string
           content_chunk: string
-          similarity: number
+          item_id: string
           item_title: string
           item_type: Database["public"]["Enums"]["item_type"]
           item_url: string
+          similarity: number
         }[]
       }
       sparsevec_out: {

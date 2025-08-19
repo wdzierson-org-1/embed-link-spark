@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     console.log('Request body:', body);
 
-    const { content, title, userId } = body;
+    const { content, title, userId, is_public = false } = body;
 
     if (!content) {
       return new Response(
@@ -58,7 +58,9 @@ Deno.serve(async (req) => {
         type: 'text',
         content: content,
         title: noteTitle,
-        description: null
+        description: null,
+        is_public: is_public,
+        visibility: is_public ? 'public' : 'private'
       })
       .select()
       .single();

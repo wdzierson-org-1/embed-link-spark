@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     console.log('Request body:', body);
 
-    const { url, userId, title: customTitle, content: userNotes } = body;
+    const { url, userId, title: customTitle, content: userNotes, is_public = true } = body;
 
     // Validate URL
     if (!url) {
@@ -205,7 +205,9 @@ Deno.serve(async (req) => {
         title: finalTitle,
         content: userNotes || null, // User's notes about the link
         description: finalDescription,
-        file_path: previewImagePath
+        file_path: previewImagePath,
+        is_public: is_public,
+        visibility: is_public ? 'public' : 'private'
       })
       .select()
       .single();

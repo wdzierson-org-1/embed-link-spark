@@ -8,6 +8,7 @@ import Index from '@/pages/Index';
 import Auth from '@/pages/Auth';
 import Settings from '@/pages/Settings';
 import NotFound from '@/pages/NotFound';
+import { PublicFeed } from '@/pages/PublicFeed';
 
 const queryClient = new QueryClient();
 
@@ -22,6 +23,8 @@ function App() {
               <Route path="/home" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/404" element={<NotFound />} />
+              <Route path="/:username" element={<PublicFeed />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             <Toaster />
