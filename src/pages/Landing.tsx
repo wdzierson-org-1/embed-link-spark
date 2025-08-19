@@ -83,7 +83,7 @@ const Landing = () => {
         </div>
 
         <div 
-          className="absolute top-[38rem] right-6 transform-gpu transition-transform duration-500 ease-out"
+          className="absolute top-[36.06rem] right-6 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.25}px) rotate(${scrollY * 0.02}deg)` }}
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-48 -rotate-6">
