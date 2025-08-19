@@ -30,7 +30,7 @@ serve(async (req) => {
 
     console.log(`Fetching public feed for username: ${username}`);
 
-    // Get user profile by username
+    // Get user profile by username  
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('id, username, display_name, bio, avatar_url, public_feed_enabled')
