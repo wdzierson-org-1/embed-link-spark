@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { getGradientPlaceholder } from '@/utils/gradientPlaceholders';
 
 interface ContentItem {
   id: string;
@@ -14,9 +15,10 @@ interface ContentItemImageProps {
   item: ContentItem;
   imageErrors: Set<string>;
   onImageError: (itemId: string) => void;
+  isPublicView?: boolean;
 }
 
-const ContentItemImage = ({ item, imageErrors, onImageError }: ContentItemImageProps) => {
+const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: ContentItemImageProps) => {
   // Handle regular image files
   if (item.type === 'image' && item.file_path) {
     const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
@@ -56,7 +58,23 @@ const ContentItemImage = ({ item, imageErrors, onImageError }: ContentItemImageP
     );
   }
 
-  return null;
+  // Always show a gradient placeholder if no image is available
+  const gradientSrc = getGradientPlaceholder(item.id);
+  
+  return (
+    <div className="relative w-full h-48 overflow-hidden">
+      <img
+        src={gradientSrc}
+        alt={item.title || 'Content thumbnail'}
+        className="w-full h-full object-cover"
+      />
+      {isPublicView && (
+        <div className="absolute top-2 right-2 bg-primary text-primary-foreground text-xs font-medium px-2 py-1 rounded-md shadow-sm">
+          PUBLICLY SHARED
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default ContentItemImage;

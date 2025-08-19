@@ -4,6 +4,9 @@ import ContentGrid from '@/components/ContentGrid';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/useAuth';
+import { useItemOperations } from '@/hooks/useItemOperations';
+import { useToast } from '@/hooks/use-toast';
 
 interface PublicProfile {
   username: string;
@@ -22,6 +25,8 @@ interface PublicItem {
   type: string;
   created_at: string;
   tags?: string[];
+  is_public?: boolean;
+  user_id?: string;
 }
 
 interface PublicFeedData {
@@ -34,6 +39,22 @@ export const PublicFeed = () => {
   const [data, setData] = useState<PublicFeedData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  
+  // Mock fetchItems function for useItemOperations
+  const fetchItems = async () => {
+    // Refresh the public feed data
+    if (username) {
+      const response = await fetch(`https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/get-public-feed/${username}`);
+      if (response.ok) {
+        const feedData = await response.json();
+        setData(feedData);
+      }
+    }
+  };
+  
+  const { handleSaveItem } = useItemOperations(fetchItems);
 
   useEffect(() => {
     if (!username) return;
@@ -59,6 +80,28 @@ export const PublicFeed = () => {
 
     fetchPublicFeed();
   }, [username]);
+
+  const handleTogglePrivacy = async (item: PublicItem) => {
+    try {
+      await handleSaveItem(item.id, { 
+        is_public: !item.is_public 
+      });
+      
+      toast({
+        title: "Success",
+        description: `Item set to ${item.is_public ? 'private' : 'public'}`,
+      });
+      
+      // Refresh the feed
+      fetchItems();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update item privacy",
+        variant: "destructive",
+      });
+    }
+  };
 
   if (loading) {
     return (
@@ -134,6 +177,9 @@ export const PublicFeed = () => {
             onChatWithItem={() => {}} // Disabled for public view
             tagFilters={[]}
             searchQuery=""
+            isPublicView={true}
+            currentUserId={user?.id}
+            onTogglePrivacy={handleTogglePrivacy}
           />
         )}
       </div>

@@ -13,9 +13,22 @@ interface ContentGridProps {
   onChatWithItem: (item: any) => void;
   tagFilters: string[];
   searchQuery?: string;
+  isPublicView?: boolean;
+  currentUserId?: string;
+  onTogglePrivacy?: (item: any) => void;
 }
 
-const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilters, searchQuery = '' }: ContentGridProps) => {
+const ContentGrid = ({ 
+  items, 
+  onDeleteItem, 
+  onEditItem, 
+  onChatWithItem, 
+  tagFilters, 
+  searchQuery = '',
+  isPublicView = false,
+  currentUserId,
+  onTogglePrivacy
+}: ContentGridProps) => {
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
@@ -160,6 +173,9 @@ const ContentGrid = ({ items, onDeleteItem, onEditItem, onChatWithItem, tagFilte
           onEditItem={onEditItem}
           onChatWithItem={onChatWithItem}
           onTagsUpdated={handleTagsUpdated}
+          isPublicView={isPublicView}
+          currentUserId={currentUserId}
+          onTogglePrivacy={onTogglePrivacy}
         />
       ))}
     </div>

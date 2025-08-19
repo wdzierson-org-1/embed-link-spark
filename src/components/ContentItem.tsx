@@ -35,6 +35,9 @@ interface ContentItemProps {
   onEditItem: (item: ContentItem) => void;
   onChatWithItem?: (item: ContentItem) => void;
   onTagsUpdated: () => void;
+  isPublicView?: boolean;
+  currentUserId?: string;
+  onTogglePrivacy?: (item: ContentItem) => void;
 }
 
 const ContentItem = ({
@@ -47,7 +50,10 @@ const ContentItem = ({
   onDeleteItem,
   onEditItem,
   onChatWithItem,
-  onTagsUpdated
+  onTagsUpdated,
+  isPublicView = false,
+  currentUserId,
+  onTogglePrivacy
 }: ContentItemProps) => {
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -75,6 +81,7 @@ const ContentItem = ({
           onImageError={onImageError}
           onEditItem={onEditItem}
           onVideoExpand={() => setIsVideoLightboxOpen(true)}
+          isPublicView={isPublicView}
         />
 
         <div className="flex flex-col flex-1 p-6 pt-0">
@@ -116,7 +123,10 @@ const ContentItem = ({
             item={item}
             onDeleteItem={onDeleteItem}
             onEditItem={onEditItem}
-            onChatWithItem={onChatWithItem}
+            onChatWithItem={handleChatWithItem}
+            isPublicView={isPublicView}
+            currentUserId={currentUserId}
+            onTogglePrivacy={onTogglePrivacy}
           />
         </div>
 

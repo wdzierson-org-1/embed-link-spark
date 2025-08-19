@@ -19,6 +19,7 @@ interface ContentItemHeaderProps {
   onImageError: (itemId: string) => void;
   onEditItem: (item: ContentItem) => void;
   onVideoExpand?: () => void;
+  isPublicView?: boolean;
 }
 
 const ContentItemHeader = ({ 
@@ -26,7 +27,8 @@ const ContentItemHeader = ({
   imageErrors, 
   onImageError, 
   onEditItem,
-  onVideoExpand 
+  onVideoExpand,
+  isPublicView = false
 }: ContentItemHeaderProps) => {
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
@@ -71,11 +73,12 @@ const ContentItemHeader = ({
               </div>
             </div>
           ) : (
-            <ContentItemImage
-              item={item}
-              imageErrors={imageErrors}
-              onImageError={onImageError}
-            />
+        <ContentItemImage
+          item={item}
+          imageErrors={imageErrors}
+          onImageError={onImageError}
+          isPublicView={isPublicView}
+        />
           )}
         </div>
 

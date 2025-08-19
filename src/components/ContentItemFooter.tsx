@@ -3,7 +3,7 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2 } from 'lucide-react';
+import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -14,6 +14,8 @@ interface ContentItem {
   url?: string;
   file_path?: string;
   created_at: string;
+  is_public?: boolean;
+  user_id?: string;
 }
 
 interface ContentItemFooterProps {
@@ -21,13 +23,19 @@ interface ContentItemFooterProps {
   onDeleteItem: (id: string) => void;
   onEditItem: (item: ContentItem) => void;
   onChatWithItem?: (item: ContentItem) => void;
+  isPublicView?: boolean;
+  currentUserId?: string;
+  onTogglePrivacy?: (item: ContentItem) => void;
 }
 
 const ContentItemFooter = ({ 
   item, 
   onDeleteItem, 
   onEditItem, 
-  onChatWithItem 
+  onChatWithItem,
+  isPublicView = false,
+  currentUserId,
+  onTogglePrivacy
 }: ContentItemFooterProps) => {
   const getIcon = (type: string) => {
     switch (type) {
@@ -63,6 +71,8 @@ const ContentItemFooter = ({
   };
 
   const fileUrl = getFileUrl(item);
+  const isOwner = currentUserId && item.user_id === currentUserId;
+  const showOwnerControls = isPublicView && isOwner;
 
   return (
     <div className="flex items-center justify-between mt-auto">
@@ -89,10 +99,12 @@ const ContentItemFooter = ({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={handleChatWithItem}>
-              <MessageCircle className="h-4 w-4 mr-2" />
-              Chat with item
-            </DropdownMenuItem>
+            {!isPublicView && (
+              <DropdownMenuItem onClick={handleChatWithItem}>
+                <MessageCircle className="h-4 w-4 mr-2" />
+                Chat with item
+              </DropdownMenuItem>
+            )}
             {fileUrl && (
               <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
                 <Download className="h-4 w-4 mr-2" />
@@ -105,14 +117,33 @@ const ContentItemFooter = ({
                 Open link
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={() => onEditItem(item)}>
-              <Edit className="h-4 w-4 mr-2" />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete
-            </DropdownMenuItem>
+            {showOwnerControls && onTogglePrivacy && (
+              <DropdownMenuItem onClick={() => onTogglePrivacy(item)}>
+                {item.is_public ? (
+                  <>
+                    <EyeOff className="h-4 w-4 mr-2" />
+                    Set to Private
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-4 w-4 mr-2" />
+                    Set to Public
+                  </>
+                )}
+              </DropdownMenuItem>
+            )}
+            {!isPublicView && (
+              <>
+                <DropdownMenuItem onClick={() => onEditItem(item)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
