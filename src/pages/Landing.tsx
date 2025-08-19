@@ -94,8 +94,8 @@ const Landing = () => {
         </div>
 
         <div 
-          className="absolute top-[32rem] right-1 transform-gpu transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(${scrollY * 0.35}px) rotate(${-scrollY * 0.025}deg)` }}
+          className="absolute top-[26rem] right-1 transform-gpu transition-transform duration-500 ease-out"
+          style={{ transform: `translateX(${scrollY * 0.15}px) rotate(${-scrollY * 0.015}deg)` }}
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-50 -rotate-12">
             <img src={creativeProjects} alt="Creative projects interface" className="w-full h-24 object-cover rounded-md mb-2" />
@@ -244,7 +244,7 @@ const Landing = () => {
             {/* Input panel image at the top */}
             <div 
               className="absolute top-0 left-1/2 transform -translate-x-1/2 z-30 rotate-1"
-              style={{ transform: `translateX(calc(-50% + ${scrollY * 0.05}px)) translateY(${-scrollY * 0.02}px) rotate(${1 + scrollY * 0.01}deg)` }}
+              style={{ transform: `translateX(calc(-50% + ${scrollY * 0.02}px)) translateY(${-scrollY * 0.01}px) rotate(${1 + scrollY * 0.005}deg)` }}
             >
               <img 
                 src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png" 
@@ -255,8 +255,8 @@ const Landing = () => {
 
             {/* Left overlapping image */}
             <div 
-              className="absolute top-12 left-12 z-20 -rotate-6"
-              style={{ transform: `translateX(${-scrollY * 0.03}px) translateY(${scrollY * 0.02}px) rotate(${-6 - scrollY * 0.005}deg)` }}
+              className="absolute top-16 left-16 z-20 -rotate-6"
+              style={{ transform: `translateX(${-scrollY * 0.015}px) translateY(${scrollY * 0.01}px) rotate(${-6 - scrollY * 0.003}deg)` }}
             >
               <img 
                 src="/lovable-uploads/4171b995-b0c1-447a-90fe-f204f543463b.png" 
@@ -267,8 +267,8 @@ const Landing = () => {
             
             {/* Right overlapping image */}
             <div 
-              className="absolute top-16 right-12 z-20 rotate-12"
-              style={{ transform: `translateX(${scrollY * 0.03}px) translateY(${scrollY * 0.02}px) rotate(${12 + scrollY * 0.005}deg)` }}
+              className="absolute top-20 right-16 z-20 rotate-12"
+              style={{ transform: `translateX(${scrollY * 0.015}px) translateY(${scrollY * 0.01}px) rotate(${12 + scrollY * 0.003}deg)` }}
             >
               <img 
                 src="/lovable-uploads/0515aeee-180b-4aa5-bfa0-b96ae2b400c5.png" 
@@ -279,8 +279,8 @@ const Landing = () => {
 
             {/* Content organization example moved to bottom */}
             <div 
-              className="absolute bottom-4 right-1/4 z-10 -rotate-3"
-              style={{ transform: `translateX(${scrollY * 0.02}px) translateY(${scrollY * 0.01}px) rotate(${-3 - scrollY * 0.003}deg)` }}
+              className="absolute bottom-8 right-1/4 z-10 -rotate-3"
+              style={{ transform: `translateX(${scrollY * 0.01}px) translateY(${scrollY * 0.005}px) rotate(${-3 - scrollY * 0.002}deg)` }}
             >
               <img 
                 src="/lovable-uploads/157b2b06-2c4f-4e1c-aea1-e690e426776b.png" 
@@ -303,7 +303,7 @@ const Landing = () => {
             </p>
           </div>
 
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-2xl mx-auto">
             <img 
               src="/lovable-uploads/3104c97b-bf39-4633-b73a-c705a2d42a5f.png" 
               alt="Chat with AI about your content"
