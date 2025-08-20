@@ -20,9 +20,9 @@ const Landing = () => {
 
   return (
     <div className="min-h-screen bg-background font-inter relative overflow-hidden">
-      {/* Mobile Overlay Layer */}
+      {/* Mobile & Tablet Overlay Layer */}
       <div 
-        className="fixed inset-0 bg-black/80 pointer-events-none z-[900] md:hidden transition-opacity duration-500 ease-out"
+        className="fixed inset-0 bg-black/80 pointer-events-none z-[900] lg:hidden transition-opacity duration-500 ease-out"
         style={{ opacity: Math.max(0, 1 - (scrollY * 0.005)) }}
       />
       
@@ -119,7 +119,7 @@ const Landing = () => {
             <div className="w-6 h-6 bg-foreground rounded flex items-center justify-center">
               <span className="text-background font-medium text-xs">N</span>
             </div>
-            <span className="text-lg font-editorial text-white md:text-foreground">notes2me</span>
+            <span className="text-lg font-editorial text-white lg:text-foreground">notes2me</span>
           </div>
           
           <div className="flex items-center space-x-3">
@@ -139,12 +139,12 @@ const Landing = () => {
         {/* Hero Section */}
         <section className="px-6 pt-24 pb-32 max-w-4xl mx-auto text-center">
           <div className="fade-in">
-            <h1 className="text-5xl md:text-7xl font-editorial text-white md:text-foreground mb-8 leading-tight tracking-tight">
+            <h1 className="text-5xl md:text-7xl font-editorial text-white lg:text-foreground mb-8 leading-tight tracking-tight">
               Capture everything.<br />
-              <span className="text-white/80 md:text-muted-foreground">Organize nothing.</span>
+              <span className="text-white/80 lg:text-muted-foreground">Organize nothing.</span>
             </h1>
             
-            <p className="text-xl font-mori text-white/90 md:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl font-mori text-white/90 lg:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
               Your universal inbox for thoughts, photos, voice memos, and documents.<br />
               Chat with your data to discover patterns and insights.
             </p>
