@@ -22,12 +22,12 @@ const Landing = () => {
     <div className="min-h-screen bg-background font-inter relative overflow-hidden">
       {/* Mobile Overlay Layer */}
       <div 
-        className="fixed inset-0 bg-black/80 pointer-events-none z-5 md:hidden transition-opacity duration-500 ease-out"
+        className="fixed inset-0 bg-black/80 pointer-events-none z-[900] md:hidden transition-opacity duration-500 ease-out"
         style={{ opacity: Math.max(0, 1 - (scrollY * 0.005)) }}
       />
       
       {/* Floating Content Elements - Left Side */}
-      <div className="fixed left-0 top-0 w-72 h-screen pointer-events-none z-1">
+      <div className="fixed left-0 top-0 w-72 h-screen pointer-events-none z-[800]">
         <div 
           className="absolute top-16 left-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${-scrollY * 0.25}px) rotate(${scrollY * 0.03}deg)` }}
@@ -63,7 +63,7 @@ const Landing = () => {
       </div>
 
       {/* Floating Content Elements - Right Side */}
-      <div className="fixed right-0 top-0 w-72 h-screen pointer-events-none z-1">
+      <div className="fixed right-0 top-0 w-72 h-screen pointer-events-none z-[850]">
         <div 
           className="absolute top-24 right-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.28}px) rotate(${-scrollY * 0.03}deg)` }}
@@ -112,7 +112,7 @@ const Landing = () => {
       </div>
 
       {/* Main Content */}
-      <div className="relative z-10">
+      <div className="relative z-[1000]">
         {/* Navigation */}
         <nav className="flex items-center justify-between px-6 py-4 max-w-5xl mx-auto">
           <div className="flex items-center space-x-2">
