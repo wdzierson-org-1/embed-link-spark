@@ -20,8 +20,14 @@ const Landing = () => {
 
   return (
     <div className="min-h-screen bg-background font-inter relative overflow-hidden">
+      {/* Mobile Overlay Layer */}
+      <div 
+        className="fixed inset-0 bg-black/80 pointer-events-none z-5 md:hidden transition-opacity duration-500 ease-out"
+        style={{ opacity: Math.max(0, 1 - (scrollY * 0.005)) }}
+      />
+      
       {/* Floating Content Elements - Left Side */}
-      <div className="fixed left-0 top-0 w-72 h-screen pointer-events-none z-0">
+      <div className="fixed left-0 top-0 w-72 h-screen pointer-events-none z-0 hidden md:block">
         <div 
           className="absolute top-16 left-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${-scrollY * 0.25}px) rotate(${scrollY * 0.03}deg)` }}
@@ -57,7 +63,7 @@ const Landing = () => {
       </div>
 
       {/* Floating Content Elements - Right Side */}
-      <div className="fixed right-0 top-0 w-72 h-screen pointer-events-none z-0">
+      <div className="fixed right-0 top-0 w-72 h-screen pointer-events-none z-0 hidden md:block">
         <div 
           className="absolute top-24 right-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.28}px) rotate(${-scrollY * 0.03}deg)` }}
@@ -133,12 +139,12 @@ const Landing = () => {
         {/* Hero Section */}
         <section className="px-6 pt-24 pb-32 max-w-4xl mx-auto text-center">
           <div className="fade-in">
-            <h1 className="text-5xl md:text-7xl font-editorial text-foreground mb-8 leading-tight tracking-tight">
+            <h1 className="text-5xl md:text-7xl font-editorial text-white md:text-foreground mb-8 leading-tight tracking-tight">
               Capture everything.<br />
-              <span className="text-muted-foreground">Organize nothing.</span>
+              <span className="text-white/80 md:text-muted-foreground">Organize nothing.</span>
             </h1>
             
-            <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl font-mori text-white/90 md:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
               Your universal inbox for thoughts, photos, voice memos, and documents.<br />
               Chat with your data to discover patterns and insights.
             </p>
