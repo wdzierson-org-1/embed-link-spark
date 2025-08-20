@@ -27,7 +27,7 @@ const Landing = () => {
       />
       
       {/* Floating Content Elements - Left Side */}
-      <div className="fixed left-0 top-0 w-72 h-screen pointer-events-none z-0 hidden md:block">
+      <div className="fixed left-0 top-0 w-72 h-screen pointer-events-none z-0">
         <div 
           className="absolute top-16 left-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${-scrollY * 0.25}px) rotate(${scrollY * 0.03}deg)` }}
@@ -63,7 +63,7 @@ const Landing = () => {
       </div>
 
       {/* Floating Content Elements - Right Side */}
-      <div className="fixed right-0 top-0 w-72 h-screen pointer-events-none z-0 hidden md:block">
+      <div className="fixed right-0 top-0 w-72 h-screen pointer-events-none z-0">
         <div 
           className="absolute top-24 right-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.28}px) rotate(${-scrollY * 0.03}deg)` }}
@@ -119,7 +119,7 @@ const Landing = () => {
             <div className="w-6 h-6 bg-foreground rounded flex items-center justify-center">
               <span className="text-background font-medium text-xs">N</span>
             </div>
-            <span className="text-lg font-editorial text-foreground">notes2me</span>
+            <span className="text-lg font-editorial text-white md:text-foreground">notes2me</span>
           </div>
           
           <div className="flex items-center space-x-3">
