@@ -41,7 +41,7 @@ const Navbar = () => {
                   alt="Stash"
                   className="w-8 h-8"
                 />
-                <h1 className="text-xl text-primary">Stash</h1>
+                <h1 className="text-xl font-editorial text-primary">Stash</h1>
               </div>
             </div>
 

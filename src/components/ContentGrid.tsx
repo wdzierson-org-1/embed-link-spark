@@ -136,7 +136,7 @@ const ContentGrid = ({
     return (
       <div className="space-y-8">
         <div className="text-center py-12">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Start building your knowledge base</h2>
+          <h2 className="text-2xl font-editorial text-gray-900 mb-2">Start building your knowledge base</h2>
           <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
         </div>
         <WhatsAppInfo />
@@ -148,7 +148,7 @@ const ContentGrid = ({
   if (realItems.length === 0 && optimisticItems.length === 0 && searchQuery.trim()) {
     return (
       <div className="text-center py-12">
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">No results found</h2>
+        <h2 className="text-xl font-editorial text-gray-900 mb-2">No results found</h2>
         <p className="text-gray-600">Try adjusting your search terms or filters.</p>
       </div>
     );

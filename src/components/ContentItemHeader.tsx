@@ -102,7 +102,7 @@ const ContentItemHeader = ({
                     onClick={handleTitleClick}
                     className="text-left w-full group/title"
                   >
-                    <h3 className="text-lg font-semibold leading-tight line-clamp-2 group-hover/title:underline transition-all duration-200 cursor-pointer">
+                    <h3 className="text-lg font-editorial leading-tight line-clamp-2 group-hover/title:underline transition-all duration-200 cursor-pointer">
                       {item.title}
                     </h3>
                   </button>
@@ -112,7 +112,7 @@ const ContentItemHeader = ({
                 </TooltipContent>
               </Tooltip>
             ) : (
-              <h3 className="text-lg font-semibold leading-tight line-clamp-2">
+              <h3 className="text-lg font-editorial leading-tight line-clamp-2">
                 {item.title}
               </h3>
             )}

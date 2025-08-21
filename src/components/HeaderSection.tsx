@@ -48,7 +48,7 @@ const HeaderSection = ({ user, onShowSettings }: HeaderSectionProps) => {
               alt="Stash"
               className="w-10 h-10"
             />
-            <span className="text-xl text-gray-900">Stash</span>
+            <span className="text-xl font-editorial text-gray-900">Stash</span>
           </div>
           
           {/* Date */}
