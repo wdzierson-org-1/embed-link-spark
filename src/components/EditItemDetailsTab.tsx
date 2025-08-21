@@ -49,7 +49,6 @@ interface EditItemDetailsTabProps {
   isMobile?: boolean;
   supplementalNote?: string;
   onSupplementalNoteChange?: (note: string) => void;
-  onSupplementalNoteSave?: (note: string) => Promise<void>;
 }
 
 const EditItemDetailsTab = ({
@@ -74,7 +73,6 @@ const EditItemDetailsTab = ({
   isMobile = false,
   supplementalNote = '',
   onSupplementalNoteChange = () => {},
-  onSupplementalNoteSave = async () => {},
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
@@ -238,7 +236,6 @@ const EditItemDetailsTab = ({
       <EditItemSupplementalNoteSection
         supplementalNote={supplementalNote}
         onSupplementalNoteChange={onSupplementalNoteChange}
-        onSave={onSupplementalNoteSave}
       />
     </div>
   );

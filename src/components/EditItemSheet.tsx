@@ -33,6 +33,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     title,
     description,
     content,
+    supplementalNote,
     hasImage,
     imageUrl,
     isContentLoading,
@@ -44,6 +45,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     handleTitleChange,
     handleDescriptionChange,
     handleContentChange,
+    handleSupplementalNoteChange,
     handleTitleSave,
     handleDescriptionSave,
     handleTagsChange,
@@ -92,6 +94,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 isInsideTabs={false}
                 showInlineImage={true}
                 imageUrl={imageUrl}
+                supplementalNote={supplementalNote}
+                onSupplementalNoteChange={handleSupplementalNoteChange}
                 isMobile={isMobile}
               />
             </div>
@@ -133,6 +137,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   onTagsChange={handleTagsChange}
                   onMediaChange={handleMediaChange}
                   isInsideTabs={true}
+                  supplementalNote={supplementalNote}
+                  onSupplementalNoteChange={handleSupplementalNoteChange}
                   isMobile={isMobile}
                 />
 
@@ -161,6 +167,8 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   onTagsChange={handleTagsChange}
                   onMediaChange={handleMediaChange}
                   isInsideTabs={false}
+                  supplementalNote={supplementalNote}
+                  onSupplementalNoteChange={handleSupplementalNoteChange}
                   isMobile={isMobile}
                 />
               </div>

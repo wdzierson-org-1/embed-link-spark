@@ -3,7 +3,7 @@ import { useState, useCallback } from 'react';
 import { debounce } from 'lodash';
 
 interface UseEditItemSaveProps {
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
   saveToLocalStorage: (itemId: string, data: { title: string; description: string; content: string }) => void;
   titleRef: React.MutableRefObject<string>;
   descriptionRef: React.MutableRefObject<string>;
@@ -44,7 +44,7 @@ export const useEditItemSave = ({
   const debouncedServerSave = useCallback(
     debounce(async (
       itemId: string, 
-      updates: { title?: string; description?: string; content?: string }
+      updates: { title?: string; description?: string; content?: string; supplemental_note?: string }
     ) => {
       if (!itemId) return;
       
@@ -91,7 +91,7 @@ export const useEditItemSave = ({
   // ENHANCED: Combined save function with improved logging
   const debouncedSave = useCallback((
     itemId: string, 
-    updates: { title?: string; description?: string; content?: string }
+    updates: { title?: string; description?: string; content?: string; supplemental_note?: string }
   ) => {
     if (!itemId) {
       console.log('useEditItemSave: No save - missing itemId');

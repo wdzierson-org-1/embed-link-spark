@@ -9,6 +9,7 @@ interface ContentItem {
   file_path?: string;
   type?: string;
   tags?: string[];
+  supplemental_note?: string;
 }
 
 interface UseEditItemStateProps {
@@ -20,6 +21,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
+  const [supplementalNote, setSupplementalNote] = useState('');
   const [isContentLoading, setIsContentLoading] = useState(false);
   const [editorKey, setEditorKey] = useState<string>('');
   const [editorInstanceKey, setEditorInstanceKey] = useState<string>('');
@@ -29,6 +31,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
   const titleRef = useRef('');
   const descriptionRef = useRef('');
   const contentRef = useRef('');
+  const supplementalNoteRef = useRef('');
   const itemRef = useRef(item);
   const initialLoadRef = useRef(false);
 
@@ -73,12 +76,14 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       const initialTitle = item.title || '';
       const initialDescription = item.description || '';
       const initialContent = item.content || '';
+      const initialSupplementalNote = item.supplemental_note || '';
       
       console.log('useEditItemState: Setting initial content from database', {
         itemId: item.id,
         titleLength: initialTitle.length,
         descriptionLength: initialDescription.length,
         contentLength: initialContent.length,
+        supplementalNoteLength: initialSupplementalNote.length,
         contentPreview: initialContent.slice(0, 100) + '...'
       });
       
@@ -86,11 +91,13 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       setTitle(initialTitle);
       setDescription(initialDescription);
       setContent(initialContent);
+      setSupplementalNote(initialSupplementalNote);
       
       // Update refs to match database content
       titleRef.current = initialTitle;
       descriptionRef.current = initialDescription;
       contentRef.current = initialContent;
+      supplementalNoteRef.current = initialSupplementalNote;
       
       console.log('useEditItemState: State and refs updated with database content', {
         itemId: item.id,
@@ -119,6 +126,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       setTitle('');
       setDescription('');
       setContent('');
+      setSupplementalNote('');
       setIsContentLoading(false);
       setEditorKey('');
       setEditorInstanceKey('');
@@ -128,6 +136,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       titleRef.current = '';
       descriptionRef.current = '';
       contentRef.current = '';
+      supplementalNoteRef.current = '';
       
       console.log('useEditItemState: Editor state cleared completely');
     }
@@ -138,6 +147,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
     title,
     description,
     content,
+    supplementalNote,
     isContentLoading,
     editorKey: editorInstanceKey, // Use editorInstanceKey as the main editor key
     activeTab,
@@ -147,6 +157,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
     titleRef,
     descriptionRef,
     contentRef,
+    supplementalNoteRef,
     itemRef,
     initialLoadRef,
     
@@ -154,5 +165,6 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
     setTitle,
     setDescription,
     setContent,
+    setSupplementalNote,
   };
 };

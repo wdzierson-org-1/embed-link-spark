@@ -30,6 +30,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     title,
     description,
     content,
+    supplementalNote,
     isContentLoading,
     editorKey,
     activeTab,
@@ -37,11 +38,13 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     titleRef,
     descriptionRef,
     contentRef,
+    supplementalNoteRef,
     itemRef,
     initialLoadRef,
     setTitle,
     setDescription,
     setContent,
+    setSupplementalNote,
   } = useEditItemState({ open, item });
 
   // Draft management
@@ -110,16 +113,19 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     clearSaveState,
   });
 
-  const handleSupplementalNoteSave = async (note: string) => {
-    if (!item?.id) return;
-    await onSave(item.id, { supplemental_note: note });
+  // Supplemental note handlers
+  const handleSupplementalNoteChange = (note: string) => {
+    setSupplementalNote(note);
+    supplementalNoteRef.current = note;
+    // Auto-save after a delay
+    debouncedSave(item?.id || '', { supplemental_note: note });
   };
 
   return {
     title,
     description,
     content,
-    supplementalNote: item?.supplemental_note || '',
+    supplementalNote,
     hasImage,
     imageUrl,
     isContentLoading,
@@ -132,10 +138,9 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleTitleChange,
     handleDescriptionChange,
     handleContentChange,
+    handleSupplementalNoteChange,
     handleTitleSave,
     handleDescriptionSave,
-    onSupplementalNoteChange: () => {},
-    handleSupplementalNoteSave,
     handleTagsChange,
     handleMediaChange,
     handleImageStateChange,
