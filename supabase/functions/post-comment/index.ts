@@ -19,34 +19,14 @@ Deno.serve(async (req) => {
 
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Authorization required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const { itemId, content, parentCommentId, anonymous } = await req.json();
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: authHeader }
-        }
-      }
-    );
-
-    // Get the authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const { itemId, content, parentCommentId } = await req.json();
+    console.log('Post comment request:', { 
+      hasAuth: !!authHeader, 
+      anonymous, 
+      itemId, 
+      contentLength: content?.length 
+    });
 
     if (!itemId || !content) {
       return new Response(
@@ -78,7 +58,58 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Creating comment for item ${itemId} by user ${user.id}`);
+    let userId: string;
+    let userProfile: any = null;
+
+    // Handle authenticated vs anonymous users
+    if (authHeader && !anonymous) {
+      const supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        {
+          global: {
+            headers: { Authorization: authHeader }
+          }
+        }
+      );
+
+      // Get the authenticated user
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid authentication' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      userId = user.id;
+      
+      // Get user profile
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('username, display_name, avatar_url')
+        .eq('id', userId)
+        .single();
+        
+      userProfile = profile;
+    } else {
+      // Anonymous user - create a special anonymous user ID
+      userId = '00000000-0000-0000-0000-000000000000'; // Special anonymous user ID
+      userProfile = {
+        username: 'anonymous',
+        display_name: 'Anonymous',
+        avatar_url: null
+      };
+    }
+
+    // Use service role client for database operations
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
+    console.log(`Creating comment for item ${itemId} by ${anonymous ? 'anonymous' : `user ${userId}`}`);
 
     // Verify the item exists, is public, and has comments enabled
     const { data: item, error: itemError } = await supabase
@@ -90,6 +121,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (itemError || !item) {
+      console.log('Item verification failed:', { itemError, item });
       return new Response(
         JSON.stringify({ error: 'Item not found, not public, or comments disabled' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -101,23 +133,11 @@ Deno.serve(async (req) => {
       .from('comments')
       .insert({
         item_id: itemId,
-        user_id: user.id,
+        user_id: userId,
         content: cleanContent,
         parent_comment_id: parentCommentId || null
       })
-      .select(`
-        id,
-        content,
-        created_at,
-        updated_at,
-        parent_comment_id,
-        user_id,
-        user_profiles (
-          username,
-          display_name,
-          avatar_url
-        )
-      `)
+      .select('id, content, created_at, updated_at, parent_comment_id, user_id')
       .single();
 
     if (commentError) {
@@ -128,10 +148,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Comment created successfully: ${comment.id}`);
+    // Manually attach user profile data for response
+    const commentWithProfile = {
+      ...comment,
+      user_profiles: userProfile
+    };
+
+    console.log(`Comment created successfully: ${comment.id} by ${anonymous ? 'anonymous' : userId}`);
 
     return new Response(
-      JSON.stringify({ comment }),
+      JSON.stringify({ comment: commentWithProfile }),
       { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

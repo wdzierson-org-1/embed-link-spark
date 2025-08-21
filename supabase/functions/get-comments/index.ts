@@ -18,8 +18,13 @@ Deno.serve(async (req) => {
 
     const url = new URL(req.url);
     const itemId = url.pathname.split('/').pop();
+    
+    console.log(`Full URL: ${req.url}`);
+    console.log(`URL pathname: ${url.pathname}`);
+    console.log(`Extracted itemId: ${itemId}`);
 
     if (!itemId) {
+      console.log('No item ID provided in URL');
       return new Response(
         JSON.stringify({ error: 'Item ID is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -36,7 +41,10 @@ Deno.serve(async (req) => {
       .eq('is_public', true)
       .single();
 
+    console.log(`Item query result:`, { item, itemError });
+
     if (itemError || !item) {
+      console.log(`Item not found or not public. Error: ${itemError?.message}, Item: ${item}`);
       return new Response(
         JSON.stringify({ error: 'Item not found or not public' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -59,15 +67,12 @@ Deno.serve(async (req) => {
         created_at,
         updated_at,
         parent_comment_id,
-        user_id,
-        user_profiles (
-          username,
-          display_name,
-          avatar_url
-        )
+        user_id
       `)
       .eq('item_id', itemId)
       .order('created_at', { ascending: true });
+
+    console.log(`Comments query result:`, { comments, commentsError });
 
     if (commentsError) {
       console.error('Error fetching comments:', commentsError);
@@ -77,8 +82,42 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Enrich comments with user profile data
+    const enrichedComments = await Promise.all(
+      (comments || []).map(async (comment) => {
+        let userProfile;
+        
+        if (comment.user_id === '00000000-0000-0000-0000-000000000000') {
+          // Anonymous user
+          userProfile = {
+            username: 'anonymous',
+            display_name: 'Anonymous',
+            avatar_url: null
+          };
+        } else {
+          // Fetch real user profile
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('username, display_name, avatar_url')
+            .eq('id', comment.user_id)
+            .single();
+            
+          userProfile = profile || {
+            username: 'unknown',
+            display_name: 'Unknown User',
+            avatar_url: null
+          };
+        }
+        
+        return {
+          ...comment,
+          user_profiles: userProfile
+        };
+      })
+    );
+
     // Simple content filter - remove obvious spam/abuse patterns
-    const filteredComments = (comments || []).filter(comment => {
+    const filteredComments = enrichedComments.filter(comment => {
       const content = comment.content.toLowerCase();
       const spamPatterns = [
         'viagra', 'casino', 'lottery', 'winner', 'congratulation',
@@ -87,7 +126,7 @@ Deno.serve(async (req) => {
       return !spamPatterns.some(pattern => content.includes(pattern));
     });
 
-    console.log(`Found ${comments?.length || 0} comments for item ${itemId}, ${filteredComments.length} after filtering`);
+    console.log(`Found ${enrichedComments.length} comments for item ${itemId}, ${filteredComments.length} after filtering`);
 
     return new Response(
       JSON.stringify({ 

@@ -46,8 +46,12 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
   const fetchComments = async () => {
     if (!itemId) return;
     
+    console.log(`CommentPanel: Fetching comments for itemId: ${itemId}`);
+    
     try {
       const url = `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/get-comments/${itemId}`;
+      console.log(`CommentPanel: Making request to: ${url}`);
+      
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -55,7 +59,9 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
         },
       });
       
+      console.log(`CommentPanel: Response status: ${response.status}`);
       const data = await response.json();
+      console.log(`CommentPanel: Response data:`, data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to fetch comments');
@@ -75,33 +81,43 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
 
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim() || !user) return;
+    if (!newComment.trim()) return;
 
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast({
-          title: 'Authentication required',
-          description: 'Please sign in to post a comment',
-          variant: 'destructive',
-        });
-        return;
+      
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      const body: any = {
+        itemId,
+        content: newComment.trim(),
+      };
+
+      // Add auth header if user is signed in
+      if (session) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      } else {
+        // For anonymous users, we'll let the backend handle it
+        body.anonymous = true;
       }
+
+      console.log('Posting comment with:', { 
+        authenticated: !!session, 
+        itemId, 
+        contentLength: newComment.trim().length 
+      });
 
       const response = await fetch('https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/post-comment', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          itemId,
-          content: newComment.trim(),
-        }),
+        headers,
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
+      console.log('Post comment response:', { status: response.status, data });
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to post comment');
@@ -233,43 +249,42 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
       {/* Comment Form */}
       {commentsEnabled && (
         <div className="border-t p-4">
-          {user ? (
-            <form onSubmit={handleSubmitComment} className="space-y-3">
-              <Textarea
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Write a comment..."
-                className="min-h-[80px] resize-none"
-                disabled={loading}
-                maxLength={1000}
-              />
-              <div className="flex justify-between items-center">
+          <form onSubmit={handleSubmitComment} className="space-y-3">
+            <Textarea
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              placeholder={user ? "Write a comment..." : "Write a comment (posting anonymously)..."}
+              className="min-h-[80px] resize-none"
+              disabled={loading}
+              maxLength={1000}
+            />
+            <div className="flex justify-between items-center">
+              <div className="flex flex-col">
                 <span className="text-xs text-muted-foreground">
                   {1000 - newComment.length} characters remaining
                 </span>
-                <Button 
-                  type="submit" 
-                  size="sm"
-                  disabled={!newComment.trim() || loading}
-                >
-                  <Send className="h-4 w-4 mr-1" />
-                  {loading ? 'Posting...' : 'Post'}
-                </Button>
+                {!user && (
+                  <span className="text-xs text-muted-foreground mt-1">
+                    Posting as Anonymous • <button 
+                      type="button"
+                      onClick={() => window.open('/auth', '_blank')}
+                      className="text-primary hover:underline"
+                    >
+                      Sign in
+                    </button>
+                  </span>
+                )}
               </div>
-            </form>
-          ) : (
-            <div className="text-center py-4 text-muted-foreground">
-              <p className="text-sm">Sign in to leave a comment</p>
               <Button 
-                variant="outline" 
-                size="sm" 
-                className="mt-2"
-                onClick={() => window.open('/auth', '_blank')}
+                type="submit" 
+                size="sm"
+                disabled={!newComment.trim() || loading}
               >
-                Sign In
+                <Send className="h-4 w-4 mr-1" />
+                {loading ? 'Posting...' : 'Post'}
               </Button>
             </div>
-          )}
+          </form>
         </div>
       )}
     </div>
