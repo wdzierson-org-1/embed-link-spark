@@ -44,6 +44,51 @@ export type Database = {
         }
         Relationships: []
       }
+      comments: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          item_id: string
+          parent_comment_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          item_id: string
+          parent_comment_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          item_id?: string
+          parent_comment_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comments_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "comments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversations: {
         Row: {
           created_at: string
@@ -141,6 +186,7 @@ export type Database = {
       }
       items: {
         Row: {
+          comments_enabled: boolean
           content: string | null
           created_at: string
           description: string | null
@@ -158,6 +204,7 @@ export type Database = {
           visibility: string
         }
         Insert: {
+          comments_enabled?: boolean
           content?: string | null
           created_at?: string
           description?: string | null
@@ -175,6 +222,7 @@ export type Database = {
           visibility?: string
         }
         Update: {
+          comments_enabled?: boolean
           content?: string | null
           created_at?: string
           description?: string | null
