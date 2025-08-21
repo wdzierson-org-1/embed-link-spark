@@ -250,7 +250,7 @@ Deno.serve(async (req) => {
 
     // Return immediate success response
     const statusCode = 200; // Always return 200 for success
-    const message = is_public 
+    const statusMessage = is_public 
       ? 'URL added successfully to your public feed' 
       : 'URL saved privately to your stash';
 
@@ -262,7 +262,7 @@ Deno.serve(async (req) => {
           metadata,
           previewImagePath
         },
-        message,
+        message: statusMessage,
         visibility: is_public ? 'public' : 'private'
       }),
       { 
