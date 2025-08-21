@@ -203,8 +203,8 @@ Deno.serve(async (req) => {
         type: 'link',
         url: url,
         title: finalTitle,
-        content: message || userNotes || null, // User's message or notes about the link
-        supplemental_note: supplemental_note || null, // Separate sticky note content
+        content: message || null, // User's message about the link
+        supplemental_note: supplemental_note || userNotes || null, // Sticky note content
         description: finalDescription,
         file_path: previewImagePath,
         is_public: is_public,
