@@ -12,6 +12,7 @@ interface ContentItem {
   title?: string;
   file_path?: string;
   is_public?: boolean;
+  url?: string;
 }
 
 interface ContentItemHeaderProps {
@@ -40,7 +41,11 @@ const ContentItemHeader = ({
   };
 
   const handleTitleClick = () => {
-    onEditItem(item);
+    if (isPublicView && item.type === 'link' && item.url) {
+      window.open(item.url, '_blank');
+    } else if (!isPublicView) {
+      onEditItem(item);
+    }
   };
 
   const fileUrl = getFileUrl(item);
@@ -112,9 +117,19 @@ const ContentItemHeader = ({
                 </TooltipContent>
               </Tooltip>
             ) : (
-              <h3 className="text-lg font-editorial leading-tight line-clamp-2">
-                {item.title}
-              </h3>
+              <button
+                onClick={handleTitleClick}
+                className={`text-left w-full group/title ${
+                  item.type === 'link' && item.url ? 'cursor-pointer' : 'cursor-default'
+                }`}
+                disabled={!(item.type === 'link' && item.url)}
+              >
+                <h3 className={`text-lg font-editorial leading-tight line-clamp-2 ${
+                  item.type === 'link' && item.url ? 'group-hover/title:underline transition-all duration-200 text-blue-600' : ''
+                }`}>
+                  {item.title}
+                </h3>
+              </button>
             )}
           </div>
         )}

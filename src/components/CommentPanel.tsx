@@ -45,22 +45,11 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
 
   const fetchComments = async () => {
     try {
-      const response = await supabase.functions.invoke('get-comments', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.error) {
-        throw response.error;
-      }
-
       const url = `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/get-comments/${itemId}`;
-      const directResponse = await fetch(url);
-      const data = await directResponse.json();
+      const response = await fetch(url);
+      const data = await response.json();
 
-      if (!directResponse.ok) {
+      if (!response.ok) {
         throw new Error(data.error || 'Failed to fetch comments');
       }
 

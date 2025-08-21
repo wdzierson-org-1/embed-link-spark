@@ -109,17 +109,17 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
       {renderContent()}
       
       {item.url && item.type === 'link' && (
-        <div className="mb-2 group relative">
+        <div className="mb-2 relative">
           <button 
             onClick={() => window.open(item.url, '_blank')}
-            className="text-sm text-blue-600 hover:underline cursor-pointer text-left block w-full truncate"
-            title={item.url}
+            className="text-sm text-blue-600 hover:underline cursor-pointer text-left block w-full truncate relative group/url"
+            title=""
           >
             {item.url}
+            <div className="absolute left-0 top-full mt-1 bg-gray-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover/url:opacity-100 transition-opacity duration-200 z-10 max-w-xs break-all pointer-events-none">
+              {item.url}
+            </div>
           </button>
-          <div className="absolute left-0 top-full mt-1 bg-gray-900 text-white text-xs rounded px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 max-w-xs break-all">
-            {item.url}
-          </div>
         </div>
       )}
     </>

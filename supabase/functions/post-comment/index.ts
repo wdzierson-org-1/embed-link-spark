@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
         updated_at,
         parent_comment_id,
         user_id,
-        user_profiles!inner (
+        user_profiles (
           username,
           display_name,
           avatar_url
