@@ -26,6 +26,7 @@ interface ContentItemFooterProps {
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: ContentItem) => void;
+  onCommentClick?: (itemId: string) => void;
 }
 
 const ContentItemFooter = ({ 
@@ -35,7 +36,8 @@ const ContentItemFooter = ({
   onChatWithItem,
   isPublicView = false,
   currentUserId,
-  onTogglePrivacy
+  onTogglePrivacy,
+  onCommentClick
 }: ContentItemFooterProps) => {
   const getIcon = (type: string) => {
     switch (type) {

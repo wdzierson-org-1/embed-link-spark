@@ -39,6 +39,7 @@ interface ContentItemProps {
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: ContentItem) => void;
+  onCommentClick?: (itemId: string) => void;
 }
 
 const ContentItem = ({
@@ -54,7 +55,8 @@ const ContentItem = ({
   onTagsUpdated,
   isPublicView = false,
   currentUserId,
-  onTogglePrivacy
+  onTogglePrivacy,
+  onCommentClick
 }: ContentItemProps) => {
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -102,6 +104,7 @@ const ContentItem = ({
               item={item}
               expandedContent={expandedContent}
               onToggleExpansion={onToggleExpansion}
+              isPublicView={isPublicView}
             />
           </div>
           
@@ -130,6 +133,7 @@ const ContentItem = ({
             isPublicView={isPublicView}
             currentUserId={currentUserId}
             onTogglePrivacy={onTogglePrivacy}
+            onCommentClick={onCommentClick}
           />
         </div>
 

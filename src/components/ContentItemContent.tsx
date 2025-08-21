@@ -15,9 +15,10 @@ interface ContentItemContentProps {
   item: ContentItem;
   expandedContent: Set<string>;
   onToggleExpansion: (itemId: string) => void;
+  isPublicView?: boolean;
 }
 
-const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: ContentItemContentProps) => {
+const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublicView }: ContentItemContentProps) => {
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';
     
@@ -108,9 +109,12 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion }: Conten
       {renderContent()}
       
       {item.url && item.type === 'link' && (
-        <p className="text-sm text-blue-600 mb-2 truncate">
+        <button 
+          onClick={() => window.open(item.url, '_blank')}
+          className="text-sm text-blue-600 mb-2 truncate hover:underline cursor-pointer text-left"
+        >
           {item.url}
-        </p>
+        </button>
       )}
     </>
   );

@@ -16,6 +16,7 @@ interface ContentGridProps {
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: any) => void;
+  onCommentClick?: (itemId: string) => void;
 }
 
 const ContentGrid = ({ 
@@ -27,7 +28,8 @@ const ContentGrid = ({
   searchQuery = '',
   isPublicView = false,
   currentUserId,
-  onTogglePrivacy
+  onTogglePrivacy,
+  onCommentClick
 }: ContentGridProps) => {
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
@@ -176,6 +178,7 @@ const ContentGrid = ({
           isPublicView={isPublicView}
           currentUserId={currentUserId}
           onTogglePrivacy={onTogglePrivacy}
+          onCommentClick={onCommentClick}
         />
       ))}
     </div>

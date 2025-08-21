@@ -20,6 +20,10 @@ serve(async (req) => {
 
     const url = new URL(req.url);
     const username = url.pathname.split('/').pop();
+    const searchParams = url.searchParams;
+    const offset = parseInt(searchParams.get('offset') || '0');
+    const limit = parseInt(searchParams.get('limit') || '20');
+    const search = searchParams.get('search') || '';
     
     if (!username) {
       return new Response(JSON.stringify({ error: 'Username is required' }), {
@@ -28,7 +32,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Fetching public feed for username: ${username}`);
+    console.log(`Fetching public feed for username: ${username}, offset: ${offset}, limit: ${limit}, search: ${search}`);
 
     // Get user profile by username  
     const { data: profile, error: profileError } = await supabase
@@ -52,13 +56,24 @@ serve(async (req) => {
       });
     }
 
-    // Get public items for this user
-    const { data: items, error: itemsError } = await supabase
+    // Build query for public items
+    let query = supabase
       .from('items')
       .select('*')
       .eq('user_id', profile.id)
-      .eq('is_public', true)
-      .order('created_at', { ascending: false });
+      .eq('is_public', true);
+
+    // Add search filter if provided
+    if (search) {
+      query = query.or(`title.ilike.%${search}%, description.ilike.%${search}%, content.ilike.%${search}%`);
+    }
+
+    // Add ordering and pagination
+    query = query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data: items, error: itemsError } = await query;
 
     if (itemsError) {
       console.error('Error fetching public items:', itemsError);
@@ -67,6 +82,13 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // Get total count for pagination info
+    const { count, error: countError } = await supabase
+      .from('items')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', profile.id)
+      .eq('is_public', true);
 
     console.log(`Found ${items?.length || 0} public items for ${username}`);
 
@@ -77,7 +99,13 @@ serve(async (req) => {
         bio: profile.bio,
         avatar_url: profile.avatar_url
       },
-      items: items || []
+      items: items || [],
+      pagination: {
+        offset,
+        limit,
+        total: count || 0,
+        hasMore: (count || 0) > offset + (items?.length || 0)
+      }
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
