@@ -223,23 +223,29 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
           <div className="space-y-4">
             {comments.map((comment) => (
               <div key={comment.id} className="flex gap-3">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={comment.user_profiles.avatar_url || undefined} />
-                  <AvatarFallback>
-                    {(comment.user_profiles.display_name || comment.user_profiles.username).charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm">
-                      {comment.user_profiles.display_name || comment.user_profiles.username}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(comment.created_at)}
-                    </span>
-                  </div>
-                  <p className="text-sm leading-relaxed">{comment.content}</p>
-                </div>
+                 <Avatar className="h-8 w-8">
+                   <AvatarImage src={comment.user_profiles?.avatar_url || undefined} />
+                   <AvatarFallback>
+                     {comment.user_profiles?.username === 'anonymous' 
+                       ? 'A' 
+                       : (comment.user_profiles?.display_name || comment.user_profiles?.username || 'U').charAt(0).toUpperCase()
+                     }
+                   </AvatarFallback>
+                 </Avatar>
+                 <div className="flex-1 space-y-1">
+                   <div className="flex items-center gap-2">
+                     <span className="font-medium text-sm">
+                       {comment.user_profiles?.username === 'anonymous' 
+                         ? 'Anonymous' 
+                         : (comment.user_profiles?.display_name || comment.user_profiles?.username || 'Unknown')
+                       }
+                     </span>
+                     <span className="text-xs text-muted-foreground">
+                       {formatDate(comment.created_at)}
+                     </span>
+                   </div>
+                   <p className="text-sm leading-relaxed">{comment.content}</p>
+                 </div>
               </div>
             ))}
           </div>
