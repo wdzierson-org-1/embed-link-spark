@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import ContentGrid from '@/components/ContentGrid';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -47,6 +47,7 @@ interface PublicFeedData {
 
 export const PublicFeed = () => {
   const { username } = useParams<{ username: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<PublicFeedData | null>(null);
   const [allItems, setAllItems] = useState<PublicItem[]>([]);
   const [displayedItems, setDisplayedItems] = useState<PublicItem[]>([]);
@@ -115,7 +116,19 @@ export const PublicFeed = () => {
 
   useEffect(() => {
     fetchFeedData();
-  }, [fetchFeedData]);
+    
+    // Check for openComment parameter after auth redirect
+    const openCommentId = searchParams.get('openComment');
+    if (openCommentId) {
+      setSelectedCommentItem(openCommentId);
+      // Clean up the URL parameter
+      setSearchParams(prev => {
+        const newParams = new URLSearchParams(prev);
+        newParams.delete('openComment');
+        return newParams;
+      });
+    }
+  }, [fetchFeedData, searchParams, setSearchParams]);
 
   useEffect(() => {
     const observer = new IntersectionObserver(

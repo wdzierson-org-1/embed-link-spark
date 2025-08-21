@@ -83,26 +83,36 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
     e.preventDefault();
     if (!newComment.trim()) return;
 
+    // Redirect to auth if not signed in
+    if (!user) {
+      const currentUrl = window.location.pathname + window.location.search;
+      window.location.href = `/auth?mode=signup&returnTo=${encodeURIComponent(currentUrl)}&commentItem=${itemId}`;
+      return;
+    }
+
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
+      if (!session) {
+        toast({
+          title: 'Authentication required',
+          description: 'Please sign in to post a comment',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+      
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
       };
       
-      const body: any = {
+      const body = {
         itemId,
         content: newComment.trim(),
       };
-
-      // Add auth header if user is signed in
-      if (session) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-      } else {
-        // For anonymous users, we'll let the backend handle it
-        body.anonymous = true;
-      }
 
       console.log('Posting comment with:', { 
         authenticated: !!session, 
@@ -271,12 +281,15 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
                 </span>
                 {!user && (
                   <span className="text-xs text-muted-foreground mt-1">
-                    Posting as Anonymous • <button 
+                    <button 
                       type="button"
-                      onClick={() => window.open('/auth', '_blank')}
+                      onClick={() => {
+                        const currentUrl = window.location.pathname + window.location.search;
+                        window.location.href = `/auth?mode=signup&returnTo=${encodeURIComponent(currentUrl)}&commentItem=${itemId}`;
+                      }}
                       className="text-primary hover:underline"
                     >
-                      Sign in
+                      Sign up to comment
                     </button>
                   </span>
                 )}

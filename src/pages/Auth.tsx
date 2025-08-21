@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo } from 'react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 import { getGradientPlaceholder } from '@/utils/gradientPlaceholders';
@@ -17,12 +17,19 @@ const Auth = () => {
   const [username, setUsername] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  const [searchParams] = useSearchParams();
+  
+  // Get URL parameters for return flow
+  const mode = searchParams.get('mode') || 'signin';
+  const returnTo = searchParams.get('returnTo');
+  const commentItem = searchParams.get('commentItem');
   
   // Get a random gradient background
   const backgroundGradient = useMemo(() => {
     const randomId = Math.random().toString(36);
     return getGradientPlaceholder(randomId);
   }, []);
+  
   const { signIn, signUp, user } = useAuth();
   const { registerPhoneNumber } = usePhoneNumber();
   const { toast } = useToast();
@@ -31,9 +38,16 @@ const Auth = () => {
   // Redirect if already authenticated
   useEffect(() => {
     if (user) {
-      navigate('/home');
+      if (returnTo && commentItem) {
+        // Redirect back to the original page with comment panel open
+        navigate(`${returnTo}?openComment=${commentItem}`);
+      } else if (returnTo) {
+        navigate(returnTo);
+      } else {
+        navigate('/home');
+      }
     }
-  }, [user, navigate]);
+  }, [user, navigate, returnTo, commentItem]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +66,14 @@ const Auth = () => {
         title: "Welcome back!",
         description: "You've been signed in successfully.",
       });
-      navigate('/home');
+      
+      if (returnTo && commentItem) {
+        navigate(`${returnTo}?openComment=${commentItem}`);
+      } else if (returnTo) {
+        navigate(returnTo);
+      } else {
+        navigate('/home');
+      }
     }
     
     setLoading(false);
@@ -80,7 +101,14 @@ const Auth = () => {
         title: "Account created!",
         description: "You've been signed up successfully.",
       });
-      navigate('/home');
+      
+      if (returnTo && commentItem) {
+        navigate(`${returnTo}?openComment=${commentItem}`);
+      } else if (returnTo) {
+        navigate(returnTo);
+      } else {
+        navigate('/home');
+      }
     }
     
     setLoading(false);
@@ -119,7 +147,7 @@ const Auth = () => {
               </CardDescription>
             </CardHeader>
           <CardContent>
-            <Tabs defaultValue="signin" className="w-full">
+            <Tabs defaultValue={mode} className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="signin">Sign In</TabsTrigger>
                 <TabsTrigger value="signup">Sign Up</TabsTrigger>
