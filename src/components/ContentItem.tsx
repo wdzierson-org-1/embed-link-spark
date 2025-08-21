@@ -130,11 +130,21 @@ const ContentItem = ({
     const shouldTruncate = lines.length > 2 || plainText.length > 100;
     const displayText = isNoteExpanded ? plainText : lines.slice(0, 2).join(' ');
     
+    // Generate a consistent but random-seeming angle for each item
+    const hash = item.id.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    const randomAngle = (hash % 8) - 4; // Random angle between -4 and 3 degrees
+    
     return (
-      <div className="absolute -top-4 -left-4 z-20">
+      <div className="absolute top-2 -left-4 z-20">
         <div 
-          className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-md transform skew-y-2 hover:skew-y-0 transition-all duration-200 max-w-60 cursor-pointer"
+          className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-md hover:shadow-lg transition-all duration-200 max-w-60 cursor-pointer"
+          style={{ transform: `rotate(${randomAngle}deg) skew(0deg, 2deg)` }}
           onClick={() => shouldTruncate && setIsNoteExpanded(!isNoteExpanded)}
+          onMouseEnter={(e) => e.currentTarget.style.transform = 'rotate(0deg) skew(0deg, 0deg)'}
+          onMouseLeave={(e) => e.currentTarget.style.transform = `rotate(${randomAngle}deg) skew(0deg, 2deg)`}
         >
           <div className="text-sm text-yellow-800">
             {shouldTruncate && !isNoteExpanded ? (
