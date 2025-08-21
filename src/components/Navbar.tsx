@@ -35,7 +35,14 @@ const Navbar = () => {
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-bold text-primary">notes2me</h1>
+              <div className="flex items-center space-x-2">
+                <img 
+                  src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
+                  alt="Stash"
+                  className="w-6 h-6"
+                />
+                <h1 className="text-xl font-bold text-primary">Stash</h1>
+              </div>
             </div>
 
             <div className="flex items-center space-x-4">

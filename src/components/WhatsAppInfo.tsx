@@ -9,11 +9,11 @@ const WhatsAppInfo = () => {
         <div className="text-center space-y-4">
           <div className="flex items-center justify-center gap-2 mb-4">
             <MessageCircle className="h-6 w-6 text-green-600" />
-            <h3 className="text-xl font-semibold text-gray-900">Use notes2me via WhatsApp</h3>
+            <h3 className="text-xl font-semibold text-gray-900">Use Stash via WhatsApp</h3>
           </div>
           
           <p className="text-gray-600 mb-6">
-            Start capturing content instantly by messaging notes2me on WhatsApp at{' '}
+            Start capturing content instantly by messaging Stash on WhatsApp at{' '}
             <span className="font-semibold text-green-600">+1 229 466 6353</span>
           </p>
 

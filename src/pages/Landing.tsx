@@ -116,10 +116,12 @@ const Landing = () => {
         {/* Navigation */}
         <nav className="flex items-center justify-between px-6 py-4 max-w-5xl mx-auto">
           <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 bg-foreground rounded flex items-center justify-center">
-              <span className="text-background font-medium text-xs">N</span>
-            </div>
-            <span className="text-lg font-editorial text-white lg:text-foreground">notes2me</span>
+            <img 
+              src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
+              alt="Stash"
+              className="w-6 h-6"
+            />
+            <span className="text-lg font-editorial text-white lg:text-foreground">Stash</span>
           </div>
           
           <div className="flex items-center space-x-3">
@@ -335,10 +337,12 @@ const Landing = () => {
         {/* Footer */}
         <footer className="px-6 py-16 max-w-4xl mx-auto text-center border-t border-border mt-20">
           <div className="flex items-center justify-center space-x-2 mb-6">
-            <div className="w-6 h-6 bg-foreground rounded flex items-center justify-center">
-              <span className="text-background font-medium text-xs">N</span>
-            </div>
-            <span className="text-lg font-editorial text-foreground">notes2me</span>
+            <img 
+              src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
+              alt="Stash"
+              className="w-6 h-6"
+            />
+            <span className="text-lg font-editorial text-foreground">Stash</span>
           </div>
           <p className="text-sm font-mori text-muted-foreground mb-8">
             Your personal life organizer.

@@ -146,7 +146,7 @@ const PinnedChatWidget = ({ onExpandToModal }: PinnedChatWidgetProps) => {
           <div className="flex items-center justify-between p-4 border-b">
             <div className="flex items-center space-x-2">
               <MessageSquare className="h-5 w-5" />
-              <span className="text-base font-medium">notes2me Assistant</span>
+              <span className="text-base font-medium">Stash Assistant</span>
             </div>
             <div className="flex items-center space-x-1">
               <Button

@@ -107,6 +107,12 @@ const ContentItemFooter = ({
                 Chat with item
               </DropdownMenuItem>
             )}
+            {isPublicView && onCommentClick && (
+              <DropdownMenuItem onClick={() => onCommentClick(item.id)}>
+                <MessageCircle className="h-4 w-4 mr-2" />
+                Comments
+              </DropdownMenuItem>
+            )}
             {fileUrl && (
               <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
                 <Download className="h-4 w-4 mr-2" />

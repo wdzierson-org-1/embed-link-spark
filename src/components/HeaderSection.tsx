@@ -43,10 +43,12 @@ const HeaderSection = ({ user, onShowSettings }: HeaderSectionProps) => {
         <div className="flex items-center space-x-4">
           {/* Logo */}
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-gray-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">N</span>
-            </div>
-            <span className="text-xl font-bold text-gray-900">notes2me</span>
+            <img 
+              src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
+              alt="Stash"
+              className="w-8 h-8"
+            />
+            <span className="text-xl font-bold text-gray-900">Stash</span>
           </div>
           
           {/* Date */}

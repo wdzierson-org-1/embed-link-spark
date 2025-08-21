@@ -7,8 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
+import { getGradientPlaceholder } from '@/utils/gradientPlaceholders';
 
 const Auth = () => {
   const [email, setEmail] = useState('');
@@ -16,6 +17,12 @@ const Auth = () => {
   const [username, setUsername] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // Get a random gradient background
+  const backgroundGradient = useMemo(() => {
+    const randomId = Math.random().toString(36);
+    return getGradientPlaceholder(randomId);
+  }, []);
   const { signIn, signUp, user } = useAuth();
   const { registerPhoneNumber } = usePhoneNumber();
   const { toast } = useToast();
@@ -80,25 +87,37 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      {/* Logo in upper left */}
-      <div className="absolute top-6 left-6">
-        <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">N</span>
+    <div 
+      className="min-h-screen relative"
+      style={{
+        backgroundImage: `url(${backgroundGradient})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
+      {/* Overlay for better text readability */}
+      <div className="absolute inset-0 bg-black/20"></div>
+      <div className="relative z-10">
+        {/* Logo in upper left */}
+        <div className="absolute top-6 left-6">
+          <div className="flex items-center space-x-2">
+            <img 
+              src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
+              alt="Stash"
+              className="w-8 h-8"
+            />
+            <span className="text-xl font-editorial text-white font-bold">Stash</span>
           </div>
-          <span className="text-xl font-bold text-gray-900">notes2me</span>
         </div>
-      </div>
 
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Welcome to notes2me</CardTitle>
-            <CardDescription>
-              Your smart content companion for capturing, organizing, and discovering insights
-            </CardDescription>
-          </CardHeader>
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <Card className="w-full max-w-md bg-white/95 backdrop-blur-sm">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl font-editorial">Welcome to Stash</CardTitle>
+              <CardDescription>
+                Your smart content companion for capturing, organizing, and discovering insights
+              </CardDescription>
+            </CardHeader>
           <CardContent>
             <Tabs defaultValue="signin" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
@@ -175,7 +194,8 @@ const Auth = () => {
               </TabsContent>
             </Tabs>
           </CardContent>
-        </Card>
+          </Card>
+        </div>
       </div>
     </div>
   );
