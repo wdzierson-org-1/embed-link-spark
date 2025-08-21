@@ -19,7 +19,7 @@ export const useItems = () => {
         .from('items')
         .select(`
           *,
-          user_profiles (
+          user_profiles!items_user_id_fkey (
             username,
             display_name,
             avatar_url
