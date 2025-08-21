@@ -31,6 +31,9 @@ verify_jwt = false
 [functions.get-public-feed]
 verify_jwt = false
 
+[functions.get-comments]
+verify_jwt = false
+
 [db]
 port = 54322
 
