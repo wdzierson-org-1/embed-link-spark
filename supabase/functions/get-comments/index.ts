@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
         updated_at,
         parent_comment_id,
         user_id,
-        user_profiles!inner (
+        user_profiles (
           username,
           display_name,
           avatar_url
@@ -77,11 +77,21 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Found ${comments?.length || 0} comments for item ${itemId}`);
+    // Simple content filter - remove obvious spam/abuse patterns
+    const filteredComments = (comments || []).filter(comment => {
+      const content = comment.content.toLowerCase();
+      const spamPatterns = [
+        'viagra', 'casino', 'lottery', 'winner', 'congratulation',
+        'click here', 'free money', 'earn money fast', 'weight loss miracle'
+      ];
+      return !spamPatterns.some(pattern => content.includes(pattern));
+    });
+
+    console.log(`Found ${comments?.length || 0} comments for item ${itemId}, ${filteredComments.length} after filtering`);
 
     return new Response(
       JSON.stringify({ 
-        comments: comments || [], 
+        comments: filteredComments, 
         commentsEnabled: true 
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -55,6 +55,29 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Basic content validation and filtering
+    const cleanContent = content.trim();
+    if (cleanContent.length < 1 || cleanContent.length > 1000) {
+      return new Response(
+        JSON.stringify({ error: 'Comment must be between 1 and 1000 characters' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Simple spam filter
+    const lowerContent = cleanContent.toLowerCase();
+    const spamPatterns = [
+      'viagra', 'casino', 'lottery', 'winner', 'congratulation',
+      'click here', 'free money', 'earn money fast', 'weight loss miracle'
+    ];
+    
+    if (spamPatterns.some(pattern => lowerContent.includes(pattern))) {
+      return new Response(
+        JSON.stringify({ error: 'Comment contains prohibited content' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     console.log(`Creating comment for item ${itemId} by user ${user.id}`);
 
     // Verify the item exists, is public, and has comments enabled
@@ -79,7 +102,7 @@ Deno.serve(async (req) => {
       .insert({
         item_id: itemId,
         user_id: user.id,
-        content: content.trim(),
+        content: cleanContent,
         parent_comment_id: parentCommentId || null
       })
       .select(`

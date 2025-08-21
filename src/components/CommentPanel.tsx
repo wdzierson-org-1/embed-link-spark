@@ -44,9 +44,17 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
   }, [isOpen, itemId]);
 
   const fetchComments = async () => {
+    if (!itemId) return;
+    
     try {
       const url = `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/get-comments/${itemId}`;
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
       const data = await response.json();
 
       if (!response.ok) {
@@ -233,8 +241,12 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
                 placeholder="Write a comment..."
                 className="min-h-[80px] resize-none"
                 disabled={loading}
+                maxLength={1000}
               />
-              <div className="flex justify-end">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">
+                  {1000 - newComment.length} characters remaining
+                </span>
                 <Button 
                   type="submit" 
                   size="sm"
@@ -248,6 +260,14 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
           ) : (
             <div className="text-center py-4 text-muted-foreground">
               <p className="text-sm">Sign in to leave a comment</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-2"
+                onClick={() => window.open('/auth', '_blank')}
+              >
+                Sign In
+              </Button>
             </div>
           )}
         </div>
