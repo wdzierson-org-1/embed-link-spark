@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     console.log('Request body:', body);
 
-    const { url, userId, title: customTitle, content: userNotes, is_public = true } = body;
+    const { url, userId, title: customTitle, content: userNotes, message, is_public = true } = body;
 
     // Validate URL
     if (!url) {
@@ -203,7 +203,7 @@ Deno.serve(async (req) => {
         type: 'link',
         url: url,
         title: finalTitle,
-        content: userNotes || null, // User's notes about the link
+        content: message || userNotes || null, // User's message or notes about the link
         description: finalDescription,
         file_path: previewImagePath,
         is_public: is_public,
@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
     const contentForEmbedding = [
       finalTitle,
       finalDescription,
-      userNotes
+      message || userNotes
     ].filter(Boolean).join(' ');
 
     if (contentForEmbedding.trim()) {

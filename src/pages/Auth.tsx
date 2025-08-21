@@ -115,16 +115,9 @@ const Auth = () => {
   };
 
   return (
-    <div 
-      className="min-h-screen relative"
-      style={{
-        backgroundImage: `url(${backgroundGradient})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }}
-    >
+    <div className="min-h-screen relative animated-gradient">
       {/* Overlay for better text readability */}
-      <div className="absolute inset-0 bg-black/20"></div>
+      <div className="absolute inset-0 bg-black/30"></div>
       <div className="relative z-10">
         {/* Logo in upper left */}
         <div className="absolute top-6 left-6">
@@ -141,7 +134,7 @@ const Auth = () => {
         <div className="min-h-screen flex items-center justify-center p-4">
           <Card className="w-full max-w-md bg-white/95 backdrop-blur-sm">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl font-editorial">Welcome to Stash</CardTitle>
+              <CardTitle className="text-2xl font-editorial font-semibold">Welcome to Stash</CardTitle>
               <CardDescription>
                 Your smart content companion for capturing, organizing, and discovering insights
               </CardDescription>
