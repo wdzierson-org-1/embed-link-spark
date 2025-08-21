@@ -125,20 +125,28 @@ const ContentItemFooter = ({
                 Open link
               </DropdownMenuItem>
             )}
-            {showOwnerControls && onTogglePrivacy && (
-              <DropdownMenuItem onClick={() => onTogglePrivacy(item)}>
-                {item.is_public ? (
-                  <>
-                    <EyeOff className="h-4 w-4 mr-2" />
-                    Set to Private
-                  </>
-                ) : (
-                  <>
-                    <Eye className="h-4 w-4 mr-2" />
-                    Set to Public
-                  </>
+            {showOwnerControls && (
+              <>
+                <DropdownMenuItem onClick={() => onEditItem(item)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </DropdownMenuItem>
+                {onTogglePrivacy && (
+                  <DropdownMenuItem onClick={() => onTogglePrivacy(item)}>
+                    {item.is_public ? (
+                      <>
+                        <EyeOff className="h-4 w-4 mr-2" />
+                        Set to Private
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="h-4 w-4 mr-2" />
+                        Set to Public
+                      </>
+                    )}
+                  </DropdownMenuItem>
                 )}
-              </DropdownMenuItem>
+              </>
             )}
             {!isPublicView && (
               <>
