@@ -131,9 +131,9 @@ const ContentItem = ({
     const displayText = isNoteExpanded ? plainText : lines.slice(0, 2).join(' ');
     
     return (
-      <div className="absolute top-2 -right-2 z-10">
+      <div className="absolute -top-2 -left-2 z-10">
         <div 
-          className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-sm transform rotate-2 hover:rotate-0 transition-all duration-200 max-w-60 cursor-pointer"
+          className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-sm transform skew-y-2 hover:skew-y-0 transition-all duration-200 max-w-60 cursor-pointer"
           onClick={() => shouldTruncate && setIsNoteExpanded(!isNoteExpanded)}
         >
           <div className="text-sm text-yellow-800">
