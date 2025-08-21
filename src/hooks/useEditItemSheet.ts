@@ -15,12 +15,13 @@ interface ContentItem {
   file_path?: string;
   type?: string;
   tags?: string[];
+  supplemental_note?: string;
 }
 
 interface UseEditItemSheetProps {
   open: boolean;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
 export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) => {
@@ -109,10 +110,16 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     clearSaveState,
   });
 
+  const handleSupplementalNoteSave = async (note: string) => {
+    if (!item?.id) return;
+    await onSave(item.id, { supplemental_note: note });
+  };
+
   return {
     title,
     description,
     content,
+    supplementalNote: item?.supplemental_note || '',
     hasImage,
     imageUrl,
     isContentLoading,
@@ -127,6 +134,8 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleContentChange,
     handleTitleSave,
     handleDescriptionSave,
+    onSupplementalNoteChange: () => {},
+    handleSupplementalNoteSave,
     handleTagsChange,
     handleMediaChange,
     handleImageStateChange,

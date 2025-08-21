@@ -15,6 +15,8 @@ interface SearchSectionProps {
   tags: any[];
   selectedTags: string[];
   onTagFilterChange: (tags: string[]) => void;
+  showStickyNotes?: boolean;
+  onStickyNotesToggle?: (show: boolean) => void;
 }
 
 const SearchSection = ({
@@ -27,7 +29,9 @@ const SearchSection = ({
   itemCount,
   tags,
   selectedTags,
-  onTagFilterChange
+  onTagFilterChange,
+  showStickyNotes = true,
+  onStickyNotesToggle
 }: SearchSectionProps) => {
   return (
     <div className="container mx-auto px-4 pt-3 pb-2 bg-white">
@@ -90,6 +94,8 @@ const SearchSection = ({
               tags={tags}
               selectedTags={selectedTags}
               onTagFilterChange={onTagFilterChange}
+              showStickyNotes={showStickyNotes}
+              onStickyNotesToggle={onStickyNotesToggle}
             />
           </div>
         </div>
@@ -102,6 +108,8 @@ const SearchSection = ({
             tags={tags}
             selectedTags={selectedTags}
             onTagFilterChange={onTagFilterChange}
+            showStickyNotes={showStickyNotes}
+            onStickyNotesToggle={onStickyNotesToggle}
           />
         </div>
       </div>

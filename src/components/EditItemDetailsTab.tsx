@@ -12,6 +12,7 @@ import EditItemTagsSection from '@/components/EditItemTagsSection';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
+import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
 
 interface ContentItem {
   id: string;
@@ -23,6 +24,7 @@ interface ContentItem {
   tags?: string[];
   url?: string;
   mime_type?: string;
+  supplemental_note?: string;
 }
 
 interface EditItemDetailsTabProps {
@@ -45,6 +47,9 @@ interface EditItemDetailsTabProps {
   showInlineImage?: boolean;
   imageUrl?: string;
   isMobile?: boolean;
+  supplementalNote?: string;
+  onSupplementalNoteChange?: (note: string) => void;
+  onSupplementalNoteSave?: (note: string) => Promise<void>;
 }
 
 const EditItemDetailsTab = ({
@@ -67,6 +72,9 @@ const EditItemDetailsTab = ({
   showInlineImage = false,
   imageUrl = '',
   isMobile = false,
+  supplementalNote = '',
+  onSupplementalNoteChange = () => {},
+  onSupplementalNoteSave = async () => {},
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
@@ -226,11 +234,12 @@ const EditItemDetailsTab = ({
         onSave={onDescriptionSave}
       />
 
-      {/* Media Section */}
-      <EditItemMediaSection item={item} onMediaChange={onMediaChange} />
-
-      {/* Tags Section */}
-      <EditItemTagsSection item={item} onTagsChange={onTagsChange} />
+      {/* Supplemental Note Section */}
+      <EditItemSupplementalNoteSection
+        supplementalNote={supplementalNote}
+        onSupplementalNoteChange={onSupplementalNoteChange}
+        onSave={onSupplementalNoteSave}
+      />
     </div>
   );
 

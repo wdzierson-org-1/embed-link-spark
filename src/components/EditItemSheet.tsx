@@ -24,7 +24,7 @@ interface EditItemSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
 const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps) => {

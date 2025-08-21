@@ -32,6 +32,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('text');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [showStickyNotes, setShowStickyNotes] = useState(true);
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
@@ -121,6 +122,8 @@ const Index = () => {
         tags={tags}
         selectedTags={selectedTags}
         onTagFilterChange={handleTagFilterChange}
+        showStickyNotes={showStickyNotes}
+        onStickyNotesToggle={setShowStickyNotes}
       />
       
       <main className="container mx-auto px-4 pb-8 bg-white">
@@ -131,6 +134,7 @@ const Index = () => {
           onChatWithItem={handleChatWithItem}
           tagFilters={selectedTags}
           searchQuery={searchQuery}
+          showStickyNotes={showStickyNotes}
         />
       </main>
 

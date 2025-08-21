@@ -202,6 +202,7 @@ export type Database = {
           id: string
           is_public: boolean
           mime_type: string | null
+          supplemental_note: string | null
           tags: string[] | null
           title: string | null
           type: Database["public"]["Enums"]["item_type"]
@@ -220,6 +221,7 @@ export type Database = {
           id?: string
           is_public?: boolean
           mime_type?: string | null
+          supplemental_note?: string | null
           tags?: string[] | null
           title?: string | null
           type: Database["public"]["Enums"]["item_type"]
@@ -238,6 +240,7 @@ export type Database = {
           id?: string
           is_public?: boolean
           mime_type?: string | null
+          supplemental_note?: string | null
           tags?: string[] | null
           title?: string | null
           type?: Database["public"]["Enums"]["item_type"]

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { X, Filter } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -19,9 +20,11 @@ interface StashHeaderProps {
   tags: Tag[];
   selectedTags: string[];
   onTagFilterChange: (tags: string[]) => void;
+  showStickyNotes?: boolean;
+  onStickyNotesToggle?: (show: boolean) => void;
 }
 
-const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, selectedTags, onTagFilterChange }: StashHeaderProps) => {
+const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, selectedTags, onTagFilterChange, showStickyNotes = true, onStickyNotesToggle }: StashHeaderProps) => {
   const [showTagFilter, setShowTagFilter] = useState(false);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const { user } = useAuth();
@@ -128,6 +131,23 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
           )}
 
           <div className="space-y-2">
+            {/* Sticky Notes Toggle */}
+            {onStickyNotesToggle && (
+              <div className="flex items-center space-x-2 pb-2 border-b border-gray-200">
+                <Checkbox
+                  id="show-sticky-notes"
+                  checked={showStickyNotes}
+                  onCheckedChange={(checked) => onStickyNotesToggle(checked as boolean)}
+                />
+                <label
+                  htmlFor="show-sticky-notes"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Show yellow stickies
+                </label>
+              </div>
+            )}
+            
             {availableTags.length === 0 ? (
               <p className="text-sm text-muted-foreground">No tags available</p>
             ) : (

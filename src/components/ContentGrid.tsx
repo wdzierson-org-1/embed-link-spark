@@ -17,6 +17,7 @@ interface ContentGridProps {
   currentUserId?: string;
   onTogglePrivacy?: (item: any) => void;
   onCommentClick?: (itemId: string) => void;
+  showStickyNotes?: boolean;
 }
 
 const ContentGrid = ({ 
@@ -29,7 +30,8 @@ const ContentGrid = ({
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
-  onCommentClick
+  onCommentClick,
+  showStickyNotes = true
 }: ContentGridProps) => {
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
@@ -165,7 +167,10 @@ const ContentGrid = ({
       {realItems.map((item) => (
         <ContentItem
           key={item.id}
-          item={item}
+          item={{
+            ...item,
+            supplemental_note: showStickyNotes ? item.supplemental_note : null
+          }}
           tags={itemTags[item.id] || []}
           imageErrors={imageErrors}
           expandedContent={expandedContent}

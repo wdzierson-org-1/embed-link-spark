@@ -2,6 +2,9 @@
 import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { X } from 'lucide-react';
 import ContentItemHeader from '@/components/ContentItemHeader';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemFooter from '@/components/ContentItemFooter';
@@ -23,6 +26,7 @@ interface ContentItem {
   created_at: string;
   mime_type?: string;
   is_public?: boolean;
+  supplemental_note?: string;
 }
 
 interface ContentItemProps {
@@ -61,6 +65,7 @@ const ContentItem = ({
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isNoteExpanded, setIsNoteExpanded] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';
@@ -120,10 +125,24 @@ const ContentItem = ({
     setIsChatOpen(true);
   };
 
-  const renderNoteOverlay = () => {
-    if (!item.content) return null;
+  const handleDeleteNote = async () => {
+    try {
+      await supabase
+        .from('items')
+        .update({ supplemental_note: null })
+        .eq('id', item.id);
+      
+      setShowDeleteConfirm(false);
+      onTagsUpdated(); // Refresh the items
+    } catch (error) {
+      console.error('Error deleting note:', error);
+    }
+  };
 
-    const plainText = getPlainTextFromContent(item.content);
+  const renderNoteOverlay = () => {
+    if (!item.supplemental_note) return null;
+
+    const plainText = getPlainTextFromContent(item.supplemental_note);
     if (!plainText.trim()) return null;
 
     const lines = plainText.split('\n').filter(line => line.trim() !== '');
@@ -140,12 +159,25 @@ const ContentItem = ({
     return (
       <div className="absolute top-2 -left-4 z-20">
         <div 
-          className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-md hover:shadow-lg transition-all duration-200 max-w-60 cursor-pointer"
+          className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-md hover:shadow-lg transition-all duration-200 max-w-60 cursor-pointer group/note relative"
           style={{ transform: `rotate(${randomAngle}deg) skew(0deg, 2deg)` }}
           onClick={() => shouldTruncate && setIsNoteExpanded(!isNoteExpanded)}
           onMouseEnter={(e) => e.currentTarget.style.transform = 'rotate(0deg) skew(0deg, 0deg)'}
           onMouseLeave={(e) => e.currentTarget.style.transform = `rotate(${randomAngle}deg) skew(0deg, 2deg)`}
         >
+          {!isPublicView && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute -top-2 -right-2 h-6 w-6 p-0 opacity-0 group-hover/note:opacity-100 transition-opacity bg-red-50 hover:bg-red-100 border border-red-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDeleteConfirm(true);
+              }}
+            >
+              <X className="h-3 w-3 text-red-600" />
+            </Button>
+          )}
           <div className="text-sm text-yellow-800">
             {shouldTruncate && !isNoteExpanded ? (
               <>
@@ -244,6 +276,24 @@ const ContentItem = ({
           onClose={() => setIsChatOpen(false)}
           item={item}
         />
+
+        {/* Delete Note Confirmation */}
+        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Note</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete this sticky note? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteNote} className="bg-red-600 hover:bg-red-700">
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </Card>
     </TooltipProvider>
   );
