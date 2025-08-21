@@ -23,11 +23,6 @@ interface ContentItem {
   created_at: string;
   mime_type?: string;
   is_public?: boolean;
-  user_profiles?: {
-    username: string;
-    display_name?: string;
-    avatar_url?: string;
-  };
 }
 
 interface ContentItemProps {
@@ -134,7 +129,6 @@ const ContentItem = ({
     const lines = plainText.split('\n').filter(line => line.trim() !== '');
     const shouldTruncate = lines.length > 2 || plainText.length > 100;
     const displayText = isNoteExpanded ? plainText : lines.slice(0, 2).join(' ');
-    const username = item.user_profiles?.display_name || item.user_profiles?.username || 'Unknown';
     
     return (
       <div className="absolute top-4 right-4 z-10">
@@ -142,9 +136,6 @@ const ContentItem = ({
           className="bg-yellow-100/95 backdrop-blur-sm border border-yellow-200/60 rounded-lg p-3 shadow-lg transform rotate-2 hover:rotate-0 transition-all duration-200 max-w-60 cursor-pointer"
           onClick={() => shouldTruncate && setIsNoteExpanded(!isNoteExpanded)}
         >
-          <div className="text-xs text-yellow-700 mb-1 font-medium">
-            from {username}:
-          </div>
           <div className="text-sm text-yellow-800">
             {shouldTruncate && !isNoteExpanded ? (
               <>
