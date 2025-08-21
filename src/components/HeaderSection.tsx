@@ -46,9 +46,9 @@ const HeaderSection = ({ user, onShowSettings }: HeaderSectionProps) => {
             <img 
               src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
               alt="Stash"
-              className="w-8 h-8"
+              className="w-10 h-10"
             />
-            <span className="text-xl font-bold text-gray-900">Stash</span>
+            <span className="text-xl text-gray-900">Stash</span>
           </div>
           
           {/* Date */}

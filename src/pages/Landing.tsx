@@ -117,9 +117,9 @@ const Landing = () => {
         <nav className="flex items-center justify-between px-6 py-4 max-w-5xl mx-auto">
           <div className="flex items-center space-x-2">
             <img 
-              src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
+              src="/lovable-uploads/b93db9a2-7dba-4a6c-b36a-a9f982356ff6.png" 
               alt="Stash"
-              className="w-6 h-6"
+              className="w-8 h-8"
             />
             <span className="text-lg font-editorial text-white lg:text-foreground">Stash</span>
           </div>
@@ -340,7 +340,7 @@ const Landing = () => {
             <img 
               src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
               alt="Stash"
-              className="w-6 h-6"
+              className="w-8 h-8"
             />
             <span className="text-lg font-editorial text-foreground">Stash</span>
           </div>

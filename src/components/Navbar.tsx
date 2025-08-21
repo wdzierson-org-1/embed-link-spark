@@ -39,9 +39,9 @@ const Navbar = () => {
                 <img 
                   src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
                   alt="Stash"
-                  className="w-6 h-6"
+                  className="w-8 h-8"
                 />
-                <h1 className="text-xl font-bold text-primary">Stash</h1>
+                <h1 className="text-xl text-primary">Stash</h1>
               </div>
             </div>
 
