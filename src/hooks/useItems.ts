@@ -17,7 +17,14 @@ export const useItems = () => {
       console.log('Fetching items for user:', user.id);
       const { data, error } = await supabase
         .from('items')
-        .select('*')
+        .select(`
+          *,
+          user_profiles!items_user_id_fkey (
+            username,
+            display_name,
+            avatar_url
+          )
+        `)
         .order('created_at', { ascending: false });
 
       if (error) {

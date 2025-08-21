@@ -59,7 +59,14 @@ serve(async (req) => {
     // Build query for public items
     let query = supabase
       .from('items')
-      .select('*')
+      .select(`
+        *,
+        user_profiles!items_user_id_fkey (
+          username,
+          display_name,
+          avatar_url
+        )
+      `)
       .eq('user_id', profile.id)
       .eq('is_public', true);
 
