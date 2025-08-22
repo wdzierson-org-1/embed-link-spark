@@ -22,9 +22,10 @@ interface CollectionAttachmentsProps {
   itemId: string;
   maxDisplay?: number;
   showAll?: boolean;
+  isCompactView?: boolean;
 }
 
-const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false }: CollectionAttachmentsProps) => {
+const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isCompactView = false }: CollectionAttachmentsProps) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [selectedVideoUrl, setSelectedVideoUrl] = useState<string>('');
@@ -95,6 +96,49 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false }: Coll
   const displayedAttachments = showAll ? attachments : attachments.slice(0, maxDisplay);
   const remainingCount = attachments.length - maxDisplay;
 
+  // Compact view for home screen
+  if (isCompactView) {
+    const hasMultipleTypes = new Set(attachments.map(a => a.type)).size > 1;
+    const title = hasMultipleTypes ? "Mixed Collection" : "";
+    
+    return (
+      <div className="space-y-2">
+        {title && (
+          <div className="text-sm font-medium text-foreground">
+            {title}
+          </div>
+        )}
+        <div className="text-sm text-muted-foreground">
+          Collection of {attachments.length} item{attachments.length > 1 ? 's' : ''}:
+        </div>
+        <div className="space-y-1.5">
+          {displayedAttachments.map((attachment) => (
+            <div key={attachment.id} className="flex items-center gap-2 text-sm">
+              <div className="flex-shrink-0 text-muted-foreground">
+                {getAttachmentIcon(attachment.type)}
+              </div>
+              <span className="text-muted-foreground uppercase text-xs font-medium">
+                {attachment.mime_type?.split('/')[1] || attachment.type}:
+              </span>
+              <span className="truncate font-medium">
+                {attachment.title || 'Unnamed file'}
+              </span>
+              {attachment.metadata?.aiProcessed && (
+                <span className="text-xs text-blue-600">transcribed</span>
+              )}
+            </div>
+          ))}
+          {!showAll && remainingCount > 0 && (
+            <div className="text-sm text-muted-foreground">
+              + {remainingCount} more attachment{remainingCount > 1 ? 's' : ''}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Full view for edit panel
   return (
     <div className="space-y-3">
       {displayedAttachments.map((attachment) => (

@@ -50,7 +50,7 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
         
         {item.description && (
           <div className="mb-2">
-            <p className="text-sm text-muted-foreground line-clamp-3">
+            <p className={`text-sm text-muted-foreground ${item.type === 'image' ? 'line-clamp-6' : 'line-clamp-3'}`}>
               {item.description}
             </p>
           </div>
@@ -64,7 +64,7 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
         
         {/* Show attachments for collections */}
         {item.type === 'collection' && (
-          <CollectionAttachments itemId={item.id} maxDisplay={2} />
+          <CollectionAttachments itemId={item.id} maxDisplay={3} isCompactView={true} />
         )}
       </div>
       
