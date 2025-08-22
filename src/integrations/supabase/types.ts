@@ -155,6 +155,51 @@ export type Database = {
           },
         ]
       }
+      item_attachments: {
+        Row: {
+          created_at: string
+          description: string | null
+          file_path: string | null
+          file_size: number | null
+          id: string
+          item_id: string
+          metadata: Json | null
+          mime_type: string | null
+          title: string | null
+          type: Database["public"]["Enums"]["item_type"]
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          item_id: string
+          metadata?: Json | null
+          mime_type?: string | null
+          title?: string | null
+          type: Database["public"]["Enums"]["item_type"]
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          file_path?: string | null
+          file_size?: number | null
+          id?: string
+          item_id?: string
+          metadata?: Json | null
+          mime_type?: string | null
+          title?: string | null
+          type?: Database["public"]["Enums"]["item_type"]
+          updated_at?: string
+          url?: string | null
+        }
+        Relationships: []
+      }
       item_tags: {
         Row: {
           created_at: string | null
@@ -555,7 +600,14 @@ export type Database = {
       }
     }
     Enums: {
-      item_type: "text" | "link" | "image" | "audio" | "video" | "document"
+      item_type:
+        | "text"
+        | "link"
+        | "image"
+        | "audio"
+        | "video"
+        | "document"
+        | "collection"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -683,7 +735,15 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      item_type: ["text", "link", "image", "audio", "video", "document"],
+      item_type: [
+        "text",
+        "link",
+        "image",
+        "audio",
+        "video",
+        "document",
+        "collection",
+      ],
     },
   },
 } as const

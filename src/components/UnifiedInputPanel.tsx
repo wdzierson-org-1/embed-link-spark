@@ -167,15 +167,25 @@ const UnifiedInputPanel = ({
       const linkItems = inputItems.filter(item => item.type === 'link');
       const mediaItems = inputItems.filter(item => item.type !== 'link');
 
-      // Case 1: Only a single link, no text
+      // Case 1: Only a single link, no text, no other items -> Individual link item
       if (linkItems.length === 1 && !hasText && mediaItems.length === 0) {
         await onAddContent('link', {
           url: linkItems[0].content.url,
+          ogData: linkItems[0].ogData,
           type: 'link'
         });
       }
-      // Case 2: Text content with or without attachments
-      else if (hasText || inputItems.length > 1 || mediaItems.length > 0) {
+      // Case 2: Only a single media file, no text, no other items -> Individual media item
+      else if (mediaItems.length === 1 && !hasText && linkItems.length === 0) {
+        const mediaItem = mediaItems[0];
+        await onAddContent(mediaItem.type, {
+          file: mediaItem.content.file,
+          title: mediaItem.content.name,
+          type: mediaItem.type
+        });
+      }
+      // Case 3: Multiple items OR text with any items -> Collection
+      else {
         const attachments = [];
         
         // Add link attachments
@@ -204,7 +214,7 @@ const UnifiedInputPanel = ({
         await onAddContent('text', {
           content: hasText || '',
           type: 'text',
-          attachments: attachments.length > 0 ? attachments : undefined
+          attachments: attachments
         });
       }
 

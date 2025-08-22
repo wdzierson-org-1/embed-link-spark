@@ -1,10 +1,12 @@
 
 import React from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
+import { FileIcon, ImageIcon, VideoIcon, MusicIcon, LinkIcon, FileTextIcon, FolderIcon } from 'lucide-react';
+import CollectionAttachments from '@/components/CollectionAttachments';
 
 interface ContentItem {
   id: string;
-  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
+  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document' | 'collection';
   content?: string;
   description?: string;
   url?: string;
@@ -19,15 +21,52 @@ interface ContentItemContentProps {
 }
 
 const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublicView }: ContentItemContentProps) => {
+  const getTypeIcon = () => {
+    switch (item.type) {
+      case 'text':
+        return <FileTextIcon className="h-4 w-4" />;
+      case 'link':
+        return <LinkIcon className="h-4 w-4" />;
+      case 'image':
+        return <ImageIcon className="h-4 w-4" />;
+      case 'video':
+        return <VideoIcon className="h-4 w-4" />;
+      case 'audio':
+        return <MusicIcon className="h-4 w-4" />;
+      case 'collection':
+        return <FolderIcon className="h-4 w-4" />;
+      default:
+        return <FileIcon className="h-4 w-4" />;
+    }
+  };
+
   return (
     <>
-      {item.description && (
-        <div className="mb-2">
-          <p className="text-sm text-muted-foreground line-clamp-3">
-            {item.description}
+      <div className="space-y-2">
+        <Badge variant="secondary" className="gap-1.5">
+          {getTypeIcon()}
+          {item.type}
+        </Badge>
+        
+        {item.description && (
+          <div className="mb-2">
+            <p className="text-sm text-muted-foreground line-clamp-3">
+              {item.description}
+            </p>
+          </div>
+        )}
+        
+        {item.content && (
+          <p className="text-muted-foreground text-sm line-clamp-3">
+            {item.content}
           </p>
-        </div>
-      )}
+        )}
+        
+        {/* Show attachments for collections */}
+        {item.type === 'collection' && (
+          <CollectionAttachments itemId={item.id} maxDisplay={2} />
+        )}
+      </div>
       
       {item.url && item.type === 'link' && (
         <div className="mb-2 relative">
