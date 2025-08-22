@@ -157,7 +157,7 @@ const ContentItem = ({
     const randomAngle = (hash % 8) - 4; // Random angle between -4 and 3 degrees
     
     return (
-      <div className="absolute top-2 -left-4 z-20">
+      <div className="absolute top-2 -left-4 z-[100]">
         <div 
           className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-md hover:shadow-lg transition-all duration-200 max-w-60 cursor-pointer group/note relative"
           style={{ transform: `rotate(${randomAngle}deg) skew(0deg, 2deg)` }}
