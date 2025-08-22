@@ -28,7 +28,11 @@ const Index = () => {
   const [selectedTags, setSelectedTags] = useState([]);
   const [showGlobalChat, setShowGlobalChat] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [isInputUICollapsed, setIsInputUICollapsed] = useState(false);
+  const [isInputUICollapsed, setIsInputUICollapsed] = useState(() => {
+    // Minimize input panel by default for WebKit browsers (Safari) but not Chrome
+    const isWebKit = /WebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+    return isWebKit;
+  });
   const [activeTab, setActiveTab] = useState('text');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
