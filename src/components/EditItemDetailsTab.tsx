@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Maximize } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Maximize, Globe, Lock } from 'lucide-react';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
 import EditItemImageSection from '@/components/EditItemImageSection';
@@ -25,6 +26,7 @@ interface ContentItem {
   url?: string;
   mime_type?: string;
   supplemental_note?: string;
+  is_public?: boolean;
 }
 
 interface EditItemDetailsTabProps {
@@ -49,6 +51,7 @@ interface EditItemDetailsTabProps {
   isMobile?: boolean;
   supplementalNote?: string;
   onSupplementalNoteChange?: (note: string) => void;
+  onPublicToggle?: (isPublic: boolean) => void;
 }
 
 const EditItemDetailsTab = ({
@@ -73,6 +76,7 @@ const EditItemDetailsTab = ({
   isMobile = false,
   supplementalNote = '',
   onSupplementalNoteChange = () => {},
+  onPublicToggle = () => {},
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
@@ -237,6 +241,34 @@ const EditItemDetailsTab = ({
         supplementalNote={supplementalNote}
         onSupplementalNoteChange={onSupplementalNoteChange}
       />
+
+      {/* Public Feed Toggle */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-muted-foreground">Visibility</label>
+        <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+          <div className="flex items-center space-x-3">
+            {item?.is_public ? (
+              <Globe className="h-4 w-4 text-green-600" />
+            ) : (
+              <Lock className="h-4 w-4 text-muted-foreground" />
+            )}
+            <div>
+              <div className="text-sm font-medium">
+                {item?.is_public ? 'Public Feed' : 'Private'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {item?.is_public 
+                  ? 'This item is visible in your public feed' 
+                  : 'This item is only visible to you'}
+              </div>
+            </div>
+          </div>
+          <Switch
+            checked={item?.is_public || false}
+            onCheckedChange={onPublicToggle}
+          />
+        </div>
+      </div>
     </div>
   );
 

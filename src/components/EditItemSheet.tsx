@@ -18,13 +18,14 @@ interface ContentItem {
   file_path?: string;
   type?: string;
   tags?: string[];
+  is_public?: boolean;
 }
 
 interface EditItemSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
 const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps) => {
@@ -51,6 +52,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
     handleTagsChange,
     handleMediaChange,
     handleImageStateChange,
+    handlePublicToggle,
   } = useEditItemSheet({ open, item, onSave });
 
   // Debug logging for mobile editor issues
@@ -96,6 +98,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                 imageUrl={imageUrl}
                 supplementalNote={supplementalNote}
                 onSupplementalNoteChange={handleSupplementalNoteChange}
+                onPublicToggle={handlePublicToggle}
                 isMobile={isMobile}
               />
             </div>
@@ -139,6 +142,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   isInsideTabs={true}
                   supplementalNote={supplementalNote}
                   onSupplementalNoteChange={handleSupplementalNoteChange}
+                  onPublicToggle={handlePublicToggle}
                   isMobile={isMobile}
                 />
 
@@ -169,6 +173,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps)
                   isInsideTabs={false}
                   supplementalNote={supplementalNote}
                   onSupplementalNoteChange={handleSupplementalNoteChange}
+                  onPublicToggle={handlePublicToggle}
                   isMobile={isMobile}
                 />
               </div>

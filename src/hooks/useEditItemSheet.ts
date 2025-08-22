@@ -16,12 +16,13 @@ interface ContentItem {
   type?: string;
   tags?: string[];
   supplemental_note?: string;
+  is_public?: boolean;
 }
 
 interface UseEditItemSheetProps {
   open: boolean;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
 export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) => {
@@ -121,6 +122,12 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     debouncedSave(item?.id || '', { supplemental_note: note });
   };
 
+  // Public toggle handler
+  const handlePublicToggle = (isPublic: boolean) => {
+    // Immediate save for public toggle
+    onSave(item?.id || '', { is_public: isPublic }, { showSuccessToast: true, refreshItems: false });
+  };
+
   return {
     title,
     description,
@@ -144,5 +151,6 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     handleTagsChange,
     handleMediaChange,
     handleImageStateChange,
+    handlePublicToggle,
   };
 };
