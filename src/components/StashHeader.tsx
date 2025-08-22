@@ -22,9 +22,10 @@ interface StashHeaderProps {
   onTagFilterChange: (tags: string[]) => void;
   showStickyNotes?: boolean;
   onStickyNotesToggle?: (show: boolean) => void;
+  onFilterPanelToggle?: (isOpen: boolean) => void;
 }
 
-const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, selectedTags, onTagFilterChange, showStickyNotes = true, onStickyNotesToggle }: StashHeaderProps) => {
+const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, selectedTags, onTagFilterChange, showStickyNotes = true, onStickyNotesToggle, onFilterPanelToggle }: StashHeaderProps) => {
   const [showTagFilter, setShowTagFilter] = useState(false);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const { user } = useAuth();
@@ -72,6 +73,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
   const handleHideFilter = () => {
     setShowTagFilter(false);
     onTagFilterChange([]);
+    onFilterPanelToggle?.(false);
   };
 
   return (
@@ -80,7 +82,11 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setShowTagFilter(!showTagFilter)}
+          onClick={() => {
+            const newState = !showTagFilter;
+            setShowTagFilter(newState);
+            onFilterPanelToggle?.(newState);
+          }}
           className="flex items-center gap-2 relative z-50"
         >
           <Filter className="h-4 w-4" />

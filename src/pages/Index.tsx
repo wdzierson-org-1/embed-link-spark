@@ -39,6 +39,7 @@ const Index = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [showStickyNotes, setShowStickyNotes] = useState(true);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
@@ -139,6 +140,8 @@ const Index = () => {
         onTagFilterChange={handleTagFilterChange}
         showStickyNotes={showStickyNotes}
         onStickyNotesToggle={setShowStickyNotes}
+        isFilterPanelOpen={isFilterPanelOpen}
+        onFilterPanelToggle={setIsFilterPanelOpen}
       />
       
       <main className="container mx-auto px-4 pb-8 bg-white">
