@@ -56,7 +56,7 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
           </div>
         )}
         
-        {item.content && (
+        {item.content && item.type !== 'audio' && (
           <p className="text-muted-foreground text-sm line-clamp-3">
             {item.content}
           </p>
