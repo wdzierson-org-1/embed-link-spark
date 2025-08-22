@@ -2,7 +2,8 @@
 
 @font-face {
   font-family: 'PPEditorialNew-Regular';
-  src: url('https://hwcmwcxvjclqaqsxffzf.supabase.co/storage/v1/object/public/new_fonts/PPEditorialNew-Regular.woff2') format('woff2');
+  src: url('https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/fonts/PPEditorialNew-Regular.woff2') format('woff2'),
+       url('https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/fonts/PPEditorialNew-Regular.woff') format('woff');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
@@ -10,7 +11,8 @@
 
 @font-face {
   font-family: 'PPMori-Regular';
-  src: url('https://hwcmwcxvjclqaqsxffzf.supabase.co/storage/v1/object/public/new_fonts/PPMori-Regular.woff2') format('woff2');
+  src: url('https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/fonts/PPMori-Regular.woff2') format('woff2'),
+       url('https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/fonts/PPMori-Regular.woff') format('woff');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
