@@ -81,7 +81,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
           variant="ghost"
           size="sm"
           onClick={() => setShowTagFilter(!showTagFilter)}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 relative z-50"
         >
           <Filter className="h-4 w-4" />
           <span className="hidden sm:inline">Filter by tag</span>
@@ -90,7 +90,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
       </div>
 
       {showTagFilter && (
-        <div className="bg-gray-50 border rounded-lg p-4 mt-3 w-full">
+        <div className="bg-gray-50 border rounded-lg p-4 mt-3 w-full relative z-40">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium">Filter by tags</h3>
             <Button

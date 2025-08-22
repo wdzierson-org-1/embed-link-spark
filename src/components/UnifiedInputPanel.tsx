@@ -169,9 +169,12 @@ const UnifiedInputPanel = ({
 
       // Case 1: Only a single link, no text, no other items -> Individual link item
       if (linkItems.length === 1 && !hasText && mediaItems.length === 0) {
+        const linkItem = linkItems[0];
         await onAddContent('link', {
-          url: linkItems[0].content.url,
-          ogData: linkItems[0].ogData,
+          url: linkItem.content.url,
+          title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
+          description: linkItem.ogData?.description,
+          ogData: linkItem.ogData,
           type: 'link'
         });
       }
@@ -211,9 +214,9 @@ const UnifiedInputPanel = ({
           });
         }
 
-        await onAddContent('text', {
+        await onAddContent('collection', {
           content: hasText || '',
-          type: 'text',
+          type: 'collection',
           attachments: attachments
         });
       }

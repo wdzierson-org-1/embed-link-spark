@@ -5,6 +5,7 @@ import EditItemDescriptionSection from '@/components/EditItemDescriptionSection'
 import EditItemImageSection from '@/components/EditItemImageSection';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
 import EditItemDialogMedia from '@/components/EditItemDialogMedia';
+import CollectionAttachments from '@/components/CollectionAttachments';
 
 interface ContentItem {
   id: string;
@@ -71,6 +72,16 @@ const EditItemDialogContent = ({
         onRemoveMedia={onRemoveMedia}
       />
 
+      {/* Collection Attachments Section */}
+      {item.type === 'collection' && (
+        <div className="space-y-4">
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-semibold mb-3">Collection Items</h3>
+            <CollectionAttachments itemId={item.id} maxDisplay={undefined} />
+          </div>
+        </div>
+      )}
+
       {item.type === 'image' && (
         <EditItemImageSection
           itemId={item.id}
@@ -80,7 +91,7 @@ const EditItemDialogContent = ({
         />
       )}
 
-      {(item.type === 'text' || item.type === 'link') && (
+      {(item.type === 'text' || item.type === 'link' || item.type === 'collection') && (
         <EditItemContentEditor
           content={content}
           onContentChange={onContentChange}

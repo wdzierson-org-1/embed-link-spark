@@ -44,7 +44,7 @@ export const processAndInsertContent = async (
   console.log('Processing content:', { type, data, userId, sessionValid });
   
   // Handle collection type with attachments
-  if (type === 'text' && data.attachments && data.attachments.length > 0) {
+  if (type === 'collection' && data.attachments && data.attachments.length > 0) {
     return await processCollection(data, userId, sessionValid, fetchItems, showToast, clearSkeletonItems);
   }
   

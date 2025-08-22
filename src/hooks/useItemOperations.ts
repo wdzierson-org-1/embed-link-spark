@@ -42,6 +42,17 @@ export const useItemOperations = (
     }
 
     try {
+      // Create and add optimistic item for immediate feedback
+      const skeletonData = {
+        title: data.title || (type === 'collection' ? 'Collection' : 'New Item'),
+        file: data.file
+      };
+      const skeletonItem = createSkeletonItem(type, skeletonData, user.id);
+      
+      if (addOptimisticItem) {
+        addOptimisticItem(skeletonItem);
+      }
+
       await processAndInsertContent(
         type, 
         data, 
@@ -59,6 +70,11 @@ export const useItemOperations = (
 
     } catch (error: any) {
       console.error('Error in handleAddContent:', error);
+      
+      // Clear skeleton items on error
+      if (clearSkeletonItems) {
+        clearSkeletonItems();
+      }
       
       // Provide more specific error messages
       let errorMessage = "Failed to add content";

@@ -45,7 +45,7 @@ const SearchSection = ({
                 variant="outline"
                 size="sm"
                 onClick={onSearchClick}
-                className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50 transition-all duration-200 shrink-0"
+                className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50 transition-all duration-200 shrink-0 relative z-50"
               >
                 <Search className="h-4 w-4" />
                 <span className="hidden sm:inline">Search notes</span>
@@ -78,7 +78,7 @@ const SearchSection = ({
               variant="outline"
               size="sm"
               onClick={onShowGlobalChat}
-              className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50 transition-all duration-200 shrink-0"
+              className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50 transition-all duration-200 shrink-0 relative z-50"
             >
               <MessageSquare className="h-4 w-4" />
               <span className="hidden sm:inline">Stash assistant</span>
