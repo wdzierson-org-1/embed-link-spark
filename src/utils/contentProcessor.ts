@@ -75,12 +75,58 @@ export const processAndInsertContent = async (
     title = await generateTitle(data.content, type);
   }
 
-  // Use provided description or generate AI description
+  // Handle media processing and AI description generation
   let aiDescription = data.description;
+  let transcription = '';
   
   if (!aiDescription && !data.isProcessing) {
-    console.log('processAndInsertContent: No description provided, generating AI description');
-    aiDescription = await generateDescription(type, data);
+    console.log('processAndInsertContent: Processing media and generating AI description');
+    
+    // Handle audio transcription
+    if (type === 'audio' && (filePath || data.uploadedFilePath)) {
+      try {
+        const audioPath = filePath || data.uploadedFilePath;
+        const { data: audioUrl } = supabase.storage.from('stash-media').getPublicUrl(audioPath);
+        
+        const { data: transcriptionResult, error: transcriptionError } = await supabase.functions.invoke('transcribe-audio', {
+          body: {
+            audioUrl: audioUrl.publicUrl,
+            fileName: data.file?.name || 'audio.webm'
+          }
+        });
+
+        if (transcriptionError) {
+          console.error('Audio transcription failed:', transcriptionError);
+          aiDescription = 'Audio file uploaded but transcription failed';
+        } else {
+          transcription = transcriptionResult.transcription || '';
+          aiDescription = transcriptionResult.description || 'Audio transcription available';
+          console.log('Audio transcribed successfully:', { transcription: transcription.substring(0, 100) + '...' });
+        }
+      } catch (error) {
+        console.error('Audio processing error:', error);
+        aiDescription = 'Audio file uploaded but processing failed';
+      }
+    }
+    // Handle image description with proper URL
+    else if (type === 'image' && (filePath || data.uploadedFilePath)) {
+      try {
+        const imagePath = filePath || data.uploadedFilePath;
+        const { data: imageUrl } = supabase.storage.from('stash-media').getPublicUrl(imagePath);
+        
+        const imageData = { ...data, fileData: imageUrl.publicUrl };
+        aiDescription = await generateDescription(type, imageData);
+        console.log('Image described successfully:', aiDescription);
+      } catch (error) {
+        console.error('Image description error:', error);
+        aiDescription = 'Image uploaded but description failed';
+      }
+    }
+    // Handle other content types
+    else {
+      aiDescription = await generateDescription(type, data);
+    }
+    
     console.log('processAndInsertContent: Generated AI description:', aiDescription);
   } else if (data.isProcessing) {
     aiDescription = "PDF file uploaded - text extraction in progress";
@@ -89,11 +135,12 @@ export const processAndInsertContent = async (
   }
 
   // Prepare the item data - for links, store clean structured data
+  const itemContent = transcription || data.content; // Use transcription for audio files
   const itemData = {
     user_id: userId,
     type: type as ItemType,
     title: title || data.title,
-    content: data.content, // For links, this should be empty initially (user notes)
+    content: itemContent, // Use transcription for audio, original content for others
     description: aiDescription || null,
     url: data.url,
     file_path: filePath || data.uploadedFilePath,
@@ -133,10 +180,10 @@ export const processAndInsertContent = async (
       }
     }, 3000);
   } else {
-    // Generate embeddings for textual content
+    // Generate embeddings for textual content (including transcriptions and descriptions)
     const textForEmbedding = [
       title || data.title,
-      data.content,
+      transcription || data.content, // Use transcription for audio files
       aiDescription,
       data.url
     ].filter(Boolean).join(' ');
