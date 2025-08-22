@@ -83,6 +83,13 @@ export const createSkeletonItem = (
     created_at: new Date().toISOString(),
     isOptimistic: true,
     showSkeleton: true,
-    showProgress: loadingState.showProgress
+    showProgress: loadingState.showProgress,
+    skeletonProps: {
+      title: loadingState.title,
+      description: loadingState.description,
+      type: type,
+      fileSize: data.file?.size,
+      showProgress: loadingState.showProgress
+    }
   };
 };

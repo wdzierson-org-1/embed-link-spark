@@ -39,6 +39,7 @@ const UnifiedInputPanel = ({
   const [inputText, setInputText] = useState('');
   const [inputItems, setInputItems] = useState<InputItem[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
@@ -162,11 +163,24 @@ const UnifiedInputPanel = ({
 
   const handleSubmit = async () => {
     if (!inputText.trim() && inputItems.length === 0) return;
+    
+    setIsSubmitting(true);
+    
+    // Clear the form immediately for better UX
+    const textToProcess = inputText;
+    const itemsToProcess = [...inputItems];
+    setInputText('');
+    setInputItems([]);
+    
+    // Auto-collapse the input panel after submission to free up space
+    if (!isInputUICollapsed) {
+      onToggleInputUI();
+    }
 
     try {
-      const hasText = inputText.trim();
-      const linkItems = inputItems.filter(item => item.type === 'link');
-      const mediaItems = inputItems.filter(item => item.type !== 'link');
+      const hasText = textToProcess.trim();
+      const linkItems = itemsToProcess.filter(item => item.type === 'link');
+      const mediaItems = itemsToProcess.filter(item => item.type !== 'link');
 
       // Case 1: Only a single link, no text, no other items -> Individual link item
       if (linkItems.length === 1 && !hasText && mediaItems.length === 0) {
@@ -230,16 +244,23 @@ const UnifiedInputPanel = ({
         });
       }
 
-      // Clear the form immediately after submission
-      setInputText('');
-      setInputItems([]);
     } catch (error) {
+      // Restore the form data on error
+      setInputText(textToProcess);
+      setInputItems(itemsToProcess);
+      
+      // Re-expand input panel on error
+      if (isInputUICollapsed) {
+        onToggleInputUI();
+      }
       console.error('Error adding content:', error);
       toast({
         title: "Error",
         description: "Failed to add content. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -319,11 +340,20 @@ const UnifiedInputPanel = ({
                   
                   <Button 
                     onClick={handleSubmit}
-                    disabled={!inputText.trim() && inputItems.length === 0}
+                    disabled={(!inputText.trim() && inputItems.length === 0) || isSubmitting}
                     className="gap-2"
                   >
-                    <Send className="h-4 w-4" />
-                    Add to Stash
+                    {isSubmitting ? (
+                      <>
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        Adding...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4" />
+                        Add to Stash
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

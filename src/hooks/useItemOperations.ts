@@ -63,10 +63,8 @@ export const useItemOperations = (
         clearSkeletonItems
       );
 
-      toast({
-        title: "Success",
-        description: "Content added to your stash!",
-      });
+      // Success toast will be shown when skeleton is replaced with real item
+      // This prevents duplicate success messages
 
     } catch (error: any) {
       console.error('Error in handleAddContent:', error);
