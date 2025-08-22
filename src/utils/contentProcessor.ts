@@ -260,13 +260,14 @@ const processCollection = async (
   console.log('Collection inserted successfully:', insertedItem);
 
   // Process and insert attachments
+  let processedAttachments = [];
   if (data.attachments && data.attachments.length > 0) {
-    await processAttachments(insertedItem.id, data.attachments, userId);
+    processedAttachments = await processAttachments(insertedItem.id, data.attachments, userId);
   }
 
   await fetchItems();
 
-  // Generate embeddings for collection content (run in background)
+  // Generate embeddings for collection content including AI-processed attachments (run in background)
   setTimeout(async () => {
     try {
       let embeddingContent = data.content || '';
@@ -278,6 +279,16 @@ const processCollection = async (
           .filter(text => text.trim())
           .join(' ');
         embeddingContent += ' ' + attachmentTexts;
+      }
+
+      // Include AI-processed content from attachments
+      const aiProcessedContent = processedAttachments
+        .map(att => att.metadata?.processedContent || '')
+        .filter(content => content.trim())
+        .join(' ');
+      
+      if (aiProcessedContent) {
+        embeddingContent += ' ' + aiProcessedContent;
       }
 
       if (embeddingContent.trim()) {
@@ -296,8 +307,9 @@ const processAttachments = async (
   itemId: string,
   attachments: any[],
   userId: string
-): Promise<void> => {
+): Promise<any[]> => {
   console.log('Processing attachments for item:', itemId);
+  const processedAttachments = [];
 
   for (const attachment of attachments) {
     try {
@@ -321,20 +333,44 @@ const processAttachments = async (
           attachmentData.file_path = uploadResult;
           attachmentData.file_size = attachment.size;
           attachmentData.mime_type = attachment.fileType;
+
+          // Process media with AI for better descriptions
+          const { processMediaAttachment } = await import('./mediaProcessor');
+          const mediaResult = await processMediaAttachment(
+            uploadResult,
+            attachment.type,
+            attachment.name || attachment.title
+          );
+
+          // Update with AI-processed content
+          if (mediaResult.title) attachmentData.title = mediaResult.title;
+          if (mediaResult.description) attachmentData.description = mediaResult.description;
+          
+          attachmentData.metadata = {
+            ...attachmentData.metadata,
+            originalName: attachment.name || attachment.title,
+            aiProcessed: true,
+            processedContent: mediaResult.content
+          };
         }
       }
 
-      const { error } = await supabase
+      const { data: insertedAttachment, error } = await supabase
         .from('item_attachments')
-        .insert(attachmentData);
+        .insert(attachmentData)
+        .select()
+        .single();
 
       if (error) {
         console.error('Error inserting attachment:', error);
       } else {
         console.log('Attachment inserted successfully:', attachmentData.title);
+        processedAttachments.push(insertedAttachment);
       }
     } catch (error) {
       console.error('Error processing attachment:', error);
     }
   }
+
+  return processedAttachments;
 };

@@ -197,7 +197,7 @@ const ContentItem = ({
 
   return (
     <TooltipProvider>
-      <Card className="group flex flex-col h-full bg-gray-50 border border-gray-200 hover:shadow-md transition-all duration-200 relative rounded-lg">
+      <Card className="group flex flex-col h-full bg-card border-border hover:shadow-md transition-all duration-200 relative rounded-lg overflow-hidden">
         {/* Note Overlay */}
         {renderNoteOverlay()}
         

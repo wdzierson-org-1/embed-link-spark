@@ -111,8 +111,14 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false }: Coll
               {attachment.title || 'Untitled'}
             </div>
             {attachment.description && (
-              <div className="text-xs text-muted-foreground line-clamp-1">
+              <div className="text-xs text-muted-foreground line-clamp-2 leading-relaxed max-w-64">
                 {attachment.description}
+              </div>
+            )}
+            {attachment.metadata?.aiProcessed && (
+              <div className="text-xs text-blue-600 font-medium mt-1 flex items-center gap-1">
+                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></div>
+                AI Enhanced
               </div>
             )}
             {attachment.file_size && (
