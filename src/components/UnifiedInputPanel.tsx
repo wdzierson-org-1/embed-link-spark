@@ -96,7 +96,8 @@ const UnifiedInputPanel = ({
             }
           });
           
-          // Keep the URL in the text for display
+          // Remove the URL from the input text after creating the chip
+          setInputText(prev => prev.replace(url, '').trim());
         }
       }
     }
@@ -174,6 +175,7 @@ const UnifiedInputPanel = ({
           url: linkItem.content.url,
           title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
           description: linkItem.ogData?.description,
+          previewImagePath: linkItem.ogData?.image,
           ogData: linkItem.ogData,
           type: 'link'
         });
