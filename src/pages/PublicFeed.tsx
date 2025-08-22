@@ -183,6 +183,16 @@ export const PublicFeed = () => {
     setSelectedCommentItem(itemId);
   };
 
+  const handleCommentAdded = (itemId: string, newCommentCount: number) => {
+    // Update the comment count in both allItems and displayedItems
+    setAllItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, comment_count: newCommentCount } : item
+    ));
+    setDisplayedItems(prev => prev.map(item => 
+      item.id === itemId ? { ...item, comment_count: newCommentCount } : item
+    ));
+  };
+
   if (loading && !data) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -308,6 +318,7 @@ export const PublicFeed = () => {
         isOpen={!!selectedCommentItem}
         onClose={() => setSelectedCommentItem(null)}
         isOwner={isOwner}
+        onCommentAdded={handleCommentAdded}
       />
     </div>
   );

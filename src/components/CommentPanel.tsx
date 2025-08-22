@@ -27,9 +27,10 @@ interface CommentPanelProps {
   isOpen: boolean;
   onClose: () => void;
   isOwner?: boolean;
+  onCommentAdded?: (itemId: string, newCommentCount: number) => void;
 }
 
-export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelProps) => {
+export const CommentPanel = ({ itemId, isOpen, onClose, isOwner, onCommentAdded }: CommentPanelProps) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(false);
@@ -135,6 +136,12 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
 
       setComments(prev => [...prev, data.comment]);
       setNewComment('');
+      
+      // Notify parent of new comment count
+      if (onCommentAdded) {
+        onCommentAdded(itemId, comments.length + 1);
+      }
+      
       toast({
         title: 'Success',
         description: 'Comment posted successfully',

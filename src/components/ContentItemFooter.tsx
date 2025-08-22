@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
 
 interface ContentItem {
   id: string;
@@ -80,32 +81,20 @@ const ContentItemFooter = ({
   return (
     <div className="flex items-center justify-between mt-auto">
       <div className="flex items-center gap-2">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground whitespace-nowrap">
           {format(new Date(item.created_at), 'MMM d, yyyy')}
         </p>
       </div>
       
       <div className="flex items-center gap-2">
-        {/* Comment count button for public view */}
-        {isPublicView && onCommentClick && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onCommentClick(item.id)}
-            className="h-8 px-2 text-muted-foreground hover:text-foreground"
-          >
-            <MessageCircle className="h-4 w-4 mr-1" />
-            <span className="text-sm">{item.comment_count || 0}</span>
-          </Button>
-        )}
         
-        {/* Type badge - hidden by default, shown on hover with purple background */}
-        <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-          <Badge variant="purple">
-            {getIcon(item.type)}
-            <span className="ml-1 capitalize">{item.type === 'document' ? 'Document' : item.type}</span>
-          </Badge>
-        </div>
+        {/* Comment count with animation */}
+        {isPublicView && onCommentClick && (
+          <AnimatedCommentCount 
+            count={item.comment_count || 0}
+            onCommentClick={() => onCommentClick(item.id)}
+          />
+        )}
         
         {/* Menu dropdown */}
         <DropdownMenu>
