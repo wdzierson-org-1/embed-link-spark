@@ -96,8 +96,7 @@ const UnifiedInputPanel = ({
             }
           });
           
-          // Remove URL from text
-          setInputText(prev => prev.replace(url, '').trim());
+          // Keep the URL in the text for display
         }
       }
     }
@@ -207,9 +206,9 @@ const UnifiedInputPanel = ({
 
   return (
     <div className="w-full relative">
-      {/* Animated gradient background */}
-      <div className="absolute inset-0 animated-gradient opacity-30" />
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/50 to-transparent" />
+      {/* Extended animated gradient background */}
+      <div className="absolute inset-0 h-[200vh] animated-gradient opacity-30" />
+      <div className="absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
       
       <div className="relative pt-8 pb-8">
         <div className="container mx-auto px-4">
@@ -240,7 +239,7 @@ const UnifiedInputPanel = ({
                   value={inputText}
                   onChange={handleInputChange}
                   placeholder="What's on your mind? Drop files, paste links, or just start typing..."
-                  className="min-h-[100px] resize-none border-0 bg-transparent focus:ring-0 focus:border-0 text-base pr-10"
+                  className="min-h-[100px] resize-none border-0 bg-transparent focus:ring-0 focus:border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-base pr-10"
                 />
                 
                 {/* Input chips */}
@@ -294,15 +293,15 @@ const UnifiedInputPanel = ({
             {/* Collapsed state - show expand button */}
             {isInputUICollapsed && (
               <div className="p-4 flex justify-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onToggleInputUI}
-                  className="flex items-center gap-1"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                  Expand
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onToggleInputUI}
+                    className="flex items-center gap-1"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add something
+                  </Button>
               </div>
             )}
           </div>

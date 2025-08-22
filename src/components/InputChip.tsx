@@ -70,12 +70,16 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
       case 'image':
         return (
           <div className="flex items-center gap-3">
-            {content.file && (
+            {content.file ? (
               <img 
                 src={URL.createObjectURL(content.file)} 
                 alt="" 
                 className="w-10 h-10 rounded object-cover" 
               />
+            ) : (
+              <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+                <Image className="h-5 w-5 text-muted-foreground" />
+              </div>
             )}
             <div>
               <span className="text-sm font-medium truncate max-w-[150px] block">{content.name}</span>
@@ -91,13 +95,20 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
       case 'audio':
       case 'file':
         return (
-          <div className="flex items-center gap-2">
-            <span className="truncate max-w-[150px]">{content.name}</span>
-            {content.size && (
-              <span className="text-xs text-muted-foreground">
-                {(content.size / 1024 / 1024).toFixed(1)} MB
-              </span>
-            )}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
+              {type === 'video' && <Video className="h-5 w-5 text-muted-foreground" />}
+              {type === 'audio' && <FileAudio className="h-5 w-5 text-muted-foreground" />}
+              {type === 'file' && <File className="h-5 w-5 text-muted-foreground" />}
+            </div>
+            <div>
+              <span className="text-sm font-medium truncate max-w-[150px] block">{content.name}</span>
+              {content.size && (
+                <span className="text-xs text-muted-foreground">
+                  {(content.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+              )}
+            </div>
           </div>
         );
       default:
@@ -107,7 +118,7 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
 
   return (
     <div className="flex items-center gap-2 bg-white border border-border rounded-lg px-3 py-2 shadow-sm max-w-fit">
-      {!ogData?.image && getIcon()}
+      {!ogData?.image && !content.file && getIcon()}
       {getDisplayContent()}
       <Button
         variant="ghost"
