@@ -189,7 +189,14 @@ const UnifiedInputPanel = ({
           type: mediaItem.type
         });
       }
-      // Case 3: Multiple items OR text with any items -> Collection
+      // Case 3: Only text, no attachments -> Text note
+      else if (hasText && linkItems.length === 0 && mediaItems.length === 0) {
+        await onAddContent('text', {
+          content: hasText,
+          type: 'text'
+        });
+      }
+      // Case 4: Multiple items OR text with any items -> Collection
       else {
         const attachments = [];
         
@@ -223,14 +230,9 @@ const UnifiedInputPanel = ({
         });
       }
 
-      // Clear the form
+      // Clear the form immediately after submission
       setInputText('');
       setInputItems([]);
-      
-      toast({
-        title: "Content added",
-        description: "Your content has been added to your stash.",
-      });
     } catch (error) {
       console.error('Error adding content:', error);
       toast({

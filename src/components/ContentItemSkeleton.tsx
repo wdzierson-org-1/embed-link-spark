@@ -2,8 +2,13 @@
 import React from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 
-const ContentItemSkeleton = () => {
+interface ContentItemSkeletonProps {
+  showProgress?: boolean;
+}
+
+const ContentItemSkeleton = ({ showProgress = false }: ContentItemSkeletonProps) => {
   return (
     <Card className="group flex flex-col h-full">
       <CardHeader className="pb-3">
@@ -17,6 +22,17 @@ const ContentItemSkeleton = () => {
       <CardContent className="flex flex-col flex-1">
         <div className="flex-1">
           <Skeleton className="w-full h-32 rounded-md mb-3" />
+          
+          {/* Progress indicator for large files */}
+          {showProgress && (
+            <div className="mb-3">
+              <Progress value={undefined} className="h-2" />
+              <div className="text-xs text-muted-foreground mt-1">
+                Processing...
+              </div>
+            </div>
+          )}
+          
           <Skeleton className="h-4 w-full mb-2" />
           <Skeleton className="h-4 w-2/3 mb-2" />
           <div className="mb-2">
