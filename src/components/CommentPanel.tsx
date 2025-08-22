@@ -265,45 +265,47 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner }: CommentPanelP
       {/* Comment Form */}
       {commentsEnabled && (
         <div className="border-t p-4">
-          <form onSubmit={handleSubmitComment} className="space-y-3">
-            <Textarea
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder={user ? "Write a comment..." : "Write a comment (posting anonymously)..."}
-              className="min-h-[80px] resize-none"
-              disabled={loading}
-              maxLength={1000}
-            />
-            <div className="flex justify-between items-center">
-              <div className="flex flex-col">
+          {user ? (
+            <form onSubmit={handleSubmitComment} className="space-y-3">
+              <Textarea
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Write a comment..."
+                className="min-h-[80px] resize-none"
+                disabled={loading}
+                maxLength={1000}
+              />
+              <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">
                   {1000 - newComment.length} characters remaining
                 </span>
-                {!user && (
-                  <span className="text-xs text-muted-foreground mt-1">
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        const currentUrl = window.location.pathname + window.location.search;
-                        window.location.href = `/auth?mode=signup&returnTo=${encodeURIComponent(currentUrl)}&commentItem=${itemId}`;
-                      }}
-                      className="text-primary hover:underline"
-                    >
-                      Sign up to comment
-                    </button>
-                  </span>
-                )}
+                <Button 
+                  type="submit" 
+                  size="sm"
+                  disabled={!newComment.trim() || loading}
+                >
+                  <Send className="h-4 w-4 mr-1" />
+                  {loading ? 'Posting...' : 'Post'}
+                </Button>
               </div>
-              <Button 
-                type="submit" 
-                size="sm"
-                disabled={!newComment.trim() || loading}
-              >
-                <Send className="h-4 w-4 mr-1" />
-                {loading ? 'Posting...' : 'Post'}
-              </Button>
+            </form>
+          ) : (
+            <div className="text-center py-6 px-4">
+              <p className="text-muted-foreground mb-3">
+                You need to have a Stash account to comment.{' '}
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const currentUrl = window.location.pathname + window.location.search;
+                    window.location.href = `/auth?mode=signup&returnTo=${encodeURIComponent(currentUrl)}&commentItem=${itemId}`;
+                  }}
+                  className="text-primary hover:underline font-medium"
+                >
+                  Click here to sign up.
+                </button>
+              </p>
             </div>
-          </form>
+          )}
         </div>
       )}
     </div>

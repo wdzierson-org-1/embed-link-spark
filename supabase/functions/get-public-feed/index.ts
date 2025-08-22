@@ -56,10 +56,13 @@ serve(async (req) => {
       });
     }
 
-    // Build query for public items
+    // Build query for public items with comment counts
     let query = supabase
       .from('items')
-      .select('*')
+      .select(`
+        *,
+        comment_count:comments(count)
+      `)
       .eq('user_id', profile.id)
       .eq('is_public', true);
 
@@ -92,6 +95,12 @@ serve(async (req) => {
 
     console.log(`Found ${items?.length || 0} public items for ${username}`);
 
+    // Process items to include comment counts
+    const processedItems = (items || []).map(item => ({
+      ...item,
+      comment_count: item.comment_count?.[0]?.count || 0
+    }));
+
     return new Response(JSON.stringify({
       profile: {
         username: profile.username,
@@ -99,7 +108,7 @@ serve(async (req) => {
         bio: profile.bio,
         avatar_url: profile.avatar_url
       },
-      items: items || [],
+      items: processedItems,
       pagination: {
         offset,
         limit,

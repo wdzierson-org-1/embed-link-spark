@@ -16,6 +16,7 @@ interface ContentItem {
   created_at: string;
   is_public?: boolean;
   user_id?: string;
+  comment_count?: number;
 }
 
 interface ContentItemFooterProps {
@@ -85,6 +86,19 @@ const ContentItemFooter = ({
       </div>
       
       <div className="flex items-center gap-2">
+        {/* Comment count button for public view */}
+        {isPublicView && onCommentClick && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onCommentClick(item.id)}
+            className="h-8 px-2 text-muted-foreground hover:text-foreground"
+          >
+            <MessageCircle className="h-4 w-4 mr-1" />
+            <span className="text-sm">{item.comment_count || 0}</span>
+          </Button>
+        )}
+        
         {/* Type badge - hidden by default, shown on hover with purple background */}
         <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
           <Badge variant="purple">

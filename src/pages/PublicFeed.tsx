@@ -32,6 +32,7 @@ interface PublicItem {
   is_public?: boolean;
   user_id?: string;
   comments_enabled?: boolean;
+  comment_count?: number;
 }
 
 interface PublicFeedData {
