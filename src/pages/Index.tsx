@@ -114,7 +114,7 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-white">
       <HeaderSection 
         user={user}
         onShowSettings={() => setShowSettings(true)}
