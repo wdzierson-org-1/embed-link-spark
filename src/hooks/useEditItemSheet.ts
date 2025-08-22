@@ -125,7 +125,7 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
   // Public toggle handler
   const handlePublicToggle = (isPublic: boolean) => {
     // Immediate save for public toggle
-    onSave(item?.id || '', { is_public: isPublic }, { showSuccessToast: true, refreshItems: false });
+    onSave(item?.id || '', { is_public: isPublic }, { showSuccessToast: true, refreshItems: true });
   };
 
   return {
