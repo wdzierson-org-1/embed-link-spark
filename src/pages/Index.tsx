@@ -6,7 +6,7 @@ import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
 import HeaderSection from '@/components/HeaderSection';
-import InputSection from '@/components/InputSection';
+import UnifiedInputPanel from '@/components/UnifiedInputPanel';
 import SearchSection from '@/components/SearchSection';
 import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
@@ -35,7 +35,7 @@ const Index = () => {
     const isWebKit = /WebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
     return isWebKit;
   });
-  const [activeTab, setActiveTab] = useState('text');
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [showStickyNotes, setShowStickyNotes] = useState(true);
@@ -68,12 +68,6 @@ const Index = () => {
     setSelectedTags(tags);
   };
 
-  const handleTabChange = (value) => {
-    setActiveTab(value);
-    if (isInputUICollapsed) {
-      setIsInputUICollapsed(false);
-    }
-  };
 
   const toggleInputUI = () => {
     setIsInputUICollapsed(!isInputUICollapsed);
@@ -125,10 +119,8 @@ const Index = () => {
         onShowSettings={() => setShowSettings(true)}
       />
 
-      <InputSection
-        activeTab={activeTab}
+      <UnifiedInputPanel
         isInputUICollapsed={isInputUICollapsed}
-        onTabChange={handleTabChange}
         onToggleInputUI={toggleInputUI}
         onAddContent={handleAddContent}
         getSuggestedTags={getSuggestedTags}
