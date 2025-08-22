@@ -84,8 +84,9 @@ const PhoneNumberSetup = () => {
         <div className="flex items-start gap-3">
           <MessageCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-blue-800 dark:text-blue-200">
-            <p className="font-medium mb-2">How to use SMS/WhatsApp:</p>
+            <p className="font-medium mb-2">How to use WhatsApp:</p>
             <ul className="list-disc list-inside space-y-1 text-xs">
+              <li>After you've registered your phone number, send notes to (229) 466-6353</li>
               <li>Send notes: "remember to call Dr. Green"</li>
               <li>Ask questions: "what did I save about meetings?"</li>
               <li>Send images and audio for processing</li>
