@@ -81,6 +81,22 @@ const EditItemDetailsTab = ({
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
 
+  // Local state for immediate UI feedback
+  const [localIsPublic, setLocalIsPublic] = React.useState(item?.is_public || false);
+
+  // Update local state when item changes
+  React.useEffect(() => {
+    setLocalIsPublic(item?.is_public || false);
+  }, [item?.is_public]);
+
+  // Public toggle handler
+  const handlePublicToggle = (isPublic: boolean) => {
+    // Update local state immediately for UI feedback
+    setLocalIsPublic(isPublic);
+    // Save to backend
+    onPublicToggle(isPublic);
+  };
+
   // Enhanced mobile editor initialization fix
   useEffect(() => {
     if (isMobile && !isContentLoading) {
@@ -247,25 +263,25 @@ const EditItemDetailsTab = ({
         <label className="text-sm font-medium text-muted-foreground">Visibility</label>
         <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
           <div className="flex items-center space-x-3">
-            {item?.is_public ? (
+            {localIsPublic ? (
               <Globe className="h-4 w-4 text-green-600" />
             ) : (
               <Lock className="h-4 w-4 text-muted-foreground" />
             )}
             <div>
               <div className="text-sm font-medium">
-                {item?.is_public ? 'Public Feed' : 'Private'}
+                {localIsPublic ? 'Public Feed' : 'Private'}
               </div>
               <div className="text-xs text-muted-foreground">
-                {item?.is_public 
+                {localIsPublic 
                   ? 'This item is visible in your public feed' 
                   : 'This item is only visible to you'}
               </div>
             </div>
           </div>
           <Switch
-            checked={item?.is_public || false}
-            onCheckedChange={onPublicToggle}
+            checked={localIsPublic}
+            onCheckedChange={handlePublicToggle}
           />
         </div>
       </div>
