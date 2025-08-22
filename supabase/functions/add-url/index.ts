@@ -90,6 +90,91 @@ const downloadAndStoreImage = async (imageUrl: string, userId: string, supabase:
   }
 };
 
+// Parse tags from content and return cleaned content + extracted tags
+const parseTagsFromContent = (content: string | null): { cleanedContent: string | null, tags: string[] } => {
+  if (!content) return { cleanedContent: content, tags: [] };
+  
+  // Look for "tags:" followed by tag names (case-insensitive)
+  const tagsRegex = /\btags:\s*([^]*?)(?:\s*$|$)/i;
+  const match = content.match(tagsRegex);
+  
+  if (!match) return { cleanedContent: content, tags: [] };
+  
+  // Extract and clean tags
+  const tagString = match[1].trim();
+  const tags = tagString
+    .split(/\s+/)
+    .map(tag => tag.toLowerCase().trim())
+    .filter(tag => tag.length > 0 && tag !== 'tags:');
+  
+  // Remove the tags portion from the content
+  const cleanedContent = content.replace(tagsRegex, '').trim();
+  
+  return { 
+    cleanedContent: cleanedContent || null, 
+    tags 
+  };
+};
+
+// Add tags to an item using the existing tag infrastructure
+const addTagsToItem = async (itemId: string, tagNames: string[], userId: string, supabase: any): Promise<void> => {
+  if (tagNames.length === 0) return;
+  
+  console.log('Adding tags to item:', { itemId, tagNames });
+  
+  for (const tagName of tagNames) {
+    try {
+      // Use the increment_tag_usage function to create or update tag
+      const { data: tagId, error: tagError } = await supabase
+        .rpc('increment_tag_usage', {
+          tag_name: tagName,
+          user_uuid: userId
+        });
+
+      if (tagError) {
+        console.error('Error creating/updating tag:', tagError);
+        continue;
+      }
+
+      console.log('Tag created/updated:', { tagName, tagId });
+
+      // Check if the relationship already exists
+      const { data: existingRelation, error: checkError } = await supabase
+        .from('item_tags')
+        .select('id')
+        .eq('item_id', itemId)
+        .eq('tag_id', tagId)
+        .single();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Error checking existing relation:', checkError);
+        continue;
+      }
+
+      // Only create the relationship if it doesn't exist
+      if (!existingRelation) {
+        const { error: relationError } = await supabase
+          .from('item_tags')
+          .insert({
+            item_id: itemId,
+            tag_id: tagId
+          });
+
+        if (relationError) {
+          console.error('Error creating item-tag relation:', relationError);
+          continue;
+        }
+
+        console.log('Item-tag relation created:', { itemId, tagId, tagName });
+      } else {
+        console.log('Item-tag relation already exists:', { itemId, tagId, tagName });
+      }
+    } catch (error) {
+      console.error('Exception while adding tag:', tagName, error);
+    }
+  }
+};
+
 Deno.serve(async (req) => {
   console.log('Add URL function called');
 
@@ -195,7 +280,15 @@ Deno.serve(async (req) => {
     const finalTitle = customTitle || metadata.title || url;
     const finalDescription = metadata.description || `Link from ${metadata.siteName || new URL(url).hostname}`;
 
-    // Insert the link into the items table
+    // Parse tags from content fields and get cleaned content
+    const messageResult = parseTagsFromContent(message);
+    const supplementalResult = parseTagsFromContent(supplemental_note || userNotes);
+    
+    // Combine tags from both fields and remove duplicates
+    const allTags = [...new Set([...messageResult.tags, ...supplementalResult.tags])];
+    console.log('Extracted tags:', allTags);
+
+    // Insert the link into the items table with cleaned content
     const { data: item, error } = await supabase
       .from('items')
       .insert({
@@ -203,8 +296,8 @@ Deno.serve(async (req) => {
         type: 'link',
         url: url,
         title: finalTitle,
-        content: message || null, // User's message about the link
-        supplemental_note: supplemental_note || userNotes || null, // Sticky note content
+        content: messageResult.cleanedContent, // Cleaned user's message about the link
+        supplemental_note: supplementalResult.cleanedContent, // Cleaned sticky note content
         description: finalDescription,
         file_path: previewImagePath,
         is_public: is_public,
@@ -226,11 +319,22 @@ Deno.serve(async (req) => {
 
     console.log('Link item created successfully:', item.id);
 
+    // Add tags to the item if any were extracted
+    if (allTags.length > 0) {
+      try {
+        await addTagsToItem(item.id, allTags, targetUserId, supabase);
+        console.log(`Successfully added ${allTags.length} tags to item ${item.id}`);
+      } catch (tagError) {
+        console.error('Error adding tags to item:', tagError);
+        // Don't fail the entire operation if tagging fails
+      }
+    }
+
     // Generate embeddings in the background to avoid timeout
     const contentForEmbedding = [
       finalTitle,
       finalDescription,
-      message || userNotes
+      messageResult.cleanedContent || supplementalResult.cleanedContent
     ].filter(Boolean).join(' ');
 
     if (contentForEmbedding.trim()) {
