@@ -163,27 +163,49 @@ const UnifiedInputPanel = ({
     if (!inputText.trim() && inputItems.length === 0) return;
 
     try {
-      // Handle text content
-      if (inputText.trim()) {
-        await onAddContent('text', {
-          content: inputText.trim(),
-          type: 'text'
+      const hasText = inputText.trim();
+      const linkItems = inputItems.filter(item => item.type === 'link');
+      const mediaItems = inputItems.filter(item => item.type !== 'link');
+
+      // Case 1: Only a single link, no text
+      if (linkItems.length === 1 && !hasText && mediaItems.length === 0) {
+        await onAddContent('link', {
+          url: linkItems[0].content.url,
+          type: 'link'
         });
       }
-
-      // Handle each input item
-      for (const item of inputItems) {
-        if (item.type === 'link') {
-          await onAddContent('link', {
-            url: item.content.url,
-            type: 'link'
-          });
-        } else if (item.type === 'image' || item.type === 'video' || item.type === 'audio' || item.type === 'file') {
-          await onAddContent('media', {
-            file: item.content.file,
-            type: 'media'
+      // Case 2: Text content with or without attachments
+      else if (hasText || inputItems.length > 1 || mediaItems.length > 0) {
+        const attachments = [];
+        
+        // Add link attachments
+        for (const linkItem of linkItems) {
+          attachments.push({
+            type: 'link',
+            url: linkItem.content.url,
+            title: linkItem.ogData?.title || linkItem.content.url,
+            description: linkItem.ogData?.description,
+            image: linkItem.ogData?.image,
+            siteName: linkItem.ogData?.siteName
           });
         }
+        
+        // Add media attachments
+        for (const mediaItem of mediaItems) {
+          attachments.push({
+            type: mediaItem.type,
+            file: mediaItem.content.file,
+            name: mediaItem.content.name,
+            size: mediaItem.content.size,
+            fileType: mediaItem.content.type
+          });
+        }
+
+        await onAddContent('text', {
+          content: hasText || '',
+          type: 'text',
+          attachments: attachments.length > 0 ? attachments : undefined
+        });
       }
 
       // Clear the form
