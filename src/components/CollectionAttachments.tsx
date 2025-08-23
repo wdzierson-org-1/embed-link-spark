@@ -42,6 +42,7 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
 
   const fetchAttachments = async () => {
     try {
+      console.log('Fetching attachments for itemId:', itemId);
       const { data, error } = await supabase
         .from('item_attachments')
         .select('*')
@@ -53,6 +54,7 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
         return;
       }
 
+      console.log('Fetched attachments:', data);
       setAttachments(data || []);
     } catch (error) {
       console.error('Error fetching attachments:', error);
@@ -100,7 +102,11 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
   }
 
   if (attachments.length === 0) {
-    return null;
+    return (
+      <div className="text-sm text-muted-foreground py-2">
+        No items in this collection yet.
+      </div>
+    );
   }
 
   const displayedAttachments = showAll ? attachments : attachments.slice(0, maxDisplay);
