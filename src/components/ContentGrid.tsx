@@ -137,7 +137,7 @@ const ContentGrid = ({
   if (realItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim()) {
     return (
       <div className="space-y-8 relative z-10">
-        <div className="text-center py-12 relative z-10 bg-white/80 backdrop-blur-sm rounded-lg">
+        <div className="text-center py-12 relative z-10">
           <h2 className="text-2xl font-editorial text-gray-900 mb-2">Start building your knowledge base</h2>
           <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
         </div>
