@@ -14,6 +14,7 @@ import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
 import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
+import CollectionAttachments from '@/components/CollectionAttachments';
 
 interface ContentItem {
   id: string;
@@ -199,6 +200,20 @@ const EditItemDetailsTab = ({
           fileName={item.title}
           mimeType={item.mime_type}
         />
+      )}
+
+      {/* Collection Items Section - only for collection items */}
+      {item?.type === 'collection' && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-muted-foreground">Collection Items</label>
+          <div className="border rounded-lg p-4 bg-muted/50">
+            <CollectionAttachments
+              itemId={item.id}
+              showAll={true}
+              isCompactView={false}
+            />
+          </div>
+        </div>
       )}
 
       {/* Content Section */}
