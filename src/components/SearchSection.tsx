@@ -44,7 +44,7 @@ const SearchSection = ({
       <div className="flex flex-col gap-3 mb-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            {!isFilterPanelOpen && (
+            {!isFilterPanelOpen && itemCount > 0 && (
               <>
                 {!isSearchActive ? (
                   <Button
@@ -95,7 +95,25 @@ const SearchSection = ({
           </div>
 
           {/* Desktop: Show filter button on the right */}
-          <div className="hidden sm:block">
+          {itemCount > 0 && (
+            <div className="hidden sm:block">
+              <StashHeader 
+                onShowGlobalChat={onShowGlobalChat}
+                itemCount={itemCount}
+                tags={tags}
+                selectedTags={selectedTags}
+                onTagFilterChange={onTagFilterChange}
+                showStickyNotes={showStickyNotes}
+                onStickyNotesToggle={onStickyNotesToggle}
+                onFilterPanelToggle={onFilterPanelToggle}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Mobile: Show filter button on separate line */}
+        {itemCount > 0 && (
+          <div className="sm:hidden">
             <StashHeader 
               onShowGlobalChat={onShowGlobalChat}
               itemCount={itemCount}
@@ -107,21 +125,7 @@ const SearchSection = ({
               onFilterPanelToggle={onFilterPanelToggle}
             />
           </div>
-        </div>
-
-        {/* Mobile: Show filter button on separate line */}
-        <div className="sm:hidden">
-          <StashHeader 
-            onShowGlobalChat={onShowGlobalChat}
-            itemCount={itemCount}
-            tags={tags}
-            selectedTags={selectedTags}
-            onTagFilterChange={onTagFilterChange}
-            showStickyNotes={showStickyNotes}
-            onStickyNotesToggle={onStickyNotesToggle}
-            onFilterPanelToggle={onFilterPanelToggle}
-          />
-        </div>
+        )}
       </div>
     </div>
   );

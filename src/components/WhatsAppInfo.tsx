@@ -13,7 +13,7 @@ const WhatsAppInfo = () => {
           </div>
           
           <p className="text-gray-600 mb-6">
-            Start capturing content instantly by messaging Stash on WhatsApp at{' '}
+            Add your phone number in the settings panel (upper right), and then text your notes via WhatsApp to<br />
             <span className="font-semibold text-green-600">+1 229 466 6353</span>
           </p>
 
