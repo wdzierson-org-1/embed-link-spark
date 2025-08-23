@@ -77,7 +77,7 @@ const EditItemDialogContent = ({
         <div className="space-y-4">
           <div className="border-t pt-4">
             <h3 className="text-sm font-semibold mb-3">Collection Items</h3>
-            <CollectionAttachments itemId={item.id} maxDisplay={undefined} />
+            <CollectionAttachments itemId={item.id} showAll={true} />
           </div>
         </div>
       )}
