@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Link2, FileText, Image, Video, Music, Download, ExternalLink } from 'lucide-react';
+import { Link2, FileText, Image, Video, Music, Download, ExternalLink, Eye } from 'lucide-react';
 import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
+import ImageLightbox from '@/components/ImageLightbox';
 
 interface Attachment {
   id: string;
@@ -30,6 +31,9 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [selectedVideoUrl, setSelectedVideoUrl] = useState<string>('');
   const [selectedVideoTitle, setSelectedVideoTitle] = useState<string>('');
+  const [isImageLightboxOpen, setIsImageLightboxOpen] = useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string>('');
+  const [selectedImageTitle, setSelectedImageTitle] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -76,6 +80,12 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
     setSelectedVideoUrl(getFileUrl(filePath));
     setSelectedVideoTitle(title || 'Video');
     setIsVideoLightboxOpen(true);
+  };
+
+  const handleImageClick = (filePath: string, title: string) => {
+    setSelectedImageUrl(getFileUrl(filePath));
+    setSelectedImageTitle(title || 'Image');
+    setIsImageLightboxOpen(true);
   };
 
   const formatFileSize = (bytes?: number) => {
@@ -140,8 +150,14 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
 
   // Full view for edit panel
   return (
-    <div className="space-y-3">
-      {displayedAttachments.map((attachment) => (
+    <div className="space-y-4">
+      <div className="border-l-2 border-primary/20 pl-3">
+        <h4 className="text-sm font-semibold text-foreground mb-1">Collection Items</h4>
+        <p className="text-xs text-muted-foreground">Original files and links added to this collection</p>
+      </div>
+      
+      <div className="space-y-3">
+        {displayedAttachments.map((attachment) => (
         <div key={attachment.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
           <div className="flex-shrink-0">
             <Badge variant="secondary" className="gap-1">
@@ -208,12 +224,26 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
             )}
             
             {attachment.type === 'image' && attachment.file_path && (
-              <div className="w-12 h-12 rounded overflow-hidden">
-                <img
-                  src={getFileUrl(attachment.file_path)}
-                  alt={attachment.title || 'Image'}
-                  className="w-full h-full object-cover"
-                />
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-12 h-12 rounded overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+                  onClick={() => handleImageClick(attachment.file_path!, attachment.title || 'Image')}
+                >
+                  <img
+                    src={getFileUrl(attachment.file_path)}
+                    alt={attachment.title || 'Image'}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleImageClick(attachment.file_path!, attachment.title || 'Image')}
+                  className="gap-1"
+                >
+                  <Eye className="h-3 w-3" />
+                  View
+                </Button>
               </div>
             )}
             
@@ -230,7 +260,8 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
             )}
           </div>
         </div>
-      ))}
+        ))}
+      </div>
 
       {!showAll && remainingCount > 0 && (
         <div className="text-center">
@@ -245,6 +276,13 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
         fileName={selectedVideoTitle}
         isOpen={isVideoLightboxOpen}
         onClose={() => setIsVideoLightboxOpen(false)}
+      />
+
+      <ImageLightbox
+        src={selectedImageUrl}
+        fileName={selectedImageTitle}
+        isOpen={isImageLightboxOpen}
+        onClose={() => setIsImageLightboxOpen(false)}
       />
     </div>
   );
