@@ -11,13 +11,21 @@ export const useItems = () => {
   const { toast } = useToast();
 
   const fetchItems = useCallback(async () => {
-    if (!user) return;
+    // Security check: Only proceed if we have a valid authenticated user
+    if (!user?.id) {
+      console.warn('fetchItems called without valid user ID');
+      setItems([]); // Clear items if no user
+      return;
+    }
     
     try {
       console.log('Fetching items for user:', user.id);
+      
+      // CRITICAL FIX: Explicitly filter by user_id to prevent cross-user data access
       const { data, error } = await supabase
         .from('items')
         .select('*')
+        .eq('user_id', user.id)  // This prevents users from seeing other users' items
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -28,7 +36,7 @@ export const useItems = () => {
           variant: "destructive",
         });
       } else {
-        console.log('Fetched items:', data);
+        console.log(`Fetched ${data?.length || 0} items for user ${user.id}`);
         setItems(data || []);
       }
     } catch (error) {
