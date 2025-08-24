@@ -6,14 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import QRCode from 'qrcode';
 
 const WhatsAppInfo = () => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const { phoneNumber, setPhoneNumber, isLoading, registerPhoneNumber, getRegisteredPhoneNumbers } = usePhoneNumber();
   const [registeredNumbers, setRegisteredNumbers] = useState<any[]>([]);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+  const [showCancelMessage, setShowCancelMessage] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -42,14 +47,64 @@ const WhatsAppInfo = () => {
     }
   };
 
+  const checkPhoneUniqueness = async (phone: string) => {
+    if (!phone || phone.trim().length === 0) {
+      setPhoneError('');
+      return true;
+    }
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length === 0) return true;
+    
+    const { data, error } = await supabase
+      .from('user_phone_numbers')
+      .select('phone_number')
+      .eq('phone_number', cleanPhone)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error checking phone:', error);
+      return true; // Allow registration if we can't check
+    }
+    
+    if (data) {
+      setPhoneError('This number is already registered to another user.');
+      return false;
+    } else {
+      setPhoneError('');
+      return true;
+    }
+  };
+
   const handleRegisterPhone = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!phoneNumber.trim()) {
+      setPhoneError('Please enter a phone number.');
+      return;
+    }
+
+    // Check uniqueness first
+    const isUnique = await checkPhoneUniqueness(phoneNumber);
+    if (!isUnique) {
+      return;
+    }
+
     const success = await registerPhoneNumber(phoneNumber);
     if (success) {
       setPhoneNumber('');
       setShowRegistrationForm(false);
+      setPhoneError('');
       loadRegisteredNumbers();
+      generateQRCode();
     }
+  };
+
+  const handleCancelRegistration = () => {
+    setShowRegistrationForm(false);
+    setPhoneNumber('');
+    setPhoneError('');
+    setShowCancelMessage(true);
   };
 
   const isRegistered = registeredNumbers.length > 0;
@@ -68,7 +123,7 @@ const WhatsAppInfo = () => {
               Sign up to use WhatsApp integration and text your notes to<br />
               <span className="font-semibold text-green-600">+1 229 466 6353</span>
             </p>
-          ) : !isRegistered ? (
+          ) : !isRegistered && !showCancelMessage ? (
             <div className="mb-6 space-y-4">
               <p className="text-gray-600">
                 Register your phone number to text your notes via WhatsApp to<br />
@@ -84,33 +139,58 @@ const WhatsAppInfo = () => {
                   Register Phone Number
                 </Button>
               ) : (
-                <form onSubmit={handleRegisterPhone} className="flex flex-col sm:flex-row gap-2">
-                  <Input
-                    type="tel"
-                    placeholder="+1 (555) 123-4567"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    required
-                    className="flex-1"
-                  />
+                <form onSubmit={handleRegisterPhone} className="space-y-4">
+                  <div className="space-y-2">
+                    <Input
+                      type="tel"
+                      placeholder="+1 (555) 123-4567"
+                      value={phoneNumber}
+                      onChange={(e) => {
+                        setPhoneNumber(e.target.value);
+                        if (e.target.value.trim()) {
+                          checkPhoneUniqueness(e.target.value);
+                        } else {
+                          setPhoneError('');
+                        }
+                      }}
+                      required
+                      className={`flex-1 ${phoneError ? 'border-red-500' : ''}`}
+                    />
+                    {phoneError && (
+                      <p className="text-xs text-red-600">{phoneError}</p>
+                    )}
+                  </div>
+                  
                   <div className="flex gap-2">
-                    <Button type="submit" disabled={isLoading} size="sm">
+                    <Button 
+                      type="submit" 
+                      disabled={isLoading || !!phoneError} 
+                      size="sm" 
+                      className="bg-green-600 hover:bg-green-700"
+                    >
                       {isLoading ? 'Registering...' : 'Register'}
                     </Button>
                     <Button 
                       type="button" 
                       variant="outline" 
                       size="sm"
-                      onClick={() => {
-                        setShowRegistrationForm(false);
-                        setPhoneNumber('');
-                      }}
+                      onClick={handleCancelRegistration}
                     >
                       Cancel
                     </Button>
                   </div>
+                  
+                  <p className="text-xs text-gray-500 text-center">
+                    We will never sell your information, or use your information for marketing, spam, or undisclosed purposes.
+                  </p>
                 </form>
               )}
+            </div>
+          ) : !isRegistered && showCancelMessage ? (
+            <div className="mb-6">
+              <p className="text-gray-600">
+                You can always register your number later on.
+              </p>
             </div>
           ) : (
             <div className="mb-6 space-y-4">
