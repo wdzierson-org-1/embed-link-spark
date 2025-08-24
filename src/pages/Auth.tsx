@@ -138,6 +138,12 @@ const Auth = () => {
     setUsernameError('');
     setPhoneError('');
     
+    // Validate phone number is provided
+    if (!phoneNumber.trim()) {
+      setPhoneError('Phone number is required to use WhatsApp features.');
+      return;
+    }
+    
     // Validate uniqueness before proceeding
     await checkUsernameUniqueness(username);
     await checkPhoneUniqueness(phoneNumber);
@@ -158,10 +164,8 @@ const Auth = () => {
         variant: "destructive",
       });
     } else {
-      // If phone number was provided, register it
-      if (phoneNumber.trim()) {
-        await registerPhoneNumber(phoneNumber);
-      }
+      // Register phone number (required for sign up)
+      await registerPhoneNumber(phoneNumber);
       
       toast({
         title: "Account created!",
@@ -237,18 +241,24 @@ const Auth = () => {
               </TabsContent>
               
               <TabsContent value="signup">
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg border">
+                  <p className="text-sm text-blue-800 font-medium">All fields are required</p>
+                  <p className="text-xs text-blue-700 mt-1">
+                    Your phone number enables WhatsApp integration for sending notes, voice messages, and asking questions about your content.
+                  </p>
+                </div>
                 <form onSubmit={handleSignUp} className="space-y-4">
                   <div className="space-y-2">
                     <Input
                       type="email"
-                      placeholder="Email"
+                      placeholder="Email *"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
                     />
                     <Input
                       type="password"
-                      placeholder="Password"
+                      placeholder="Password *"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
@@ -256,7 +266,7 @@ const Auth = () => {
                     <div className="space-y-1">
                       <Input
                         type="text"
-                        placeholder="Username"
+                        placeholder="Username *"
                         value={username}
                         onChange={(e) => {
                           const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -279,23 +289,24 @@ const Auth = () => {
                     <div className="space-y-1">
                       <Input
                         type="tel"
-                        placeholder="Phone Number (optional)"
+                        placeholder="Phone Number *"
                         value={phoneNumber}
                         onChange={(e) => {
                           setPhoneNumber(e.target.value);
                           if (e.target.value.trim()) {
                             checkPhoneUniqueness(e.target.value);
                           } else {
-                            setPhoneError('');
+                            setPhoneError('Phone number is required for WhatsApp features.');
                           }
                         }}
+                        required
                         className={phoneError ? 'border-red-500' : ''}
                       />
                       {phoneError && (
                         <p className="text-xs text-red-600">{phoneError}</p>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.
+                        <strong>Required:</strong> Enables WhatsApp integration for sending notes and asking questions about your content.
                       </p>
                     </div>
                   </div>
