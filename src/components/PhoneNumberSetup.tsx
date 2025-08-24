@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Smartphone, MessageCircle } from 'lucide-react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
+import { formatPhoneNumber, formatStoredPhoneNumber } from '@/utils/phoneNumber';
 
 const PhoneNumberSetup = () => {
   const { 
@@ -29,21 +30,19 @@ const PhoneNumberSetup = () => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await registerPhoneNumber(phoneNumber);
+    const formatted = formatPhoneNumber(phoneNumber);
+    
+    if (!formatted.isValid) {
+      return; // Input validation will show error
+    }
+    
+    const success = await registerPhoneNumber(formatted.cleanValue);
     if (success) {
       setPhoneNumber('');
       loadRegisteredNumbers();
     }
   };
 
-  const formatPhoneNumber = (phone: string) => {
-    const cleaned = phone.replace(/\D/g, '');
-    const match = cleaned.match(/^(\d{1})(\d{3})(\d{3})(\d{4})$/);
-    if (match) {
-      return `+${match[1]} (${match[2]}) ${match[3]}-${match[4]}`;
-    }
-    return phone;
-  };
 
   return (
     <div className="space-y-6">
@@ -52,7 +51,7 @@ const PhoneNumberSetup = () => {
           <Label className="text-sm font-medium">Registered Numbers:</Label>
           {registeredNumbers.map((number) => (
             <div key={number.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
-              <span className="text-sm font-medium">{formatPhoneNumber(number.phone_number)}</span>
+              <span className="text-sm font-medium">{formatStoredPhoneNumber(number.phone_number)}</span>
               <Badge variant={number.verified ? "default" : "secondary"}>
                 {number.verified ? "Verified" : "Pending"}
               </Badge>
@@ -69,13 +68,16 @@ const PhoneNumberSetup = () => {
             type="tel"
             placeholder="+1 (555) 123-4567"
             value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
+            onChange={(e) => {
+              const formatted = formatPhoneNumber(e.target.value);
+              setPhoneNumber(formatted.displayValue);
+            }}
             required
             className="w-full"
           />
         </div>
         
-        <Button type="submit" disabled={isLoading} className="w-full">
+        <Button type="submit" disabled={isLoading || !formatPhoneNumber(phoneNumber).isValid} className="w-full">
           {isLoading ? 'Registering...' : 'Register Phone Number'}
         </Button>
       </form>

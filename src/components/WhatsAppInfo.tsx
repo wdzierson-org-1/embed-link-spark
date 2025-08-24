@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import QRCode from 'qrcode';
+import { formatPhoneNumber, formatStoredPhoneNumber } from '@/utils/phoneNumber';
 
 const WhatsAppInfo = () => {
   const { user } = useAuth();
@@ -47,14 +48,11 @@ const WhatsAppInfo = () => {
     }
   };
 
-  const checkPhoneUniqueness = async (phone: string) => {
-    if (!phone || phone.trim().length === 0) {
+  const checkPhoneUniqueness = async (cleanPhone: string) => {
+    if (!cleanPhone || cleanPhone.length === 0) {
       setPhoneError('');
       return true;
     }
-    
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length === 0) return true;
     
     const { data, error } = await supabase
       .from('user_phone_numbers')
@@ -79,18 +77,20 @@ const WhatsAppInfo = () => {
   const handleRegisterPhone = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!phoneNumber.trim()) {
-      setPhoneError('Please enter a phone number.');
+    const formatted = formatPhoneNumber(phoneNumber);
+    
+    if (!formatted.isValid) {
+      setPhoneError('Please enter a valid US phone number.');
       return;
     }
 
     // Check uniqueness first
-    const isUnique = await checkPhoneUniqueness(phoneNumber);
+    const isUnique = await checkPhoneUniqueness(formatted.cleanValue);
     if (!isUnique) {
       return;
     }
 
-    const success = await registerPhoneNumber(phoneNumber);
+    const success = await registerPhoneNumber(formatted.cleanValue);
     if (success) {
       setPhoneNumber('');
       setShowRegistrationForm(false);
@@ -146,9 +146,11 @@ const WhatsAppInfo = () => {
                       placeholder="+1 (555) 123-4567"
                       value={phoneNumber}
                       onChange={(e) => {
-                        setPhoneNumber(e.target.value);
-                        if (e.target.value.trim()) {
-                          checkPhoneUniqueness(e.target.value);
+                        const formatted = formatPhoneNumber(e.target.value);
+                        setPhoneNumber(formatted.displayValue);
+                        
+                        if (formatted.cleanValue.length > 1) {
+                          checkPhoneUniqueness(formatted.cleanValue);
                         } else {
                           setPhoneError('');
                         }
