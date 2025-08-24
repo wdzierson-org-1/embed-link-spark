@@ -10,6 +10,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo } from 'react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 import { getGradientPlaceholder } from '@/utils/gradientPlaceholders';
+import { supabase } from '@/integrations/supabase/client';
 
 const Auth = () => {
   const [email, setEmail] = useState('');
@@ -17,6 +18,8 @@ const Auth = () => {
   const [username, setUsername] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
+  const [usernameError, setUsernameError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [searchParams] = useSearchParams();
   
   // Get URL parameters for return flow
@@ -79,8 +82,71 @@ const Auth = () => {
     setLoading(false);
   };
 
+  const checkUsernameUniqueness = async (username: string) => {
+    if (!username || username.length < 3) return;
+    
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('username')
+      .eq('username', username.toLowerCase())
+      .single();
+    
+    if (error && error.code !== 'PGRST116') {
+      // PGRST116 means no rows returned, which is what we want
+      console.error('Error checking username:', error);
+      return;
+    }
+    
+    if (data) {
+      setUsernameError('This username is already taken. Please choose another.');
+    } else {
+      setUsernameError('');
+    }
+  };
+
+  const checkPhoneUniqueness = async (phone: string) => {
+    if (!phone || phone.trim().length === 0) {
+      setPhoneError('');
+      return;
+    }
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length === 0) return;
+    
+    const { data, error } = await supabase
+      .from('user_phone_numbers')
+      .select('phone_number')
+      .eq('phone_number', cleanPhone)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error checking phone:', error);
+      return;
+    }
+    
+    if (data) {
+      setPhoneError('This phone number is already registered. Please use a different number.');
+    } else {
+      setPhoneError('');
+    }
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Reset errors
+    setUsernameError('');
+    setPhoneError('');
+    
+    // Validate uniqueness before proceeding
+    await checkUsernameUniqueness(username);
+    await checkPhoneUniqueness(phoneNumber);
+    
+    // Check if there are validation errors
+    if (usernameError || phoneError) {
+      return;
+    }
+    
     setLoading(true);
     
     const { error } = await signUp(email, password, username);
@@ -187,28 +253,53 @@ const Auth = () => {
                       onChange={(e) => setPassword(e.target.value)}
                       required
                     />
-                    <Input
-                      type="text"
-                      placeholder="Username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''))}
-                      required
-                      minLength={3}
-                      maxLength={20}
-                    />
+                    <div className="space-y-1">
+                      <Input
+                        type="text"
+                        placeholder="Username"
+                        value={username}
+                        onChange={(e) => {
+                          const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+                          setUsername(cleanUsername);
+                          if (cleanUsername.length >= 3) {
+                            checkUsernameUniqueness(cleanUsername);
+                          } else {
+                            setUsernameError('');
+                          }
+                        }}
+                        required
+                        minLength={3}
+                        maxLength={20}
+                        className={usernameError ? 'border-red-500' : ''}
+                      />
+                      {usernameError && (
+                        <p className="text-xs text-red-600">{usernameError}</p>
+                      )}
+                    </div>
                     <div className="space-y-1">
                       <Input
                         type="tel"
                         placeholder="Phone Number (optional)"
                         value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        onChange={(e) => {
+                          setPhoneNumber(e.target.value);
+                          if (e.target.value.trim()) {
+                            checkPhoneUniqueness(e.target.value);
+                          } else {
+                            setPhoneError('');
+                          }
+                        }}
+                        className={phoneError ? 'border-red-500' : ''}
                       />
+                      {phoneError && (
+                        <p className="text-xs text-red-600">{phoneError}</p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.
                       </p>
                     </div>
                   </div>
-                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" disabled={loading}>
+                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" disabled={loading || !!usernameError || !!phoneError}>
                     {loading ? "Creating account..." : "Sign Up"}
                   </Button>
                 </form>
