@@ -37,6 +37,16 @@ export const usePhoneNumber = () => {
 
       if (error) throw error;
 
+      // Send welcome message via WhatsApp
+      try {
+        await supabase.functions.invoke('send-welcome-message', {
+          body: { phoneNumber: cleanPhone }
+        });
+      } catch (welcomeError) {
+        console.error('Failed to send welcome message:', welcomeError);
+        // Don't fail the registration if welcome message fails
+      }
+
       toast({
         title: "Success",
         description: "Phone number registered! You can now use SMS/WhatsApp features."
