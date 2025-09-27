@@ -55,7 +55,7 @@ export const useLinkPreview = (url: string) => {
             // Add timeout for image download
             const downloadPromise = downloadAndStoreImage(data.image, user.id);
             const timeoutPromise = new Promise<string | null>((_, reject) => 
-              setTimeout(() => reject(new Error('Download timeout')), 10000)
+              setTimeout(() => reject(new Error('Download timeout')), 15000)
             );
             
             const previewImagePath = await Promise.race([downloadPromise, timeoutPromise]);
@@ -75,16 +75,41 @@ export const useLinkPreview = (url: string) => {
                 return null;
               });
             } else {
-              console.warn('⚠️ Image download returned null path');
-              // Fallback: keep original image URL for direct display attempt
+              console.warn('⚠️ Image download failed, using original image URL as fallback');
+              // Fallback: use original image URL - better than no image at all
+              setOgData(prev => {
+                if (prev) {
+                  const updated = { ...prev, previewImageUrl: prev.image };
+                  console.log('🔄 Using original image URL as fallback:', updated);
+                  return updated;
+                }
+                return null;
+              });
             }
           } catch (error) {
             console.error('❌ Failed to download preview image:', error);
             console.log('🔄 Falling back to original image URL for direct display');
-            // Keep the original image URL as fallback - don't change ogData
+            // Fallback: use original image URL
+            setOgData(prev => {
+              if (prev) {
+                const updated = { ...prev, previewImageUrl: prev.image };
+                console.log('🔄 Error fallback - using original image URL:', updated);
+                return updated;
+              }
+              return null;
+            });
           }
         } else if (data.image && !user) {
-          console.log('👤 No user logged in, keeping original image URL');
+          console.log('👤 No user logged in, using original image URL');
+          // For non-logged-in users, always use the original image URL
+          setOgData(prev => {
+            if (prev) {
+              const updated = { ...prev, previewImageUrl: prev.image };
+              console.log('👤 No user - using original image URL:', updated);
+              return updated;
+            }
+            return null;
+          });
         }
       } else {
         // Fallback: create basic data from URL

@@ -491,28 +491,95 @@ const downloadAndStoreImage = async (imageUrl: string, userId: string): Promise<
     console.log(`=== DOWNLOADING IMAGE ===`);
     console.log(`Image URL: ${imageUrl}`);
     console.log(`User ID: ${userId}`);
+    
+    // First, try to validate the image URL with a HEAD request
+    const headResponse = await fetch(imageUrl, {
+      method: 'HEAD',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'image',
+        'Sec-Fetch-Mode': 'no-cors',
+        'Sec-Fetch-Site': 'cross-site'
+      },
+      signal: AbortSignal.timeout(5000)
+    });
+    
+    console.log(`HEAD request status: ${headResponse.status}`);
+    console.log(`Content-Type: ${headResponse.headers.get('content-type')}`);
+    console.log(`Content-Length: ${headResponse.headers.get('content-length')}`);
+    
+    // Check if it's actually an image
+    const contentType = headResponse.headers.get('content-type');
+    if (!contentType || !contentType.startsWith('image/')) {
+      console.log(`❌ Not an image content-type: ${contentType}`);
+      return null;
+    }
+    
+    // Check content length - if it's very small, it's likely a placeholder
+    const contentLength = headResponse.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) < 100) {
+      console.log(`❌ Image too small: ${contentLength} bytes`);
+      return null;
+    }
+    
+    // Now download the actual image
     const response = await fetch(imageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'image',
+        'Sec-Fetch-Mode': 'no-cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'Referer': new URL(imageUrl).origin
       },
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(15000)
     });
     
     if (!response.ok) {
-      console.log(`Failed to download image: ${response.status} ${response.statusText}`);
+      console.log(`❌ Failed to download image: ${response.status} ${response.statusText}`);
       return null;
     }
     
     const blob = await response.blob();
-    if (blob.size === 0) {
-      console.log('Downloaded image is empty');
+    console.log(`📦 Downloaded blob size: ${blob.size} bytes`);
+    
+    if (blob.size === 0 || blob.size < 100) {
+      console.log(`❌ Downloaded image is too small: ${blob.size} bytes`);
       return null;
     }
     
-    // Extract file extension from URL
-    const urlParts = imageUrl.split('?')[0].split('/');
-    const lastPart = urlParts[urlParts.length - 1];
-    const fileExt = lastPart.includes('.') ? lastPart.split('.').pop() : 'jpg';
+    // Verify it's actually image data by checking the blob type
+    if (!blob.type || !blob.type.startsWith('image/')) {
+      console.log(`❌ Invalid blob type: ${blob.type}`);
+      return null;
+    }
+    
+    // Extract file extension from content type or URL
+    let fileExt = 'jpg';
+    if (blob.type.includes('png')) fileExt = 'png';
+    else if (blob.type.includes('gif')) fileExt = 'gif';
+    else if (blob.type.includes('webp')) fileExt = 'webp';
+    else if (blob.type.includes('svg')) fileExt = 'svg';
+    else {
+      // Fallback to URL extension
+      const urlParts = imageUrl.split('?')[0].split('/');
+      const lastPart = urlParts[urlParts.length - 1];
+      if (lastPart.includes('.')) {
+        const ext = lastPart.split('.').pop()?.toLowerCase();
+        if (ext && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
+          fileExt = ext;
+        }
+      }
+    }
+    
     const fileName = `preview_${Date.now()}.${fileExt}`;
     const filePath = `${userId}/previews/${fileName}`;
 
@@ -520,32 +587,35 @@ const downloadAndStoreImage = async (imageUrl: string, userId: string): Promise<
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     
-    console.log(`Supabase URL: ${supabaseUrl?.substring(0, 30)}...`);
-    console.log(`Service Key exists: ${!!supabaseServiceKey}`);
-    console.log(`File path: ${filePath}`);
+    console.log(`📁 File path: ${filePath}`);
+    console.log(`📤 Uploading ${blob.size} bytes to storage...`);
     
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log(`Uploading to storage bucket 'stash-media'...`);
     const { error: uploadError } = await supabase.storage
       .from('stash-media')
-      .upload(filePath, blob);
+      .upload(filePath, blob, {
+        contentType: blob.type,
+        cacheControl: '3600'
+      });
 
     if (uploadError) {
-      console.error('✗ Error uploading preview image:', uploadError);
+      console.error('❌ Error uploading preview image:', uploadError);
       return null;
     }
     
-    console.log('✓ Upload to storage successful');
+    console.log('✅ Successfully uploaded to storage');
 
     const { data: urlData } = supabase.storage
       .from('stash-media')
       .getPublicUrl(filePath);
 
-    console.log(`Successfully stored image at: ${filePath}`);
+    console.log(`✅ Successfully downloaded and stored image: ${filePath}`);
+    console.log(`🔗 Public URL: ${urlData.publicUrl}`);
+    
     return { path: filePath, publicUrl: urlData.publicUrl };
   } catch (error) {
-    console.error('Error downloading and storing image:', error);
+    console.error('❌ Error downloading and storing image:', error);
     return null;
   }
 };
