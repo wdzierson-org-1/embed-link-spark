@@ -26,7 +26,7 @@ export const useLinkPreview = (url: string) => {
     setIsLoadingPreview(true);
     try {
       const { data, error } = await supabase.functions.invoke('extract-link-metadata', {
-        body: { url: urlToFetch }
+        body: { url: urlToFetch, userId: user?.id }
       });
 
       if (error) {

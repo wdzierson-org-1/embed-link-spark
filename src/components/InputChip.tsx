@@ -49,6 +49,7 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
                   src={imageUrl} 
                   alt="" 
                   className="w-10 h-10 rounded object-cover flex-shrink-0" 
+                  referrerPolicy="no-referrer"
                   onError={(e) => {
                     console.log('InputChip image failed to load:', imageUrl);
                     e.currentTarget.style.display = 'none';

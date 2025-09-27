@@ -36,6 +36,7 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
           alt={item.title || 'Content thumbnail'}
           className="w-full h-full object-cover"
           onError={() => onImageError(item.id)}
+          referrerPolicy="no-referrer"
         />
       </div>
     );
@@ -55,6 +56,7 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
           alt={item.title || 'Link preview'}
           className="w-full h-full object-cover"
           onError={() => onImageError(item.id)}
+          referrerPolicy="no-referrer"
         />
       </div>
     );

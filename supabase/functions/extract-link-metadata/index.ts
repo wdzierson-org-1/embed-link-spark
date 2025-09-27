@@ -515,15 +515,15 @@ const downloadAndStoreImage = async (imageUrl: string, userId: string): Promise<
     // Check if it's actually an image
     const contentType = headResponse.headers.get('content-type');
     if (!contentType || !contentType.startsWith('image/')) {
-      console.log(`❌ Not an image content-type: ${contentType}`);
-      return null;
+      console.log(`⚠️ HEAD not image content-type: ${contentType} — will attempt GET anyway`);
+      // Do not return; some servers block HEAD or mask content type
     }
     
     // Check content length - if it's very small, it's likely a placeholder
     const contentLength = headResponse.headers.get('content-length');
     if (contentLength && parseInt(contentLength) < 100) {
-      console.log(`❌ Image too small: ${contentLength} bytes`);
-      return null;
+      console.log(`⚠️ HEAD shows very small size (${contentLength} bytes) — will still attempt GET`);
+      // Do not return; we'll verify after GET
     }
     
     // Now download the actual image

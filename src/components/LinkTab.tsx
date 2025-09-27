@@ -8,7 +8,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useLinkPreview } from '@/hooks/useLinkPreview';
 import { isValidUrl } from '@/utils/urlMetadata';
-import { downloadAndStoreImage } from '@/utils/linkImageStorage';
 
 interface LinkTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -45,18 +44,6 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
 
     setIsSubmitting(true);
     try {
-      let previewImagePath = null;
-      
-      // Download and store preview image if available
-      if (ogData?.image && user) {
-        try {
-          previewImagePath = await downloadAndStoreImage(ogData.image, user.id);
-        } catch (imageError) {
-          console.log('Failed to download preview image:', imageError);
-          // Continue without image - don't fail the entire operation
-        }
-      }
-
       // Store link data in proper structure
       await onAddContent('link', {
         url: trimmedUrl,
@@ -64,8 +51,8 @@ const LinkTab = ({ onAddContent, getSuggestedTags }: LinkTabProps) => {
         description: ogData?.description || '',
         content: '',
         tags: [],
-        // Store preview image path for retrieval
-        previewImagePath: previewImagePath
+        // We no longer download client-side; rely on server-side caching when available
+        previewImagePath: undefined
       });
 
       // Reset form
