@@ -20,7 +20,8 @@ interface OpenGraphData {
   title?: string;
   description?: string;
   image?: string;
-  previewImageUrl?: string; // For stored image URLs that can be displayed
+  previewImagePath?: string; // Supabase storage path for database storage
+  previewImageUrl?: string; // Public URL for display purposes
   url?: string;
   siteName?: string;
   videoUrl?: string;
@@ -76,7 +77,8 @@ const UnifiedInputPanel = ({
             const previewImagePath = await downloadAndStoreImage(data.image, user.id);
             if (previewImagePath) {
               const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(previewImagePath);
-              ogDataResult.previewImageUrl = urlData.publicUrl;
+              ogDataResult.previewImagePath = previewImagePath; // Storage path for saving to DB
+              ogDataResult.previewImageUrl = urlData.publicUrl; // Public URL for chip display
             }
           } catch (error) {
             console.error('Failed to download preview image:', error);
@@ -220,7 +222,7 @@ const UnifiedInputPanel = ({
           url: linkItem.content.url,
           title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
           description: linkItem.ogData?.description,
-          previewImagePath: linkItem.ogData?.previewImageUrl || linkItem.ogData?.image,
+          previewImagePath: linkItem.ogData?.previewImagePath,
           ogData: linkItem.ogData,
           type: 'link'
         });

@@ -43,8 +43,10 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
 
   // Handle link preview images - now stored in file_path
   if (item.type === 'link' && item.file_path && !imageErrors.has(item.id)) {
-    const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-    const imageUrl = data.publicUrl;
+    // If file_path is already a full HTTP URL, use it directly (backward compatibility)
+    const imageUrl = item.file_path.startsWith('http') 
+      ? item.file_path 
+      : supabase.storage.from('stash-media').getPublicUrl(item.file_path).data.publicUrl;
 
     return (
       <div className="w-full h-48 overflow-hidden">

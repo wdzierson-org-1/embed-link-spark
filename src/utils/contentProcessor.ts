@@ -64,8 +64,8 @@ export const processAndInsertContent = async (
     console.log('File uploaded successfully:', filePath);
   }
 
-  // For links, use the preview image path if provided
-  if (type === 'link' && data.previewImagePath) {
+  // For links, use the preview image path if provided (only if it's a valid storage path)
+  if (type === 'link' && data.previewImagePath && !data.previewImagePath.startsWith('http')) {
     filePath = data.previewImagePath;
   }
 
