@@ -51,9 +51,15 @@ const UnifiedInputPanel = ({
 
   const fetchOgData = async (url: string): Promise<OpenGraphData | null> => {
     try {
+      console.log('fetchOgData called with URL:', url);
+      console.log('User ID:', user?.id);
+      console.log('Calling extract-link-metadata edge function...');
+      
       const { data, error } = await supabase.functions.invoke('extract-link-metadata', {
         body: { url, userId: user?.id }
       });
+      
+      console.log('Edge function response:', { data, error });
       
       if (error) {
         console.error('Error fetching metadata:', error);
@@ -61,6 +67,14 @@ const UnifiedInputPanel = ({
       }
       
       if (data && data.success) {
+        console.log('✓ Successfully fetched metadata:', {
+          title: !!data.title,
+          description: !!data.description, 
+          image: data.image,
+          previewImagePath: data.previewImagePath,
+          previewImageUrl: data.previewImagePublicUrl
+        });
+        
         const ogDataResult: OpenGraphData = {
           title: data.title,
           description: data.description,
@@ -76,6 +90,7 @@ const UnifiedInputPanel = ({
         return ogDataResult;
       }
       
+      console.log('Edge function returned unsuccessful result:', data);
       return data;
     } catch (error) {
       console.error('Error:', error);

@@ -482,10 +482,15 @@ const validateImageUrl = async (imageUrl: string): Promise<boolean> => {
 
 // Download and store image server-side
 const downloadAndStoreImage = async (imageUrl: string, userId: string): Promise<{ path: string; publicUrl: string } | null> => {
-  if (!userId || !imageUrl) return null;
+  if (!userId || !imageUrl) {
+    console.log('downloadAndStoreImage: Missing required params:', { userId: !!userId, imageUrl: !!imageUrl });
+    return null;
+  }
   
   try {
-    console.log(`Downloading image from: ${imageUrl}`);
+    console.log(`=== DOWNLOADING IMAGE ===`);
+    console.log(`Image URL: ${imageUrl}`);
+    console.log(`User ID: ${userId}`);
     const response = await fetch(imageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -514,16 +519,24 @@ const downloadAndStoreImage = async (imageUrl: string, userId: string): Promise<
     // Initialize Supabase client with service role for server-side operations
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    console.log(`Supabase URL: ${supabaseUrl?.substring(0, 30)}...`);
+    console.log(`Service Key exists: ${!!supabaseServiceKey}`);
+    console.log(`File path: ${filePath}`);
+    
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    console.log(`Uploading to storage bucket 'stash-media'...`);
     const { error: uploadError } = await supabase.storage
       .from('stash-media')
       .upload(filePath, blob);
 
     if (uploadError) {
-      console.error('Error uploading preview image:', uploadError);
+      console.error('✗ Error uploading preview image:', uploadError);
       return null;
     }
+    
+    console.log('✓ Upload to storage successful');
 
     const { data: urlData } = supabase.storage
       .from('stash-media')
@@ -563,6 +576,12 @@ serve(async (req) => {
 
   try {
     const { url, userId } = await req.json();
+    
+    // CRITICAL DEBUG LOGGING
+    console.log('=== EXTRACT-LINK-METADATA DEBUG ===');
+    console.log('Received userId:', userId);
+    console.log('SUPABASE_SERVICE_ROLE_KEY exists:', !!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
+    console.log('SUPABASE_URL exists:', !!Deno.env.get('SUPABASE_URL'));
     
     if (!url) {
       return new Response(
@@ -668,15 +687,21 @@ serve(async (req) => {
       let previewImagePath: string | undefined;
       let previewImagePublicUrl: string | undefined;
       
+      console.log('Image download check:', { validImage: !!validImage, userId: !!userId, imageUrl: validImage });
+      
       if (validImage && userId) {
+        console.log('Attempting to download and store image...');
         const downloadResult = await downloadAndStoreImage(validImage, userId);
         if (downloadResult) {
           previewImagePath = downloadResult.path;
           previewImagePublicUrl = downloadResult.publicUrl;
-          console.log(`Successfully downloaded and stored image: ${previewImagePath}`);
+          console.log(`✓ Successfully downloaded and stored image: ${previewImagePath}`);
+          console.log(`✓ Public URL: ${previewImagePublicUrl}`);
         } else {
-          console.log('Failed to download image, will use original URL as fallback');
+          console.log('✗ Failed to download image, will use original URL as fallback');
         }
+      } else {
+        console.log('Skipping image download:', { validImage: !!validImage, userId: !!userId });
       }
 
       // Create result with all available metadata
