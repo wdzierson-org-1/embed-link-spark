@@ -51,6 +51,8 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
                   alt="" 
                   className="w-10 h-10 rounded object-cover flex-shrink-0" 
                   referrerPolicy="no-referrer"
+                  loading="lazy"
+                  decoding="async"
                   onError={(e) => {
                     console.log('InputChip image failed to load:', imageUrl);
                     // Try proxy URL if current URL isn't already proxied

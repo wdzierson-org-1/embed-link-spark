@@ -72,6 +72,7 @@ const LinkPreview = ({ ogData }: LinkPreviewProps) => {
                 onError={handleImageError}
                 style={{ display: imageLoading ? 'none' : 'block' }}
                 loading="lazy"
+                decoding="async"
                 referrerPolicy="no-referrer"
               />
             </div>

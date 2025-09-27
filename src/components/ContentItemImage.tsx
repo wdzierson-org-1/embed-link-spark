@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import React, { useState } from 'react';
+import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { getGradientPlaceholder } from '@/utils/gradientPlaceholders';
 
 interface ContentItem {
@@ -19,43 +19,69 @@ interface ContentItemImageProps {
 }
 
 const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: ContentItemImageProps) => {
-  // Handle regular image files
-  if (item.type === 'image' && item.file_path) {
-    const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-    const imageUrl = data.publicUrl;
-    const showImage = imageUrl && !imageErrors.has(item.id);
+  const [imgState, setImgState] = useState<{ src: string; triedProxy: boolean } | null>(null);
 
-    if (!showImage) {
-      return null;
+  // Build initial image source
+  const getInitialImageSrc = () => {
+    if (item.type === 'image' && item.file_path) {
+      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+      return data.publicUrl;
     }
+    
+    if (item.type === 'link' && item.file_path) {
+      // If it's a Supabase storage path, use public URL
+      if (!item.file_path.startsWith('http')) {
+        const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+        return data.publicUrl;
+      }
+      // If it's an external HTTP URL, route through proxy initially to avoid CORS/hotlinking
+      return `${SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(item.file_path)}`;
+    }
+    
+    return null;
+  };
 
-    return (
-      <div className="w-full h-48 overflow-hidden">
-        <img
-          src={imageUrl}
-          alt={item.title || 'Content thumbnail'}
-          className="w-full h-full object-cover"
-          onError={() => onImageError(item.id)}
-          referrerPolicy="no-referrer"
-        />
-      </div>
-    );
+  const initialSrc = getInitialImageSrc();
+  const hasValidImage = initialSrc && !imageErrors.has(item.id);
+
+  // Initialize image state
+  if (!imgState && initialSrc) {
+    const isProxied = initialSrc.includes('/functions/v1/image-proxy');
+    setImgState({ src: initialSrc, triedProxy: isProxied });
   }
 
-  // Handle link preview images - now stored in file_path
-  if (item.type === 'link' && item.file_path && !imageErrors.has(item.id)) {
-    // If file_path is already a full HTTP URL, use it directly (backward compatibility)
-    const imageUrl = item.file_path.startsWith('http') 
-      ? item.file_path 
-      : supabase.storage.from('stash-media').getPublicUrl(item.file_path).data.publicUrl;
+  const handleImageError = () => {
+    if (!imgState) {
+      onImageError(item.id);
+      return;
+    }
 
+    if (!imgState.triedProxy && initialSrc) {
+      // Try proxy fallback
+      const proxySrc = initialSrc.includes('/functions/v1/image-proxy') 
+        ? initialSrc 
+        : `${SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(initialSrc)}`;
+      setImgState({ src: proxySrc, triedProxy: true });
+    } else {
+      // Already tried proxy, give up
+      onImageError(item.id);
+    }
+  };
+
+  if (!hasValidImage || !imgState) {
+    return null;
+  }
+
+  if ((item.type === 'image' || item.type === 'link') && item.file_path) {
     return (
       <div className="w-full h-48 overflow-hidden">
         <img
-          src={imageUrl}
-          alt={item.title || 'Link preview'}
+          src={imgState.src}
+          alt={item.title || 'Content thumbnail'}
           className="w-full h-full object-cover"
-          onError={() => onImageError(item.id)}
+          onError={handleImageError}
+          loading="lazy"
+          decoding="async"
           referrerPolicy="no-referrer"
         />
       </div>
