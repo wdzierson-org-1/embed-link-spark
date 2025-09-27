@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,6 +11,8 @@ interface MetadataResult {
   title?: string;
   description?: string;
   image?: string;
+  previewImagePath?: string;
+  previewImagePublicUrl?: string;
   siteName?: string;
   url: string;
   success: boolean;
@@ -43,7 +46,7 @@ const getUserAgent = (url: string): string => {
     return 'GitHubBot/1.0'
   }
   if (domain.includes('medium.com') || domain.includes('substack.com')) {
-    return 'Mozilla/5.0 (compatible; MediumBot/1.0)'
+    return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   }
   
   // Default modern browser UA
@@ -477,13 +480,89 @@ const validateImageUrl = async (imageUrl: string): Promise<boolean> => {
   }
 };
 
+// Download and store image server-side
+const downloadAndStoreImage = async (imageUrl: string, userId: string): Promise<{ path: string; publicUrl: string } | null> => {
+  if (!userId || !imageUrl) return null;
+  
+  try {
+    console.log(`Downloading image from: ${imageUrl}`);
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      signal: AbortSignal.timeout(10000)
+    });
+    
+    if (!response.ok) {
+      console.log(`Failed to download image: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    
+    const blob = await response.blob();
+    if (blob.size === 0) {
+      console.log('Downloaded image is empty');
+      return null;
+    }
+    
+    // Extract file extension from URL
+    const urlParts = imageUrl.split('?')[0].split('/');
+    const lastPart = urlParts[urlParts.length - 1];
+    const fileExt = lastPart.includes('.') ? lastPart.split('.').pop() : 'jpg';
+    const fileName = `preview_${Date.now()}.${fileExt}`;
+    const filePath = `${userId}/previews/${fileName}`;
+
+    // Initialize Supabase client with service role for server-side operations
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { error: uploadError } = await supabase.storage
+      .from('stash-media')
+      .upload(filePath, blob);
+
+    if (uploadError) {
+      console.error('Error uploading preview image:', uploadError);
+      return null;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('stash-media')
+      .getPublicUrl(filePath);
+
+    console.log(`Successfully stored image at: ${filePath}`);
+    return { path: filePath, publicUrl: urlData.publicUrl };
+  } catch (error) {
+    console.error('Error downloading and storing image:', error);
+    return null;
+  }
+};
+
+// Check if result looks suspicious (redirect/placeholder page)
+const isSuspiciousResult = (metadata: any): boolean => {
+  const title = metadata.title?.toLowerCase() || '';
+  const description = metadata.description?.toLowerCase() || '';
+  const image = metadata.image || '';
+  
+  // Check for "Found" placeholder pages
+  if (title === 'found' || description === 'found') {
+    return true;
+  }
+  
+  // Check for bare domain images (e.g., https://miro.medium.com/)
+  if (image && image.match(/^https?:\/\/[^\/]+\/?$/)) {
+    return true;
+  }
+  
+  return false;
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { url } = await req.json();
+    const { url, userId } = await req.json();
     
     if (!url) {
       return new Response(
@@ -538,7 +617,7 @@ serve(async (req) => {
       const html = await response.text();
       console.log(`Fetched HTML length: ${html.length} characters`);
       
-      const metadata = await extractMetaFromHtml(html, url);
+      let metadata = await extractMetaFromHtml(html, url);
       console.log(`Extracted metadata:`, {
         title: metadata.title ? 'Found' : 'Not found',
         description: metadata.description ? 'Found' : 'Not found',
@@ -546,6 +625,34 @@ serve(async (req) => {
         siteName: metadata.siteName ? 'Found' : 'Not found',
         videoUrl: metadata.videoUrl ? 'Found' : 'Not found'
       });
+
+      // Check if result looks suspicious and retry with default UA if needed
+      if (isSuspiciousResult(metadata) && userAgent !== 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36') {
+        console.log('Suspicious result detected, retrying with default User-Agent');
+        try {
+          const retryResponse = await fetch(url, {
+            signal: AbortSignal.timeout(10000),
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/avif,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+            },
+          });
+          
+          if (retryResponse.ok) {
+            const retryHtml = await retryResponse.text();
+            const retryMetadata = await extractMetaFromHtml(retryHtml, url);
+            
+            // Use retry result if it looks better
+            if (!isSuspiciousResult(retryMetadata)) {
+              console.log('Retry with default UA successful, using new metadata');
+              metadata = retryMetadata;
+            }
+          }
+        } catch (retryError) {
+          console.log('Retry failed, using original metadata:', retryError);
+        }
+      }
 
       // More permissive image validation - don't remove image if validation fails
       let validImage = metadata.image;
@@ -557,11 +664,28 @@ serve(async (req) => {
         }
       }
 
+      // Download and store image server-side if userId provided
+      let previewImagePath: string | undefined;
+      let previewImagePublicUrl: string | undefined;
+      
+      if (validImage && userId) {
+        const downloadResult = await downloadAndStoreImage(validImage, userId);
+        if (downloadResult) {
+          previewImagePath = downloadResult.path;
+          previewImagePublicUrl = downloadResult.publicUrl;
+          console.log(`Successfully downloaded and stored image: ${previewImagePath}`);
+        } else {
+          console.log('Failed to download image, will use original URL as fallback');
+        }
+      }
+
       // Create result with all available metadata
       const result: MetadataResult = {
         title: metadata.title || validUrl.hostname,
         description: metadata.description,
         image: validImage,
+        previewImagePath,
+        previewImagePublicUrl,
         siteName: metadata.siteName || validUrl.hostname,
         videoUrl: metadata.videoUrl,
         url: url,
@@ -592,7 +716,7 @@ serve(async (req) => {
         siteName: fallbackUrl.hostname,
         url: originalUrl,
         success: false,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
       
       return new Response(

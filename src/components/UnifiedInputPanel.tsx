@@ -6,7 +6,6 @@ import { Plus, ChevronUp, ChevronDown, Send } from 'lucide-react';
 import InputChip from '@/components/InputChip';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { downloadAndStoreImage } from '@/utils/linkImageStorage';
 import { useAuth } from '@/hooks/useAuth';
 
 interface UnifiedInputPanelProps {
@@ -53,7 +52,7 @@ const UnifiedInputPanel = ({
   const fetchOgData = async (url: string): Promise<OpenGraphData | null> => {
     try {
       const { data, error } = await supabase.functions.invoke('extract-link-metadata', {
-        body: { url }
+        body: { url, userId: user?.id }
       });
       
       if (error) {
@@ -66,25 +65,12 @@ const UnifiedInputPanel = ({
           title: data.title,
           description: data.description,
           image: data.image,
+          previewImagePath: data.previewImagePath,
+          previewImageUrl: data.previewImagePublicUrl,
           url: url,
           siteName: data.siteName,
           videoUrl: data.videoUrl
         };
-
-        // Try to download and store the image for preview if available
-        if (data.image && user) {
-          try {
-            const previewImagePath = await downloadAndStoreImage(data.image, user.id);
-            if (previewImagePath) {
-              const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(previewImagePath);
-              ogDataResult.previewImagePath = previewImagePath; // Storage path for saving to DB
-              ogDataResult.previewImageUrl = urlData.publicUrl; // Public URL for chip display
-            }
-          } catch (error) {
-            console.error('Failed to download preview image:', error);
-            // Keep the original image URL as fallback
-          }
-        }
 
         return ogDataResult;
       }

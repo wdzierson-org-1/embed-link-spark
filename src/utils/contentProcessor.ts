@@ -67,6 +67,9 @@ export const processAndInsertContent = async (
   // For links, use the preview image path if provided (only if it's a valid storage path)
   if (type === 'link' && data.previewImagePath && !data.previewImagePath.startsWith('http')) {
     filePath = data.previewImagePath;
+  } else if (type === 'link' && !data.previewImagePath && data.ogData?.image && data.ogData.image.startsWith('http')) {
+    // Fallback: if no storage path but we have an HTTP image URL, save it for display
+    filePath = data.ogData.image;
   }
 
   // Generate title for text notes
