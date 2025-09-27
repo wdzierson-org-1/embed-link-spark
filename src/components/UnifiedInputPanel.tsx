@@ -6,6 +6,8 @@ import { Plus, ChevronUp, ChevronDown, Send } from 'lucide-react';
 import InputChip from '@/components/InputChip';
 import { useToast } from '@/components/ui/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { downloadAndStoreImage } from '@/utils/linkImageStorage';
+import { useAuth } from '@/hooks/useAuth';
 
 interface UnifiedInputPanelProps {
   isInputUICollapsed: boolean;
@@ -18,6 +20,7 @@ interface OpenGraphData {
   title?: string;
   description?: string;
   image?: string;
+  previewImageUrl?: string; // For stored image URLs that can be displayed
   url?: string;
   siteName?: string;
   videoUrl?: string;
@@ -42,6 +45,7 @@ const UnifiedInputPanel = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -54,6 +58,33 @@ const UnifiedInputPanel = ({
       if (error) {
         console.error('Error fetching metadata:', error);
         return null;
+      }
+      
+      if (data && data.success) {
+        const ogDataResult: OpenGraphData = {
+          title: data.title,
+          description: data.description,
+          image: data.image,
+          url: url,
+          siteName: data.siteName,
+          videoUrl: data.videoUrl
+        };
+
+        // Try to download and store the image for preview if available
+        if (data.image && user) {
+          try {
+            const previewImagePath = await downloadAndStoreImage(data.image, user.id);
+            if (previewImagePath) {
+              const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(previewImagePath);
+              ogDataResult.previewImageUrl = urlData.publicUrl;
+            }
+          } catch (error) {
+            console.error('Failed to download preview image:', error);
+            // Keep the original image URL as fallback
+          }
+        }
+
+        return ogDataResult;
       }
       
       return data;
@@ -189,7 +220,7 @@ const UnifiedInputPanel = ({
           url: linkItem.content.url,
           title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
           description: linkItem.ogData?.description,
-          previewImagePath: linkItem.ogData?.image,
+          previewImagePath: linkItem.ogData?.previewImageUrl || linkItem.ogData?.image,
           ogData: linkItem.ogData,
           type: 'link'
         });
@@ -221,7 +252,7 @@ const UnifiedInputPanel = ({
             url: linkItem.content.url,
             title: linkItem.ogData?.title || linkItem.content.url,
             description: linkItem.ogData?.description,
-            image: linkItem.ogData?.image,
+            image: linkItem.ogData?.previewImageUrl || linkItem.ogData?.image,
             siteName: linkItem.ogData?.siteName
           });
         }
