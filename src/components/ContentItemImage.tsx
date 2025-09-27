@@ -68,11 +68,8 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
     }
   };
 
-  if (!hasValidImage || !imgState) {
-    return null;
-  }
-
-  if ((item.type === 'image' || item.type === 'link') && item.file_path) {
+  // Show actual image if we have one and it's valid
+  if (hasValidImage && imgState && (item.type === 'image' || item.type === 'link') && item.file_path) {
     return (
       <div className="w-full h-48 overflow-hidden">
         <img
