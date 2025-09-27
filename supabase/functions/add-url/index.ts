@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
     console.log('Fetching metadata for URL:', url);
 
     // Fetch the webpage content
-    let metadata = { title: null, description: null, image: null, siteName: null };
+    let metadata: { title: string | null | undefined, description: string | null | undefined, image: string | null | undefined, siteName: string | null | undefined } = { title: null, description: null, image: null, siteName: null };
     let previewImagePath = null;
 
     try {
@@ -339,18 +339,16 @@ Deno.serve(async (req) => {
 
     if (contentForEmbedding.trim()) {
       // Run embeddings generation in the background
-      EdgeRuntime.waitUntil(
+      try {
         supabase.functions.invoke('generate-embeddings', {
           body: {
             itemId: item.id,
             textContent: contentForEmbedding
           }
-        }).then(() => {
-          console.log('Embeddings generated for link:', item.id);
-        }).catch((embeddingError) => {
-          console.error('Error generating embeddings:', embeddingError);
-        })
-      );
+        });
+      } catch (embeddingError) {
+        console.error('Error generating embeddings:', embeddingError);
+      }
     }
 
     // Return immediate success response
@@ -379,7 +377,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Unexpected error:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      JSON.stringify({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' }),
       { 
         status: 500, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 

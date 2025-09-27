@@ -26,7 +26,7 @@ serve(async (req) => {
   try {
     // Parse form data from Twilio
     const formData = await req.formData();
-    const body = Object.fromEntries(formData.entries()) as TwilioWebhookBody;
+    const body = Object.fromEntries(formData.entries()) as unknown as TwilioWebhookBody;
     
     console.log('Received Twilio webhook:', body);
 
@@ -81,7 +81,7 @@ serve(async (req) => {
 
     if (intent === 'note') {
       // Handle as a note to save
-      responseMessage = await handleNoteIntent(messageBody, mediaUrl, mediaContentType, userId, supabase, openaiApiKey || '');
+      responseMessage = await handleNoteIntent(messageBody, mediaUrl ?? null, mediaContentType ?? null, userId, supabase, openaiApiKey || '');
     } else if (intent === 'question') {
       // Handle as a question to answer - now with proper implementation
       responseMessage = await handleQuestionIntent(messageBody, userId, supabase, openaiApiKey || '');

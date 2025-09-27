@@ -50,7 +50,7 @@ serve(async (req) => {
       const overlap = 150; // More overlap to preserve relationships
       
       // Try to split on natural boundaries first (paragraphs, sentences)
-      const paragraphs = cleanedText.split(/\n\s*\n/).filter(p => p.trim().length > 0);
+      const paragraphs = cleanedText.split(/\n\s*\n/).filter((p: string) => p.trim().length > 0);
       
       if (paragraphs.length > 1) {
         // Process paragraph by paragraph, combining small ones
@@ -136,7 +136,7 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error('Error generating embeddings:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

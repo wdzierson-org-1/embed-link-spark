@@ -107,7 +107,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error transcribing audio:', error);
     return new Response(JSON.stringify({ 
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       transcription: '',
       description: 'Audio received but transcription failed. Please try again.'
     }), {

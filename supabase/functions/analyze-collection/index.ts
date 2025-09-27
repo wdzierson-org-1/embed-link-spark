@@ -99,7 +99,7 @@ Return your response as JSON with "title" and "description" fields.`;
   } catch (error) {
     console.error('Error in analyze-collection function:', error);
     return new Response(JSON.stringify({ 
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       title: 'Collection',
       description: 'Mixed content collection'
     }), {
