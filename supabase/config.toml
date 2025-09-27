@@ -34,6 +34,9 @@ verify_jwt = false
 [functions.get-comments]
 verify_jwt = false
 
+[functions.image-proxy]
+verify_jwt = false
+
 [db]
 port = 54322
 

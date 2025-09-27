@@ -1,8 +1,6 @@
-
 import { useState, useEffect } from 'react';
 import { isValidUrl } from '@/utils/urlMetadata';
 import { supabase } from '@/integrations/supabase/client';
-import { downloadAndStoreImage } from '@/utils/linkImageStorage';
 import { useAuth } from '@/hooks/useAuth';
 
 interface OpenGraphData {
@@ -35,82 +33,21 @@ export const useLinkPreview = (url: string) => {
       }
 
       if (data && data.success) {
+        // Set preview image URL from server response or fallback to original image
+        const previewImageUrl = data.previewImagePublicUrl || data.image;
+        
         const ogDataResult: OpenGraphData = {
           title: data.title,
           description: data.description,
           image: data.image,
+          previewImageUrl,
           url: urlToFetch,
           siteName: data.siteName,
           videoUrl: data.videoUrl
         };
 
-        console.log('🔄 Setting initial OG data:', ogDataResult);
-        // Set initial data first
+        console.log('Setting OG data with preview URL:', ogDataResult);
         setOgData(ogDataResult);
-
-        // Try to download and store the image for preview if available
-        if (data.image && user) {
-          console.log('📸 Attempting to download image:', data.image);
-          try {
-            // Add timeout for image download
-            const downloadPromise = downloadAndStoreImage(data.image, user.id);
-            const timeoutPromise = new Promise<string | null>((_, reject) => 
-              setTimeout(() => reject(new Error('Download timeout')), 15000)
-            );
-            
-            const previewImagePath = await Promise.race([downloadPromise, timeoutPromise]);
-            
-            if (previewImagePath) {
-              console.log('✅ Image downloaded successfully, path:', previewImagePath);
-              const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(previewImagePath);
-              console.log('🔗 Generated public URL:', urlData.publicUrl);
-              
-              // Update the data with the preview image URL
-              setOgData(prev => {
-                if (prev) {
-                  const updated = { ...prev, previewImageUrl: urlData.publicUrl };
-                  console.log('🔄 Updating OG data with preview image:', updated);
-                  return updated;
-                }
-                return null;
-              });
-            } else {
-              console.warn('⚠️ Image download failed, using original image URL as fallback');
-              // Fallback: use original image URL - better than no image at all
-              setOgData(prev => {
-                if (prev) {
-                  const updated = { ...prev, previewImageUrl: prev.image };
-                  console.log('🔄 Using original image URL as fallback:', updated);
-                  return updated;
-                }
-                return null;
-              });
-            }
-          } catch (error) {
-            console.error('❌ Failed to download preview image:', error);
-            console.log('🔄 Falling back to original image URL for direct display');
-            // Fallback: use original image URL
-            setOgData(prev => {
-              if (prev) {
-                const updated = { ...prev, previewImageUrl: prev.image };
-                console.log('🔄 Error fallback - using original image URL:', updated);
-                return updated;
-              }
-              return null;
-            });
-          }
-        } else if (data.image && !user) {
-          console.log('👤 No user logged in, using original image URL');
-          // For non-logged-in users, always use the original image URL
-          setOgData(prev => {
-            if (prev) {
-              const updated = { ...prev, previewImageUrl: prev.image };
-              console.log('👤 No user - using original image URL:', updated);
-              return updated;
-            }
-            return null;
-          });
-        }
       } else {
         // Fallback: create basic data from URL
         const domain = new URL(urlToFetch).hostname;

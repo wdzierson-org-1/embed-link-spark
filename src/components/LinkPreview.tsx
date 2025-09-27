@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { ExternalLink } from 'lucide-react';
+import { SUPABASE_URL } from '@/integrations/supabase/client';
 
 interface OpenGraphData {
   title?: string;
@@ -34,11 +35,20 @@ const LinkPreview = ({ ogData }: LinkPreviewProps) => {
     setImageLoading(false);
   };
 
-  const handleImageError = () => {
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const imageUrl = ogData.previewImageUrl || ogData.image;
-    console.log('Image failed to load:', imageUrl);
-    setImageError(true);
-    setImageLoading(false);
+    console.log('LinkPreview image failed to load:', imageUrl);
+    
+    // Try proxy URL if current URL isn't already proxied
+    if (!e.currentTarget.src.includes('/functions/v1/image-proxy') && imageUrl) {
+      const proxiedUrl = `${SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+      console.log('Trying proxy URL:', proxiedUrl);
+      e.currentTarget.src = proxiedUrl;
+    } else {
+      // Proxy also failed, hide image
+      setImageError(true);
+      setImageLoading(false);
+    }
   };
 
   // Use preview image URL if available, otherwise fallback to original

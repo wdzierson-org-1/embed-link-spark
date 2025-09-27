@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, FileText, Link as LinkIcon, Image, Video, FileAudio, File } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SUPABASE_URL } from '@/integrations/supabase/client';
 
 interface OpenGraphData {
   title?: string;
@@ -52,7 +53,15 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
                   referrerPolicy="no-referrer"
                   onError={(e) => {
                     console.log('InputChip image failed to load:', imageUrl);
-                    e.currentTarget.style.display = 'none';
+                    // Try proxy URL if current URL isn't already proxied
+                    if (!e.currentTarget.src.includes('/functions/v1/image-proxy')) {
+                      const proxiedUrl = `${SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+                      console.log('Trying proxy URL:', proxiedUrl);
+                      e.currentTarget.src = proxiedUrl;
+                    } else {
+                      // Proxy also failed, hide image
+                      e.currentTarget.style.display = 'none';
+                    }
                   }}
                 />
               )}
