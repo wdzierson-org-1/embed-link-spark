@@ -21,7 +21,7 @@ interface OpenGraphData {
   image?: string;
   previewImagePath?: string; // Supabase storage path for database storage
   previewImageUrl?: string; // Public URL for display purposes
-  url?: string;
+  url: string; // Required to match LinkPreview interface
   siteName?: string;
   videoUrl?: string;
 }
@@ -72,6 +72,7 @@ const UnifiedInputPanel = ({
           videoUrl: data.videoUrl
         };
 
+        console.log('fetchOgData result:', ogDataResult);
         return ogDataResult;
       }
       
@@ -204,12 +205,17 @@ const UnifiedInputPanel = ({
       // Case 1: Only a single link, no text, no other items -> Individual link item
       if (linkItems.length === 1 && !hasText && mediaItems.length === 0) {
         const linkItem = linkItems[0];
+        console.log('Single link submission:', linkItem);
         await onAddContent('link', {
           url: linkItem.content.url,
           title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
           description: linkItem.ogData?.description,
           previewImagePath: linkItem.ogData?.previewImagePath,
-          ogData: linkItem.ogData,
+          ogData: {
+            ...linkItem.ogData,
+            // Ensure we have image fallback for contentProcessor
+            image: linkItem.ogData?.previewImageUrl || linkItem.ogData?.image
+          },
           type: 'link'
         });
       }

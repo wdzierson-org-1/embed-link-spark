@@ -67,9 +67,13 @@ export const processAndInsertContent = async (
   // For links, use the preview image path if provided (only if it's a valid storage path)
   if (type === 'link' && data.previewImagePath && !data.previewImagePath.startsWith('http')) {
     filePath = data.previewImagePath;
+    console.log('Using previewImagePath for link:', filePath);
   } else if (type === 'link' && !data.previewImagePath && data.ogData?.image && data.ogData.image.startsWith('http')) {
     // Fallback: if no storage path but we have an HTTP image URL, save it for display
     filePath = data.ogData.image;
+    console.log('Using ogData.image fallback for link:', filePath);
+  } else if (type === 'link') {
+    console.log('No image path found for link:', { previewImagePath: data.previewImagePath, ogDataImage: data.ogData?.image });
   }
 
   // Generate title for text notes

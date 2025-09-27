@@ -6,6 +6,7 @@ interface OpenGraphData {
   title?: string;
   description?: string;
   image?: string;
+  previewImageUrl?: string; // Supabase public URL for downloaded images
   url?: string;
   siteName?: string;
   videoUrl?: string;
@@ -39,14 +40,19 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
   const getDisplayContent = () => {
     switch (type) {
       case 'link':
-        if (ogData && (ogData.image || ogData.title || ogData.description)) {
+        if (ogData && (ogData.previewImageUrl || ogData.image || ogData.title || ogData.description)) {
+          const imageUrl = ogData.previewImageUrl || ogData.image;
           return (
             <div className="flex items-center gap-3 max-w-[300px]">
-              {ogData.image && (
+              {imageUrl && (
                 <img 
-                  src={ogData.image} 
+                  src={imageUrl} 
                   alt="" 
                   className="w-10 h-10 rounded object-cover flex-shrink-0" 
+                  onError={(e) => {
+                    console.log('InputChip image failed to load:', imageUrl);
+                    e.currentTarget.style.display = 'none';
+                  }}
                 />
               )}
               <div className="flex-1 min-w-0">
@@ -118,7 +124,7 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
 
   return (
     <div className="flex items-center gap-2 bg-white border border-border rounded-lg px-3 py-2 shadow-sm max-w-fit">
-      {!ogData?.image && !content.file && getIcon()}
+      {!ogData?.previewImageUrl && !ogData?.image && !content.file && getIcon()}
       {getDisplayContent()}
       <Button
         variant="ghost"
