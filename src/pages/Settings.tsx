@@ -1,8 +1,9 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings as SettingsIcon, Smartphone, User } from 'lucide-react';
+import { Settings as SettingsIcon, Smartphone, User, Crown } from 'lucide-react';
 import PhoneNumberSetup from '@/components/PhoneNumberSetup';
+import SubscriptionSettings from '@/components/SubscriptionSettings';
 
 const Settings = () => {
   return (
@@ -12,8 +13,12 @@ const Settings = () => {
         <h1 className="text-2xl font-bold">Settings</h1>
       </div>
 
-      <Tabs defaultValue="sms" className="w-full">
-        <TabsList className="grid w-fit grid-cols-2">
+      <Tabs defaultValue="subscription" className="w-full">
+        <TabsList className="grid w-fit grid-cols-3">
+          <TabsTrigger value="subscription" className="flex items-center gap-2">
+            <Crown className="h-4 w-4" />
+            Subscription
+          </TabsTrigger>
           <TabsTrigger value="sms" className="flex items-center gap-2">
             <Smartphone className="h-4 w-4" />
             SMS/WhatsApp
@@ -23,6 +28,10 @@ const Settings = () => {
             Profile
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="subscription" className="mt-6">
+          <SubscriptionSettings />
+        </TabsContent>
 
         <TabsContent value="sms" className="mt-6">
           <PhoneNumberSetup />

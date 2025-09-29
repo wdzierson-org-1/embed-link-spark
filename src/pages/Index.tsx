@@ -6,6 +6,7 @@ import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
 import HeaderSection from '@/components/HeaderSection';
+import SubscriptionBanner from '@/components/SubscriptionBanner';
 import UnifiedInputPanel from '@/components/UnifiedInputPanel';
 import SearchSection from '@/components/SearchSection';
 import ContentGrid from '@/components/ContentGrid';
@@ -119,6 +120,10 @@ const Index = () => {
         user={user}
         onShowSettings={() => setShowSettings(true)}
       />
+
+      <div className="container mx-auto px-4">
+        <SubscriptionBanner />
+      </div>
 
       <UnifiedInputPanel
         isInputUICollapsed={isInputUICollapsed}
