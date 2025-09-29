@@ -44,12 +44,37 @@ serve(async (req) => {
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
     
     if (customers.data.length === 0) {
-      logStep("No customer found, returning unsubscribed state");
+      logStep("No customer found, calculating trial status based on account age");
+      
+      // Calculate trial status based on user creation date
+      const userCreatedAt = new Date(user.created_at);
+      const now = new Date();
+      const daysSinceCreation = Math.floor((now.getTime() - userCreatedAt.getTime()) / (1000 * 60 * 60 * 24));
+      
+      let trialStatus = 'active';
+      let accountStatus = 'active';
+      
+      if (daysSinceCreation <= 7) {
+        trialStatus = 'active';
+        accountStatus = 'active';
+      } else if (daysSinceCreation <= 37) {
+        trialStatus = 'expired';
+        accountStatus = 'read_only';
+      } else {
+        trialStatus = 'expired';
+        accountStatus = 'expired';
+      }
+
+      logStep("Trial status calculated", { daysSinceCreation, trialStatus, accountStatus });
+      
       return new Response(JSON.stringify({ 
         subscribed: false,
         onTrial: false,
         product_id: null,
-        subscription_end: null 
+        subscription_end: null,
+        trial_status: trialStatus,
+        account_status: accountStatus,
+        days_since_creation: daysSinceCreation
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
@@ -96,11 +121,46 @@ serve(async (req) => {
       logStep("No active subscription found");
     }
 
+    // Calculate trial status based on user creation date
+    const userCreatedAt = new Date(user.created_at);
+    const now = new Date();
+    const daysSinceCreation = Math.floor((now.getTime() - userCreatedAt.getTime()) / (1000 * 60 * 60 * 24));
+    
+    let trialStatus = 'active'; // active, read_only, expired
+    let accountStatus = 'active'; // active, read_only, expired
+    
+    if (!hasActiveSub) {
+      if (daysSinceCreation <= 7) {
+        trialStatus = 'active';
+        accountStatus = 'active';
+      } else if (daysSinceCreation <= 37) {
+        trialStatus = 'expired';
+        accountStatus = 'read_only';
+      } else {
+        trialStatus = 'expired';
+        accountStatus = 'expired';
+      }
+    } else {
+      trialStatus = onTrial ? 'active' : 'complete';
+      accountStatus = 'active';
+    }
+
+    logStep("Calculated trial and account status", { 
+      daysSinceCreation, 
+      trialStatus, 
+      accountStatus,
+      hasActiveSub,
+      onTrial 
+    });
+
     return new Response(JSON.stringify({
       subscribed: hasActiveSub,
       onTrial,
       product_id: productId,
-      subscription_end: subscriptionEnd
+      subscription_end: subscriptionEnd,
+      trial_status: trialStatus,
+      account_status: accountStatus,
+      days_since_creation: daysSinceCreation
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

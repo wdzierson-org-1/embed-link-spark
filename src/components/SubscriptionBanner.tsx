@@ -4,14 +4,29 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useSubscription } from '@/hooks/useSubscription';
 
 const SubscriptionBanner = () => {
-  const { subscribed, onTrial, subscriptionEnd, loading, createCheckoutSession } = useSubscription();
+  const { 
+    subscribed, 
+    onTrial, 
+    subscriptionEnd, 
+    trialStatus, 
+    accountStatus, 
+    daysSinceCreation,
+    loading, 
+    createCheckoutSession 
+  } = useSubscription();
 
-  // Don't show banner if subscribed (not on trial)
+  // Don't show banner if fully subscribed (not on trial)
   if (loading || (subscribed && !onTrial)) {
     return null;
   }
 
+  // Don't show banner if account is expired
+  if (accountStatus === 'expired') {
+    return null;
+  }
+
   const trialEndDate = subscriptionEnd ? new Date(subscriptionEnd).toLocaleDateString() : null;
+  const daysLeft = Math.max(0, 7 - daysSinceCreation);
 
   return (
     <Card className="mb-6 border-primary/20 bg-gradient-to-r from-primary/5 to-accent/5">
@@ -22,7 +37,22 @@ const SubscriptionBanner = () => {
               {onTrial ? <Crown className="h-5 w-5 text-primary" /> : <Sparkles className="h-5 w-5 text-primary" />}
             </div>
             <div>
-              {onTrial ? (
+              {trialStatus === 'active' && !subscribed ? (
+                <>
+                  <h3 className="font-semibold text-foreground">Your 7-day trial period is active</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {daysLeft > 0 ? `${daysLeft} days remaining. ` : ''}
+                    After it's over, you'll be prompted to create an account in order to continue to enjoy all Stash features.
+                  </p>
+                </>
+              ) : accountStatus === 'read_only' ? (
+                <>
+                  <h3 className="font-semibold text-foreground">Trial expired - Account is now read-only</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Subscribe now to restore full access and continue adding content. Your account will be deleted in {Math.max(0, 37 - daysSinceCreation)} days without a subscription.
+                  </p>
+                </>
+              ) : onTrial ? (
                 <>
                   <h3 className="font-semibold text-foreground">You're on a free trial!</h3>
                   <p className="text-sm text-muted-foreground">
@@ -40,7 +70,7 @@ const SubscriptionBanner = () => {
             </div>
           </div>
           <Button onClick={createCheckoutSession} className="shrink-0">
-            {onTrial ? "Upgrade Now" : "Start Free Trial"}
+            {accountStatus === 'read_only' ? "Subscribe Now" : onTrial ? "Upgrade Now" : "Start Free Trial"}
           </Button>
         </div>
       </CardContent>

@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Plus, ChevronUp, ChevronDown, Send } from 'lucide-react';
 import InputChip from '@/components/InputChip';
 import { useToast } from '@/components/ui/use-toast';
+import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -46,6 +47,7 @@ const UnifiedInputPanel = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+  const { canAddContent } = useSubscription();
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -198,6 +200,15 @@ const UnifiedInputPanel = ({
 
   const handleSubmit = async () => {
     if (!inputText.trim() && inputItems.length === 0) return;
+    
+    if (!canAddContent) {
+      toast({
+        title: "Feature Restricted",
+        description: "Please subscribe to add new content.",
+        variant: "destructive",
+      });
+      return;
+    }
     
     setIsSubmitting(true);
     

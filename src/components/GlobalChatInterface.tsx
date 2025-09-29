@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { X, Send, Bot, User, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import ReactMarkdown from 'react-markdown';
 import ChatMessageSources from './ChatMessageSources';
@@ -37,6 +38,7 @@ const GlobalChatInterface = ({ isOpen, onClose, onSourceClick, onViewAllSources 
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { canUseAI } = useSubscription();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -74,6 +76,15 @@ const GlobalChatInterface = ({ isOpen, onClose, onSourceClick, onViewAllSources 
 
   const sendMessage = async () => {
     if (!inputMessage.trim() || isLoading) return;
+
+    if (!canUseAI) {
+      toast({
+        title: "Feature Restricted",
+        description: "AI chat is only available during your trial period or with a subscription.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),

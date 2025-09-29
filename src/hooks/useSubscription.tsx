@@ -8,10 +8,16 @@ interface SubscriptionContextType {
   onTrial: boolean;
   productId: string | null;
   subscriptionEnd: string | null;
+  trialStatus: 'active' | 'expired' | 'complete';
+  accountStatus: 'active' | 'read_only' | 'expired';
+  daysSinceCreation: number;
   loading: boolean;
   checkSubscription: () => Promise<void>;
   createCheckoutSession: () => Promise<void>;
   openCustomerPortal: () => Promise<void>;
+  canAddContent: boolean;
+  canUseAI: boolean;
+  canAccessFullFeatures: boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
@@ -33,6 +39,9 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const [onTrial, setOnTrial] = useState(false);
   const [productId, setProductId] = useState<string | null>(null);
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
+  const [trialStatus, setTrialStatus] = useState<'active' | 'expired' | 'complete'>('active');
+  const [accountStatus, setAccountStatus] = useState<'active' | 'read_only' | 'expired'>('active');
+  const [daysSinceCreation, setDaysSinceCreation] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const checkSubscription = async () => {
@@ -54,11 +63,17 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
         setOnTrial(false);
         setProductId(null);
         setSubscriptionEnd(null);
+        setTrialStatus('active');
+        setAccountStatus('active');
+        setDaysSinceCreation(0);
       } else {
         setSubscribed(data.subscribed || false);
         setOnTrial(data.onTrial || false);
         setProductId(data.product_id);
         setSubscriptionEnd(data.subscription_end);
+        setTrialStatus(data.trial_status || 'active');
+        setAccountStatus(data.account_status || 'active');
+        setDaysSinceCreation(data.days_since_creation || 0);
       }
     } catch (error) {
       console.error('Exception checking subscription:', error);
@@ -66,6 +81,9 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       setOnTrial(false);
       setProductId(null);
       setSubscriptionEnd(null);
+      setTrialStatus('active');
+      setAccountStatus('active');
+      setDaysSinceCreation(0);
     } finally {
       setLoading(false);
     }
@@ -139,6 +157,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   }, [user]);
 
   // Auto-refresh subscription status every 30 seconds
+  // Auto-refresh subscription status every 30 seconds
   useEffect(() => {
     if (!user) return;
 
@@ -146,16 +165,27 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     return () => clearInterval(interval);
   }, [user]);
 
+  // Calculate feature access based on subscription and trial status
+  const canAddContent = subscribed || accountStatus === 'active';
+  const canUseAI = subscribed || accountStatus === 'active';
+  const canAccessFullFeatures = subscribed || accountStatus === 'active';
+
   return (
     <SubscriptionContext.Provider value={{
       subscribed,
       onTrial,
       productId,
       subscriptionEnd,
+      trialStatus,
+      accountStatus,
+      daysSinceCreation,
       loading,
       checkSubscription,
       createCheckoutSession,
-      openCustomerPortal
+      openCustomerPortal,
+      canAddContent,
+      canUseAI,
+      canAccessFullFeatures
     }}>
       {children}
     </SubscriptionContext.Provider>
