@@ -1,9 +1,9 @@
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Settings as SettingsIcon, Smartphone, User, Crown } from 'lucide-react';
 import PhoneNumberSetup from '@/components/PhoneNumberSetup';
 import SubscriptionSettings from '@/components/SubscriptionSettings';
+import { ProfileSettings } from '@/components/ProfileSettings';
 
 const Settings = () => {
   return (
@@ -38,17 +38,7 @@ const Settings = () => {
         </TabsContent>
 
         <TabsContent value="profile" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Settings</CardTitle>
-              <CardDescription>
-                Manage your account preferences
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">Profile settings coming soon...</p>
-            </CardContent>
-          </Card>
+          <ProfileSettings />
         </TabsContent>
       </Tabs>
     </div>
