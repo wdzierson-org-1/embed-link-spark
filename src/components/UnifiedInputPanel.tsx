@@ -4,10 +4,11 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Plus, ChevronUp, ChevronDown, Send } from 'lucide-react';
 import InputChip from '@/components/InputChip';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { MAX_FILE_SIZE_MB, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 
 interface UnifiedInputPanelProps {
   isInputUICollapsed: boolean;
@@ -50,6 +51,35 @@ const UnifiedInputPanel = ({
   const { canAddContent } = useSubscription();
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
+
+  const validateFileSize = (file: File): { valid: boolean; error?: string } => {
+    const fileSizeMB = file.size / 1024 / 1024;
+    
+    if (file.type.startsWith('video/')) {
+      if (fileSizeMB > MAX_VIDEO_SIZE_MB) {
+        return {
+          valid: false,
+          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Stash only accepts videos less than ${MAX_VIDEO_SIZE_MB}MB. Perhaps you can compress the video further?`
+        };
+      }
+    } else if (file.type.startsWith('audio/')) {
+      if (fileSizeMB > MAX_AUDIO_SIZE_MB) {
+        return {
+          valid: false,
+          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum audio size is ${MAX_AUDIO_SIZE_MB}MB. Please choose a smaller file.`
+        };
+      }
+    } else if (file.type.startsWith('image/') || file.type === 'application/pdf' || file.type.startsWith('text/') || file.type.startsWith('application/')) {
+      if (fileSizeMB > MAX_FILE_SIZE_MB) {
+        return {
+          valid: false,
+          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum file size is ${MAX_FILE_SIZE_MB}MB. Please choose a smaller file.`
+        };
+      }
+    }
+    
+    return { valid: true };
+  };
 
   const fetchOgData = async (url: string): Promise<OpenGraphData | null> => {
     try {
@@ -157,6 +187,17 @@ const UnifiedInputPanel = ({
 
     const files = Array.from(e.dataTransfer.files);
     files.forEach(file => {
+      // Validate file size
+      const validation = validateFileSize(file);
+      if (!validation.valid) {
+        toast({
+          title: "File too large",
+          description: validation.error,
+          variant: "destructive",
+        });
+        return;
+      }
+
       const fileType = file.type.startsWith('image/') ? 'image' :
                       file.type.startsWith('video/') ? 'video' :
                       file.type.startsWith('audio/') ? 'audio' : 'file';
@@ -172,11 +213,22 @@ const UnifiedInputPanel = ({
         }
       }]);
     });
-  }, []);
+  }, [toast]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     files.forEach(file => {
+      // Validate file size
+      const validation = validateFileSize(file);
+      if (!validation.valid) {
+        toast({
+          title: "File too large",
+          description: validation.error,
+          variant: "destructive",
+        });
+        return;
+      }
+
       const fileType = file.type.startsWith('image/') ? 'image' :
                       file.type.startsWith('video/') ? 'video' :
                       file.type.startsWith('audio/') ? 'audio' : 'file';

@@ -24,5 +24,5 @@ export const SUPPORTED_IMAGE_TYPES = [
 
 // File size limits for different media types
 export const MAX_FILE_SIZE_MB = 20;
-export const MAX_VIDEO_SIZE_MB = 50; // Supabase free tier limit
-export const MAX_AUDIO_SIZE_MB = 50;
+export const MAX_VIDEO_SIZE_MB = 100;
+export const MAX_AUDIO_SIZE_MB = 100;

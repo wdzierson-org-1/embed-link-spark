@@ -23,7 +23,10 @@ export const uploadFile = async (file: File, userId: string): Promise<string> =>
   }
   
   if (fileSizeMB > maxSize) {
-    const error = new Error(`File "${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum ${fileTypeLabel} size is ${maxSize}MB.`);
+    const errorMsg = fileTypeLabel === 'video' 
+      ? `File "${file.name}" is ${fileSizeMB.toFixed(1)}MB. Stash only accepts videos less than ${maxSize}MB. Perhaps you can compress the video further?`
+      : `File "${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum ${fileTypeLabel} size is ${maxSize}MB.`;
+    const error = new Error(errorMsg);
     console.error('FileUploader: File too large', { fileSizeMB, maxSize, fileType: file.type });
     throw error;
   }

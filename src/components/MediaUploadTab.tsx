@@ -29,7 +29,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
       if (fileSizeMB > MAX_VIDEO_SIZE_MB) {
         return {
           valid: false,
-          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum video size is ${MAX_VIDEO_SIZE_MB}MB. Please compress the video or choose a smaller file.`
+          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Stash only accepts videos less than ${MAX_VIDEO_SIZE_MB}MB. Perhaps you can compress the video further?`
         };
       }
     } else if (file.type.startsWith('audio/')) {
