@@ -130,7 +130,7 @@ const Landing = () => {
                 Sign In
               </Button>
             </Link>
-            <Link to="/auth">
+            <Link to="/pricing">
               <Button className="bg-foreground text-background hover:bg-foreground/90 text-sm px-4 py-2 rounded-full font-mori">
                 Get Started
               </Button>
@@ -152,7 +152,7 @@ const Landing = () => {
             </p>
             
             <div className="slide-up">
-              <Link to="/auth">
+              <Link to="/pricing">
                 <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
                   Start organizing in seconds
                 </Button>
@@ -326,7 +326,7 @@ const Landing = () => {
           <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
             Join thousands who've transformed chaos into clarity. Start capturing everything that matters.
           </p>
-          <Link to="/auth">
+          <Link to="/pricing">
             <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
               Get Started for Free
               <ArrowRight className="ml-3 h-5 w-5" />

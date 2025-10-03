@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/hooks/useAuth';
 import { SubscriptionProvider } from '@/hooks/useSubscription';
 import Landing from '@/pages/Landing';
+import Pricing from '@/pages/Pricing';
 import Index from '@/pages/Index';
 import Auth from '@/pages/Auth';
 import Settings from '@/pages/Settings';
@@ -23,6 +24,7 @@ function App() {
             <div className="min-h-screen bg-background">
               <Routes>
                 <Route path="/" element={<Landing />} />
+                <Route path="/pricing" element={<Pricing />} />
                 <Route path="/home" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/settings" element={<Settings />} />
