@@ -74,7 +74,7 @@ const SubscriptionSettings = () => {
           </div>
           <div className="text-right">
             <p className="font-semibold">
-              {subscribed ? "$9.99/month" : "Free"}
+              {subscribed ? "$4.99/month" : "Free"}
             </p>
           </div>
         </div>

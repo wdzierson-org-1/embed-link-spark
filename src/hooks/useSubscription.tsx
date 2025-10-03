@@ -25,10 +25,10 @@ const SubscriptionContext = createContext<SubscriptionContextType | undefined>(u
 // Product mapping
 const SUBSCRIPTION_TIERS = {
   premium: {
-    price_id: "price_1SCWf2CmrT4Ru5ZPpOvauEs1",
-    product_id: "prod_T8oHCnVaCoVSvz",
+    price_id: "price_1SEFK4DjmsxBFAFefosv28h2",
+    product_id: "prod_TAaVGlswi6ss1o",
     name: "Premium",
-    price: "$9.99/month"
+    price: "$4.99/month"
   }
 };
 
