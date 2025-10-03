@@ -12,16 +12,18 @@ const SubscriptionBanner = () => {
     trialEnd,
     daysLeftInTrial,
     loading, 
-    createCheckoutSession 
+    openCustomerPortal 
   } = useSubscription();
 
-  const [isDismissed, setIsDismissed] = useState(() => {
-    return sessionStorage.getItem('subscription-banner-dismissed') === 'true';
+  const [dismissedAt, setDismissedAt] = useState<string | null>(() => {
+    return localStorage.getItem('subscription-banner-dismissed');
   });
 
-  useEffect(() => {
-    sessionStorage.setItem('subscription-banner-dismissed', isDismissed.toString());
-  }, [isDismissed]);
+  const handleDismiss = () => {
+    const timestamp = new Date().toISOString();
+    setDismissedAt(timestamp);
+    localStorage.setItem('subscription-banner-dismissed', timestamp);
+  };
 
   // Don't show banner if fully subscribed (not on trial)
   if (loading || (subscribed && !onTrial)) {
@@ -30,16 +32,15 @@ const SubscriptionBanner = () => {
 
   const trialEndDate = trialEnd ? new Date(trialEnd).toLocaleDateString() : null;
   const isPaused = subscriptionStatus === 'paused';
+  const currentTrialDay = 8 - daysLeftInTrial;
 
-  // Only show banner if:
-  // 1. Less than 2 days left in trial, OR
-  // 2. Subscription is paused (cannot be dismissed)
-  if (!isPaused && daysLeftInTrial >= 2) {
-    return null;
-  }
-
-  // Don't show if dismissed for this session (only for trial, not paused)
-  if (!isPaused && isDismissed) {
+  // Visibility logic:
+  // - Always show if paused (cannot be dismissed)
+  // - For trialing users:
+  //   - Show if never dismissed
+  //   - Show if dismissed BUT less than 2 days left (override dismissal)
+  //   - Hide if dismissed AND 2+ days left (respect dismissal)
+  if (!isPaused && dismissedAt && daysLeftInTrial >= 2) {
     return null;
   }
 
@@ -59,32 +60,32 @@ const SubscriptionBanner = () => {
                     Add a payment method to restore full access and continue adding content, searching, and using AI features.
                   </p>
                 </>
-              ) : onTrial && daysLeftInTrial > 0 ? (
+              ) : onTrial && daysLeftInTrial < 2 ? (
                 <>
                   <h3 className="font-semibold text-foreground">Your 7-day free trial is ending soon</h3>
                   <p className="text-sm text-muted-foreground">
-                    {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} remaining. Trial ends on {trialEndDate}. Add a payment method to continue enjoying all Stash features.
+                    {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} remaining. Trial ends on {trialEndDate}. Upgrade now for $4.99/month.
                   </p>
                 </>
               ) : (
                 <>
-                  <h3 className="font-semibold text-foreground">Start Your Free 7-Day Trial</h3>
+                  <h3 className="font-semibold text-foreground">You're on day {currentTrialDay} of your 7 day free trial</h3>
                   <p className="text-sm text-muted-foreground">
-                    Get unlimited storage, advanced AI chat, and priority support. No credit card required to start.
+                    Upgrade to Stash Premium at any time for $4.99 per month.
                   </p>
                 </>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <Button onClick={createCheckoutSession}>
+            <Button onClick={openCustomerPortal}>
               {isPaused ? "Add Payment Method" : "Get Premium"}
             </Button>
             {!isPaused && (
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setIsDismissed(true)}
+                onClick={handleDismiss}
                 className="h-9 w-9"
               >
                 <X className="h-4 w-4" />
