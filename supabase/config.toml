@@ -40,6 +40,9 @@ verify_jwt = false
 [functions.create-trial-subscription]
 verify_jwt = true
 
+[functions.quick-pdf-summary]
+verify_jwt = true
+
 [db]
 port = 54322
 

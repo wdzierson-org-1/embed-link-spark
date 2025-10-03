@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Badge } from '@/components/ui/badge';
 import { Expand } from 'lucide-react';
 import ContentItemImage from '@/components/ContentItemImage';
 import { supabase } from '@/integrations/supabase/client';
@@ -10,6 +11,7 @@ interface ContentItem {
   id: string;
   type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
   title?: string;
+  content?: string;
   file_path?: string;
   is_public?: boolean;
   url?: string;
@@ -32,6 +34,8 @@ const ContentItemHeader = ({
   onVideoExpand,
   isPublicView = false
 }: ContentItemHeaderProps) => {
+  // Detect if document is still processing
+  const isProcessing = item.type === 'document' && (!item.content || item.content.length < 100);
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
@@ -87,12 +91,21 @@ const ContentItemHeader = ({
         />
           )}
 
-          {/* PUBLICLY SHARED badge for owner's main view */}
-          {!isPublicView && item.is_public && (
-            <div className="absolute top-2 right-2 z-10">
-              <div className="bg-primary text-primary-foreground px-2 py-1 rounded text-xs font-medium">
-                PUBLICLY SHARED
-              </div>
+          {/* Badges in top right corner */}
+          {!isPublicView && (
+            <div className="absolute top-2 right-2 z-10 flex gap-2">
+              {/* Processing badge */}
+              {isProcessing && (
+                <Badge variant="secondary" className="animate-pulse">
+                  Processing...
+                </Badge>
+              )}
+              {/* PUBLICLY SHARED badge */}
+              {item.is_public && (
+                <div className="bg-primary text-primary-foreground px-2 py-1 rounded text-xs font-medium">
+                  PUBLICLY SHARED
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -105,15 +118,18 @@ const ContentItemHeader = ({
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleTitleClick}
-                    className="text-left w-full group/title"
+                    disabled={isProcessing}
+                    className={`text-left w-full group/title ${isProcessing ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
-                    <h3 className="text-lg font-editorial leading-tight line-clamp-2 group-hover/title:underline transition-all duration-200 cursor-pointer">
+                    <h3 className={`text-lg font-editorial leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
                       {item.title}
                     </h3>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="max-w-xs break-words">Click to edit: {item.title}</p>
+                  <p className="max-w-xs break-words">
+                    {isProcessing ? 'Please wait while content is being extracted' : `Click to edit: ${item.title}`}
+                  </p>
                 </TooltipContent>
               </Tooltip>
             ) : (

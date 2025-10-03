@@ -182,16 +182,41 @@ export const processAndInsertContent = async (
   
   await fetchItems();
 
-  // Handle PDF processing separately with longer delay
+  // Handle PDF processing with quick summary first, then full extraction
   if (type === 'document' && (filePath || data.uploadedFilePath)) {
     console.log('Starting PDF processing for item:', insertedItem.id);
+    
+    // Phase 1: Quick summary (immediate)
+    setTimeout(async () => {
+      try {
+        const fileName = data.file?.name || 'document.pdf';
+        const pdfPath = filePath || data.uploadedFilePath;
+        const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(pdfPath);
+        
+        console.log('Calling quick-pdf-summary for:', insertedItem.id);
+        await supabase.functions.invoke('quick-pdf-summary', {
+          body: {
+            fileUrl: urlData.publicUrl,
+            itemId: insertedItem.id,
+            fileName
+          }
+        });
+        
+        // Refresh UI with quick summary
+        await fetchItems();
+      } catch (error) {
+        console.error('Quick PDF summary failed:', error);
+      }
+    }, 500);
+    
+    // Phase 2: Full extraction (after delay)
     setTimeout(async () => {
       try {
         await processPdfContent(insertedItem.id, filePath || data.uploadedFilePath, fetchItems, showToast);
       } catch (error) {
         console.error('Background PDF processing failed:', error);
       }
-    }, 3000);
+    }, 5000);
   } else {
     // Generate embeddings for textual content (including transcriptions and descriptions)
     const textForEmbedding = [

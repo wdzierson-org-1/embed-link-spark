@@ -43,6 +43,21 @@ const EditItemDialog = ({ open, onOpenChange, item, onSave }: EditItemDialogProp
   const { toast } = useToast();
   const { user } = useAuth();
 
+  // Detect if document is still processing
+  const isProcessing = item?.type === 'document' && (!item?.content || item.content.length < 100);
+
+  // Prevent opening if processing
+  useEffect(() => {
+    if (open && isProcessing) {
+      toast({
+        title: "Document Processing",
+        description: "This document is still being processed. Please wait a moment.",
+        variant: "destructive",
+      });
+      onOpenChange(false);
+    }
+  }, [open, isProcessing, onOpenChange, toast]);
+
   useEffect(() => {
     if (open && item) {
       const newInstanceKey = `${item.id}-${Date.now()}`;

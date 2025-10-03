@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -67,6 +67,21 @@ const ContentItem = ({
   const [isNoteExpanded, setIsNoteExpanded] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isNoteDeleted, setIsNoteDeleted] = useState(false);
+
+  // Detect if document is still processing
+  const isProcessing = item.type === 'document' && (!item.content || item.content.length < 100);
+
+  // Poll for updates when processing
+  useEffect(() => {
+    if (!isProcessing || !onTagsUpdated) return;
+
+    const pollInterval = setInterval(() => {
+      console.log('Polling for PDF processing updates:', item.id);
+      onTagsUpdated(); // This triggers fetchItems in the parent
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [isProcessing, item.id, onTagsUpdated]);
 
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';
@@ -228,8 +243,20 @@ const ContentItem = ({
             </div>
           )}
           
-          {/* Content section */}
-          <div className="flex-1 mb-4">
+          {/* Content section with processing overlay */}
+          <div className="flex-1 mb-4 relative">
+            {isProcessing && (
+              <div className="absolute inset-0 bg-background/60 backdrop-blur-[2px] rounded-lg flex items-center justify-center z-10">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="animate-pulse flex gap-1">
+                    <div className="h-2 w-2 bg-primary rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div className="h-2 w-2 bg-primary rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="h-2 w-2 bg-primary rounded-full animate-bounce"></div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Extracting content...</p>
+                </div>
+              </div>
+            )}
             <ContentItemContent
               item={item}
               expandedContent={expandedContent}

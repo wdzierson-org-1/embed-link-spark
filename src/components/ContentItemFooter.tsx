@@ -12,6 +12,7 @@ interface ContentItem {
   id: string;
   type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
   title?: string;
+  content?: string;
   url?: string;
   file_path?: string;
   created_at: string;
@@ -41,6 +42,8 @@ const ContentItemFooter = ({
   onTogglePrivacy,
   onCommentClick
 }: ContentItemFooterProps) => {
+  // Detect if document is still processing
+  const isProcessing = item.type === 'document' && (!item.content || item.content.length < 100);
   const getIcon = (type: string) => {
     switch (type) {
       case 'text': return <FileText className="h-4 w-4" />;
@@ -130,9 +133,13 @@ const ContentItemFooter = ({
             )}
             {showOwnerControls && (
               <>
-                <DropdownMenuItem onClick={() => onEditItem(item)}>
+                <DropdownMenuItem 
+                  onClick={() => onEditItem(item)}
+                  disabled={isProcessing}
+                  className={isProcessing ? 'opacity-50 cursor-not-allowed' : ''}
+                >
                   <Edit className="h-4 w-4 mr-2" />
-                  Edit
+                  {isProcessing ? 'Processing...' : 'Edit'}
                 </DropdownMenuItem>
                 {onTogglePrivacy && (
                   <DropdownMenuItem onClick={() => onTogglePrivacy(item)}>
@@ -153,9 +160,13 @@ const ContentItemFooter = ({
             )}
             {!isPublicView && (
               <>
-                <DropdownMenuItem onClick={() => onEditItem(item)}>
+                <DropdownMenuItem 
+                  onClick={() => onEditItem(item)}
+                  disabled={isProcessing}
+                  className={isProcessing ? 'opacity-50 cursor-not-allowed' : ''}
+                >
                   <Edit className="h-4 w-4 mr-2" />
-                  Edit
+                  {isProcessing ? 'Processing...' : 'Edit'}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
                   <Trash2 className="h-4 w-4 mr-2" />

@@ -30,6 +30,17 @@ interface EditItemSheetProps {
 
 const EditItemSheet = ({ open, onOpenChange, item, onSave }: EditItemSheetProps) => {
   const isMobile = useIsMobile();
+  
+  // Detect if document is still processing
+  const isProcessing = item?.type === 'document' && (!item?.content || item.content.length < 100);
+
+  // Prevent opening if processing
+  React.useEffect(() => {
+    if (open && isProcessing) {
+      onOpenChange(false);
+    }
+  }, [open, isProcessing, onOpenChange]);
+
   const {
     title,
     description,
