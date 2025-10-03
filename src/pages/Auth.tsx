@@ -277,6 +277,11 @@ const Auth = () => {
                       {usernameError && (
                         <p className="text-xs text-red-600">{usernameError}</p>
                       )}
+                      {username && !usernameError && username.length >= 3 && (
+                        <p className="text-xs text-muted-foreground">
+                          Your Stash feed URL: https://gostash.it/feed/{username}
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-1">
                       <Input
