@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, X, MessageSquare } from 'lucide-react';
 import StashHeader from '@/components/StashHeader';
+import { useSubscription } from '@/hooks/useSubscription';
+import { useToast } from '@/hooks/use-toast';
 
 interface SearchSectionProps {
   isSearchActive: boolean;
@@ -37,6 +39,20 @@ const SearchSection = ({
   isFilterPanelOpen = false,
   onFilterPanelToggle
 }: SearchSectionProps) => {
+  const { canSearch } = useSubscription();
+  const { toast } = useToast();
+
+  const handleSearchClick = () => {
+    if (!canSearch) {
+      toast({
+        title: "Feature Restricted",
+        description: "Search is only available with an active subscription.",
+        variant: "destructive"
+      });
+      return;
+    }
+    onSearchClick();
+  };
   return (
     <div className="container mx-auto px-4 pt-3 pb-2 bg-white">
       {/* Mobile: Stack search/assistant on one line, filter on next line */}
@@ -50,7 +66,7 @@ const SearchSection = ({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={onSearchClick}
+                    onClick={handleSearchClick}
                     className="flex items-center gap-2 bg-white border-gray-300 hover:bg-gray-50 transition-all duration-200 shrink-0 relative z-30"
                   >
                     <Search className="h-4 w-4" />

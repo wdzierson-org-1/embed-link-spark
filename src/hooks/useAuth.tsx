@@ -53,7 +53,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
     });
+    
+    if (!error) {
+      // Create trial subscription in background after successful signup
+      setTimeout(() => ensureTrialSubscription(), 0);
+    }
+    
     return { error };
+  };
+
+  const ensureTrialSubscription = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      await supabase.functions.invoke('create-trial-subscription');
+    } catch (error) {
+      console.error('Error ensuring trial subscription:', error);
+      // Don't block login if trial creation fails
+    }
   };
 
   const signIn = async (email: string, password: string) => {
@@ -61,6 +79,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       email,
       password
     });
+    
+    if (!error) {
+      // Create trial subscription in background after successful signin
+      setTimeout(() => ensureTrialSubscription(), 0);
+    }
+    
     return { error };
   };
 

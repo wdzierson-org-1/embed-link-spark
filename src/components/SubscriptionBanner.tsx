@@ -6,12 +6,11 @@ import { useState, useEffect } from 'react';
 
 const SubscriptionBanner = () => {
   const { 
-    subscribed, 
-    onTrial, 
-    subscriptionEnd, 
-    trialStatus, 
-    accountStatus, 
-    daysSinceCreation,
+    subscribed,
+    subscriptionStatus,
+    onTrial,
+    trialEnd,
+    daysLeftInTrial,
     loading, 
     createCheckoutSession 
   } = useSubscription();
@@ -29,22 +28,18 @@ const SubscriptionBanner = () => {
     return null;
   }
 
-  // Don't show banner if account is expired
-  if (accountStatus === 'expired') {
+  const trialEndDate = trialEnd ? new Date(trialEnd).toLocaleDateString() : null;
+  const isPaused = subscriptionStatus === 'paused';
+
+  // Only show banner if:
+  // 1. Less than 2 days left in trial, OR
+  // 2. Subscription is paused (cannot be dismissed)
+  if (!isPaused && daysLeftInTrial >= 2) {
     return null;
   }
 
-  const trialEndDate = subscriptionEnd ? new Date(subscriptionEnd).toLocaleDateString() : null;
-  const daysLeft = Math.max(0, 7 - daysSinceCreation);
-
-  // Only show banner if less than 2 days left in trial OR if in read-only mode
-  // For read-only mode, always show (cannot be dismissed)
-  if (accountStatus !== 'read_only' && daysLeft >= 2) {
-    return null;
-  }
-
-  // Don't show if dismissed for this session (only for trial, not read-only)
-  if (accountStatus !== 'read_only' && isDismissed) {
+  // Don't show if dismissed for this session (only for trial, not paused)
+  if (!isPaused && isDismissed) {
     return null;
   }
 
@@ -57,33 +52,25 @@ const SubscriptionBanner = () => {
               {onTrial ? <Crown className="h-5 w-5 text-primary" /> : <Sparkles className="h-5 w-5 text-primary" />}
             </div>
             <div>
-              {trialStatus === 'active' && !subscribed ? (
+              {isPaused ? (
                 <>
-                  <h3 className="font-semibold text-foreground">Your 7-day trial period is active</h3>
+                  <h3 className="font-semibold text-foreground">Trial ended - Account is now read-only</h3>
                   <p className="text-sm text-muted-foreground">
-                    {daysLeft > 0 ? `${daysLeft} days remaining. ` : ''}
-                    After it's over, you'll be prompted to create an account in order to continue to enjoy all Stash features.
+                    Add a payment method to restore full access and continue adding content, searching, and using AI features.
                   </p>
                 </>
-              ) : accountStatus === 'read_only' ? (
+              ) : onTrial && daysLeftInTrial > 0 ? (
                 <>
-                  <h3 className="font-semibold text-foreground">Trial expired - Account is now read-only</h3>
+                  <h3 className="font-semibold text-foreground">Your 7-day free trial is ending soon</h3>
                   <p className="text-sm text-muted-foreground">
-                    Subscribe now to restore full access and continue adding content. Your account will be deleted in {Math.max(0, 37 - daysSinceCreation)} days without a subscription.
-                  </p>
-                </>
-              ) : onTrial ? (
-                <>
-                  <h3 className="font-semibold text-foreground">You're on a free trial!</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Your trial ends on {trialEndDate}. Upgrade to continue enjoying premium features.
+                    {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} remaining. Trial ends on {trialEndDate}. Add a payment method to continue enjoying all Stash features.
                   </p>
                 </>
               ) : (
                 <>
-                  <h3 className="font-semibold text-foreground">Unlock Premium Features</h3>
+                  <h3 className="font-semibold text-foreground">Start Your Free 7-Day Trial</h3>
                   <p className="text-sm text-muted-foreground">
-                    Get unlimited storage, advanced AI chat, and priority support with a 7-day free trial.
+                    Get unlimited storage, advanced AI chat, and priority support. No credit card required to start.
                   </p>
                 </>
               )}
@@ -91,9 +78,9 @@ const SubscriptionBanner = () => {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <Button onClick={createCheckoutSession}>
-              {accountStatus === 'read_only' ? "Subscribe Now" : "Get Premium"}
+              {isPaused ? "Add Payment Method" : "Get Premium"}
             </Button>
-            {accountStatus !== 'read_only' && (
+            {!isPaused && (
               <Button
                 variant="ghost"
                 size="icon"

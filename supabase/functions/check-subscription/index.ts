@@ -44,38 +44,16 @@ serve(async (req) => {
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
     
     if (customers.data.length === 0) {
-      logStep("No customer found, calculating trial status based on account age");
-      
-      // Calculate trial status based on user creation date
-      const userCreatedAt = new Date(user.created_at);
-      const now = new Date();
-      const daysSinceCreation = Math.floor((now.getTime() - userCreatedAt.getTime()) / (1000 * 60 * 60 * 24));
-      
-      let trialStatus = 'active';
-      let accountStatus = 'active';
-      
-      if (daysSinceCreation <= 7) {
-        trialStatus = 'active';
-        accountStatus = 'active';
-      } else if (daysSinceCreation <= 37) {
-        trialStatus = 'expired';
-        accountStatus = 'read_only';
-      } else {
-        trialStatus = 'expired';
-        accountStatus = 'expired';
-      }
-
-      logStep("Trial status calculated", { daysSinceCreation, trialStatus, accountStatus });
-      
+      logStep("No Stripe customer found - user needs trial subscription");
       return new Response(JSON.stringify({ 
         subscribed: false,
+        subscriptionStatus: null,
         onTrial: false,
-        product_id: null,
-        subscription_end: null,
-        trial_status: trialStatus,
-        account_status: accountStatus,
-        days_since_creation: daysSinceCreation,
-        has_stripe_customer: false
+        trialEnd: null,
+        daysLeftInTrial: 0,
+        subscriptionEnd: null,
+        productId: null,
+        hasStripeCustomer: false,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
@@ -85,84 +63,72 @@ serve(async (req) => {
     const customerId = customers.data[0].id;
     logStep("Found Stripe customer", { customerId });
 
-    // Check for active subscriptions (including trials)
+    // Get all subscriptions (active, trialing, paused, etc.)
     const subscriptions = await stripe.subscriptions.list({
       customer: customerId,
-      status: "active",
+      status: 'all',
       limit: 1,
     });
 
-    // Also check for trialing subscriptions
-    const trialSubscriptions = await stripe.subscriptions.list({
-      customer: customerId,
-      status: "trialing",
-      limit: 1,
-    });
-
-    const allActiveSubscriptions = [...subscriptions.data, ...trialSubscriptions.data];
-    const hasActiveSub = allActiveSubscriptions.length > 0;
-    
-    let productId = null;
-    let subscriptionEnd = null;
-    let onTrial = false;
-
-    if (hasActiveSub) {
-      const subscription = allActiveSubscriptions[0];
-      subscriptionEnd = new Date(subscription.current_period_end * 1000).toISOString();
-      onTrial = subscription.status === "trialing";
-      productId = subscription.items.data[0].price.product;
-      logStep("Active subscription found", { 
-        subscriptionId: subscription.id, 
-        endDate: subscriptionEnd,
-        onTrial,
-        productId,
-        status: subscription.status
+    if (subscriptions.data.length === 0) {
+      logStep("Customer exists but no subscription found");
+      return new Response(JSON.stringify({
+        subscribed: false,
+        subscriptionStatus: null,
+        onTrial: false,
+        trialEnd: null,
+        daysLeftInTrial: 0,
+        subscriptionEnd: null,
+        productId: null,
+        hasStripeCustomer: true,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
       });
-    } else {
-      logStep("No active subscription found");
     }
 
-    // Calculate trial status based on user creation date
-    const userCreatedAt = new Date(user.created_at);
-    const now = new Date();
-    const daysSinceCreation = Math.floor((now.getTime() - userCreatedAt.getTime()) / (1000 * 60 * 60 * 24));
+    const subscription = subscriptions.data[0];
+    const status = subscription.status;
+    const isTrialing = status === 'trialing';
+    const isActive = status === 'active';
+    const isPaused = status === 'paused';
     
-    let trialStatus = 'active'; // active, read_only, expired
-    let accountStatus = 'active'; // active, read_only, expired
-    
-    if (!hasActiveSub) {
-      if (daysSinceCreation <= 7) {
-        trialStatus = 'active';
-        accountStatus = 'active';
-      } else if (daysSinceCreation <= 37) {
-        trialStatus = 'expired';
-        accountStatus = 'read_only';
-      } else {
-        trialStatus = 'expired';
-        accountStatus = 'expired';
-      }
-    } else {
-      trialStatus = onTrial ? 'active' : 'complete';
-      accountStatus = 'active';
+    // Calculate days left in trial
+    let daysLeftInTrial = 0;
+    let trialEnd: string | null = null;
+    if (subscription.trial_end) {
+      trialEnd = new Date(subscription.trial_end * 1000).toISOString();
+      const now = Math.floor(Date.now() / 1000);
+      const secondsLeft = Math.max(0, subscription.trial_end - now);
+      daysLeftInTrial = Math.ceil(secondsLeft / (60 * 60 * 24));
     }
 
-    logStep("Calculated trial and account status", { 
-      daysSinceCreation, 
-      trialStatus, 
-      accountStatus,
-      hasActiveSub,
-      onTrial 
+    const subscriptionEnd = subscription.current_period_end 
+      ? new Date(subscription.current_period_end * 1000).toISOString()
+      : null;
+
+    const productId = subscription.items.data[0]?.price.product as string || null;
+
+    logStep("Subscription details", { 
+      status,
+      isTrialing,
+      isActive,
+      isPaused,
+      daysLeftInTrial,
+      trialEnd,
+      subscriptionEnd,
+      productId,
     });
 
     return new Response(JSON.stringify({
-      subscribed: hasActiveSub,
-      onTrial,
-      product_id: productId,
-      subscription_end: subscriptionEnd,
-      trial_status: trialStatus,
-      account_status: accountStatus,
-      days_since_creation: daysSinceCreation,
-      has_stripe_customer: true
+      subscribed: isActive,
+      subscriptionStatus: status,
+      onTrial: isTrialing,
+      trialEnd,
+      daysLeftInTrial,
+      subscriptionEnd,
+      productId,
+      hasStripeCustomer: true,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

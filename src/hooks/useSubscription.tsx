@@ -5,12 +5,12 @@ import { useToast } from '@/hooks/use-toast';
 
 interface SubscriptionContextType {
   subscribed: boolean;
+  subscriptionStatus: string | null;
   onTrial: boolean;
+  trialEnd: string | null;
+  daysLeftInTrial: number;
   productId: string | null;
   subscriptionEnd: string | null;
-  trialStatus: 'active' | 'expired' | 'complete';
-  accountStatus: 'active' | 'read_only' | 'expired';
-  daysSinceCreation: number;
   hasStripeCustomer: boolean;
   loading: boolean;
   checkSubscription: () => Promise<void>;
@@ -18,6 +18,7 @@ interface SubscriptionContextType {
   openCustomerPortal: () => Promise<void>;
   canAddContent: boolean;
   canUseAI: boolean;
+  canSearch: boolean;
   canAccessFullFeatures: boolean;
 }
 
@@ -37,12 +38,12 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [subscribed, setSubscribed] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [onTrial, setOnTrial] = useState(false);
+  const [trialEnd, setTrialEnd] = useState<string | null>(null);
+  const [daysLeftInTrial, setDaysLeftInTrial] = useState(0);
   const [productId, setProductId] = useState<string | null>(null);
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
-  const [trialStatus, setTrialStatus] = useState<'active' | 'expired' | 'complete'>('active');
-  const [accountStatus, setAccountStatus] = useState<'active' | 'read_only' | 'expired'>('active');
-  const [daysSinceCreation, setDaysSinceCreation] = useState(0);
   const [hasStripeCustomer, setHasStripeCustomer] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -62,31 +63,33 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       if (error) {
         console.error('Error checking subscription:', error);
         setSubscribed(false);
+        setSubscriptionStatus(null);
         setOnTrial(false);
+        setTrialEnd(null);
+        setDaysLeftInTrial(0);
         setProductId(null);
         setSubscriptionEnd(null);
-        setTrialStatus('active');
-        setAccountStatus('active');
-        setDaysSinceCreation(0);
+        setHasStripeCustomer(false);
       } else {
         setSubscribed(data.subscribed || false);
+        setSubscriptionStatus(data.subscriptionStatus);
         setOnTrial(data.onTrial || false);
-        setProductId(data.product_id);
-        setSubscriptionEnd(data.subscription_end);
-      setTrialStatus(data.trial_status || 'active');
-      setAccountStatus(data.account_status || 'active');
-      setDaysSinceCreation(data.days_since_creation || 0);
-      setHasStripeCustomer(data.has_stripe_customer || false);
+        setTrialEnd(data.trialEnd);
+        setDaysLeftInTrial(data.daysLeftInTrial || 0);
+        setProductId(data.productId);
+        setSubscriptionEnd(data.subscriptionEnd);
+        setHasStripeCustomer(data.hasStripeCustomer || false);
       }
     } catch (error) {
       console.error('Exception checking subscription:', error);
       setSubscribed(false);
+      setSubscriptionStatus(null);
       setOnTrial(false);
+      setTrialEnd(null);
+      setDaysLeftInTrial(0);
       setProductId(null);
       setSubscriptionEnd(null);
-      setTrialStatus('active');
-      setAccountStatus('active');
-      setDaysSinceCreation(0);
+      setHasStripeCustomer(false);
     } finally {
       setLoading(false);
     }
@@ -168,20 +171,21 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     return () => clearInterval(interval);
   }, [user]);
 
-  // Calculate feature access based on subscription and trial status
-  const canAddContent = subscribed || accountStatus === 'active';
-  const canUseAI = subscribed || accountStatus === 'active';
-  const canAccessFullFeatures = subscribed || accountStatus === 'active';
+  // Calculate feature access based on subscription status
+  const canAddContent = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
+  const canUseAI = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
+  const canSearch = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
+  const canAccessFullFeatures = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
 
   return (
     <SubscriptionContext.Provider value={{
       subscribed,
+      subscriptionStatus,
       onTrial,
+      trialEnd,
+      daysLeftInTrial,
       productId,
       subscriptionEnd,
-      trialStatus,
-      accountStatus,
-      daysSinceCreation,
       hasStripeCustomer,
       loading,
       checkSubscription,
@@ -189,6 +193,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       openCustomerPortal,
       canAddContent,
       canUseAI,
+      canSearch,
       canAccessFullFeatures
     }}>
       {children}
