@@ -454,7 +454,9 @@ export type Database = {
           bio: string | null
           created_at: string
           display_name: string | null
+          first_name: string | null
           id: string
+          last_name: string | null
           public_feed_enabled: boolean
           updated_at: string
           username: string
@@ -464,7 +466,9 @@ export type Database = {
           bio?: string | null
           created_at?: string
           display_name?: string | null
+          first_name?: string | null
           id: string
+          last_name?: string | null
           public_feed_enabled?: boolean
           updated_at?: string
           username: string
@@ -474,7 +478,9 @@ export type Database = {
           bio?: string | null
           created_at?: string
           display_name?: string | null
+          first_name?: string | null
           id?: string
+          last_name?: string | null
           public_feed_enabled?: boolean
           updated_at?: string
           username?: string
