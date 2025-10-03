@@ -1,5 +1,6 @@
 
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Badge } from '@/components/ui/badge';
 import { FileIcon, ImageIcon, VideoIcon, MusicIcon, LinkIcon, FileTextIcon, FolderIcon } from 'lucide-react';
 import CollectionAttachments from '@/components/CollectionAttachments';
@@ -50,9 +51,24 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
         
         {item.description && (
           <div className="mb-2">
-            <p className={`text-sm text-muted-foreground ${item.type === 'image' ? 'line-clamp-6' : 'line-clamp-3'}`}>
-              {item.description}
-            </p>
+            <div className={`text-sm text-muted-foreground prose prose-sm max-w-none ${item.type === 'image' ? 'line-clamp-6' : 'line-clamp-3'}`}>
+              <ReactMarkdown
+                components={{
+                  h1: ({node, ...props}) => <h1 className="text-base font-bold mt-2 mb-1" {...props} />,
+                  h2: ({node, ...props}) => <h2 className="text-base font-semibold mt-2 mb-1" {...props} />,
+                  h3: ({node, ...props}) => <h3 className="text-sm font-semibold mt-1 mb-1" {...props} />,
+                  p: ({node, ...props}) => <p className="mb-1" {...props} />,
+                  ul: ({node, ...props}) => <ul className="list-disc list-inside mb-1" {...props} />,
+                  ol: ({node, ...props}) => <ol className="list-decimal list-inside mb-1" {...props} />,
+                  li: ({node, ...props}) => <li className="ml-2" {...props} />,
+                  strong: ({node, ...props}) => <strong className="font-semibold" {...props} />,
+                  em: ({node, ...props}) => <em className="italic" {...props} />,
+                  a: ({node, ...props}) => <a className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
+                }}
+              >
+                {item.description}
+              </ReactMarkdown>
+            </div>
           </div>
         )}
         
