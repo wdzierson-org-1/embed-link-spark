@@ -14,7 +14,7 @@ interface OpenGraphData {
 }
 
 interface InputChipProps {
-  type: 'text' | 'link' | 'image' | 'video' | 'audio' | 'file';
+  type: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
   content: any;
   onRemove: () => void;
   ogData?: OpenGraphData;
@@ -111,13 +111,13 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
         );
       case 'video':
       case 'audio':
-      case 'file':
+      case 'document':
         return (
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
               {type === 'video' && <Video className="h-5 w-5 text-muted-foreground" />}
               {type === 'audio' && <FileAudio className="h-5 w-5 text-muted-foreground" />}
-              {type === 'file' && <File className="h-5 w-5 text-muted-foreground" />}
+              {type === 'document' && <File className="h-5 w-5 text-muted-foreground" />}
             </div>
             <div>
               <span className="text-sm font-medium truncate max-w-[150px] block">{content.name}</span>

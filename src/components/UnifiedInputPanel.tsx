@@ -30,7 +30,7 @@ interface OpenGraphData {
 
 interface InputItem {
   id: string;
-  type: 'text' | 'link' | 'image' | 'video' | 'audio' | 'file';
+  type: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
   content: any;
   ogData?: OpenGraphData;
 }
@@ -198,9 +198,18 @@ const UnifiedInputPanel = ({
         return;
       }
 
-      const fileType = file.type.startsWith('image/') ? 'image' :
-                      file.type.startsWith('video/') ? 'video' :
-                      file.type.startsWith('audio/') ? 'audio' : 'file';
+      // Classify file type correctly
+      let fileType: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
+      if (file.type.startsWith('image/')) {
+        fileType = 'image';
+      } else if (file.type.startsWith('video/')) {
+        fileType = 'video';
+      } else if (file.type.startsWith('audio/')) {
+        fileType = 'audio';
+      } else {
+        // PDFs, Word docs, text files, etc. are 'document'
+        fileType = 'document';
+      }
       
       setInputItems(prev => [...prev, {
         id: generateId(),
@@ -229,9 +238,18 @@ const UnifiedInputPanel = ({
         return;
       }
 
-      const fileType = file.type.startsWith('image/') ? 'image' :
-                      file.type.startsWith('video/') ? 'video' :
-                      file.type.startsWith('audio/') ? 'audio' : 'file';
+      // Classify file type correctly
+      let fileType: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
+      if (file.type.startsWith('image/')) {
+        fileType = 'image';
+      } else if (file.type.startsWith('video/')) {
+        fileType = 'video';
+      } else if (file.type.startsWith('audio/')) {
+        fileType = 'audio';
+      } else {
+        // PDFs, Word docs, text files, etc. are 'document'
+        fileType = 'document';
+      }
       
       setInputItems(prev => [...prev, {
         id: generateId(),

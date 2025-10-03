@@ -148,6 +148,7 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
     try {
       // Process files and show skeletons immediately
       for (const file of files) {
+        // Classify file type correctly to match database enum
         const fileType = file.type.startsWith('image/') ? 'image' :
                         file.type.startsWith('video/') ? 'video' :
                         file.type.startsWith('audio/') ? 'audio' : 'document';
