@@ -74,7 +74,8 @@ serve(async (req) => {
         subscription_end: null,
         trial_status: trialStatus,
         account_status: accountStatus,
-        days_since_creation: daysSinceCreation
+        days_since_creation: daysSinceCreation,
+        has_stripe_customer: false
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
@@ -160,7 +161,8 @@ serve(async (req) => {
       subscription_end: subscriptionEnd,
       trial_status: trialStatus,
       account_status: accountStatus,
-      days_since_creation: daysSinceCreation
+      days_since_creation: daysSinceCreation,
+      has_stripe_customer: true
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,

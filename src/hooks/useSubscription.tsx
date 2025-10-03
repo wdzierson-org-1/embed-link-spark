@@ -11,6 +11,7 @@ interface SubscriptionContextType {
   trialStatus: 'active' | 'expired' | 'complete';
   accountStatus: 'active' | 'read_only' | 'expired';
   daysSinceCreation: number;
+  hasStripeCustomer: boolean;
   loading: boolean;
   checkSubscription: () => Promise<void>;
   createCheckoutSession: () => Promise<void>;
@@ -42,6 +43,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const [trialStatus, setTrialStatus] = useState<'active' | 'expired' | 'complete'>('active');
   const [accountStatus, setAccountStatus] = useState<'active' | 'read_only' | 'expired'>('active');
   const [daysSinceCreation, setDaysSinceCreation] = useState(0);
+  const [hasStripeCustomer, setHasStripeCustomer] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const checkSubscription = async () => {
@@ -71,9 +73,10 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
         setOnTrial(data.onTrial || false);
         setProductId(data.product_id);
         setSubscriptionEnd(data.subscription_end);
-        setTrialStatus(data.trial_status || 'active');
-        setAccountStatus(data.account_status || 'active');
-        setDaysSinceCreation(data.days_since_creation || 0);
+      setTrialStatus(data.trial_status || 'active');
+      setAccountStatus(data.account_status || 'active');
+      setDaysSinceCreation(data.days_since_creation || 0);
+      setHasStripeCustomer(data.has_stripe_customer || false);
       }
     } catch (error) {
       console.error('Exception checking subscription:', error);
@@ -179,6 +182,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       trialStatus,
       accountStatus,
       daysSinceCreation,
+      hasStripeCustomer,
       loading,
       checkSubscription,
       createCheckoutSession,

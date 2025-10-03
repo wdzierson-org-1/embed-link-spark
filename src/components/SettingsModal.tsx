@@ -17,7 +17,15 @@ interface SettingsModalProps {
 }
 
 const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
-  const { openCustomerPortal } = useSubscription();
+  const { hasStripeCustomer, createCheckoutSession, openCustomerPortal } = useSubscription();
+
+  const handleSubscriptionClick = () => {
+    if (hasStripeCustomer) {
+      openCustomerPortal();
+    } else {
+      createCheckoutSession();
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -38,8 +46,8 @@ const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
 
             <div>
               <h3 className="text-lg font-medium mb-4">Subscription</h3>
-              <Button onClick={openCustomerPortal} variant="outline" className="w-full">
-                Manage Subscription
+              <Button onClick={handleSubscriptionClick} variant="outline" className="w-full">
+                {hasStripeCustomer ? "Manage Subscription" : "Start Subscription"}
               </Button>
             </div>
           </div>
