@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -13,12 +13,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { LogOut, Settings } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import SettingsModal from '@/components/SettingsModal';
 
 const Navbar = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const [showSettings, setShowSettings] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
@@ -66,7 +64,7 @@ const Navbar = () => {
                       </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setShowSettings(true)}>
+                    <DropdownMenuItem onClick={() => navigate('/settings')}>
                       <Settings className="mr-2 h-4 w-4" />
                       Settings
                     </DropdownMenuItem>
@@ -85,11 +83,6 @@ const Navbar = () => {
           </div>
         </div>
       </nav>
-
-      <SettingsModal 
-        open={showSettings} 
-        onOpenChange={setShowSettings}
-      />
     </>
   );
 };

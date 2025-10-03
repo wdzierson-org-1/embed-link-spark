@@ -12,7 +12,6 @@ import SearchSection from '@/components/SearchSection';
 import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
 import GlobalChatInterface from '@/components/GlobalChatInterface';
-import SettingsModal from '@/components/SettingsModal';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
 const Index = () => {
@@ -30,7 +29,6 @@ const Index = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
   const [showGlobalChat, setShowGlobalChat] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [isInputUICollapsed, setIsInputUICollapsed] = useState(() => {
     // Minimize input panel by default for WebKit browsers (Safari) but not Chrome
     const isWebKit = /WebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
@@ -118,7 +116,6 @@ const Index = () => {
     <div className="min-h-screen bg-white">
       <HeaderSection 
         user={user}
-        onShowSettings={() => setShowSettings(true)}
       />
 
       <div className="container mx-auto px-4">
@@ -173,11 +170,6 @@ const Index = () => {
         onClose={() => setShowGlobalChat(false)}
         onSourceClick={handleSourceClick}
         onViewAllSources={handleViewAllSources}
-      />
-
-      <SettingsModal 
-        open={showSettings} 
-        onOpenChange={setShowSettings}
       />
     </div>
   );

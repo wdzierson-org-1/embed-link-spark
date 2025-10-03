@@ -16,10 +16,9 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface HeaderSectionProps {
   user: any;
-  onShowSettings: () => void;
 }
 
-const HeaderSection = ({ user, onShowSettings }: HeaderSectionProps) => {
+const HeaderSection = ({ user }: HeaderSectionProps) => {
   const navigate = useNavigate();
 
   const getUserInitials = (email: string) => {
@@ -77,7 +76,7 @@ const HeaderSection = ({ user, onShowSettings }: HeaderSectionProps) => {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onShowSettings}>
+              <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
               </DropdownMenuItem>

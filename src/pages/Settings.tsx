@@ -1,14 +1,44 @@
-
+import { useAuth } from '@/hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Settings as SettingsIcon, Smartphone, User, Crown, Tag } from 'lucide-react';
 import PhoneNumberSetup from '@/components/PhoneNumberSetup';
 import SubscriptionSettings from '@/components/SubscriptionSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
 import TagsSettings from '@/components/settings/TagsSettings';
+import HeaderSection from '@/components/HeaderSection';
 
 const Settings = () => {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/auth');
+    }
+  }, [loading, user, navigate]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
   return (
-    <div className="container mx-auto py-8 px-4 max-w-4xl">
+    <div className="min-h-screen bg-white">
+      <HeaderSection user={user} />
+      
+      <div className="container mx-auto py-8 px-4 max-w-4xl">
       <div className="flex items-center gap-2 mb-6">
         <SettingsIcon className="h-6 w-6" />
         <h1 className="text-2xl font-bold">Settings</h1>
@@ -50,6 +80,7 @@ const Settings = () => {
           <SubscriptionSettings />
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 };
