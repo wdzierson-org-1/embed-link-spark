@@ -7,7 +7,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import PhoneNumberSetup from '@/components/PhoneNumberSetup';
+import { useSubscription } from '@/hooks/useSubscription';
 
 interface SettingsModalProps {
   open: boolean;
@@ -15,6 +17,8 @@ interface SettingsModalProps {
 }
 
 const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
+  const { subscribed, openCustomerPortal } = useSubscription();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] p-0">
@@ -31,6 +35,15 @@ const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               <h3 className="text-lg font-medium mb-4">Phone Number</h3>
               <PhoneNumberSetup />
             </div>
+
+            {subscribed && (
+              <div>
+                <h3 className="text-lg font-medium mb-4">Subscription</h3>
+                <Button onClick={openCustomerPortal} variant="outline" className="w-full">
+                  Manage Subscription
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>
