@@ -1,6 +1,6 @@
 
 import { toast } from 'sonner';
-import type { ImageUploadOptions, ImageUploadResult } from './ImageUploadTypes';
+import type { ImageUploadOptions, ImageUploadResult } from './MediaUploadTypes';
 import { validateImageFile, generateFilePath } from './ImageUploadValidation';
 import { validateAuthentication } from './ImageUploadAuth';
 import { uploadFileToStorage, getPublicUrl, updateItemInDatabase } from './ImageUploadStorage';
@@ -76,4 +76,4 @@ export const uploadImageForNovel = async (file: File, userId: string, itemId?: s
 };
 
 // Export types for convenience
-export type { ImageUploadOptions, ImageUploadResult } from './ImageUploadTypes';
+export type { ImageUploadOptions, ImageUploadResult } from './MediaUploadTypes';

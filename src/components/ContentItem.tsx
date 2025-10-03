@@ -66,6 +66,7 @@ const ContentItem = ({
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isNoteExpanded, setIsNoteExpanded] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isNoteDeleted, setIsNoteDeleted] = useState(false);
 
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';
@@ -127,20 +128,26 @@ const ContentItem = ({
 
   const handleDeleteNote = async () => {
     try {
+      // Optimistically hide the note immediately
+      setIsNoteDeleted(true);
+      setShowDeleteConfirm(false);
+      
       await supabase
         .from('items')
         .update({ supplemental_note: null })
         .eq('id', item.id);
       
-      setShowDeleteConfirm(false);
-      onTagsUpdated(); // Refresh the items
+      // Refresh the items list to get updated data
+      onTagsUpdated();
     } catch (error) {
       console.error('Error deleting note:', error);
+      // Revert optimistic update on error
+      setIsNoteDeleted(false);
     }
   };
 
   const renderNoteOverlay = () => {
-    if (!item.supplemental_note) return null;
+    if (!item.supplemental_note || isNoteDeleted) return null;
 
     const plainText = getPlainTextFromContent(item.supplemental_note);
     if (!plainText.trim()) return null;

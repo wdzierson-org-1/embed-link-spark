@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadImage } from '@/services/imageUploadService';
 import { generateDescription } from '@/utils/aiOperations';
+import { MAX_FILE_SIZE_MB, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 
 interface MediaUploadTabProps {
   onAddContent: (type: string, data: any) => Promise<void>;
@@ -21,24 +22,70 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
   const { toast } = useToast();
   const { user } = useAuth();
 
+  const validateFileSize = (file: File): { valid: boolean; error?: string } => {
+    const fileSizeMB = file.size / 1024 / 1024;
+    
+    if (file.type.startsWith('video/')) {
+      if (fileSizeMB > MAX_VIDEO_SIZE_MB) {
+        return {
+          valid: false,
+          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum video size is ${MAX_VIDEO_SIZE_MB}MB. Please compress the video or choose a smaller file.`
+        };
+      }
+    } else if (file.type.startsWith('audio/')) {
+      if (fileSizeMB > MAX_AUDIO_SIZE_MB) {
+        return {
+          valid: false,
+          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum audio size is ${MAX_AUDIO_SIZE_MB}MB. Please choose a smaller file.`
+        };
+      }
+    } else if (file.type.startsWith('image/') || file.type === 'application/pdf' || file.type.startsWith('text/') || file.type.startsWith('application/')) {
+      if (fileSizeMB > MAX_FILE_SIZE_MB) {
+        return {
+          valid: false,
+          error: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum file size is ${MAX_FILE_SIZE_MB}MB. Please choose a smaller file.`
+        };
+      }
+    }
+    
+    return { valid: true };
+  };
+
   const handleFileSelect = (selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
     
     const newFiles = Array.from(selectedFiles);
-    const validFiles = newFiles.filter(file => {
-      // Allow images, videos, audio, and documents
+    const validFiles: File[] = [];
+    const errors: string[] = [];
+    
+    newFiles.forEach(file => {
+      // Check file type
       const validTypes = [
         'image/', 'video/', 'audio/',
         'application/pdf', 'text/', 'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       ];
-      return validTypes.some(type => file.type.startsWith(type));
+      const isValidType = validTypes.some(type => file.type.startsWith(type));
+      
+      if (!isValidType) {
+        errors.push(`"${file.name}" is not a supported file type.`);
+        return;
+      }
+      
+      // Check file size
+      const sizeValidation = validateFileSize(file);
+      if (!sizeValidation.valid) {
+        errors.push(sizeValidation.error!);
+        return;
+      }
+      
+      validFiles.push(file);
     });
 
-    if (validFiles.length !== newFiles.length) {
+    if (errors.length > 0) {
       toast({
         title: "Some files were skipped",
-        description: "Only images, videos, audio files, and documents are supported.",
+        description: errors[0], // Show first error
         variant: "destructive",
       });
     }
@@ -250,22 +297,28 @@ const MediaUploadTab = ({ onAddContent, getSuggestedTags }: MediaUploadTabProps)
           {files.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-medium">Selected files:</p>
-              {files.map((file, index) => (
-                <div key={index} className="flex items-center justify-between p-2 bg-white rounded border-0">
-                  <div className="flex items-center space-x-2">
-                    {getFileIcon(file)}
-                    <span className="text-sm truncate">{file.name}</span>
+              {files.map((file, index) => {
+                const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
+                return (
+                  <div key={index} className="flex items-center justify-between p-2 bg-white rounded border-0">
+                    <div className="flex items-center space-x-2 flex-1 min-w-0">
+                      {getFileIcon(file)}
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-sm truncate">{file.name}</span>
+                        <span className="text-xs text-gray-500">{fileSizeMB}MB</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeFile(index)}
+                      className="h-8 w-8 p-0 shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeFile(index)}
-                    className="h-8 w-8 p-0"
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

@@ -1,6 +1,6 @@
 
 import { toast } from 'sonner';
-import { SUPPORTED_IMAGE_TYPES, MAX_FILE_SIZE_MB } from './ImageUploadTypes';
+import { SUPPORTED_IMAGE_TYPES, MAX_FILE_SIZE_MB } from './MediaUploadTypes';
 
 export const validateImageFile = (file: File): void => {
   console.log('ImageUploadValidation: Validating file', { 

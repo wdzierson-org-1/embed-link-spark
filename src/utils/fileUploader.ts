@@ -1,5 +1,6 @@
 
 import { supabase } from '@/integrations/supabase/client';
+import { MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB, MAX_FILE_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 
 export const uploadFile = async (file: File, userId: string): Promise<string> => {
   console.log('FileUploader: Starting upload', { 
@@ -7,6 +8,25 @@ export const uploadFile = async (file: File, userId: string): Promise<string> =>
     fileSize: file.size, 
     userId 
   });
+
+  // Validate file size as backup
+  const fileSizeMB = file.size / 1024 / 1024;
+  let maxSize = MAX_FILE_SIZE_MB;
+  let fileTypeLabel = 'file';
+  
+  if (file.type.startsWith('video/')) {
+    maxSize = MAX_VIDEO_SIZE_MB;
+    fileTypeLabel = 'video';
+  } else if (file.type.startsWith('audio/')) {
+    maxSize = MAX_AUDIO_SIZE_MB;
+    fileTypeLabel = 'audio';
+  }
+  
+  if (fileSizeMB > maxSize) {
+    const error = new Error(`File "${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum ${fileTypeLabel} size is ${maxSize}MB.`);
+    console.error('FileUploader: File too large', { fileSizeMB, maxSize, fileType: file.type });
+    throw error;
+  }
 
   // Enhanced authentication validation
   const { data: { session }, error: sessionError } = await supabase.auth.getSession();
