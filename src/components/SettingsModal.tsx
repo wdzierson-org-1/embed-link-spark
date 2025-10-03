@@ -17,7 +17,7 @@ interface SettingsModalProps {
 }
 
 const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
-  const { subscribed, openCustomerPortal } = useSubscription();
+  const { openCustomerPortal } = useSubscription();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -36,14 +36,12 @@ const SettingsModal = ({ open, onOpenChange }: SettingsModalProps) => {
               <PhoneNumberSetup />
             </div>
 
-            {subscribed && (
-              <div>
-                <h3 className="text-lg font-medium mb-4">Subscription</h3>
-                <Button onClick={openCustomerPortal} variant="outline" className="w-full">
-                  Manage Subscription
-                </Button>
-              </div>
-            )}
+            <div>
+              <h3 className="text-lg font-medium mb-4">Subscription</h3>
+              <Button onClick={openCustomerPortal} variant="outline" className="w-full">
+                Manage Subscription
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>
