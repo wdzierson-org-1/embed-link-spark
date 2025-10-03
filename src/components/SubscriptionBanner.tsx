@@ -25,8 +25,13 @@ const SubscriptionBanner = () => {
     localStorage.setItem('subscription-banner-dismissed', timestamp);
   };
 
+  // Don't show while loading to prevent flash
+  if (loading) {
+    return null;
+  }
+
   // Don't show banner if fully subscribed (not on trial)
-  if (loading || (subscribed && !onTrial)) {
+  if (subscribed && !onTrial) {
     return null;
   }
 
@@ -34,13 +39,16 @@ const SubscriptionBanner = () => {
   const isPaused = subscriptionStatus === 'paused';
   const currentTrialDay = 8 - daysLeftInTrial;
 
-  // Visibility logic:
-  // - Always show if paused (cannot be dismissed)
-  // - For trialing users:
-  //   - Show if never dismissed
-  //   - Show if dismissed BUT less than 2 days left (override dismissal)
-  //   - Hide if dismissed AND 2+ days left (respect dismissal)
-  if (!isPaused && dismissedAt && daysLeftInTrial >= 2) {
+  // Show if paused (always visible)
+  if (isPaused) {
+    // Banner content will be shown below
+  }
+  // Show if on day 1 of trial OR less than 2 days remaining
+  else if (onTrial && (currentTrialDay === 1 || daysLeftInTrial < 2)) {
+    // Banner content will be shown below
+  }
+  // Otherwise hide (days 2-5 of trial with 2+ days remaining)
+  else {
     return null;
   }
 

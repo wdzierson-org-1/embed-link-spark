@@ -321,9 +321,9 @@ const UnifiedInputPanel = ({
       <div className="absolute inset-0 h-[200vh] animated-gradient opacity-30" />
       <div className="absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
       
-      <div className="relative pt-8 pb-8">
+      <div className="relative pt-5 pb-8">
         <div className="container mx-auto px-4">
-          <div className="bg-white/90 backdrop-blur-sm border border-border rounded-xl shadow-lg">
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg">
             {/* Input area with minimize button */}
             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${
               isInputUICollapsed ? 'max-h-0 opacity-0' : 'max-h-96 opacity-100'

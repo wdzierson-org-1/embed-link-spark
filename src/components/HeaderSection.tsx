@@ -41,14 +41,17 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
       <div className="container mx-auto px-4 h-20 flex items-center justify-between">
         <div className="flex items-center space-x-4">
           {/* Logo */}
-          <div className="flex items-center space-x-2">
+          <button 
+            onClick={() => navigate('/home')}
+            className="flex items-center space-x-2 hover:opacity-80 transition-opacity cursor-pointer"
+          >
             <img 
               src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
               alt="Stash"
               className="w-10 h-10"
             />
             <span className="text-xl font-editorial text-gray-900">Stash</span>
-          </div>
+          </button>
           
           {/* Date */}
           <div className="text-muted-foreground">
