@@ -121,7 +121,7 @@ const ContentItemHeader = ({
                     disabled={isProcessing}
                     className={`text-left w-full group/title ${isProcessing ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
-                    <h3 className={`text-lg font-editorial leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
+                    <h3 className={`text-xl font-editorial leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
                       {item.title}
                     </h3>
                   </button>
@@ -140,7 +140,7 @@ const ContentItemHeader = ({
                 }`}
                 disabled={!(item.type === 'link' && item.url)}
               >
-                <h3 className={`text-lg font-editorial leading-tight line-clamp-2 ${
+                <h3 className={`text-xl font-editorial leading-tight line-clamp-2 ${
                   item.type === 'link' && item.url ? 'group-hover/title:underline transition-all duration-200 text-blue-600' : ''
                 }`}>
                   {item.title}
