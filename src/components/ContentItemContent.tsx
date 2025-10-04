@@ -25,6 +25,10 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
   const processedDescription = item.description 
     ? extractPlainTextFromNovelContent(item.description)
     : '';
+  
+  const processedContent = item.content
+    ? extractPlainTextFromNovelContent(item.content)
+    : '';
 
   return (
     <>
@@ -52,9 +56,9 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
           </div>
         )}
         
-        {item.content && item.type !== 'audio' && item.type !== 'video' && (
+        {processedContent && item.type !== 'audio' && item.type !== 'video' && (
           <p className="text-muted-foreground text-sm line-clamp-3">
-            {item.content}
+            {processedContent}
           </p>
         )}
         
