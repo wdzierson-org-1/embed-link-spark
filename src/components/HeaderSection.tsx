@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Settings, LogOut } from 'lucide-react';
+import { Settings, LogOut, ExternalLink } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface HeaderSectionProps {
@@ -82,6 +82,10 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
               <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="mr-2 h-4 w-4" />
                 Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => window.open('/public-feed', '_blank')}>
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Preview public feed
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleSignOut}>
                 <LogOut className="mr-2 h-4 w-4" />
