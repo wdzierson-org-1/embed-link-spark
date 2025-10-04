@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { LogOut, Settings } from 'lucide-react';
+import { LogOut, Settings, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
 const Navbar = () => {
@@ -67,6 +67,10 @@ const Navbar = () => {
                     <DropdownMenuItem onClick={() => navigate('/settings')}>
                       <Settings className="mr-2 h-4 w-4" />
                       Settings
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => window.open('/public-feed', '_blank')}>
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      Preview public feed
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={handleSignOut}>
                       <LogOut className="mr-2 h-4 w-4" />
