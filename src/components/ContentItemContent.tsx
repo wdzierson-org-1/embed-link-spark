@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import CollectionAttachments from '@/components/CollectionAttachments';
+import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
 
 interface ContentItem {
   id: string;
@@ -20,10 +21,15 @@ interface ContentItemContentProps {
 }
 
 const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublicView }: ContentItemContentProps) => {
+  // Extract plain text from Novel JSON format if present
+  const processedDescription = item.description 
+    ? extractPlainTextFromNovelContent(item.description)
+    : '';
+
   return (
     <>
       <div className="space-y-2">
-        {item.description && (
+        {processedDescription && (
           <div className="mb-2">
             <div className={`text-sm text-muted-foreground prose prose-sm max-w-none ${item.type === 'image' ? 'line-clamp-6' : 'line-clamp-3'}`}>
               <ReactMarkdown
@@ -40,7 +46,7 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
                   a: ({node, ...props}) => <a className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
                 }}
               >
-                {item.description}
+                {processedDescription}
               </ReactMarkdown>
             </div>
           </div>
