@@ -1,8 +1,7 @@
 
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
 import CollectionAttachments from '@/components/CollectionAttachments';
-import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
+import ReadOnlyNovelRenderer from '@/components/ReadOnlyNovelRenderer';
 
 interface ContentItem {
   id: string;
@@ -21,45 +20,23 @@ interface ContentItemContentProps {
 }
 
 const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublicView }: ContentItemContentProps) => {
-  // Extract plain text from Novel JSON format if present
-  const processedDescription = item.description 
-    ? extractPlainTextFromNovelContent(item.description)
-    : '';
-  
-  const processedContent = item.content
-    ? extractPlainTextFromNovelContent(item.content)
-    : '';
-
   return (
     <>
       <div className="space-y-2">
-        {processedDescription && (
+        {item.description && (
           <div className="mb-2">
-            <div className={`text-sm text-muted-foreground prose prose-sm max-w-none ${item.type === 'image' ? 'line-clamp-6' : 'line-clamp-3'}`}>
-              <ReactMarkdown
-                components={{
-                  h1: ({node, ...props}) => <h1 className="text-base font-bold mt-2 mb-1" {...props} />,
-                  h2: ({node, ...props}) => <h2 className="text-base font-semibold mt-2 mb-1" {...props} />,
-                  h3: ({node, ...props}) => <h3 className="text-sm font-semibold mt-1 mb-1" {...props} />,
-                  p: ({node, ...props}) => <p className="mb-1" {...props} />,
-                  ul: ({node, ...props}) => <ul className="list-disc list-inside mb-1" {...props} />,
-                  ol: ({node, ...props}) => <ol className="list-decimal list-inside mb-1" {...props} />,
-                  li: ({node, ...props}) => <li className="ml-2" {...props} />,
-                  strong: ({node, ...props}) => <strong className="font-semibold" {...props} />,
-                  em: ({node, ...props}) => <em className="italic" {...props} />,
-                  a: ({node, ...props}) => <a className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
-                }}
-              >
-                {processedDescription}
-              </ReactMarkdown>
-            </div>
+            <ReadOnlyNovelRenderer 
+              content={item.description}
+              maxLines={item.type === 'image' ? 6 : 3}
+            />
           </div>
         )}
         
-        {processedContent && item.type !== 'audio' && item.type !== 'video' && (
-          <p className="text-muted-foreground text-sm line-clamp-3">
-            {processedContent}
-          </p>
+        {item.content && item.type !== 'audio' && item.type !== 'video' && (
+          <ReadOnlyNovelRenderer 
+            content={item.content}
+            maxLines={3}
+          />
         )}
         
         {/* Show attachments for collections */}
