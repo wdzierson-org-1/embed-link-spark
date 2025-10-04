@@ -1,4 +1,4 @@
-import { LogOut, ExternalLink } from 'lucide-react';
+import { LogOut, ExternalLink, Globe } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -34,6 +34,11 @@ export const OwnerMenu = ({ profile }: OwnerMenuProps) => {
     window.open(publicUrl, '_blank');
   };
 
+  const handleOpenPublicFeed = () => {
+    const publicFeedUrl = `${window.location.origin}/public-feed`;
+    window.open(publicFeedUrl, '_blank');
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -57,6 +62,10 @@ export const OwnerMenu = ({ profile }: OwnerMenuProps) => {
         <DropdownMenuItem onClick={handleViewPublic}>
           <ExternalLink className="h-4 w-4 mr-2" />
           View public version
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleOpenPublicFeed}>
+          <Globe className="h-4 w-4 mr-2" />
+          Open public feed
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut}>

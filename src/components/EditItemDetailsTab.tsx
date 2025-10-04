@@ -257,16 +257,6 @@ const EditItemDetailsTab = ({
         </div>
       </div>
 
-      {/* Summary Section */}
-      <EditItemDescriptionSection
-        itemId={item?.id || ''}
-        description={description}
-        content={content}
-        title={title}
-        onDescriptionChange={onDescriptionChange}
-        onSave={onDescriptionSave}
-      />
-
       {/* Supplemental Note Section */}
       <EditItemSupplementalNoteSection
         supplementalNote={supplementalNote}
