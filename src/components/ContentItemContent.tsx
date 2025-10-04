@@ -1,7 +1,7 @@
 
 import React from 'react';
 import CollectionAttachments from '@/components/CollectionAttachments';
-import ReadOnlyNovelRenderer from '@/components/ReadOnlyNovelRenderer';
+import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
 
 interface ContentItem {
   id: string;
@@ -24,19 +24,9 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
     <>
       <div className="space-y-2">
         {item.description && (
-          <div className="mb-2">
-            <ReadOnlyNovelRenderer 
-              content={item.description}
-              maxLines={item.type === 'image' ? 6 : 3}
-            />
-          </div>
-        )}
-        
-        {item.content && item.type !== 'audio' && item.type !== 'video' && (
-          <ReadOnlyNovelRenderer 
-            content={item.content}
-            maxLines={3}
-          />
+          <p className="text-muted-foreground text-sm line-clamp-3">
+            {extractPlainTextFromNovelContent(item.description)}
+          </p>
         )}
         
         {/* Show attachments for collections */}
