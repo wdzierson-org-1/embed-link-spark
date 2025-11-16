@@ -8,6 +8,7 @@ import healthTracking from '@/assets/health-tracking.jpg';
 import creativeProjects from '@/assets/creative-projects.jpg';
 import readingNotes from '@/assets/reading-notes.jpg';
 import remindersMemoryAids from '@/assets/reminders-memory-aids.jpg';
+import demoAddLink from '@/assets/demo_add_link.mp4';
 
 const Landing = () => {
   const [scrollY, setScrollY] = useState(0);
@@ -250,11 +251,16 @@ const Landing = () => {
           </div>
 
           <div className="max-w-3xl mx-auto">
-            <img 
-              src="https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/images/Screenshot%202025-11-16%20at%208.15.54%20AM.png"
-              alt="Ridiculously easy bookmarks"
+            <video 
+              src={demoAddLink}
+              autoPlay
+              loop
+              muted
+              playsInline
               className="w-full rounded-2xl shadow-2xl border border-border"
-            />
+            >
+              Your browser does not support the video tag.
+            </video>
           </div>
         </section>
 
