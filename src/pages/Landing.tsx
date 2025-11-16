@@ -240,6 +240,24 @@ const Landing = () => {
           </div>
         </section>
 
+        {/* Ridiculously Easy Bookmarks Section */}
+        <section className="px-6 py-20 max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-tobias text-foreground mb-4">Ridiculously easy bookmarks.</h2>
+            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+              Paste your link and Stash will go and collect everything it can about it, making it immediately searchable and accessible to our AI. Just press enter. No need to add a description or categorize it. We do that for you.
+            </p>
+          </div>
+
+          <div className="max-w-3xl mx-auto">
+            <img 
+              src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png"
+              alt="Ridiculously easy bookmarks"
+              className="w-full rounded-2xl shadow-2xl border border-border"
+            />
+          </div>
+        </section>
+
         {/* Product Screenshots - Overlapping Cards Style */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
