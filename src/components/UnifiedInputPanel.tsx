@@ -163,9 +163,6 @@ const UnifiedInputPanel = ({
               ));
             }
           });
-          
-          // Remove the URL from the input text after creating the chip
-          setInputText(prev => prev.replace(url, '').trim());
         }
       }
     }
