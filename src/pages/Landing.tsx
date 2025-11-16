@@ -9,6 +9,7 @@ import creativeProjects from '@/assets/creative-projects.jpg';
 import readingNotes from '@/assets/reading-notes.jpg';
 import remindersMemoryAids from '@/assets/reminders-memory-aids.jpg';
 import demoAddLink from '@/assets/demo_add_link.mp4';
+import chatDemo from '@/assets/chat-demo.mp4';
 
 const Landing = () => {
   const [scrollY, setScrollY] = useState(0);
@@ -337,11 +338,16 @@ const Landing = () => {
           </div>
 
           <div className="max-w-2xl mx-auto">
-            <img 
-              src="/lovable-uploads/3104c97b-bf39-4633-b73a-c705a2d42a5f.png" 
-              alt="Chat with AI about your content"
+            <video 
+              src={chatDemo}
+              autoPlay
+              loop
+              muted
+              playsInline
               className="w-full rounded-2xl shadow-2xl border border-border"
-            />
+            >
+              Your browser does not support the video tag.
+            </video>
           </div>
         </section>
 
