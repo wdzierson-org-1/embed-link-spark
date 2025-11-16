@@ -141,6 +141,8 @@ const UnifiedInputPanel = ({
 
     // Auto-detect URLs and add as link chips
     const urls = detectUrl(value);
+    const currentUrls = inputItems.filter(item => item.type === 'link').map(item => item.content.url);
+    
     if (urls) {
       for (const url of urls) {
         const existingLink = inputItems.find(item => 
@@ -166,6 +168,11 @@ const UnifiedInputPanel = ({
         }
       }
     }
+    
+    // Remove link items if URL was deleted/modified
+    setInputItems(prev => prev.filter(item => 
+      item.type !== 'link' || (urls && urls.includes(item.content.url))
+    ));
   };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -295,14 +302,14 @@ const UnifiedInputPanel = ({
       const linkItems = itemsToProcess.filter(item => item.type === 'link');
       const mediaItems = itemsToProcess.filter(item => item.type !== 'link');
 
-      // Case 1: Only a single link, no text, no other items -> Individual link item
-      if (linkItems.length === 1 && !hasText && mediaItems.length === 0) {
+      // Case 1: Single link (with or without text) -> Individual link item
+      if (linkItems.length === 1 && mediaItems.length === 0) {
         const linkItem = linkItems[0];
         console.log('Single link submission:', linkItem);
         await onAddContent('link', {
           url: linkItem.content.url,
           title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
-          description: linkItem.ogData?.description,
+          description: hasText || linkItem.ogData?.description,
           previewImagePath: linkItem.ogData?.previewImagePath,
           ogData: {
             ...linkItem.ogData,
@@ -328,7 +335,7 @@ const UnifiedInputPanel = ({
           type: 'text'
         });
       }
-      // Case 4: Multiple items OR text with any items -> Collection
+      // Case 4: Multiple links or mixed items -> Collection
       else {
         const attachments = [];
         
