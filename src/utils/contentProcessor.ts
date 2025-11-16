@@ -161,12 +161,6 @@ export const processAndInsertContent = async (
     clearSkeletonItems();
   }
 
-  // Add success toast when real item replaces skeleton
-  showToast({
-    title: "Success",
-    description: "Content added to your stash!",
-  });
-
   const { data: insertedItem, error } = await supabase
     .from('items')
     .insert(itemData)
@@ -283,12 +277,6 @@ const processCollection = async (
   if (clearSkeletonItems) {
     clearSkeletonItems();
   }
-
-  // Add success toast when real item replaces skeleton
-  showToast({
-    title: "Success", 
-    description: "Collection added to your stash!",
-  });
 
   const { data: insertedItem, error } = await supabase
     .from('items')
