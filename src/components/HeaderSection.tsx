@@ -50,7 +50,7 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
               alt="Stash"
               className="w-10 h-10"
             />
-            <span className="text-xl font-editorial text-gray-900">Stash</span>
+            <span className="text-xl font-tobias text-gray-900">Stash</span>
           </button>
           
           {/* Date */}

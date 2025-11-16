@@ -34,7 +34,7 @@ const Landing = () => {
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-48 rotate-6">
             <img src={jotThoughts} alt="Jot thoughts interface" className="w-full h-24 object-cover rounded-md mb-2" />
-            <h4 className="font-mori text-sm mb-1">Jot random thoughts</h4>
+            <h4 className="font-tobias text-sm mb-1">Jot random thoughts</h4>
             <p className="text-xs text-muted-foreground font-mori">Quick capture moments</p>
           </div>
         </div>
@@ -45,7 +45,7 @@ const Landing = () => {
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-52 -rotate-3">
             <img src={healthTracking} alt="Health tracking interface" className="w-full h-24 object-cover rounded-md mb-2" />
-            <h4 className="font-mori text-sm mb-1">Health Tracking</h4>
+            <h4 className="font-tobias text-sm mb-1">Health Tracking</h4>
             <p className="text-xs text-muted-foreground font-mori">Monitor wellness patterns</p>
           </div>
         </div>
@@ -56,7 +56,7 @@ const Landing = () => {
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-44 rotate-12">
             <img src={readingNotes} alt="Reading notes interface" className="w-full h-24 object-cover rounded-md mb-2" />
-            <h4 className="font-mori text-sm mb-1">Reading Notes</h4>
+            <h4 className="font-tobias text-sm mb-1">Reading Notes</h4>
             <p className="text-xs text-muted-foreground font-mori">Book insights & quotes</p>
           </div>
         </div>
@@ -70,7 +70,7 @@ const Landing = () => {
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-52 -rotate-6">
             <img src="/lovable-uploads/c567f7f6-ad96-43ff-a02a-57cb70891849.png" alt="Jean-Georges restaurant interior" className="w-full h-24 object-cover rounded-md mb-2" />
-            <h4 className="font-mori text-sm mb-1">Restaurant Discovery</h4>
+            <h4 className="font-tobias text-sm mb-1">Restaurant Discovery</h4>
             <p className="text-xs text-muted-foreground font-mori">World's best dining spots</p>
           </div>
         </div>
@@ -94,7 +94,7 @@ const Landing = () => {
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-48 -rotate-6">
             <img src={remindersMemoryAids} alt="Reminders and memory aids interface" className="w-full h-24 object-cover rounded-md mb-2" />
-            <h4 className="font-mori text-sm mb-1">Reminders & Memory Aids</h4>
+            <h4 className="font-tobias text-sm mb-1">Reminders & Memory Aids</h4>
             <p className="text-xs text-muted-foreground font-mori">Never forget important moments</p>
           </div>
         </div>
@@ -105,7 +105,7 @@ const Landing = () => {
         >
           <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-50 -rotate-12">
             <img src={creativeProjects} alt="Creative projects interface" className="w-full h-24 object-cover rounded-md mb-2" />
-            <h4 className="font-mori text-sm mb-1">Creative Projects</h4>
+            <h4 className="font-tobias text-sm mb-1">Creative Projects</h4>
             <p className="text-xs text-muted-foreground font-mori">Ideas & inspiration</p>
           </div>
         </div>
@@ -121,7 +121,7 @@ const Landing = () => {
               alt="Stash"
               className="w-8 h-8"
             />
-            <span className="text-lg font-editorial text-white lg:text-foreground">Stash</span>
+            <span className="text-lg font-tobias text-white lg:text-foreground">Stash</span>
           </div>
           
           <div className="flex items-center space-x-3">
@@ -141,7 +141,7 @@ const Landing = () => {
         {/* Hero Section */}
         <section className="px-6 pt-24 pb-32 max-w-4xl mx-auto text-center">
           <div className="fade-in">
-            <h1 className="text-5xl md:text-7xl font-editorial text-white lg:text-foreground mb-8 leading-tight tracking-tight">
+            <h1 className="text-5xl md:text-7xl font-tobias text-white lg:text-foreground mb-8 leading-tight tracking-tight">
               Capture everything.<br />
               <span className="text-white/80 lg:text-muted-foreground">Organize nothing.</span>
             </h1>
@@ -164,7 +164,7 @@ const Landing = () => {
         {/* Use Cases Grid */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-editorial text-foreground mb-4">Everything you need to organize your life</h2>
+            <h2 className="text-3xl font-tobias text-foreground mb-4">Everything you need to organize your life</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
               Powerful features that adapt to how you think, helping you organize everything effortlessly.
             </p>
@@ -176,7 +176,7 @@ const Landing = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-2xl mb-6 group-hover:bg-blue-200 transition-colors">
                 <Brain className="h-8 w-8 text-blue-600" />
               </div>
-              <h3 className="text-xl font-editorial text-foreground mb-3">Universal Capture</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Universal Capture</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
                 Text, photos, voice memos, PDFs, and links. Everything you need to capture life's moments in one place.
               </p>
@@ -187,7 +187,7 @@ const Landing = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-100 rounded-2xl mb-6 group-hover:bg-purple-200 transition-colors">
                 <MessageSquare className="h-8 w-8 text-purple-600" />
               </div>
-              <h3 className="text-xl font-editorial text-foreground mb-3">AI Insights</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">AI Insights</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
                 Chat with your data to discover patterns, generate summaries, and unlock insights about your life.
               </p>
@@ -198,7 +198,7 @@ const Landing = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-2xl mb-6 group-hover:bg-green-200 transition-colors">
                 <Smartphone className="h-8 w-8 text-green-600" />
               </div>
-              <h3 className="text-xl font-editorial text-foreground mb-3">Access Everywhere</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Access Everywhere</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
                 Web, mobile, SMS, and WhatsApp. Capture thoughts wherever you are, whenever inspiration strikes.
               </p>
@@ -209,7 +209,7 @@ const Landing = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-2xl mb-6 group-hover:bg-red-200 transition-colors">
                 <Heart className="h-8 w-8 text-red-600" />
               </div>
-              <h3 className="text-xl font-editorial text-foreground mb-3">Health Tracking</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Health Tracking</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
                 Log workouts, meals, and wellness notes. Track patterns to optimize your health journey.
               </p>
@@ -220,7 +220,7 @@ const Landing = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-orange-100 rounded-2xl mb-6 group-hover:bg-orange-200 transition-colors">
                 <Image className="h-8 w-8 text-orange-600" />
               </div>
-              <h3 className="text-xl font-editorial text-foreground mb-3">Creative Projects</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Creative Projects</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
                 Collect inspiration, mood boards, and project ideas. Turn scattered thoughts into organized creativity.
               </p>
@@ -231,7 +231,7 @@ const Landing = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-teal-100 rounded-2xl mb-6 group-hover:bg-teal-200 transition-colors">
                 <MapPin className="h-8 w-8 text-teal-600" />
               </div>
-              <h3 className="text-xl font-editorial text-foreground mb-3">Travel & Places</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Travel & Places</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
                 Save restaurant recommendations, travel plans, and location memories. Never forget a great discovery.
               </p>
@@ -242,7 +242,7 @@ const Landing = () => {
         {/* Product Screenshots - Overlapping Cards Style */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-editorial text-foreground mb-4">Capture everything, search anything</h2>
+            <h2 className="text-3xl font-tobias text-foreground mb-4">Capture everything, search anything</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
               Voice, video, text, links, and images. We transcribe the contents and make everything searchable and conversational.
             </p>
@@ -302,7 +302,7 @@ const Landing = () => {
         {/* AI Chat Section */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-editorial text-foreground mb-4">
+            <h2 className="text-3xl font-tobias text-foreground mb-4">
               Forget about forgetting<br />
               <span className="text-muted-foreground">Chat with your notes, insights, memories, and photos</span>
             </h2>
@@ -322,7 +322,7 @@ const Landing = () => {
 
         {/* Call to Action */}
         <section className="px-6 py-32 max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl font-editorial text-foreground mb-6">Ready to organize your life?</h2>
+          <h2 className="text-4xl font-tobias text-foreground mb-6">Ready to organize your life?</h2>
           <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
             Join thousands who've transformed chaos into clarity. Start capturing everything that matters.
           </p>
@@ -342,7 +342,7 @@ const Landing = () => {
               alt="Stash"
               className="w-8 h-8"
             />
-            <span className="text-lg font-editorial text-foreground">Stash</span>
+            <span className="text-lg font-tobias text-foreground">Stash</span>
           </div>
           <p className="text-sm font-mori text-muted-foreground mb-8">
             Your personal life organizer.

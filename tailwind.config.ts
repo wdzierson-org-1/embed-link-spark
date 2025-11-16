@@ -23,6 +23,7 @@ export default {
         'inter': ['Inter', 'sans-serif'],
         'editorial': ['PPEditorialNew-Regular', 'serif'],
         'mori': ['PPMori-Regular', 'sans-serif'],
+        'tobias': ['Tobias', 'serif'],
       },
 			colors: {
 				border: 'hsl(var(--border))',
