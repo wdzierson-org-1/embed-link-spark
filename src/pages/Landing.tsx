@@ -32,7 +32,7 @@ const Landing = () => {
           className="absolute top-16 left-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${-scrollY * 0.25}px) rotate(${scrollY * 0.03}deg)` }}
         >
-          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-48 rotate-6">
+          <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-48 rotate-6">
             <img src={jotThoughts} alt="Jot thoughts interface" className="w-full h-24 object-cover rounded-md mb-2" />
             <h4 className="font-tobias text-sm mb-1">Jot random thoughts</h4>
             <p className="text-xs text-muted-foreground font-mori">Quick capture moments</p>
@@ -43,7 +43,7 @@ const Landing = () => {
           className="absolute top-72 left-4 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${-scrollY * 0.3}px) rotate(${-scrollY * 0.02}deg)` }}
         >
-          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-52 -rotate-3">
+          <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-52 -rotate-3">
             <img src={healthTracking} alt="Health tracking interface" className="w-full h-24 object-cover rounded-md mb-2" />
             <h4 className="font-tobias text-sm mb-1">Health Tracking</h4>
             <p className="text-xs text-muted-foreground font-mori">Monitor wellness patterns</p>
@@ -54,7 +54,7 @@ const Landing = () => {
           className="absolute top-[28rem] left-1 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${-scrollY * 0.2}px) rotate(${scrollY * 0.025}deg)` }}
         >
-          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-44 rotate-12">
+          <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-44 rotate-12">
             <img src={readingNotes} alt="Reading notes interface" className="w-full h-24 object-cover rounded-md mb-2" />
             <h4 className="font-tobias text-sm mb-1">Reading Notes</h4>
             <p className="text-xs text-muted-foreground font-mori">Book insights & quotes</p>
@@ -68,7 +68,7 @@ const Landing = () => {
           className="absolute top-24 right-2 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.28}px) rotate(${-scrollY * 0.03}deg)` }}
         >
-          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-52 -rotate-6">
+          <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-52 -rotate-6">
             <img src="/lovable-uploads/c567f7f6-ad96-43ff-a02a-57cb70891849.png" alt="Jean-Georges restaurant interior" className="w-full h-24 object-cover rounded-md mb-2" />
             <h4 className="font-tobias text-sm mb-1">Restaurant Discovery</h4>
             <p className="text-xs text-muted-foreground font-mori">World's best dining spots</p>
@@ -79,7 +79,7 @@ const Landing = () => {
           className="absolute top-80 right-4 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.22}px) rotate(${scrollY * 0.02}deg)` }}
         >
-          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-48 rotate-3">
+          <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-48 rotate-3">
             <div className="flex items-center space-x-2 mb-2">
               <Calendar className="h-4 w-4 text-green-500" />
               <span className="text-sm font-mori">Event Planning</span>
@@ -92,7 +92,7 @@ const Landing = () => {
           className="absolute top-[36.06rem] right-6 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.25}px) rotate(${scrollY * 0.02}deg)` }}
         >
-          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-48 -rotate-6">
+          <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-48 -rotate-6">
             <img src={remindersMemoryAids} alt="Reminders and memory aids interface" className="w-full h-24 object-cover rounded-md mb-2" />
             <h4 className="font-tobias text-sm mb-1">Reminders & Memory Aids</h4>
             <p className="text-xs text-muted-foreground font-mori">Never forget important moments</p>
@@ -103,7 +103,7 @@ const Landing = () => {
           className="absolute top-[26rem] right-1 transform-gpu transition-transform duration-500 ease-out"
           style={{ transform: `translateX(${scrollY * 0.15}px) rotate(${-scrollY * 0.015}deg)` }}
         >
-          <div className="bg-card border border-border rounded-lg p-3 shadow-sm w-50 -rotate-12">
+          <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-50 -rotate-12">
             <img src={creativeProjects} alt="Creative projects interface" className="w-full h-24 object-cover rounded-md mb-2" />
             <h4 className="font-tobias text-sm mb-1">Creative Projects</h4>
             <p className="text-xs text-muted-foreground font-mori">Ideas & inspiration</p>
@@ -148,6 +148,7 @@ const Landing = () => {
             
             <p className="text-xl font-mori text-white/90 lg:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
               Your universal inbox for thoughts, photos, voice memos, and documents.<br />
+              <br />
               Chat with your data to discover patterns and insights.
             </p>
             
