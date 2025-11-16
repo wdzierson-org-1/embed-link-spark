@@ -251,7 +251,7 @@ const Landing = () => {
 
           <div className="max-w-3xl mx-auto">
             <img 
-              src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png"
+              src="/lovable-uploads/easy-bookmarks-screenshot.png"
               alt="Ridiculously easy bookmarks"
               className="w-full rounded-2xl shadow-2xl border border-border"
             />
