@@ -337,14 +337,14 @@ const Landing = () => {
             </p>
           </div>
 
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl mx-auto rounded-2xl overflow-hidden shadow-2xl border border-border">
             <video 
               src={chatDemo}
               autoPlay
               loop
               muted
               playsInline
-              className="w-full rounded-2xl shadow-2xl border border-border"
+              className="w-full scale-[1.02]"
             >
               Your browser does not support the video tag.
             </video>
