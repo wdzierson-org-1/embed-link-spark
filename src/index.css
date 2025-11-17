@@ -13,7 +13,7 @@
   font-family: 'PPEditorialNew-Italic';
   src: url('./assets/fonts/PPEditorialNew-Italic.woff2') format('woff2'),
        url('./assets/fonts/PPEditorialNew-Italic.woff') format('woff');
-  font-weight: normal;
+  font-weight: 200;
   font-style: italic;
   font-display: swap;
 }
