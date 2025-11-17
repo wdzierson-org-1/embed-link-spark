@@ -162,7 +162,7 @@ const Landing = () => {
             </h1>
             
             <p className="text-xl font-mori text-white/90 lg:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
-              Your universal inbox for thoughts, photos, voice memos, and documents.<br />
+              Your universal inbox for thoughts, photos, voice memos, documents, and automatically self-describing links.<br />
               <br />
               Chat with your data to discover patterns and insights.
             </p>
