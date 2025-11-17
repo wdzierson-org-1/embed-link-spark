@@ -156,7 +156,7 @@ const Landing = () => {
         {/* Hero Section */}
         <section className="px-6 pt-24 pb-32 max-w-4xl mx-auto text-center">
           <div className="fade-in">
-            <h1 className="text-5xl md:text-7xl font-tobias text-white lg:text-foreground mb-8 leading-tight tracking-tight">
+            <h1 className="text-5xl md:text-7xl font-tobias font-thin text-white lg:text-foreground mb-8 leading-tight tracking-tight">
               Capture everything.<br />
               <span className="text-white/80 lg:text-muted-foreground">Organize <span className="font-editorial-italic">nothing</span>.</span>
             </h1>
