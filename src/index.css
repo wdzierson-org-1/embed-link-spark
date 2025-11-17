@@ -206,11 +206,11 @@
 
   .hero-gradient {
     background: radial-gradient(
-      ellipse 80% 50% at 50% 0%, 
-      hsla(15, 100%, 75%, 0.4) 0%,
-      hsla(25, 100%, 80%, 0.25) 25%,
-      hsla(35, 100%, 85%, 0.1) 50%,
-      transparent 70%
+      ellipse 100% 70% at 50% 0%, 
+      hsla(15, 100%, 75%, 0.5) 0%,
+      hsla(25, 100%, 80%, 0.35) 30%,
+      hsla(35, 100%, 85%, 0.15) 55%,
+      transparent 75%
     );
   }
 
