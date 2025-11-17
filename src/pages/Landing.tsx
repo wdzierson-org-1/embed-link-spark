@@ -158,7 +158,7 @@ const Landing = () => {
           <div className="fade-in">
             <h1 className="text-5xl md:text-7xl font-tobias text-white lg:text-foreground mb-8 leading-tight tracking-tight">
               Capture everything.<br />
-              <span className="text-white/80 lg:text-muted-foreground">Organize nothing.</span>
+              <span className="text-white/80 lg:text-muted-foreground font-editorial-italic">Organize nothing.</span>
             </h1>
             
             <p className="text-xl font-mori text-white/90 lg:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">

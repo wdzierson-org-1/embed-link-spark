@@ -22,6 +22,7 @@ export default {
       fontFamily: {
         'inter': ['Inter', 'sans-serif'],
         'editorial': ['PPEditorialNew-Regular', 'serif'],
+        'editorial-italic': ['PPEditorialNew-Italic', 'serif'],
         'mori': ['PPMori-Regular', 'sans-serif'],
         'tobias': ['Tobias', 'serif'],
       },
