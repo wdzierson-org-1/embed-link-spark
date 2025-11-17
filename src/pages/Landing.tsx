@@ -20,7 +20,7 @@ const Landing = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const gradientOpacity = Math.max(0, 1 - (scrollY / 500));
+  const gradientOpacity = Math.max(0, 1 - (scrollY / 800));
   const cardsTranslate = Math.min(scrollY * 0.5, 400);
 
   return (
@@ -134,8 +134,9 @@ const Landing = () => {
               src="/lovable-uploads/b93db9a2-7dba-4a6c-b36a-a9f982356ff6.png" 
               alt="Stash"
               className="w-8 h-8"
+              style={{ filter: 'brightness(0) saturate(100%) invert(40%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(98%) contrast(86%)' }}
             />
-            <span className="text-lg font-tobias text-white lg:text-foreground">Stash</span>
+            <span className="text-lg font-tobias" style={{ color: '#666' }}>Stash</span>
           </div>
           
           <div className="flex items-center space-x-3">
@@ -378,7 +379,7 @@ const Landing = () => {
         </section>
 
         {/* Footer */}
-        <footer className="px-6 py-16 max-w-4xl mx-auto text-center border-t border-border mt-20">
+        <footer className="px-6 py-16 max-w-4xl mx-auto text-center border-t border-border mt-20 relative z-[1000]">
           <div className="flex items-center justify-center space-x-2 mb-6">
             <img 
               src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
@@ -397,6 +398,9 @@ const Landing = () => {
           </div>
         </footer>
       </div>
+      
+      {/* Bottom Gradient */}
+      <div className="fixed bottom-0 inset-x-0 hero-gradient pointer-events-none z-[700] rotate-180" style={{ height: '60vh' }} />
     </div>
   );
 };
