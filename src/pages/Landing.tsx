@@ -400,7 +400,7 @@ const Landing = () => {
       </div>
       
       {/* Bottom Gradient */}
-      <div className="fixed bottom-0 inset-x-0 hero-gradient pointer-events-none z-[700] rotate-180" style={{ height: '60vh' }} />
+      <div className="absolute bottom-0 inset-x-0 hero-gradient pointer-events-none z-[700] rotate-180" style={{ height: '60vh' }} />
     </div>
   );
 };
