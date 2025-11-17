@@ -20,8 +20,20 @@ const Landing = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  const gradientOpacity = Math.max(0, 1 - (scrollY / 500));
+  const cardsTranslate = Math.min(scrollY * 0.5, 400);
+
   return (
-    <div className="min-h-screen bg-background font-inter relative overflow-hidden">
+    <div className="min-h-screen bg-background font-inter relative overflow-hidden paper-texture">
+      {/* Animated Hero Gradient */}
+      <div 
+        className="fixed inset-0 hero-gradient pointer-events-none z-[700] transition-opacity duration-300"
+        style={{ 
+          opacity: gradientOpacity,
+          height: '100vh'
+        }}
+      />
+      
       {/* Mobile & Tablet Overlay Layer */}
       <div 
         className="fixed inset-0 bg-black/80 pointer-events-none z-[900] lg:hidden transition-opacity duration-500 ease-out"
@@ -32,7 +44,7 @@ const Landing = () => {
       <div className="fixed left-0 top-0 w-72 h-screen pointer-events-none z-[800]">
         <div 
           className="absolute top-16 left-2 transform-gpu transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(${-scrollY * 0.25}px) rotate(${scrollY * 0.03}deg)` }}
+          style={{ transform: `translateX(${-cardsTranslate}px) rotate(${scrollY * 0.03}deg)` }}
         >
           <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-48 rotate-6">
             <img src={jotThoughts} alt="Jot thoughts interface" className="w-full h-24 object-cover rounded-md mb-2" />
@@ -43,7 +55,7 @@ const Landing = () => {
         
         <div 
           className="absolute top-72 left-4 transform-gpu transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(${-scrollY * 0.3}px) rotate(${-scrollY * 0.02}deg)` }}
+          style={{ transform: `translateX(${-cardsTranslate}px) rotate(${-scrollY * 0.02}deg)` }}
         >
           <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-52 -rotate-3">
             <img src={healthTracking} alt="Health tracking interface" className="w-full h-24 object-cover rounded-md mb-2" />
@@ -54,7 +66,7 @@ const Landing = () => {
 
         <div 
           className="absolute top-[28rem] left-1 transform-gpu transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(${-scrollY * 0.2}px) rotate(${scrollY * 0.025}deg)` }}
+          style={{ transform: `translateX(${-cardsTranslate}px) rotate(${scrollY * 0.025}deg)` }}
         >
           <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-44 rotate-12">
             <img src={readingNotes} alt="Reading notes interface" className="w-full h-24 object-cover rounded-md mb-2" />
@@ -68,7 +80,7 @@ const Landing = () => {
       <div className="fixed right-0 top-0 w-72 h-screen pointer-events-none z-[850]">
         <div 
           className="absolute top-24 right-2 transform-gpu transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(${scrollY * 0.28}px) rotate(${-scrollY * 0.03}deg)` }}
+          style={{ transform: `translateX(${cardsTranslate}px) rotate(${-scrollY * 0.03}deg)` }}
         >
           <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-52 -rotate-6">
             <img src="/lovable-uploads/c567f7f6-ad96-43ff-a02a-57cb70891849.png" alt="Jean-Georges restaurant interior" className="w-full h-24 object-cover rounded-md mb-2" />
@@ -79,7 +91,7 @@ const Landing = () => {
 
         <div 
           className="absolute top-80 right-4 transform-gpu transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(${scrollY * 0.22}px) rotate(${scrollY * 0.02}deg)` }}
+          style={{ transform: `translateX(${cardsTranslate}px) rotate(${scrollY * 0.02}deg)` }}
         >
           <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-48 rotate-3">
             <div className="flex items-center space-x-2 mb-2">
@@ -92,7 +104,7 @@ const Landing = () => {
 
         <div 
           className="absolute top-[36.06rem] right-6 transform-gpu transition-transform duration-500 ease-out"
-          style={{ transform: `translateX(${scrollY * 0.25}px) rotate(${scrollY * 0.02}deg)` }}
+          style={{ transform: `translateX(${cardsTranslate}px) rotate(${scrollY * 0.02}deg)` }}
         >
           <div className="bg-card border border-border/20 rounded-lg p-3 shadow-md w-48 -rotate-6">
             <img src={remindersMemoryAids} alt="Reminders and memory aids interface" className="w-full h-24 object-cover rounded-md mb-2" />
