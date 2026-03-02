@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, X, MessageSquare } from 'lucide-react';
-import StashHeader from '@/components/StashHeader';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useToast } from '@/hooks/use-toast';
 
@@ -31,16 +31,11 @@ const SearchSection = ({
   onSearchChange,
   onShowGlobalChat,
   itemCount,
-  tags,
-  selectedTags,
-  onTagFilterChange,
-  showStickyNotes = true,
-  onStickyNotesToggle,
   isFilterPanelOpen = false,
-  onFilterPanelToggle
 }: SearchSectionProps) => {
   const { canSearch } = useSubscription();
   const { toast } = useToast();
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleSearchClick = () => {
     if (!canSearch) {
@@ -53,95 +48,129 @@ const SearchSection = ({
     }
     onSearchClick();
   };
+
+  useEffect(() => {
+    if (!isSearchActive) return;
+
+    const focusTimer = window.setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 180);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+    };
+  }, [isSearchActive]);
+
   return (
     <div className="container mx-auto px-4 pt-3 pb-2 bg-white">
-      {/* Mobile: Stack search/assistant on one line, filter on next line */}
-      {/* Desktop: Keep all on one line initially, filter expands below */}
       <div className="flex flex-col gap-3 mb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            {!isFilterPanelOpen && itemCount > 0 && (
-              <>
-                {!isSearchActive ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSearchClick}
-                    className="flex items-center gap-2 bg-white hover:bg-gray-50 transition-all duration-200 shrink-0 relative z-30"
-                  >
-                    <Search className="h-4 w-4" />
-                    <span className="hidden sm:inline">Search notes</span>
-                    <span className="sm:hidden">Search</span>
-                  </Button>
-                ) : (
-                  <div className="flex items-center gap-2 animate-in slide-in-from-left-2 duration-200 flex-1 min-w-0">
-                    <div className="relative flex items-center border border-gray-300 rounded-md bg-white px-3 py-2 flex-1 min-w-0 max-w-64">
-                      <Search className="h-4 w-4 text-gray-400 mr-2 shrink-0" />
-                      <Input
-                        value={searchQuery}
-                        onChange={onSearchChange}
-                        placeholder="Search notes..."
-                        className="border-0 p-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0 min-w-0"
-                        autoFocus
-                      />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={onSearchClear}
-                        className="h-6 w-6 p-0 ml-2 hover:bg-gray-100 shrink-0"
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onShowGlobalChat}
-                  className="flex items-center gap-2 bg-white hover:bg-gray-50 transition-all duration-200 shrink-0 relative z-30"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  <span className="hidden sm:inline">Stash assistant</span>
-                  <span className="sm:hidden">Assistant</span>
-                </Button>
-              </>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {itemCount > 0 && !isFilterPanelOpen && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onShowGlobalChat}
+                className="flex items-center gap-2 hover:bg-black/10 transition-all duration-200 shrink-0 relative z-30 border-0 shadow-none"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span className="hidden sm:inline">Ask Stash</span>
+                <span className="sm:hidden">Ask</span>
+              </Button>
             )}
           </div>
 
-          {/* Desktop: Show filter button on the right */}
-          {itemCount > 0 && (
-            <div className="hidden sm:block">
-              <StashHeader 
-                onShowGlobalChat={onShowGlobalChat}
-                itemCount={itemCount}
-                tags={tags}
-                selectedTags={selectedTags}
-                onTagFilterChange={onTagFilterChange}
-                showStickyNotes={showStickyNotes}
-                onStickyNotesToggle={onStickyNotesToggle}
-                onFilterPanelToggle={onFilterPanelToggle}
-              />
-            </div>
-          )}
-        </div>
+          <div className="flex items-center justify-end gap-2 flex-1 min-w-0">
+            {itemCount > 0 && !isFilterPanelOpen && (
+              <AnimatePresence initial={false} mode="wait">
+                {!isSearchActive ? (
+                  <motion.div
+                    key="keyword-search-button"
+                    initial={{ opacity: 0, x: 6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -6 }}
+                    transition={{
+                      x: { duration: 0.16, ease: [0.22, 1, 0.36, 1] },
+                      opacity: { duration: 0.16, ease: [0.22, 1, 0.36, 1] },
+                    }}
+                  >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleSearchClick}
+                      className="flex items-center gap-2 hover:bg-black/10 transition-all duration-200 shrink-0 relative z-30 border-0 shadow-none"
+                    >
+                      <motion.span
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                        className="inline-flex"
+                      >
+                        <Search className="h-4 w-4" />
+                      </motion.span>
+                      <span className="hidden sm:inline">Keyword search</span>
+                      <span className="sm:hidden">Keyword</span>
+                    </Button>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="keyword-search-input"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.12, ease: [0.22, 1, 0.36, 1] }}
+                    className="flex items-center gap-2 min-w-0"
+                  >
+                    <motion.div
+                      initial={{ width: 0, opacity: 0 }}
+                      animate={{ width: 280, opacity: 1 }}
+                      exit={{ width: 0, opacity: 0 }}
+                      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                      className="relative rounded-md bg-white px-3 py-2 min-w-0 w-[220px] sm:w-[280px] shadow-[0_2px_2px_rgba(0,0,0,0.2)] overflow-hidden"
+                    >
+                      <span className="absolute left-3 top-[calc(50%-1px)] -translate-y-1/2 inline-flex text-gray-400">
+                        <motion.span
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.65, delay: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                          className="inline-flex"
+                        >
+                          <Search className="h-4 w-4 shrink-0" />
+                        </motion.span>
+                      </span>
 
-        {/* Mobile: Show filter button on separate line */}
-        {itemCount > 0 && (
-          <div className="sm:hidden">
-            <StashHeader 
-              onShowGlobalChat={onShowGlobalChat}
-              itemCount={itemCount}
-              tags={tags}
-              selectedTags={selectedTags}
-              onTagFilterChange={onTagFilterChange}
-              showStickyNotes={showStickyNotes}
-              onStickyNotesToggle={onStickyNotesToggle}
-              onFilterPanelToggle={onFilterPanelToggle}
-            />
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
+                        className="flex items-center"
+                      >
+                        <Input
+                          ref={searchInputRef}
+                          value={searchQuery}
+                          onChange={onSearchChange}
+                          placeholder="Search notes..."
+                          className="border-0 p-0 pl-6 h-auto focus-visible:ring-0 focus-visible:ring-offset-0 min-w-0"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={onSearchClear}
+                          className="h-6 w-6 p-0 ml-2 hover:bg-gray-100 shrink-0"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </motion.div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

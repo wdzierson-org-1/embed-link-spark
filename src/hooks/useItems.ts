@@ -1,13 +1,29 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+
+const ITEM_LIST_COLUMNS = [
+  'id',
+  'type',
+  'title',
+  'content',
+  'url',
+  'file_path',
+  'description',
+  'created_at',
+  'mime_type',
+  'is_public',
+  'supplemental_note',
+].join(',');
 
 export const useItems = () => {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [optimisticItems, setOptimisticItems] = useState([]);
+  const [isInitialLoadInProgress, setIsInitialLoadInProgress] = useState(false);
+  const initialLoadUserIdRef = useRef<string | null>(null);
   const { toast } = useToast();
 
   const fetchItems = useCallback(async () => {
@@ -24,7 +40,7 @@ export const useItems = () => {
       // CRITICAL FIX: Explicitly filter by user_id to prevent cross-user data access
       const { data, error } = await supabase
         .from('items')
-        .select('*')
+        .select(ITEM_LIST_COLUMNS)
         .eq('user_id', user.id)  // This prevents users from seeing other users' items
         .order('created_at', { ascending: false });
 
@@ -64,22 +80,36 @@ export const useItems = () => {
     setOptimisticItems(prev => prev.filter(item => !item.showSkeleton));
   }, []);
 
-  const getAllItems = useCallback(() => {
+  const allItems = useMemo(() => {
     return [...optimisticItems, ...items];
   }, [optimisticItems, items]);
 
   useEffect(() => {
-    if (user) {
-      fetchItems();
+    if (!user?.id) {
+      initialLoadUserIdRef.current = null;
+      setIsInitialLoadInProgress(false);
+      return;
     }
-  }, [user, fetchItems]);
+
+    if (initialLoadUserIdRef.current === user.id) {
+      return;
+    }
+
+    initialLoadUserIdRef.current = user.id;
+    setIsInitialLoadInProgress(true);
+
+    void fetchItems().finally(() => {
+      setIsInitialLoadInProgress(false);
+    });
+  }, [user?.id, fetchItems]);
 
   return {
-    items: getAllItems(),
+    items: allItems,
     fetchItems,
     setItems,
     addOptimisticItem,
     removeOptimisticItem,
-    clearSkeletonItems
+    clearSkeletonItems,
+    isInitialLoadInProgress,
   };
 };

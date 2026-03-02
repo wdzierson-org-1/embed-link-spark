@@ -61,7 +61,7 @@ export const useEditItemSave = ({
       setSaveStatus('saving');
       
       try {
-        console.log('useEditItemSave: Calling onSave with refreshItems enabled:', {
+        console.log('useEditItemSave: Calling onSave without list refresh:', {
           itemId,
           updates: {
             hasTitle: !!updates.title,
@@ -72,11 +72,11 @@ export const useEditItemSave = ({
           }
         });
         
-        await onSave(itemId, updates, { showSuccessToast: false, refreshItems: true });
+        await onSave(itemId, updates, { showSuccessToast: false, refreshItems: false });
         
         setSaveStatus('saved');
         setLastSaved(new Date());
-        console.log('useEditItemSave: Server save completed successfully with UI refresh', {
+        console.log('useEditItemSave: Server save completed successfully', {
           itemId,
           timestamp: new Date().toISOString()
         });
@@ -111,8 +111,8 @@ export const useEditItemSave = ({
     // Immediate localStorage save
     saveToLocalStorageImmediate(itemId);
     
-    // Debounced server save with UI refresh enabled
-    console.log('useEditItemSave: Triggering debounced server save with UI refresh');
+    // Debounced server save without forcing full list refresh
+    console.log('useEditItemSave: Triggering debounced server save');
     debouncedServerSave(itemId, updates);
   }, [saveToLocalStorageImmediate, debouncedServerSave]);
 
@@ -138,7 +138,7 @@ export const useEditItemSave = ({
     };
     
     try {
-      await onSave(itemId, updates, { showSuccessToast: false, refreshItems: true });
+      await onSave(itemId, updates, { showSuccessToast: false, refreshItems: false });
       console.log('useEditItemSave: Final save completed successfully');
     } catch (error) {
       console.error('useEditItemSave: Final save failed:', error);

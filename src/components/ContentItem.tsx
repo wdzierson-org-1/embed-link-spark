@@ -12,6 +12,7 @@ import ItemTagsManager from '@/components/ItemTagsManager';
 import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
 import ChatInterface from '@/components/ChatInterface';
+import type { Attachment } from '@/components/CollectionAttachments';
 import { supabase } from '@/integrations/supabase/client';
 
 interface ContentItem {
@@ -44,6 +45,7 @@ interface ContentItemProps {
   currentUserId?: string;
   onTogglePrivacy?: (item: ContentItem) => void;
   onCommentClick?: (itemId: string) => void;
+  collectionAttachments?: Attachment[];
 }
 
 const ContentItem = ({
@@ -60,7 +62,8 @@ const ContentItem = ({
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
-  onCommentClick
+  onCommentClick,
+  collectionAttachments
 }: ContentItemProps) => {
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -219,7 +222,7 @@ const ContentItem = ({
 
   return (
     <TooltipProvider>
-      <Card className="group flex flex-col h-full bg-card border-border hover:shadow-md transition-all duration-200 relative rounded-[6px]">
+      <Card className="group flex flex-col h-full bg-card border-2 border-black/10 hover:shadow-md transition-all duration-200 relative rounded-[6px]">
         {/* Note Overlay */}
         {renderNoteOverlay()}
         
@@ -262,6 +265,7 @@ const ContentItem = ({
               expandedContent={expandedContent}
               onToggleExpansion={onToggleExpansion}
               isPublicView={isPublicView}
+              collectionAttachments={collectionAttachments}
             />
           </div>
           

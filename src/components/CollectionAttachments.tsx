@@ -7,8 +7,9 @@ import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
 import ImageLightbox from '@/components/ImageLightbox';
 
-interface Attachment {
+export interface Attachment {
   id: string;
+  item_id?: string;
   type: string;
   url?: string;
   file_path?: string;
@@ -24,9 +25,16 @@ interface CollectionAttachmentsProps {
   maxDisplay?: number;
   showAll?: boolean;
   isCompactView?: boolean;
+  prefetchedAttachments?: Attachment[];
 }
 
-const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isCompactView = false }: CollectionAttachmentsProps) => {
+const CollectionAttachments = ({
+  itemId,
+  maxDisplay = 3,
+  showAll = false,
+  isCompactView = false,
+  prefetchedAttachments,
+}: CollectionAttachmentsProps) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [selectedVideoUrl, setSelectedVideoUrl] = useState<string>('');
@@ -34,11 +42,18 @@ const CollectionAttachments = ({ itemId, maxDisplay = 3, showAll = false, isComp
   const [isImageLightboxOpen, setIsImageLightboxOpen] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState<string>('');
   const [selectedImageTitle, setSelectedImageTitle] = useState<string>('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!prefetchedAttachments);
 
   useEffect(() => {
+    if (prefetchedAttachments) {
+      setAttachments(prefetchedAttachments);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     fetchAttachments();
-  }, [itemId]);
+  }, [itemId, prefetchedAttachments]);
 
   const fetchAttachments = async () => {
     try {

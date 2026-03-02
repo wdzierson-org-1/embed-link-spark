@@ -32,6 +32,297 @@ interface ContentData {
   }>;
 }
 
+interface ExtractedLinkMetadata {
+  title?: string;
+  description?: string;
+  image?: string;
+  previewImagePath?: string;
+  previewImagePublicUrl?: string;
+  siteName?: string;
+}
+
+const collectionEmbeddingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+const hasValue = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+
+const getYouTubeVideoId = (url: string): string | null => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+
+    if (!host.includes('youtube.com') && !host.includes('youtu.be')) {
+      return null;
+    }
+
+    if (host.includes('youtu.be')) {
+      return parsed.pathname.split('/').filter(Boolean)[0] || null;
+    }
+
+    const queryId = parsed.searchParams.get('v');
+    if (queryId) return queryId;
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const markerIndex = segments.findIndex((segment) => ['embed', 'shorts', 'live'].includes(segment));
+    if (markerIndex !== -1 && segments[markerIndex + 1]) {
+      return segments[markerIndex + 1];
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
+const buildYouTubeFallbackMetadata = (url: string): ExtractedLinkMetadata | null => {
+  const videoId = getYouTubeVideoId(url);
+  if (!videoId) return null;
+
+  return {
+    title: 'YouTube Video',
+    description: 'Video link from YouTube',
+    image: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+    siteName: 'YouTube',
+  };
+};
+
+const fetchYouTubeOEmbedMetadata = async (url: string): Promise<ExtractedLinkMetadata | null> => {
+  const videoId = getYouTubeVideoId(url);
+  if (!videoId) return null;
+
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
+    const response = await fetch(oembedUrl);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (!data?.title) return null;
+
+    return {
+      title: data.title,
+      description: data.author_name ? `Watch "${data.title}" by ${data.author_name} on YouTube` : 'YouTube video',
+      image: data.thumbnail_url || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+      siteName: 'YouTube',
+    };
+  } catch (error) {
+    console.log('YouTube oEmbed fallback failed during enrichment:', error);
+    return null;
+  }
+};
+
+const extractLinkMetadata = async (url: string, userId: string): Promise<ExtractedLinkMetadata | null> => {
+  if (!url) return null;
+
+  try {
+    const { data, error } = await supabase.functions.invoke('extract-link-metadata', {
+      body: { url, userId, fastOnly: false }
+    });
+
+    if (error || !data) {
+      const oembedFallback = await fetchYouTubeOEmbedMetadata(url);
+      if (oembedFallback) return oembedFallback;
+      return buildYouTubeFallbackMetadata(url);
+    }
+
+    return {
+      title: data.title,
+      description: data.description,
+      image: data.image,
+      previewImagePath: data.previewImagePath,
+      previewImagePublicUrl: data.previewImagePublicUrl,
+      siteName: data.siteName,
+    };
+  } catch (error) {
+    console.error('Error extracting link metadata for enrichment:', error);
+    const oembedFallback = await fetchYouTubeOEmbedMetadata(url);
+    if (oembedFallback) return oembedFallback;
+    return buildYouTubeFallbackMetadata(url);
+  }
+};
+
+const getBestImagePath = (metadata: ExtractedLinkMetadata): string | undefined => {
+  if (hasValue(metadata.previewImagePath) && !metadata.previewImagePath.startsWith('http')) {
+    return metadata.previewImagePath;
+  }
+
+  if (hasValue(metadata.previewImagePublicUrl)) {
+    return metadata.previewImagePublicUrl;
+  }
+
+  if (hasValue(metadata.image)) {
+    return metadata.image;
+  }
+
+  return undefined;
+};
+
+const buildCollectionEmbeddingContent = (
+  item: { title?: string | null; content?: string | null; description?: string | null },
+  attachments: Array<{ title?: string | null; description?: string | null; url?: string | null; metadata?: any }>
+) => {
+  const attachmentText = attachments
+    .map((attachment) => {
+      const metadata = attachment.metadata || {};
+      return [
+        attachment.title,
+        attachment.description,
+        attachment.url,
+        metadata.siteName,
+        metadata.processedContent,
+      ]
+        .filter((value) => hasValue(value))
+        .join(' ');
+    })
+    .filter((chunk) => chunk.trim().length > 0)
+    .join(' ');
+
+  return [
+    item.title,
+    item.content,
+    item.description,
+    attachmentText,
+  ]
+    .filter((value) => hasValue(value))
+    .join(' ')
+    .trim();
+};
+
+const refreshCollectionEmbeddings = async (collectionId: string) => {
+  try {
+    const { data: collectionItem, error: collectionError } = await supabase
+      .from('items')
+      .select('title,content,description')
+      .eq('id', collectionId)
+      .single();
+
+    if (collectionError || !collectionItem) {
+      console.error('Unable to refresh collection embeddings (item lookup failed):', collectionError);
+      return;
+    }
+
+    const { data: attachments, error: attachmentsError } = await supabase
+      .from('item_attachments')
+      .select('title,description,url,metadata')
+      .eq('item_id', collectionId);
+
+    if (attachmentsError) {
+      console.error('Unable to refresh collection embeddings (attachments lookup failed):', attachmentsError);
+      return;
+    }
+
+    const embeddingContent = buildCollectionEmbeddingContent(collectionItem, attachments || []);
+    if (!embeddingContent) return;
+
+    await generateEmbeddings(collectionId, embeddingContent);
+  } catch (error) {
+    console.error('Error refreshing collection embeddings:', error);
+  }
+};
+
+const scheduleCollectionEmbeddingRefresh = (collectionId: string, delayMs: number = 1500) => {
+  const existingTimer = collectionEmbeddingTimers.get(collectionId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    collectionEmbeddingTimers.delete(collectionId);
+    void refreshCollectionEmbeddings(collectionId);
+  }, delayMs);
+
+  collectionEmbeddingTimers.set(collectionId, timer);
+};
+
+const enrichSavedLinkItem = async (
+  itemId: string,
+  url: string,
+  userId: string,
+  existing: { title?: string | null; description?: string | null; file_path?: string | null },
+  fetchItems: () => Promise<void>
+) => {
+  const metadata = await extractLinkMetadata(url, userId);
+  if (!metadata) return;
+
+  const updates: Record<string, string> = {};
+  const nextTitle = hasValue(metadata.title) ? metadata.title : undefined;
+  const nextDescription = hasValue(metadata.description) ? metadata.description : undefined;
+  const nextFilePath = getBestImagePath(metadata);
+
+  if (nextTitle && nextTitle !== existing.title) {
+    updates.title = nextTitle;
+  }
+  if (nextDescription && nextDescription !== existing.description) {
+    updates.description = nextDescription;
+  }
+  if (nextFilePath && nextFilePath !== existing.file_path) {
+    updates.file_path = nextFilePath;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from('items')
+    .update(updates)
+    .eq('id', itemId);
+
+  if (error) {
+    console.error('Error enriching saved link item:', error);
+    return;
+  }
+
+  await fetchItems();
+};
+
+const enrichCollectionLinkAttachment = async (
+  attachmentId: string,
+  collectionId: string,
+  linkUrl: string,
+  userId: string,
+  existing: { title?: string; description?: string; metadata?: Record<string, unknown> }
+) => {
+  const metadata = await extractLinkMetadata(linkUrl, userId);
+  if (!metadata) return;
+
+  const updates: Record<string, unknown> = {};
+  const nextTitle = hasValue(metadata.title) ? metadata.title : undefined;
+  const nextDescription = hasValue(metadata.description) ? metadata.description : undefined;
+  const nextImage = getBestImagePath(metadata);
+  const nextSiteName = hasValue(metadata.siteName) ? metadata.siteName : undefined;
+
+  if (nextTitle && nextTitle !== existing.title) {
+    updates.title = nextTitle;
+  }
+  if (nextDescription && nextDescription !== existing.description) {
+    updates.description = nextDescription;
+  }
+
+  const existingMetadata = existing.metadata || {};
+  const mergedMetadata = {
+    ...existingMetadata,
+    ...(nextImage ? { image: nextImage } : {}),
+    ...(nextSiteName ? { siteName: nextSiteName } : {}),
+  };
+
+  if (JSON.stringify(mergedMetadata) !== JSON.stringify(existingMetadata)) {
+    updates.metadata = mergedMetadata;
+  }
+
+  if (Object.keys(updates).length === 0) return;
+
+  const { error } = await supabase
+    .from('item_attachments')
+    .update(updates)
+    .eq('id', attachmentId);
+
+  if (error) {
+    console.error('Error enriching link attachment metadata:', error);
+    return;
+  }
+
+  scheduleCollectionEmbeddingRefresh(collectionId);
+};
+
 export const processAndInsertContent = async (
   type: string,
   data: ContentData,
@@ -176,6 +467,22 @@ export const processAndInsertContent = async (
   
   await fetchItems();
 
+  if (type === 'link' && data.url) {
+    setTimeout(() => {
+      void enrichSavedLinkItem(
+        insertedItem.id,
+        data.url!,
+        userId,
+        {
+          title: insertedItem.title,
+          description: insertedItem.description,
+          file_path: insertedItem.file_path,
+        },
+        fetchItems
+      );
+    }, 0);
+  }
+
   // Handle PDF processing with quick summary first, then full extraction
   if (type === 'document' && (filePath || data.uploadedFilePath)) {
     console.log('Starting PDF processing for item:', insertedItem.id);
@@ -292,44 +599,14 @@ const processCollection = async (
   console.log('Collection inserted successfully:', insertedItem);
 
   // Process and insert attachments
-  let processedAttachments = [];
   if (data.attachments && data.attachments.length > 0) {
-    processedAttachments = await processAttachments(insertedItem.id, data.attachments, userId);
+    await processAttachments(insertedItem.id, data.attachments, userId);
   }
 
   await fetchItems();
 
-  // Generate embeddings for collection content including AI-processed attachments (run in background)
-  setTimeout(async () => {
-    try {
-      let embeddingContent = data.content || '';
-      
-      // Add attachment titles and descriptions to embedding content
-      if (data.attachments) {
-        const attachmentTexts = data.attachments
-          .map(att => `${att.title || att.name || att.url || ''} ${att.description || ''}`)
-          .filter(text => text.trim())
-          .join(' ');
-        embeddingContent += ' ' + attachmentTexts;
-      }
-
-      // Include AI-processed content from attachments
-      const aiProcessedContent = processedAttachments
-        .map(att => att.metadata?.processedContent || '')
-        .filter(content => content.trim())
-        .join(' ');
-      
-      if (aiProcessedContent) {
-        embeddingContent += ' ' + aiProcessedContent;
-      }
-
-      if (embeddingContent.trim()) {
-        await generateEmbeddings(insertedItem.id, embeddingContent);
-      }
-    } catch (error) {
-      console.error('Error generating embeddings for collection:', error);
-    }
-  }, 2000);
+  // Rebuild collection embeddings from stored item + attachments (and re-run after enrichment updates).
+  scheduleCollectionEmbeddingRefresh(insertedItem.id, 500);
 
   return insertedItem;
 };
@@ -354,6 +631,7 @@ const processAttachments = async (
 
       if (attachment.type === 'link') {
         attachmentData.url = attachment.url;
+        attachmentData.title = attachment.title || attachment.name || attachment.url || 'Link';
         attachmentData.metadata = {
           siteName: attachment.siteName,
           image: attachment.image,
@@ -398,6 +676,22 @@ const processAttachments = async (
       } else {
         console.log('Attachment inserted successfully:', attachmentData.title);
         processedAttachments.push(insertedAttachment);
+
+        if (attachment.type === 'link' && attachment.url) {
+          setTimeout(() => {
+            void enrichCollectionLinkAttachment(
+              insertedAttachment.id,
+              itemId,
+              attachment.url,
+              userId,
+              {
+                title: insertedAttachment.title || attachmentData.title,
+                description: insertedAttachment.description || attachmentData.description,
+                metadata: (insertedAttachment.metadata as Record<string, unknown>) || attachmentData.metadata,
+              }
+            );
+          }, 0);
+        }
       }
     } catch (error) {
       console.error('Error processing attachment:', error);

@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, FileText, Link as LinkIcon, Image, Video, FileAudio, File } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, FileText, Link as LinkIcon, Image, Video, FileAudio, File, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SUPABASE_URL } from '@/integrations/supabase/client';
 
@@ -11,6 +11,8 @@ interface OpenGraphData {
   url?: string;
   siteName?: string;
   videoUrl?: string;
+  strategyUsed?: string;
+  traceId?: string;
 }
 
 interface InputChipProps {
@@ -18,9 +20,28 @@ interface InputChipProps {
   content: any;
   onRemove: () => void;
   ogData?: OpenGraphData;
+  metadataStatus?: 'fast-loading' | 'deep-loading' | 'ready' | 'failed';
 }
 
-const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
+const InputChip = ({ type, content, onRemove, ogData, metadataStatus }: InputChipProps) => {
+  const isLoadingMetadata = type === 'link' && (metadataStatus === 'fast-loading' || metadataStatus === 'deep-loading');
+  const metadataSignature = `${ogData?.title || ''}|${ogData?.description || ''}|${ogData?.image || ''}|${ogData?.previewImageUrl || ''}`;
+  const previousSignatureRef = useRef(metadataSignature);
+  const [isMetadataTransitioning, setIsMetadataTransitioning] = useState(false);
+
+  useEffect(() => {
+    if (type !== 'link') return;
+    if (previousSignatureRef.current === metadataSignature) return;
+
+    previousSignatureRef.current = metadataSignature;
+    setIsMetadataTransitioning(true);
+    const timeoutId = window.setTimeout(() => {
+      setIsMetadataTransitioning(false);
+    }, 220);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [metadataSignature, type]);
+
   const getIcon = () => {
     switch (type) {
       case 'text':
@@ -67,13 +88,19 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
                   }}
                 />
               )}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">
+              <div className={`flex-1 min-w-0 transition-opacity duration-200 ${isMetadataTransitioning ? 'opacity-70' : 'opacity-100'}`}>
+                <div className="text-sm font-medium line-clamp-2 leading-tight">
                   {ogData.title || content.url}
                 </div>
                 {ogData.description && (
-                  <div className="text-xs text-muted-foreground truncate">
+                  <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                     {ogData.description}
+                  </div>
+                )}
+                {isLoadingMetadata && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Fetching more details...
                   </div>
                 )}
               </div>
@@ -83,6 +110,12 @@ const InputChip = ({ type, content, onRemove, ogData }: InputChipProps) => {
         return (
           <div className="flex items-center gap-2">
             <span className="truncate max-w-[200px]">{content.url || content.title}</span>
+            {isLoadingMetadata && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading link info...
+              </span>
+            )}
           </div>
         );
       case 'image':

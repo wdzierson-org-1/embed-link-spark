@@ -18,7 +18,137 @@ interface MetadataResult {
   success: boolean;
   error?: string;
   videoUrl?: string;
+  strategyUsed?: string;
+  traceId?: string;
 }
+
+const normalizeWhitespace = (value?: string) => value?.replace(/\s+/g, ' ').trim();
+
+const titleFromSlug = (slug?: string) => {
+  if (!slug) return undefined;
+  const cleaned = slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return undefined;
+  return cleaned
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+};
+
+const getYouTubeVideoId = (url: string): string | null => {
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.toLowerCase();
+
+    if (!hostname.includes('youtube.com') && !hostname.includes('youtu.be')) {
+      return null;
+    }
+
+    if (hostname.includes('youtu.be')) {
+      const shortId = parsedUrl.pathname.split('/').filter(Boolean)[0];
+      return shortId || null;
+    }
+
+    const queryVideoId = parsedUrl.searchParams.get('v');
+    if (queryVideoId) return queryVideoId;
+
+    const pathSegments = parsedUrl.pathname.split('/').filter(Boolean);
+    const markerIndex = pathSegments.findIndex(segment => ['embed', 'shorts', 'live'].includes(segment));
+    if (markerIndex !== -1 && pathSegments[markerIndex + 1]) {
+      return pathSegments[markerIndex + 1];
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const buildYouTubeFallbackMetadata = (url: string): Partial<MetadataResult> | null => {
+  const videoId = getYouTubeVideoId(url);
+  if (!videoId) return null;
+
+  return {
+    title: 'YouTube Video',
+    description: 'Video link from YouTube',
+    image: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+    siteName: 'YouTube',
+    videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+  };
+};
+
+const buildYouTubeMetadataResult = (
+  url: string,
+  videoId: string,
+  title: string,
+  authorName?: string,
+  thumbnailUrl?: string,
+  strategyUsed: string = 'youtube-oembed'
+): Partial<MetadataResult> => ({
+  title,
+  description: authorName
+    ? `Watch "${title}" by ${authorName} on YouTube`
+    : 'YouTube video',
+  image: thumbnailUrl || `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+  siteName: 'YouTube',
+  videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
+  url: url.replace('m.youtube.com', 'www.youtube.com'),
+  strategyUsed,
+});
+
+const buildBotUnfriendlyFallbackMetadata = (rawUrl: string): Partial<MetadataResult> | null => {
+  try {
+    const url = new URL(rawUrl);
+    const hostname = url.hostname.toLowerCase();
+
+    if (hostname.includes('youtube.com') || hostname.includes('youtu.be')) {
+      return {
+        ...(buildYouTubeFallbackMetadata(rawUrl) || {}),
+        strategyUsed: 'youtube-thumbnail-fallback',
+      };
+    }
+
+    if (hostname.includes('linkedin.com')) {
+      const isJobsLink = url.pathname.includes('/jobs/');
+      return {
+        title: isJobsLink ? 'LinkedIn Job Listing' : 'LinkedIn Page',
+        description: 'LinkedIn may require login to access full preview metadata.',
+        siteName: 'LinkedIn',
+        image: 'https://static.licdn.com/scds/common/u/images/logos/favicons/v1/favicon.ico',
+        strategyUsed: 'linkedin-authwall-fallback',
+      };
+    }
+
+    if (hostname.includes('twitter.com') || hostname.includes('x.com')) {
+      const match = url.pathname.match(/^\/([^\/]+)\/status\/(\d+)/);
+      const handle = match?.[1];
+      const statusId = match?.[2];
+      return {
+        title: handle ? `Post by @${handle} on ${hostname.includes('x.com') ? 'X' : 'Twitter'}` : 'Social Post',
+        description: statusId ? `Open to view post ${statusId}` : `Open to view this post on ${hostname.includes('x.com') ? 'X' : 'Twitter'}`,
+        siteName: hostname.includes('x.com') ? 'X' : 'Twitter',
+        strategyUsed: 'x-url-structure-fallback',
+      };
+    }
+
+    if (hostname.includes('reddit.com')) {
+      const match = url.pathname.match(/\/r\/([^\/]+)\/comments\/([^\/]+)\/?([^\/]*)/);
+      const subreddit = match?.[1];
+      const slug = match?.[3];
+      const inferredTitle = titleFromSlug(slug);
+      return {
+        title: inferredTitle || (subreddit ? `Post on r/${subreddit}` : 'Reddit Post'),
+        description: subreddit ? `Open this Reddit post in r/${subreddit}` : 'Open this Reddit post',
+        siteName: 'Reddit',
+        image: 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-180x180.png',
+        strategyUsed: 'reddit-url-structure-fallback',
+      };
+    }
+  } catch (error) {
+    console.log('Failed to build bot-unfriendly fallback metadata:', error);
+  }
+
+  return null;
+};
 
 // Enhanced User-Agent rotation for different platforms
 const getUserAgent = (url: string): string => {
@@ -136,40 +266,68 @@ const extractFallbackImage = (html: string, baseUrl: string): string | null => {
 // Extract YouTube metadata using oEmbed API
 const extractYouTubeMetadata = async (url: string): Promise<Partial<MetadataResult> | null> => {
   try {
-    // Extract video ID from various YouTube URL formats
-    const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|m\.youtube\.com\/watch\?v=)([^&\n?#]+)/);
-    if (!videoIdMatch) return null;
-    
-    const videoId = videoIdMatch[1];
+    const videoId = getYouTubeVideoId(url);
+    if (!videoId) return null;
     console.log(`Extracting YouTube metadata for video ID: ${videoId}`);
-    
-    // Use YouTube oEmbed API for reliable metadata
+
+    // Try YouTube oEmbed first.
     const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-    
-    const response = await fetch(oembedUrl, {
+    const oembedResponse = await fetch(oembedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)'
       },
       signal: AbortSignal.timeout(5000)
     });
-    
-    if (response.ok) {
-      const data = await response.json();
-      console.log('YouTube oEmbed data:', data);
-      
-      return {
-        title: data.title,
-        description: `Watch "${data.title}" by ${data.author_name} on YouTube`,
-        image: data.thumbnail_url,
-        siteName: 'YouTube',
-        videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
-        url: url.replace('m.youtube.com', 'www.youtube.com')
-      };
+
+    if (oembedResponse.ok) {
+      const oembedData = await oembedResponse.json();
+      console.log('YouTube oEmbed data:', oembedData);
+
+      if (oembedData?.title) {
+        return buildYouTubeMetadataResult(
+          url,
+          videoId,
+          oembedData.title,
+          oembedData.author_name,
+          oembedData.thumbnail_url,
+          'youtube-oembed'
+        );
+      }
+    }
+
+    // If oEmbed fails or returns no title, fall back to noembed.
+    const noembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
+    const noembedResponse = await fetch(noembedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; LinkPreview/1.0)'
+      },
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (noembedResponse.ok) {
+      const noembedData = await noembedResponse.json();
+      console.log('YouTube noembed data:', noembedData);
+
+      if (noembedData?.title) {
+        return buildYouTubeMetadataResult(
+          url,
+          videoId,
+          noembedData.title,
+          noembedData.author_name,
+          noembedData.thumbnail_url,
+          'youtube-noembed'
+        );
+      }
     }
   } catch (error) {
     console.error('YouTube oEmbed failed:', error);
   }
-  return null;
+  const fallback = buildYouTubeFallbackMetadata(url);
+  if (!fallback) return null;
+  return {
+    ...fallback,
+    strategyUsed: 'youtube-thumbnail-fallback'
+  };
 };
 
 // Extract metadata for other video platforms
@@ -232,7 +390,8 @@ const extractSocialMetadata = async (url: string): Promise<Partial<MetadataResul
           title: `Tweet by @${username}`,
           description: `View this tweet on ${url.includes('x.com') ? 'X' : 'Twitter'}`,
           siteName: url.includes('x.com') ? 'X' : 'Twitter',
-          url
+          url,
+          strategyUsed: 'x-url-structure-fallback'
         };
       }
     }
@@ -266,7 +425,8 @@ const extractSocialMetadata = async (url: string): Promise<Partial<MetadataResul
               description: `${post.ups} upvotes • r/${post.subreddit} • Reddit`,
               image: post.thumbnail && post.thumbnail !== 'self' ? post.thumbnail : null,
               siteName: 'Reddit',
-              url
+              url,
+              strategyUsed: 'reddit-json-api'
             };
           }
         }
@@ -293,7 +453,8 @@ const extractSocialMetadata = async (url: string): Promise<Partial<MetadataResul
               description: data.description || `GitHub repository by ${owner}`,
               image: data.owner.avatar_url,
               siteName: 'GitHub',
-              url
+              url,
+              strategyUsed: 'github-repo-api'
             };
           }
         } catch (e) {
@@ -308,7 +469,28 @@ const extractSocialMetadata = async (url: string): Promise<Partial<MetadataResul
   return null;
 };
 
-const extractMetaFromHtml = async (html: string, originalUrl: string) => {
+const isLikelyAuthWall = (metadata: Partial<MetadataResult>, originalUrl: string, finalUrl: string): boolean => {
+  const combinedText = `${metadata.title || ''} ${metadata.description || ''} ${finalUrl || ''}`.toLowerCase();
+
+  if (combinedText.includes('login') || combinedText.includes('sign in') || combinedText.includes('checkpoint')) {
+    return true;
+  }
+
+  try {
+    const originalHost = new URL(originalUrl).hostname.toLowerCase();
+    const finalHost = new URL(finalUrl).hostname.toLowerCase();
+
+    if (originalHost.includes('linkedin.com') && finalHost.includes('linkedin.com') && finalUrl.includes('/login')) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+};
+
+const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: string) => {
   const cleanHtml = html.replace(/\n/g, ' ').replace(/\s+/g, ' ');
   
   // Try platform-specific extraction first for better results
@@ -325,7 +507,10 @@ const extractMetaFromHtml = async (html: string, originalUrl: string) => {
     const videoData = await extractVideoMetadata(originalUrl);
     if (videoData && videoData.title) {
       console.log('Using video platform-specific metadata');
-      return videoData;
+      return {
+        ...videoData,
+        strategyUsed: 'video-platform-oembed'
+      };
     }
   }
   
@@ -336,7 +521,10 @@ const extractMetaFromHtml = async (html: string, originalUrl: string) => {
     const socialData = await extractSocialMetadata(originalUrl);
     if (socialData && socialData.title) {
       console.log('Using platform-specific social metadata');
-      return socialData;
+      return {
+        ...socialData,
+        strategyUsed: 'social-platform-fallback'
+      };
     }
   }
   
@@ -456,11 +644,12 @@ const extractMetaFromHtml = async (html: string, originalUrl: string) => {
   }
 
   return {
-    title: title?.trim(),
-    description: description?.trim(),
+    title: normalizeWhitespace(title),
+    description: normalizeWhitespace(description),
     image: image?.trim(),
     siteName: siteName?.trim(),
-    videoUrl: videoUrl?.trim()
+    videoUrl: videoUrl?.trim(),
+    strategyUsed: 'html-meta-parse'
   };
 };
 
@@ -640,16 +829,22 @@ const isSuspiciousResult = (metadata: any): boolean => {
 };
 
 serve(async (req) => {
+  const traceId = `trace_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  let requestPayload: { url?: string; userId?: string; fastOnly?: boolean } = {};
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { url, userId } = await req.json();
+    requestPayload = await req.json();
+    const { url, userId, fastOnly = false } = requestPayload;
     
     // CRITICAL DEBUG LOGGING
     console.log('=== EXTRACT-LINK-METADATA DEBUG ===');
+    console.log('Trace ID:', traceId);
     console.log('Received userId:', userId);
+    console.log('fastOnly mode:', fastOnly);
     console.log('SUPABASE_SERVICE_ROLE_KEY exists:', !!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
     console.log('SUPABASE_URL exists:', !!Deno.env.get('SUPABASE_URL'));
     
@@ -679,7 +874,7 @@ serve(async (req) => {
 
     // Fetch the webpage with enhanced headers and timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), fastOnly ? 6000 : 15000); // Keep fast path responsive
 
     try {
       const response = await fetch(url, {
@@ -706,7 +901,8 @@ serve(async (req) => {
       const html = await response.text();
       console.log(`Fetched HTML length: ${html.length} characters`);
       
-      let metadata = await extractMetaFromHtml(html, url);
+      const finalResolvedUrl = response.url || url;
+      let metadata = await extractMetaFromHtml(html, url, finalResolvedUrl);
       console.log(`Extracted metadata:`, {
         title: metadata.title ? 'Found' : 'Not found',
         description: metadata.description ? 'Found' : 'Not found',
@@ -716,7 +912,7 @@ serve(async (req) => {
       });
 
       // Check if result looks suspicious and retry with default UA if needed
-      if (isSuspiciousResult(metadata) && userAgent !== 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36') {
+      if (!fastOnly && isSuspiciousResult(metadata) && userAgent !== 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36') {
         console.log('Suspicious result detected, retrying with default User-Agent');
         try {
           const retryResponse = await fetch(url, {
@@ -730,7 +926,7 @@ serve(async (req) => {
           
           if (retryResponse.ok) {
             const retryHtml = await retryResponse.text();
-            const retryMetadata = await extractMetaFromHtml(retryHtml, url);
+            const retryMetadata = await extractMetaFromHtml(retryHtml, url, retryResponse.url || url);
             
             // Use retry result if it looks better
             if (!isSuspiciousResult(retryMetadata)) {
@@ -743,9 +939,33 @@ serve(async (req) => {
         }
       }
 
+      if (isLikelyAuthWall(metadata, url, finalResolvedUrl)) {
+        const botFriendlyFallback = buildBotUnfriendlyFallbackMetadata(url);
+        if (botFriendlyFallback) {
+          metadata = {
+            ...metadata,
+            ...botFriendlyFallback,
+            strategyUsed: `${botFriendlyFallback.strategyUsed || 'authwall'}-detected`,
+          };
+          console.log('Auth wall detected, using fallback metadata strategy:', metadata.strategyUsed);
+        }
+      }
+
+      if (!metadata.title || (!metadata.description && !metadata.image)) {
+        const botFriendlyFallback = buildBotUnfriendlyFallbackMetadata(url);
+        if (botFriendlyFallback) {
+          metadata = {
+            ...metadata,
+            ...botFriendlyFallback,
+            strategyUsed: botFriendlyFallback.strategyUsed || metadata.strategyUsed || 'bot-unfriendly-fallback',
+          };
+          console.log('Weak metadata detected, applying bot-unfriendly fallback:', metadata.strategyUsed);
+        }
+      }
+
       // More permissive image validation - don't remove image if validation fails
       let validImage = metadata.image;
-      if (metadata.image) {
+      if (!fastOnly && metadata.image) {
         const isValidImage = await validateImageUrl(metadata.image);
         if (!isValidImage) {
           console.log(`Image validation failed for: ${metadata.image}, but keeping it anyway`);
@@ -759,7 +979,7 @@ serve(async (req) => {
       
       console.log('Image download check:', { validImage: !!validImage, userId: !!userId, imageUrl: validImage });
       
-      if (validImage && userId) {
+      if (!fastOnly && validImage && userId) {
         console.log('Attempting to download and store image...');
         const downloadResult = await downloadAndStoreImage(validImage, userId);
         if (downloadResult) {
@@ -783,6 +1003,8 @@ serve(async (req) => {
         previewImagePublicUrl,
         siteName: metadata.siteName || validUrl.hostname,
         videoUrl: metadata.videoUrl,
+        strategyUsed: metadata.strategyUsed || 'html-meta-parse',
+        traceId,
         url: url,
         success: true
       };
@@ -804,13 +1026,22 @@ serve(async (req) => {
     
     // Try to create fallback data even on error
     try {
-      const { url: originalUrl } = await req.json();
+      const originalUrl = requestPayload.url;
+      if (!originalUrl) throw new Error('Missing original URL in request payload');
       const fallbackUrl = new URL(originalUrl);
+      const youtubeFallback = buildYouTubeFallbackMetadata(originalUrl);
+      const botFallback = buildBotUnfriendlyFallbackMetadata(originalUrl);
+      const finalFallback = botFallback || youtubeFallback;
       const fallbackResult: MetadataResult = {
-        title: fallbackUrl.hostname,
-        siteName: fallbackUrl.hostname,
+        title: finalFallback?.title || fallbackUrl.hostname,
+        description: finalFallback?.description,
+        image: finalFallback?.image,
+        siteName: finalFallback?.siteName || fallbackUrl.hostname,
+        videoUrl: finalFallback?.videoUrl,
+        strategyUsed: finalFallback?.strategyUsed || 'hostname-fallback',
+        traceId,
         url: originalUrl,
-        success: false,
+        success: !!finalFallback,
         error: error instanceof Error ? error.message : 'Unknown error'
       };
       

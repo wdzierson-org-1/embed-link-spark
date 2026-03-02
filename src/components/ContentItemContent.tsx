@@ -1,6 +1,7 @@
 
 import React from 'react';
 import CollectionAttachments from '@/components/CollectionAttachments';
+import type { Attachment } from '@/components/CollectionAttachments';
 import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
 
 interface ContentItem {
@@ -17,9 +18,16 @@ interface ContentItemContentProps {
   expandedContent: Set<string>;
   onToggleExpansion: (itemId: string) => void;
   isPublicView?: boolean;
+  collectionAttachments?: Attachment[];
 }
 
-const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublicView }: ContentItemContentProps) => {
+const ContentItemContent = ({
+  item,
+  expandedContent,
+  onToggleExpansion,
+  isPublicView,
+  collectionAttachments,
+}: ContentItemContentProps) => {
   return (
     <>
       <div className="space-y-2">
@@ -31,7 +39,12 @@ const ContentItemContent = ({ item, expandedContent, onToggleExpansion, isPublic
         
         {/* Show attachments for collections */}
         {item.type === 'collection' && (
-          <CollectionAttachments itemId={item.id} maxDisplay={3} isCompactView={true} />
+          <CollectionAttachments
+            itemId={item.id}
+            maxDisplay={3}
+            isCompactView={true}
+            prefetchedAttachments={collectionAttachments}
+          />
         )}
       </div>
       

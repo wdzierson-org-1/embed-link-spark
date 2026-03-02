@@ -1,10 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ContentItem from './ContentItem';
 import ContentItemSkeleton from './ContentItemSkeleton';
 import WhatsAppInfo from './WhatsAppInfo';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import type { Attachment } from '@/components/CollectionAttachments';
 
 interface ContentGridProps {
   items: any[];
@@ -34,18 +35,28 @@ const ContentGrid = ({
   showStickyNotes = true
 }: ContentGridProps) => {
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
+  const [collectionAttachmentsByItem, setCollectionAttachmentsByItem] = useState<Record<string, Attachment[]>>({});
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
   const { user } = useAuth();
 
+  const realItems = useMemo(() => items.filter(item => !item.isOptimistic), [items]);
+  const realItemIds = useMemo(() => realItems.map(item => item.id), [realItems]);
+  const realItemIdsKey = useMemo(() => realItemIds.join(','), [realItemIds]);
+  const collectionItemIds = useMemo(
+    () => realItems.filter(item => item.type === 'collection').map(item => item.id),
+    [realItems]
+  );
+  const collectionItemIdsKey = useMemo(() => collectionItemIds.join(','), [collectionItemIds]);
+
   // Fetch tags for all items
-  const fetchItemTags = async () => {
-    if (!user || items.length === 0) return;
+  const fetchItemTags = useCallback(async (itemIds: string[]) => {
+    if (!user || itemIds.length === 0) {
+      setItemTags({});
+      return;
+    }
 
     try {
-      const itemIds = items.filter(item => !item.isOptimistic).map(item => item.id);
-      if (itemIds.length === 0) return;
-
       const { data, error } = await supabase
         .from('item_tags')
         .select(`
@@ -74,11 +85,50 @@ const ContentGrid = ({
     } catch (error) {
       console.error('Exception fetching item tags:', error);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
-    fetchItemTags();
-  }, [user, items]);
+    fetchItemTags(realItemIds);
+  }, [fetchItemTags, realItemIds, realItemIdsKey]);
+
+  const fetchCollectionAttachments = useCallback(async (collectionIds: string[]) => {
+    if (!collectionIds.length) {
+      setCollectionAttachmentsByItem({});
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('item_attachments')
+        .select('*')
+        .in('item_id', collectionIds)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching collection attachments:', error);
+        return;
+      }
+
+      const grouped: Record<string, Attachment[]> = {};
+      data?.forEach((attachment: Attachment & { item_id?: string }) => {
+        const parentItemId = attachment.item_id;
+        if (!parentItemId) return;
+
+        if (!grouped[parentItemId]) {
+          grouped[parentItemId] = [];
+        }
+        grouped[parentItemId].push(attachment);
+      });
+
+      setCollectionAttachmentsByItem(grouped);
+    } catch (error) {
+      console.error('Exception fetching collection attachments:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCollectionAttachments(collectionItemIds);
+  }, [collectionItemIds, collectionItemIdsKey, fetchCollectionAttachments]);
 
   const handleImageError = (itemId: string) => {
     setImageErrors(prev => new Set([...prev, itemId]));
@@ -98,7 +148,7 @@ const ContentGrid = ({
 
   const handleTagsUpdated = () => {
     // Refetch tags when they're updated
-    fetchItemTags();
+    fetchItemTags(realItemIds);
   };
 
   // Filter items based on tag filters and search query
@@ -131,10 +181,10 @@ const ContentGrid = ({
 
   // Separate optimistic and real items
   const optimisticItems = filteredItems.filter(item => item.isOptimistic);
-  const realItems = filteredItems.filter(item => !item.isOptimistic);
+  const visibleRealItems = filteredItems.filter(item => !item.isOptimistic);
 
   // Show WhatsApp info if no real items exist and no search is active
-  if (realItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim()) {
+  if (visibleRealItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim()) {
     return (
       <div className="space-y-8 relative z-10">
         <div className="text-center py-12 relative z-10">
@@ -147,7 +197,7 @@ const ContentGrid = ({
   }
 
   // Show no results message for search
-  if (realItems.length === 0 && optimisticItems.length === 0 && searchQuery.trim()) {
+  if (visibleRealItems.length === 0 && optimisticItems.length === 0 && searchQuery.trim()) {
     return (
       <div className="text-center py-12">
         <h2 className="text-xl font-editorial text-gray-900 mb-2">No results found</h2>
@@ -171,7 +221,7 @@ const ContentGrid = ({
         ))}
       
       {/* Show real items */}
-      {realItems.map((item) => (
+      {visibleRealItems.map((item) => (
         <ContentItem
           key={item.id}
           item={{
@@ -191,6 +241,7 @@ const ContentGrid = ({
           currentUserId={currentUserId}
           onTogglePrivacy={onTogglePrivacy}
           onCommentClick={onCommentClick}
+          collectionAttachments={collectionAttachmentsByItem[item.id]}
         />
       ))}
     </div>

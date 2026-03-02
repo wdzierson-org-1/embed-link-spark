@@ -79,7 +79,7 @@ const ContentItemSkeleton = ({
 
   return (
     <Card className={`group flex flex-col h-full bg-white border-2 transition-all duration-500 ${
-      flashEffect ? 'border-primary/50 shadow-lg scale-[1.02]' : 'border-border/50'
+      flashEffect ? 'border-primary/50 shadow-lg scale-[1.02]' : 'border-black/10'
     }`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">

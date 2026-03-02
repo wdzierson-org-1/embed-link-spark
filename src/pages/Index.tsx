@@ -14,10 +14,38 @@ import EditItemSheet from '@/components/EditItemSheet';
 import GlobalChatInterface from '@/components/GlobalChatInterface';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
+const INPUT_UI_PREFERENCE_COOKIE = 'stash_input_ui_collapsed';
+
+const readInputUiPreference = (): boolean | null => {
+  if (typeof document === 'undefined') return null;
+
+  const cookieValue = document.cookie
+    .split('; ')
+    .find((cookie) => cookie.startsWith(`${INPUT_UI_PREFERENCE_COOKIE}=`))
+    ?.split('=')[1];
+
+  if (cookieValue === 'true') return true;
+  if (cookieValue === 'false') return false;
+  return null;
+};
+
+const saveInputUiPreference = (isCollapsed: boolean) => {
+  if (typeof document === 'undefined') return;
+  const maxAgeSeconds = 60 * 60 * 24 * 365; // 1 year
+  document.cookie = `${INPUT_UI_PREFERENCE_COOKIE}=${isCollapsed}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax`;
+};
+
 const Index = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
-  const { items, fetchItems, addOptimisticItem, removeOptimisticItem, clearSkeletonItems } = useItems();
+  const {
+    items,
+    fetchItems,
+    addOptimisticItem,
+    removeOptimisticItem,
+    clearSkeletonItems,
+    isInitialLoadInProgress,
+  } = useItems();
   const { handleAddContent, handleSaveItem, handleDeleteItem } = useItemOperations(
     fetchItems, 
     addOptimisticItem, 
@@ -30,6 +58,9 @@ const Index = () => {
   const [selectedTags, setSelectedTags] = useState([]);
   const [showGlobalChat, setShowGlobalChat] = useState(false);
   const [isInputUICollapsed, setIsInputUICollapsed] = useState(() => {
+    const savedPreference = readInputUiPreference();
+    if (savedPreference !== null) return savedPreference;
+
     // Minimize input panel by default for WebKit browsers (Safari) but not Chrome
     const isWebKit = /WebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
     return isWebKit;
@@ -51,11 +82,6 @@ const Index = () => {
     }
   }, [loading, user, navigate]);
 
-  useEffect(() => {
-    if (!user) return;
-    fetchItems();
-  }, [user, fetchItems]);
-
   const handleEditItem = (item) => {
     setEditingItem(item);
   };
@@ -71,6 +97,12 @@ const Index = () => {
 
   const toggleInputUI = () => {
     setIsInputUICollapsed(!isInputUICollapsed);
+  };
+
+  const handleUserToggleInputUI = () => {
+    const nextState = !isInputUICollapsed;
+    setIsInputUICollapsed(nextState);
+    saveInputUiPreference(nextState);
   };
 
   const handleSourceClick = (sourceId: string) => {
@@ -97,12 +129,13 @@ const Index = () => {
     setSearchQuery(e.target.value);
   };
 
-  if (loading) {
+  if (loading || (user && isInitialLoadInProgress)) {
+    const loadingLabel = loading ? 'Loading...' : 'Loading your items...';
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <p className="mt-4 text-gray-600">{loadingLabel}</p>
         </div>
       </div>
     );
@@ -125,6 +158,7 @@ const Index = () => {
       <UnifiedInputPanel
         isInputUICollapsed={isInputUICollapsed}
         onToggleInputUI={toggleInputUI}
+        onUserToggleInputUI={handleUserToggleInputUI}
         onAddContent={handleAddContent}
         getSuggestedTags={getSuggestedTags}
       />

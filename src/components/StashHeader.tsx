@@ -77,7 +77,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
   };
 
   return (
-    <div className="w-full">
+    <div className="relative w-auto">
       <div className="flex items-center justify-start">
         <Button
           variant="ghost"
@@ -87,7 +87,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
             setShowTagFilter(newState);
             onFilterPanelToggle?.(newState);
           }}
-          className="flex items-center gap-2 relative z-50"
+          className="flex items-center gap-2 relative z-50 hover:bg-black/10"
         >
           <Filter className="h-4 w-4" />
           <span className="hidden sm:inline">Filter by tag</span>
@@ -96,7 +96,7 @@ const StashHeader = ({ itemCount, onTagFiltersChange, onShowGlobalChat, tags, se
       </div>
 
       {showTagFilter && (
-        <div className="bg-gray-50 border rounded-lg p-4 mt-3 w-full relative z-60">
+        <div className="absolute right-0 top-full mt-2 bg-gray-50 border rounded-lg p-4 w-[min(90vw,360px)] sm:w-[360px] z-60 shadow-md">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium">Filter by tags</h3>
             <Button
