@@ -5,14 +5,17 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Search } from 'lucide-react';
+import { Search, UserPlus, UserCheck, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useFollows } from '@/hooks/useFollows';
 import { useItemOperations } from '@/hooks/useItemOperations';
 import { useToast } from '@/hooks/use-toast';
 import { CommentPanel } from '@/components/CommentPanel';
 import { OwnerMenu } from '@/components/OwnerMenu';
+import { Button } from '@/components/ui/button';
 
 interface PublicProfile {
+  id?: string;
   username: string;
   display_name?: string;
   bio?: string;
@@ -61,8 +64,10 @@ export const PublicFeed = () => {
   const [hasMore, setHasMore] = useState(true);
   const { user } = useAuth();
   const { toast } = useToast();
+  const { isFollowing, counts, loading: followLoading, follow, unfollow } = useFollows(data?.profile?.id);
   
   const isOwner = user?.id === data?.items[0]?.user_id;
+  const canFollow = !isOwner && !!data?.profile?.id && !!user;
   
   const fetchFeedData = useCallback(async (searchTerm = '', currentOffset = 0, isLoadMore = false) => {
     if (!username) return;
@@ -244,16 +249,49 @@ export const PublicFeed = () => {
                 {profile.bio && (
                   <p className="text-muted-foreground text-lg">{profile.bio}</p>
                 )}
-                <div className="mt-4 text-sm text-muted-foreground">
-                  {allItems.length} public {allItems.length === 1 ? 'item' : 'items'}
+                <div className="flex items-center gap-4 mt-4">
+                  <span className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{counts.followers}</span> followers
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    <span className="font-medium text-foreground">{counts.following}</span> following
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {allItems.length} public {allItems.length === 1 ? 'item' : 'items'}
+                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Owner Menu */}
-            {isOwner && (
-              <OwnerMenu profile={profile} />
-            )}
+            {/* Owner Menu or Follow Button */}
+            <div className="flex items-center gap-2">
+              {!isOwner && canFollow && (
+                <Button
+                  variant={isFollowing ? "outline" : "default"}
+                  size="sm"
+                  disabled={followLoading}
+                  onClick={isFollowing ? unfollow : follow}
+                  className="gap-1"
+                >
+                  {followLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : isFollowing ? (
+                    <>
+                      <UserCheck className="h-4 w-4" />
+                      Following
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="h-4 w-4" />
+                      Follow
+                    </>
+                  )}
+                </Button>
+              )}
+              {isOwner && (
+                <OwnerMenu profile={profile} />
+              )}
+            </div>
           </div>
         </div>
       </div>

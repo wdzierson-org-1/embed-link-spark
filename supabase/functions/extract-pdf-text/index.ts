@@ -185,7 +185,8 @@ serve(async (req) => {
       .from('items')
       .update({
         content: extractedText,
-        description: aiDescription
+        description: aiDescription,
+        page_body: extractedText
       })
       .eq('id', itemId);
 

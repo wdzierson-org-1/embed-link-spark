@@ -12,6 +12,7 @@ import Settings from '@/pages/Settings';
 import SubscriptionSuccess from '@/pages/SubscriptionSuccess';
 import NotFound from '@/pages/NotFound';
 import { PublicFeed } from '@/pages/PublicFeed';
+import { Discover } from '@/pages/Discover';
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,7 @@ function App() {
                 <Route path="/subscription-success" element={<SubscriptionSuccess />} />
                 <Route path="/404" element={<NotFound />} />
                 <Route path="/feed/:username" element={<PublicFeed />} />
+                <Route path="/discover" element={<Discover />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <Toaster />

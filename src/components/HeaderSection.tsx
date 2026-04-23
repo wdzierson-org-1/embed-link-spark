@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Settings, LogOut, ExternalLink } from 'lucide-react';
+import { Settings, LogOut, ExternalLink, Compass } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface HeaderSectionProps {

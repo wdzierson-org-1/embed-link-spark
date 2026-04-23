@@ -10,14 +10,10 @@ max_rows = 1000
 
 [auth]
 enabled = true
-port = 54320
 site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://localhost:3000"]
 jwt_expiry = 3600
 enable_signup = true
-enable_email_confirmations = false
-enable_sms_confirmations = false
-enable_phone_confirmations = false
 
 [functions.twilio-webhook]
 verify_jwt = false
@@ -48,5 +44,4 @@ port = 54322
 
 [storage]
 enabled = true
-port = 54323
 file_size_limit = "50MiB"

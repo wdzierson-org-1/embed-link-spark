@@ -2,13 +2,14 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, ChevronUp, ChevronDown, Send } from 'lucide-react';
+import { Plus, ChevronUp, Send, Loader2, Globe } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import InputChip from '@/components/InputChip';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { Switch } from '@/components/ui/switch';
 import { MAX_FILE_SIZE_MB, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 
 interface UnifiedInputPanelProps {
@@ -41,6 +42,7 @@ interface InputItem {
   content: any;
   ogData?: OpenGraphData;
   metadataStatus?: MetadataStatus;
+  processingStatus?: 'uploading' | 'processing' | 'ready' | 'error';
 }
 
 const UnifiedInputPanel = ({ 
@@ -56,6 +58,7 @@ const UnifiedInputPanel = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPanelBuilding, setIsPanelBuilding] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousInputItemsCountRef = useRef(0);
@@ -634,89 +637,62 @@ const UnifiedInputPanel = ({
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    files.forEach(file => {
-      // Validate file size
-      const validation = validateFileSize(file);
-      if (!validation.valid) {
-        toast({
-          title: "File too large",
-          description: validation.error,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Classify file type correctly
-      let fileType: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
-      if (file.type.startsWith('image/')) {
-        fileType = 'image';
-      } else if (file.type.startsWith('video/')) {
-        fileType = 'video';
-      } else if (file.type.startsWith('audio/')) {
-        fileType = 'audio';
-      } else {
-        // PDFs, Word docs, text files, etc. are 'document'
-        fileType = 'document';
-      }
-      
-      setInputItems(prev => [...prev, {
-        id: generateId(),
-        type: fileType,
-        content: {
-          file,
-          name: file.name,
-          size: file.size,
-          type: file.type
-        }
-      }]);
-    });
-  }, [toast]);
+    Array.from(e.dataTransfer.files).forEach(addFileItem);
+  }, [addFileItem]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach(file => {
-      // Validate file size
-      const validation = validateFileSize(file);
-      if (!validation.valid) {
-        toast({
-          title: "File too large",
-          description: validation.error,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Classify file type correctly
-      let fileType: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
-      if (file.type.startsWith('image/')) {
-        fileType = 'image';
-      } else if (file.type.startsWith('video/')) {
-        fileType = 'video';
-      } else if (file.type.startsWith('audio/')) {
-        fileType = 'audio';
-      } else {
-        // PDFs, Word docs, text files, etc. are 'document'
-        fileType = 'document';
-      }
-      
-      setInputItems(prev => [...prev, {
-        id: generateId(),
-        type: fileType,
-        content: {
-          file,
-          name: file.name,
-          size: file.size,
-          type: file.type
-        }
-      }]);
-    });
+    Array.from(e.target.files || []).forEach(addFileItem);
   };
 
   const removeInputItem = (id: string) => {
     setInputItems(prev => prev.filter(item => item.id !== id));
   };
+
+  const addFileItem = useCallback((file: File) => {
+    const validation = validateFileSize(file);
+    if (!validation.valid) {
+      toast({
+        title: "File too large",
+        description: validation.error,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    let fileType: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
+    if (file.type.startsWith('image/')) {
+      fileType = 'image';
+    } else if (file.type.startsWith('video/')) {
+      fileType = 'video';
+    } else if (file.type.startsWith('audio/')) {
+      fileType = 'audio';
+    } else {
+      fileType = 'document';
+    }
+
+    setInputItems(prev => [...prev, {
+      id: generateId(),
+      type: fileType,
+      content: { file, name: file.name, size: file.size, type: file.type },
+      processingStatus: 'uploading',
+    }]);
+  }, [toast]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const namedFile = new File([file], `screenshot-${Date.now()}.png`, { type: file.type });
+          addFileItem(namedFile);
+        }
+      }
+    }
+  }, [addFileItem]);
 
   const handleSubmit = async () => {
     if (!inputText.trim() && inputItems.length === 0) return;
@@ -762,7 +738,8 @@ const UnifiedInputPanel = ({
             // Ensure we have image fallback for contentProcessor
             image: linkItem.ogData?.previewImageUrl || linkItem.ogData?.image
           },
-          type: 'link'
+          type: 'link',
+          is_public: isPublic
         });
       }
       // Case 2: Only a single media file, no text, no other items -> Individual media item
@@ -771,7 +748,8 @@ const UnifiedInputPanel = ({
         await onAddContent(mediaItem.type, {
           file: mediaItem.content.file,
           title: mediaItem.content.name,
-          type: mediaItem.type
+          type: mediaItem.type,
+          is_public: isPublic
         });
       }
       // Case 3: Only text, no attachments -> Text note
@@ -835,6 +813,30 @@ const UnifiedInputPanel = ({
     }
   };
 
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (inputText) {
+        setInputText('');
+      } else if (!isInputUICollapsed) {
+        onToggleInputUI();
+      }
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const hasItems = inputItems.length > 0;
+      const hasText = inputText.trim().length > 0;
+      const isMultiline = inputText.includes('\n');
+
+      if ((hasItems && !hasText) || (hasText && !isMultiline)) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputText, inputItems, isInputUICollapsed, onToggleInputUI]);
+
   const panelEase: [number, number, number, number] = [0.22, 1, 0.36, 1];
   const panelDuration = 0.36;
   const addToStashDelay = 0.02;
@@ -882,8 +884,10 @@ const UnifiedInputPanel = ({
               style={{ pointerEvents: isInputUICollapsed ? 'none' : 'auto' }}
             >
               <div
-                className={`p-4 space-y-4 relative ${
-                  isDragOver ? 'bg-primary/5 border-2 border-dashed border-primary' : ''
+                className={`p-4 space-y-4 relative transition-colors duration-150 ${
+                  isDragOver
+                    ? 'bg-violet-50 border-2 border-dashed border-violet-400 rounded-[6px]'
+                    : 'border-2 border-transparent'
                 }`}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -912,17 +916,41 @@ const UnifiedInputPanel = ({
                     ref={textareaRef}
                     value={inputText}
                     onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
                     onFocus={() => {
                       onInputFocusChange?.(true);
                     }}
                     onBlur={() => {
                       onInputFocusChange?.(false);
                     }}
-                    placeholder="What's on your mind? Drop files, paste links, or just start typing..."
+                    placeholder={
+                      inputItems.length === 0
+                        ? 'Paste a link, drop a file, or type a note...'
+                        : 'Add a note (optional)...'
+                    }
                     className="min-h-[100px] resize-none overflow-hidden border-0 bg-transparent focus:ring-0 focus:border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-base pr-10"
                   />
                 </motion.div>
                 
+                {/* Drag-over overlay */}
+                <AnimatePresence>
+                  {isDragOver && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.12 }}
+                      className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none rounded-[4px]"
+                    >
+                      <div className="flex flex-col items-center gap-2 text-violet-500">
+                        <Plus className="h-8 w-8" />
+                        <span className="text-sm font-medium">Drop to add</span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 {/* Input chips */}
                 <AnimatePresence initial={false}>
                   {inputItems.length > 0 && (
@@ -950,6 +978,7 @@ const UnifiedInputPanel = ({
                               onRemove={() => removeInputItem(item.id)}
                               ogData={item.ogData}
                               metadataStatus={item.metadataStatus}
+                              processingStatus={item.processingStatus}
                             />
                           </motion.div>
                         ))}
@@ -1006,13 +1035,13 @@ const UnifiedInputPanel = ({
                       disabled={!canSubmit}
                       size="icon"
                       className={`h-12 w-12 rounded-full border shadow-sm transition-all duration-150 ${
-                        hasSatisfactoryTextLength
+                        hasSatisfactoryTextLength || inputItems.length > 0
                           ? 'bg-[#8B5CF6] border-[#8B5CF6] text-white hover:bg-[#7C3AED] hover:border-[#7C3AED]'
                           : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-50 hover:border-gray-300'
                       } disabled:opacity-100`}
                     >
                       {isSubmitting ? (
-                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        <Loader2 className="h-5 w-5 animate-spin" />
                       ) : (
                         <Send className="h-5 w-5" />
                       )}

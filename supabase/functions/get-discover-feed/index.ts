@@ -7,7 +7,6 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -18,60 +17,54 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
+    // Get authenticated user if available
+    const authHeader = req.headers.get('authorization');
+    let currentUserId: string | null = null;
+
+    if (authHeader) {
+      const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+      currentUserId = user?.id ?? null;
+    }
+
     const url = new URL(req.url);
-    const username = url.pathname.split('/').pop();
     const searchParams = url.searchParams;
     const offset = parseInt(searchParams.get('offset') || '0');
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
-    
-    if (!username) {
-      return new Response(JSON.stringify({ error: 'Username is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
 
-    console.log(`Fetching public feed for username: ${username}, offset: ${offset}, limit: ${limit}, search: ${search}`);
-
-    // Get user profile by username  
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('id, username, display_name, bio, avatar_url, public_feed_enabled')
-      .eq('username', username)
-      .single();
-
-    if (profileError || !profile) {
-      console.error('Profile not found:', profileError);
-      return new Response(JSON.stringify({ error: 'User not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (!profile.public_feed_enabled) {
-      return new Response(JSON.stringify({ error: 'Public feed is disabled for this user' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Build query for public items with comment counts
+    // Build base query for public items from users with public feeds enabled
     let query = supabase
       .from('items')
       .select(`
         *,
-        comment_count:comments(count)
+        comment_count:comments(count),
+        user_profile:user_profiles!items_user_id_fkey(id, username, display_name, avatar_url)
       `)
-      .eq('user_id', profile.id)
-      .eq('is_public', true);
+      .eq('is_public', true)
+      .eq('user_profiles.public_feed_enabled', true);
+
+    // Exclude items from users the current user already follows
+    if (currentUserId) {
+      const { data: followingIds } = await supabase
+        .from('user_follows')
+        .select('following_id')
+        .eq('follower_id', currentUserId);
+
+      const ids = followingIds?.map(row => row.following_id) ?? [];
+      if (ids.length > 0) {
+        query = query.not('user_id', 'in', `(${ids.join(',')})`);
+      }
+
+      // Also exclude current user's own items
+      query = query.neq('user_id', currentUserId);
+    }
 
     // Add search filter if provided
     if (search) {
       query = query.or(`title.ilike.%${search}%, description.ilike.%${search}%, content.ilike.%${search}%`);
     }
 
-    // Add ordering and pagination
+    // Order by most recent and paginate
     query = query
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -79,36 +72,27 @@ serve(async (req) => {
     const { data: items, error: itemsError } = await query;
 
     if (itemsError) {
-      console.error('Error fetching public items:', itemsError);
+      console.error('Error fetching discover feed:', itemsError);
       return new Response(JSON.stringify({ error: 'Failed to fetch items' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Get total count for pagination info
+    // Get total count
     const { count, error: countError } = await supabase
       .from('items')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', profile.id)
-      .eq('is_public', true);
+      .eq('is_public', true)
+      .eq('user_profiles.public_feed_enabled', true);
 
-    console.log(`Found ${items?.length || 0} public items for ${username}`);
-
-    // Process items to include comment counts
     const processedItems = (items || []).map(item => ({
       ...item,
-      comment_count: item.comment_count?.[0]?.count || 0
+      comment_count: item.comment_count?.[0]?.count || 0,
+      profile: item.user_profile
     }));
 
     return new Response(JSON.stringify({
-      profile: {
-        id: profile.id,
-        username: profile.username,
-        display_name: profile.display_name,
-        bio: profile.bio,
-        avatar_url: profile.avatar_url
-      },
       items: processedItems,
       pagination: {
         offset,
@@ -121,7 +105,7 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Error in get-public-feed function:', error);
+    console.error('Error in get-discover-feed function:', error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

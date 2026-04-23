@@ -21,9 +21,10 @@ interface InputChipProps {
   onRemove: () => void;
   ogData?: OpenGraphData;
   metadataStatus?: 'fast-loading' | 'deep-loading' | 'ready' | 'failed';
+  processingStatus?: 'uploading' | 'processing' | 'ready' | 'error';
 }
 
-const InputChip = ({ type, content, onRemove, ogData, metadataStatus }: InputChipProps) => {
+const InputChip = ({ type, content, onRemove, ogData, metadataStatus, processingStatus }: InputChipProps) => {
   const isLoadingMetadata = type === 'link' && (metadataStatus === 'fast-loading' || metadataStatus === 'deep-loading');
   const metadataSignature = `${ogData?.title || ''}|${ogData?.description || ''}|${ogData?.image || ''}|${ogData?.previewImageUrl || ''}`;
   const previousSignatureRef = useRef(metadataSignature);
@@ -167,10 +168,15 @@ const InputChip = ({ type, content, onRemove, ogData, metadataStatus }: InputChi
     }
   };
 
+  const isFileProcessing = processingStatus === 'uploading' || processingStatus === 'processing';
+
   return (
     <div className="flex items-center gap-2 bg-white border border-border rounded-lg px-3 py-2 shadow-sm max-w-fit">
       {!ogData?.previewImageUrl && !ogData?.image && !content.file && getIcon()}
       {getDisplayContent()}
+      {isFileProcessing && (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500 flex-shrink-0" />
+      )}
       <Button
         variant="ghost"
         size="sm"

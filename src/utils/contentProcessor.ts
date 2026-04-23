@@ -271,6 +271,11 @@ const enrichSavedLinkItem = async (
     return;
   }
 
+  // Fire-and-forget page scrape for richer embedding content
+  supabase.functions.invoke('scrape-page-content', {
+    body: { itemId, url }
+  }).catch((err) => console.error('Page scrape failed (non-fatal):', err));
+
   await fetchItems();
 };
 
@@ -483,6 +488,18 @@ export const processAndInsertContent = async (
     }, 0);
   }
 
+  // Fire Vision analysis for images (non-blocking; overwrites placeholder description)
+  if (type === 'image' && (filePath || data.uploadedFilePath)) {
+    const imagePath = filePath || data.uploadedFilePath;
+    const { data: imgUrlData } = supabase.storage.from('stash-media').getPublicUrl(imagePath);
+    supabase.functions
+      .invoke('analyze-image', {
+        body: { itemId: insertedItem.id, imageUrl: imgUrlData.publicUrl },
+      })
+      .then(() => fetchItems())
+      .catch((err) => console.error('Image analysis failed (non-fatal):', err));
+  }
+
   // Handle PDF processing with quick summary first, then full extraction
   if (type === 'document' && (filePath || data.uploadedFilePath)) {
     console.log('Starting PDF processing for item:', insertedItem.id);
@@ -510,14 +527,14 @@ export const processAndInsertContent = async (
       }
     }, 500);
     
-    // Phase 2: Full extraction (after delay)
+    // Phase 2: Full extraction (short delay to let quick summary complete first)
     setTimeout(async () => {
       try {
         await processPdfContent(insertedItem.id, filePath || data.uploadedFilePath, fetchItems, showToast);
       } catch (error) {
         console.error('Background PDF processing failed:', error);
       }
-    }, 5000);
+    }, 1000);
   } else {
     // Generate embeddings for textual content (including transcriptions and descriptions)
     const textForEmbedding = [
@@ -577,6 +594,7 @@ const processCollection = async (
     title,
     description,
     content: data.content || null,
+    is_public: data.is_public ?? false,
   };
 
   console.log('Inserting collection with data:', itemData);
