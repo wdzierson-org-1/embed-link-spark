@@ -634,20 +634,6 @@ const UnifiedInputPanel = ({
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    Array.from(e.dataTransfer.files).forEach(addFileItem);
-  }, [addFileItem]);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    Array.from(e.target.files || []).forEach(addFileItem);
-  };
-
-  const removeInputItem = (id: string) => {
-    setInputItems(prev => prev.filter(item => item.id !== id));
-  };
-
   const addFileItem = useCallback((file: File) => {
     const validation = validateFileSize(file);
     if (!validation.valid) {
@@ -677,6 +663,20 @@ const UnifiedInputPanel = ({
       processingStatus: 'uploading',
     }]);
   }, [toast]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    Array.from(e.dataTransfer.files).forEach(addFileItem);
+  }, [addFileItem]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    Array.from(e.target.files || []).forEach(addFileItem);
+  };
+
+  const removeInputItem = (id: string) => {
+    setInputItems(prev => prev.filter(item => item.id !== id));
+  };
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
