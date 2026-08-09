@@ -86,13 +86,6 @@ serve(async (req) => {
       });
     }
 
-    // Get total count for pagination info
-    const { count, error: countError } = await supabase
-      .from('items')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', profile.id)
-      .eq('is_public', true);
-
     console.log(`Found ${items?.length || 0} public items for ${username}`);
 
     // Process items to include comment counts
@@ -100,6 +93,10 @@ serve(async (req) => {
       ...item,
       comment_count: item.comment_count?.[0]?.count || 0
     }));
+
+    // A full page means there may be more; a separate count query ignored the
+    // search filter, which made hasMore wrong whenever a search was active
+    const hasMore = (items?.length || 0) === limit;
 
     return new Response(JSON.stringify({
       profile: {
@@ -113,8 +110,8 @@ serve(async (req) => {
       pagination: {
         offset,
         limit,
-        total: count || 0,
-        hasMore: (count || 0) > offset + (items?.length || 0)
+        total: offset + (items?.length || 0),
+        hasMore
       }
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

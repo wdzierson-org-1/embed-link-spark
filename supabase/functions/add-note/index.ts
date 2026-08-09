@@ -29,23 +29,46 @@ Deno.serve(async (req) => {
       );
     }
 
-    const body = await req.json();
-    console.log('Request body:', body);
-
-    const { content, title, userId, is_public = false } = body;
-
-    if (!content) {
+    // The item owner is always derived from a verified JWT, never from the request body
+    const authHeader = req.headers.get('Authorization');
+    const token = authHeader?.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
       return new Response(
-        JSON.stringify({ error: 'Content is required' }),
-        { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        JSON.stringify({ error: 'Missing authorization token' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
       );
     }
 
-    // Default to demo user if no userId provided
-    const targetUserId = userId || '0a0afaa8-0e11-47e9-887f-223816a9bb53';
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired token' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    const body = await req.json();
+    console.log('Request body:', body);
+
+    const { content, title, is_public = false } = body;
+
+    if (!content) {
+      return new Response(
+        JSON.stringify({ error: 'Content is required' }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    const targetUserId = user.id;
 
     // Generate a title if not provided
     const noteTitle = title || (content.length > 50 ? content.substring(0, 47) + '...' : content);

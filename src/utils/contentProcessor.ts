@@ -16,6 +16,7 @@ interface ContentData {
   url?: string;
   title?: string;
   isProcessing?: boolean;
+  is_public?: boolean;
   ogData?: any;
   previewImagePath?: string; // New field for link preview images
   attachments?: Array<{
@@ -449,6 +450,7 @@ export const processAndInsertContent = async (
     file_path: filePath || data.uploadedFilePath,
     file_size: data.file?.size,
     mime_type: data.file?.type,
+    is_public: data.is_public ?? false,
   };
 
   console.log('processAndInsertContent: Inserting item data:', itemData);
@@ -503,7 +505,23 @@ export const processAndInsertContent = async (
   // Handle PDF processing with quick summary first, then full extraction
   if (type === 'document' && (filePath || data.uploadedFilePath)) {
     console.log('Starting PDF processing for item:', insertedItem.id);
-    
+
+    // Baseline embedding from title/filename so the document is searchable even
+    // if the async full-text extraction below never succeeds; the extraction
+    // replaces this with content-based embeddings when it lands
+    const baselineText = [title || data.title, data.file?.name]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    if (baselineText) {
+      try {
+        await generateEmbeddings(insertedItem.id, baselineText);
+      } catch (embeddingError) {
+        console.error('Baseline document embedding failed (non-fatal):', embeddingError);
+      }
+    }
+
     // Phase 1: Quick summary (immediate)
     setTimeout(async () => {
       try {

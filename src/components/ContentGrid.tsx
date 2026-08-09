@@ -5,6 +5,7 @@ import ContentItemSkeleton from './ContentItemSkeleton';
 import WhatsAppInfo from './WhatsAppInfo';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { itemMatchesSearchQuery } from '@/utils/itemSearch';
 import type { Attachment } from '@/components/CollectionAttachments';
 
 interface ContentGridProps {
@@ -162,21 +163,8 @@ const ContentGrid = ({
       if (!matchesTag) return false;
     }
     
-    // Search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      const title = (item.title || '').toLowerCase();
-      const content = (item.content || '').toLowerCase();
-      const description = (item.description || '').toLowerCase();
-      const url = (item.url || '').toLowerCase();
-      
-      return title.includes(query) || 
-             content.includes(query) || 
-             description.includes(query) ||
-             url.includes(query);
-    }
-    
-    return true;
+    // Search filter (includes supplemental_note)
+    return itemMatchesSearchQuery(item, searchQuery);
   });
 
   // Separate optimistic and real items

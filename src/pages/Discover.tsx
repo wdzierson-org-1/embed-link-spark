@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { SUPABASE_URL } from '@/integrations/supabase/client';
 import HeaderSection from '@/components/HeaderSection';
 import ContentGrid from '@/components/ContentGrid';
 
@@ -57,7 +58,7 @@ export function Discover() {
       });
 
       const response = await fetch(
-        `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/get-discover-feed?${params}`
+        `${SUPABASE_URL}/functions/v1/get-discover-feed?${params}`
       );
 
       if (!response.ok) {

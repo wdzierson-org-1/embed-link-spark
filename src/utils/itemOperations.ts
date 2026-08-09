@@ -12,43 +12,59 @@ export const saveItem = async (
   const { showSuccessToast = true, refreshItems = true } = options;
   
   try {
-    const { error } = await supabase
+    const { data: updatedItem, error } = await supabase
       .from('items')
       .update(updates)
-      .eq('id', id);
+      .eq('id', id)
+      .select()
+      .single();
 
     if (error) throw error;
 
-    // Regenerate embeddings if textual content changed
-    const textualContent = [];
-    
-    if (updates.title) {
-      textualContent.push(updates.title);
-    }
-    
-    if (updates.description) {
-      textualContent.push(updates.description);
-    }
-    
-    // Extract plain text from Novel editor content, stripping formatting
-    if (updates.content) {
-      const plainTextContent = extractPlainTextFromNovelContent(updates.content);
-      if (plainTextContent.trim()) {
-        textualContent.push(plainTextContent);
+    // Regenerate embeddings when a text field changed — but always from the full
+    // merged row, so a partial patch (e.g. title-only blur save) can't wipe the
+    // rest of the item's searchable content.
+    const textFieldsChanged = ['title', 'description', 'content', 'supplemental_note']
+      .some(field => field in updates);
+
+    if (textFieldsChanged && updatedItem) {
+      const textualContent = [];
+
+      if (updatedItem.title) {
+        textualContent.push(updatedItem.title);
       }
-    }
 
-    const textForEmbedding = textualContent.join(' ').trim();
+      if (updatedItem.description) {
+        textualContent.push(updatedItem.description);
+      }
 
-    if (textForEmbedding) {
-      console.log('Updating embeddings for item:', id);
-      console.log('Text for embedding (length):', textForEmbedding.length);
-      
-      // Delete old embeddings
-      await supabase.from('embeddings').delete().eq('item_id', id);
-      
-      // Generate new embeddings with plain text
-      await generateEmbeddings(id, textForEmbedding);
+      // Extract plain text from Novel editor content, stripping formatting
+      if (updatedItem.content) {
+        const plainTextContent = extractPlainTextFromNovelContent(updatedItem.content);
+        if (plainTextContent.trim()) {
+          textualContent.push(plainTextContent);
+        }
+      }
+
+      if (updatedItem.supplemental_note) {
+        textualContent.push(updatedItem.supplemental_note);
+      }
+
+      if (updatedItem.url) {
+        textualContent.push(updatedItem.url);
+      }
+
+      const textForEmbedding = textualContent.join(' ').trim();
+
+      if (textForEmbedding) {
+        console.log('Updating embeddings for item:', id);
+
+        // Delete old embeddings
+        await supabase.from('embeddings').delete().eq('item_id', id);
+
+        // Generate new embeddings with plain text
+        await generateEmbeddings(id, textForEmbedding);
+      }
     }
 
     if (showSuccessToast) {

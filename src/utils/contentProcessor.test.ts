@@ -10,6 +10,7 @@ const {
   insertedItemSingle,
   insertedCollectionSingle,
   insertedAttachmentSingle,
+  itemsInsertPayloads,
 } = vi.hoisted(() => {
   const fetchItems = vi.fn().mockResolvedValue(undefined);
   const invoke = vi.fn();
@@ -67,6 +68,8 @@ const {
     error: null,
   });
 
+  const insertPayloads: any[] = [];
+
   const from = vi.fn((table: string) => {
     if (table === "items") {
       return {
@@ -75,6 +78,7 @@ const {
         })),
         insert: vi.fn((payload: any) => {
           const record = Array.isArray(payload) ? payload[0] : payload;
+          insertPayloads.push(record);
           const singleResolver = record?.type === "collection" ? insertedCollection : insertedItem;
           return {
             select: vi.fn(() => ({
@@ -123,6 +127,7 @@ const {
     insertedItemSingle: insertedItem,
     insertedCollectionSingle: insertedCollection,
     insertedAttachmentSingle: insertedAttachment,
+    itemsInsertPayloads: insertPayloads,
   };
 });
 
@@ -290,6 +295,50 @@ describe("processAndInsertContent link enrichment", () => {
         fastOnly: false,
       },
     });
+  });
+
+  it("includes the visibility flag in the insert payload", async () => {
+    invokeMock.mockResolvedValue({ data: null, error: null });
+
+    await processAndInsertContent(
+      "text",
+      {
+        content: "A private thought",
+        title: "My note",
+        is_public: false,
+      },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+
+    const textInsert = itemsInsertPayloads.find((p) => p.type === "text");
+    expect(textInsert).toBeDefined();
+    expect(textInsert.is_public).toBe(false);
+  });
+
+  it("generates a baseline embedding for documents at insert time", async () => {
+    invokeMock.mockResolvedValue({ data: null, error: null });
+
+    await processAndInsertContent(
+      "document",
+      {
+        title: "Q3 Report",
+        uploadedFilePath: "user-1/uploads/q3-report.pdf",
+        isProcessing: true,
+      },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+
+    const baselineCall = generateEmbeddingsMock.mock.calls.find(
+      ([itemId]) => itemId === "item-link-1"
+    );
+    expect(baselineCall).toBeDefined();
+    expect(baselineCall?.[1]).toContain("Q3 Report");
   });
 
   it("falls back to YouTube thumbnail metadata when extraction fails", async () => {

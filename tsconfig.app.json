@@ -21,6 +21,8 @@
     "noImplicitAny": false,
     "noFallthroughCasesInSwitch": false,
 
+    "types": ["vitest/globals"],
+
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

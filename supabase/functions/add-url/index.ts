@@ -199,10 +199,34 @@ Deno.serve(async (req) => {
       );
     }
 
+    // The item owner is always derived from a verified JWT, never from the request body
+    const authHeader = req.headers.get('Authorization');
+    const token = authHeader?.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization token' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired token' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+
     const body = await req.json();
     console.log('Request body:', body);
 
-    const { url, userId, title: customTitle, content: userNotes, message, supplemental_note, is_public = true } = body;
+    const { url, title: customTitle, content: userNotes, message, supplemental_note, is_public = false } = body;
 
     // Validate URL
     if (!url) {
@@ -227,8 +251,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Default to demo user if no userId provided
-    const targetUserId = userId || '0a0afaa8-0e11-47e9-887f-223816a9bb53';
+    const targetUserId = user.id;
 
     console.log('Fetching metadata for URL:', url);
 

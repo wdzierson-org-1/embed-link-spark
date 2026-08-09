@@ -83,11 +83,24 @@ serve(async (req) => {
 
     console.log('Created', chunks.length, 'chunks for embedding');
 
-    // Generate embeddings for each chunk
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      console.log(`Processing chunk ${i + 1}/${chunks.length}, length: ${chunk.length}`);
-      
+    // Replace any existing embeddings for this item so re-embeds (link enrichment,
+    // image analysis, PDF extraction, edits) never accumulate stale duplicate chunks
+    const { error: deleteError } = await supabase
+      .from('embeddings')
+      .delete()
+      .eq('item_id', itemId);
+
+    if (deleteError) {
+      console.error('Error clearing old embeddings:', deleteError);
+      throw deleteError;
+    }
+
+    // Generate embeddings in batches (one API call per batch instead of per chunk)
+    const BATCH_SIZE = 100;
+    for (let batchStart = 0; batchStart < chunks.length; batchStart += BATCH_SIZE) {
+      const batch = chunks.slice(batchStart, batchStart + BATCH_SIZE);
+      console.log(`Embedding chunks ${batchStart + 1}-${batchStart + batch.length} of ${chunks.length}`);
+
       const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: {
@@ -96,7 +109,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           model: 'text-embedding-3-small',
-          input: chunk,
+          input: batch,
         }),
       });
 
@@ -107,24 +120,23 @@ serve(async (req) => {
       }
 
       const embeddingData = await embeddingResponse.json();
-      
-      if (!embeddingData.data?.[0]?.embedding) {
+
+      if (!Array.isArray(embeddingData.data) || embeddingData.data.length !== batch.length) {
         console.error('Invalid embedding response:', embeddingData);
-        throw new Error('Failed to generate embedding - invalid response');
+        throw new Error('Failed to generate embeddings - invalid response');
       }
 
-      const embedding = embeddingData.data[0].embedding;
-
-      // Store the embedding in the database
-      const { error } = await supabase.from('embeddings').insert({
+      const rows = embeddingData.data.map((entry: { index: number; embedding: number[] }, i: number) => ({
         item_id: itemId,
-        content_chunk: chunk,
-        chunk_index: i,
-        embedding: JSON.stringify(embedding),
-      });
+        content_chunk: batch[i],
+        chunk_index: batchStart + i,
+        embedding: JSON.stringify(entry.embedding),
+      }));
+
+      const { error } = await supabase.from('embeddings').insert(rows);
 
       if (error) {
-        console.error('Error storing embedding:', error);
+        console.error('Error storing embeddings:', error);
         throw error;
       }
     }

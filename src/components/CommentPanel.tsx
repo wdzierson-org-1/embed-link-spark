@@ -5,7 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 interface Comment {
@@ -50,7 +50,7 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner, onCommentAdded 
     console.log(`CommentPanel: Fetching comments for itemId: ${itemId}`);
     
     try {
-      const url = `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/get-comments/${itemId}`;
+      const url = `${SUPABASE_URL}/functions/v1/get-comments/${itemId}`;
       console.log(`CommentPanel: Making request to: ${url}`);
       
       const response = await fetch(url, {
@@ -121,7 +121,7 @@ export const CommentPanel = ({ itemId, isOpen, onClose, isOwner, onCommentAdded 
         contentLength: newComment.trim().length 
       });
 
-      const response = await fetch('https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/post-comment', {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/post-comment`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),

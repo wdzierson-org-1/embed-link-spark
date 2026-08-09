@@ -34,9 +34,9 @@ export const OwnerMenu = ({ profile }: OwnerMenuProps) => {
     window.open(publicUrl, '_blank');
   };
 
-  const handleOpenPublicFeed = () => {
-    const publicFeedUrl = `${window.location.origin}/public-feed`;
-    window.open(publicFeedUrl, '_blank');
+  const handleOpenDiscover = () => {
+    const discoverUrl = `${window.location.origin}/discover`;
+    window.open(discoverUrl, '_blank');
   };
 
   return (
@@ -63,9 +63,9 @@ export const OwnerMenu = ({ profile }: OwnerMenuProps) => {
           <ExternalLink className="h-4 w-4 mr-2" />
           View public version
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={handleOpenPublicFeed}>
+        <DropdownMenuItem onClick={handleOpenDiscover}>
           <Globe className="h-4 w-4 mr-2" />
-          Open public feed
+          Discover
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut}>

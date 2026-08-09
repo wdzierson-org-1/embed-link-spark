@@ -89,13 +89,16 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Only apply the filename-based guess while full extraction hasn't landed yet
+    // (extract-pdf-text sets page_body); never overwrite real content-based results
     const { error: updateError } = await supabase
       .from('items')
       .update({
         title,
         description,
       })
-      .eq('id', itemId);
+      .eq('id', itemId)
+      .is('page_body', null);
 
     if (updateError) {
       console.error('Error updating item with quick summary:', updateError);

@@ -19,10 +19,10 @@ enable_signup = true
 verify_jwt = false
 
 [functions.add-note]
-verify_jwt = false
+verify_jwt = true
 
 [functions.add-url]
-verify_jwt = false
+verify_jwt = true
 
 [functions.get-public-feed]
 verify_jwt = false

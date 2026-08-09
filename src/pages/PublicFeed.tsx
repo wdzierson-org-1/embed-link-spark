@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Search, UserPlus, UserCheck, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { SUPABASE_URL } from '@/integrations/supabase/client';
 import { useFollows } from '@/hooks/useFollows';
 import { useItemOperations } from '@/hooks/useItemOperations';
 import { useToast } from '@/hooks/use-toast';
@@ -83,7 +84,7 @@ export const PublicFeed = () => {
       });
 
       const response = await fetch(
-        `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/get-public-feed/${username}?${params}`
+        `${SUPABASE_URL}/functions/v1/get-public-feed/${username}?${params}`
       );
       
       if (!response.ok) {

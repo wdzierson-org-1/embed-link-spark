@@ -32,16 +32,18 @@ serve(async (req) => {
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
 
-    // Build base query for public items from users with public feeds enabled
+    // Build base query for public items from users with public feeds enabled.
+    // The !inner join is required so the public_feed_enabled filter excludes the
+    // item rows themselves (a plain embed filter only nulls out the embed).
     let query = supabase
       .from('items')
       .select(`
         *,
         comment_count:comments(count),
-        user_profile:user_profiles!items_user_id_fkey(id, username, display_name, avatar_url)
+        user_profile:user_profiles!items_user_id_fkey!inner(id, username, display_name, avatar_url, public_feed_enabled)
       `)
       .eq('is_public', true)
-      .eq('user_profiles.public_feed_enabled', true);
+      .eq('user_profile.public_feed_enabled', true);
 
     // Exclude items from users the current user already follows
     if (currentUserId) {
@@ -79,26 +81,23 @@ serve(async (req) => {
       });
     }
 
-    // Get total count
-    const { count, error: countError } = await supabase
-      .from('items')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_public', true)
-      .eq('user_profiles.public_feed_enabled', true);
-
     const processedItems = (items || []).map(item => ({
       ...item,
       comment_count: item.comment_count?.[0]?.count || 0,
       profile: item.user_profile
     }));
 
+    // A full page means there may be more; avoids a second count query whose
+    // filters could drift from the main query and silently break pagination
+    const hasMore = (items?.length || 0) === limit;
+
     return new Response(JSON.stringify({
       items: processedItems,
       pagination: {
         offset,
         limit,
-        total: count || 0,
-        hasMore: (count || 0) > offset + (items?.length || 0)
+        total: offset + (items?.length || 0),
+        hasMore
       }
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

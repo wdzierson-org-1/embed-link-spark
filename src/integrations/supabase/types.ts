@@ -495,9 +495,29 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      follow_user: {
+        Args: { target_id: string }
+        Returns: boolean
+      }
+      get_follower_count: {
+        Args: { user_id: string }
+        Returns: number
+      }
+      get_following_count: {
+        Args: { user_id: string }
+        Returns: number
+      }
       increment_tag_usage: {
         Args: { tag_name: string; user_uuid: string }
         Returns: string
+      }
+      is_following: {
+        Args: { target_id: string }
+        Returns: boolean
+      }
+      unfollow_user: {
+        Args: { target_id: string }
+        Returns: boolean
       }
       search_similar_content: {
         Args: {

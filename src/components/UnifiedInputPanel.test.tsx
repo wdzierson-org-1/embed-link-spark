@@ -57,9 +57,7 @@ describe("UnifiedInputPanel", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(
-      "What's on your mind? Drop files, paste links, or just start typing..."
-    );
+    const input = screen.getByRole("textbox");
 
     fireEvent.change(input, { target: { value: "https://example.com" } });
 
@@ -102,9 +100,7 @@ describe("UnifiedInputPanel", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(
-      "What's on your mind? Drop files, paste links, or just start typing..."
-    );
+    const input = screen.getByRole("textbox");
 
     fireEvent.change(input, { target: { value: "https://example.com" } });
 
@@ -165,9 +161,7 @@ describe("UnifiedInputPanel", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(
-      "What's on your mind? Drop files, paste links, or just start typing..."
-    );
+    const input = screen.getByRole("textbox");
 
     fireEvent.change(input, { target: { value: "https://example.com" } });
 
@@ -215,9 +209,7 @@ describe("UnifiedInputPanel", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(
-      "What's on your mind? Drop files, paste links, or just start typing..."
-    );
+    const input = screen.getByRole("textbox");
     fireEvent.change(input, {
       target: { value: "https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4373761967" },
     });
@@ -246,9 +238,7 @@ describe("UnifiedInputPanel", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(
-      "What's on your mind? Drop files, paste links, or just start typing..."
-    );
+    const input = screen.getByRole("textbox");
     fireEvent.change(input, {
       target: { value: "https://www.youtube.com/watch?v=MPTNHrq_4LU|" },
     });
@@ -272,9 +262,7 @@ describe("UnifiedInputPanel", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(
-      "What's on your mind? Drop files, paste links, or just start typing..."
-    );
+    const input = screen.getByRole("textbox");
     fireEvent.change(input, {
       target: { value: "https://www.youtube.com/watch?v=MPTNHrq_4LU" },
     });
@@ -311,9 +299,7 @@ describe("UnifiedInputPanel", () => {
       />
     );
 
-    const input = screen.getByPlaceholderText(
-      "What's on your mind? Drop files, paste links, or just start typing..."
-    );
+    const input = screen.getByRole("textbox");
     fireEvent.change(input, {
       target: { value: "https://www.youtube.com/watch?v=MPTNHrq_4LU" },
     });
