@@ -34,7 +34,7 @@ const Pricing = () => {
             Start your free trial
           </h1>
           <p className="text-lg font-mori text-muted-foreground max-w-xl mx-auto leading-relaxed">
-            Experience all premium features for 7 days. No credit card required.
+            Experience all premium features for 14 days. No credit card required.
           </p>
         </div>
 
@@ -42,7 +42,7 @@ const Pricing = () => {
           <Card className="border-2 border-foreground shadow-xl hover:shadow-2xl transition-shadow duration-300">
             <CardHeader className="text-center pb-8 pt-8">
               <CardDescription className="text-base font-mori text-muted-foreground mb-2">
-                7 day free trial
+                14 day free trial
               </CardDescription>
               <CardTitle className="text-3xl font-editorial text-foreground mb-4">
                 Stash Premium

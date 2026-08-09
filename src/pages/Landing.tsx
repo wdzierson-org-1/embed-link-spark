@@ -168,7 +168,7 @@ const Landing = () => {
             <div className="slide-up">
               <Link to="/pricing">
                 <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
-                  Start stashing — free for 7 days
+                  Start stashing — free for 14 days
                 </Button>
               </Link>
               <p className="text-sm font-mori text-white/70 lg:text-muted-foreground mt-4">
@@ -411,7 +411,7 @@ const Landing = () => {
             </Button>
           </Link>
           <p className="text-sm font-mori text-muted-foreground mt-4">
-            7 days free, then $4.99/month.
+            14 days free, then $4.99/month.
           </p>
         </section>
 

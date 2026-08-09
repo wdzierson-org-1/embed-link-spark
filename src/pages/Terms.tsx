@@ -4,7 +4,7 @@ const Terms = () => (
   <LegalPage
     title="Terms"
     lastUpdated="August 9, 2026"
-    intro="These are the terms for using Stash. The short version: your content is yours, be reasonable, and the service comes with a 7-day free trial before it costs $4.99 a month."
+    intro="These are the terms for using Stash. The short version: your content is yours, be reasonable, and the service comes with a 14-day free trial before it costs $4.99 a month."
     sections={[
       {
         heading: 'The service',
@@ -37,7 +37,7 @@ const Terms = () => (
         body: (
           <>
             <p>
-              New accounts start with a 7-day free trial. No credit card is required to start; if you
+              New accounts start with a 14-day free trial. No credit card is required to start; if you
               don't subscribe when the trial ends, your account becomes read-only until you do.
             </p>
             <p>

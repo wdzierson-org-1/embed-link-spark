@@ -30,13 +30,13 @@ export async function handleQuestionIntent(message: string, userId: string, supa
       return await performKeywordSearch(message, userId, supabase, openaiApiKey);
     }
 
-    // Search for similar content chunks using the correct function name
+    // Hybrid search: vector + full-text, RRF-fused in the database
     const { data: chunks, error: searchError } = await supabase
-      .rpc('search_similar_content', {
-        query_embedding: queryEmbedding,
-        match_threshold: 0.3,
-        match_count: 5,
-        target_user_id: userId
+      .rpc('hybrid_search_content', {
+        query_text: message,
+        query_embedding: JSON.stringify(queryEmbedding),
+        target_user_id: userId,
+        match_count: 6
       });
 
     if (searchError) {
@@ -50,10 +50,18 @@ export async function handleQuestionIntent(message: string, userId: string, supa
       return "I couldn't find any relevant information in your saved content to answer that question.";
     }
 
-    // Build context from the chunks
-    const contextItems = chunks.map((chunk: any) => 
-      `Title: ${chunk.item_title}\nContent: ${chunk.content_chunk}\n`
-    ).join('\n---\n');
+    // Build context from the chunks, deduplicating by item so one item's
+    // chunks can't crowd out every other result
+    const seenItems = new Set<string>();
+    const contextItems = chunks
+      .filter((chunk: any) => {
+        if (seenItems.has(chunk.item_id)) return false;
+        seenItems.add(chunk.item_id);
+        return true;
+      })
+      .map((chunk: any) =>
+        `Title: ${chunk.item_title}\nContent: ${String(chunk.content_chunk).slice(0, 1200)}\n`
+      ).join('\n---\n');
 
     // Generate response using OpenAI
     const chatResponse = await fetch('https://api.openai.com/v1/chat/completions', {

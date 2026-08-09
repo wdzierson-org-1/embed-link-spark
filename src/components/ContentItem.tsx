@@ -71,20 +71,9 @@ const ContentItem = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isNoteDeleted, setIsNoteDeleted] = useState(false);
 
-  // Detect if document is still processing
+  // Detect if document is still processing; updates arrive via the realtime
+  // items subscription in useItems (no polling)
   const isProcessing = item.type === 'document' && (!item.content || item.content.length < 100);
-
-  // Poll for updates when processing
-  useEffect(() => {
-    if (!isProcessing || !onTagsUpdated) return;
-
-    const pollInterval = setInterval(() => {
-      console.log('Polling for PDF processing updates:', item.id);
-      onTagsUpdated(); // This triggers fetchItems in the parent
-    }, 3000); // Poll every 3 seconds
-
-    return () => clearInterval(pollInterval);
-  }, [isProcessing, item.id, onTagsUpdated]);
 
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';

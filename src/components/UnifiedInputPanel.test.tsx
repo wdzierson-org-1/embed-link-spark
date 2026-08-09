@@ -129,23 +129,17 @@ describe("UnifiedInputPanel", () => {
     });
   });
 
-  it("shows a loading indicator immediately and keeps enriching after fast metadata", async () => {
+  it("settles the chip on fast metadata without a pre-save deep request", async () => {
     let resolveFast: ((value: unknown) => void) | undefined;
     const fastPromise = new Promise((resolve) => {
       resolveFast = resolve;
-    });
-
-    let resolveDeep: ((value: unknown) => void) | undefined;
-    const deepPromise = new Promise((resolve) => {
-      resolveDeep = resolve;
     });
 
     invokeMock.mockImplementation((_name: string, payload: { body: { fastOnly?: boolean } }) => {
       if (payload.body.fastOnly) {
         return fastPromise;
       }
-
-      return deepPromise;
+      return Promise.resolve({ data: null, error: null });
     });
 
     render(
@@ -173,27 +167,46 @@ describe("UnifiedInputPanel", () => {
     });
 
     expect(await screen.findByText("Fast title")).toBeInTheDocument();
-    expect(await screen.findByText("Fetching more details...")).toBeInTheDocument();
-
-    resolveDeep?.({
-      data: {
-        success: true,
-        title: "Deep title",
-        description: "Deep description",
-      },
-      error: null,
-    });
 
     await waitFor(() => {
-      expect(screen.getByText("Deep title")).toBeInTheDocument();
+      expect(screen.queryByText("Fetching more details...")).not.toBeInTheDocument();
     });
+
+    const deepCalls = invokeMock.mock.calls.filter(
+      ([name, payload]) => name === "extract-link-metadata" && payload.body.fastOnly === false
+    );
+    expect(deepCalls).toHaveLength(0);
   });
 
-  it("submits available metadata even while deep enrichment is still pending", async () => {
-    const onAddContent = vi.fn().mockResolvedValue(undefined);
-    const deepPromise = new Promise(() => {
-      // Intentionally never resolves to simulate long-running enrichment.
+  it("falls back to a deep request when fast metadata comes back empty", async () => {
+    invokeMock.mockImplementation((_name: string, payload: { body: { fastOnly?: boolean } }) => {
+      if (payload.body.fastOnly) {
+        return Promise.resolve({ data: null, error: { message: "failed" } });
+      }
+      return Promise.resolve({
+        data: { success: true, title: "Deep title", description: "Deep description" },
+        error: null,
+      });
     });
+
+    render(
+      <UnifiedInputPanel
+        isInputUICollapsed={false}
+        onToggleInputUI={vi.fn()}
+        onAddContent={vi.fn().mockResolvedValue(undefined)}
+        getSuggestedTags={vi.fn().mockResolvedValue([])}
+      />
+    );
+
+    const input = screen.getByRole("textbox");
+
+    fireEvent.change(input, { target: { value: "https://example.com" } });
+
+    expect(await screen.findByText("Deep title")).toBeInTheDocument();
+  });
+
+  it("submits fast metadata immediately after the chip settles", async () => {
+    const onAddContent = vi.fn().mockResolvedValue(undefined);
 
     invokeMock.mockImplementation((_name: string, payload: { body: { fastOnly?: boolean } }) => {
       if (payload.body.fastOnly) {
@@ -206,7 +219,7 @@ describe("UnifiedInputPanel", () => {
           error: null,
         });
       }
-      return deepPromise;
+      return Promise.resolve({ data: null, error: null });
     });
 
     render(
@@ -234,14 +247,6 @@ describe("UnifiedInputPanel", () => {
           title: "Immediate title",
         })
       );
-    });
-
-    expect(invokeMock).toHaveBeenCalledWith("extract-link-metadata", {
-      body: expect.objectContaining({
-        url: "https://example.com",
-        userId: "user-1",
-        fastOnly: false,
-      }),
     });
   });
 

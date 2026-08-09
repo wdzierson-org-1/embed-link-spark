@@ -48,7 +48,9 @@ serve(async (req) => {
       customerId = customers.data[0].id;
       logStep("Found existing customer", { customerId });
 
-      // Check if they already have an active or trialing subscription
+      // If any subscription has ever existed (active, trialing, paused,
+      // canceled...), never create another trial — lapsed users go through
+      // checkout, not a fresh trial
       const subscriptions = await stripe.subscriptions.list({
         customer: customerId,
         status: 'all',
@@ -57,16 +59,14 @@ serve(async (req) => {
 
       if (subscriptions.data.length > 0) {
         const existingSub = subscriptions.data[0];
-        if (existingSub.status === 'active' || existingSub.status === 'trialing') {
-          logStep("User already has active/trialing subscription", { status: existingSub.status });
-          return new Response(JSON.stringify({ 
-            message: "Subscription already exists",
-            status: existingSub.status 
-          }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-          });
-        }
+        logStep("User already has a subscription; not creating a new trial", { status: existingSub.status });
+        return new Response(JSON.stringify({
+          message: "Subscription already exists",
+          status: existingSub.status
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        });
       }
     } else {
       // Create new customer
@@ -80,11 +80,11 @@ serve(async (req) => {
       logStep("Created new customer", { customerId });
     }
 
-    // Create subscription with 7-day trial
+    // Create subscription with 14-day trial
     const subscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: "price_1SEFK4DjmsxBFAFefosv28h2" }],
-      trial_period_days: 7,
+      trial_period_days: 14,
       trial_settings: {
         end_behavior: {
           missing_payment_method: 'pause',

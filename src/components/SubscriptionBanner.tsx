@@ -37,7 +37,7 @@ const SubscriptionBanner = () => {
 
   const trialEndDate = trialEnd ? new Date(trialEnd).toLocaleDateString() : null;
   const isPaused = subscriptionStatus === 'paused';
-  const currentTrialDay = 8 - daysLeftInTrial;
+  const currentTrialDay = 15 - daysLeftInTrial;
 
   // Show if paused (always visible)
   if (isPaused) {
@@ -70,14 +70,14 @@ const SubscriptionBanner = () => {
                 </>
               ) : onTrial && daysLeftInTrial < 2 ? (
                 <>
-                  <h3 className="font-semibold text-foreground">Your 7-day free trial is ending soon</h3>
+                  <h3 className="font-semibold text-foreground">Your 14-day free trial is ending soon</h3>
                   <p className="text-sm text-muted-foreground">
                     {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} remaining. Trial ends on {trialEndDate}. Upgrade now for $4.99/month.
                   </p>
                 </>
               ) : (
                 <>
-                  <h3 className="font-semibold text-foreground">You're on day {currentTrialDay} of your 7 day free trial</h3>
+                  <h3 className="font-semibold text-foreground">You're on day {currentTrialDay} of your 14 day free trial</h3>
                   <p className="text-sm text-muted-foreground">
                     Upgrade to Stash Premium at any time for $4.99 per month.
                   </p>

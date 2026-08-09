@@ -549,6 +549,14 @@ const UnifiedInputPanel = ({
       maybeScheduleYouTubeRetry();
     }
 
+    // The fast result is enough to settle the chip; the heavy deep pass (image
+    // storage, UA retries) runs after save via enrichSavedLinkItem, so capture
+    // never waits on it. Deep runs pre-save only when fast came back empty.
+    if (fastMetadata && hasMeaningfulMetadata(metadataCacheRef.current.get(url))) {
+      updateMetadataStatus(itemId, 'ready');
+      return;
+    }
+
     updateMetadataStatus(itemId, 'deep-loading');
 
     const deepCacheKey = `deep:${url}`;

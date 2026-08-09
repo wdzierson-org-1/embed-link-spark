@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -46,6 +46,7 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
   const [hasStripeCustomer, setHasStripeCustomer] = useState(false);
   const [loading, setLoading] = useState(true);
+  const trialEnsuredRef = useRef(false);
 
   const checkSubscription = async () => {
     if (!user) {
@@ -58,8 +59,19 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      const { data, error } = await supabase.functions.invoke('check-subscription');
-      
+      let { data, error } = await supabase.functions.invoke('check-subscription');
+
+      // A user with no subscription at all is a fresh account whose trial hasn't
+      // been created yet — create it now and re-check, so the first save is never
+      // blocked by the signup/Stripe race. Attempted once per session.
+      if (!error && data && !data.subscriptionStatus && !trialEnsuredRef.current) {
+        trialEnsuredRef.current = true;
+        const { error: trialError } = await supabase.functions.invoke('create-trial-subscription');
+        if (!trialError) {
+          ({ data, error } = await supabase.functions.invoke('check-subscription'));
+        }
+      }
+
       if (error) {
         console.error('Error checking subscription:', error);
         setSubscribed(false);
@@ -163,7 +175,6 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   }, [user]);
 
   // Auto-refresh subscription status every 30 seconds
-  // Auto-refresh subscription status every 30 seconds
   useEffect(() => {
     if (!user) return;
 
@@ -171,11 +182,14 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     return () => clearInterval(interval);
   }, [user]);
 
-  // Calculate feature access based on subscription status
-  const canAddContent = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
-  const canUseAI = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
-  const canSearch = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
-  const canAccessFullFeatures = subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
+  // Feature access based on subscription status. While the first check (and
+  // trial self-heal) is still in flight, stay permissive — blocking a brand-new
+  // trial user's first save is worse than letting a lapsed one through briefly.
+  const hasAccess = loading || subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
+  const canAddContent = hasAccess;
+  const canUseAI = hasAccess;
+  const canSearch = hasAccess;
+  const canAccessFullFeatures = hasAccess;
 
   return (
     <SubscriptionContext.Provider value={{

@@ -16,9 +16,49 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 // API keys
 const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
 
+// Validate that the request genuinely came from Twilio (HMAC-SHA1 over the
+// webhook URL + sorted form params, signed with the auth token). Without this,
+// anyone who knows a user's phone number could inject items into their stash.
+const validateTwilioSignature = async (
+  req: Request,
+  params: Record<string, string>
+): Promise<boolean> => {
+  const authToken = Deno.env.get('TWILIO_AUTH_TOKEN');
+  const signature = req.headers.get('X-Twilio-Signature');
+  if (!authToken || !signature) return false;
+
+  // Twilio signs the URL as configured in the console; fall back to the
+  // request URL in case they differ (proxies, trailing slashes)
+  const candidateUrls = [Deno.env.get('TWILIO_WEBHOOK_URL'), req.url]
+    .filter((u): u is string => Boolean(u));
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(authToken),
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign']
+  );
+
+  const sortedKeys = Object.keys(params).sort();
+  for (const url of candidateUrls) {
+    let data = url;
+    for (const k of sortedKeys) {
+      data += k + params[k];
+    }
+    const mac = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+    const expected = btoa(String.fromCharCode(...new Uint8Array(mac)));
+    if (expected === signature) return true;
+  }
+
+  console.error('Twilio signature validation failed for URL candidates:', candidateUrls.length);
+  return false;
+};
+
 serve(async (req) => {
   console.log('Twilio webhook called:', req.method);
-  
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -27,8 +67,15 @@ serve(async (req) => {
     // Parse form data from Twilio
     const formData = await req.formData();
     const body = Object.fromEntries(formData.entries()) as unknown as TwilioWebhookBody;
-    
+
     console.log('Received Twilio webhook:', body);
+
+    const params = Object.fromEntries(
+      [...formData.entries()].map(([k, v]) => [k, String(v)])
+    );
+    if (!(await validateTwilioSignature(req, params))) {
+      return new Response('Forbidden', { status: 403 });
+    }
 
     // Extract Twilio parameters
     const {

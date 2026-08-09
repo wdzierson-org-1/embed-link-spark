@@ -103,6 +103,38 @@ export const useItems = () => {
     });
   }, [user?.id, fetchItems]);
 
+  // Realtime: refetch when this user's items change server-side (async
+  // enrichment like PDF extraction, image analysis, link scraping). Replaces
+  // the old per-card polling. Debounced so a burst of updates coalesces.
+  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`items-changes-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'items',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+          refetchTimerRef.current = setTimeout(() => {
+            void fetchItems();
+          }, 400);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, fetchItems]);
+
   return {
     items: allItems,
     fetchItems,

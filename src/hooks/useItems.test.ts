@@ -31,11 +31,19 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    from: mockFrom,
-  },
-}));
+vi.mock("@/integrations/supabase/client", () => {
+  const channelStub = {
+    on: vi.fn(function (this: unknown) { return channelStub; }),
+    subscribe: vi.fn(() => channelStub),
+  };
+  return {
+    supabase: {
+      from: mockFrom,
+      channel: vi.fn(() => channelStub),
+      removeChannel: vi.fn(),
+    },
+  };
+});
 
 describe("useItems", () => {
   beforeEach(() => {

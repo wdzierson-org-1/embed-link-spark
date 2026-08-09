@@ -39,18 +39,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const ensureTrialSubscription = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      await supabase.functions.invoke('create-trial-subscription');
-    } catch (error) {
-      console.error('Error ensuring trial subscription:', error);
-      // Don't block login if trial creation fails
-    }
-  };
-
   const signUp = async (email: string, password: string, username: string) => {
     const redirectUrl = `${window.location.origin}/`;
     
@@ -66,11 +54,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
     
-    if (!error) {
-      // Create trial subscription in background after successful signup
-      setTimeout(() => ensureTrialSubscription(), 0);
-    }
-    
+    // Trial creation happens in SubscriptionProvider.checkSubscription, which
+    // self-heals any account with no subscription — a single path avoids the
+    // signup/Stripe race that used to block the first save.
     return { error };
   };
 
@@ -79,12 +65,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       email,
       password
     });
-    
-    if (!error) {
-      // Create trial subscription in background after successful signin
-      setTimeout(() => ensureTrialSubscription(), 0);
-    }
-    
+
     return { error };
   };
 

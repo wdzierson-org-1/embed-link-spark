@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { X, Send, Bot, User, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/integrations/supabase/client';
 import ReactMarkdown from 'react-markdown';
 import ChatMessageSources from './ChatMessageSources';
 import ChatMessageFeedback from './ChatMessageFeedback';
@@ -98,28 +98,72 @@ const GlobalChatInterface = ({ isOpen, onClose, onSourceClick, onViewAllSources 
     setInputMessage('');
     setIsLoading(true);
 
+    const assistantId = (Date.now() + 1).toString();
+
     try {
-      const { data, error } = await supabase.functions.invoke('chat-with-all-content', {
-        body: {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not signed in');
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-with-all-content`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({
           message: currentInput,
-          conversationHistory: messages.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          }))
-        }
+          conversationHistory: messages
+            .filter(msg => msg.id !== 'welcome')
+            .map(msg => ({ role: msg.role, content: msg.content })),
+        }),
       });
 
-      if (error) throw error;
+      if (!response.ok || !response.body) {
+        throw new Error(`Chat request failed (${response.status})`);
+      }
 
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
+      // Streamed response: append deltas to a placeholder message as they arrive
+      setMessages(prev => [...prev, {
+        id: assistantId,
         role: 'assistant',
-        content: data.response,
+        content: '',
         timestamp: new Date(),
-        sources: data.sources || []
-      };
+      }]);
 
-      setMessages(prev => [...prev, assistantMessage]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamedContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const payload = JSON.parse(trimmed.slice(5).trim());
+          if (payload.delta) {
+            streamedContent += payload.delta;
+            setMessages(prev => prev.map(msg =>
+              msg.id === assistantId ? { ...msg, content: streamedContent } : msg
+            ));
+          } else if (payload.done) {
+            setMessages(prev => prev.map(msg =>
+              msg.id === assistantId ? { ...msg, sources: payload.sources || [] } : msg
+            ));
+          } else if (payload.error) {
+            throw new Error(payload.error);
+          }
+        }
+      }
+
+      if (!streamedContent) {
+        throw new Error('Empty response');
+      }
     } catch (error) {
       console.error('Error in global chat:', error);
       toast({
@@ -128,8 +172,8 @@ const GlobalChatInterface = ({ isOpen, onClose, onSourceClick, onViewAllSources 
         variant: "destructive",
       });
       
-      // Remove the user message on error and restore input
-      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+      // Remove the user message and any partial assistant message, restore input
+      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id && msg.id !== assistantId));
       setInputMessage(currentInput);
     } finally {
       setIsLoading(false);

@@ -297,6 +297,40 @@ describe("processAndInsertContent link enrichment", () => {
     });
   });
 
+  it("inserts a text note immediately even when AI title generation is slow", async () => {
+    invokeMock.mockResolvedValue({ data: null, error: null });
+    const { generateTitle } = await import("@/utils/titleGenerator");
+    (generateTitle as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise(() => {}) // hangs forever
+    );
+    const { generateDescription } = await import("@/utils/aiOperations");
+    (generateDescription as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise(() => {}) // hangs forever
+    );
+
+    const processing = processAndInsertContent(
+      "text",
+      { content: "A quick thought about pasta recipes", type: "text" } as any,
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+
+    await vi.advanceTimersByTimeAsync(50);
+
+    const textInsert = itemsInsertPayloads.find((p) => p.type === "text");
+    expect(textInsert).toBeDefined();
+    expect(textInsert.content).toBe("A quick thought about pasta recipes");
+    expect(textInsert.title).toBeTruthy();
+
+    await Promise.race([processing, Promise.resolve()]);
+
+    // Restore default implementations so the hanging mocks don't leak
+    (generateTitle as ReturnType<typeof vi.fn>).mockResolvedValue("Generated title");
+    (generateDescription as ReturnType<typeof vi.fn>).mockResolvedValue("Generated description");
+  });
+
   it("includes the visibility flag in the insert payload", async () => {
     invokeMock.mockResolvedValue({ data: null, error: null });
 

@@ -233,6 +233,53 @@ const scheduleCollectionEmbeddingRefresh = (collectionId: string, delayMs: numbe
   collectionEmbeddingTimers.set(collectionId, timer);
 };
 
+const deriveFallbackTitle = (content: string): string => {
+  const firstLine = content.trim().split('\n')[0].trim();
+  return firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine;
+};
+
+const enrichTextItemAsync = async (
+  itemId: string,
+  content: string,
+  currentTitle: string | null,
+  fetchItems: () => Promise<void>
+) => {
+  try {
+    const [aiTitle, aiDescription] = await Promise.all([
+      generateTitle(content, 'text').catch(() => null),
+      generateDescription('text', { content }).catch(() => null),
+    ]);
+
+    const updates: Record<string, string> = {};
+    if (aiTitle && aiTitle !== currentTitle) {
+      updates.title = aiTitle;
+    }
+    if (aiDescription) {
+      updates.description = aiDescription;
+    }
+
+    if (Object.keys(updates).length === 0) return;
+
+    const { error } = await supabase
+      .from('items')
+      .update(updates)
+      .eq('id', itemId);
+
+    if (error) {
+      console.error('Error applying text enrichment:', error);
+      return;
+    }
+
+    const textForEmbedding = [updates.title || currentTitle, content, updates.description]
+      .filter(Boolean)
+      .join(' ');
+    await generateEmbeddings(itemId, textForEmbedding);
+    await fetchItems();
+  } catch (error) {
+    console.error('Text enrichment failed (non-fatal):', error);
+  }
+};
+
 const enrichSavedLinkItem = async (
   itemId: string,
   url: string,
@@ -373,10 +420,11 @@ export const processAndInsertContent = async (
     console.log('No image path found for link:', { previewImagePath: data.previewImagePath, ogDataImage: data.ogData?.image });
   }
 
-  // Generate title for text notes
+  // Title for text notes: derive a local placeholder now so the insert never
+  // waits on the model; the AI title/description land asynchronously after
   let title = data.title;
   if (type === 'text' && data.content && !title) {
-    title = await generateTitle(data.content, type);
+    title = deriveFallbackTitle(data.content);
   }
 
   // Handle media processing and AI description generation
@@ -412,19 +460,10 @@ export const processAndInsertContent = async (
         aiDescription = 'Audio file uploaded but processing failed';
       }
     }
-    // Handle image description with proper URL
-    else if (type === 'image' && (filePath || data.uploadedFilePath)) {
-      try {
-        const imagePath = filePath || data.uploadedFilePath;
-        const { data: imageUrl } = supabase.storage.from('stash-media').getPublicUrl(imagePath);
-        
-        const imageData = { ...data, fileData: imageUrl.publicUrl };
-        aiDescription = await generateDescription(type, imageData);
-        console.log('Image described successfully:', aiDescription);
-      } catch (error) {
-        console.error('Image description error:', error);
-        aiDescription = 'Image uploaded but description failed';
-      }
+    // Images and text notes get described asynchronously after insert
+    // (analyze-image / enrichTextItemAsync), so capture never waits on a model
+    else if (type === 'image' || type === 'text') {
+      aiDescription = undefined;
     }
     // Handle other content types
     else {
@@ -487,6 +526,14 @@ export const processAndInsertContent = async (
         },
         fetchItems
       );
+    }, 0);
+  }
+
+  // Fire async AI enrichment for text notes (title + description) so capture
+  // never waits on the model
+  if (type === 'text' && itemContent) {
+    setTimeout(() => {
+      void enrichTextItemAsync(insertedItem.id, itemContent, insertedItem.title, fetchItems);
     }, 0);
   }
 
