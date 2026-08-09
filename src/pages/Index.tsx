@@ -4,10 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
+import { useTags } from '@/hooks/useTags';
 import HeaderSection from '@/components/HeaderSection';
 import SubscriptionBanner from '@/components/SubscriptionBanner';
 import UnifiedInputPanel from '@/components/UnifiedInputPanel';
-import LibraryToolbar, { type LibraryTypeFilter } from '@/components/LibraryToolbar';
+import LibraryToolbar from '@/components/LibraryToolbar';
+import DismissibleHint from '@/components/DismissibleHint';
 import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
 import ChatMole from '@/components/ChatMole';
@@ -64,8 +66,8 @@ const Index = () => {
     return isWebKit;
   });
 
+  const { tags } = useTags();
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<LibraryTypeFilter>('all');
   const [molePinned, setMolePinned] = useState(() => {
     try {
       return localStorage.getItem(MOLE_PINNED_KEY) === 'true';
@@ -153,20 +155,21 @@ const Index = () => {
           getSuggestedTags={getSuggestedTags}
         />
 
-        <div className="container mx-auto px-4 pt-1">
-          <p className="text-xs text-gray-400">
-            <b className="font-medium text-gray-500">Paste</b> a link anywhere on this page ·{' '}
-            <b className="font-medium text-gray-500">drop</b> files onto the box ·{' '}
-            start a chat message with <b className="font-medium text-gray-500">remember:</b> to save it as a note
-          </p>
+        <div className="container mx-auto px-4 pt-3">
+          <DismissibleHint id="capture-shortcuts">
+            <b className="font-medium">Paste</b> a link anywhere on this page to capture it ·{' '}
+            <b className="font-medium">drop</b> files onto the box · start a chat message with{' '}
+            <b className="font-medium">remember:</b> to save it as a note
+          </DismissibleHint>
         </div>
 
         <LibraryToolbar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          typeFilter={typeFilter}
-          onTypeFilterChange={setTypeFilter}
           itemCount={realItemCount}
+          tags={tags}
+          selectedTags={selectedTags}
+          onTagFilterChange={setSelectedTags}
         />
 
         <main className="container mx-auto px-4 pb-28 bg-white">
@@ -177,7 +180,6 @@ const Index = () => {
             onChatWithItem={() => {}}
             tagFilters={selectedTags}
             searchQuery={searchQuery}
-            typeFilter={typeFilter}
             compact={molePinned}
           />
         </main>

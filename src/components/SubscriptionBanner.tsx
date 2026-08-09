@@ -1,108 +1,122 @@
-import { Crown, Sparkles, X } from 'lucide-react';
+import { Crown, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { useSubscription } from '@/hooks/useSubscription';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+
+const MINIMIZED_KEY = 'subscription-banner-minimized';
 
 const SubscriptionBanner = () => {
-  const { 
+  const {
     subscribed,
     subscriptionStatus,
     onTrial,
     trialEnd,
     daysLeftInTrial,
-    loading, 
-    openCustomerPortal 
+    loading,
+    openCustomerPortal
   } = useSubscription();
 
-  const [dismissedAt, setDismissedAt] = useState<string | null>(() => {
-    return localStorage.getItem('subscription-banner-dismissed');
+  const [minimized, setMinimized] = useState(() => {
+    try {
+      return localStorage.getItem(MINIMIZED_KEY) === 'true';
+    } catch {
+      return false;
+    }
   });
 
-  const handleDismiss = () => {
-    const timestamp = new Date().toISOString();
-    setDismissedAt(timestamp);
-    localStorage.setItem('subscription-banner-dismissed', timestamp);
+  const setMinimizedPersisted = (value: boolean) => {
+    setMinimized(value);
+    try {
+      localStorage.setItem(MINIMIZED_KEY, String(value));
+    } catch {
+      // Session-only is fine
+    }
   };
 
   // Don't show while loading to prevent flash
-  if (loading) {
-    return null;
-  }
+  if (loading) return null;
 
-  // Don't show banner if fully subscribed (not on trial)
-  if (subscribed && !onTrial) {
-    return null;
-  }
+  // Nothing to say to fully subscribed users
+  if (subscribed && !onTrial) return null;
 
-  const trialEndDate = trialEnd ? new Date(trialEnd).toLocaleDateString() : null;
   const isPaused = subscriptionStatus === 'paused';
-  const currentTrialDay = 15 - daysLeftInTrial;
+  if (!isPaused && !onTrial) return null;
 
-  // Show if paused (always visible)
-  if (isPaused) {
-    // Banner content will be shown below
-  }
-  // Show if on day 1 of trial OR less than 2 days remaining
-  else if (onTrial && (currentTrialDay === 1 || daysLeftInTrial < 2)) {
-    // Banner content will be shown below
-  }
-  // Otherwise hide (days 2-5 of trial with 2+ days remaining)
-  else {
-    return null;
+  const trialEndDate = trialEnd
+    ? new Date(trialEnd).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })
+    : null;
+  const urgent = isPaused || daysLeftInTrial < 2;
+
+  // Minimized: a slim strip that stays out of the way (paused accounts always
+  // see the full banner — that state matters)
+  if (minimized && !isPaused) {
+    return (
+      <button
+        onClick={() => setMinimizedPersisted(false)}
+        className="mt-4 flex w-full items-center justify-between rounded-xl border border-violet-200/50 bg-gradient-to-r from-violet-50/80 to-fuchsia-50/60 px-4 py-1.5 text-xs text-violet-700/80 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:from-violet-50 hover:to-fuchsia-50 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <Crown className="h-3 w-3" />
+          Trial · {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} left
+        </span>
+        <ChevronDown className="h-3 w-3 opacity-60" />
+      </button>
+    );
   }
 
   return (
-    <Card className="mt-6 mb-6 border-primary/20 bg-gradient-to-r from-primary/5 to-accent/5">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-full">
-              {onTrial ? <Crown className="h-5 w-5 text-primary" /> : <Sparkles className="h-5 w-5 text-primary" />}
-            </div>
-            <div>
-              {isPaused ? (
-                <>
-                  <h3 className="font-semibold text-foreground">Trial ended - Account is now read-only</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Add a payment method to restore full access and continue adding content, searching, and using AI features.
-                  </p>
-                </>
-              ) : onTrial && daysLeftInTrial < 2 ? (
-                <>
-                  <h3 className="font-semibold text-foreground">Your 14-day free trial is ending soon</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} remaining. Trial ends on {trialEndDate}. Upgrade now for $4.99/month.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h3 className="font-semibold text-foreground">You're on day {currentTrialDay} of your 14 day free trial</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Upgrade to Stash Premium at any time for $4.99 per month.
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button onClick={openCustomerPortal}>
-              {isPaused ? "Add Payment Method" : "Get Premium"}
-            </Button>
-            {!isPaused && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleDismiss}
-                className="h-9 w-9"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+    <div
+      className={`mt-4 flex items-center justify-between gap-4 rounded-2xl border px-5 py-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_8px_24px_rgba(160,120,200,0.12)] ${
+        urgent
+          ? 'border-amber-200/70 bg-gradient-to-r from-amber-50 to-orange-50/70'
+          : 'border-violet-200/50 bg-gradient-to-r from-violet-50/90 via-white to-fuchsia-50/70'
+      }`}
+    >
+      <div className="flex min-w-0 items-center gap-3.5">
+        <div className={`grid h-10 w-10 flex-none place-items-center rounded-xl shadow-inner ${urgent ? 'bg-gradient-to-b from-amber-400 to-orange-500' : 'bg-gradient-to-b from-violet-400 to-fuchsia-500'}`}>
+          <Crown className="h-5 w-5 text-white" />
         </div>
-      </CardContent>
-    </Card>
+        <div className="min-w-0">
+          {isPaused ? (
+            <>
+              <h3 className="text-sm font-semibold text-foreground">Trial ended — your stash is read-only</h3>
+              <p className="truncate text-[13px] text-muted-foreground">
+                Add a payment method to keep capturing and asking.
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="text-sm font-semibold text-foreground">
+                {daysLeftInTrial < 2
+                  ? `Your trial ends ${trialEndDate ? `on ${trialEndDate}` : 'soon'}`
+                  : `${daysLeftInTrial} days left in your free trial`}
+              </h3>
+              <p className="truncate text-[13px] text-muted-foreground">
+                Keep everything for $4.99/month. Cancel anytime.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-none items-center gap-1.5">
+        <Button
+          onClick={openCustomerPortal}
+          size="sm"
+          className={`rounded-full px-4 shadow-sm ${urgent ? 'bg-gray-900 hover:bg-gray-800' : 'bg-gray-900 hover:bg-gray-800'}`}
+        >
+          {isPaused ? 'Add payment method' : 'Get Premium'}
+        </Button>
+        {!isPaused && (
+          <button
+            onClick={() => setMinimizedPersisted(true)}
+            title="Minimize"
+            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground/70 hover:bg-black/5 hover:text-muted-foreground"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+    </div>
   );
 };
 

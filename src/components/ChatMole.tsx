@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Mic, Pin, Minus, Send, Volume2, Square } from 'lucide-react';
+import { Mic, Minus, Send, Volume2, Square, Maximize2, Minimize2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/integrations/supabase/client';
@@ -259,14 +259,13 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed left-5 bottom-5 z-50 flex items-center gap-2.5 rounded-full bg-gray-900 pl-3.5 pr-2 py-2.5 text-white shadow-xl hover:bg-gray-800 transition-colors"
+        className="fixed left-5 bottom-5 z-50 flex items-center gap-2.5 rounded-full bg-gradient-to-b from-gray-800 to-gray-950 pl-4 pr-2 py-2.5 text-white shadow-[0_10px_30px_rgba(20,10,40,0.35),0_2px_6px_rgba(0,0,0,0.2)] ring-1 ring-white/10 hover:from-gray-700 hover:to-gray-900 transition-all"
         aria-label="Open Ask Stash"
       >
-        <MoleGlyph className="h-5 w-5" />
         <span className="text-sm font-medium">Ask Stash</span>
         <span className="text-[10px] bg-white/15 rounded px-1.5 py-0.5">⌘K</span>
         <span
-          className="grid place-items-center h-7 w-7 rounded-full bg-white/15"
+          className="grid place-items-center h-7 w-7 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
           onClick={(e) => {
             e.stopPropagation();
             setOpen(true);
@@ -284,11 +283,11 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
     <div
       className={
         pinned
-          ? 'fixed left-0 top-16 bottom-0 z-40 flex w-full sm:w-[384px] flex-col border-r border-border bg-white shadow-[8px_0_24px_rgba(40,20,60,0.08)]'
-          : 'fixed left-0 right-0 bottom-0 sm:left-5 sm:right-auto sm:bottom-5 z-50 flex h-[72vh] sm:h-[560px] w-full sm:w-[384px] max-h-[calc(100vh-96px)] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl'
+          ? 'fixed left-0 top-16 bottom-0 z-40 flex w-full sm:w-[384px] flex-col border-r border-black/5 bg-gradient-to-b from-white to-[#fdf8fd] shadow-[8px_0_24px_rgba(40,20,60,0.10)]'
+          : 'fixed left-0 right-0 bottom-0 sm:left-5 sm:right-auto sm:bottom-5 z-50 flex h-[72vh] sm:h-[560px] w-full sm:w-[384px] max-h-[calc(100vh-96px)] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-gradient-to-b from-white to-[#fdf8fd] shadow-[0_24px_60px_rgba(40,20,60,0.28),0_2px_8px_rgba(0,0,0,0.10)] ring-1 ring-black/5'
       }
     >
-      <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
+      <div className="flex items-center gap-2.5 border-b border-black/5 px-4 py-3">
         <MoleGlyph className="h-5 w-5 text-gray-900" />
         <div className="min-w-0">
           <div className="text-sm font-semibold leading-tight">Ask Stash</div>
@@ -296,18 +295,28 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
             Answers from your {itemCount} items · paste links here to save them
           </div>
         </div>
-        <div className="ml-auto flex gap-1">
-          <button
-            onClick={() => { onPinnedChange(!pinned); if (!pinned) setOpen(false); else setOpen(true); }}
-            title={pinned ? 'Unpin' : 'Pin to side'}
-            className={`grid h-8 w-8 place-items-center rounded-lg transition-colors ${pinned ? 'bg-violet-100 text-violet-600' : 'text-muted-foreground hover:bg-muted'}`}
-          >
-            <Pin className="h-4 w-4" />
-          </button>
+        <div className="ml-auto flex gap-1.5">
+          {pinned ? (
+            <button
+              onClick={() => { onPinnedChange(false); setOpen(true); }}
+              title="Restore to floating"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-black/5 bg-white text-muted-foreground shadow-sm hover:text-foreground hover:shadow transition-all"
+            >
+              <Minimize2 className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={() => { onPinnedChange(true); setOpen(true); }}
+              title="Maximize — pin open as a sidebar"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-black/5 bg-white text-muted-foreground shadow-sm hover:text-foreground hover:shadow transition-all"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             onClick={() => { setOpen(false); if (pinned) onPinnedChange(false); }}
             title="Minimize"
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+            className="grid h-8 w-8 place-items-center rounded-lg border border-black/5 bg-white text-muted-foreground shadow-sm hover:text-foreground hover:shadow transition-all"
           >
             <Minus className="h-4 w-4" />
           </button>

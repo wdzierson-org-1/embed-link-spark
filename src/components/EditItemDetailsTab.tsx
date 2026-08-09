@@ -4,7 +4,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Maximize, Globe, Lock } from 'lucide-react';
+import { Maximize, Globe, Lock, AlignLeft, FileText } from 'lucide-react';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemImageSection from '@/components/EditItemImageSection';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
@@ -164,28 +164,34 @@ const EditItemDetailsTab = ({
     );
   }
 
-  const contentComponent = (
-    <div className="space-y-8 mt-0 px-6 pb-6" style={{ transform: 'translateY(-18px)' }}>
-      {/* Title Section */}
-      <EditItemTitleSection
-        title={title}
-        onTitleChange={onTitleChange}
-        onSave={onTitleSave}
-      />
+  const sectionCard =
+    'rounded-2xl border border-black/5 bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05),0_6px_18px_rgba(160,120,200,0.08)]';
+  const sectionLabel = 'flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground';
 
-      {/* Description Section — the AI-generated summary, fully editable */}
-      <div className="space-y-1.5">
-        <label htmlFor="edit-item-description" className="text-sm text-muted-foreground">
-          Description
-        </label>
-        <Textarea
-          id="edit-item-description"
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-          onBlur={() => void onDescriptionSave(description)}
-          placeholder="Add a description..."
-          className="min-h-[72px] resize-y"
+  const contentComponent = (
+    <div className="space-y-5 mt-0 px-6 pb-6" style={{ transform: 'translateY(-18px)' }}>
+      {/* Title + Description in one elevated card */}
+      <div className={`${sectionCard} space-y-4`}>
+        <EditItemTitleSection
+          title={title}
+          onTitleChange={onTitleChange}
+          onSave={onTitleSave}
         />
+
+        <div className="space-y-1.5">
+          <label htmlFor="edit-item-description" className={sectionLabel}>
+            <AlignLeft className="h-3.5 w-3.5" />
+            Description
+          </label>
+          <Textarea
+            id="edit-item-description"
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            onBlur={() => void onDescriptionSave(description)}
+            placeholder="Add a description..."
+            className="min-h-[72px] resize-y rounded-xl border-black/10 bg-gray-50/60 focus-visible:ring-violet-300"
+          />
+        </div>
       </div>
 
       {/* Inline Image for image items and links with images */}
@@ -194,7 +200,7 @@ const EditItemDetailsTab = ({
           <img
             src={imageUrl}
             alt={title || 'Content image'}
-            className="max-w-full h-auto max-h-96 rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+            className="max-w-full h-auto max-h-96 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.08),0_12px_32px_rgba(160,120,200,0.14)] cursor-pointer hover:opacity-90 transition-opacity"
             onClick={handleImageClick}
             style={{ objectFit: 'contain' }}
           />
@@ -203,7 +209,9 @@ const EditItemDetailsTab = ({
 
       {/* Link Section - only for link items */}
       {item?.type === 'link' && item?.url && (
-        <EditItemLinkSection url={item.url} />
+        <div className={sectionCard}>
+          <EditItemLinkSection url={item.url} />
+        </div>
       )}
 
       {/* Document Section - only for document items */}
@@ -230,14 +238,18 @@ const EditItemDetailsTab = ({
       )}
 
       {/* Content Section */}
-      <div className="space-y-2">
+      <div className={`${sectionCard} space-y-2`}>
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-muted-foreground">Content</label>
+          <label className={sectionLabel}>
+            <FileText className="h-3.5 w-3.5" />
+            Content
+          </label>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setIsEditorMaximized(true)}
-            className="h-8 w-8 p-0"
+            className="h-8 w-8 rounded-lg border border-black/5 bg-white p-0 shadow-sm"
+            title="Maximize editor"
           >
             <Maximize className="h-4 w-4" />
           </Button>
@@ -271,37 +283,38 @@ const EditItemDetailsTab = ({
       </div>
 
       {/* Supplemental Note Section */}
-      <EditItemSupplementalNoteSection
-        supplementalNote={supplementalNote}
-        onSupplementalNoteChange={onSupplementalNoteChange}
-      />
+      <div className={sectionCard}>
+        <EditItemSupplementalNoteSection
+          supplementalNote={supplementalNote}
+          onSupplementalNoteChange={onSupplementalNoteChange}
+        />
+      </div>
 
       {/* Public Feed Toggle */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-muted-foreground">Visibility</label>
-        <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
-          <div className="flex items-center space-x-3">
+      <div className={`${sectionCard} flex items-center justify-between`}>
+        <div className="flex items-center gap-3.5">
+          <div className={`grid h-10 w-10 flex-none place-items-center rounded-xl shadow-inner ${localIsPublic ? 'bg-gradient-to-b from-emerald-400 to-green-500' : 'bg-gradient-to-b from-gray-200 to-gray-300'}`}>
             {localIsPublic ? (
-              <Globe className="h-4 w-4 text-green-600" />
+              <Globe className="h-5 w-5 text-white" />
             ) : (
-              <Lock className="h-4 w-4 text-muted-foreground" />
+              <Lock className="h-5 w-5 text-gray-500" />
             )}
-            <div>
-              <div className="text-sm font-medium">
-                {localIsPublic ? 'Public Feed' : 'Private'}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {localIsPublic 
-                  ? 'This item is visible in your public feed' 
-                  : 'This item is only visible to you'}
-              </div>
+          </div>
+          <div>
+            <div className="text-sm font-medium">
+              {localIsPublic ? 'Public Feed' : 'Private'}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {localIsPublic
+                ? 'This item is visible in your public feed'
+                : 'This item is only visible to you'}
             </div>
           </div>
-          <Switch
-            checked={localIsPublic}
-            onCheckedChange={handlePublicToggle}
-          />
         </div>
+        <Switch
+          checked={localIsPublic}
+          onCheckedChange={handlePublicToggle}
+        />
       </div>
     </div>
   );

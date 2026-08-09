@@ -1,4 +1,5 @@
 import React from 'react';
+import { Type } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 interface EditItemTitleSectionProps {
@@ -20,7 +21,8 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
 
   return (
     <div className="space-y-1.5">
-      <label htmlFor="edit-item-title" className="text-sm text-muted-foreground">
+      <label htmlFor="edit-item-title" className="flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground">
+        <Type className="h-3.5 w-3.5" />
         Title
       </label>
       <Input
@@ -29,7 +31,7 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
         onChange={(e) => onTitleChange(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
-        className="text-xl font-semibold h-auto py-2"
+        className="h-auto rounded-xl border-black/10 bg-gray-50/60 py-2 text-xl font-semibold focus-visible:ring-violet-300"
         placeholder="Untitled"
       />
     </div>
