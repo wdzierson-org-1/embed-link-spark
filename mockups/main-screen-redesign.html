@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stash — main screen redesign mockup</title>
+<style>
+  @font-face {
+    font-family: 'PPMori-Regular';
+    src: url('/src/assets/fonts/PPMori-Regular.woff2') format('woff2');
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'PPEditorialNew-Regular';
+    src: url('/src/assets/fonts/PPEditorialNew-Regular.woff2') format('woff2');
+    font-display: swap;
+  }
+  @font-face {
+    font-family: 'PPEditorialNew-Italic';
+    src: url('/src/assets/fonts/PPEditorialNew-Italic.woff2') format('woff2');
+    font-display: swap;
+  }
+
+  :root {
+    --mori: 'PPMori-Regular', system-ui, sans-serif;
+    --serif: 'PPEditorialNew-Regular', Georgia, serif;
+    --ink: #1a1a1a;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --violet: #8b5cf6;
+    --panel-w: 384px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--mori);
+    color: var(--ink);
+    background:
+      radial-gradient(ellipse 120% 60% at 85% 100%, rgba(216,180,254,.45) 0%, transparent 60%),
+      radial-gradient(ellipse 120% 70% at 10% 90%, rgba(251,207,232,.55) 0%, transparent 65%),
+      linear-gradient(170deg, #fdf5f8 0%, #faeef7 55%, #f3e8fb 100%);
+    min-height: 100vh;
+  }
+
+  /* ───────── header (unchanged from live app) ───────── */
+  header {
+    background: #fff;
+    box-shadow: 0 2px 2px rgba(0,0,0,.14);
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand svg { height: 22px; color: var(--ink); }
+  .brand .date { color: var(--muted); font-size: 15px; }
+  .avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: #c084fc; color: #fff;
+    display: grid; place-items: center; font-size: 14px;
+  }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 20px 24px 140px;
+    transition: margin-left .25s ease;
+  }
+
+  /* ───────── capture bar ───────── */
+  .capture {
+    background: linear-gradient(135deg, #ffffff 0%, #fdf8fd 100%);
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 8px 24px rgba(190,140,220,.10);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .capture .plus, .capture .cap-mic {
+    width: 38px; height: 38px; border-radius: 50%;
+    border: 1px solid var(--line); background: #fff;
+    display: grid; place-items: center; color: #555; flex: none;
+    cursor: pointer;
+  }
+  .capture .field { flex: 1; color: #9ca3af; font-size: 16px; }
+  .capture .send {
+    width: 40px; height: 40px; border-radius: 50%; border: none; flex: none;
+    background: var(--violet); color: #fff; display: grid; place-items: center;
+  }
+  .capture-hint {
+    margin: 8px 4px 0;
+    font-size: 12.5px;
+    color: #9aa1ad;
+  }
+  .capture-hint b { color: #7c828d; font-weight: 500; }
+
+  /* ───────── library toolbar ───────── */
+  .toolbar {
+    display: flex; align-items: center; gap: 12px;
+    margin: 26px 2px 16px;
+  }
+  .search {
+    flex: 0 1 340px;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,.75);
+    border: 1px solid rgba(0,0,0,.07);
+    border-radius: 999px;
+    padding: 8px 14px;
+    color: #9ca3af; font-size: 14px;
+  }
+  .chips { display: flex; gap: 8px; }
+  .chip {
+    font-size: 12.5px; color: #555;
+    background: rgba(255,255,255,.65);
+    border: 1px solid rgba(0,0,0,.06);
+    padding: 5px 12px; border-radius: 999px;
+  }
+  .chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .count { margin-left: auto; font-size: 13px; color: #8a8f98; }
+
+  /* ───────── grid ───────── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  body.pinned .grid { grid-template-columns: repeat(2, 1fr); }
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,.07), 0 6px 18px rgba(160,120,200,.07);
+    display: flex; flex-direction: column;
+  }
+  .card .art { height: 150px; display: grid; place-items: center; overflow: hidden; }
+  .card .art.nyt { background: #f3f2ee; font-family: var(--serif); font-size: 88px; }
+  .card .art.lake { background: linear-gradient(160deg,#7ba7c9,#3e6b8e 60%,#95b98a); }
+  .card .art.stage { background: #f6c944; color:#333; font-size: 13.5px; padding: 18px; text-align:left; align-items:end; }
+  .card .art.note { background: linear-gradient(135deg,#a78bfa,#6d28d9); }
+  .card .art.doc { background: #eef1f5; color:#8a93a3; }
+  .card .art.voice { background: linear-gradient(135deg,#fda4af,#e11d48); display:flex; align-items:center; justify-content:center; gap:3px; }
+  .card .art.voice i { display:block; width:4px; border-radius:2px; background:rgba(255,255,255,.85); }
+  .card .body { padding: 14px 16px 12px; display:flex; flex-direction:column; gap:8px; flex:1; }
+  .card h3 { font-family: var(--serif); font-weight: 400; font-size: 18.5px; line-height: 1.25; }
+  .card p { font-size: 13px; color: var(--muted); line-height: 1.45;
+            display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .card .meta { margin-top:auto; display:flex; align-items:center; justify-content:space-between;
+                font-size:12px; color:#9aa1ad; padding-top:6px; }
+  .badge { border:1px solid var(--line); border-radius:5px; padding:2px 7px; font-size:11px; }
+
+  /* ───────── the chat mole ───────── */
+  .mole-pill {
+    position: fixed; left: 22px; bottom: 22px; z-index: 60;
+    display: flex; align-items: center; gap: 10px;
+    background: var(--ink); color: #fff;
+    border-radius: 999px; padding: 12px 18px 12px 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.28);
+    cursor: pointer; font-size: 14.5px;
+  }
+  .mole-pill .glyph { width: 20px; height: 20px; }
+  .mole-pill .mic-dot {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(255,255,255,.14);
+    display: grid; place-items: center; margin-left: 2px;
+  }
+  .kbd { font-size: 11px; background: rgba(255,255,255,.16); border-radius: 5px; padding: 2px 6px; }
+
+  .mole-panel {
+    position: fixed; left: 22px; bottom: 22px; z-index: 70;
+    width: var(--panel-w); height: 560px; max-height: calc(100vh - 120px);
+    background: #fff; border-radius: 16px;
+    box-shadow: 0 24px 60px rgba(40,20,60,.30), 0 2px 8px rgba(0,0,0,.10);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  body.open .mole-panel { display: flex; }
+  body.open .mole-pill { display: none; }
+
+  body.pinned .mole-panel {
+    display: flex;
+    left: 0; bottom: 0; top: 64px;
+    height: auto; max-height: none;
+    width: var(--panel-w);
+    border-radius: 0;
+    border-right: 1px solid var(--line);
+    box-shadow: 8px 0 24px rgba(40,20,60,.08);
+  }
+  body.pinned .mole-pill { display: none; }
+  body.pinned .page { margin-left: var(--panel-w); }
+
+  .mole-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+  }
+  .mole-head .glyph { width: 20px; height: 20px; color: var(--ink); }
+  .mole-head b { font-weight: 600; font-size: 15px; }
+  .mole-head .sub { font-size: 12px; color: var(--muted); }
+  .mole-actions { margin-left: auto; display: flex; gap: 6px; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 8px; border: none;
+    background: transparent; color: #6b7280; display: grid; place-items: center; cursor: pointer;
+  }
+  .icon-btn:hover { background: #f3f4f6; }
+  .icon-btn.active { background: #ede9fe; color: var(--violet); }
+
+  .thread { flex: 1; overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 86%; font-size: 14px; line-height: 1.5; }
+  .msg.user { align-self: flex-end; background: var(--ink); color: #fff;
+              border-radius: 14px 14px 4px 14px; padding: 10px 14px; }
+  .msg.bot  { align-self: flex-start; background: #f4f4f6;
+              border-radius: 14px 14px 14px 4px; padding: 12px 14px; }
+  .msg.bot .cite { color: var(--violet); }
+  .msg .speak { display:inline-grid; place-items:center; width:22px; height:22px; border-radius:6px;
+                background:#e9e7f2; color:#6d5bb8; vertical-align:middle; margin-left:6px; }
+  .sources { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .source-chip {
+    font-size: 11.5px; background: #fff; border: 1px solid var(--line);
+    border-radius: 999px; padding: 3px 10px; color: #555;
+  }
+  .saved-card {
+    align-self: flex-start; width: 88%;
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+    display: flex; gap: 10px; align-items: center; background: #fff;
+  }
+  .saved-card .thumb { width: 40px; height: 40px; border-radius: 8px; flex: none;
+                       background: #f6c944; }
+  .saved-card .t { font-size: 13px; font-weight: 600; line-height: 1.3; }
+  .saved-card .s { font-size: 11.5px; color: #16a34a; margin-top: 2px; }
+
+  .composer { border-top: 1px solid var(--line); padding: 12px 14px; }
+  .composer .row { display: flex; align-items: center; gap: 8px; }
+  .composer .input {
+    flex: 1; border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; font-size: 14px; color: #9ca3af; background: #fafafa;
+  }
+  .composer .icon-btn { border: 1px solid var(--line); border-radius: 10px; width: 38px; height: 38px; }
+  .composer .send { background: var(--violet); color: #fff; border: none; }
+  .composer .hint { font-size: 11.5px; color: #a0a6b0; margin-top: 8px; }
+  .composer .hint b { color: #7c828d; font-weight: 500; }
+
+  /* voice (listening) state of the composer */
+  .listen { display: none; }
+  body.voice .composer .row, body.voice .composer .hint { display: none; }
+  body.voice .listen { display: block; }
+  .listen .live {
+    display: flex; align-items: center; gap: 12px;
+    background: #f6f2ff; border: 1px solid #e4dcf7; border-radius: 12px; padding: 10px 12px;
+  }
+  .listen .mic-live {
+    width: 38px; height: 38px; border-radius: 50%; flex: none;
+    background: var(--violet); color: #fff; display: grid; place-items: center;
+    box-shadow: 0 0 0 6px rgba(139,92,246,.18);
+    animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 12px rgba(139,92,246,.06); } }
+  .listen .wave { display: flex; align-items: center; gap: 3px; height: 26px; }
+  .listen .wave i { width: 3.5px; border-radius: 2px; background: var(--violet); display: block;
+                    animation: bounce 1s infinite ease-in-out; }
+  @keyframes bounce { 0%,100% { transform: scaleY(.4);} 50% { transform: scaleY(1);} }
+  .listen .transcript { flex: 1; font-size: 13.5px; color: #4b5563; font-style: italic; }
+  .listen .stop { font-size: 11.5px; color: #8a8f98; margin-top: 8px; }
+
+  /* ───────── state switcher (mockup review control) ───────── */
+  .switcher {
+    position: fixed; right: 18px; bottom: 18px; z-index: 90;
+    background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,.12);
+    display: flex; gap: 4px; padding: 5px; font-size: 12.5px;
+  }
+  .switcher a { text-decoration: none; color: #555; padding: 6px 10px; border-radius: 8px; }
+  .switcher a.on { background: var(--ink); color: #fff; }
+
+  @media (max-width: 720px) {
+    .grid, body.pinned .grid { grid-template-columns: 1fr; }
+    body.pinned .page { margin-left: 0; }
+    .mole-panel, body.pinned .mole-panel {
+      left: 0; right: 0; top: auto; bottom: 0; width: 100%;
+      height: 72vh; border-radius: 18px 18px 0 0; border: none;
+    }
+    .toolbar { flex-wrap: wrap; }
+    .count { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <svg viewBox="150 419 724 186" fill="currentColor"><path fill-rule="evenodd" d="M511.861 428.676C499.935 428.775 487.611 428.878 476.595 428.51C455.268 483.274 434.853 540.161 414.305 595.364L464.562 595.405C467.467 586.947 471.549 575.815 473.846 567.361L529.551 567.341C531.631 568.878 538.346 591.182 539.905 595.431L590.525 595.431L554.243 498.131C545.894 475.66 537.148 450.688 528.268 428.587C523.006 428.583 517.477 428.629 511.861 428.676ZM529.984 504.65C529.197 489.392 516.153 477.684 500.899 478.543C485.747 479.397 474.134 492.335 474.916 507.491C475.697 522.646 488.58 534.321 503.739 533.611C519.001 532.896 530.771 519.908 529.984 504.65Z"/><path d="M270.457 440.685C256.892 428.013 235.801 423.715 217.784 425.206C207.242 426.169 203.224 427.18 193.088 430.861C158.578 443.398 149.029 491.062 176.345 515.31C190.038 527.464 212.572 529.308 229.42 534.981C248.463 541.088 242.622 559.926 224.873 560.873C212.41 561.538 205.384 555.52 203.555 543.126C188.021 543.001 172.485 542.984 156.95 543.076C157.347 582.866 186.602 599.347 223.42 598.915C243.263 598.19 260.485 594.152 274.705 579.299C292.147 561.081 292.739 525.991 273.515 508.876C260.668 497.438 242.638 494.285 226.561 489.931C222.126 488.717 214.821 486.703 210.994 484.127C208.322 482.309 206.612 479.384 206.34 476.164C205.04 458.901 237.184 455.81 239.843 477.881L284.551 477.916C284.245 464.474 280.599 450.159 270.457 440.685Z"/><path d="M438.298 428.535L294.923 428.577C294.83 441.654 294.828 454.731 294.917 467.808C310.939 467.906 326.961 467.889 342.983 467.755L342.985 549.163C335.48 549.182 327.976 549.258 320.472 549.392L320.369 565.327L327.836 565.36L327.874 575.696L320.506 575.63L320.434 595.368L390.13 595.437C390.122 593.582 390.108 591.72 390.095 589.854C390.063 585.315 390.031 580.758 390.066 576.25L390.15 467.889L438.356 467.88C438.311 462.379 438.339 456.783 438.367 451.183C438.405 443.566 438.443 435.941 438.298 428.535Z"/><path d="M867.082 428.512L820.777 428.551C820.473 437.459 820.523 446.78 820.573 456.007C820.6 460.885 820.626 465.737 820.6 470.488C833.072 478.517 840.749 487.222 843.926 502.257C846.46 514.655 843.952 527.552 836.955 538.097C832.503 544.786 827.411 548.86 820.685 553.065C820.68 557.032 820.637 561.244 820.593 565.549C820.491 575.636 820.383 586.233 820.739 595.376L843.125 595.414L867.074 595.449L867.082 428.512Z"/><path d="M662.882 436.064C660.343 432.928 652.745 424.888 648.723 425.218C631.503 426.662 614.854 432.253 603.262 445.753C587.108 464.564 587.541 499.498 607.725 515.435C615.558 521.669 623.683 525.093 633.184 527.935L634.778 523.356C639.443 510.591 644.431 500.28 652.078 488.924C644.276 486.269 634.138 482.096 638.038 471.185C641.257 462.176 655.336 460.522 662.77 464.389C666.655 466.247 668.705 468.967 670.798 472.548C672.22 459.272 671.626 446.857 662.882 436.064Z"/><path d="M701.56 506.142C694.717 501.845 686.051 496.885 678.015 495.281C673.407 508.547 667.021 522.648 659.27 534.412C664.95 536.676 667.754 537.589 671.562 542.6C675.651 562.928 651.251 565.37 638.727 554.86C638.034 568.698 639.823 579.499 649.517 590.156C652.59 593.542 656.178 596.422 660.149 598.688C664.733 598.313 669.741 597.863 674.224 596.763C705.395 589.088 725.754 563.456 717.527 530.886C716.39 526.275 714.58 521.857 712.154 517.775C703.796 517.693 695.437 517.714 687.079 517.837L687.093 506.374C691.914 506.247 696.737 506.17 701.56 506.142Z"/><path d="M745.022 517.828C739.854 517.794 734.594 517.759 729.646 517.879L729.67 595.433C734.342 595.432 739.153 595.464 744.013 595.496C754.846 595.568 765.923 595.641 776.253 595.353C776.263 589.983 776.241 584.657 776.218 579.339C776.182 570.653 776.146 561.991 776.25 553.203C761.594 543.731 756.126 535.487 752.474 518.472L752.345 517.86C749.955 517.861 747.499 517.845 745.022 517.828Z"/><path d="M761.364 428.508C750.768 428.477 740.104 428.446 729.658 428.609C729.561 440.033 729.603 451.522 729.645 463.013C729.698 477.392 729.751 491.773 729.531 506.028L752.266 506.044C753.391 498.806 754.938 494.105 758.456 487.749C764.147 479.076 767.487 476.201 776.315 470.586C776.087 463.744 776.167 456.758 776.245 449.804C776.327 442.615 776.408 435.46 776.149 428.532C771.255 428.537 766.317 428.523 761.364 428.508Z"/><path d="M832.206 504.313C828.364 487.586 814.916 477.872 798.159 477.201C787.491 478.011 779.255 481.062 772.12 489.464C765.99 496.635 763.059 506.001 764.008 515.387C765.611 531.971 777.138 542.983 792.978 546.434L792.96 524.057C789.128 521.507 786.764 519.043 785.91 514.251C785.294 510.823 786.076 507.292 788.082 504.446C790.747 500.723 794.454 499.377 798.846 498.974C813.067 501.473 815.071 515.424 803.865 524.147L803.831 546.412C814.29 544.125 821.557 540.036 827.497 530.765C832.566 522.942 834.263 513.404 832.206 504.313Z"/><path d="M628.769 543.112L588.243 543.022C588.414 557.656 591.566 570.552 602.516 581.451C612.06 590.951 625.245 596.47 638.715 598.022C638.888 598.042 639.484 597.986 639.808 597.956C639.858 597.951 639.902 597.947 639.937 597.944L640.233 597.562C628.187 581.492 625.166 567.991 628.011 547.91C628.242 546.307 628.495 544.708 628.769 543.112Z"/><path d="M714.734 466.665C711.179 443.064 693.24 430.046 670.275 426.354C682.455 442.656 684.321 457.169 681.496 477.28L681.406 477.898L715.346 477.83C716.012 474.525 715.529 471.575 715.016 468.439C714.921 467.855 714.824 467.265 714.734 466.665Z"/><path d="M666.79 493.036C665.719 492.082 665.19 492.111 663.779 491.769C658.701 499.095 643.4 522.413 644.212 530.405C645.32 531.227 646.065 531.28 647.401 531.585C652.576 523.86 666.33 502.329 666.79 493.036Z"/></svg>
+    <span class="date">/ August 9, 2026</span>
+  </div>
+  <div class="avatar">W</div>
+</header>
+
+<div class="page">
+
+  <!-- capture bar: same behavior as today, slimmer resting state -->
+  <div class="capture">
+    <div class="plus">+</div>
+    <div class="field">Paste a link, drop a file, or type a note...</div>
+    <div class="cap-mic" title="Record a voice note">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+    </div>
+    <button class="send">➤</button>
+  </div>
+  <div class="capture-hint"><b>⌘V</b> anywhere pastes here · drop files anywhere on the page · <b>mic</b> records a voice note</div>
+
+  <!-- library -->
+  <div class="toolbar">
+    <div class="search">⌕&nbsp; Search your stash...</div>
+    <div class="chips">
+      <span class="chip on">All</span>
+      <span class="chip">Links</span>
+      <span class="chip">Notes</span>
+      <span class="chip">Docs</span>
+      <span class="chip">Media</span>
+    </div>
+    <span class="count">142 items</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="art nyt">𝕿</div>
+      <div class="body">
+        <h3>Bobby Zhou on Trump and Cryptocurrency</h3>
+        <p>Appears to be about Bobby Zhou's commentary on the intersection of Trump's political actions and the crypto market.</p>
+        <div class="meta"><span>Aug 9, 2026</span><span class="badge">link</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="art stage">Stagehand — <br/>browser automation SDK for developers and LLMs.</div>
+      <div class="body">
+        <h3>Stagehand: A browser automation SDK</h3>
+        <p>Write code once, run it across any browser. Built for developers and agents.</p>
+        <div class="meta"><span>Mar 4, 2026</span><span class="badge">link</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="art lake"></div>
+      <div class="body">
+        <h3>Book Lake Placid Cabin for October Trip</h3>
+        <p>Check availability for the weekend of the 17th and ask about dog-friendly units.</p>
+        <div class="meta"><span>Aug 9, 2026</span><span class="badge">text</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="art doc">▤ PDF</div>
+      <div class="body">
+        <h3>Annotated Employment Agreement</h3>
+        <p>Key clauses: IP assignment §4, non-solicit 12 months, severance terms in Appendix B.</p>
+        <div class="meta"><span>Aug 8, 2026</span><span class="badge">document</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="art voice"><i style="height:10px"></i><i style="height:22px"></i><i style="height:14px"></i><i style="height:26px"></i><i style="height:9px"></i><i style="height:18px"></i><i style="height:12px"></i></div>
+      <div class="body">
+        <h3>Dry cleaning before the trip</h3>
+        <p>"Reminder to pick up the dry cleaning on Tuesday afternoon before the trip."</p>
+        <div class="meta"><span>Aug 9, 2026</span><span class="badge">audio</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="art note"></div>
+      <div class="body">
+        <h3>Sourdough starter schedule</h3>
+        <p>Feed every morning at 8am with 50g flour and 50g water. Refrigerate Thursday for the weekend.</p>
+        <div class="meta"><span>Aug 7, 2026</span><span class="badge">text</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────── the chat mole: minimized pill ───────── -->
+<div class="mole-pill" onclick="location.hash='open'">
+  <svg class="glyph" viewBox="586 424 134 176" fill="currentColor"><path d="M662.882 436.064C660.343 432.928 652.745 424.888 648.723 425.218C631.503 426.662 614.854 432.253 603.262 445.753C587.108 464.564 587.541 499.498 607.725 515.435C615.558 521.669 623.683 525.093 633.184 527.935L634.778 523.356C639.443 510.591 644.431 500.28 652.078 488.924C644.276 486.269 634.138 482.096 638.038 471.185C641.257 462.176 655.336 460.522 662.77 464.389C666.655 466.247 668.705 468.967 670.798 472.548C672.22 459.272 671.626 446.857 662.882 436.064Z"/><path d="M701.56 506.142C694.717 501.845 686.051 496.885 678.015 495.281C673.407 508.547 667.021 522.648 659.27 534.412C664.95 536.676 667.754 537.589 671.562 542.6C675.651 562.928 651.251 565.37 638.727 554.86C638.034 568.698 639.823 579.499 649.517 590.156C652.59 593.542 656.178 596.422 660.149 598.688C664.733 598.313 669.741 597.863 674.224 596.763C705.395 589.088 725.754 563.456 717.527 530.886C716.39 526.275 714.58 521.857 712.154 517.775C703.796 517.693 695.437 517.714 687.079 517.837L687.093 506.374C691.914 506.247 696.737 506.17 701.56 506.142Z"/><path d="M628.769 543.112L588.243 543.022C588.414 557.656 591.566 570.552 602.516 581.451C612.06 590.951 625.245 596.47 638.715 598.022C638.888 598.042 639.484 597.986 639.808 597.956C639.858 597.951 639.902 597.947 639.937 597.944L640.233 597.562C628.187 581.492 625.166 567.991 628.011 547.91C628.242 546.307 628.495 544.708 628.769 543.112Z"/><path d="M714.734 466.665C711.179 443.064 693.24 430.046 670.275 426.354C682.455 442.656 684.321 457.169 681.496 477.28L681.406 477.898L715.346 477.83C716.012 474.525 715.529 471.575 715.016 468.439C714.921 467.855 714.824 467.265 714.734 466.665Z"/><path d="M666.79 493.036C665.719 492.082 665.19 492.111 663.779 491.769C658.701 499.095 643.4 522.413 644.212 530.405C645.32 531.227 646.065 531.28 647.401 531.585C652.576 523.86 666.33 502.329 666.79 493.036Z"/></svg>
+  Ask Stash
+  <span class="kbd">⌘K</span>
+  <span class="mic-dot">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+  </span>
+</div>
+
+<!-- ───────── the chat mole: panel (floating or pinned) ───────── -->
+<div class="mole-panel">
+  <div class="mole-head">
+    <svg class="glyph" viewBox="586 424 134 176" fill="currentColor"><path d="M662.882 436.064C660.343 432.928 652.745 424.888 648.723 425.218C631.503 426.662 614.854 432.253 603.262 445.753C587.108 464.564 587.541 499.498 607.725 515.435C615.558 521.669 623.683 525.093 633.184 527.935L634.778 523.356C639.443 510.591 644.431 500.28 652.078 488.924C644.276 486.269 634.138 482.096 638.038 471.185C641.257 462.176 655.336 460.522 662.77 464.389C666.655 466.247 668.705 468.967 670.798 472.548C672.22 459.272 671.626 446.857 662.882 436.064Z"/><path d="M701.56 506.142C694.717 501.845 686.051 496.885 678.015 495.281C673.407 508.547 667.021 522.648 659.27 534.412C664.95 536.676 667.754 537.589 671.562 542.6C675.651 562.928 651.251 565.37 638.727 554.86C638.034 568.698 639.823 579.499 649.517 590.156C652.59 593.542 656.178 596.422 660.149 598.688C664.733 598.313 669.741 597.863 674.224 596.763C705.395 589.088 725.754 563.456 717.527 530.886C716.39 526.275 714.58 521.857 712.154 517.775C703.796 517.693 695.437 517.714 687.079 517.837L687.093 506.374C691.914 506.247 696.737 506.17 701.56 506.142Z"/><path d="M628.769 543.112L588.243 543.022C588.414 557.656 591.566 570.552 602.516 581.451C612.06 590.951 625.245 596.47 638.715 598.022C638.888 598.042 639.484 597.986 639.808 597.956C639.858 597.951 639.902 597.947 639.937 597.944L640.233 597.562C628.187 581.492 625.166 567.991 628.011 547.91C628.242 546.307 628.495 544.708 628.769 543.112Z"/><path d="M714.734 466.665C711.179 443.064 693.24 430.046 670.275 426.354C682.455 442.656 684.321 457.169 681.496 477.28L681.406 477.898L715.346 477.83C716.012 474.525 715.529 471.575 715.016 468.439C714.921 467.855 714.824 467.265 714.734 466.665Z"/><path d="M666.79 493.036C665.719 492.082 665.19 492.111 663.779 491.769C658.701 499.095 643.4 522.413 644.212 530.405C645.32 531.227 646.065 531.28 647.401 531.585C652.576 523.86 666.33 502.329 666.79 493.036Z"/></svg>
+    <div>
+      <b>Ask Stash</b>
+      <div class="sub">Answers from your 142 items · drop anything here to save it</div>
+    </div>
+    <div class="mole-actions">
+      <button class="icon-btn pin-btn" title="Pin to side" onclick="location.hash = document.body.classList.contains('pinned') ? 'open' : 'pinned'">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1Z"/></svg>
+      </button>
+      <button class="icon-btn" title="Minimize" onclick="location.hash=''">—</button>
+    </div>
+  </div>
+
+  <div class="thread">
+    <div class="msg user">what was that browser automation tool I saved?</div>
+    <div class="msg bot">
+      You saved <b>Stagehand</b> <span class="cite">[1]</span> in March — a browser automation SDK built for developers and LLM agents. Write the automation once and run it across browsers.
+      <span class="speak" title="Read aloud">🕪</span>
+      <div class="sources">
+        <span class="source-chip">1 · Stagehand: A browser automation SDK</span>
+      </div>
+    </div>
+    <div class="msg user">https://scrapfly.io/blog/how-anti-bot-works</div>
+    <div class="saved-card">
+      <div class="thumb" style="background:#3b82f6"></div>
+      <div>
+        <div class="t">How Anti-Bot Systems Work — Scrapfly</div>
+        <div class="s">✓ Saved to your stash · describing it now…</div>
+      </div>
+    </div>
+    <div class="msg bot">Saved. Want me to relate it to Stagehand or your other automation links?</div>
+  </div>
+
+  <div class="composer">
+    <div class="row">
+      <button class="icon-btn" title="Attach">+</button>
+      <div class="input">Ask, or paste something to save…</div>
+      <button class="icon-btn" title="Ask by voice" onclick="location.hash='voice'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+      </button>
+      <button class="icon-btn send" title="Send">➤</button>
+    </div>
+    <div class="hint">Answers come from your stash with sources · <b>links and files sent here are saved</b> as items</div>
+
+    <div class="listen">
+      <div class="live">
+        <div class="mic-live">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+        </div>
+        <div class="wave">
+          <i style="height:12px;animation-delay:0s"></i><i style="height:22px;animation-delay:.1s"></i><i style="height:16px;animation-delay:.2s"></i><i style="height:26px;animation-delay:.3s"></i><i style="height:10px;animation-delay:.4s"></i><i style="height:20px;animation-delay:.5s"></i><i style="height:14px;animation-delay:.6s"></i>
+        </div>
+        <div class="transcript">"when is the cabin trip and what's still left to do…"</div>
+      </div>
+      <div class="stop">Listening — tap the mic to ask · <b>esc</b> to cancel</div>
+    </div>
+  </div>
+</div>
+
+<!-- mockup state switcher -->
+<div class="switcher">
+  <a href="#" data-s="">1 · Default</a>
+  <a href="#open" data-s="open">2 · Mole open</a>
+  <a href="#pinned" data-s="pinned">3 · Pinned</a>
+  <a href="#voice" data-s="voice">4 · Voice</a>
+</div>
+
+<script>
+  const apply = () => {
+    const h = location.hash.replace('#','');
+    document.body.className = h === 'voice' ? 'pinned voice' : h;
+    document.querySelectorAll('.switcher a').forEach(a =>
+      a.classList.toggle('on', a.dataset.s === h));
+    const pin = document.querySelector('.pin-btn');
+    pin.classList.toggle('active', document.body.classList.contains('pinned'));
+  };
+  window.addEventListener('hashchange', apply);
+  apply();
+</script>
+</body>
+</html>
