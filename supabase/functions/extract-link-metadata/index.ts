@@ -1,6 +1,15 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import {
+  CRAWLER_UA,
+  deriveDescriptionFromContent,
+  fetchHtml,
+  fetchViaJinaReader,
+  fetchViaWayback,
+  isGenericTitle,
+  looksBlocked,
+} from '../_shared/blockedContentFallbacks.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -832,6 +841,69 @@ const isSuspiciousResult = (metadata: any): boolean => {
   return false;
 };
 
+// Metadata that only names the hostname (or is missing entirely) means the
+// site blocked us — worth escalating through the rescue tiers
+const isWeakOrBlockedMetadata = (metadata: { title?: string | null; description?: string | null; image?: string | null }, originalUrl: string): boolean => {
+  try {
+    const hostname = new URL(originalUrl).hostname;
+    const title = (metadata.title || '').trim().toLowerCase();
+    if (!title) return true;
+    if (title === hostname.toLowerCase() || title === hostname.replace(/^www\./, '').toLowerCase()) return true;
+    if (!metadata.description && !metadata.image) return true;
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+const rescueBlockedMetadata = async (
+  originalUrl: string,
+  finalResolvedUrl: string
+): Promise<Record<string, string | undefined> | null> => {
+  // Tier 2: crawler UA — beats plain UA-sniffing blockers
+  const crawlerHtml = await fetchHtml(originalUrl, CRAWLER_UA, 8_000);
+  if (crawlerHtml && !looksBlocked(crawlerHtml)) {
+    const meta = await extractMetaFromHtml(crawlerHtml, originalUrl, finalResolvedUrl);
+    if (meta.title && !isWeakOrBlockedMetadata(meta, originalUrl)) {
+      return { ...meta, strategyUsed: 'crawler-ua-rescue' };
+    }
+  }
+
+  // Tier 3: Jina reader proxy — renders and extracts the readable article.
+  // A generic title (site name, challenge page) means it hit a wall too, so
+  // hold the result and keep escalating.
+  const jina = await fetchViaJinaReader(originalUrl);
+  if (jina?.title && !isGenericTitle(jina.title, originalUrl)) {
+    return {
+      title: jina.title,
+      description: jina.description ||
+        (jina.content ? deriveDescriptionFromContent(jina.content) : undefined),
+      strategyUsed: 'jina-reader-rescue',
+    };
+  }
+
+  // Tier 4: Wayback Machine snapshot
+  const waybackHtml = await fetchViaWayback(originalUrl);
+  if (waybackHtml) {
+    const meta = await extractMetaFromHtml(waybackHtml, originalUrl, finalResolvedUrl);
+    if (meta.title && !isGenericTitle(meta.title, originalUrl)) {
+      return { ...meta, strategyUsed: 'wayback-rescue' };
+    }
+  }
+
+  // Nothing beat the wall outright — a partial Jina read (description or
+  // content but a generic title) still beats a bare hostname
+  if (jina && (jina.description || jina.content)) {
+    return {
+      description: jina.description ||
+        (jina.content ? deriveDescriptionFromContent(jina.content) : undefined),
+      strategyUsed: 'jina-reader-partial',
+    };
+  }
+
+  return null;
+};
+
 serve(async (req) => {
   const traceId = `trace_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   let requestPayload: { url?: string; userId?: string; fastOnly?: boolean } = {};
@@ -943,6 +1015,20 @@ serve(async (req) => {
         }
       }
 
+      // Escalating rescue for scraper-blocked sites (deep pass only): crawler
+      // UA, then the Jina reader proxy, then the Wayback Machine. Runs before
+      // the static placeholder fallbacks so real titles win when possible.
+      if (!fastOnly && isWeakOrBlockedMetadata(metadata, url)) {
+        const rescued = await rescueBlockedMetadata(url, finalResolvedUrl);
+        if (rescued) {
+          const meaningful = Object.fromEntries(
+            Object.entries(rescued).filter(([, v]) => v !== undefined && v !== null && v !== '')
+          );
+          metadata = { ...metadata, ...meaningful };
+          console.log('Rescued blocked-site metadata via', metadata.strategyUsed);
+        }
+      }
+
       if (isLikelyAuthWall(metadata, url, finalResolvedUrl)) {
         const botFriendlyFallback = buildBotUnfriendlyFallbackMetadata(url);
         if (botFriendlyFallback) {
@@ -1027,12 +1113,35 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error extracting metadata:', error);
-    
+
     // Try to create fallback data even on error
     try {
       const originalUrl = requestPayload.url;
       if (!originalUrl) throw new Error('Missing original URL in request payload');
       const fallbackUrl = new URL(originalUrl);
+
+      // Sites that refuse the request outright (HTTP 4xx to bots, like Medium)
+      // land here — run the same escalating rescue before settling for a
+      // hostname placeholder. Deep pass only, to keep the fast path fast.
+      if (!requestPayload.fastOnly) {
+        const rescued = await rescueBlockedMetadata(originalUrl, originalUrl);
+        if (rescued && (rescued.title || rescued.description)) {
+          return new Response(
+            JSON.stringify({
+              title: rescued.title || fallbackUrl.hostname,
+              description: rescued.description,
+              image: rescued.image,
+              siteName: rescued.siteName || fallbackUrl.hostname,
+              strategyUsed: rescued.strategyUsed,
+              traceId,
+              url: originalUrl,
+              success: true,
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+
       const youtubeFallback = buildYouTubeFallbackMetadata(originalUrl);
       const botFallback = buildBotUnfriendlyFallbackMetadata(originalUrl);
       const finalFallback = botFallback || youtubeFallback;

@@ -1,6 +1,14 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import {
+  CRAWLER_UA,
+  fetchHtml,
+  fetchViaJinaReader,
+  fetchViaWayback,
+  htmlToText,
+  looksBlocked,
+} from '../_shared/blockedContentFallbacks.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,52 +50,39 @@ const scrapeWithFirecrawl = async (url: string, apiKey: string): Promise<string 
   }
 };
 
-const decodeEntities = (text: string): string =>
-  text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'");
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-const scrapeWithPlainFetch = async (url: string): Promise<string | null> => {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+const usable = (text: string | null): text is string =>
+  Boolean(text && text.length >= MIN_CONTENT_LENGTH && !looksBlocked(text));
 
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-    });
-
-    if (!response.ok) {
-      console.error('Plain fetch failed:', response.status);
-      return null;
-    }
-
-    const html = await response.text();
-
-    // Strip non-content blocks, then all tags, then normalize
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-      .replace(/<(nav|footer|header|aside|form)[\s\S]*?<\/\1>/gi, ' ')
-      .replace(/<!--[\s\S]*?-->/g, ' ')
-      .replace(/<[^>]+>/g, ' ');
-
-    return decodeEntities(text).replace(/\s+/g, ' ').trim();
-  } catch (error) {
-    console.error('Plain fetch scrape failed:', error);
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
+// Escalating extraction: direct fetch → crawler UA → Jina Reader → Wayback.
+// Sites like Medium block the first two; the reader proxy or the archive
+// almost always still gets the content.
+const scrapeWithCascade = async (url: string): Promise<{ text: string; source: string } | null> => {
+  const directHtml = await fetchHtml(url, BROWSER_UA, 15_000);
+  if (directHtml) {
+    const text = htmlToText(directHtml);
+    if (usable(text)) return { text, source: 'direct-fetch' };
   }
+
+  const crawlerHtml = await fetchHtml(url, CRAWLER_UA, 10_000);
+  if (crawlerHtml) {
+    const text = htmlToText(crawlerHtml);
+    if (usable(text)) return { text, source: 'crawler-ua' };
+  }
+
+  const jinaResult = await fetchViaJinaReader(url);
+  if (jinaResult?.content && usable(jinaResult.content)) {
+    return { text: jinaResult.content, source: 'jina-reader' };
+  }
+
+  const waybackHtml = await fetchViaWayback(url);
+  if (waybackHtml) {
+    const text = htmlToText(waybackHtml);
+    if (usable(text)) return { text, source: 'wayback-snapshot' };
+  }
+
+  return null;
 };
 
 serve(async (req) => {
@@ -112,15 +107,18 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     let content: string | null = null;
+    let scrapeSource = 'firecrawl';
     if (firecrawlApiKey) {
       content = await scrapeWithFirecrawl(url, firecrawlApiKey);
     }
     if (!content || content.trim().length < MIN_CONTENT_LENGTH) {
-      content = await scrapeWithPlainFetch(url);
+      const cascadeResult = await scrapeWithCascade(url);
+      content = cascadeResult?.text ?? null;
+      scrapeSource = cascadeResult?.source ?? 'none';
     }
 
     if (!content || content.trim().length < MIN_CONTENT_LENGTH) {
-      console.log('Scrape produced insufficient content, skipping update');
+      console.log('All scrape tiers failed for:', url);
       return new Response(
         JSON.stringify({ success: false, reason: 'Insufficient content returned' }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -128,7 +126,7 @@ serve(async (req) => {
     }
 
     const trimmedContent = content.trim().slice(0, MAX_BODY_LENGTH);
-    console.log('Scraped content length:', trimmedContent.length, 'for item:', itemId);
+    console.log('Scraped', trimmedContent.length, 'chars via', scrapeSource, 'for item:', itemId);
 
     const { data: updatedItem, error: updateError } = await supabase
       .from('items')

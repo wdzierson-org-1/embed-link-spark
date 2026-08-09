@@ -116,21 +116,12 @@ serve(async (req) => {
     // Build the update payload; try page_body first, fall back to content
     const hasOcrText = detected_text.toLowerCase() !== 'none' && detected_text.trim().length > 0;
 
-    // Attempt update with page_body column
-    let updateError: unknown = null;
-    const { error: pageBodyError } = await supabase
+    const { data: updatedItem, error: updateError } = await supabase
       .from('items')
       .update({ description, page_body: hasOcrText ? detected_text : null })
-      .eq('id', itemId);
-
-    if (pageBodyError) {
-      console.warn('page_body column not available, falling back to content field:', pageBodyError.message);
-      const { error: contentError } = await supabase
-        .from('items')
-        .update({ description, ...(hasOcrText ? { content: detected_text } : {}) })
-        .eq('id', itemId);
-      updateError = contentError;
-    }
+      .eq('id', itemId)
+      .select('title, supplemental_note')
+      .single();
 
     if (updateError) {
       console.error('Error updating item after Vision analysis:', updateError);
@@ -138,10 +129,14 @@ serve(async (req) => {
       console.log('Item updated successfully with Vision analysis');
     }
 
-    // Build text for embeddings: description + OCR text (if present)
-    const textContent = hasOcrText
-      ? `${description} ${detected_text}`
-      : description;
+    // Re-embed the full item: generate-embeddings replaces prior chunks, so the
+    // text must carry the title/note too, not just the Vision output
+    const textContent = [
+      updatedItem?.title,
+      description,
+      hasOcrText ? detected_text : null,
+      updatedItem?.supplemental_note,
+    ].filter(Boolean).join(' ');
 
     // Invoke generate-embeddings
     const { error: embeddingError } = await supabase.functions.invoke('generate-embeddings', {
