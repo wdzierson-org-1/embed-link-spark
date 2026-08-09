@@ -38,10 +38,10 @@ const ChatMessageSources = ({ sources, onSourceClick, onViewAllSources }: ChatMe
                   <Button
                     variant="link"
                     size="sm"
-                    className="h-auto p-0 text-sm text-muted-foreground hover:text-foreground underline"
+                    className="h-auto max-w-[220px] truncate p-0 text-sm text-muted-foreground hover:text-foreground underline"
                     onClick={() => onSourceClick(source.id)}
                   >
-                    note {index + 1}
+                    {source.title || `item ${index + 1}`}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>

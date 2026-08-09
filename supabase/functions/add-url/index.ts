@@ -374,6 +374,50 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Full enrichment continues after the response: deep metadata (with the
+    // blocked-site rescue cascade and stored preview image) plus the page
+    // scrape that feeds embeddings. Every client of this endpoint — web chat
+    // mole, menubar widget, browser extension, iOS — gets the same pipeline.
+    const enrichAfterResponse = async () => {
+      try {
+        const { data: deepMeta } = await supabase.functions.invoke('extract-link-metadata', {
+          body: { url, userId: targetUserId, fastOnly: false },
+        });
+        if (deepMeta) {
+          const updates: Record<string, string> = {};
+          if (!customTitle && !metadata.title && deepMeta.title) {
+            updates.title = deepMeta.title;
+          }
+          if (!metadata.description && deepMeta.description) {
+            updates.description = deepMeta.description;
+          }
+          const bestImage = deepMeta.previewImagePath || deepMeta.previewImagePublicUrl || deepMeta.image;
+          if (!previewImagePath && bestImage) {
+            updates.file_path = bestImage;
+          }
+          if (Object.keys(updates).length > 0) {
+            await supabase.from('items').update(updates).eq('id', item.id);
+          }
+        }
+      } catch (enrichError) {
+        console.error('Deep enrichment failed (non-fatal):', enrichError);
+      }
+
+      try {
+        await supabase.functions.invoke('scrape-page-content', {
+          body: { itemId: item.id, url },
+        });
+      } catch (scrapeError) {
+        console.error('Page scrape failed (non-fatal):', scrapeError);
+      }
+    };
+
+    // Start enrichment now; register with the edge runtime so it survives the
+    // response being sent
+    const enrichPromise = enrichAfterResponse();
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    runtime?.waitUntil?.(enrichPromise);
+
     // Return immediate success response
     const statusCode = 200; // Always return 200 for success
     const statusMessage = is_public 

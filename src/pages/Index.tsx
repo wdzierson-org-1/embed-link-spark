@@ -4,17 +4,17 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
-import { useTags } from '@/hooks/useTags';
 import HeaderSection from '@/components/HeaderSection';
 import SubscriptionBanner from '@/components/SubscriptionBanner';
 import UnifiedInputPanel from '@/components/UnifiedInputPanel';
-import SearchSection from '@/components/SearchSection';
+import LibraryToolbar, { type LibraryTypeFilter } from '@/components/LibraryToolbar';
 import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
-import GlobalChatInterface from '@/components/GlobalChatInterface';
+import ChatMole from '@/components/ChatMole';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 
 const INPUT_UI_PREFERENCE_COOKIE = 'stash_input_ui_collapsed';
+const MOLE_PINNED_KEY = 'stash_mole_pinned';
 
 const readInputUiPreference = (): boolean | null => {
   if (typeof document === 'undefined') return null;
@@ -47,16 +47,14 @@ const Index = () => {
     isInitialLoadInProgress,
   } = useItems();
   const { handleAddContent, handleSaveItem, handleDeleteItem } = useItemOperations(
-    fetchItems, 
-    addOptimisticItem, 
+    fetchItems,
+    addOptimisticItem,
     removeOptimisticItem,
     clearSkeletonItems
   );
-  const { tags } = useTags();
-  
+
   const [editingItem, setEditingItem] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
-  const [showGlobalChat, setShowGlobalChat] = useState(false);
   const [isInputUICollapsed, setIsInputUICollapsed] = useState(() => {
     const savedPreference = readInputUiPreference();
     if (savedPreference !== null) return savedPreference;
@@ -65,11 +63,16 @@ const Index = () => {
     const isWebKit = /WebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
     return isWebKit;
   });
-  
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchActive, setIsSearchActive] = useState(false);
-  const [showStickyNotes, setShowStickyNotes] = useState(true);
-  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<LibraryTypeFilter>('all');
+  const [molePinned, setMolePinned] = useState(() => {
+    try {
+      return localStorage.getItem(MOLE_PINNED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
@@ -82,27 +85,17 @@ const Index = () => {
     }
   }, [loading, user, navigate]);
 
+  const handleMolePinnedChange = (pinned: boolean) => {
+    setMolePinned(pinned);
+    try {
+      localStorage.setItem(MOLE_PINNED_KEY, String(pinned));
+    } catch {
+      // localStorage unavailable — pin state just won't persist
+    }
+  };
+
   const handleEditItem = (item) => {
     setEditingItem(item);
-  };
-
-  const handleChatWithItem = (item) => {
-    setShowGlobalChat(true);
-  };
-
-  const handleTagFilterChange = (tags) => {
-    setSelectedTags(tags);
-  };
-
-
-  const toggleInputUI = () => {
-    setIsInputUICollapsed(!isInputUICollapsed);
-  };
-
-  const handleUserToggleInputUI = () => {
-    const nextState = !isInputUICollapsed;
-    setIsInputUICollapsed(nextState);
-    saveInputUiPreference(nextState);
   };
 
   const handleSourceClick = (sourceId: string) => {
@@ -112,21 +105,14 @@ const Index = () => {
     }
   };
 
-  const handleViewAllSources = (sourceIds: string[]) => {
-    setSelectedTags([]);
+  const toggleInputUI = () => {
+    setIsInputUICollapsed(!isInputUICollapsed);
   };
 
-  const handleSearchClick = () => {
-    setIsSearchActive(true);
-  };
-
-  const handleSearchClear = () => {
-    setSearchQuery('');
-    setIsSearchActive(false);
-  };
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
+  const handleUserToggleInputUI = () => {
+    const nextState = !isInputUICollapsed;
+    setIsInputUICollapsed(nextState);
+    saveInputUiPreference(nextState);
   };
 
   if (loading || (user && isInitialLoadInProgress)) {
@@ -145,52 +131,57 @@ const Index = () => {
     return null; // Will redirect via useEffect
   }
 
+  const realItemCount = items.filter(item => !item.isOptimistic).length;
+
   return (
     <div className="min-h-screen bg-white">
-      <HeaderSection 
+      <HeaderSection
         user={user}
       />
 
-      <div className="container mx-auto px-4">
-        <SubscriptionBanner />
-      </div>
+      {/* Content shifts right when the mole is pinned as a left dock */}
+      <div className={molePinned ? 'transition-[padding] duration-200 sm:pl-[384px]' : 'transition-[padding] duration-200'}>
+        <div className="container mx-auto px-4">
+          <SubscriptionBanner />
+        </div>
 
-      <UnifiedInputPanel
-        isInputUICollapsed={isInputUICollapsed}
-        onToggleInputUI={toggleInputUI}
-        onUserToggleInputUI={handleUserToggleInputUI}
-        onAddContent={handleAddContent}
-        getSuggestedTags={getSuggestedTags}
-      />
-
-      <SearchSection
-        isSearchActive={isSearchActive}
-        searchQuery={searchQuery}
-        onSearchClick={handleSearchClick}
-        onSearchClear={handleSearchClear}
-        onSearchChange={handleSearchChange}
-        onShowGlobalChat={() => setShowGlobalChat(true)}
-        itemCount={items.filter(item => !item.isOptimistic).length}
-        tags={tags}
-        selectedTags={selectedTags}
-        onTagFilterChange={handleTagFilterChange}
-        showStickyNotes={showStickyNotes}
-        onStickyNotesToggle={setShowStickyNotes}
-        isFilterPanelOpen={isFilterPanelOpen}
-        onFilterPanelToggle={setIsFilterPanelOpen}
-      />
-      
-      <main className="container mx-auto px-4 pb-8 bg-white">
-        <ContentGrid 
-          items={items} 
-          onDeleteItem={handleDeleteItem}
-          onEditItem={handleEditItem}
-          onChatWithItem={handleChatWithItem}
-          tagFilters={selectedTags}
-          searchQuery={searchQuery}
-          showStickyNotes={showStickyNotes}
+        <UnifiedInputPanel
+          isInputUICollapsed={isInputUICollapsed}
+          onToggleInputUI={toggleInputUI}
+          onUserToggleInputUI={handleUserToggleInputUI}
+          onAddContent={handleAddContent}
+          getSuggestedTags={getSuggestedTags}
         />
-      </main>
+
+        <div className="container mx-auto px-4 pt-1">
+          <p className="text-xs text-gray-400">
+            <b className="font-medium text-gray-500">Paste</b> a link anywhere on this page ·{' '}
+            <b className="font-medium text-gray-500">drop</b> files onto the box ·{' '}
+            start a chat message with <b className="font-medium text-gray-500">remember:</b> to save it as a note
+          </p>
+        </div>
+
+        <LibraryToolbar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          typeFilter={typeFilter}
+          onTypeFilterChange={setTypeFilter}
+          itemCount={realItemCount}
+        />
+
+        <main className="container mx-auto px-4 pb-28 bg-white">
+          <ContentGrid
+            items={items}
+            onDeleteItem={handleDeleteItem}
+            onEditItem={handleEditItem}
+            onChatWithItem={() => {}}
+            tagFilters={selectedTags}
+            searchQuery={searchQuery}
+            typeFilter={typeFilter}
+            compact={molePinned}
+          />
+        </main>
+      </div>
 
       <EditItemSheet
         open={!!editingItem}
@@ -199,11 +190,11 @@ const Index = () => {
         onSave={handleSaveItem}
       />
 
-      <GlobalChatInterface
-        isOpen={showGlobalChat}
-        onClose={() => setShowGlobalChat(false)}
+      <ChatMole
+        pinned={molePinned}
+        onPinnedChange={handleMolePinnedChange}
         onSourceClick={handleSourceClick}
-        onViewAllSources={handleViewAllSources}
+        itemCount={realItemCount}
       />
     </div>
   );

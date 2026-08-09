@@ -610,6 +610,31 @@ const UnifiedInputPanel = ({
     ));
   };
 
+  // Paste anywhere on the page (when not typing in another field) lands in the
+  // capture box — the fastest possible save
+  useEffect(() => {
+    const onWindowPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isEditable = tag === 'input' || tag === 'textarea' || target?.isContentEditable;
+      if (isEditable) return;
+
+      const text = e.clipboardData?.getData('text');
+      if (!text?.trim()) return;
+
+      e.preventDefault();
+      if (isInputUICollapsed) {
+        onToggleInputUI();
+      }
+      const next = inputText ? `${inputText} ${text.trim()}` : text.trim();
+      void handleInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
+      setTimeout(() => textareaRef.current?.focus(), 60);
+    };
+
+    window.addEventListener('paste', onWindowPaste);
+    return () => window.removeEventListener('paste', onWindowPaste);
+  });
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);

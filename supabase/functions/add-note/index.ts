@@ -117,6 +117,41 @@ Deno.serve(async (req) => {
       }
     }
 
+    // AI title + description land after the response and re-embed the note —
+    // same async-enrichment pipeline the web capture flow uses, so every
+    // client of this endpoint gets described items for free
+    const enrichAfterResponse = async () => {
+      try {
+        const [titleResult, descriptionResult] = await Promise.all([
+          title ? Promise.resolve(null) : supabase.functions.invoke('generate-title', { body: { content } }),
+          supabase.functions.invoke('generate-description', { body: { content, type: 'text' } }),
+        ]);
+
+        const updates: Record<string, string> = {};
+        const aiTitle = titleResult?.data?.title;
+        const aiDescription = descriptionResult?.data?.description;
+        if (aiTitle) updates.title = aiTitle;
+        if (aiDescription) updates.description = aiDescription;
+        if (Object.keys(updates).length === 0) return;
+
+        await supabase.from('items').update(updates).eq('id', item.id);
+
+        const textForEmbedding = [updates.title || noteTitle, content, updates.description]
+          .filter(Boolean).join(' ');
+        await supabase.functions.invoke('generate-embeddings', {
+          body: { itemId: item.id, textContent: textForEmbedding },
+        });
+      } catch (enrichError) {
+        console.error('Note enrichment failed (non-fatal):', enrichError);
+      }
+    };
+
+    // Start enrichment now; register with the edge runtime so it survives the
+    // response being sent
+    const enrichPromise = enrichAfterResponse();
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    runtime?.waitUntil?.(enrichPromise);
+
     return new Response(
       JSON.stringify({ 
         success: true, 

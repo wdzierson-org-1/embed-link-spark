@@ -53,7 +53,7 @@ vi.mock("@/components/SubscriptionBanner", () => ({
 vi.mock("@/components/UnifiedInputPanel", () => ({
   default: () => null,
 }));
-vi.mock("@/components/SearchSection", () => ({
+vi.mock("@/components/LibraryToolbar", () => ({
   default: () => null,
 }));
 vi.mock("@/components/ContentGrid", () => ({
@@ -62,7 +62,7 @@ vi.mock("@/components/ContentGrid", () => ({
 vi.mock("@/components/EditItemSheet", () => ({
   default: () => null,
 }));
-vi.mock("@/components/GlobalChatInterface", () => ({
+vi.mock("@/components/ChatMole", () => ({
   default: () => null,
 }));
 

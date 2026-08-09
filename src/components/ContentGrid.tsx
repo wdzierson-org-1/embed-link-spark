@@ -8,6 +8,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { itemMatchesSearchQuery } from '@/utils/itemSearch';
 import type { Attachment } from '@/components/CollectionAttachments';
 
+export type ContentTypeFilter = 'all' | 'link' | 'note' | 'doc' | 'media';
+
+const TYPE_FILTER_MAP: Record<Exclude<ContentTypeFilter, 'all'>, string[]> = {
+  link: ['link'],
+  note: ['text'],
+  doc: ['document', 'collection'],
+  media: ['image', 'video', 'audio'],
+};
+
 interface ContentGridProps {
   items: any[];
   onDeleteItem: (id: string) => void;
@@ -20,20 +29,24 @@ interface ContentGridProps {
   onTogglePrivacy?: (item: any) => void;
   onCommentClick?: (itemId: string) => void;
   showStickyNotes?: boolean;
+  typeFilter?: ContentTypeFilter;
+  compact?: boolean;
 }
 
-const ContentGrid = ({ 
-  items, 
-  onDeleteItem, 
-  onEditItem, 
-  onChatWithItem, 
-  tagFilters, 
+const ContentGrid = ({
+  items,
+  onDeleteItem,
+  onEditItem,
+  onChatWithItem,
+  tagFilters,
   searchQuery = '',
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
   onCommentClick,
-  showStickyNotes = true
+  showStickyNotes = true,
+  typeFilter = 'all',
+  compact = false
 }: ContentGridProps) => {
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
   const [collectionAttachmentsByItem, setCollectionAttachmentsByItem] = useState<Record<string, Attachment[]>>({});
@@ -152,8 +165,13 @@ const ContentGrid = ({
     fetchItemTags(realItemIds);
   };
 
-  // Filter items based on tag filters and search query
+  // Filter items based on type, tag filters, and search query
   const filteredItems = items.filter(item => {
+    // Type filter
+    if (typeFilter !== 'all' && !TYPE_FILTER_MAP[typeFilter].includes(item.type)) {
+      return false;
+    }
+
     // Tag filter
     if (tagFilters && tagFilters.length > 0) {
       const currentItemTags = itemTags[item.id] || [];
@@ -195,7 +213,7 @@ const ContentGrid = ({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${compact ? '' : 'lg:grid-cols-3'}`}>
       {/* Show optimistic items first */}
         {optimisticItems.map((item) => (
           <ContentItemSkeleton 
