@@ -1,0 +1,11 @@
+- generic [ref=f5e3]:
+  - generic [ref=f5e5]:
+    - generic [ref=f5e6]:
+      - button "Stash Stash" [ref=f5e7] [cursor=pointer]:
+        - img "Stash" [ref=f5e8]
+        - generic [ref=f5e9]: Stash
+      - generic [ref=f5e10]: / August 9, 2026
+    - button "W" [ref=f5e13] [cursor=pointer]
+  - paragraph [ref=f5e20]: Loading discover feed...
+  - region "Notifications (F8)":
+    - list

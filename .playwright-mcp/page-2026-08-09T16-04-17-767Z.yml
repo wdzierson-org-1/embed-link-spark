@@ -1,0 +1,118 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic:
+      - generic:
+        - generic:
+          - img "Jot thoughts interface"
+          - heading "Jot random thoughts" [level=4]
+          - paragraph: Quick capture moments
+      - generic:
+        - generic:
+          - img "Health tracking interface"
+          - heading "Health Tracking" [level=4]
+          - paragraph: Monitor wellness patterns
+      - generic:
+        - generic:
+          - img "Reading notes interface"
+          - heading "Reading Notes" [level=4]
+          - paragraph: Book insights & quotes
+    - generic:
+      - generic:
+        - generic:
+          - img "Jean-Georges restaurant interior"
+          - heading "Restaurant Discovery" [level=4]
+          - paragraph: World's best dining spots
+      - generic:
+        - generic:
+          - generic: Event Planning
+          - paragraph: Organize life's moments
+      - generic:
+        - generic:
+          - img "Reminders and memory aids interface"
+          - heading "Reminders & Memory Aids" [level=4]
+          - paragraph: Never forget important moments
+      - generic:
+        - generic:
+          - img "Creative projects interface"
+          - heading "Creative Projects" [level=4]
+          - paragraph: Ideas & inspiration
+    - generic [ref=e5]:
+      - navigation [ref=e6]:
+        - generic [ref=e7]:
+          - img "Stash" [ref=e8]
+          - generic [ref=e9]: Stash
+        - generic [ref=e10]:
+          - link [ref=e11] [cursor=pointer]:
+            - /url: /auth
+            - button "Sign In" [ref=e12]
+          - link [ref=e13] [cursor=pointer]:
+            - /url: /pricing
+            - button "Get Started" [ref=e14]
+      - generic [ref=e16]:
+        - heading "Ridiculously easy bookmarks." [level=1] [ref=e17]: Ridiculously easybookmarks.
+        - paragraph [ref=e18]: Your universal inbox for thoughts, photos, voice memos, documents, and automatically self-describing links.Chat with your data to discover patterns and insights.
+        - link [ref=e20] [cursor=pointer]:
+          - /url: /pricing
+          - button "Start organizing in seconds" [ref=e21]
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - heading "Everything you need to organize your life" [level=2] [ref=e24]
+          - paragraph [ref=e25]: Powerful features that adapt to how you think, helping you organize everything effortlessly.
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - heading "Universal Capture" [level=3] [ref=e39]
+            - paragraph [ref=e40]: Text, photos, voice memos, PDFs, and links. Everything you need to capture life's moments in one place.
+          - generic [ref=e41]:
+            - heading "AI Insights" [level=3] [ref=e45]
+            - paragraph [ref=e46]: Chat with your data to discover patterns, generate summaries, and unlock insights about your life.
+          - generic [ref=e47]:
+            - heading "Access Everywhere" [level=3] [ref=e51]
+            - paragraph [ref=e52]: Web, mobile, SMS, and WhatsApp. Capture thoughts wherever you are, whenever inspiration strikes.
+          - generic [ref=e53]:
+            - heading "Health Tracking" [level=3] [ref=e57]
+            - paragraph [ref=e58]: Log workouts, meals, and wellness notes. Track patterns to optimize your health journey.
+          - generic [ref=e59]:
+            - heading "Creative Projects" [level=3] [ref=e65]
+            - paragraph [ref=e66]: Collect inspiration, mood boards, and project ideas. Turn scattered thoughts into organized creativity.
+          - generic [ref=e67]:
+            - heading "Travel & Places" [level=3] [ref=e72]
+            - paragraph [ref=e73]: Save restaurant recommendations, travel plans, and location memories. Never forget a great discovery.
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - heading "Easily capture rich link info by pasting" [level=2] [ref=e76]
+          - paragraph [ref=e77]: Paste your link and Stash will go and collect everything it can about it, making it immediately searchable and accessible to our AI. Just press enter. No need to add a description or categorize it. We do that for you.
+        - generic [ref=e78]: Your browser does not support the video tag.
+      - generic [ref=e80]:
+        - generic [ref=e81]:
+          - heading "Capture everything, search anything" [level=2] [ref=e82]
+          - paragraph [ref=e83]: Voice, video, text, links, and images. We transcribe the contents and make everything searchable and conversational.
+        - generic [ref=e84]:
+          - img "Input panel interface" [ref=e86]
+          - img "Public feed example" [ref=e88]
+          - img "Content management interface" [ref=e90]
+          - img "Content organization example" [ref=e92]
+      - generic [ref=e93]:
+        - generic [ref=e94]:
+          - heading "Forget about forgetting Chat with your notes, insights, memories, and photos" [level=2] [ref=e95]: Forget about forgettingChat with your notes, insights, memories, and photos
+          - paragraph [ref=e96]: Ask questions about anything you've saved. Our AI understands the context and connections across all your content.
+        - generic [ref=e97]: Your browser does not support the video tag.
+      - generic [ref=e99]:
+        - heading "Ready to organize your life?" [level=2] [ref=e100]
+        - paragraph [ref=e101]: Join thousands who've transformed chaos into clarity. Start capturing everything that matters.
+        - link [ref=e102] [cursor=pointer]:
+          - /url: /pricing
+          - button "Get Started for Free" [ref=e103]
+      - contentinfo [ref=e104]:
+        - generic [ref=e105]:
+          - img "Stash" [ref=e106]
+          - generic [ref=e107]: Stash
+        - paragraph [ref=e108]: Your personal life organizer.
+        - generic [ref=e109]:
+          - link "Privacy" [ref=e110] [cursor=pointer]:
+            - /url: "#"
+          - link "Terms" [ref=e111] [cursor=pointer]:
+            - /url: "#"
+          - link "Contact" [ref=e112] [cursor=pointer]:
+            - /url: "#"
+  - region "Notifications (F8)":
+    - list

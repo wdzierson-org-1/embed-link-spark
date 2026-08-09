@@ -1,0 +1,35 @@
+- generic [ref=f1e3]:
+  - generic [ref=f1e32]:
+    - generic [ref=f1e34]:
+      - generic [ref=f1e35]:
+        - button "Stash Stash" [ref=f1e36] [cursor=pointer]:
+          - img "Stash" [ref=f1e37]
+          - generic [ref=f1e38]: Stash
+        - generic [ref=f1e39]: / August 9, 2026
+      - button "W" [ref=f1e42] [cursor=pointer]
+    - generic [ref=f1e135]:
+      - generic [ref=f1e140]:
+        - heading "You're on day 1 of your 7 day free trial" [level=3] [ref=f1e141]
+        - paragraph [ref=f1e142]: Upgrade to Stash Premium at any time for $4.99 per month.
+      - generic [ref=f1e143]:
+        - button "Get Premium" [ref=f1e144] [cursor=pointer]
+        - button [ref=f1e145] [cursor=pointer]
+    - generic [ref=f1e50]:
+      - generic:
+        - generic:
+          - button
+          - generic:
+            - textbox "Paste a link, drop a file, or type a note..."
+          - generic:
+            - generic:
+              - generic:
+                - button "Attach"
+            - generic:
+              - button "Add to Stash" [disabled]
+      - button "Add something" [ref=f1e148] [cursor=pointer]
+    - main [ref=f1e62]:
+      - generic [ref=f1e149]:
+        - generic [ref=f1e150]: Processing note...
+        - generic [ref=f1e160]: Almost done...
+  - region "Notifications (F8)":
+    - list

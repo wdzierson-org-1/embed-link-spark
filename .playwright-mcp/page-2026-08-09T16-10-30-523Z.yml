@@ -1,0 +1,82 @@
+- generic [ref=f1e3]:
+  - generic [ref=f1e32]:
+    - generic [ref=f1e34]:
+      - generic [ref=f1e35]:
+        - button "Stash Stash" [ref=f1e36] [cursor=pointer]:
+          - img "Stash" [ref=f1e37]
+          - generic [ref=f1e38]: Stash
+        - generic [ref=f1e39]: / August 9, 2026
+      - button "W" [ref=f1e42] [cursor=pointer]
+    - generic [ref=f1e135]:
+      - generic [ref=f1e140]:
+        - heading "You're on day 1 of your 7 day free trial" [level=3] [ref=f1e141]
+        - paragraph [ref=f1e142]: Upgrade to Stash Premium at any time for $4.99 per month.
+      - generic [ref=f1e143]:
+        - button "Get Premium" [ref=f1e144] [cursor=pointer]
+        - button [ref=f1e145] [cursor=pointer]
+    - generic [ref=f1e50]:
+      - generic:
+        - generic:
+          - button
+          - generic:
+            - textbox "Paste a link, drop a file, or type a note..."
+          - generic:
+            - generic:
+              - generic:
+                - button "Attach"
+            - generic:
+              - button "Add to Stash" [disabled]
+      - button "Add something" [ref=f1e327] [cursor=pointer]
+    - generic [ref=f1e178]:
+      - button "Ask Stash" [ref=f1e180] [cursor=pointer]
+      - generic [ref=f1e337]:
+        - textbox "Search notes..." [ref=f1e338]: cabin
+        - button [ref=f1e339] [cursor=pointer]
+    - main [ref=f1e62]:
+      - generic [ref=f1e187]:
+        - generic [ref=f1e188]:
+          - img "Book Lake Placid Cabin for October Trip" [ref=f1e191]
+          - button [ref=f1e193] [cursor=pointer]:
+            - heading "Book Lake Placid Cabin for October Trip" [level=3] [ref=f1e194]
+        - generic [ref=f1e195]:
+          - paragraph [ref=f1e198]: This text serves as a reminder to book a cabin at Lake Placid for an upcoming trip in October. It specifies checking availability for the weekend of the 17th and inquires about dog-friendly accommodations.
+          - button "add tags" [ref=f1e202] [cursor=pointer]
+          - generic [ref=f1e203]:
+            - paragraph [ref=f1e205]: Aug 9, 2026
+            - generic [ref=f1e206]:
+              - generic [ref=f1e207]: text
+              - button [ref=f1e211] [cursor=pointer]
+    - generic [ref=f1e341]:
+      - generic [ref=f1e342]:
+        - generic [ref=f1e343]:
+          - heading "Chat with All Content" [level=3] [ref=f1e347]
+          - button [ref=f1e348] [cursor=pointer]
+        - paragraph [ref=f1e349]: Ask questions about your entire content collection
+      - generic [ref=f1e350]:
+        - generic [ref=f1e354]:
+          - paragraph [ref=f1e363]: Hello! I'm here to help you work with all your saved content. I can help you search, summarize, organize, or answer questions about any of your items. What would you like to know?
+          - paragraph [ref=f1e370]: When is the Lake Placid trip and what should I ask the cabin rental about?
+          - generic [ref=f1e380]:
+            - generic [ref=f1e382]:
+              - paragraph [ref=f1e383]: "Your trip to Lake Placid is planned for the weekend of October 17th. When you contact the cabin rental, make sure to ask about the following:"
+              - list [ref=f1e384]:
+                - listitem [ref=f1e385]:
+                  - strong [ref=f1e386]: Availability
+                  - text: ": Confirm that the cabin is available for the weekend of October 17th."
+                - listitem [ref=f1e387]:
+                  - strong [ref=f1e388]: Dog-Friendly Units
+                  - text: ": Inquire specifically about dog-friendly accommodations, as you may want to bring a pet along."
+              - paragraph [ref=f1e389]: These details will help ensure that your trip goes smoothly! If you need any more assistance or have further questions, feel free to ask.
+            - generic [ref=f1e391]:
+              - generic [ref=f1e392]: "Source(s):"
+              - button "note 1" [ref=f1e393] [cursor=pointer]
+              - generic [ref=f1e394]: .
+              - button "View all sources" [ref=f1e395] [cursor=pointer]
+            - generic [ref=f1e396]:
+              - button [ref=f1e397] [cursor=pointer]
+              - button [ref=f1e398] [cursor=pointer]
+        - generic [ref=f1e365]:
+          - textbox "Ask about your content collection..." [ref=f1e366]
+          - button [disabled]
+  - region "Notifications (F8)":
+    - list

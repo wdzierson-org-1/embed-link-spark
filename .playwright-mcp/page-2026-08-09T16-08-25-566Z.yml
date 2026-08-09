@@ -1,0 +1,124 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - button:
+                - generic: Stash
+              - generic: / August 9, 2026
+            - generic:
+              - button:
+                - generic: W
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=3]: You're on day 1 of your 7 day free trial
+                    - paragraph: Upgrade to Stash Premium at any time for $4.99 per month.
+                - generic:
+                  - button: Get Premium
+                  - button
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - button
+                  - generic:
+                    - textbox:
+                      - /placeholder: Paste a link, drop a file, or type a note...
+                  - generic:
+                    - generic:
+                      - generic:
+                        - button
+                    - generic:
+                      - button [disabled]
+                - button [ref=f1e247] [cursor=pointer]: Add something
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - button:
+                  - generic: Ask Stash
+              - generic:
+                - generic:
+                  - button:
+                    - generic: Keyword search
+        - main:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - button:
+                    - heading [level=3]: village in Essex County, New York, United States
+              - generic:
+                - generic:
+                  - generic:
+                    - paragraph: https://en.wikipedia.org/wiki/Lake_Placid,_New_York
+                  - generic:
+                    - button:
+                      - text: https://en.wikipedia.org/wiki/Lake_Placid,_New_York
+                      - generic: https://en.wikipedia.org/wiki/Lake_Placid,_New_York
+                - generic:
+                  - generic:
+                    - generic:
+                      - button: add tags
+                - generic:
+                  - generic:
+                    - paragraph: Aug 9, 2026
+                  - generic:
+                    - generic: link
+                    - button
+            - generic:
+              - generic:
+                - generic:
+                  - button:
+                    - heading [level=3]: Book Lake Placid Cabin for October Trip
+              - generic:
+                - generic:
+                  - generic:
+                    - paragraph: This text serves as a reminder to book a cabin at Lake Placid for an upcoming trip in October. It specifies checking availability for the weekend of the 17th and inquires about dog-friendly accommodations.
+                - generic:
+                  - generic:
+                    - generic:
+                      - button: add tags
+                - generic:
+                  - generic:
+                    - paragraph: Aug 9, 2026
+                  - generic:
+                    - generic: text
+                    - button
+      - list
+  - dialog [active] [ref=f1e270]:
+    - heading "Edit Item" [level=2] [ref=f1e272]
+    - generic [ref=f1e274]:
+      - heading "village in Essex County, New York, United States" [level=1] [ref=f1e275] [cursor=pointer]
+      - img "village in Essex County, New York, United States" [ref=f1e277] [cursor=pointer]
+      - generic [ref=f1e278]:
+        - text: Link
+        - generic [ref=f1e279]:
+          - generic [ref=f1e280]: https://en.wikipedia.org/wiki/Lake_Placid,_New_York
+          - button [ref=f1e281] [cursor=pointer]
+      - generic [ref=f1e282]:
+        - generic [ref=f1e283]:
+          - generic [ref=f1e284]: Content
+          - button [ref=f1e285] [cursor=pointer]
+        - generic [ref=f1e286]:
+          - paragraph [ref=f1e292]
+          - generic [ref=f1e293]: Press / for formatting options
+      - generic [ref=f1e295]:
+        - checkbox "Add a sticky" [ref=f1e296] [cursor=pointer]
+        - generic [ref=f1e297] [cursor=pointer]: Add a sticky
+      - generic [ref=f1e298]:
+        - text: Visibility
+        - generic [ref=f1e299]:
+          - generic [ref=f1e304]:
+            - generic [ref=f1e305]: Private
+            - generic [ref=f1e306]: This item is only visible to you
+          - switch [ref=f1e307] [cursor=pointer]
+    - paragraph [ref=f1e310]: Changes saved automatically
+    - button "Close" [ref=f1e311] [cursor=pointer]

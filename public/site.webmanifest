@@ -1,0 +1,16 @@
+{
+  "name": "Stash",
+  "short_name": "Stash",
+  "description": "Capture links, notes, images, and documents — searchable and chat-ready.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
+  "icons": [
+    {
+      "src": "https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

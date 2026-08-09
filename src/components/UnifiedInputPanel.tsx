@@ -724,6 +724,13 @@ const UnifiedInputPanel = ({
       const linkItems = itemsToProcess.filter(item => item.type === 'link');
       const mediaItems = itemsToProcess.filter(item => item.type !== 'link');
 
+      // Detected URLs live in both the text and their chips; drop them from the
+      // note text so the URL isn't saved twice (once as link, once as note)
+      const noteText = linkItems
+        .reduce((acc, li) => (li.content.url ? acc.split(li.content.url).join(' ') : acc), textToProcess)
+        .replace(/\s+/g, ' ')
+        .trim();
+
       // Case 1: Single link (with or without text) -> Individual link item
       if (linkItems.length === 1 && mediaItems.length === 0) {
         const linkItem = linkItems[0];
@@ -731,7 +738,7 @@ const UnifiedInputPanel = ({
         await onAddContent('link', {
           url: linkItem.content.url,
           title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
-          description: hasText || linkItem.ogData?.description,
+          description: noteText || linkItem.ogData?.description,
           previewImagePath: linkItem.ogData?.previewImagePath,
           ogData: {
             ...linkItem.ogData,
@@ -787,7 +794,7 @@ const UnifiedInputPanel = ({
         }
 
         await onAddContent('collection', {
-          content: hasText || '',
+          content: noteText || '',
           type: 'collection',
           attachments: attachments
         });

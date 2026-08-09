@@ -1,0 +1,57 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e3]:
+    - generic [ref=f1e32]:
+      - generic [ref=f1e34]:
+        - generic [ref=f1e35]:
+          - button "Stash Stash" [ref=f1e36] [cursor=pointer]:
+            - img "Stash" [ref=f1e37]
+            - generic [ref=f1e38]: Stash
+          - generic [ref=f1e39]: / August 9, 2026
+        - button "W" [ref=f1e42] [cursor=pointer]
+      - generic [ref=f1e50]:
+        - generic [ref=f1e52]:
+          - button [ref=f1e53] [cursor=pointer]
+          - textbox "Paste a link, drop a file, or type a note..." [ref=f1e55]
+          - generic [ref=f1e56]:
+            - button "Attach" [ref=f1e59] [cursor=pointer]
+            - generic [ref=f1e60]:
+              - button "Add to Stash" [disabled]
+        - generic:
+          - generic:
+            - button "Add something"
+      - main [ref=f1e62]:
+        - generic [ref=f1e63]:
+          - generic [ref=f1e64]:
+            - heading "Start building your knowledge base" [level=2] [ref=f1e65]
+            - paragraph [ref=f1e66]: Capture ideas, notes, and insights to make them searchable and discoverable.
+          - generic [ref=f1e69]:
+            - heading "Use Stash via WhatsApp" [level=3] [ref=f1e73]
+            - generic [ref=f1e74]:
+              - paragraph [ref=f1e75]: Register your phone number to text your notes via WhatsApp to+1 229 466 6353
+              - button "Register Phone Number" [ref=f1e76] [cursor=pointer]
+            - generic [ref=f1e77]:
+              - generic [ref=f1e78]:
+                - generic [ref=f1e82]: Text Notes
+                - generic [ref=f1e83]: Send any text to save it
+              - generic [ref=f1e84]:
+                - generic [ref=f1e88]: Voice Notes
+                - generic [ref=f1e89]: Record and send audio
+              - generic [ref=f1e90]:
+                - generic [ref=f1e95]: Images
+                - generic [ref=f1e96]: Photos & screenshots
+              - generic [ref=f1e97]:
+                - generic [ref=f1e101]: Documents
+                - generic [ref=f1e102]: PDFs & files
+            - generic [ref=f1e103]:
+              - paragraph [ref=f1e104]:
+                - strong [ref=f1e105]: "Ask questions about your content:"
+              - paragraph [ref=f1e106]: "\"What did I save about meetings?\" • \"Show me my travel notes\" • \"Find my recipe for pasta\""
+            - paragraph [ref=f1e107]: Register your phone number above to use WhatsApp features.
+    - region "Notifications (F8)":
+      - list [ref=f1e109]:
+        - status [ref=f1e110]:
+          - generic [ref=f1e111]:
+            - generic [ref=f1e112]: Account created!
+            - generic [ref=f1e113]: You've been signed up successfully.
+          - button [ref=f1e114] [cursor=pointer]
+  - status [ref=f1e119]: Notification Account created!You've been signed up successfully.

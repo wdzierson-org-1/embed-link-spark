@@ -1,0 +1,101 @@
+- generic:
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - button:
+                - generic: Stash
+              - generic: / August 9, 2026
+            - generic:
+              - button:
+                - generic: W
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - generic:
+                    - heading [level=3]: You're on day 1 of your 7 day free trial
+                    - paragraph: Upgrade to Stash Premium at any time for $4.99 per month.
+                - generic:
+                  - button: Get Premium
+                  - button
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - button
+                  - generic:
+                    - textbox:
+                      - /placeholder: Paste a link, drop a file, or type a note...
+                  - generic:
+                    - generic:
+                      - generic:
+                        - button
+                    - generic:
+                      - button [disabled]
+                - button [ref=f1e247] [cursor=pointer]: Add something
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - button:
+                  - generic: Ask Stash
+              - generic:
+                - generic:
+                  - button:
+                    - generic: Keyword search
+        - main:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - button:
+                    - heading [level=3]: village in Essex County, New York, United States
+              - generic:
+                - generic:
+                  - generic:
+                    - paragraph: https://en.wikipedia.org/wiki/Lake_Placid,_New_York
+                  - generic:
+                    - button:
+                      - text: https://en.wikipedia.org/wiki/Lake_Placid,_New_York
+                      - generic: https://en.wikipedia.org/wiki/Lake_Placid,_New_York
+                - generic:
+                  - generic:
+                    - generic:
+                      - button: add tags
+                - generic:
+                  - generic:
+                    - paragraph: Aug 9, 2026
+                  - generic:
+                    - generic: link
+                    - button [expanded]
+            - generic:
+              - generic:
+                - generic:
+                  - button:
+                    - heading [level=3]: Book Lake Placid Cabin for October Trip
+              - generic:
+                - generic:
+                  - generic:
+                    - paragraph: This text serves as a reminder to book a cabin at Lake Placid for an upcoming trip in October. It specifies checking availability for the weekend of the 17th and inquires about dog-friendly accommodations.
+                - generic:
+                  - generic:
+                    - generic:
+                      - button: add tags
+                - generic:
+                  - generic:
+                    - paragraph: Aug 9, 2026
+                  - generic:
+                    - generic: text
+                    - button
+      - list
+  - menu [active] [ref=f1e248]:
+    - menuitem "Chat with item" [ref=f1e249]
+    - menuitem "Download" [ref=f1e252]
+    - menuitem "Open link" [ref=f1e256]
+    - menuitem "Edit" [ref=f1e261]
+    - menuitem "Delete" [ref=f1e265]

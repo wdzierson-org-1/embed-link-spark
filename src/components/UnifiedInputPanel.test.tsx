@@ -38,6 +38,63 @@ describe("UnifiedInputPanel", () => {
     fetchSpy.mockRestore();
   });
 
+  it("strips detected URLs from the note text at submit", async () => {
+    invokeMock.mockResolvedValue({
+      data: { success: true, title: "Example", description: "OG description" },
+      error: null,
+    });
+    const onAddContent = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <UnifiedInputPanel
+        isInputUICollapsed={false}
+        onToggleInputUI={vi.fn()}
+        onAddContent={onAddContent}
+        getSuggestedTags={vi.fn().mockResolvedValue([])}
+      />
+    );
+
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "great read https://example.com" } });
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to Stash" }));
+
+    await waitFor(() => expect(onAddContent).toHaveBeenCalled());
+    const [type, payload] = onAddContent.mock.calls[0];
+    expect(type).toBe("link");
+    expect(payload.description).toBe("great read");
+  });
+
+  it("uses the link's own description when the note text is only the URL", async () => {
+    invokeMock.mockResolvedValue({
+      data: { success: true, title: "Example", description: "OG description" },
+      error: null,
+    });
+    const onAddContent = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <UnifiedInputPanel
+        isInputUICollapsed={false}
+        onToggleInputUI={vi.fn()}
+        onAddContent={onAddContent}
+        getSuggestedTags={vi.fn().mockResolvedValue([])}
+      />
+    );
+
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "https://example.com" } });
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to Stash" }));
+
+    await waitFor(() => expect(onAddContent).toHaveBeenCalled());
+    const [, payload] = onAddContent.mock.calls[0];
+    expect(payload.description).not.toContain("https://example.com");
+  });
+
   it("requests fast metadata first for detected links", async () => {
     invokeMock.mockResolvedValue({
       data: {

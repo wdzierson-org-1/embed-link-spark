@@ -214,8 +214,10 @@ const parseJsonLd = (html: string): Partial<MetadataResult> => {
       const data = JSON.parse(match[1]);
       const result: Partial<MetadataResult> = {};
       
-      if (data.name) result.title = data.name;
+      // Prefer name over headline: sites like Wikipedia put the page title in
+      // name and a short description in headline
       if (data.headline) result.title = data.headline;
+      if (data.name) result.title = data.name;
       if (data.description) result.description = data.description;
       if (data.image) {
         if (typeof data.image === 'string') {
@@ -533,11 +535,13 @@ const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: 
   // Try JSON-LD first for rich structured data
   const jsonLdData = parseJsonLd(cleanHtml);
   
-  // Extract title with multiple fallback strategies
+  // Extract title with multiple fallback strategies. og:title is the
+  // socially-intended title, so it wins over JSON-LD (whose headline field is
+  // unreliable across sites)
   const titleMatch = cleanHtml.match(/<title[^>]*>([^<]+)<\/title>/i);
-  let title = jsonLdData.title ||
-              parseMetaContent(cleanHtml, 'og:title') || 
-              parseMetaContent(cleanHtml, 'twitter:title') || 
+  let title = parseMetaContent(cleanHtml, 'og:title') ||
+              parseMetaContent(cleanHtml, 'twitter:title') ||
+              jsonLdData.title ||
               parseMetaContent(cleanHtml, 'title') ||
               (titleMatch ? titleMatch[1].trim() : null);
   
