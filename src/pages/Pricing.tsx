@@ -1,3 +1,4 @@
+import StashWordmark from '@/components/StashWordmark';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -9,13 +10,8 @@ const Pricing = () => {
     <div className="min-h-screen bg-background font-inter">
       {/* Navigation */}
       <nav className="flex items-center justify-between px-6 py-4 max-w-5xl mx-auto">
-        <Link to="/" className="flex items-center space-x-2">
-          <img 
-            src="/lovable-uploads/b93db9a2-7dba-4a6c-b36a-a9f982356ff6.png" 
-            alt="Stash"
-            className="w-8 h-8"
-          />
-          <span className="text-lg font-editorial text-foreground">Stash</span>
+        <Link to="/" className="flex items-center">
+          <StashWordmark className="h-5 text-foreground" />
         </Link>
         
         <div className="flex items-center space-x-3">

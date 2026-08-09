@@ -1,3 +1,4 @@
+import StashWordmark from '@/components/StashWordmark';
 import React from 'react';
 import { Link } from 'react-router-dom';
 
@@ -17,13 +18,8 @@ const LegalPage = ({ title, lastUpdated, intro, sections }: LegalPageProps) => {
   return (
     <div className="min-h-screen bg-background paper-texture">
       <nav className="flex items-center justify-between px-6 py-4 max-w-3xl mx-auto">
-        <Link to="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
-          <img
-            src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png"
-            alt="Stash"
-            className="w-8 h-8"
-          />
-          <span className="text-lg font-tobias text-foreground">Stash</span>
+        <Link to="/" className="flex items-center hover:opacity-80 transition-opacity">
+          <StashWordmark className="h-5 text-foreground" />
         </Link>
         <Link to="/" className="text-sm font-mori text-muted-foreground hover:text-foreground transition-colors">
           Back to home

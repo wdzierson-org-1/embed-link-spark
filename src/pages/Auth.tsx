@@ -1,6 +1,7 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import StashWordmark from '@/components/StashWordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -189,13 +190,8 @@ const Auth = () => {
       <div className="relative z-10">
         {/* Logo in upper left */}
         <div className="absolute top-6 left-6">
-          <div className="flex items-center space-x-2">
-            <img 
-              src="/lovable-uploads/b93db9a2-7dba-4a6c-b36a-a9f982356ff6.png" 
-              alt="Stash"
-              className="w-10 h-10"
-            />
-            <span className="text-xl font-editorial text-white">Stash</span>
+          <div className="flex items-center">
+            <StashWordmark className="h-6 text-white" />
           </div>
         </div>
 

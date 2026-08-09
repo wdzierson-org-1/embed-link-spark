@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Brain, MessageSquare, FileText, Calendar, Globe, BookOpen, Mic } from 'lucide-react';
 
+import StashWordmark from '@/components/StashWordmark';
 import jotThoughts from '@/assets/jot-thoughts.jpg';
 import healthTracking from '@/assets/health-tracking.jpg';
 import creativeProjects from '@/assets/creative-projects.jpg';
@@ -129,14 +130,8 @@ const Landing = () => {
       <div className="relative z-[1000]">
         {/* Navigation */}
         <nav className="flex items-center justify-between px-6 py-4 max-w-5xl mx-auto relative z-[1100]">
-          <div className="flex items-center space-x-2">
-            <img 
-              src="/lovable-uploads/b93db9a2-7dba-4a6c-b36a-a9f982356ff6.png" 
-              alt="Stash"
-              className="w-8 h-8"
-              style={{ filter: 'brightness(0) saturate(100%) invert(40%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(98%) contrast(86%)' }}
-            />
-            <span className="text-lg font-tobias" style={{ color: '#666' }}>Stash</span>
+          <div className="flex items-center">
+            <StashWordmark className="h-5 text-[#666666]" />
           </div>
           
           <div className="flex items-center space-x-3">
@@ -417,13 +412,8 @@ const Landing = () => {
 
         {/* Footer */}
         <footer className="px-6 py-16 max-w-4xl mx-auto text-center border-t border-border mt-20 relative z-[1000]">
-          <div className="flex items-center justify-center space-x-2 mb-6">
-            <img 
-              src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
-              alt="Stash"
-              className="w-8 h-8"
-            />
-            <span className="text-lg font-tobias text-foreground">Stash</span>
+          <div className="flex items-center justify-center mb-6">
+            <StashWordmark className="h-5 text-foreground" />
           </div>
           <p className="text-sm font-mori text-muted-foreground mb-8">
             Save anything. Keep the context.

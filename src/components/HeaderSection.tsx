@@ -14,6 +14,7 @@ import {
 import { Settings, LogOut, ExternalLink, Compass } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useProfile } from '@/hooks/useProfile';
+import StashWordmark from '@/components/StashWordmark';
 
 interface HeaderSectionProps {
   user: { email?: string; id?: string } | null | undefined;
@@ -43,16 +44,11 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
       <div className="container mx-auto px-4 h-[77px] flex items-center justify-between">
         <div className="flex items-center space-x-4">
           {/* Logo */}
-          <button 
+          <button
             onClick={() => navigate('/home')}
-            className="flex items-center space-x-2 hover:opacity-80 transition-opacity cursor-pointer"
+            className="flex items-center hover:opacity-80 transition-opacity cursor-pointer"
           >
-            <img 
-              src="/lovable-uploads/2b719fd5-c695-425b-9c8e-71fc6a7f4959.png" 
-              alt="Stash"
-              className="w-10 h-10"
-            />
-            <span className="text-xl font-tobias text-gray-900">Stash</span>
+            <StashWordmark className="h-6 text-gray-900" />
           </button>
           
           {/* Date */}
