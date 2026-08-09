@@ -7,8 +7,11 @@ import {
   fetchHtml,
   fetchViaJinaReader,
   fetchViaWayback,
+  inferMetadataFromUrl,
   isGenericTitle,
+  isJunkDescription,
   looksBlocked,
+  requestWaybackSnapshot,
 } from '../_shared/blockedContentFallbacks.ts';
 
 const corsHeaders = {
@@ -891,13 +894,22 @@ const rescueBlockedMetadata = async (
     }
   }
 
-  // Nothing beat the wall outright — a partial Jina read (description or
-  // content but a generic title) still beats a bare hostname
-  if (jina && (jina.description || jina.content)) {
+  // Nothing beat the wall outright. Commission an archive snapshot so a
+  // future retry can succeed, then fall back to inferring the topic from the
+  // URL itself — the user gets the gist now, the real content later. Partial
+  // Jina data (a real description behind a generic title) still wins a slot.
+  requestWaybackSnapshot(originalUrl);
+
+  const rawPartial = jina?.description ||
+    (jina?.content ? deriveDescriptionFromContent(jina.content) : undefined);
+  const partialDescription = isJunkDescription(rawPartial) ? undefined : rawPartial;
+  const inferred = await inferMetadataFromUrl(originalUrl, Deno.env.get('OPENAI_API_KEY'));
+
+  if (inferred || partialDescription) {
     return {
-      description: jina.description ||
-        (jina.content ? deriveDescriptionFromContent(jina.content) : undefined),
-      strategyUsed: 'jina-reader-partial',
+      title: inferred?.title,
+      description: partialDescription || inferred?.description,
+      strategyUsed: inferred ? 'url-inference' : 'jina-reader-partial',
     };
   }
 

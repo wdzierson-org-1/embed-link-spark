@@ -54,9 +54,17 @@ export const fetchViaJinaReader = async (
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    // A paid Jina key (JINA_API_KEY secret) lifts rate limits and unlocks the
+    // full browser-rendering engine; without one the free tier still works
+    const jinaKey = Deno.env.get('JINA_API_KEY');
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (jinaKey) {
+      headers['Authorization'] = `Bearer ${jinaKey}`;
+      headers['X-Engine'] = 'browser';
+    }
     const response = await fetch(`https://r.jina.ai/${url}`, {
       signal: controller.signal,
-      headers: { 'Accept': 'application/json' },
+      headers,
     });
     if (!response.ok) return null;
     const payload = await response.json();
@@ -103,6 +111,98 @@ export const fetchViaWayback = async (
   }
 };
 
+// Ask the Wayback Machine to capture the page now — it browses as its own
+// agent from its own infrastructure, so a snapshot is often available on the
+// next retry even when every direct tier is blocked. Fire-and-forget.
+export const requestWaybackSnapshot = (url: string): void => {
+  fetch(`https://web.archive.org/save/${url}`, {
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; StashBot/1.0)',
+    },
+    signal: AbortSignal.timeout(20_000),
+  }).then((res) => {
+    console.log('Wayback snapshot request for', url, '->', res.status);
+  }).catch(() => {
+    // Best effort only
+  });
+};
+
+// When every fetch tier fails, the URL itself still names the topic. Turn the
+// slug into a readable title and (when a key is available) let a small model
+// phrase the gist — clearly labeled as inferred so the UI is honest about it.
+export const inferMetadataFromUrl = async (
+  url: string,
+  openAIApiKey?: string
+): Promise<{ title: string; description: string } | null> => {
+  let slugTitle = '';
+  let hostname = '';
+  try {
+    const parsed = new URL(url);
+    hostname = parsed.hostname.replace(/^www\./, '');
+    const segments = parsed.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    const candidate = segments
+      .filter((s) => !s.startsWith('@'))
+      .sort((a, b) => b.length - a.length)[0] || '';
+    slugTitle = candidate
+      .replace(/\.(html?|php|aspx?)$/i, '')
+      .replace(/-[0-9a-f]{8,}$/i, '')   // trailing content ids (Medium etc.)
+      .replace(/[-_+]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  } catch {
+    return null;
+  }
+
+  if (slugTitle.length < 8 || !/[a-z]/i.test(slugTitle)) return null;
+
+  const fallbackTitle = slugTitle.replace(/\b\w/g, (c) => c.toUpperCase());
+  const fallbackDescription = `Saved from ${hostname}. The page couldn't be read yet — topic inferred from the link; Stash will keep trying to fetch the full content.`;
+
+  if (!openAIApiKey) {
+    return { title: fallbackTitle, description: fallbackDescription };
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You turn URL slugs into metadata. Reply with exactly two lines:\nTITLE: <the article title implied by the slug, in natural casing>\nGIST: <one sentence starting with "Appears to be about" describing the likely topic>',
+          },
+          {
+            role: 'user',
+            content: `Site: ${hostname}\nSlug: ${slugTitle}`,
+          },
+        ],
+        max_tokens: 120,
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`OpenAI ${response.status}`);
+    const data = await response.json();
+    const text: string = data.choices?.[0]?.message?.content || '';
+    const title = text.match(/TITLE:\s*(.+)/i)?.[1]?.trim();
+    const gist = text.match(/GIST:\s*(.+)/i)?.[1]?.trim();
+    return {
+      title: title || fallbackTitle,
+      description: gist
+        ? `${gist} (Inferred from the link — Stash will keep trying to fetch the full page.)`
+        : fallbackDescription,
+    };
+  } catch {
+    return { title: fallbackTitle, description: fallbackDescription };
+  }
+};
+
 // A rescue result whose title is just the site's own name (Jina rendering a
 // member wall, a challenge page) is not a real extraction
 export const isGenericTitle = (title: string | undefined, originalUrl: string): boolean => {
@@ -117,6 +217,13 @@ export const isGenericTitle = (title: string | undefined, originalUrl: string): 
   } catch {
     return false;
   }
+};
+
+// Boilerplate a site serves instead of the real description (404 copy,
+// challenge text) — worse than an inferred gist
+export const isJunkDescription = (description: string | undefined): boolean => {
+  if (!description) return true;
+  return /page that doesn't exist|stories will take you somewhere new|just a moment|enable javascript|access denied|verify you are human/i.test(description);
 };
 
 // First substantive prose line of extracted content — skipping nav clusters of
