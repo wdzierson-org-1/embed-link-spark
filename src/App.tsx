@@ -5,6 +5,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/hooks/useAuth';
 import { SubscriptionProvider } from '@/hooks/useSubscription';
 import Landing from '@/pages/Landing';
+import Privacy from '@/pages/Privacy';
+import Terms from '@/pages/Terms';
 import Pricing from '@/pages/Pricing';
 import Index from '@/pages/Index';
 import Auth from '@/pages/Auth';
@@ -25,6 +27,8 @@ function App() {
             <div className="min-h-screen bg-background">
               <Routes>
                 <Route path="/" element={<Landing />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/terms" element={<Terms />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/home" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />

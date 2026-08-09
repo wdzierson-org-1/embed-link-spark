@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Smartphone, Brain, MessageSquare, FileText, Calendar, Image, Heart, Globe, BookOpen, Music, MapPin } from 'lucide-react';
+import { ArrowRight, Brain, MessageSquare, FileText, Calendar, Globe, BookOpen, Mic } from 'lucide-react';
 
 import jotThoughts from '@/assets/jot-thoughts.jpg';
 import healthTracking from '@/assets/health-tracking.jpg';
@@ -157,110 +157,141 @@ const Landing = () => {
         <section className="px-6 pt-24 pb-32 max-w-4xl mx-auto text-center">
           <div className="fade-in">
             <h1 className="text-5xl md:text-7xl font-tobias font-thin text-white lg:text-foreground mb-8 leading-tight tracking-tight">
-              Ridiculously <span className="font-editorial-italic">easy</span><br />
-              <span className="text-white/80 lg:text-muted-foreground">bookmarks.</span>
+              Save anything.<br />
+              <span className="text-white/80 lg:text-muted-foreground">Keep the <span className="font-editorial-italic">context</span>.</span>
             </h1>
-            
+
             <p className="text-xl font-mori text-white/90 lg:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
-              Your universal inbox for thoughts, photos, voice memos, documents, and automatically self-describing links.<br />
-              <br />
-              Chat with your data to discover patterns and insights.
+              Links, PDFs, screenshots, voice notes — toss them into Stash with the thought that made you save them. Stash reads each one, describes it, and hands it back the moment you ask.
             </p>
-            
+
             <div className="slide-up">
               <Link to="/pricing">
                 <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
-                  Start organizing in seconds
+                  Start stashing — free for 7 days
                 </Button>
               </Link>
+              <p className="text-sm font-mori text-white/70 lg:text-muted-foreground mt-4">
+                Then $4.99/month. No credit card to start.
+              </p>
             </div>
           </div>
         </section>
 
-        {/* Use Cases Grid */}
+        {/* The Middle Section */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-tobias text-foreground mb-4">Everything you need to organize your life</h2>
+            <h2 className="text-3xl font-tobias text-foreground mb-4">More than a notes app. Less than a second job.</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
-              Powerful features that adapt to how you think, helping you organize everything effortlessly.
+              Basic notes apps swallow what you save. Serious knowledge systems make you the librarian. Stash sits in the middle — on purpose.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto items-stretch">
+            <div className="rounded-2xl border border-border bg-card/60 p-8 text-left">
+              <p className="text-xs font-mori uppercase tracking-widest text-muted-foreground mb-3">Notes apps</p>
+              <h3 className="text-xl font-mori text-foreground mb-3">Easy in, impossible out</h3>
+              <p className="text-muted-foreground font-mori leading-relaxed">
+                Everything piles into one long scroll. Six months later, that link you saved might as well be gone.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border-2 border-foreground bg-card p-8 text-left shadow-xl md:-my-3">
+              <p className="text-xs font-mori uppercase tracking-widest text-foreground mb-3">Stash</p>
+              <h3 className="text-2xl font-tobias text-foreground mb-3">Capture in seconds, <span className="font-editorial-italic">find it forever</span></h3>
+              <p className="text-muted-foreground font-mori leading-relaxed">
+                Drop it in, add a thought if you want, done. Stash titles it, describes it, and finds it when you ask — no filing, ever.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card/60 p-8 text-left">
+              <p className="text-xs font-mori uppercase tracking-widest text-muted-foreground mb-3">Knowledge systems</p>
+              <h3 className="text-xl font-mori text-foreground mb-3">Powerful, if you keep up</h3>
+              <p className="text-muted-foreground font-mori leading-relaxed">
+                Folders, tags, backlinks, weekly reviews. Most people stop maintaining the system by week two.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Capabilities Grid */}
+        <section className="px-6 py-20 max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-tobias text-foreground mb-4">Capture with zero filing</h2>
+            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+              No folders to design, no tags to invent. Add a thought if you want — Stash handles the rest.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Universal Capture */}
             <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-2xl mb-6 group-hover:bg-blue-200 transition-colors">
-                <Brain className="h-8 w-8 text-blue-600" />
+                <FileText className="h-8 w-8 text-blue-600" />
               </div>
-              <h3 className="text-xl font-tobias text-foreground mb-3">Universal Capture</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Drop anything in</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
-                Text, photos, voice memos, PDFs, and links. Everything you need to capture life's moments in one place.
+                Links, PDFs, images, voice notes, video, plain thoughts. One box for all of it — no sorting first.
               </p>
             </div>
 
-            {/* AI Insights */}
-            <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-100 rounded-2xl mb-6 group-hover:bg-purple-200 transition-colors">
-                <MessageSquare className="h-8 w-8 text-purple-600" />
-              </div>
-              <h3 className="text-xl font-tobias text-foreground mb-3">AI Insights</h3>
-              <p className="text-muted-foreground font-mori leading-relaxed">
-                Chat with your data to discover patterns, generate summaries, and unlock insights about your life.
-              </p>
-            </div>
-
-            {/* Smart Organization */}
             <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-2xl mb-6 group-hover:bg-green-200 transition-colors">
-                <Smartphone className="h-8 w-8 text-green-600" />
+                <Globe className="h-8 w-8 text-green-600" />
               </div>
-              <h3 className="text-xl font-tobias text-foreground mb-3">Access Everywhere</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Links describe themselves</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
-                Web, mobile, SMS, and WhatsApp. Capture thoughts wherever you are, whenever inspiration strikes.
+                Paste a URL and Stash fetches the title, preview image, and full page text on its own.
               </p>
             </div>
 
-            {/* Health & Wellness */}
-            <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-2xl mb-6 group-hover:bg-red-200 transition-colors">
-                <Heart className="h-8 w-8 text-red-600" />
-              </div>
-              <h3 className="text-xl font-tobias text-foreground mb-3">Health Tracking</h3>
-              <p className="text-muted-foreground font-mori leading-relaxed">
-                Log workouts, meals, and wellness notes. Track patterns to optimize your health journey.
-              </p>
-            </div>
-
-            {/* Creative Projects */}
             <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-orange-100 rounded-2xl mb-6 group-hover:bg-orange-200 transition-colors">
-                <Image className="h-8 w-8 text-orange-600" />
+                <BookOpen className="h-8 w-8 text-orange-600" />
               </div>
-              <h3 className="text-xl font-tobias text-foreground mb-3">Creative Projects</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Documents read themselves</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
-                Collect inspiration, mood boards, and project ideas. Turn scattered thoughts into organized creativity.
+                PDFs are read, summarized, and made searchable the moment they land in your stash.
               </p>
             </div>
 
-            {/* Travel & Places */}
+            <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-2xl mb-6 group-hover:bg-red-200 transition-colors">
+                <Mic className="h-8 w-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Voice becomes text</h3>
+              <p className="text-muted-foreground font-mori leading-relaxed">
+                Voice notes are transcribed and summarized automatically, so spoken thoughts are findable too.
+              </p>
+            </div>
+
             <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
               <div className="inline-flex items-center justify-center w-16 h-16 bg-teal-100 rounded-2xl mb-6 group-hover:bg-teal-200 transition-colors">
-                <MapPin className="h-8 w-8 text-teal-600" />
+                <MessageSquare className="h-8 w-8 text-teal-600" />
               </div>
-              <h3 className="text-xl font-tobias text-foreground mb-3">Travel & Places</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Save by WhatsApp</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
-                Save restaurant recommendations, travel plans, and location memories. Never forget a great discovery.
+                Text a link, photo, or voice note to your Stash number without opening the app at all.
+              </p>
+            </div>
+
+            <div className="text-center group hover:transform hover:scale-105 transition-all duration-300">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-100 rounded-2xl mb-6 group-hover:bg-purple-200 transition-colors">
+                <Brain className="h-8 w-8 text-purple-600" />
+              </div>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Ask instead of dig</h3>
+              <p className="text-muted-foreground font-mori leading-relaxed">
+                Chat with everything you've saved and get answers back with the sources they came from.
               </p>
             </div>
           </div>
         </section>
 
-        {/* Ridiculously Easy Bookmarks Section */}
+        {/* Paste Demo Section */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-tobias text-foreground mb-4">Easily capture rich link info by pasting</h2>
+            <h2 className="text-3xl font-tobias text-foreground mb-4">Paste a link, get the whole page</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
-              Paste your link and Stash will go and collect everything it can about it, making it immediately searchable and accessible to our AI. Just press enter. No need to add a description or categorize it. We do that for you.
+              Stash collects everything it can about a link the moment you paste it — title, preview, full text — and makes it searchable. No description to write, nothing to categorize.
             </p>
           </div>
 
@@ -366,16 +397,22 @@ const Landing = () => {
 
         {/* Call to Action */}
         <section className="px-6 py-32 max-w-4xl mx-auto text-center">
-          <h2 className="text-4xl font-tobias text-foreground mb-6">Ready to organize your life?</h2>
+          <h2 className="text-4xl font-tobias text-foreground mb-6">
+            Your future self will ask.<br />
+            <span className="text-muted-foreground">Stash will have the <span className="font-editorial-italic">answer</span>.</span>
+          </h2>
           <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
-            Join thousands who've transformed chaos into clarity. Start capturing everything that matters.
+            Try it free for a week — save a handful of things, then ask for them back. That's the whole pitch.
           </p>
           <Link to="/pricing">
             <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
-              Get Started for Free
+              Start your free trial
               <ArrowRight className="ml-3 h-5 w-5" />
             </Button>
           </Link>
+          <p className="text-sm font-mori text-muted-foreground mt-4">
+            7 days free, then $4.99/month.
+          </p>
         </section>
 
         {/* Footer */}
@@ -389,12 +426,12 @@ const Landing = () => {
             <span className="text-lg font-tobias text-foreground">Stash</span>
           </div>
           <p className="text-sm font-mori text-muted-foreground mb-8">
-            Your personal life organizer.
+            Save anything. Keep the context.
           </p>
           <div className="flex justify-center space-x-6 text-sm font-mori text-muted-foreground">
-            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
-            <a href="#" className="hover:text-foreground transition-colors">Terms</a>
-            <a href="#" className="hover:text-foreground transition-colors">Contact</a>
+            <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
+            <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
+            <a href="mailto:will@dzierson.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </footer>
       </div>
