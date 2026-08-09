@@ -4,6 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import {
   CRAWLER_UA,
   deriveDescriptionFromContent,
+  faviconImageForUrl,
   fetchHtml,
   fetchViaJinaReader,
   fetchViaWayback,
@@ -881,6 +882,7 @@ const rescueBlockedMetadata = async (
       title: jina.title,
       description: jina.description ||
         (jina.content ? deriveDescriptionFromContent(jina.content) : undefined),
+      image: jina.image,
       strategyUsed: 'jina-reader-rescue',
     };
   }
@@ -909,6 +911,9 @@ const rescueBlockedMetadata = async (
     return {
       title: inferred?.title,
       description: partialDescription || inferred?.description,
+      // A branded favicon tile beats an empty card; the retry queue keeps
+      // hunting for the real article image
+      image: jina?.image || faviconImageForUrl(originalUrl),
       strategyUsed: inferred ? 'url-inference' : 'jina-reader-partial',
     };
   }

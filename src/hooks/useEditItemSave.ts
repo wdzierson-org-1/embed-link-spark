@@ -10,29 +10,23 @@ interface UseEditItemSaveProps {
   contentRef: React.MutableRefObject<string>;
 }
 
-export const useEditItemSave = ({ 
-  onSave, 
-  saveToLocalStorage, 
-  titleRef, 
-  descriptionRef, 
-  contentRef 
+// Instant-feel autosave: every change lands in localStorage synchronously (the
+// safety copy), the server PATCH trails behind a short debounce, and closing
+// the sheet never waits on the network — the draft survives until the final
+// save confirms.
+export const useEditItemSave = ({
+  onSave,
+  saveToLocalStorage,
+  titleRef,
+  descriptionRef,
+  contentRef
 }: UseEditItemSaveProps) => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
-  // Immediate localStorage save function
   const saveToLocalStorageImmediate = useCallback((itemId: string) => {
     if (!itemId) return;
-    
-    console.log('useEditItemSave: Saving to localStorage:', {
-      itemId,
-      hasContent: !!contentRef.current,
-      contentLength: contentRef.current?.length,
-      hasImageInContent: contentRef.current?.includes('"type":"image"'),
-      hasTitle: !!titleRef.current,
-      hasDescription: !!descriptionRef.current
-    });
-    
+
     saveToLocalStorage(itemId, {
       title: titleRef.current,
       description: descriptionRef.current,
@@ -40,113 +34,56 @@ export const useEditItemSave = ({
     });
   }, [saveToLocalStorage, titleRef, descriptionRef, contentRef]);
 
-  // ENHANCED: Debounced server save with better image detection logging
   const debouncedServerSave = useCallback(
     debounce(async (
-      itemId: string, 
+      itemId: string,
       updates: { title?: string; description?: string; content?: string; supplemental_note?: string }
     ) => {
       if (!itemId) return;
-      
-      console.log('useEditItemSave: Starting debounced server save:', { 
-        itemId, 
-        hasContent: !!updates.content,
-        contentLength: updates.content?.length,
-        hasImageInContent: updates.content?.includes('"type":"image"'),
-        hasTitle: !!updates.title,
-        hasDescription: !!updates.description,
-        timestamp: new Date().toISOString()
-      });
-      
+
       setSaveStatus('saving');
-      
+
       try {
-        console.log('useEditItemSave: Calling onSave without list refresh:', {
-          itemId,
-          updates: {
-            hasTitle: !!updates.title,
-            hasDescription: !!updates.description,
-            hasContent: !!updates.content,
-            contentLength: updates.content?.length,
-            hasImageInContent: updates.content?.includes('"type":"image"')
-          }
-        });
-        
         await onSave(itemId, updates, { showSuccessToast: false, refreshItems: false });
-        
         setSaveStatus('saved');
         setLastSaved(new Date());
-        console.log('useEditItemSave: Server save completed successfully', {
-          itemId,
-          timestamp: new Date().toISOString()
-        });
       } catch (error) {
-        console.error('useEditItemSave: Server save failed:', error);
+        console.error('Autosave failed:', error);
         setSaveStatus('idle');
       }
-    }, 1000),
+    }, 400),
     [onSave]
   );
 
-  // ENHANCED: Combined save function with improved logging
   const debouncedSave = useCallback((
-    itemId: string, 
+    itemId: string,
     updates: { title?: string; description?: string; content?: string; supplemental_note?: string }
   ) => {
-    if (!itemId) {
-      console.log('useEditItemSave: No save - missing itemId');
-      return;
-    }
-    
-    console.log('useEditItemSave: debouncedSave called:', { 
-      itemId, 
-      hasContent: !!updates.content,
-      contentLength: updates.content?.length,
-      hasImageInContent: updates.content?.includes('"type":"image"'),
-      hasTitle: !!updates.title,
-      hasDescription: !!updates.description,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Immediate localStorage save
+    if (!itemId) return;
+
     saveToLocalStorageImmediate(itemId);
-    
-    // Debounced server save without forcing full list refresh
-    console.log('useEditItemSave: Triggering debounced server save');
     debouncedServerSave(itemId, updates);
   }, [saveToLocalStorageImmediate, debouncedServerSave]);
 
-  // ENHANCED: Final save with improved logging
   const flushAndFinalSave = useCallback(async (itemId: string) => {
     if (!itemId) return;
-    
-    console.log('useEditItemSave: Performing final save:', { 
-      itemId,
-      hasContent: !!contentRef.current,
-      contentLength: contentRef.current?.length,
-      hasImageInContent: contentRef.current?.includes('"type":"image"')
-    });
-    
-    // Cancel pending debounced save
+
     debouncedServerSave.cancel();
-    
-    // Perform immediate final save with current ref values
+
     const updates = {
       title: titleRef.current || undefined,
       description: descriptionRef.current || undefined,
       content: contentRef.current || undefined,
     };
-    
+
     try {
       await onSave(itemId, updates, { showSuccessToast: false, refreshItems: false });
-      console.log('useEditItemSave: Final save completed successfully');
     } catch (error) {
-      console.error('useEditItemSave: Final save failed:', error);
+      console.error('Final save failed:', error);
       throw error;
     }
   }, [debouncedServerSave, onSave, titleRef, descriptionRef, contentRef]);
 
-  // Clear save state when sheet closes
   const clearSaveState = useCallback(() => {
     setSaveStatus('idle');
     setLastSaved(null);

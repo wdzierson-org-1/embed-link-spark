@@ -20,12 +20,13 @@ interface InputChipProps {
   content: any;
   onRemove: () => void;
   ogData?: OpenGraphData;
-  metadataStatus?: 'fast-loading' | 'deep-loading' | 'ready' | 'failed';
+  metadataStatus?: 'fast-loading' | 'deep-loading' | 'inferred' | 'ready' | 'failed';
   processingStatus?: 'uploading' | 'processing' | 'ready' | 'error';
 }
 
 const InputChip = ({ type, content, onRemove, ogData, metadataStatus, processingStatus }: InputChipProps) => {
   const isLoadingMetadata = type === 'link' && (metadataStatus === 'fast-loading' || metadataStatus === 'deep-loading');
+  const isInferredMetadata = type === 'link' && metadataStatus === 'inferred';
   const metadataSignature = `${ogData?.title || ''}|${ogData?.description || ''}|${ogData?.image || ''}|${ogData?.previewImageUrl || ''}`;
   const previousSignatureRef = useRef(metadataSignature);
   const [isMetadataTransitioning, setIsMetadataTransitioning] = useState(false);
@@ -102,6 +103,11 @@ const InputChip = ({ type, content, onRemove, ogData, metadataStatus, processing
                   <div className="text-xs text-muted-foreground flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Fetching more details...
+                  </div>
+                )}
+                {isInferredMetadata && (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Site blocks previews — got the gist; full details after saving
                   </div>
                 )}
               </div>

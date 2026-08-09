@@ -178,16 +178,10 @@ describe("UnifiedInputPanel", () => {
     expect(deepCalls).toHaveLength(0);
   });
 
-  it("falls back to a deep request when fast metadata comes back empty", async () => {
-    invokeMock.mockImplementation((_name: string, payload: { body: { fastOnly?: boolean } }) => {
-      if (payload.body.fastOnly) {
-        return Promise.resolve({ data: null, error: { message: "failed" } });
-      }
-      return Promise.resolve({
-        data: { success: true, title: "Deep title", description: "Deep description" },
-        error: null,
-      });
-    });
+  it("shows an inferred slug title instantly when the site blocks metadata", async () => {
+    invokeMock.mockImplementation(() =>
+      Promise.resolve({ data: null, error: { message: "blocked" } })
+    );
 
     render(
       <UnifiedInputPanel
@@ -200,9 +194,17 @@ describe("UnifiedInputPanel", () => {
 
     const input = screen.getByRole("textbox");
 
-    fireEvent.change(input, { target: { value: "https://example.com" } });
+    fireEvent.change(input, { target: { value: "https://example.com/how-to-brew-better-coffee" } });
 
-    expect(await screen.findByText("Deep title")).toBeInTheDocument();
+    expect(await screen.findByText("How To Brew Better Coffee")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Site blocks previews — got the gist/)
+    ).toBeInTheDocument();
+
+    const deepCalls = invokeMock.mock.calls.filter(
+      ([name, payload]) => name === "extract-link-metadata" && payload.body.fastOnly === false
+    );
+    expect(deepCalls).toHaveLength(0);
   });
 
   it("submits fast metadata immediately after the chip settles", async () => {

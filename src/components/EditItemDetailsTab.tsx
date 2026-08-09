@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { Maximize, Globe, Lock } from 'lucide-react';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemImageSection from '@/components/EditItemImageSection';
@@ -171,6 +172,21 @@ const EditItemDetailsTab = ({
         onTitleChange={onTitleChange}
         onSave={onTitleSave}
       />
+
+      {/* Description Section — the AI-generated summary, fully editable */}
+      <div className="space-y-1.5">
+        <label htmlFor="edit-item-description" className="text-sm text-muted-foreground">
+          Description
+        </label>
+        <Textarea
+          id="edit-item-description"
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          onBlur={() => void onDescriptionSave(description)}
+          placeholder="Add a description..."
+          className="min-h-[72px] resize-y"
+        />
+      </div>
 
       {/* Inline Image for image items and links with images */}
       {showInlineImage && imageUrl && (

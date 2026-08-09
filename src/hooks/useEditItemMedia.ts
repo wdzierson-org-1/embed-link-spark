@@ -22,15 +22,18 @@ export const useEditItemMedia = ({ item }: UseEditItemMediaProps) => {
 
   const checkForImage = useCallback(() => {
     if (!item) return;
-    
-    if (item.type === 'image' && item.file_path) {
-      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-      setHasImage(true);
-      setImageUrl(data.publicUrl);
-    } else if (item.type === 'link' && item.file_path) {
-      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-      setHasImage(true);
-      setImageUrl(data.publicUrl);
+
+    if ((item.type === 'image' || item.type === 'link') && item.file_path) {
+      // file_path is either a storage path or (for rescued link previews) a
+      // raw external URL — use external URLs directly
+      if (item.file_path.startsWith('http')) {
+        setHasImage(true);
+        setImageUrl(item.file_path);
+      } else {
+        const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
+        setHasImage(true);
+        setImageUrl(data.publicUrl);
+      }
     } else {
       setHasImage(false);
       setImageUrl('');

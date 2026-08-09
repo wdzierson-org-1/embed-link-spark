@@ -10,8 +10,20 @@ export interface ExtractedPage {
   title?: string;
   description?: string;
   content?: string;
+  image?: string;
   source: string;
 }
+
+// Large favicon as the image of last resort — a branded tile beats an empty
+// card while the retry queue hunts for the real article image
+export const faviconImageForUrl = (url: string): string | undefined => {
+  try {
+    const hostname = new URL(url).hostname;
+    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=256`;
+  } catch {
+    return undefined;
+  }
+};
 
 export const CRAWLER_UA =
   'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/120.0.0.0 Safari/537.36';
@@ -57,7 +69,10 @@ export const fetchViaJinaReader = async (
     // A paid Jina key (JINA_API_KEY secret) lifts rate limits and unlocks the
     // full browser-rendering engine; without one the free tier still works
     const jinaKey = Deno.env.get('JINA_API_KEY');
-    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'X-With-Images-Summary': 'true',
+    };
     if (jinaKey) {
       headers['Authorization'] = `Bearer ${jinaKey}`;
       headers['X-Engine'] = 'browser';
@@ -73,12 +88,27 @@ export const fetchViaJinaReader = async (
     const content = typeof data.content === 'string' ? data.content.trim() : '';
     const title = typeof data.title === 'string' ? data.title.trim() : '';
     if (!title && content.length < 100) return null;
+
+    // Article image: the reader's images summary first, else the first inline
+    // markdown image in the content
+    let image: string | undefined;
+    if (data.images && typeof data.images === 'object') {
+      const candidates = Object.values(data.images).filter(
+        (value): value is string => typeof value === 'string' && value.startsWith('http')
+      );
+      image = candidates[0];
+    }
+    if (!image) {
+      image = content.match(/!\[[^\]]*\]\((https?:[^)\s]+)/)?.[1];
+    }
+
     return {
       title: title || undefined,
       description: typeof data.description === 'string' && data.description.trim()
         ? data.description.trim()
         : undefined,
       content: content.length >= 100 ? content : undefined,
+      image,
       source: 'jina-reader',
     };
   } catch {

@@ -11,6 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Switch } from '@/components/ui/switch';
 import { MAX_FILE_SIZE_MB, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
+import { humanizeUrlSlug, isWeakLinkMetadata } from '@/utils/urlInference';
 
 interface UnifiedInputPanelProps {
   isInputUICollapsed: boolean;
@@ -34,7 +35,7 @@ interface OpenGraphData {
   traceId?: string;
 }
 
-type MetadataStatus = 'fast-loading' | 'deep-loading' | 'ready' | 'failed';
+type MetadataStatus = 'fast-loading' | 'deep-loading' | 'inferred' | 'ready' | 'failed';
 
 interface InputItem {
   id: string;
@@ -549,51 +550,28 @@ const UnifiedInputPanel = ({
       maybeScheduleYouTubeRetry();
     }
 
-    // The fast result is enough to settle the chip; the heavy deep pass (image
-    // storage, UA retries) runs after save via enrichSavedLinkItem, so capture
-    // never waits on it. Deep runs pre-save only when fast came back empty.
-    if (fastMetadata && hasMeaningfulMetadata(metadataCacheRef.current.get(url))) {
+    // The fast result settles the chip; all heavier extraction (image storage,
+    // blocked-site rescue tiers) runs after save via enrichSavedLinkItem. When
+    // the site blocks previews, infer the topic from the URL slug instantly so
+    // the user can add with confidence — the card upgrades itself later.
+    const settled = metadataCacheRef.current.get(url);
+    if (fastMetadata && hasMeaningfulMetadata(settled) && !isWeakLinkMetadata(settled, url)) {
       updateMetadataStatus(itemId, 'ready');
       return;
     }
 
-    updateMetadataStatus(itemId, 'deep-loading');
-
-    const deepCacheKey = `deep:${url}`;
-    if (!metadataInFlightRef.current.has(deepCacheKey)) {
-      const deepRequest = fetchOgData(url, false)
-        .then((deepMetadata) => {
-          if (deepMetadata) {
-            const mergedMetadata = mergeOpenGraphData(metadataCacheRef.current.get(url), deepMetadata, url);
-            metadataCacheRef.current.set(url, mergedMetadata);
-            updateLinkMetadata(itemId, mergedMetadata);
-            console.log('[link-metadata] deep stage complete', {
-              itemId,
-              url,
-              strategyUsed: mergedMetadata.strategyUsed,
-              traceId: mergedMetadata.traceId,
-              hasTitle: Boolean(mergedMetadata.title),
-              hasDescription: Boolean(mergedMetadata.description),
-              hasImage: Boolean(mergedMetadata.previewImageUrl || mergedMetadata.image),
-            });
-            updateMetadataStatus(itemId, 'ready');
-            maybeScheduleYouTubeRetry();
-          } else {
-            updateMetadataStatus(itemId, hasMeaningfulMetadata(metadataCacheRef.current.get(url)) ? 'ready' : 'failed');
-            maybeScheduleYouTubeRetry();
-          }
-          return deepMetadata;
-        })
-        .finally(() => {
-          metadataInFlightRef.current.delete(deepCacheKey);
-        });
-
-      metadataInFlightRef.current.set(deepCacheKey, deepRequest);
+    const inferredTitle = humanizeUrlSlug(url);
+    if (inferredTitle) {
+      const inferredMetadata = mergeOpenGraphData(
+        metadataCacheRef.current.get(url),
+        { title: inferredTitle, url },
+        url
+      );
+      metadataCacheRef.current.set(url, inferredMetadata);
+      updateLinkMetadata(itemId, inferredMetadata);
+      updateMetadataStatus(itemId, 'inferred');
     } else {
-      metadataInFlightRef.current.get(deepCacheKey)?.then((deepMetadata) => {
-        updateMetadataStatus(itemId, deepMetadata || hasMeaningfulMetadata(metadataCacheRef.current.get(url)) ? 'ready' : 'failed');
-        maybeScheduleYouTubeRetry();
-      });
+      updateMetadataStatus(itemId, hasMeaningfulMetadata(metadataCacheRef.current.get(url)) ? 'ready' : 'failed');
     }
   }, [updateLinkMetadata, updateMetadataStatus]);
 
@@ -664,11 +642,13 @@ const UnifiedInputPanel = ({
       fileType = 'document';
     }
 
+    // The file is local — nothing processes before save, so the chip is ready
+    // immediately (upload and AI description happen after "Add to Stash")
     setInputItems(prev => [...prev, {
       id: generateId(),
       type: fileType,
       content: { file, name: file.name, size: file.size, type: file.type },
-      processingStatus: 'uploading',
+      processingStatus: 'ready',
     }]);
   }, [toast]);
 

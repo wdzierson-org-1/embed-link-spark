@@ -45,7 +45,7 @@ serve(async (req) => {
 
     const { data: pending, error } = await supabase
       .from('items')
-      .select('id, url, title, description, scrape_attempts')
+      .select('id, url, title, description, file_path, scrape_attempts')
       .eq('type', 'link')
       .not('url', 'is', null)
       .or('page_body.is.null,page_body.eq.')
@@ -85,9 +85,16 @@ serve(async (req) => {
           const { data: meta } = await supabase.functions.invoke('extract-link-metadata', {
             body: { url: item.url, fastOnly: false },
           });
+          const updates: Record<string, string> = {};
           if (meta?.title && !isPlaceholderMetadata(meta.title, null, item.url)) {
-            const updates: Record<string, string> = { title: meta.title };
+            updates.title = meta.title;
             if (meta.description) updates.description = meta.description;
+          }
+          const bestImage = meta?.previewImagePath || meta?.previewImagePublicUrl || meta?.image;
+          if (bestImage && !item.file_path) {
+            updates.file_path = bestImage;
+          }
+          if (Object.keys(updates).length > 0) {
             await supabase.from('items').update(updates).eq('id', item.id);
           }
         } catch (metaError) {
