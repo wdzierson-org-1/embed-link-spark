@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { SUPABASE_URL } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/integrations/supabase/client';
 import HeaderSection from '@/components/HeaderSection';
 import ContentGrid from '@/components/ContentGrid';
 
@@ -57,8 +57,18 @@ export function Discover() {
         ...(searchQuery && { search: searchQuery }),
       });
 
+      // The edge function verifies JWTs; anonymous visitors authenticate with
+      // the public anon key, signed-in users with their session token (which
+      // also personalizes the feed to exclude their own/followed items)
+      const { data: { session } } = await supabase.auth.getSession();
       const response = await fetch(
-        `${SUPABASE_URL}/functions/v1/get-discover-feed?${params}`
+        `${SUPABASE_URL}/functions/v1/get-discover-feed?${params}`,
+        {
+          headers: {
+            Authorization: `Bearer ${session?.access_token ?? SUPABASE_PUBLISHABLE_KEY}`,
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+          },
+        }
       );
 
       if (!response.ok) {

@@ -11,4 +11,4 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 // Export SUPABASE_URL for constructing proxy URLs
-export { SUPABASE_URL };
+export { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY };

@@ -32,18 +32,16 @@ serve(async (req) => {
     const limit = parseInt(searchParams.get('limit') || '20');
     const search = searchParams.get('search') || '';
 
-    // Build base query for public items from users with public feeds enabled.
-    // The !inner join is required so the public_feed_enabled filter excludes the
-    // item rows themselves (a plain embed filter only nulls out the embed).
+    // Build base query for public items. Owner profiles are fetched in a second
+    // query below — the production DB has no items→user_profiles foreign key,
+    // so a PostgREST embed (the previous approach) always errored.
     let query = supabase
       .from('items')
       .select(`
         *,
-        comment_count:comments(count),
-        user_profile:user_profiles!items_user_id_fkey!inner(id, username, display_name, avatar_url, public_feed_enabled)
+        comment_count:comments(count)
       `)
-      .eq('is_public', true)
-      .eq('user_profile.public_feed_enabled', true);
+      .eq('is_public', true);
 
     // Exclude items from users the current user already follows
     if (currentUserId) {
@@ -81,14 +79,42 @@ serve(async (req) => {
       });
     }
 
-    const processedItems = (items || []).map(item => ({
-      ...item,
-      comment_count: item.comment_count?.[0]?.count || 0,
-      profile: item.user_profile
-    }));
+    // Attach owner profiles and keep only items from users with public feeds
+    // enabled (and a profile to link to)
+    const userIds = [...new Set((items || []).map(item => item.user_id))];
+    const profilesById = new Map<string, unknown>();
 
-    // A full page means there may be more; avoids a second count query whose
-    // filters could drift from the main query and silently break pagination
+    if (userIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from('user_profiles')
+        .select('id, username, display_name, avatar_url, public_feed_enabled')
+        .in('id', userIds)
+        .eq('public_feed_enabled', true);
+
+      if (profilesError) {
+        console.error('Error fetching profiles for discover feed:', profilesError);
+        return new Response(JSON.stringify({ error: 'Failed to fetch items' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      for (const profile of profiles || []) {
+        profilesById.set(profile.id, profile);
+      }
+    }
+
+    const processedItems = (items || [])
+      .filter(item => profilesById.has(item.user_id))
+      .map(item => ({
+        ...item,
+        comment_count: item.comment_count?.[0]?.count || 0,
+        profile: profilesById.get(item.user_id),
+        user_profile: profilesById.get(item.user_id)
+      }));
+
+    // hasMore reflects the raw page before profile filtering: a full raw page
+    // means the next offset may hold more, even if this page filtered smaller
     const hasMore = (items?.length || 0) === limit;
 
     return new Response(JSON.stringify({
