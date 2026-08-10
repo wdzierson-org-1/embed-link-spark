@@ -14,6 +14,7 @@ import VideoLightbox from '@/components/VideoLightbox';
 import ChatInterface from '@/components/ChatInterface';
 import type { Attachment } from '@/components/CollectionAttachments';
 import { supabase } from '@/integrations/supabase/client';
+import { isDocumentProcessing } from '@/utils/documentProcessing';
 
 interface ContentItem {
   id: string;
@@ -72,10 +73,8 @@ const ContentItem = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isNoteDeleted, setIsNoteDeleted] = useState(false);
 
-  // Detect if document is still processing; extract-pdf-text writes summary
-  // when extraction lands, so its absence means work is still in flight.
   // Updates arrive via the realtime items subscription in useItems (no polling)
-  const isProcessing = item.type === 'document' && !item.summary;
+  const isProcessing = isDocumentProcessing(item);
 
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';

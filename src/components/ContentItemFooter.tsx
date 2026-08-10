@@ -7,6 +7,7 @@ import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertica
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
+import { isDocumentProcessing } from '@/utils/documentProcessing';
 
 interface ContentItem {
   id: string;
@@ -19,6 +20,7 @@ interface ContentItem {
   is_public?: boolean;
   user_id?: string;
   comment_count?: number;
+  summary?: string;
 }
 
 interface ContentItemFooterProps {
@@ -42,8 +44,7 @@ const ContentItemFooter = ({
   onTogglePrivacy,
   onCommentClick
 }: ContentItemFooterProps) => {
-  // Detect if document is still processing
-  const isProcessing = item.type === 'document' && (!item.content || item.content.length < 100);
+  const isProcessing = isDocumentProcessing(item);
   const getIcon = (type: string) => {
     switch (type) {
       case 'text': return <FileText className="h-4 w-4" />;

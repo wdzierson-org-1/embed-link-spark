@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Expand } from 'lucide-react';
 import ContentItemImage from '@/components/ContentItemImage';
 import { supabase } from '@/integrations/supabase/client';
+import { isDocumentProcessing } from '@/utils/documentProcessing';
 
 interface ContentItem {
   id: string;
@@ -15,6 +16,7 @@ interface ContentItem {
   file_path?: string;
   is_public?: boolean;
   url?: string;
+  summary?: string;
 }
 
 interface ContentItemHeaderProps {
@@ -34,8 +36,7 @@ const ContentItemHeader = ({
   onVideoExpand,
   isPublicView = false
 }: ContentItemHeaderProps) => {
-  // Detect if document is still processing
-  const isProcessing = item.type === 'document' && (!item.content || item.content.length < 100);
+  const isProcessing = isDocumentProcessing(item);
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);

@@ -1,7 +1,17 @@
 
 import React, { useState } from 'react';
+import { FileText, StickyNote, AudioLines, Video, Image as ImageIcon, Link as LinkIcon, type LucideIcon } from 'lucide-react';
 import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { getGradientPlaceholder } from '@/utils/gradientPlaceholders';
+
+const TYPE_ICONS: Record<string, LucideIcon> = {
+  document: FileText,
+  text: StickyNote,
+  audio: AudioLines,
+  video: Video,
+  image: ImageIcon,
+  link: LinkIcon,
+};
 
 interface ContentItem {
   id: string;
@@ -87,7 +97,8 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
 
   // Always show a gradient placeholder if no image is available
   const gradientSrc = getGradientPlaceholder(item.id);
-  
+  const TypeIcon = TYPE_ICONS[item.type];
+
   return (
     <div className="relative w-full h-48 overflow-hidden">
       <img
@@ -95,6 +106,13 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
         alt={item.title || 'Content thumbnail'}
         className="w-full h-full object-cover"
       />
+      {TypeIcon && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="grid h-14 w-14 place-items-center rounded-2xl bg-white/75 shadow-[0_2px_8px_rgba(0,0,0,0.12)] backdrop-blur-sm">
+            <TypeIcon className="h-6 w-6 text-gray-700" strokeWidth={1.75} />
+          </div>
+        </div>
+      )}
       {isPublicView && (
         <div className="absolute top-2 right-2 bg-primary text-primary-foreground text-xs font-medium px-2 py-1 rounded-md shadow-sm">
           PUBLICLY SHARED

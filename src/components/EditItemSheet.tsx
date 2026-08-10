@@ -21,6 +21,7 @@ import EditItemImageTab from '@/components/EditItemImageTab';
 import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
 import { useEditItemSheet } from '@/hooks/useEditItemSheet';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { isDocumentProcessing } from '@/utils/documentProcessing';
 
 interface ContentItem {
   id: string;
@@ -45,8 +46,7 @@ interface EditItemSheetProps {
 const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemSheetProps) => {
   const isMobile = useIsMobile();
 
-  // Detect if document is still processing (summary lands when extraction does)
-  const isProcessing = item?.type === 'document' && !item?.summary;
+  const isProcessing = item ? isDocumentProcessing(item) : false;
 
   // Prevent opening if processing
   React.useEffect(() => {
