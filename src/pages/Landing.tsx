@@ -251,7 +251,7 @@ const Landing = () => {
           opacity: gradientOpacity,
           height: '65vh',
           background:
-            'linear-gradient(to bottom, rgba(64,45,92,0.32) 0%, rgba(64,45,92,0.14) 35%, transparent 70%)',
+            'linear-gradient(to bottom, rgba(74,42,125,0.30) 0%, rgba(74,42,125,0.13) 35%, transparent 70%)',
         }}
       />
 
