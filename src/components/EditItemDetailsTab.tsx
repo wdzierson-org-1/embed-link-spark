@@ -1,10 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Maximize, Globe, Lock, AlignLeft, FileText, Trash2, ImageUp, Loader2 } from 'lucide-react';
+import { Globe, Lock, AlignLeft, Trash2, ImageUp, Loader2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +19,7 @@ import { uploadFile } from '@/utils/fileUploader';
 import { useAuth } from '@/hooks/useAuth';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemImageSection from '@/components/EditItemImageSection';
-import EditItemContentEditor from '@/components/EditItemContentEditor';
+import EditItemContentSection from '@/components/EditItemContentSection';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
@@ -341,50 +340,17 @@ const EditItemDetailsTab = ({
         </div>
       )}
 
-      {/* Content Section */}
-      <div className={`${sectionCard} space-y-2`}>
-        <div className="flex items-center justify-between">
-          <label className={sectionLabel}>
-            <FileText className="h-3.5 w-3.5" />
-            Content
-          </label>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsEditorMaximized(true)}
-            className="h-8 w-8 rounded-lg border border-black/5 bg-white p-0 shadow-sm"
-            title="Maximize editor"
-          >
-            <Maximize className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="relative">
-          {isContentLoading ? (
-            <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
-              Loading editor...
-            </div>
-          ) : !mobileEditorReady && isMobile ? (
-            <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
-              <div className="text-center">
-                <div className="animate-pulse">Initializing editor...</div>
-              </div>
-            </div>
-          ) : (
-            <div className={`${isMobile ? 'min-h-[400px]' : ''}`}>
-              <EditItemContentEditor
-                content={content}
-                onContentChange={onContentChange}
-                itemId={item?.id}
-                editorInstanceKey={editorKey}
-                isMaximized={false}
-              />
-            </div>
-          )}
-          <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
-            Press / for formatting options
-          </div>
-        </div>
-      </div>
+      {/* Notes & Summary Section */}
+      <EditItemContentSection
+        item={item}
+        content={content}
+        isContentLoading={isContentLoading}
+        editorKey={editorKey}
+        onContentChange={onContentChange}
+        onMaximize={() => setIsEditorMaximized(true)}
+        isMobile={isMobile}
+        mobileEditorReady={mobileEditorReady}
+      />
 
       {/* Supplemental Note Section */}
       <div className={sectionCard}>

@@ -2,6 +2,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { stripPreamble, NO_PREAMBLE_RULES } from '../_shared/summarize.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,7 +32,7 @@ serve(async (req) => {
           content: [
             {
               type: 'text',
-              text: 'Please provide a detailed but concise description of this image. Focus on the main subjects, actions, and important visual elements.'
+              text: 'Describe this image concisely: the main subjects, actions, and important visual elements. ' + NO_PREAMBLE_RULES
             },
             {
               type: 'image_url',
@@ -76,7 +77,7 @@ serve(async (req) => {
       messages = [
         {
           role: 'system',
-          content: 'You are a helpful assistant that creates concise, informative descriptions of content. Keep descriptions under 100 words.'
+          content: 'You write concise, informative descriptions of saved content for a card in a personal library. Keep descriptions under 100 words. ' + NO_PREAMBLE_RULES
         },
         {
           role: 'user',
@@ -105,7 +106,7 @@ serve(async (req) => {
       throw new Error('No description generated');
     }
 
-    const description = data.choices[0].message.content.trim();
+    const description = stripPreamble(data.choices[0].message.content.trim());
 
     return new Response(JSON.stringify({ description }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

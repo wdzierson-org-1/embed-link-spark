@@ -9,6 +9,7 @@ import {
   htmlToText,
   looksBlocked,
 } from '../_shared/blockedContentFallbacks.ts';
+import { generateSummary } from '../_shared/summarize.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -135,6 +136,29 @@ serve(async (req) => {
       .select('title, description, content, supplemental_note, url')
       .single();
 
+    // Summarize the scraped page for the edit panel's Summary tab (non-fatal)
+    let summary: string | null = null;
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (openAIApiKey && !updateError) {
+      try {
+        summary = await generateSummary(openAIApiKey, {
+          sourceText: trimmedContent,
+          kind: 'link',
+          title: updatedItem?.title,
+          url: updatedItem?.url,
+        });
+        if (summary) {
+          const { error: summaryError } = await supabase
+            .from('items')
+            .update({ summary })
+            .eq('id', itemId);
+          if (summaryError) console.error('Error saving link summary:', summaryError);
+        }
+      } catch (summaryErr) {
+        console.error('Link summary generation failed (non-fatal):', summaryErr);
+      }
+    }
+
     if (updateError) {
       console.error('Error updating page_body:', updateError);
       return new Response(
@@ -149,6 +173,7 @@ serve(async (req) => {
     const textForEmbedding = [
       updatedItem?.title,
       updatedItem?.description,
+      summary,
       updatedItem?.content,
       updatedItem?.supplemental_note,
       updatedItem?.url,

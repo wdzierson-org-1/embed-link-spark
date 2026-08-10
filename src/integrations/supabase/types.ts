@@ -248,6 +248,7 @@ export type Database = {
           is_public: boolean
           mime_type: string | null
           page_body: string | null
+          summary: string | null
           supplemental_note: string | null
           tags: string[] | null
           title: string | null
@@ -268,6 +269,7 @@ export type Database = {
           is_public?: boolean
           mime_type?: string | null
           page_body?: string | null
+          summary?: string | null
           supplemental_note?: string | null
           tags?: string[] | null
           title?: string | null
@@ -288,6 +290,7 @@ export type Database = {
           is_public?: boolean
           mime_type?: string | null
           page_body?: string | null
+          summary?: string | null
           supplemental_note?: string | null
           tags?: string[] | null
           title?: string | null

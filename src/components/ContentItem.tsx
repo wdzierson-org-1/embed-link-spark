@@ -28,6 +28,7 @@ interface ContentItem {
   mime_type?: string;
   is_public?: boolean;
   supplemental_note?: string;
+  summary?: string;
 }
 
 interface ContentItemProps {
@@ -71,9 +72,10 @@ const ContentItem = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isNoteDeleted, setIsNoteDeleted] = useState(false);
 
-  // Detect if document is still processing; updates arrive via the realtime
-  // items subscription in useItems (no polling)
-  const isProcessing = item.type === 'document' && (!item.content || item.content.length < 100);
+  // Detect if document is still processing; extract-pdf-text writes summary
+  // when extraction lands, so its absence means work is still in flight.
+  // Updates arrive via the realtime items subscription in useItems (no polling)
+  const isProcessing = item.type === 'document' && !item.summary;
 
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';

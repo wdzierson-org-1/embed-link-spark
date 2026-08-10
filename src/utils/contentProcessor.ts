@@ -433,31 +433,35 @@ export const processAndInsertContent = async (
   
   if (!aiDescription && !data.isProcessing) {
     console.log('processAndInsertContent: Processing media and generating AI description');
-    
-    // Handle audio transcription
-    if (type === 'audio' && (filePath || data.uploadedFilePath)) {
+
+    // Handle audio/video transcription (Whisper accepts common video containers
+    // too; if it can't, we fall back to a filename-based description)
+    if ((type === 'audio' || type === 'video') && (filePath || data.uploadedFilePath)) {
       try {
-        const audioPath = filePath || data.uploadedFilePath;
-        const { data: audioUrl } = supabase.storage.from('stash-media').getPublicUrl(audioPath);
-        
+        const mediaPath = filePath || data.uploadedFilePath;
+        const { data: mediaUrl } = supabase.storage.from('stash-media').getPublicUrl(mediaPath);
+
         const { data: transcriptionResult, error: transcriptionError } = await supabase.functions.invoke('transcribe-audio', {
           body: {
-            audioUrl: audioUrl.publicUrl,
-            fileName: data.file?.name || 'audio.webm'
+            audioUrl: mediaUrl.publicUrl,
+            fileName: data.file?.name || (type === 'video' ? 'video.mp4' : 'audio.webm')
           }
         });
 
         if (transcriptionError) {
-          console.error('Audio transcription failed:', transcriptionError);
-          aiDescription = 'Audio file uploaded but transcription failed';
+          console.error('Transcription failed:', transcriptionError);
         } else {
           transcription = transcriptionResult.transcription || '';
-          aiDescription = transcriptionResult.description || 'Audio transcription available';
-          console.log('Audio transcribed successfully:', { transcription: transcription.substring(0, 100) + '...' });
+          aiDescription = transcriptionResult.description || 'Transcription available';
+          console.log('Media transcribed successfully:', { transcription: transcription.substring(0, 100) + '...' });
         }
       } catch (error) {
-        console.error('Audio processing error:', error);
-        aiDescription = 'Audio file uploaded but processing failed';
+        console.error('Media transcription error:', error);
+      }
+
+      if (!aiDescription) {
+        aiDescription = await generateDescription(type, { content: data.file?.name, url: data.url })
+          || `${type === 'video' ? 'Video' : 'Audio'} uploaded — transcription unavailable`;
       }
     }
     // Images and text notes get described asynchronously after insert
@@ -477,13 +481,15 @@ export const processAndInsertContent = async (
     console.log('processAndInsertContent: Using provided description:', aiDescription);
   }
 
-  // Prepare the item data - for links, store clean structured data
-  const itemContent = transcription || data.content; // Use transcription for audio files
+  // Prepare the item data. content is the user's own notes; captured source
+  // material (like a transcript) lives in page_body
+  const itemContent = data.content;
   const itemData = {
     user_id: userId,
     type: type as ItemType,
     title: title || data.title,
-    content: itemContent, // Use transcription for audio, original content for others
+    content: itemContent,
+    page_body: transcription || null,
     description: aiDescription || null,
     url: data.url,
     file_path: filePath || data.uploadedFilePath,
@@ -604,7 +610,8 @@ export const processAndInsertContent = async (
     // Generate embeddings for textual content (including transcriptions and descriptions)
     const textForEmbedding = [
       title || data.title,
-      transcription || data.content, // Use transcription for audio files
+      data.content,
+      transcription,
       aiDescription,
       data.url
     ].filter(Boolean).join(' ');

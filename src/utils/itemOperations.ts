@@ -54,6 +54,17 @@ export const saveItem = async (
         textualContent.push(updatedItem.url);
       }
 
+      // Captured source material and AI summary aren't user-editable here, but
+      // embeddings are fully replaced on regeneration — losing them from the
+      // text would silently drop them from search
+      if (updatedItem.summary) {
+        textualContent.push(updatedItem.summary);
+      }
+
+      if (updatedItem.page_body) {
+        textualContent.push(updatedItem.page_body);
+      }
+
       const textForEmbedding = textualContent.join(' ').trim();
 
       if (textForEmbedding) {

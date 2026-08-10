@@ -40,7 +40,7 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: 'You are a document analyzer. Generate a concise title (5-10 words) and a brief one-sentence description for documents. Be specific and descriptive.'
+            content: 'You are a document analyzer. Generate a concise title (5-10 words) and a brief one-sentence description for documents. Be specific and descriptive. Respond with exactly two lines — the title line then the description line — and nothing else: no preamble, no labels, no commentary.'
           },
           {
             role: 'user',
