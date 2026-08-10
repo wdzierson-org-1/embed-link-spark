@@ -215,7 +215,11 @@ const LandingChatDemo = () => {
               <div className="truncate text-[13px] font-semibold leading-tight text-gray-900">
                 {savedResolved ? SAVED_TITLE : 'Saving…'}
               </div>
-              <div className="text-[11.5px] text-green-600">✓ Saved to your stash · describing it now…</div>
+              {savedResolved ? (
+                <div className="text-[11.5px] text-green-600">✓ Saved to your stash · describing it now…</div>
+              ) : (
+                <div className="text-[11.5px] text-muted-foreground">Reading the page…</div>
+              )}
             </div>
           </div>
         )}
