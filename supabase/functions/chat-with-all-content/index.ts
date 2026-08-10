@@ -20,6 +20,39 @@ const MAX_CHARS_PER_ITEM = 1500;
 const MAX_CONTEXT_CHARS = 7000;
 const MAX_HISTORY_MESSAGES = 6;
 
+// Canned product knowledge, available to every user regardless of what they've
+// saved — so "how do I use Stash?" questions get real answers, especially for
+// brand-new accounts with nothing stashed yet.
+const APP_GUIDE = `
+WHAT STASH IS: A personal memory app. Save links, notes, files, photos, voice
+memos — Stash understands each one, describes it, and makes it findable later.
+
+SAVING THINGS:
+- On the home page, paste a link anywhere on the screen to capture it instantly.
+- Drop files (images, PDFs, audio, video) onto the input box, or click to attach.
+- Type (or dictate) a note straight into the input box.
+- By phone: add your number in Settings → Phone Number, then text links, photos,
+  or voice notes to your Stash WhatsApp/SMS number — no app needed.
+
+WHAT HAPPENS AUTOMATICALLY: Links fetch their own title, preview image, and full
+page text. PDFs are read and summarized. Voice notes are transcribed. Images are
+analyzed. Everything gets suggested tags and becomes searchable.
+
+FINDING THINGS: Search by keyword from the home page, filter by tag, or just ask
+this assistant ("Ask Stash") — answers cite the saved items they came from.
+
+EDITING: Click an item's title to open it. Title, description, and notes save
+automatically as you type. You can add or replace an item's image, manage its
+tags, or delete it from the same panel.
+
+SHARING: In an item's edit panel, flip the Public Feed toggle to publish it to
+your public page at gostash.it/feed/<your-username>. Shared items can carry a
+yellow sticky note and receive comments. You can follow other people's feeds.
+
+ACCOUNT: Settings covers your profile, phone number, tags, and subscription.
+Stash is free for 14 days, then $4.99/month, cancel anytime.
+`.trim();
+
 const generateQueryEmbedding = async (text: string, openAIApiKey: string): Promise<number[]> => {
   const response = await fetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
@@ -112,11 +145,17 @@ serve(async (req) => {
     }
 
     const systemPrompt = contextBlocks.length > 0
-      ? `You are Stash, the user's personal memory assistant. Answer using ONLY the saved items below. Cite items inline with their bracket number, like [1]. Be concise and direct. If the saved items don't actually contain the answer, say so plainly instead of guessing.
+      ? `You are Stash, the user's personal memory assistant. For questions about the user's saved content, answer using ONLY the saved items below and cite items inline with their bracket number, like [1]. Be concise and direct. If the saved items don't actually contain the answer, say so plainly instead of guessing. For questions about how to use the Stash app itself, answer from the APP GUIDE (no citations needed).
+
+APP GUIDE:
+${APP_GUIDE}
 
 SAVED ITEMS:
 ${contextBlocks.join('\n\n')}`
-      : `You are Stash, the user's personal memory assistant. No saved items matched this question. Say plainly that you couldn't find anything relevant in their stash, and suggest they try different keywords or save the information first. Do not invent content.`;
+      : `You are Stash, the user's personal memory assistant. No saved items matched this question. If the user is asking how to use the Stash app itself, answer helpfully from the APP GUIDE below. Otherwise, say plainly that you couldn't find anything relevant in their stash, and suggest they try different keywords or save the information first. Do not invent saved content.
+
+APP GUIDE:
+${APP_GUIDE}`;
 
     const trimmedHistory = Array.isArray(conversationHistory)
       ? conversationHistory.slice(-MAX_HISTORY_MESSAGES)
