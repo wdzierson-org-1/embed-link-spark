@@ -1,10 +1,23 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Maximize, Globe, Lock, AlignLeft, FileText } from 'lucide-react';
+import { Maximize, Globe, Lock, AlignLeft, FileText, Trash2, ImageUp, Loader2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { uploadFile } from '@/utils/fileUploader';
+import { useAuth } from '@/hooks/useAuth';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemImageSection from '@/components/EditItemImageSection';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
@@ -51,6 +64,7 @@ interface EditItemDetailsTabProps {
   supplementalNote?: string;
   onSupplementalNoteChange?: (note: string) => void;
   onPublicToggle?: (isPublic: boolean) => void;
+  onImageChange?: (filePath: string | null) => Promise<void>;
 }
 
 const EditItemDetailsTab = ({
@@ -76,9 +90,52 @@ const EditItemDetailsTab = ({
   supplementalNote = '',
   onSupplementalNoteChange = () => {},
   onPublicToggle = () => {},
+  onImageChange,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
+  const [isImageBusy, setIsImageBusy] = useState(false);
+  const { user } = useAuth();
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+
+  // Description grows with its content
+  const resizeDescription = () => {
+    const el = descriptionRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight + 2}px`;
+  };
+  useEffect(() => {
+    resizeDescription();
+  }, [description]);
+
+  const handleReplaceImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !user || !onImageChange) return;
+    setIsImageBusy(true);
+    try {
+      const path = await uploadFile(file, user.id);
+      await onImageChange(path);
+    } catch (error) {
+      console.error('Image replace failed:', error);
+    } finally {
+      setIsImageBusy(false);
+    }
+  };
+
+  const handleRemoveImage = async () => {
+    if (!onImageChange) return;
+    setIsImageBusy(true);
+    try {
+      await onImageChange(null);
+    } catch (error) {
+      console.error('Image remove failed:', error);
+    } finally {
+      setIsImageBusy(false);
+    }
+  };
 
   // Local state for immediate UI feedback
   const [localIsPublic, setLocalIsPublic] = React.useState(item?.is_public || false);
@@ -185,11 +242,12 @@ const EditItemDetailsTab = ({
           </label>
           <Textarea
             id="edit-item-description"
+            ref={descriptionRef}
             value={description}
-            onChange={(e) => onDescriptionChange(e.target.value)}
+            onChange={(e) => { onDescriptionChange(e.target.value); resizeDescription(); }}
             onBlur={() => void onDescriptionSave(description)}
             placeholder="Add a description..."
-            className="min-h-[72px] resize-y rounded-xl border-black/10 bg-gray-50/60 focus-visible:ring-violet-300"
+            className="min-h-[72px] resize-none overflow-hidden rounded-xl border-black/10 bg-gray-50/60 focus-visible:ring-violet-300"
           />
         </div>
       </div>
@@ -197,13 +255,59 @@ const EditItemDetailsTab = ({
       {/* Inline Image for image items and links with images */}
       {showInlineImage && imageUrl && (
         <div className="flex justify-center">
-          <img
-            src={imageUrl}
-            alt={title || 'Content image'}
-            className="max-w-full h-auto max-h-96 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.08),0_12px_32px_rgba(160,120,200,0.14)] cursor-pointer hover:opacity-90 transition-opacity"
-            onClick={handleImageClick}
-            style={{ objectFit: 'contain' }}
-          />
+          <div className="group/image relative inline-block">
+            <img
+              src={imageUrl}
+              alt={title || 'Content image'}
+              className="max-w-full h-auto max-h-96 rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.08),0_12px_32px_rgba(160,120,200,0.14)] cursor-pointer hover:opacity-95 transition-opacity"
+              onClick={handleImageClick}
+              style={{ objectFit: 'contain' }}
+            />
+            {onImageChange && (
+              <div className="absolute right-3 top-3 flex gap-1.5 opacity-0 transition-opacity group-hover/image:opacity-100">
+                <button
+                  onClick={() => imageFileInputRef.current?.click()}
+                  disabled={isImageBusy}
+                  title="Replace image"
+                  className="grid h-9 w-9 place-items-center rounded-xl bg-white/95 text-gray-700 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur transition-all hover:bg-white hover:shadow-lg"
+                >
+                  {isImageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageUp className="h-4 w-4" />}
+                </button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button
+                      disabled={isImageBusy}
+                      title="Remove image"
+                      className="grid h-9 w-9 place-items-center rounded-xl bg-white/95 text-red-500 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur transition-all hover:bg-white hover:shadow-lg"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-2xl">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove this image?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        The image will be removed from this item. The item itself stays.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleRemoveImage} className="bg-red-600 hover:bg-red-700">
+                        Remove
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            )}
+            <input
+              ref={imageFileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleReplaceImageFile}
+            />
+          </div>
         </div>
       )}
 

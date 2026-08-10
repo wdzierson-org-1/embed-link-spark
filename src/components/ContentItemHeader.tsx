@@ -83,12 +83,18 @@ const ContentItemHeader = ({
               </div>
             </div>
           ) : (
-        <ContentItemImage
-          item={item}
-          imageErrors={imageErrors}
-          onImageError={onImageError}
-          isPublicView={isPublicView}
-        />
+        <div
+          onClick={!isProcessing ? handleTitleClick : undefined}
+          className={!isProcessing ? 'cursor-pointer' : undefined}
+          title={!isProcessing ? 'Click to edit' : undefined}
+        >
+          <ContentItemImage
+            item={item}
+            imageErrors={imageErrors}
+            onImageError={onImageError}
+            isPublicView={isPublicView}
+          />
+        </div>
           )}
 
           {/* Badges in top right corner */}

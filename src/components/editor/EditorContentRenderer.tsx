@@ -41,7 +41,29 @@ const EditorContentRenderer = ({
   });
 
   return (
-    <div className={isMaximized ? "h-full flex flex-col" : "border rounded-md h-[300px] flex flex-col"}>
+    <div
+      className={isMaximized ? "h-full flex flex-col cursor-text" : "border rounded-md h-[300px] flex flex-col cursor-text"}
+      onMouseDown={(e) => {
+        // Clicking anywhere in the panel (not just the first line) focuses the
+        // editor — ProseMirror's editable div doesn't always fill the box
+        const target = e.target as HTMLElement;
+        if (target.closest('.ProseMirror')) return;
+        const editable = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.ProseMirror');
+        if (editable) {
+          e.preventDefault();
+          editable.focus();
+          // Place the caret at the end of the document
+          const selection = window.getSelection();
+          if (selection) {
+            const range = document.createRange();
+            range.selectNodeContents(editable);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+      }}
+    >
       <EditorRoot key={editorKey}>
         <EditorContent
           initialContent={initialContent}
@@ -54,7 +76,7 @@ const EditorContentRenderer = ({
             attributes: {
               class: isMaximized 
                 ? 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-4 prose-h1:text-4xl prose-h1:font-bold prose-h2:text-3xl prose-h2:font-bold prose-h3:text-2xl prose-h3:font-bold prose-h4:text-xl prose-h4:font-bold prose-h5:text-lg prose-h5:font-bold prose-h6:text-base prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 prose-ul:leading-normal prose-ol:leading-normal prose-li:leading-normal prose-li:mb-1 prose-p:leading-normal prose-p:mb-2'
-                : 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-3 h-full overflow-y-auto prose-h1:text-2xl prose-h1:font-bold prose-h2:text-xl prose-h2:font-bold prose-h3:text-lg prose-h3:font-bold prose-h4:text-base prose-h4:font-bold prose-h5:text-sm prose-h5:font-bold prose-h6:text-sm prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 prose-ul:leading-snug prose-ol:leading-snug prose-li:leading-snug prose-li:mb-0.5 prose-p:leading-snug prose-p:mb-1'
+                : 'prose prose-sm dark:prose-invert prose-headings:font-bold font-default focus:outline-none max-w-full p-3 h-full min-h-[270px] overflow-y-auto prose-h1:text-2xl prose-h1:font-bold prose-h2:text-xl prose-h2:font-bold prose-h3:text-lg prose-h3:font-bold prose-h4:text-base prose-h4:font-bold prose-h5:text-sm prose-h5:font-bold prose-h6:text-sm prose-h6:font-bold prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 prose-ul:leading-snug prose-ol:leading-snug prose-li:leading-snug prose-li:mb-0.5 prose-p:leading-snug prose-p:mb-1'
             }
           }}
           onUpdate={({ editor }: { editor: EditorInstance }) => {

@@ -882,8 +882,8 @@ const UnifiedInputPanel = ({
   return (
     <div className="w-full relative">
       {/* Extended animated gradient background */}
-      <div className="absolute inset-0 h-[200vh] animated-gradient opacity-30" />
-      <div className="absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
+      <div className="pointer-events-none absolute inset-0 h-[200vh] animated-gradient opacity-30" />
+      <div className="pointer-events-none absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
       
       <div className="relative pt-5 pb-8">
         <div className="container mx-auto px-4">

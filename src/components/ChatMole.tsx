@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Mic, Minus, Send, Volume2, Square, Maximize2, Minimize2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/integrations/supabase/client';
 import { classifyMoleMessage } from '@/utils/moleRouting';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
@@ -58,8 +59,77 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
   messagesRef.current = messages;
   const { toast } = useToast();
   const { canUseAI, canAddContent } = useSubscription();
+  const { user } = useAuth();
+  const conversationIdRef = useRef<string | null>(null);
+  const historyLoadedRef = useRef(false);
 
   const isExpanded = pinned || open;
+
+  // First-class memory: the thread lives in the conversations/messages tables
+  // and survives sessions. Loaded once, on first expand.
+  useEffect(() => {
+    if (!isExpanded || !user?.id || historyLoadedRef.current) return;
+    historyLoadedRef.current = true;
+
+    const loadHistory = async () => {
+      try {
+        let { data: conversation } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (!conversation) {
+          const { data: created, error: createError } = await supabase
+            .from('conversations')
+            .insert({ user_id: user.id, title: 'Ask Stash' })
+            .select('id')
+            .single();
+          if (createError) throw createError;
+          conversation = created;
+        }
+
+        conversationIdRef.current = conversation.id;
+
+        const { data: history } = await supabase
+          .from('messages')
+          .select('id, role, content, created_at')
+          .eq('conversation_id', conversation.id)
+          .order('created_at', { ascending: false })
+          .limit(60);
+
+        if (history && history.length > 0) {
+          const restored: MoleMessage[] = history
+            .reverse()
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .map(m => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content }));
+          setMessages(prev => (prev.length === 0 ? restored : prev));
+        }
+      } catch (error) {
+        console.error('Failed to load chat history (non-fatal):', error);
+      }
+    };
+
+    void loadHistory();
+  }, [isExpanded, user?.id]);
+
+  const persistMessage = (role: 'user' | 'assistant', content: string, sourceItemIds?: string[]) => {
+    const conversationId = conversationIdRef.current;
+    if (!conversationId || !content.trim()) return;
+    void supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        role,
+        content,
+        source_items: sourceItemIds && sourceItemIds.length > 0 ? sourceItemIds : null,
+      })
+      .then(({ error }) => {
+        if (error) console.error('Failed to persist chat message (non-fatal):', error);
+      });
+  };
 
   const sendTranscript = useCallback((text: string) => {
     void handleSend(text);
@@ -162,6 +232,7 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
 
     const userMessage: MoleMessage = { id: `u-${Date.now()}`, role: 'user', content: question };
     pushMessage(userMessage);
+    persistMessage('user', question);
 
     const assistantId = `a-${Date.now()}`;
 
@@ -206,7 +277,9 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
             streamed += payload.delta;
             setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: streamed } : m)));
           } else if (payload.done) {
-            setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, sources: payload.sources || [] } : m)));
+            const sources = payload.sources || [];
+            setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, sources } : m)));
+            persistMessage('assistant', streamed, sources.map((s: MoleSource) => s.id));
           } else if (payload.error) {
             throw new Error(payload.error);
           }

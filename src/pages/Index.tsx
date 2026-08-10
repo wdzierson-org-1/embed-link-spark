@@ -147,6 +147,13 @@ const Index = () => {
           <SubscriptionBanner />
         </div>
 
+        <div className="container mx-auto px-4 pt-4">
+          <DismissibleHint id="capture-shortcuts">
+            <b className="font-medium">Paste</b> a link anywhere on this page to capture it — or,{' '}
+            <b className="font-medium">drop</b> files onto the box below
+          </DismissibleHint>
+        </div>
+
         <UnifiedInputPanel
           isInputUICollapsed={isInputUICollapsed}
           onToggleInputUI={toggleInputUI}
@@ -154,14 +161,6 @@ const Index = () => {
           onAddContent={handleAddContent}
           getSuggestedTags={getSuggestedTags}
         />
-
-        <div className="container mx-auto px-4 pt-3">
-          <DismissibleHint id="capture-shortcuts">
-            <b className="font-medium">Paste</b> a link anywhere on this page to capture it ·{' '}
-            <b className="font-medium">drop</b> files onto the box · start a chat message with{' '}
-            <b className="font-medium">remember:</b> to save it as a note
-          </DismissibleHint>
-        </div>
 
         <LibraryToolbar
           searchQuery={searchQuery}
@@ -190,6 +189,7 @@ const Index = () => {
         onOpenChange={(open) => !open && setEditingItem(null)}
         item={editingItem}
         onSave={handleSaveItem}
+        onDelete={handleDeleteItem}
       />
 
       <ChatMole

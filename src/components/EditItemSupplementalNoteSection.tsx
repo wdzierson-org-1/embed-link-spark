@@ -34,7 +34,7 @@ const EditItemSupplementalNoteSection = ({
           htmlFor="add-sticky"
           className="text-sm font-medium cursor-pointer"
         >
-          Add a sticky
+          Add a sticky note
         </Label>
       </div>
       
