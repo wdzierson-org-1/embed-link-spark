@@ -19,6 +19,9 @@ interface ContentData {
   is_public?: boolean;
   ogData?: any;
   previewImagePath?: string; // New field for link preview images
+  detectedText?: string; // Chip-time vision OCR text (images)
+  tags?: string[]; // Chip-time vision tags (images)
+  snippet?: string; // Chip-time first-page text (documents)
   attachments?: Array<{
     type: string;
     url?: string;
@@ -30,6 +33,8 @@ interface ContentData {
     fileType?: string;
     image?: string;
     siteName?: string;
+    uploadedFilePath?: string;
+    processedContent?: string;
   }>;
 }
 
@@ -547,9 +552,22 @@ export const processAndInsertContent = async (
   if (type === 'image' && (filePath || data.uploadedFilePath)) {
     const imagePath = filePath || data.uploadedFilePath;
     const { data: imgUrlData } = supabase.storage.from('stash-media').getPublicUrl(imagePath);
+    // Chip-time vision results ride along so the function writes page_body +
+    // embeddings without paying for a second vision pass
+    const precomputed = data.description
+      ? {
+          description: data.description,
+          detected_text: data.detectedText ?? 'none',
+          tags: data.tags ?? [],
+        }
+      : undefined;
     supabase.functions
       .invoke('analyze-image', {
-        body: { itemId: insertedItem.id, imageUrl: imgUrlData.publicUrl },
+        body: {
+          itemId: insertedItem.id,
+          imageUrl: imgUrlData.publicUrl,
+          ...(precomputed ? { precomputed } : {}),
+        },
       })
       .then(() => fetchItems())
       .catch((err) => console.error('Image analysis failed (non-fatal):', err));
@@ -575,28 +593,32 @@ export const processAndInsertContent = async (
       }
     }
 
-    // Phase 1: Quick summary (immediate)
-    setTimeout(async () => {
-      try {
-        const fileName = data.file?.name || 'document.pdf';
-        const pdfPath = filePath || data.uploadedFilePath;
-        const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(pdfPath);
-        
-        console.log('Calling quick-pdf-summary for:', insertedItem.id);
-        await supabase.functions.invoke('quick-pdf-summary', {
-          body: {
-            fileUrl: urlData.publicUrl,
-            itemId: insertedItem.id,
-            fileName
-          }
-        });
-        
-        // Refresh UI with quick summary
-        await fetchItems();
-      } catch (error) {
-        console.error('Quick PDF summary failed:', error);
-      }
-    }, 500);
+    // Phase 1: Quick summary (immediate) — skipped when the chip already
+    // produced a content-based summary at capture time
+    if (!data.description) {
+      setTimeout(async () => {
+        try {
+          const fileName = data.file?.name || 'document.pdf';
+          const pdfPath = filePath || data.uploadedFilePath;
+          const { data: urlData } = supabase.storage.from('stash-media').getPublicUrl(pdfPath);
+
+          console.log('Calling quick-pdf-summary for:', insertedItem.id);
+          await supabase.functions.invoke('quick-pdf-summary', {
+            body: {
+              fileUrl: urlData.publicUrl,
+              itemId: insertedItem.id,
+              fileName,
+              snippet: data.snippet,
+            }
+          });
+
+          // Refresh UI with quick summary
+          await fetchItems();
+        } catch (error) {
+          console.error('Quick PDF summary failed:', error);
+        }
+      }, 500);
+    }
     
     // Phase 2: Full extraction (short delay to let quick summary complete first)
     setTimeout(async () => {
@@ -727,31 +749,44 @@ const processAttachments = async (
           image: attachment.image,
         };
       } else {
-        // Handle file upload for media attachments
-        if (attachment.file) {
-          const uploadResult = await uploadFile(attachment.file, userId);
-          attachmentData.file_path = uploadResult;
+        // Handle file upload for media attachments (chip-time staged uploads
+        // are reused instead of uploading again)
+        const uploadedPath = attachment.uploadedFilePath
+          ?? (attachment.file ? await uploadFile(attachment.file, userId) : undefined);
+
+        if (uploadedPath) {
+          attachmentData.file_path = uploadedPath;
           attachmentData.file_size = attachment.size;
           attachmentData.mime_type = attachment.fileType;
 
-          // Process media with AI for better descriptions
-          const { processMediaAttachment } = await import('./mediaProcessor');
-          const mediaResult = await processMediaAttachment(
-            uploadResult,
-            attachment.type,
-            attachment.name || attachment.title
-          );
+          const hasChipAnalysis = Boolean(attachment.description || attachment.processedContent);
+          if (hasChipAnalysis) {
+            attachmentData.metadata = {
+              ...attachmentData.metadata,
+              originalName: attachment.name || attachment.title,
+              aiProcessed: true,
+              processedContent: attachment.processedContent
+            };
+          } else {
+            // Process media with AI for better descriptions
+            const { processMediaAttachment } = await import('./mediaProcessor');
+            const mediaResult = await processMediaAttachment(
+              uploadedPath,
+              attachment.type,
+              attachment.name || attachment.title
+            );
 
-          // Update with AI-processed content
-          if (mediaResult.title) attachmentData.title = mediaResult.title;
-          if (mediaResult.description) attachmentData.description = mediaResult.description;
-          
-          attachmentData.metadata = {
-            ...attachmentData.metadata,
-            originalName: attachment.name || attachment.title,
-            aiProcessed: true,
-            processedContent: mediaResult.content
-          };
+            // Update with AI-processed content
+            if (mediaResult.title) attachmentData.title = mediaResult.title;
+            if (mediaResult.description) attachmentData.description = mediaResult.description;
+
+            attachmentData.metadata = {
+              ...attachmentData.metadata,
+              originalName: attachment.name || attachment.title,
+              aiProcessed: true,
+              processedContent: mediaResult.content
+            };
+          }
         }
       }
 
