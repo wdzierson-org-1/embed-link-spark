@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Globe, Lock, AlignLeft, Trash2, ImageUp, Loader2 } from 'lucide-react';
+import { Globe, Lock, AlignLeft, Trash2, ImageUp, Loader2, Copy, Check } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { uploadFile } from '@/utils/fileUploader';
 import { useAuth } from '@/hooks/useAuth';
+import { useProfile } from '@/hooks/useProfile';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemImageSection from '@/components/EditItemImageSection';
 import EditItemContentSection from '@/components/EditItemContentSection';
@@ -138,18 +139,47 @@ const EditItemDetailsTab = ({
 
   // Local state for immediate UI feedback
   const [localIsPublic, setLocalIsPublic] = React.useState(item?.is_public || false);
+  const [showUnshareConfirm, setShowUnshareConfirm] = useState(false);
+  const [copiedFeedUrl, setCopiedFeedUrl] = useState(false);
+
+  // Username for the public feed URL shown when the item is shared
+  const { profile } = useProfile();
+  const feedUrl = profile?.username ? `https://gostash.it/feed/${profile.username}` : '';
 
   // Update local state when item changes
   React.useEffect(() => {
     setLocalIsPublic(item?.is_public || false);
   }, [item?.is_public]);
 
-  // Public toggle handler
+  // Public toggle handler. Un-sharing an item deletes its sticky note (notes
+  // are a public-feed feature), so that path confirms with the user first.
   const handlePublicToggle = (isPublic: boolean) => {
+    if (!isPublic && supplementalNote.trim()) {
+      setShowUnshareConfirm(true);
+      return;
+    }
     // Update local state immediately for UI feedback
     setLocalIsPublic(isPublic);
     // Save to backend
     onPublicToggle(isPublic);
+  };
+
+  const confirmUnshare = () => {
+    setShowUnshareConfirm(false);
+    setLocalIsPublic(false);
+    // useEditItemSheet clears the note alongside the is_public save
+    onPublicToggle(false);
+  };
+
+  const handleCopyFeedUrl = async () => {
+    if (!feedUrl) return;
+    try {
+      await navigator.clipboard.writeText(feedUrl);
+      setCopiedFeedUrl(true);
+      setTimeout(() => setCopiedFeedUrl(false), 1600);
+    } catch (error) {
+      console.error('Copy failed:', error);
+    }
   };
 
   // Enhanced mobile editor initialization fix
@@ -225,7 +255,7 @@ const EditItemDetailsTab = ({
   const sectionLabel = 'flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground';
 
   const contentComponent = (
-    <div className="space-y-5 mt-0 px-6 pb-6" style={{ transform: 'translateY(-18px)' }}>
+    <div className="space-y-5 mt-0 px-6 pb-6">
       {/* Title + Description in one elevated card */}
       <div className={`${sectionCard} space-y-4`}>
         <EditItemTitleSection
@@ -352,40 +382,84 @@ const EditItemDetailsTab = ({
         mobileEditorReady={mobileEditorReady}
       />
 
-      {/* Supplemental Note Section */}
+      {/* Public Feed Toggle */}
       <div className={sectionCard}>
-        <EditItemSupplementalNoteSection
-          supplementalNote={supplementalNote}
-          onSupplementalNoteChange={onSupplementalNoteChange}
-        />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3.5">
+            <div className={`grid h-10 w-10 flex-none place-items-center rounded-xl shadow-inner ${localIsPublic ? 'bg-gradient-to-b from-emerald-400 to-green-500' : 'bg-gradient-to-b from-gray-200 to-gray-300'}`}>
+              {localIsPublic ? (
+                <Globe className="h-5 w-5 text-white" />
+              ) : (
+                <Lock className="h-5 w-5 text-gray-500" />
+              )}
+            </div>
+            <div>
+              <div className="text-sm font-medium">
+                {localIsPublic ? 'Public Feed' : 'Private'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {localIsPublic
+                  ? 'This item is visible in your public feed'
+                  : 'This item is only visible to you'}
+              </div>
+            </div>
+          </div>
+          <Switch
+            checked={localIsPublic}
+            onCheckedChange={handlePublicToggle}
+          />
+        </div>
+
+        {localIsPublic && feedUrl && (
+          <div className="mt-3.5 flex items-center gap-2 rounded-xl border border-emerald-200/60 bg-emerald-50/50 px-3 py-2">
+            <span className="flex-none text-xs text-muted-foreground">This item is visible publicly:</span>
+            <a
+              href={feedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="min-w-0 flex-1 truncate text-xs font-medium text-emerald-700 hover:underline"
+            >
+              {feedUrl.replace('https://', '')}
+            </a>
+            <button
+              onClick={handleCopyFeedUrl}
+              title="Copy link"
+              aria-label="Copy public feed link"
+              className="grid h-6 w-6 flex-none place-items-center rounded-md text-emerald-600 transition-colors hover:bg-emerald-100"
+            >
+              {copiedFeedUrl ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Public Feed Toggle */}
-      <div className={`${sectionCard} flex items-center justify-between`}>
-        <div className="flex items-center gap-3.5">
-          <div className={`grid h-10 w-10 flex-none place-items-center rounded-xl shadow-inner ${localIsPublic ? 'bg-gradient-to-b from-emerald-400 to-green-500' : 'bg-gradient-to-b from-gray-200 to-gray-300'}`}>
-            {localIsPublic ? (
-              <Globe className="h-5 w-5 text-white" />
-            ) : (
-              <Lock className="h-5 w-5 text-gray-500" />
-            )}
-          </div>
-          <div>
-            <div className="text-sm font-medium">
-              {localIsPublic ? 'Public Feed' : 'Private'}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {localIsPublic
-                ? 'This item is visible in your public feed'
-                : 'This item is only visible to you'}
-            </div>
-          </div>
+      {/* Supplemental Note Section — sticky notes ride along with shared items */}
+      {localIsPublic && (
+        <div className={sectionCard}>
+          <EditItemSupplementalNoteSection
+            supplementalNote={supplementalNote}
+            onSupplementalNoteChange={onSupplementalNoteChange}
+          />
         </div>
-        <Switch
-          checked={localIsPublic}
-          onCheckedChange={handlePublicToggle}
-        />
-      </div>
+      )}
+
+      {/* Un-sharing deletes the item's sticky note — confirm before doing it */}
+      <AlertDialog open={showUnshareConfirm} onOpenChange={setShowUnshareConfirm}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Make this item private?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its sticky note will be deleted — sticky notes only live on shared items.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep sharing</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmUnshare} className="bg-red-600 hover:bg-red-700">
+              Make private
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 

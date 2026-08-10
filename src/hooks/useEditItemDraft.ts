@@ -12,7 +12,7 @@ export const useEditItemDraft = ({ itemId, open }: UseEditItemDraftProps) => {
   // Local storage draft management
   const getDraftKey = useCallback((id: string) => `editDraft-${id}`, []);
 
-  const saveToLocalStorage = useCallback((itemId: string, data: { title: string; description: string; content: string }) => {
+  const saveToLocalStorage = useCallback((itemId: string, data: { title: string; description: string; content: string; supplemental_note?: string }) => {
     const draftKey = getDraftKey(itemId);
     const draftData = {
       ...data,

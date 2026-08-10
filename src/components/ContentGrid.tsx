@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ContentItem from './ContentItem';
 import ContentItemSkeleton from './ContentItemSkeleton';
-import WhatsAppInfo from './WhatsAppInfo';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { itemMatchesSearchQuery } from '@/utils/itemSearch';
@@ -189,15 +188,12 @@ const ContentGrid = ({
   const optimisticItems = filteredItems.filter(item => item.isOptimistic);
   const visibleRealItems = filteredItems.filter(item => !item.isOptimistic);
 
-  // Show WhatsApp info if no real items exist and no search is active
+  // Empty state: no real items and no search active
   if (visibleRealItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim()) {
     return (
-      <div className="space-y-8 relative z-10">
-        <div className="text-center py-12 relative z-10">
-          <h2 className="text-2xl font-editorial text-gray-900 mb-2">Start building your knowledge base</h2>
-          <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
-        </div>
-        <WhatsAppInfo />
+      <div className="text-center py-12 relative z-10">
+        <h2 className="text-2xl font-editorial text-gray-900 mb-2">Start building your knowledge base</h2>
+        <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
       </div>
     );
   }

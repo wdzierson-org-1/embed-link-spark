@@ -94,7 +94,7 @@ const Pricing = () => {
                 </li>
               </ul>
               
-              <Link to="/auth" className="block">
+              <Link to="/auth?mode=signup" className="block">
                 <Button 
                   size="lg" 
                   className="w-full bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-6 rounded-full shadow-lg font-mori"

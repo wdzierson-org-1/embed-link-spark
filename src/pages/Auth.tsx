@@ -252,30 +252,38 @@ const Auth = () => {
                       required
                     />
                     <div className="space-y-1">
-                      <Input
-                        type="text"
-                        placeholder="Username"
-                        value={username}
-                        onChange={(e) => {
-                          const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
-                          setUsername(cleanUsername);
-                          if (cleanUsername.length >= 3) {
-                            checkUsernameUniqueness(cleanUsername);
-                          } else {
-                            setUsernameError('');
-                          }
-                        }}
-                        required
-                        minLength={3}
-                        maxLength={20}
-                        className={usernameError ? 'border-red-500' : ''}
-                      />
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+                        <Input
+                          type="text"
+                          placeholder="username"
+                          value={username}
+                          onChange={(e) => {
+                            const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+                            setUsername(cleanUsername);
+                            if (cleanUsername.length >= 3) {
+                              checkUsernameUniqueness(cleanUsername);
+                            } else {
+                              setUsernameError('');
+                            }
+                          }}
+                          required
+                          minLength={3}
+                          maxLength={20}
+                          className={`pl-8 ${usernameError ? 'border-red-500' : ''}`}
+                        />
+                      </div>
                       {usernameError && (
                         <p className="text-xs text-red-600">{usernameError}</p>
                       )}
-                      {username && !usernameError && username.length >= 3 && (
+                      {username && !usernameError && username.length >= 3 ? (
                         <p className="text-xs text-muted-foreground">
-                          Your Stash feed URL: https://gostash.it/feed/{username}
+                          You'll be <span className="font-medium text-foreground">@{username}</span> on Stash —
+                          your public feed lives at gostash.it/feed/{username}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Your username becomes your @handle and your public feed address.
                         </p>
                       )}
                     </div>

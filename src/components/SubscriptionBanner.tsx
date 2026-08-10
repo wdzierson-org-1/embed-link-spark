@@ -53,7 +53,7 @@ const SubscriptionBanner = () => {
     return (
       <button
         onClick={() => setMinimizedPersisted(false)}
-        className="mt-4 flex w-full items-center justify-between rounded-xl border border-violet-200/50 bg-gradient-to-r from-violet-50/80 to-fuchsia-50/60 px-4 py-1.5 text-xs text-violet-700/80 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:from-violet-50 hover:to-fuchsia-50 transition-colors"
+        className="flex w-full items-center justify-between rounded-xl border border-violet-200/50 bg-gradient-to-r from-violet-50/80 to-fuchsia-50/60 px-4 py-1.5 text-xs text-violet-700/80 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:from-violet-50 hover:to-fuchsia-50 transition-colors"
       >
         <span className="flex items-center gap-1.5">
           <Crown className="h-3 w-3" />
@@ -66,7 +66,7 @@ const SubscriptionBanner = () => {
 
   return (
     <div
-      className={`mt-4 flex items-center justify-between gap-4 rounded-2xl border px-5 py-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_8px_24px_rgba(160,120,200,0.12)] ${
+      className={`flex items-center justify-between gap-4 rounded-2xl border px-5 py-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_8px_24px_rgba(160,120,200,0.12)] ${
         urgent
           ? 'border-amber-200/70 bg-gradient-to-r from-amber-50 to-orange-50/70'
           : 'border-violet-200/50 bg-gradient-to-r from-violet-50/90 via-white to-fuchsia-50/70'

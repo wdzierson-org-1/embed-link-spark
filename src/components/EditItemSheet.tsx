@@ -149,7 +149,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
         <Sheet open={open} onOpenChange={onOpenChange}>
           <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col bg-gradient-to-b from-white to-[#fdf8fd]">
             <SheetTitle className="sr-only">Edit item</SheetTitle>
-            <div className="flex-1 overflow-y-auto pt-10">
+            <div className="flex-1 overflow-y-auto pt-12">
               <EditItemDetailsTab
                 {...detailsTabProps}
                 isInsideTabs={false}
@@ -187,7 +187,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
               </Tabs>
             ) : (
               // Render details directly without tabs when no image
-              <div className="pt-10">
+              <div className="pt-12">
                 <EditItemDetailsTab {...detailsTabProps} isInsideTabs={false} />
               </div>
             )}

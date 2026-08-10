@@ -101,10 +101,10 @@ const LibraryToolbar = ({
         <Popover>
           <PopoverTrigger asChild>
             <button
-              className={`flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[13px] shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-colors ${
+              className={`flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-[13px] transition-colors duration-150 ${
                 selectedTags.length > 0
-                  ? 'border-violet-300 bg-violet-50 text-violet-700'
-                  : 'border-black/10 bg-white/80 text-gray-600 hover:bg-white'
+                  ? 'border-violet-300 bg-violet-50 text-violet-700 shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                  : 'border-black/10 bg-white/0 text-gray-600 hover:bg-white/40 data-[state=open]:bg-white data-[state=open]:shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
               }`}
             >
               <Tag className="h-3.5 w-3.5" />
@@ -163,10 +163,10 @@ const LibraryToolbar = ({
       <div ref={searchWrapRef} className="relative ml-auto min-w-0 basis-56 sm:max-w-[320px]">
         <div
           onClick={() => { setIsSearchFocused(true); searchInputRef.current?.focus(); }}
-          className={`flex cursor-text items-center gap-2 rounded-full border px-4 py-2 transition-all duration-200 ${
+          className={`flex cursor-text items-center gap-2 rounded-full border px-4 py-2 transition-all duration-150 ${
             isSearchFocused
               ? 'border-violet-300 bg-white shadow-[0_2px_6px_rgba(0,0,0,0.06),0_10px_28px_rgba(139,92,246,0.16)] ring-2 ring-violet-200/60'
-              : 'border-black/10 bg-white/80 shadow-[0_1px_2px_rgba(0,0,0,0.05)] hover:bg-white'
+              : 'border-black/10 bg-white/0 hover:bg-white/40'
           }`}
         >
           <Search className={`h-4 w-4 flex-none transition-colors ${isSearchFocused ? 'text-violet-500' : 'text-gray-400'}`} />

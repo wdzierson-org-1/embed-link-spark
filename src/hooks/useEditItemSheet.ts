@@ -22,7 +22,7 @@ interface ContentItem {
 interface UseEditItemSheetProps {
   open: boolean;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string | null; is_public?: boolean }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
 export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) => {
@@ -61,12 +61,14 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
     debouncedSave,
     flushAndFinalSave,
     clearSaveState,
-  } = useEditItemSave({ 
-    onSave, 
+  } = useEditItemSave({
+    onSave,
     saveToLocalStorage,
     titleRef,
     descriptionRef,
-    contentRef
+    contentRef,
+    supplementalNoteRef,
+    itemRef,
   });
 
   // Media management
@@ -124,8 +126,18 @@ export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) 
 
   // Public toggle handler
   const handlePublicToggle = (isPublic: boolean) => {
+    const updates: { is_public: boolean; supplemental_note?: string | null } = { is_public: isPublic };
+
+    // Sticky notes belong to shared items — un-sharing deletes the note
+    // (the UI confirms with the user before calling this with a note present)
+    if (!isPublic && supplementalNoteRef.current) {
+      updates.supplemental_note = null;
+      setSupplementalNote('');
+      supplementalNoteRef.current = '';
+    }
+
     // Immediate save for public toggle
-    onSave(item?.id || '', { is_public: isPublic }, { showSuccessToast: true, refreshItems: true });
+    onSave(item?.id || '', updates, { showSuccessToast: true, refreshItems: true });
   };
 
   return {

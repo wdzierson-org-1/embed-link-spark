@@ -81,7 +81,7 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
   // Show actual image if we have one and it's valid
   if (hasValidImage && imgState && (item.type === 'image' || item.type === 'link') && item.file_path) {
     return (
-      <div className="w-full h-48 overflow-hidden">
+      <div className="w-full h-48 overflow-hidden rounded-t-2xl">
         <img
           src={imgState.src}
           alt={item.title || 'Content thumbnail'}
@@ -100,7 +100,7 @@ const ContentItemImage = ({ item, imageErrors, onImageError, isPublicView }: Con
   const TypeIcon = TYPE_ICONS[item.type];
 
   return (
-    <div className="relative w-full h-48 overflow-hidden">
+    <div className="relative w-full h-48 overflow-hidden rounded-t-2xl">
       <img
         src={gradientSrc}
         alt={item.title || 'Content thumbnail'}

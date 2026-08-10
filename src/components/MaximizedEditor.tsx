@@ -50,10 +50,12 @@ const MaximizedEditor = ({
         </div>
       </div>
 
-      <EditItemAutoSaveIndicator 
-        saveStatus={saveStatus}
-        lastSaved={lastSaved}
-      />
+      <div className="px-6 py-3">
+        <EditItemAutoSaveIndicator
+          saveStatus={saveStatus}
+          lastSaved={lastSaved}
+        />
+      </div>
     </div>
   );
 };

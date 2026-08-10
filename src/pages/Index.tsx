@@ -152,11 +152,11 @@ const Index = () => {
 
       {/* Content shifts right when the mole is pinned as a left dock */}
       <div className={molePinned ? 'transition-[padding] duration-200 sm:pl-[384px]' : 'transition-[padding] duration-200'}>
-        <div className="container mx-auto px-4">
+        {/* Banner + hint share one spacing stack: every combination of them
+            (minimized banner, dismissed hint, neither) keeps even 16px gaps,
+            and the stack vanishes entirely when both are gone */}
+        <div className="container mx-auto px-4 empty:hidden [&>*]:mt-4 [&>*:last-child]:mb-4">
           <SubscriptionBanner />
-        </div>
-
-        <div className="container mx-auto px-4 pt-4">
           <DismissibleHint id="capture-shortcuts">
             <b className="font-medium">Paste</b> a link anywhere on this page to capture it — or,{' '}
             <b className="font-medium">drop</b> files onto the box below
@@ -171,14 +171,17 @@ const Index = () => {
           getSuggestedTags={getSuggestedTags}
         />
 
-        <LibraryToolbar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          itemCount={realItemCount}
-          tags={tags}
-          selectedTags={selectedTags}
-          onTagFilterChange={setSelectedTags}
-        />
+        {/* Search / count / tag filter only make sense once something is stashed */}
+        {realItemCount > 0 && (
+          <LibraryToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            itemCount={realItemCount}
+            tags={tags}
+            selectedTags={selectedTags}
+            onTagFilterChange={setSelectedTags}
+          />
+        )}
 
         <main className="container mx-auto px-4 pb-28 bg-white">
           <ContentGrid

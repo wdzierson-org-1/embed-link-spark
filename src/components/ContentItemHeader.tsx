@@ -61,7 +61,7 @@ const ContentItemHeader = ({
         {/* Image or Video at the top, clipped to card edges */}
         <div className="relative">
           {item.type === 'video' && fileUrl ? (
-            <div className="relative w-full h-48 bg-black rounded-t-lg overflow-hidden">
+            <div className="relative w-full h-48 bg-black rounded-t-2xl overflow-hidden">
               <video
                 src={fileUrl}
                 className="w-full h-full object-cover"
