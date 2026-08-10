@@ -11,6 +11,7 @@ const {
   insertedCollectionSingle,
   insertedAttachmentSingle,
   itemsInsertPayloads,
+  attachmentInsertPayloads,
 } = vi.hoisted(() => {
   const fetchItems = vi.fn().mockResolvedValue(undefined);
   const invoke = vi.fn();
@@ -69,6 +70,7 @@ const {
   });
 
   const insertPayloads: any[] = [];
+  const attachmentPayloads: any[] = [];
 
   const from = vi.fn((table: string) => {
     if (table === "items") {
@@ -97,11 +99,15 @@ const {
         select: vi.fn(() => ({
           eq: attachmentsSelectEq,
         })),
-        insert: vi.fn(() => ({
-          select: vi.fn(() => ({
-            single: insertedAttachment,
-          })),
-        })),
+        insert: vi.fn((payload: any) => {
+          const record = Array.isArray(payload) ? payload[0] : payload;
+          attachmentPayloads.push(record);
+          return {
+            select: vi.fn(() => ({
+              single: insertedAttachment,
+            })),
+          };
+        }),
         update: vi.fn(() => ({
           eq: attachmentsUpdateEq,
         })),
@@ -128,6 +134,7 @@ const {
     insertedCollectionSingle: insertedCollection,
     insertedAttachmentSingle: insertedAttachment,
     itemsInsertPayloads: insertPayloads,
+    attachmentInsertPayloads: attachmentPayloads,
   };
 });
 
@@ -397,5 +404,167 @@ describe("processAndInsertContent link enrichment", () => {
     await vi.runOnlyPendingTimersAsync();
 
     expect(itemsUpdateEqMock).toHaveBeenCalledWith("id", "item-link-1");
+  });
+});
+
+describe("chip-analysis reuse at save", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    itemsInsertPayloads.length = 0;
+    attachmentInsertPayloads.length = 0;
+    vi.useFakeTimers();
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network disabled in test"));
+
+    insertedItemSingle.mockResolvedValue({
+      data: {
+        id: "item-media-1",
+        title: "Initial title",
+        description: "Initial description",
+        file_path: null,
+      },
+      error: null,
+    });
+    insertedCollectionSingle.mockResolvedValue({
+      data: {
+        id: "collection-1",
+        title: "Collection title",
+        description: "Collection description",
+        file_path: null,
+      },
+      error: null,
+    });
+    insertedAttachmentSingle.mockResolvedValue({
+      data: {
+        id: "attachment-1",
+        title: "Contract voice memo",
+        description: "Voice memo about the contract",
+        metadata: {},
+      },
+      error: null,
+    });
+    invokeMock.mockResolvedValue({ data: { success: true, title: "T", description: "D" }, error: null });
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("skips transcription for audio when description and content are provided", async () => {
+    await processAndInsertContent(
+      "audio",
+      {
+        file: new File(["a"], "memo.m4a", { type: "audio/mp4" }),
+        uploadedFilePath: "user-1/staging/2-def.m4a",
+        title: "memo.m4a",
+        description: "Voice memo about the contract",
+        content: "full transcript",
+      },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+
+    const transcribeCalls = invokeMock.mock.calls.filter(([name]) => name === "transcribe-audio");
+    expect(transcribeCalls).toHaveLength(0);
+    const inserted = itemsInsertPayloads.at(-1);
+    expect(inserted.content).toBe("full transcript");
+    expect(inserted.description).toBe("Voice memo about the contract");
+    expect(inserted.file_path).toBe("user-1/staging/2-def.m4a");
+  });
+
+  it("passes precomputed vision results to analyze-image instead of re-running vision", async () => {
+    await processAndInsertContent(
+      "image",
+      {
+        file: new File(["i"], "photo.jpg", { type: "image/jpeg" }),
+        uploadedFilePath: "user-1/staging/3-ghi.jpg",
+        title: "photo.jpg",
+        description: "A whiteboard sketch",
+        detectedText: "Q3 roadmap",
+        tags: ["sketch", "planning"],
+      },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    const analyzeCall = invokeMock.mock.calls.find(([name]) => name === "analyze-image");
+    expect(analyzeCall).toBeDefined();
+    expect(analyzeCall![1].body.itemId).toBe("item-media-1");
+    expect(analyzeCall![1].body.precomputed).toEqual({
+      description: "A whiteboard sketch",
+      detected_text: "Q3 roadmap",
+      tags: ["sketch", "planning"],
+    });
+  });
+
+  it("skips the filename-only quick summary when the chip already described the document", async () => {
+    const { processPdfContent } = await import("@/utils/pdfProcessor");
+
+    await processAndInsertContent(
+      "document",
+      {
+        file: new File(["%PDF"], "kahn-cerf-88.pdf", { type: "application/pdf" }),
+        uploadedFilePath: "user-1/staging/4-jkl.pdf",
+        title: "Kahn-Cerf Certificate",
+        description: "A 1988 certificate",
+        snippet: "First page text",
+      },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+    await vi.advanceTimersByTimeAsync(1500);
+
+    const quickCalls = invokeMock.mock.calls.filter(([name]) => name === "quick-pdf-summary");
+    expect(quickCalls).toHaveLength(0);
+    // Full extraction still runs as the phase-2 safety net
+    expect(processPdfContent).toHaveBeenCalledWith(
+      "item-media-1",
+      "user-1/staging/4-jkl.pdf",
+      fetchItemsMock,
+      expect.any(Function)
+    );
+  });
+
+  it("reuses uploaded attachment files and chip analysis in collections", async () => {
+    const { uploadFile } = await import("@/utils/fileUploader");
+
+    await processAndInsertContent(
+      "collection",
+      {
+        content: "note",
+        attachments: [
+          {
+            type: "audio",
+            name: "memo.m4a",
+            size: 1234,
+            fileType: "audio/mp4",
+            uploadedFilePath: "user-1/staging/5-mno.m4a",
+            title: "Contract voice memo",
+            description: "Voice memo about the contract",
+            processedContent: "full transcript",
+          },
+        ],
+      },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+
+    expect(uploadFile).not.toHaveBeenCalled();
+    const attachmentInsert = attachmentInsertPayloads.at(-1);
+    expect(attachmentInsert.file_path).toBe("user-1/staging/5-mno.m4a");
+    expect(attachmentInsert.title).toBe("Contract voice memo");
+    expect(attachmentInsert.description).toBe("Voice memo about the contract");
+    expect(attachmentInsert.metadata.processedContent).toBe("full transcript");
   });
 });

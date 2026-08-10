@@ -1,9 +1,28 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import UnifiedInputPanel from "./UnifiedInputPanel";
 
-const { invokeMock } = vi.hoisted(() => ({
-  invokeMock: vi.fn(),
-}));
+const { invokeMock, analyzeDroppedFileMock, removeStagedFileMock, chipDriver } = vi.hoisted(() => {
+  const driver: {
+    onUpdate?: (update: unknown) => void;
+    resolveDone?: (analysis: unknown) => void;
+    abort: ReturnType<typeof vi.fn>;
+  } = { abort: vi.fn() };
+  return {
+    invokeMock: vi.fn(),
+    removeStagedFileMock: vi.fn().mockResolvedValue(undefined),
+    chipDriver: driver,
+    analyzeDroppedFileMock: vi.fn((_file, _kind, _userId, onUpdate) => {
+      driver.onUpdate = onUpdate;
+      return {
+        done: new Promise((resolve) => { driver.resolveDone = resolve; }),
+        abort: driver.abort,
+      };
+    }),
+  };
+});
+
+vi.mock("@/utils/chipFileAnalysis", () => ({ analyzeDroppedFile: analyzeDroppedFileMock }));
+vi.mock("@/utils/stagedUploader", () => ({ removeStagedFile: removeStagedFileMock }));
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -386,5 +405,93 @@ describe("UnifiedInputPanel", () => {
 
     const panelShell = screen.getByTestId("input-panel-shell");
     expect(panelShell.className).toContain("rounded-[6px]");
+  });
+});
+
+describe("UnifiedInputPanel file chips", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    chipDriver.onUpdate = undefined;
+    chipDriver.resolveDone = undefined;
+  });
+
+  const renderPanel = (onAddContent = vi.fn().mockResolvedValue(undefined)) => {
+    render(
+      <UnifiedInputPanel
+        isInputUICollapsed={false}
+        onToggleInputUI={vi.fn()}
+        onAddContent={onAddContent}
+        getSuggestedTags={vi.fn().mockResolvedValue([])}
+      />
+    );
+    return onAddContent;
+  };
+
+  const dropFile = (file: File) => {
+    const dropzone = screen.getByTestId("capture-dropzone");
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
+  };
+
+  it("starts chip analysis when a file is dropped", async () => {
+    renderPanel();
+    const file = new File(["%PDF"], "kahn-cerf-88.pdf", { type: "application/pdf" });
+    dropFile(file);
+
+    await waitFor(() => expect(analyzeDroppedFileMock).toHaveBeenCalledTimes(1));
+    expect(analyzeDroppedFileMock.mock.calls[0][0]).toBe(file);
+    expect(analyzeDroppedFileMock.mock.calls[0][1]).toBe("document");
+    expect(analyzeDroppedFileMock.mock.calls[0][2]).toBe("user-1");
+  });
+
+  it("renders orchestrator updates in the chip", async () => {
+    renderPanel();
+    dropFile(new File(["%PDF"], "kahn-cerf-88.pdf", { type: "application/pdf" }));
+    await waitFor(() => expect(analyzeDroppedFileMock).toHaveBeenCalled());
+
+    act(() => {
+      chipDriver.onUpdate?.({ analysis: { factsLine: "PDF · 12 pages · 0.3 MB" }, analysisState: "analyzing" });
+      chipDriver.onUpdate?.({ analysis: { title: "Kahn-Cerf Certificate", description: "A 1988 certificate." } });
+    });
+
+    expect(await screen.findByText("PDF · 12 pages · 0.3 MB")).toBeInTheDocument();
+    expect(screen.getByText("Kahn-Cerf Certificate")).toBeInTheDocument();
+  });
+
+  it("aborts analysis and deletes the staged file when a chip is removed", async () => {
+    renderPanel();
+    dropFile(new File(["%PDF"], "kahn-cerf-88.pdf", { type: "application/pdf" }));
+    await waitFor(() => expect(analyzeDroppedFileMock).toHaveBeenCalled());
+
+    act(() => {
+      chipDriver.onUpdate?.({ analysis: { uploadedFilePath: "user-1/staging/1-abc.pdf" }, uploadState: "done" });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(chipDriver.abort).toHaveBeenCalled());
+    expect(removeStagedFileMock).toHaveBeenCalledWith("user-1/staging/1-abc.pdf");
+  });
+
+  it("passes chip analysis through to onAddContent for a single media item", async () => {
+    const onAddContent = renderPanel();
+    dropFile(new File(["aud"], "memo.m4a", { type: "audio/mp4" }));
+    await waitFor(() => expect(analyzeDroppedFileMock).toHaveBeenCalled());
+
+    chipDriver.resolveDone?.({
+      uploadedFilePath: "user-1/staging/2-def.m4a",
+      description: "Voice memo about the contract",
+      transcription: "full transcript",
+      factsLine: "Audio · 3:24",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add to Stash" }));
+
+    await waitFor(() => expect(onAddContent).toHaveBeenCalled());
+    const [type, payload] = onAddContent.mock.calls[0];
+    expect(type).toBe("audio");
+    expect(payload.uploadedFilePath).toBe("user-1/staging/2-def.m4a");
+    expect(payload.description).toBe("Voice memo about the contract");
+    expect(payload.content).toBe("full transcript");
+    expect(payload.title).toBe("memo.m4a");
   });
 });

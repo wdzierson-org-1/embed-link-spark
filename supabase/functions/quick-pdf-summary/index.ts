@@ -13,8 +13,8 @@ serve(async (req) => {
   }
 
   try {
-    const { fileUrl, itemId, fileName } = await req.json();
-    console.log('Quick PDF summary request:', { itemId, fileName });
+    const { fileUrl, itemId, fileName, snippet } = await req.json();
+    console.log('Quick PDF summary request:', { itemId, fileName, hasSnippet: Boolean(snippet) });
 
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openAIApiKey) {
@@ -44,7 +44,9 @@ serve(async (req) => {
           },
           {
             role: 'user',
-            content: `Based on the filename "${fileName}", generate a title and description. Title should be clear and descriptive. Description should be one sentence explaining what this document likely contains.`
+            content: snippet && String(snippet).trim().length > 0
+              ? `Here is the beginning of a document named "${fileName}":\n"""${String(snippet).slice(0, 1500)}"""\n\nBased on this text, generate a title and a one-sentence description of what this document contains.`
+              : `Based on the filename "${fileName}", generate a title and description. Title should be clear and descriptive. Description should be one sentence explaining what this document likely contains.`
           }
         ],
         max_tokens: 150,
@@ -84,26 +86,29 @@ serve(async (req) => {
       console.error('Error parsing AI response:', e);
     }
 
-    // Update the item with quick summary
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Update the item with quick summary (chip-time calls carry no itemId and
+    // just want the {title, description} back)
+    if (itemId) {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Only apply the filename-based guess while full extraction hasn't landed yet
-    // (extract-pdf-text sets page_body); never overwrite real content-based results
-    const { error: updateError } = await supabase
-      .from('items')
-      .update({
-        title,
-        description,
-      })
-      .eq('id', itemId)
-      .is('page_body', null);
+      // Only apply the filename-based guess while full extraction hasn't landed yet
+      // (extract-pdf-text sets page_body); never overwrite real content-based results
+      const { error: updateError } = await supabase
+        .from('items')
+        .update({
+          title,
+          description,
+        })
+        .eq('id', itemId)
+        .is('page_body', null);
 
-    if (updateError) {
-      console.error('Error updating item with quick summary:', updateError);
-    } else {
-      console.log('Quick summary updated successfully:', { itemId, title });
+      if (updateError) {
+        console.error('Error updating item with quick summary:', updateError);
+      } else {
+        console.log('Quick summary updated successfully:', { itemId, title });
+      }
     }
 
     return new Response(

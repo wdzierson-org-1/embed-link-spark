@@ -12,6 +12,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { Switch } from '@/components/ui/switch';
 import { MAX_FILE_SIZE_MB, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 import { humanizeUrlSlug, isWeakLinkMetadata } from '@/utils/urlInference';
+import { analyzeDroppedFile, type ChipAnalysisHandle, type ChipAnalysisUpdate, type ChipFileKind, type FileAnalysis } from '@/utils/chipFileAnalysis';
+import { removeStagedFile } from '@/utils/stagedUploader';
 
 interface UnifiedInputPanelProps {
   isInputUICollapsed: boolean;
@@ -43,8 +45,13 @@ interface InputItem {
   content: any;
   ogData?: OpenGraphData;
   metadataStatus?: MetadataStatus;
-  processingStatus?: 'uploading' | 'processing' | 'ready' | 'error';
+  fileAnalysis?: FileAnalysis;
+  uploadState?: 'uploading' | 'done' | 'failed';
+  uploadProgress?: number;
+  analysisState?: 'local' | 'analyzing' | 'ready';
 }
+
+const ANALYSIS_SUBMIT_TIMEOUT_MS = 20000;
 
 const UnifiedInputPanel = ({ 
   isInputUICollapsed, 
@@ -68,6 +75,7 @@ const UnifiedInputPanel = ({
   const youtubeOEmbedInFlightRef = useRef<Map<string, Promise<OpenGraphData | null>>>(new Map());
   const youtubeRetryAttemptsRef = useRef<Map<string, number>>(new Map());
   const youtubeRetryTimersRef = useRef<Map<string, number>>(new Map());
+  const fileAnalysisHandlesRef = useRef<Map<string, ChipAnalysisHandle>>(new Map());
   const { toast } = useToast();
   const { user } = useAuth();
   const { canAddContent } = useSubscription();
@@ -434,6 +442,23 @@ const UnifiedInputPanel = ({
     );
   }, []);
 
+  const applyChipUpdate = useCallback((itemId: string, update: ChipAnalysisUpdate) => {
+    setInputItems(prev =>
+      prev.map(item => {
+        if (item.id !== itemId) return item;
+        return {
+          ...item,
+          fileAnalysis: update.analysis
+            ? { ...item.fileAnalysis, ...update.analysis }
+            : item.fileAnalysis,
+          uploadState: update.uploadState ?? item.uploadState,
+          uploadProgress: update.uploadProgress ?? item.uploadProgress,
+          analysisState: update.analysisState ?? item.analysisState,
+        };
+      })
+    );
+  }, []);
+
   const hydrateLinkMetadata = useCallback(async (itemId: string, url: string) => {
     const clearYouTubeRetry = () => {
       const timerId = youtubeRetryTimersRef.current.get(url);
@@ -656,7 +681,7 @@ const UnifiedInputPanel = ({
       return;
     }
 
-    let fileType: 'text' | 'link' | 'image' | 'video' | 'audio' | 'document';
+    let fileType: ChipFileKind;
     if (file.type.startsWith('image/')) {
       fileType = 'image';
     } else if (file.type.startsWith('video/')) {
@@ -667,15 +692,24 @@ const UnifiedInputPanel = ({
       fileType = 'document';
     }
 
-    // The file is local — nothing processes before save, so the chip is ready
-    // immediately (upload and AI description happen after "Add to Stash")
+    const itemId = generateId();
     setInputItems(prev => [...prev, {
-      id: generateId(),
+      id: itemId,
       type: fileType,
       content: { file, name: file.name, size: file.size, type: file.type },
-      processingStatus: 'ready',
+      analysisState: 'local',
     }]);
-  }, [toast]);
+
+    // Chip-time understanding starts immediately (local facts + staged upload +
+    // cloud summary); without a signed-in user the chip stays static and the
+    // save path handles everything as before.
+    if (user?.id) {
+      const handle = analyzeDroppedFile(file, fileType, user.id, (update) =>
+        applyChipUpdate(itemId, update)
+      );
+      fileAnalysisHandlesRef.current.set(itemId, handle);
+    }
+  }, [toast, user?.id, applyChipUpdate]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -688,7 +722,27 @@ const UnifiedInputPanel = ({
   };
 
   const removeInputItem = (id: string) => {
-    setInputItems(prev => prev.filter(item => item.id !== id));
+    const item = inputItems.find(candidate => candidate.id === id);
+    const handle = fileAnalysisHandlesRef.current.get(id);
+    handle?.abort();
+    fileAnalysisHandlesRef.current.delete(id);
+    const stagedPath = item?.fileAnalysis?.uploadedFilePath;
+    if (stagedPath) {
+      void removeStagedFile(stagedPath);
+    }
+    setInputItems(prev => prev.filter(candidate => candidate.id !== id));
+  };
+
+  // Submit reuses whatever the chip pipeline produced; if it's still running,
+  // wait briefly rather than redoing the work — past the timeout the save path
+  // simply falls back to today's post-save processing.
+  const resolveFileAnalysis = async (item: InputItem): Promise<FileAnalysis | undefined> => {
+    const handle = fileAnalysisHandlesRef.current.get(item.id);
+    if (!handle) return item.fileAnalysis;
+    const timeout = new Promise<FileAnalysis | undefined>((resolve) =>
+      window.setTimeout(() => resolve(item.fileAnalysis), ANALYSIS_SUBMIT_TIMEOUT_MS)
+    );
+    return Promise.race([handle.done, timeout]);
   };
 
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -765,9 +819,16 @@ const UnifiedInputPanel = ({
       // Case 2: Only a single media file, no text, no other items -> Individual media item
       else if (mediaItems.length === 1 && !hasText && linkItems.length === 0) {
         const mediaItem = mediaItems[0];
+        const analysis = await resolveFileAnalysis(mediaItem);
         await onAddContent(mediaItem.type, {
           file: mediaItem.content.file,
-          title: mediaItem.content.name,
+          uploadedFilePath: analysis?.uploadedFilePath,
+          title: analysis?.title || analysis?.metadataTitle || mediaItem.content.name,
+          description: analysis?.description,
+          content: analysis?.transcription,
+          detectedText: analysis?.detectedText,
+          tags: analysis?.tags,
+          snippet: analysis?.snippet,
           type: mediaItem.type,
           is_public: isPublic
         });
@@ -795,14 +856,19 @@ const UnifiedInputPanel = ({
           });
         }
         
-        // Add media attachments
+        // Add media attachments (with any chip-time analysis for save reuse)
         for (const mediaItem of mediaItems) {
+          const analysis = await resolveFileAnalysis(mediaItem);
           attachments.push({
             type: mediaItem.type,
             file: mediaItem.content.file,
             name: mediaItem.content.name,
             size: mediaItem.content.size,
-            fileType: mediaItem.content.type
+            fileType: mediaItem.content.type,
+            uploadedFilePath: analysis?.uploadedFilePath,
+            title: analysis?.title || analysis?.metadataTitle,
+            description: analysis?.description,
+            processedContent: analysis?.transcription || analysis?.snippet,
           });
         }
 
@@ -812,6 +878,10 @@ const UnifiedInputPanel = ({
           attachments: attachments
         });
       }
+
+      // Handles are only released on success; on error the restored chips keep
+      // their live analysis
+      fileAnalysisHandlesRef.current.clear();
 
     } catch (error) {
       // Restore the form data on error
@@ -904,6 +974,7 @@ const UnifiedInputPanel = ({
               style={{ pointerEvents: isInputUICollapsed ? 'none' : 'auto' }}
             >
               <div
+                data-testid="capture-dropzone"
                 className={`p-4 space-y-4 relative transition-colors duration-150 ${
                   isDragOver
                     ? 'bg-violet-50 border-2 border-dashed border-violet-400 rounded-[6px]'
@@ -998,7 +1069,10 @@ const UnifiedInputPanel = ({
                               onRemove={() => removeInputItem(item.id)}
                               ogData={item.ogData}
                               metadataStatus={item.metadataStatus}
-                              processingStatus={item.processingStatus}
+                              fileAnalysis={item.fileAnalysis}
+                              uploadState={item.uploadState}
+                              uploadProgress={item.uploadProgress}
+                              analysisState={item.analysisState}
                             />
                           </motion.div>
                         ))}
