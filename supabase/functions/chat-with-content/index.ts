@@ -21,20 +21,56 @@ serve(async (req) => {
       throw new Error('OpenAI API key not configured');
     }
 
+    // The client's item is a slim list row (no page_body/summary — content is
+    // just the user's notes). Load the authoritative fields server-side, gated
+    // on ownership since the id alone is enough to reach this path.
+    let fullItem = item;
+    if (item?.id) {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const authHeader = req.headers.get('Authorization') ?? '';
+      const authedClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user } } = await authedClient.auth.getUser();
+
+      const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+      const { data: dbItem } = await supabase
+        .from('items')
+        .select('user_id, type, title, description, content, summary, page_body, supplemental_note, url')
+        .eq('id', item.id)
+        .single();
+
+      if (dbItem && user && dbItem.user_id === user.id) {
+        fullItem = { ...item, ...dbItem };
+      }
+    }
+
     // Prepare context about the content item
     let contentContext = `You are an AI assistant helping the user understand and work with their saved content.
 
 Content Details:
-- Type: ${item.type}
-- Title: ${item.title || 'Untitled'}
+- Type: ${fullItem.type}
+- Title: ${fullItem.title || 'Untitled'}
 `;
 
-    if (item.content) {
-      contentContext += `- Content: ${item.content}\n`;
+    if (fullItem.description) {
+      contentContext += `- AI Description: ${fullItem.description}\n`;
     }
 
-    if (item.description) {
-      contentContext += `- AI Description: ${item.description}\n`;
+    if (fullItem.summary) {
+      contentContext += `- Summary: ${fullItem.summary}\n`;
+    }
+
+    if (fullItem.content) {
+      contentContext += `- User's Notes: ${fullItem.content}\n`;
+    }
+
+    if (fullItem.supplemental_note) {
+      contentContext += `- Sticky Note: ${fullItem.supplemental_note}\n`;
+    }
+
+    if (fullItem.page_body) {
+      contentContext += `- Source Content (scraped page, extracted document, or transcript):\n${String(fullItem.page_body).slice(0, 24_000)}\n`;
     }
 
     contentContext += `
