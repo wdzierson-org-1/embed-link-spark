@@ -2,6 +2,9 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { generateSummary, stripPreamble, NO_PREAMBLE_RULES } from '../_shared/summarize.ts';
+
+const MAX_BODY_LENGTH = 50_000;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,7 +91,7 @@ serve(async (req) => {
               },
               {
                 type: 'input_text',
-                text: 'Please extract and analyze the complete content from this PDF document. Provide:\n1. Document type and main purpose\n2. Key sections and topics covered\n3. Important details, terms, or data points\n4. Main conclusions or outcomes\n\nBase your analysis ONLY on the actual content visible in the document. Be comprehensive and accurate.'
+                text: 'Extract the complete text content of this document, as close to verbatim as possible. Preserve the reading order and use markdown headings/lists only where the document itself has them. Include table contents as text. ' + NO_PREAMBLE_RULES + ' Output nothing but the document\'s own text.'
               }
             ]
           }
@@ -130,6 +133,7 @@ serve(async (req) => {
       throw new Error('No text content extracted from PDF');
     }
 
+    extractedText = stripPreamble(extractedText).slice(0, MAX_BODY_LENGTH);
     console.log('PDF content extracted successfully, length:', extractedText.length);
 
     // Clean up the uploaded file (optional)
@@ -145,6 +149,17 @@ serve(async (req) => {
       console.warn('Failed to cleanup uploaded file:', cleanupError);
     }
 
+    // Generate the full summary for the edit panel's Summary tab
+    let summary: string | null = null;
+    try {
+      summary = await generateSummary(openAIApiKey, {
+        sourceText: extractedText,
+        kind: 'document',
+      });
+    } catch (summaryError) {
+      console.error('Document summary generation failed (non-fatal):', summaryError);
+    }
+
     // Generate a concise description based on the extracted content
     const descriptionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -157,11 +172,11 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: 'You are a document summarization expert. Create concise, accurate descriptions based on actual document content.'
+            content: 'You write short factual descriptions of documents for a card in a personal library. Describe what the document is and contains in 1-2 sentences. ' + NO_PREAMBLE_RULES
           },
           {
             role: 'user',
-            content: `Based on this document analysis, create a brief 2-3 line description that accurately describes what this document contains:\n\n${extractedText}`
+            content: `Document content:\n\n${extractedText.slice(0, 12_000)}`
           }
         ],
         max_tokens: 150,
@@ -172,23 +187,29 @@ serve(async (req) => {
     let aiDescription = '';
     if (descriptionResponse.ok) {
       const descriptionData = await descriptionResponse.json();
-      aiDescription = descriptionData.choices[0].message.content;
-    } else {
+      aiDescription = stripPreamble(descriptionData.choices[0].message.content ?? '');
+    }
+    if (!aiDescription) {
       // Fallback description if description generation fails
-      aiDescription = `PDF document processed - content extracted and analyzed (${Math.round(pdfBuffer.byteLength / 1024)}KB)`;
+      aiDescription = `PDF document processed - content extracted (${Math.round(pdfBuffer.byteLength / 1024)}KB)`;
     }
 
     console.log('Generated description:', aiDescription);
 
-    // Update the item with extracted content and description
-    const { error: updateError } = await supabase
+    // Store extraction in page_body and the summary in summary. content is the
+    // user's own notes and is deliberately left untouched. summary also acts as
+    // the "extraction finished" marker for the processing overlay, so fall back
+    // to the description if summarization failed.
+    const { data: updatedItem, error: updateError } = await supabase
       .from('items')
       .update({
-        content: extractedText,
+        page_body: extractedText,
+        summary: summary || aiDescription,
         description: aiDescription,
-        page_body: extractedText
       })
-      .eq('id', itemId);
+      .eq('id', itemId)
+      .select('title, content, supplemental_note')
+      .single();
 
     if (updateError) {
       console.error('Error updating item:', updateError);
@@ -197,11 +218,21 @@ serve(async (req) => {
 
     console.log('Item updated successfully with extracted content');
 
-    // Generate embeddings for the extracted text
+    // Re-embed the whole item, not just the extraction — generate-embeddings
+    // replaces prior chunks, so the text must carry everything searchable
+    const textForEmbedding = [
+      updatedItem?.title,
+      aiDescription,
+      summary,
+      updatedItem?.content,
+      updatedItem?.supplemental_note,
+      extractedText,
+    ].filter(Boolean).join(' ');
+
     const { error: embeddingError } = await supabase.functions.invoke('generate-embeddings', {
       body: {
         itemId,
-        textContent: extractedText
+        textContent: textForEmbedding
       }
     });
 

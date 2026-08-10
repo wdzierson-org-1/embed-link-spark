@@ -12,6 +12,7 @@ const ITEM_LIST_COLUMNS = [
   'url',
   'file_path',
   'description',
+  'summary',
   'created_at',
   'mime_type',
   'is_public',

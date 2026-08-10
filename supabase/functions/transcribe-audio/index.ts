@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { stripPreamble, NO_PREAMBLE_RULES } from '../_shared/summarize.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -82,11 +83,11 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant that creates concise summaries of transcribed audio content. Keep summaries under 100 words and focus on the main topics and key points.'
+            content: 'You summarize transcribed recordings (audio or video) for a card in a personal library. Keep the summary under 100 words, covering the main topics and key points. ' + NO_PREAMBLE_RULES
           },
           {
             role: 'user',
-            content: `Please provide a brief summary of this audio transcription: "${transcriptionResult.trim()}"`
+            content: `Transcript:\n\n${transcriptionResult.trim()}`
           }
         ],
         max_tokens: 150,
@@ -95,7 +96,8 @@ serve(async (req) => {
     });
 
     const summaryData = await summaryResponse.json();
-    const description = summaryData.choices?.[0]?.message?.content?.trim() || 'Audio transcription available';
+    const rawDescription = summaryData.choices?.[0]?.message?.content?.trim();
+    const description = rawDescription ? stripPreamble(rawDescription) : 'Transcription available';
 
     return new Response(JSON.stringify({ 
       transcription: transcriptionResult.trim(),

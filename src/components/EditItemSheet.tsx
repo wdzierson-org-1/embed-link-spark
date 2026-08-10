@@ -31,6 +31,7 @@ interface ContentItem {
   type?: string;
   tags?: string[];
   is_public?: boolean;
+  summary?: string;
 }
 
 interface EditItemSheetProps {
@@ -44,8 +45,8 @@ interface EditItemSheetProps {
 const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemSheetProps) => {
   const isMobile = useIsMobile();
 
-  // Detect if document is still processing
-  const isProcessing = item?.type === 'document' && (!item?.content || item.content.length < 100);
+  // Detect if document is still processing (summary lands when extraction does)
+  const isProcessing = item?.type === 'document' && !item?.summary;
 
   // Prevent opening if processing
   React.useEffect(() => {

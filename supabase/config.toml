@@ -39,6 +39,9 @@ verify_jwt = true
 [functions.quick-pdf-summary]
 verify_jwt = true
 
+[functions.summarize-content]
+verify_jwt = true
+
 [db]
 port = 54322
 

@@ -86,7 +86,7 @@ serve(async (req) => {
               },
               {
                 type: 'text',
-                text: 'Analyze this image and provide:\n1. DESCRIPTION: A 2-3 sentence description of what this image shows\n2. TEXT: Any text visible in the image (verbatim, or \'none\' if no text)\n3. TAGS: 3-5 relevant topic tags as comma-separated words\n\nFormat your response exactly as:\nDESCRIPTION: <description>\nTEXT: <detected text or \'none\'>\nTAGS: <tag1>, <tag2>, <tag3>',
+                text: 'Analyze this image and provide:\n1. DESCRIPTION: A 2-3 sentence description of what this image shows, stated directly with no preamble or meta-commentary (never "Certainly", "Here is", "This image shows...it appears" style filler)\n2. TEXT: Any text visible in the image (verbatim, or \'none\' if no text)\n3. TAGS: 3-5 relevant topic tags as comma-separated words\n\nRespond with ONLY these three lines, formatted exactly as:\nDESCRIPTION: <description>\nTEXT: <detected text or \'none\'>\nTAGS: <tag1>, <tag2>, <tag3>',
               },
             ],
           },
