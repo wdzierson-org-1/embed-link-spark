@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -14,6 +14,7 @@ import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
 import ChatMole from '@/components/ChatMole';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
+import { sweepStagingOrphans } from '@/utils/stagedUploader';
 
 const INPUT_UI_PREFERENCE_COOKIE = 'stash_input_ui_collapsed';
 const MOLE_PINNED_KEY = 'stash_mole_pinned';
@@ -54,6 +55,14 @@ const Index = () => {
     removeOptimisticItem,
     clearSkeletonItems
   );
+
+  // Once per session: clear abandoned chip-time uploads (>24h, unreferenced)
+  const stagingSweepRanRef = useRef(false);
+  useEffect(() => {
+    if (!user?.id || stagingSweepRanRef.current) return;
+    stagingSweepRanRef.current = true;
+    void sweepStagingOrphans(user.id);
+  }, [user?.id]);
 
   const [editingItem, setEditingItem] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);

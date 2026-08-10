@@ -66,6 +66,13 @@ vi.mock("@/components/ChatMole", () => ({
   default: () => null,
 }));
 
+const { sweepMock } = vi.hoisted(() => ({
+  sweepMock: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@/utils/stagedUploader", () => ({
+  sweepStagingOrphans: sweepMock,
+}));
+
 describe("Index", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -86,5 +93,11 @@ describe("Index", () => {
     const { findByText } = render(<Index />);
 
     expect(await findByText("Loading your items...")).toBeInTheDocument();
+  });
+
+  it("sweeps staging orphans once for the signed-in user", async () => {
+    render(<Index />);
+    await waitFor(() => expect(sweepMock).toHaveBeenCalledWith("user-1"));
+    expect(sweepMock).toHaveBeenCalledTimes(1);
   });
 });
