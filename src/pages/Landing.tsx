@@ -4,13 +4,13 @@ import { Button } from '@/components/ui/button';
 import { ArrowRight, Brain, MessageSquare, FileText, Calendar, Globe, BookOpen, Mic } from 'lucide-react';
 
 import StashWordmark from '@/components/StashWordmark';
+import LandingChatDemo from '@/components/LandingChatDemo';
 import jotThoughts from '@/assets/jot-thoughts.jpg';
 import healthTracking from '@/assets/health-tracking.jpg';
 import creativeProjects from '@/assets/creative-projects.jpg';
 import readingNotes from '@/assets/reading-notes.jpg';
 import remindersMemoryAids from '@/assets/reminders-memory-aids.jpg';
 import demoAddLink from '@/assets/demo_add_link.mp4';
-import chatDemo from '@/assets/chat-demo.mp4';
 
 const Landing = () => {
   const [scrollY, setScrollY] = useState(0);
@@ -152,8 +152,8 @@ const Landing = () => {
         <section className="px-6 pt-24 pb-32 max-w-4xl mx-auto text-center">
           <div className="fade-in">
             <h1 className="text-5xl md:text-7xl font-tobias font-thin text-white lg:text-foreground mb-8 leading-tight tracking-tight">
-              Save anything.<br />
-              <span className="text-white/80 lg:text-muted-foreground">Keep the <span className="font-editorial-italic">context</span>.</span>
+              Stash <span className="font-editorial-italic">anything</span> easily.<br />
+              <span className="text-white/80 lg:text-muted-foreground">Find anything <span className="font-editorial-italic">effortlessly</span>.</span>
             </h1>
 
             <p className="text-xl font-mori text-white/90 lg:text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
@@ -175,47 +175,18 @@ const Landing = () => {
 
         {/* The Middle Section */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl font-tobias text-foreground mb-4">More than a notes app. Less than a second job.</h2>
+          <div className="text-center">
+            <h2 className="text-3xl font-tobias text-foreground mb-4">An <span className="font-editorial-italic">everything</span> app.</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
-              Basic notes apps swallow what you save. Serious knowledge systems make you the librarian. Stash sits in the middle — on purpose.
+              Notes, links, files, photos, voice memos — everything you'd normally scatter across five apps, in one place that remembers all of it.
             </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto items-stretch">
-            <div className="rounded-2xl border border-border bg-card/60 p-8 text-left">
-              <p className="text-xs font-mori uppercase tracking-widest text-muted-foreground mb-3">Notes apps</p>
-              <h3 className="text-xl font-mori text-foreground mb-3">Easy in, impossible out</h3>
-              <p className="text-muted-foreground font-mori leading-relaxed">
-                Everything piles into one long scroll. Six months later, that link you saved might as well be gone.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border-2 border-foreground bg-card p-8 text-left shadow-xl md:-my-3">
-              <p className="text-xs font-mori uppercase tracking-widest text-foreground mb-3">Stash</p>
-              <h3 className="text-2xl font-tobias text-foreground mb-3">Capture in seconds, <span className="font-editorial-italic">find it forever</span></h3>
-              <p className="text-muted-foreground font-mori leading-relaxed">
-                Drop it in, add a thought if you want, done. Stash titles it, describes it, and finds it when you ask — no filing, ever.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card/60 p-8 text-left">
-              <p className="text-xs font-mori uppercase tracking-widest text-muted-foreground mb-3">Knowledge systems</p>
-              <h3 className="text-xl font-mori text-foreground mb-3">Powerful, if you keep up</h3>
-              <p className="text-muted-foreground font-mori leading-relaxed">
-                Folders, tags, backlinks, weekly reviews. Most people stop maintaining the system by week two.
-              </p>
-            </div>
           </div>
         </section>
 
         {/* Capabilities Grid */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-tobias text-foreground mb-4">Capture with zero filing</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
-              No folders to design, no tags to invent. Add a thought if you want — Stash handles the rest.
-            </p>
+            <h2 className="text-3xl font-tobias text-foreground max-w-3xl mx-auto">No need to tag, describe, organize, or think. We do it all for you.</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -263,7 +234,7 @@ const Landing = () => {
               <div className="inline-flex items-center justify-center w-16 h-16 bg-teal-100 rounded-2xl mb-6 group-hover:bg-teal-200 transition-colors">
                 <MessageSquare className="h-8 w-8 text-teal-600" />
               </div>
-              <h3 className="text-xl font-tobias text-foreground mb-3">Save by WhatsApp</h3>
+              <h3 className="text-xl font-tobias text-foreground mb-3">Text it by WhatsApp or SMS</h3>
               <p className="text-muted-foreground font-mori leading-relaxed">
                 Text a link, photo, or voice note to your Stash number without opening the app at all.
               </p>
@@ -284,7 +255,7 @@ const Landing = () => {
         {/* Paste Demo Section */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-tobias text-foreground mb-4">Paste a link, get the whole page</h2>
+            <h2 className="text-3xl font-tobias text-foreground mb-4">Just paste the link and watch Stash fill in the rest.</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
               Stash collects everything it can about a link the moment you paste it — title, preview, full text — and makes it searchable. No description to write, nothing to categorize.
             </p>
@@ -313,52 +284,60 @@ const Landing = () => {
             </p>
           </div>
 
-          <div className="relative h-80 max-w-4xl mx-auto">
-            {/* Input panel image at the top */}
-            <div 
-              className="absolute top-2 left-1/2 transform -translate-x-1/2 z-30 rotate-1"
-              style={{ transform: `translateX(calc(-50% + ${scrollY * 0.02}px)) translateY(${10 - scrollY * 0.01}px) rotate(${1 + scrollY * 0.005}deg)` }}
-            >
-              <img 
-                src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png" 
-                alt="Input panel interface"
-                className="w-80 rounded-xl shadow-xl border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
-              />
-            </div>
+          {/* Mobile: simple stack */}
+          <div className="md:hidden max-w-md mx-auto space-y-5">
+            <img
+              src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png"
+              alt="Input panel interface"
+              className="w-full rounded-xl shadow-lg border border-border"
+            />
+            <img
+              src="/lovable-uploads/0515aeee-180b-4aa5-bfa0-b96ae2b400c5.png"
+              alt="Content management interface"
+              className="w-full rounded-xl shadow-lg border border-border"
+            />
+            <img
+              src="/lovable-uploads/4171b995-b0c1-447a-90fe-f204f543463b.png"
+              alt="Public feed example"
+              className="w-full rounded-xl shadow-lg border border-border"
+            />
+          </div>
 
-            {/* Left overlapping image */}
-            <div 
-              className="absolute top-16 left-28 z-20 -rotate-6"
-              style={{ transform: `translateX(${-scrollY * 0.02}px) translateY(${scrollY * 0.01}px) rotate(-6deg)` }}
-            >
-              <img 
-                src="/lovable-uploads/4171b995-b0c1-447a-90fe-f204f543463b.png" 
+          {/* Desktop: tight fanned cluster */}
+          <div className="hidden md:block relative h-[28rem] max-w-4xl mx-auto">
+            {/* Public feed peeking through behind */}
+            <div className="absolute top-32 left-1/2 -translate-x-1/2 z-10 hover:z-40">
+              <img
+                src="/lovable-uploads/4171b995-b0c1-447a-90fe-f204f543463b.png"
                 alt="Public feed example"
-                className="w-72 rounded-xl shadow-xl border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
-              />
-            </div>
-            
-            {/* Right overlapping image */}
-            <div 
-              className="absolute top-20 right-16 z-20 rotate-12"
-              style={{ transform: `translateX(${scrollY * 0.02}px) translateY(${scrollY * 0.01}px) rotate(12deg)` }}
-            >
-              <img 
-                src="/lovable-uploads/0515aeee-180b-4aa5-bfa0-b96ae2b400c5.png" 
-                alt="Content management interface"
-                className="w-72 rounded-xl shadow-xl border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
+                className="w-72 rounded-xl shadow-lg border border-border rotate-1 hover:rotate-0 transition-transform duration-300"
               />
             </div>
 
-            {/* Content organization example moved to bottom */}
-            <div 
-              className="absolute bottom-8 right-1/4 z-10 -rotate-3"
-              style={{ transform: `translateX(${scrollY * 0.01}px) translateY(${scrollY * 0.005}px) rotate(-3deg)` }}
-            >
-              <img 
-                src="/lovable-uploads/157b2b06-2c4f-4e1c-aea1-e690e426776b.png" 
+            {/* Left card grid */}
+            <div className="absolute top-20 left-6 z-20 hover:z-40">
+              <img
+                src="/lovable-uploads/0515aeee-180b-4aa5-bfa0-b96ae2b400c5.png"
+                alt="Content management interface"
+                className="w-96 rounded-xl shadow-xl border border-border -rotate-2 hover:rotate-0 transition-transform duration-300"
+              />
+            </div>
+
+            {/* Right card grid */}
+            <div className="absolute top-24 right-6 z-20 hover:z-40">
+              <img
+                src="/lovable-uploads/157b2b06-2c4f-4e1c-aea1-e690e426776b.png"
                 alt="Content organization example"
-                className="w-64 rounded-xl shadow-lg border border-border hover:rotate-0 hover:z-40 transition-all duration-300"
+                className="w-96 rounded-xl shadow-xl border border-border rotate-2 hover:rotate-0 transition-transform duration-300"
+              />
+            </div>
+
+            {/* Input panel front and center on top */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 z-30 hover:z-40">
+              <img
+                src="/lovable-uploads/6913186c-7298-435f-8962-6d5a231a5a0f.png"
+                alt="Input panel interface"
+                className="w-[34rem] max-w-none rounded-xl shadow-xl border border-border -rotate-1 hover:rotate-0 transition-transform duration-300"
               />
             </div>
           </div>
@@ -367,27 +346,18 @@ const Landing = () => {
         {/* AI Chat Section */}
         <section className="px-6 py-20 max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-tobias text-foreground mb-4">
-              Forget about forgetting<br />
-              <span className="text-muted-foreground">Chat with your notes, insights, memories, and photos</span>
+            <h2 className="text-4xl md:text-6xl font-tobias text-foreground mb-5 tracking-tight">
+              Forget about forgetting
             </h2>
+            <p className="text-xl md:text-2xl font-tobias text-muted-foreground mb-5">
+              Chat with your notes, insights, memories, and photos
+            </p>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
               Ask questions about anything you've saved. Our AI understands the context and connections across all your content.
             </p>
           </div>
 
-          <div className="max-w-2xl mx-auto rounded-2xl overflow-hidden shadow-2xl border border-border">
-            <video 
-              src={chatDemo}
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="w-full scale-[1.02]"
-            >
-              Your browser does not support the video tag.
-            </video>
-          </div>
+          <LandingChatDemo />
         </section>
 
         {/* Call to Action */}
@@ -416,7 +386,7 @@ const Landing = () => {
             <StashWordmark className="h-5 text-foreground" />
           </div>
           <p className="text-sm font-mori text-muted-foreground mb-8">
-            Save anything. Keep the context.
+            Forget about forgetting.
           </p>
           <div className="flex justify-center space-x-6 text-sm font-mori text-muted-foreground">
             <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
