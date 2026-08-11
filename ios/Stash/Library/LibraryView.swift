@@ -10,6 +10,7 @@ struct LibraryView: View {
     @State private var store: ItemStore
     @State private var query = ""
     @State private var showTagFilter = false
+    @State private var selectedItem: Item?
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -56,6 +57,9 @@ struct LibraryView: View {
             .sheet(isPresented: $showTagFilter) {
                 TagFilterSheet(userId: userId, store: store)
             }
+            .sheet(item: $selectedItem) { item in
+                ItemDetailView(item: item, store: store)
+            }
         }
     }
 
@@ -85,7 +89,7 @@ struct LibraryView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
-                    Button { onSelect(item) } label: { ItemCardView(item: item) }
+                    Button { selectedItem = item; onSelect(item) } label: { ItemCardView(item: item) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("card.\(index)")
                         .onAppear { Task { await store.loadMoreIfNeeded(current: item) } }

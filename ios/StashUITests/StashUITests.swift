@@ -176,6 +176,78 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(app.textFields["signin.email"].waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
     }
 
+    /// Opens the read-only detail sheet for one permanent UITEST-FIXTURE card of each of
+    /// [link, text, image, audio] (found via a unique local-search substring, not grid
+    /// position, so ordering changes can't break this), asserting the segmented tab set
+    /// matches what `contentTabsConfig(for:)` predicts for that type — and, audio only, that
+    /// the Transcript tab shows real, non-empty text (the fixture's Whisper transcript).
+    /// After each assertion, prints a checkpoint marker to stderr (unbuffered even when
+    /// redirected to a file, unlike stdout) and sleeps briefly so an external
+    /// `xcrun simctl io <udid> screenshot` can capture the open sheet mid-test — same
+    /// technique as testTagFilterSheetOpens below, one checkpoint per type.
+    /// Note: presenting the sheet doesn't resign the presenting view's search-field
+    /// keyboard (confirmed empirically — neither a submit-via-return, a tap on an unrelated
+    /// button, nor a scroll gesture dismissed it), so it stays visible under the sheet in
+    /// every screenshot here — harmless for the (accessibility-tree-based) assertions;
+    /// link/text/audio's header and tabs still fit above it, only the image checkpoint's
+    /// hero image pushes its header below the fold in the screenshot (task-12-report.md).
+    func testDetailSheets() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        func openAndCheck(search: String, expectedTabs: [String], forbiddenTabs: [String],
+                           checkpoint: String, extra: () -> Void = {}) {
+            searchField.tap()
+            searchField.typeText(search)
+            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
+            card0().tap()
+
+            let done = app.buttons["detail.done"]
+            XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for '\(search)'")
+            for label in expectedTabs {
+                XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5),
+                              "Expected '\(label)' tab for '\(search)'")
+            }
+            for label in forbiddenTabs {
+                XCTAssertFalse(app.buttons[label].exists, "Did not expect '\(label)' tab for '\(search)'")
+            }
+            extra()
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: \(checkpoint)\n".data(using: .utf8)!)
+            sleep(5)
+
+            done.tap()
+            XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
+            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
+        }
+
+        openAndCheck(search: "link one", expectedTabs: ["Summary", "Original Content", "Notes"],
+                     forbiddenTabs: ["Transcript"], checkpoint: "link")
+
+        openAndCheck(search: "note one", expectedTabs: ["Notes"],
+                     forbiddenTabs: ["Summary", "Original Content", "Transcript"], checkpoint: "text")
+
+        openAndCheck(search: "image one", expectedTabs: ["Notes"],
+                     forbiddenTabs: ["Summary", "Original Content", "Transcript"], checkpoint: "image")
+
+        openAndCheck(search: "audio one", expectedTabs: ["Notes", "Transcript"],
+                     forbiddenTabs: ["Summary", "Original Content"], checkpoint: "audio") {
+            app.buttons["Transcript"].tap()
+            let transcript = app.descendants(matching: .any)["detail.transcriptText"]
+            XCTAssertTrue(transcript.waitForExistence(timeout: 10), "Transcript text container not found")
+            XCTAssertFalse(transcript.label.isEmpty, "Expected non-empty transcript text")
+            XCTAssertNotEqual(transcript.label, "Transcription in progress…",
+                              "Expected a real transcript, not the in-progress placeholder")
+        }
+    }
+
     /// Opens the tag-filter sheet — independent of item-count data, so it stays meaningful
     /// even when the account has no items. Also the screenshot rig for task-10-report.md's
     /// required tag-filter-sheet capture: sleeps briefly post-presentation so an external

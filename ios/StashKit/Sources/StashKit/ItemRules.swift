@@ -21,7 +21,9 @@ public extension Item {
     }
 }
 
-public enum ContentTabKey: Sendable, Equatable { case summary, original, notes, transcript }
+// Hashable (not just Equatable) so it can back a SwiftUI Picker selection / ForEach id
+// in Task 12's ItemDetailView — a no-associated-value enum synthesizes it for free.
+public enum ContentTabKey: Sendable, Hashable { case summary, original, notes, transcript }
 public struct ContentTab: Sendable, Equatable {
     public let key: ContentTabKey
     public let label: String
