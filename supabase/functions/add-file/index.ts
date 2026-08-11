@@ -72,6 +72,59 @@ Deno.serve(async (req) => {
 
     if (error) return json(500, { error: 'Failed to create item', details: error.message });
 
+    // --- enrichment: after-response, never blocks capture ---
+    const publicUrl = `${Deno.env.get('SUPABASE_URL')}/storage/v1/object/public/stash-media/${file_path}`;
+
+    const enrich = async () => {
+      try {
+        if (type === 'image') {
+          // analyze-image writes description + page_body (OCR) and re-embeds the item
+          await supabase.functions.invoke('analyze-image', {
+            body: { itemId: item.id, imageUrl: publicUrl },
+          });
+        } else if (type === 'audio' || type === 'video') {
+          const { data: t, error: tErr } = await supabase.functions.invoke('transcribe-audio', {
+            body: { audioUrl: publicUrl, fileName },
+          });
+          if (tErr) throw tErr;
+          // Transcript is captured source → page_body (content model,
+          // migration 20260810120000); description is the short AI summary
+          await supabase.from('items').update({
+            page_body: t.transcription || null,
+            description: t.description || null,
+          }).eq('id', item.id);
+          const text = [itemTitle, content, t.transcription, t.description].filter(Boolean).join(' ');
+          if (text.trim()) {
+            await supabase.functions.invoke('generate-embeddings', {
+              body: { itemId: item.id, textContent: text },
+            });
+          }
+        } else {
+          // document: baseline embedding first so it's searchable even if
+          // extraction never lands (mirrors contentProcessor.ts:580-594)
+          const baseline = [itemTitle, fileName, content].filter(Boolean).join(' ');
+          if (baseline.trim()) {
+            await supabase.functions.invoke('generate-embeddings', {
+              body: { itemId: item.id, textContent: baseline },
+            });
+          }
+          await supabase.functions.invoke('quick-pdf-summary', {
+            body: { fileUrl: publicUrl, itemId: item.id, fileName },
+          });
+          // writes page_body + summary + content embeddings itself
+          await supabase.functions.invoke('extract-pdf-text', {
+            body: { fileUrl: publicUrl, itemId: item.id },
+          });
+        }
+      } catch (e) {
+        console.error('add-file enrichment failed (non-fatal):', e);
+      }
+    };
+
+    const runtime = (globalThis as { EdgeRuntime?: { waitUntil: (p: Promise<unknown>) => void } }).EdgeRuntime;
+    const p = enrich();
+    runtime?.waitUntil?.(p);
+
     return json(200, { success: true, item });
   } catch (e) {
     return json(500, { error: 'Internal server error', details: e instanceof Error ? e.message : 'Unknown' });
