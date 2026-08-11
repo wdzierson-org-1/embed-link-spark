@@ -312,4 +312,149 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 10),
                       "Expected the newly-captured card to appear via realtime")
     }
+
+    /// Debounced field autosave + notes-append + detail-sheet persistence, exercised against the
+    /// permanent "UITEST-FIXTURE: note one" fixture. This test mutates that fixture's title
+    /// (restored below via the same in-app editing path it was changed with) and its content
+    /// (mutated by the notes-append step, which can only ever ADD a paragraph — there's no
+    /// in-app "undo" for that). Content is restored via a REST PATCH run in the shell
+    /// immediately after this test, using the original content captured via REST *before* the
+    /// test runs; see task-8-report.md for the exact commands and verification GETs.
+    ///
+    /// Title edits go through `replaceText` (see its doc comment) rather than trying to position
+    /// the caret and append/trim a suffix — two earlier approaches (a coordinate tap near the
+    /// field's trailing edge; a long-press for the system edit callout) both empirically landed
+    /// the caret mid-string instead of at the end, corrupting the title (see task-8-report.md).
+    /// `replaceText` makes no assumption about caret position at all.
+    func testEditSmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        // Empirically (see task-8-report.md), neither a coordinate tap near the trailing edge
+        // nor a long-press-for-callout reliably lands the caret at a known position in this
+        // SwiftUI TextField — both were observed inserting mid-string instead. What IS reliable:
+        // reading the field's *actual current value* (never assumed) and backspacing exactly
+        // that many characters, looping (re-tapping each round, since the field's on-screen
+        // width-vs-content ratio — and hence where a plain center tap's caret lands — changes as
+        // the string shrinks) until the field reports empty. This makes no assumption about
+        // caret position at all; it only assumes backspace deletes characters before the caret,
+        // which is universally true. Bounded to 5 rounds so a genuine failure loops rather than
+        // hangs; the caller's own post-condition assertion is the real safety net regardless.
+        func clearField(_ field: XCUIElement, placeholder: String) {
+            for _ in 0..<5 {
+                let current = (field.value as? String) ?? ""
+                if current.isEmpty || current == placeholder { return }
+                field.tap()
+                field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+            }
+        }
+
+        func replaceText(_ field: XCUIElement, placeholder: String, with newValue: String) {
+            clearField(field, placeholder: placeholder)
+            field.tap()
+            field.typeText(newValue)
+        }
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        searchField.tap()
+        searchField.typeText("note one")
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'note one'")
+        card0().tap()
+
+        let originalTitle = "UITEST-FIXTURE: note one"
+        let epoch = Int(Date().timeIntervalSince1970)
+        let editedTitle = "\(originalTitle) (edited \(epoch))"
+
+        let titleField = anyElement("detail.title")
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
+        replaceText(titleField, placeholder: "Untitled", with: editedTitle)
+        XCTAssertEqual(titleField.value as? String, editedTitle,
+                       "Expected the title field to show the edit immediately")
+
+        // Debounce is 400ms; give the save round trip margin, then hold for the external
+        // screenshot rig (same checkpoint technique as testDetailSheets/testTagFilterSheetOpens).
+        sleep(2)
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: edit\n".data(using: .utf8)!)
+        sleep(5)
+
+        app.buttons["detail.done"].tap()
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
+
+        // Reopen — searching the ORIGINAL substring still matches since the edit only appended.
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the edited card to still be findable")
+        card0().tap()
+
+        let reopenedTitleField = anyElement("detail.title")
+        XCTAssertTrue(reopenedTitleField.waitForExistence(timeout: 10), "Title field not found on reopen")
+        XCTAssertEqual(reopenedTitleField.value as? String, editedTitle,
+                       "Expected the edited title to have persisted across dismiss/reopen")
+
+        // Notes append.
+        let noteMarker = "appended-\(epoch)"
+        let notesField = anyElement("detail.notesComposer.field")
+        XCTAssertTrue(notesField.waitForExistence(timeout: 10), "Notes composer field not found")
+        notesField.tap()
+        notesField.typeText(noteMarker)
+        app.buttons["detail.notesComposer.add"].tap()
+
+        let notesText = anyElement("detail.notesText")
+        XCTAssertTrue(notesText.waitForExistence(timeout: 10), "Notes text not found")
+        let notesAppeared = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", noteMarker), object: notesText)
+        XCTAssertEqual(XCTWaiter().wait(for: [notesAppeared], timeout: 10), .completed,
+                       "Expected the appended note to render in Notes")
+
+        // Restore: back to exactly the canonical fixture title. Content is restored via REST in
+        // the shell after this test (see above).
+        replaceText(reopenedTitleField, placeholder: "Untitled", with: originalTitle)
+        XCTAssertEqual(reopenedTitleField.value as? String, originalTitle,
+                       "Expected the title to be restored to exactly the original fixture title")
+        sleep(2)
+
+        app.buttons["detail.done"].tap()
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after final dismiss")
+    }
+
+    /// Delete flow: creates a disposable item via the add-note REST endpoint before this test
+    /// runs (never touches the permanent UITEST-FIXTURE rows — see task-8-report.md for the
+    /// exact seed/verify commands), opens it from the grid, deletes it through the in-app
+    /// confirmation dialog, and asserts it's gone from the grid. Absence from the server is
+    /// verified separately via REST in the shell after this test runs.
+    func testDeleteSmoke() throws {
+        guard let marker = ProcessInfo.processInfo.environment["STASH_DELETE_MARKER"], !marker.isEmpty else {
+            XCTFail("STASH_DELETE_MARKER was not set — seed a disposable item via REST before running this test")
+            throw XCTSkip("missing STASH_DELETE_MARKER")
+        }
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        searchField.tap()
+        searchField.typeText(marker)
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the disposable item's card to appear")
+        card0().tap()
+
+        let deleteButton = app.buttons["detail.delete"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Delete button not found in detail sheet")
+        deleteButton.tap()
+
+        let confirmButton = app.buttons["Delete"]
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Delete confirmation dialog did not appear")
+        confirmButton.tap()
+
+        XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
+                      "Expected no results for the deleted item's marker search after deletion")
+    }
 }
