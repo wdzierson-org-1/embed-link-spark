@@ -221,9 +221,15 @@ Migrating the web's upload path onto it is explicitly out of scope here.
 0. **Setup (Will):** connect XcodeBuildMCP (`claude mcp add XcodeBuildMCP -- npx -y xcodebuildmcp@latest`, restart session). Simulator dev needs no Apple team; device installs + TestFlight later need one (3 app ids + app group).
 1. **Foundation:** scaffold workspace + StashKit, auth (sign in), View tab read path (grid, filters, realtime, detail read-only).
 2. **Capture:** `add-file` function; capture sheet (text/URL/photos); Outbox; edit/delete/tags in detail.
-3. **Share extension.**
-4. **Voice notes + Ask tab.**
-5. **Widgets + App Intents + settings/gates + polish → TestFlight.**
+3. **Functional parity: Ask tab + voice notes + Settings.** *(Re-sequenced
+   2026-08-11 per Will — parity with the web before new capture surfaces.)*
+4. **Share extension** — links, screenshots, videos, voice notes/audio, PDFs
+   shared from any app.
+5. **Widgets + App Intents** — home-screen/lock-screen one-tap capture and
+   Siri background save (no app open) → TestFlight.
+6. **Visual/design parity with the web app.** *(Added 2026-08-11 — the apps
+   currently look very different; align the iOS look with gostash.it's design
+   language after function lands.)*
 
 ## Decisions (resolved by Will, 2026-08-10)
 
