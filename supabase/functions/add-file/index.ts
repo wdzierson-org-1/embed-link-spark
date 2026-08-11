@@ -45,6 +45,11 @@ Deno.serve(async (req) => {
       return json(403, { error: 'file_path must be inside your own storage folder' });
     }
 
+    const segments = file_path.split('/');
+    if (segments.some((s: string) => s === '' || s === '..')) {
+      return json(400, { error: 'file_path contains invalid segments' });
+    }
+
     const type = deriveItemType(mime_type);
     const fileName = fileNameFrom(file_path);
     const itemTitle = title || fileName;
@@ -79,9 +84,10 @@ Deno.serve(async (req) => {
       try {
         if (type === 'image') {
           // analyze-image writes description + page_body (OCR) and re-embeds the item
-          await supabase.functions.invoke('analyze-image', {
+          const { error: imgErr } = await supabase.functions.invoke('analyze-image', {
             body: { itemId: item.id, imageUrl: publicUrl },
           });
+          if (imgErr) console.error('add-file: analyze-image failed for', item.id, imgErr);
         } else if (type === 'audio' || type === 'video') {
           const { data: t, error: tErr } = await supabase.functions.invoke('transcribe-audio', {
             body: { audioUrl: publicUrl, fileName },
@@ -95,26 +101,30 @@ Deno.serve(async (req) => {
           }).eq('id', item.id);
           const text = [itemTitle, content, t.transcription, t.description].filter(Boolean).join(' ');
           if (text.trim()) {
-            await supabase.functions.invoke('generate-embeddings', {
+            const { error: embErr } = await supabase.functions.invoke('generate-embeddings', {
               body: { itemId: item.id, textContent: text },
             });
+            if (embErr) console.error('add-file: generate-embeddings failed for', item.id, embErr);
           }
         } else {
           // document: baseline embedding first so it's searchable even if
           // extraction never lands (mirrors contentProcessor.ts:580-594)
           const baseline = [itemTitle, fileName, content].filter(Boolean).join(' ');
           if (baseline.trim()) {
-            await supabase.functions.invoke('generate-embeddings', {
+            const { error: embErr } = await supabase.functions.invoke('generate-embeddings', {
               body: { itemId: item.id, textContent: baseline },
             });
+            if (embErr) console.error('add-file: generate-embeddings failed for', item.id, embErr);
           }
-          await supabase.functions.invoke('quick-pdf-summary', {
+          const { error: qpsErr } = await supabase.functions.invoke('quick-pdf-summary', {
             body: { fileUrl: publicUrl, itemId: item.id, fileName },
           });
+          if (qpsErr) console.error('add-file: quick-pdf-summary failed for', item.id, qpsErr);
           // writes page_body + summary + content embeddings itself
-          await supabase.functions.invoke('extract-pdf-text', {
+          const { error: extErr } = await supabase.functions.invoke('extract-pdf-text', {
             body: { fileUrl: publicUrl, itemId: item.id },
           });
+          if (extErr) console.error('add-file: extract-pdf-text failed for', item.id, extErr);
         }
       } catch (e) {
         console.error('add-file enrichment failed (non-fatal):', e);
