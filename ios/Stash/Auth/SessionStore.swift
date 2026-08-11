@@ -15,6 +15,14 @@ final class SessionStore {
     var errorMessage: String?
 
     func start() async {
+        #if DEBUG
+        // UI-test repeatability: the Keychain session survives app uninstall/reinstall
+        // on the Simulator, so a UI test that signs in once would silently skip the
+        // sign-in screen on every subsequent run. Let the UI test force a clean slate.
+        if CommandLine.arguments.contains("--uitest-reset-auth") {
+            try? await StashClient.shared.auth.signOut()
+        }
+        #endif
         // Zombie-session lesson: any failure here (incl. "Auth session missing")
         // means signed-out — show the sign-in screen, never an error loop.
         do {

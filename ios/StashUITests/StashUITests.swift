@@ -20,6 +20,12 @@ final class StashUITests: XCTestCase {
         }
 
         let app = XCUIApplication()
+        // Without this, a second consecutive run against the same simulator finds a
+        // Keychain session already persisted from the first run's successful sign-in
+        // (uninstall/reinstall doesn't clear it — see task-8-report.md Adaptation #5),
+        // so the app launches straight into MainTabView, "signin.email" never appears,
+        // and the test fails on a timeout that looks like a regression but is stale state.
+        app.launchArguments = ["--uitest-reset-auth"]
         app.launch()
 
         let emailField = app.textFields["signin.email"]
