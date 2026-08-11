@@ -13,6 +13,7 @@ public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
 /// plan 3 moves the directory into the App Group container.
 public actor Outbox {
     private let directory: URL
+    private var isDraining = false
 
     public init(directory: URL) {
         self.directory = directory
@@ -37,6 +38,9 @@ public actor Outbox {
     }
 
     public func drain(api: CaptureAPI, accessToken: String) async -> Int {
+        guard !isDraining else { return 0 }
+        isDraining = true
+        defer { isDraining = false }
         var sent = 0
         for var entry in pending() {
             do {
