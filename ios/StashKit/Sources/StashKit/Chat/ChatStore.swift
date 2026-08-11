@@ -29,17 +29,28 @@ public final class ChatStore {
     private let history: ChatHistoryStoring
     private let capture: CaptureAPI
     private let accessToken: @Sendable () async throws -> String
+    /// How a `persist` call is scheduled once its `work` closure is built. Production default
+    /// (`{ work in Task { await work() } }`) detaches — true fire-and-forget, matching
+    /// ChatMole.tsx:121-131 (`void supabase.from('messages').insert(...).then(...)`, never
+    /// awaited by the caller) and this codebase's own idiom for background-durable writes
+    /// (EmbeddingRefresher.schedule, Debouncer) — so `ask` never blocks the next step of the
+    /// send flow on a DB round-trip. Exists as an injection point purely so tests can swap in a
+    /// dispatcher that collects `work` items instead of racing a detached `Task`, then drain them
+    /// explicitly for deterministic assertions on `ChatHistoryStoring.persist` calls.
+    private let persistDispatch: (@escaping @Sendable () async -> Void) -> Void
 
     private var conversationId: UUID?
     private var historyLoaded = false
 
     public init(userId: UUID, streamer: ChatStreaming, history: ChatHistoryStoring, capture: CaptureAPI,
-                accessToken: @escaping @Sendable () async throws -> String) {
+                accessToken: @escaping @Sendable () async throws -> String,
+                persistDispatch: @escaping (@escaping @Sendable () async -> Void) -> Void = { work in Task { await work() } }) {
         self.userId = userId
         self.streamer = streamer
         self.history = history
         self.capture = capture
         self.accessToken = accessToken
+        self.persistDispatch = persistDispatch
     }
 
     /// ChatMole.tsx:70-116 — loads (or starts) the durable thread. Idempotent, like the web's
@@ -122,7 +133,7 @@ public final class ChatStore {
     private func ask(_ question: String) async {
         let userMessageId = "u-\(UUID().uuidString)"
         messages.append(ChatMessage(id: userMessageId, role: .user, content: question))
-        await persistIfPossible(role: "user", content: question, sourceItemIds: nil)
+        persistIfPossible(role: "user", content: question, sourceItemIds: nil)
 
         // Web parity: the history sent to the model is every prior user/assistant turn
         // *including* the question just appended above (ChatMole.tsx:243-245 reads
@@ -146,7 +157,7 @@ public final class ChatStore {
                 case .done(let sources):
                     setAssistantDone(id: assistantId, sources: sources)
                     let sourceIds = sources.isEmpty ? nil : sources.map(\.id)
-                    await persistIfPossible(role: "assistant", content: streamed, sourceItemIds: sourceIds)
+                    persistIfPossible(role: "assistant", content: streamed, sourceItemIds: sourceIds)
                 case .serverError(let message):
                     throw ChatStoreError.server(message)
                 }
@@ -170,8 +181,13 @@ public final class ChatStore {
         messages[idx].isStreaming = false
     }
 
-    private func persistIfPossible(role: String, content: String, sourceItemIds: [UUID]?) async {
+    /// Builds the persist call and hands it to `persistDispatch` rather than awaiting it — the
+    /// closure captures only `Sendable` values (never `self`), so it's safe to run detached.
+    private func persistIfPossible(role: String, content: String, sourceItemIds: [UUID]?) {
         guard let conversationId else { return }
-        await history.persist(conversationId: conversationId, role: role, content: content, sourceItemIds: sourceItemIds)
+        let history = self.history
+        persistDispatch {
+            await history.persist(conversationId: conversationId, role: role, content: content, sourceItemIds: sourceItemIds)
+        }
     }
 }

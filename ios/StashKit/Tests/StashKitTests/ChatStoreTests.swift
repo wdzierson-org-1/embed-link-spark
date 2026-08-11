@@ -25,9 +25,11 @@ final class StubHistory: ChatHistoryStoring, @unchecked Sendable {
 
 @MainActor
 final class ChatStoreTests: XCTestCase {
-    func makeStore(streamer: StubStreamer, history: StubHistory = StubHistory()) -> ChatStore {
+    func makeStore(streamer: StubStreamer, history: StubHistory = StubHistory(),
+                   persistDispatch: @escaping (@escaping @Sendable () async -> Void) -> Void = { work in Task { await work() } }) -> ChatStore {
         ChatStore(userId: UUID(), streamer: streamer, history: history,
-                  capture: CaptureAPI(poster: StubPoster()), accessToken: { "jwt" })
+                  capture: CaptureAPI(poster: StubPoster()), accessToken: { "jwt" },
+                  persistDispatch: persistDispatch)
     }
 
     func testAskStreamsAndPersists() async {
@@ -36,9 +38,15 @@ final class ChatStoreTests: XCTestCase {
         streamer.events = [.delta("Hel"), .delta("lo"),
                            .done(sources: [ChatSource(id: sourceId, title: "S", type: "text", url: nil)])]
         let history = StubHistory()
-        let store = makeStore(streamer: streamer, history: history)
+        // ChatStore's `persist` calls are fire-and-forget (web parity — ChatMole.tsx:121-131 never
+        // awaits its insert either), so a real `Task {}` dispatcher would race this test's
+        // assertions. Collect the work instead and drain it explicitly for a deterministic result.
+        var pendingPersists: [@Sendable () async -> Void] = []
+        let store = makeStore(streamer: streamer, history: history,
+                              persistDispatch: { work in pendingPersists.append(work) })
         await store.loadHistoryOnce()
         await store.send("what is hello?")
+        for work in pendingPersists { await work() }
         XCTAssertEqual(store.messages.count, 2)
         XCTAssertEqual(store.messages[1].content, "Hello")
         XCTAssertEqual(store.messages[1].sources.first?.id, sourceId)
