@@ -19,7 +19,7 @@
 - Item owner is always derived server-side from the JWT. `add-file` must reject `file_path` not prefixed `<jwt-user-id>/`.
 - Edge functions deploy with `supabase functions deploy <name>` from repo root, then **verify with `supabase functions list`** (lesson: undeployed functions surface as CORS errors in browsers).
 - Never commit credentials. The UI-test account email is `will+uitest@dzierson.com`; its password is injected at execution time from project memory into `ios/.env.test.local` (gitignored) — the orchestrator provides it, tasks `source` it.
-- Every task ends in a commit on `main` (no push). Commit messages end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
+- Every task ends in a commit on this plan's worktree branch (no push). Commit messages end with `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 - supabase-swift API drift: the code below targets v2.x. If a call doesn't compile, check `~/…/DerivedData` checkouts or the package README for the current signature and adapt — do not downgrade the package.
 
 ---
@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
 - [ ] **Step 3: Deploy and verify listed**
 
 ```bash
-cd /Users/will/Appdev/embed-link-spark
+cd "$(git rev-parse --show-toplevel)"
 supabase functions deploy add-file
 supabase functions list | grep add-file   # must appear as deployed
 ```
@@ -474,7 +474,7 @@ struct PlaceholderPane: View {
 - [ ] **Step 3: Generate, test, build, run**
 
 ```bash
-cd /Users/will/Appdev/embed-link-spark/ios
+cd "$(git rev-parse --show-toplevel)/ios"
 xcodegen generate
 (cd StashKit && swift test)     # StashConfigTests passes
 ```
