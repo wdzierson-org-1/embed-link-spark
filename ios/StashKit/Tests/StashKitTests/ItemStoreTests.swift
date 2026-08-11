@@ -15,6 +15,19 @@ final class StubFetcher: ItemsFetching, @unchecked Sendable {
     func fetchDetail(id: UUID) async throws -> Item { fatalError("unused") }
 }
 
+/// Fetcher whose `fetchPage` blocks on an externally-releasable continuation, so a test can
+/// control the completion order of two concurrent refreshes.
+final class GatedFetcher: ItemsFetching, @unchecked Sendable {
+    var gates: [CheckedContinuation<[Item], Error>] = []
+    var pendingTypes: [[ItemType]?] = []
+    func fetchPage(userId: UUID, before: Date?, types: [ItemType]?, tagIds: [UUID]) async throws -> [Item] {
+        pendingTypes.append(types)
+        return try await withCheckedThrowingContinuation { gates.append($0) }
+    }
+    func fetchDetail(id: UUID) async throws -> Item { fatalError("unused") }
+    func release(_ index: Int, with items: [Item]) { gates[index].resume(returning: items) }
+}
+
 @MainActor
 final class ItemStoreTests: XCTestCase {
     func makeItem(minutesAgo: Int) -> Item {
@@ -85,5 +98,36 @@ final class ItemStoreTests: XCTestCase {
         await store.refresh()
         XCTAssertNil(store.loadError)                       // cleared by the next successful refresh
         XCTAssertEqual(store.items.count, 1)
+    }
+
+    // Closes final-review Important #3 (refresh reentrancy): a slow, stale refresh that
+    // completes AFTER a newer refresh must not clobber the newer refresh's results.
+    func testStaleRefreshCannotOverwriteNewerOne() async {
+        let fetcher = GatedFetcher()
+        let store = ItemStore(userId: UUID(), fetcher: fetcher, pageSize: 50)
+        let old = makeItem(minutesAgo: 99)
+        let new = makeItem(minutesAgo: 1)
+
+        async let first: Void = store.refresh()          // starts, blocks on gate 0
+        try? await Task.sleep(for: .milliseconds(50))
+        async let second: Void = store.refresh()         // starts, blocks on gate 1
+        try? await Task.sleep(for: .milliseconds(50))
+
+        fetcher.release(1, with: [new])                  // newer refresh completes first
+        try? await Task.sleep(for: .milliseconds(50))
+        fetcher.release(0, with: [old])                  // stale refresh completes last
+        _ = await (first, second)
+
+        XCTAssertEqual(store.items.map(\.id), [new.id])  // stale result dropped
+    }
+
+    func testApplyNewPrependsOnceOnly() async {
+        let fetcher = StubFetcher()
+        let store = ItemStore(userId: UUID(), fetcher: fetcher, pageSize: 50)
+        let item = makeItem(minutesAgo: 0)
+        store.applyNew(item)
+        store.applyNew(item)
+        XCTAssertEqual(store.items.count, 1)
+        XCTAssertEqual(store.items.first?.id, item.id)
     }
 }

@@ -72,6 +72,11 @@ public final class ItemStore {
     private let fetcher: ItemsFetching
     private let pageSize: Int
 
+    /// Bumped at the start of every `load(reset:)`. Lets a load that's still in flight
+    /// recognize a newer load has since started, so it can discard its own (stale) result
+    /// instead of clobbering the newer one's — see final-review Important #3.
+    private var loadGeneration = 0
+
     public init(userId: UUID, fetcher: ItemsFetching, pageSize: Int = 50) {
         self.userId = userId
         self.fetcher = fetcher
@@ -92,21 +97,32 @@ public final class ItemStore {
         if let idx = items.firstIndex(where: { $0.id == item.id }) { items[idx] = item }
     }
 
+    /// Prepend a freshly-captured item (composer calls this on capture success) so it appears
+    /// immediately without waiting on a full refresh. No-op if already present.
+    public func applyNew(_ item: Item) {
+        guard !items.contains(where: { $0.id == item.id }) else { return }
+        items.insert(item, at: 0)
+    }
+
     private func load(reset: Bool) async {
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
-        defer { isLoading = false }
+        defer { if generation == loadGeneration { isLoading = false } }
         loadError = nil
         let cursor = reset ? nil : items.last?.createdAt
         do {
             let page = try await fetcher.fetchPage(userId: userId, before: cursor,
                                                    types: typeFilter.predicateTypes,
                                                    tagIds: selectedTagIds)
+            guard generation == loadGeneration else { return }   // a newer load has since started; drop this stale result
             if reset { items = page } else {
                 let known = Set(items.map(\.id))
                 items += page.filter { !known.contains($0.id) }
             }
             hasMore = page.count == pageSize
         } catch {
+            guard generation == loadGeneration else { return }
             loadError = "Couldn't load your stash. Pull to retry."
         }
     }

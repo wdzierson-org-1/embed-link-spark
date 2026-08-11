@@ -28,4 +28,13 @@ final class ItemDecodingTests: XCTestCase {
         """.data(using: .utf8)!
         XCTAssertEqual(try decoder.decode(Item.self, from: json).type, .unknown)
     }
+
+    // Pin: these strings are the wire contract with the web ITEM_LIST_COLUMNS selects.
+    // A drift here (column renamed/reordered/added upstream) should fail loudly, not silently
+    // under- or over-fetch columns.
+    func testListColumnsMatchWebContractLiterally() {
+        XCTAssertEqual(Item.listColumns,
+            "id,type,title,content,url,file_path,description,summary,created_at,mime_type,is_public,supplemental_note")
+        XCTAssertEqual(Item.detailColumns, Item.listColumns + ",page_body")
+    }
 }
