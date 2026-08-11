@@ -265,4 +265,51 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(app.buttons["tagfilter.done"].waitForExistence(timeout: 10), "Tag filter sheet did not present")
         sleep(3)
     }
+
+    /// Add is the plan-2 launch tab: the composer is reachable at launch with no tab tap, so
+    /// this types a marker note straight in, saves it, and confirms it lands on the View tab
+    /// via the same realtime path `testLibrarySmoke` already exercises. The created row is
+    /// disposable — deleted via REST in the shell after this test runs, unlike the permanent
+    /// UITEST-FIXTURE rows `testDetailSheets`/`testLibrarySmoke` depend on.
+    func testCaptureSmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        // Add is the launch tab (plan 2) — the editor must appear without tapping any tab.
+        let editor = anyElement("capture.editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 15),
+                      "Expected the capture editor to appear on launch (Add is the launch tab)")
+
+        let marker = "UITEST-CAPTURE: smoke note \(Int(Date().timeIntervalSince1970))"
+        editor.tap()
+        editor.typeText(marker)
+
+        app.buttons["capture.save"].tap()
+
+        XCTAssertTrue(anyElement("capture.toast").waitForExistence(timeout: 10),
+                      "Expected a success toast after saving")
+
+        app.tabBars.buttons["View"].tap()
+        XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 15), "Library grid did not appear")
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Search field not found")
+        searchField.tap()
+        searchField.typeText("UITEST-CAPTURE: smoke note")
+        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 10),
+                      "Expected the newly-captured card to appear via realtime")
+    }
 }

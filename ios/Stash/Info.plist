@@ -22,6 +22,8 @@
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Stash uses the camera to capture photos straight into your stash.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

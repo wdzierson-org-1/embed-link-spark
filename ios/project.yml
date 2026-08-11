@@ -26,6 +26,7 @@ targets:
         CFBundleDisplayName: Stash
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: "Stash uses the camera to capture photos straight into your stash."
   StashUITests:
     type: bundle.ui-testing
     platform: iOS

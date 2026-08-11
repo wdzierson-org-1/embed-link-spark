@@ -5,12 +5,14 @@ enum MainTab: Hashable { case add, ask, view, settings }
 struct MainTabView: View {
     let userId: UUID
 
-    // Launch on View until the Add composer exists (plan 2 flips this to .add)
-    @State private var selection: MainTab = .view
+    // Plan 2: the app opens ready to capture. MainTabView holds no store of its own — a
+    // successful capture reaches the View tab via its existing realtime subscription, not via
+    // a value passed down from here (see CaptureViewModel's "Reconciliation note").
+    @State private var selection: MainTab = .add
 
     var body: some View {
         TabView(selection: $selection) {
-            PlaceholderPane(title: "Add", note: "Capture arrives in plan 2")
+            CaptureComposerView(userId: userId, switchToView: { selection = .view })
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 .tag(MainTab.add)
             PlaceholderPane(title: "Ask", note: "Ask Stash arrives in plan 4")
