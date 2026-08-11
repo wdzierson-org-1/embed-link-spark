@@ -141,7 +141,10 @@ public final class CaptureViewModel {
 
     public func drainOutbox() async {
         if let token = try? await accessToken() {
-            _ = await outbox.drain(api: api, accessToken: token)
+            // Reuses this view model's own injected `upload` closure so a test that stubs it out
+            // (or the app's real `uploadToStorage`) also governs any queued recording's upload,
+            // not just the attachments `submit()` uploads directly.
+            _ = await outbox.drain(api: api, accessToken: token, userId: userId, upload: upload)
         }
         await refreshPendingCount()
     }
