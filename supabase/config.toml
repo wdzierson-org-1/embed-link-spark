@@ -21,6 +21,9 @@ verify_jwt = false
 [functions.add-note]
 verify_jwt = true
 
+[functions.add-file]
+verify_jwt = true
+
 [functions.add-url]
 verify_jwt = true
 
