@@ -29,14 +29,8 @@ public func classifyMessage(_ raw: String) -> RoutedMessage {
             url.removeLast()
         }
 
-        // Remove the original matched text from the full text to get the note (only first occurrence)
-        var mutableText = text
-        let startIndex = mutableText.index(mutableText.startIndex, offsetBy: match.range.lowerBound.utf16Offset(in: mutableText))
-        let endIndex = mutableText.index(mutableText.startIndex, offsetBy: match.range.upperBound.utf16Offset(in: mutableText))
-        mutableText.replaceSubrange(startIndex..<endIndex, with: "")
-
-        let note = mutableText
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        let note = text.replacingCharacters(in: match.range, with: "")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
 
         return .saveURL(url: url, note: note)

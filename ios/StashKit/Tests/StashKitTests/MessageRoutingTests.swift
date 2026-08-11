@@ -13,6 +13,9 @@ final class MessageRoutingTests: XCTestCase {
             ("https://x.com/y), context after", .saveURL(url: "https://x.com/y", note: "context after")),
             // TS's replace() only removes FIRST occurrence (string arg, not regex)
             ("https://a.com and https://a.com again", .saveURL(url: "https://a.com", note: "and https://a.com again")),
+            // Non-BMP (emoji) character regression tests: must preserve preceding context without corruption
+            ("😀 https://example.com note-after", .saveURL(url: "https://example.com", note: "😀 note-after")),
+            ("😀 https://a.co", .saveURL(url: "https://a.co", note: "😀")),
             ("what did I save about tokyo?", .ask),
             ("   ", .ask),
         ]
