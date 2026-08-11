@@ -208,20 +208,23 @@ struct ItemDetailView: View {
 
     /// Detail-sheet realtime hygiene: `store.items` (and our own save responses) can bring a
     /// fresher row for this item at any time — an enrichment pipeline finishing, another
-    /// device's edit, or our own PATCH echoing back. Adopt it field-by-field: `title`/
-    /// `description`/`supplementalNote` are the fields under active local editing in this build
-    /// (the last added by Task 9's sticky-note field), so keep the in-progress local value
-    /// whenever it has already diverged from `snapshot` (our last confirmed-saved baseline) —
-    /// i.e. there's an unsaved edit for that field in flight, so the incoming row is stale
-    /// relative to it and gets dropped for THAT field only. Every other field (summary,
-    /// page_body, content, mime_type, is_public, …) always takes the fresher value. `snapshot`
-    /// itself always advances to `incoming`, since its only job is being the next diff baseline
-    /// for `changedFields`.
+    /// device's edit, or our own PATCH echoing back. The actual merge is StashKit's
+    /// `mergePreservingDetail` (finding #2, final review — see its doc comment for the full
+    /// rationale, including why `pageBody` needs its own guard against list-row refreshes
+    /// nulling an already-loaded value): `title`/`description`/`supplementalNote` are the fields
+    /// under active local editing in this build (the last added by Task 9's sticky-note field),
+    /// so we compute "is there an unsaved edit in flight" for each — has it already diverged from
+    /// `snapshot`, our last confirmed-saved baseline? — and hand those three flags in. `snapshot`
+    /// itself always advances to `incoming` here, since its only job is being the next diff
+    /// baseline for `changedFields`.
     private func adopt(_ incoming: Item) {
-        var next = incoming
-        if (item.title ?? "") != (snapshot.title ?? "") { next.title = item.title }
-        if (item.description ?? "") != (snapshot.description ?? "") { next.description = item.description }
-        if (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? "") { next.supplementalNote = item.supplementalNote }
+        let next = mergePreservingDetail(
+            local: item,
+            incoming: incoming,
+            hasUnsavedTitle: (item.title ?? "") != (snapshot.title ?? ""),
+            hasUnsavedDescription: (item.description ?? "") != (snapshot.description ?? ""),
+            hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? "")
+        )
         snapshot = incoming
         item = next
     }
