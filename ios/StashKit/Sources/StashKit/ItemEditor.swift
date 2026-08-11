@@ -97,11 +97,19 @@ public struct SupabaseItemPatcher: ItemPatching {
         return try Item.decoder.decode(Item.self, from: data)
     }
 
-    /// Web order (itemOperations.ts:135-155): embeddings rows first, then the item row, so a
-    /// failure partway through never leaves an orphaned item with dangling embeddings.
+    /// Web order (itemOperations.ts:135-155): embeddings rows first, then the item row. The
+    /// embeddings delete is best-effort, not load-bearing — `embeddings.item_id` carries an
+    /// `ON DELETE CASCADE` FK to `items`, so the row is removed regardless once the item delete
+    /// below succeeds; the manual delete here only saves a moment of dangling rows in between.
     public func deleteItemCascade(itemId: UUID) async throws {
-        try await StashClient.shared.from("embeddings").delete()
-            .eq("item_id", value: itemId.uuidString).execute()
+        do {
+            try await StashClient.shared.from("embeddings").delete()
+                .eq("item_id", value: itemId.uuidString).execute()
+        } catch {
+            // Web parity (itemOperations.ts:141-144): never fail the delete over this — the
+            // DB's ON DELETE CASCADE on embeddings.item_id covers it regardless.
+            print("Embeddings delete failed (non-fatal): \(error)")
+        }
         try await StashClient.shared.from("items").delete()
             .eq("id", value: itemId.uuidString).execute()
     }
