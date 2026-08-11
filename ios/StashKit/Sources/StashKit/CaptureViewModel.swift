@@ -66,7 +66,14 @@ public final class CaptureViewModel {
     public init(
         userId: UUID,
         api: CaptureAPI = CaptureAPI(),
-        outbox: Outbox = Outbox(directory: Outbox.defaultDirectory()),
+        // nil (every call site but tests) builds the per-user default directory from `userId`
+        // below — can't be a plain default-argument expression since it needs `userId`, which
+        // isn't available until the initializer body runs. Fix for a Critical final-review
+        // finding: a shared, user-agnostic default here let one account's offline-queued
+        // captures drain into a different account's after a sign-out/sign-in — see
+        // `Outbox.defaultDirectory(userId:)`'s doc comment. Tests inject an explicit `Outbox`
+        // over a scratch tmp directory.
+        outbox: Outbox? = nil,
         upload: @escaping @Sendable (Data, String, String) async throws -> Void = { data, path, contentType in
             try await uploadToStorage(data: data, path: path, contentType: contentType)
         },
@@ -77,7 +84,7 @@ public final class CaptureViewModel {
     ) {
         self.userId = userId
         self.api = api
-        self.outbox = outbox
+        self.outbox = outbox ?? Outbox(directory: Outbox.defaultDirectory(userId: userId))
         self.upload = upload
         self.accessToken = accessToken
         self.downscale = downscale

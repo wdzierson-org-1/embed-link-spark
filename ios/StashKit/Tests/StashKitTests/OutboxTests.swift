@@ -107,4 +107,63 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(stub.lastBody["mime_type"] as? String, "image/png")
         XCTAssertEqual(stub.lastBody["is_public"] as? Bool, false)
     }
+
+    // Cross-account capture leak (Critical, final review): `defaultDirectory()` used to be a
+    // single path shared by every account that ever signed into this device, so the composer's
+    // launch-time drain (which always runs under whatever session is CURRENT, not whichever
+    // session queued a given entry) could silently create user A's offline-queued note/URL in
+    // user B's account after an account switch. `defaultDirectory(userId:)` must resolve to a
+    // distinct, deterministic path per user so two different accounts can never share an Outbox.
+    func testPerUserDirectoriesAreIsolated() {
+        // Real Application Support, not a tmp override — `defaultDirectory` intentionally has no
+        // injection seam (it's the one place that must always agree with itself across app
+        // launches), so this asserts PATH SHAPE rather than touching the filesystem: two
+        // different UUIDs must yield two different paths, each under StashOutbox and suffixed
+        // with that UUID lowercased.
+        let uid1 = UUID()
+        let uid2 = UUID()
+
+        let dir1 = Outbox.defaultDirectory(userId: uid1)
+        let dir2 = Outbox.defaultDirectory(userId: uid2)
+
+        XCTAssertNotEqual(dir1, dir2, "two different users must resolve to two different Outbox directories")
+        XCTAssertEqual(dir1.lastPathComponent, uid1.uuidString.lowercased())
+        XCTAssertEqual(dir2.lastPathComponent, uid2.uuidString.lowercased())
+        XCTAssertEqual(dir1.deletingLastPathComponent().lastPathComponent, "StashOutbox")
+        XCTAssertEqual(dir2.deletingLastPathComponent().lastPathComponent, "StashOutbox")
+
+        // Same user, mixed-case UUID string input elsewhere in the app (e.g. Session.user.id
+        // formatting) must still resolve to the SAME directory — the path segment is always the
+        // lowercased form, never whatever case the caller happened to have.
+        let dir1Again = Outbox.defaultDirectory(userId: uid1)
+        XCTAssertEqual(dir1, dir1Again)
+    }
+
+    // Behavioral companion to the path-shape assertion above: two `Outbox`es rooted at two
+    // different (tmp, here — real per-user directories in the app) directories must be fully
+    // isolated end-to-end — not just "different paths" but "an entry enqueued in one is never
+    // visible, sendable, or drainable from the other."
+    func testCrossDirectoryDrainNeverSendsAnotherDirectorysEntries() async throws {
+        let dirA = FileManager.default.temporaryDirectory.appending(path: "outbox-userA-\(UUID().uuidString)")
+        let dirB = FileManager.default.temporaryDirectory.appending(path: "outbox-userB-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: dirA)
+            try? FileManager.default.removeItem(at: dirB)
+        }
+
+        let boxA = Outbox(directory: dirA)
+        try await boxA.enqueue(.note, payload: ["content": "user A's offline note", "is_public": "false"])
+
+        let boxB = Outbox(directory: dirB)
+        let pendingB = await boxB.pending()
+        XCTAssertTrue(pendingB.isEmpty, "a fresh directory must never see another directory's queued entry")
+
+        let stub = StubPoster(); stub.response = noteJSON
+        let sentB = await boxB.drain(api: CaptureAPI(poster: stub), accessToken: "user-b-jwt")
+        XCTAssertEqual(sentB, 0, "draining dirB must never send dirA's queued entry under user B's token")
+
+        let pendingA = await boxA.pending()
+        XCTAssertEqual(pendingA.count, 1, "user A's entry must survive untouched by user B's drain")
+        XCTAssertEqual(pendingA[0].payload["content"], "user A's offline note")
+    }
 }

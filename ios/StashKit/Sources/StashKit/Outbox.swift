@@ -20,9 +20,24 @@ public actor Outbox {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
-    public static func defaultDirectory() -> URL {
+    /// Per-user Outbox root: `.../Application Support/StashOutbox/<uid-lowercased>`.
+    ///
+    /// Fix for a Critical final-review finding: this used to be a single directory shared by
+    /// every account that ever signed into the device (`.../StashOutbox`, no user segment). The
+    /// composer drains the Outbox with whatever session's JWT is CURRENT at drain time — not
+    /// whichever user's session was current when an entry was queued — so a note or URL captured
+    /// offline under user A survived a sign-out/sign-in as user B and was silently created in B's
+    /// account on the next drain. Scoping the directory by user id closes that: user B's `Outbox`
+    /// resolves to a directory user A's queued entries were never written into, so a drain can
+    /// never cross the account boundary no matter whose session happens to be active.
+    ///
+    /// Plan 3 is expected to move this directory into the shared App Group container (so the
+    /// share extension can enqueue into the same Outbox the app drains) — that migration MUST
+    /// preserve this per-user segment; collapsing back to one shared directory across accounts
+    /// would reopen this leak.
+    public static func defaultDirectory(userId: UUID) -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appending(path: "StashOutbox")
+        return base.appending(path: "StashOutbox").appending(path: userId.uuidString.lowercased())
     }
 
     public func enqueue(_ kind: OutboxEntry.Kind, payload: [String: String]) throws {
