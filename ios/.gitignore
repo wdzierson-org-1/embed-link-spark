@@ -1,0 +1,6 @@
+Stash.xcodeproj/
+DerivedData/
+.env.test.local
+*.xcuserstate
+.build/
+.swiftpm/
