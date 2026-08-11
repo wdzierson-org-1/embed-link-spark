@@ -50,6 +50,7 @@ struct LibraryView: View {
             }
             .refreshable { await store.refresh() }
             .task { await store.refresh() }
+            .task { await RealtimeObserver().observeItems(userId: userId) { await store.refresh() } }
             .onChange(of: store.typeFilter) { _, _ in Task { await store.refresh() } }
             .onChange(of: store.selectedTagIds) { _, _ in Task { await store.refresh() } }
             .sheet(isPresented: $showTagFilter) {
