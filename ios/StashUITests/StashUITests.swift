@@ -116,11 +116,18 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 15), "Library grid did not appear")
         XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected at least one item card in the grid")
 
-        // 2. Type chip narrows server-side; the test account has link items.
+        // 2. Type chip narrows server-side; the fixture account has link items.
         let linksChip = app.buttons["library.chip.links"]
         XCTAssertTrue(linksChip.waitForExistence(timeout: 5), "Links chip not found")
         linksChip.tap()
         XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected at least one Links card")
+
+        // Reset to All so search/tag steps below aren't silently scoped to Links —
+        // the tag-filter step selects a tag attached to a *note*, not a link, and
+        // "Links ∩ ios-test" is correctly empty, which would otherwise read as a
+        // false failure of the tag filter rather than a leftover chip selection.
+        app.buttons["library.chip.all"].tap()
+        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards after resetting to All")
 
         // 3. Local search narrows to nothing for an unmatchable query, then clears back.
         let searchField = app.searchFields.firstMatch
@@ -134,7 +141,32 @@ final class StashUITests: XCTestCase {
         searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: needle.count))
         XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards to return after clearing the search")
 
-        // 4. Sign out via the avatar menu returns to the sign-in screen.
+        // The search field still holds keyboard focus after being cleared by backspace,
+        // which (standard `.searchable` behavior) replaces the trailing toolbar items
+        // with a system "Cancel" button — confirmed via an accessibility-tree dump.
+        // Dismiss it (text is already empty, so Cancel's clear-text side effect is a
+        // no-op) before the tag button is reachable again.
+        let cancelButton = app.buttons["Cancel"]
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5), "Expected a Cancel button while search is focused")
+        cancelButton.tap()
+        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards after dismissing search focus")
+
+        // 4. Tag filter narrows via the item_tags!inner join (fixture: "ios-test" tags
+        // exactly one note), then Clear restores the unfiltered grid.
+        app.buttons["library.tagFilterButton"].tap()
+        let iosTestTagRow = app.buttons["tagfilter.tag.ios-test"]
+        XCTAssertTrue(iosTestTagRow.waitForExistence(timeout: 10), "ios-test tag row not found in the filter sheet")
+        iosTestTagRow.tap()
+        app.buttons["tagfilter.done"].tap()
+        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected at least one card for the ios-test tag filter")
+
+        app.buttons["library.tagFilterButton"].tap()
+        XCTAssertTrue(app.buttons["tagfilter.clear"].waitForExistence(timeout: 5), "Clear button not found in the filter sheet")
+        app.buttons["tagfilter.clear"].tap()
+        app.buttons["tagfilter.done"].tap()
+        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards after clearing the tag filter")
+
+        // 5. Sign out via the avatar menu returns to the sign-in screen.
         app.buttons["library.menu"].tap()
         let signOutById = app.buttons["library.signOut"]
         let signOutButton = signOutById.waitForExistence(timeout: 3) ? signOutById : app.buttons["Sign Out"]
