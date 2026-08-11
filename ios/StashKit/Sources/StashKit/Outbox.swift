@@ -99,13 +99,27 @@ public actor Outbox {
                     let path = makeUploadPath(userId: userId,
                                               fileExtension: URL(fileURLWithPath: localPath).pathExtension)
                     try await upload(data, path, entry.payload["mime_type"] ?? "application/octet-stream")
-                    // Delete the local copy the instant its bytes are durably in storage. From
-                    // here `entry.payload["file_path"]` (persisted below if `send` still fails) is
-                    // enough to retry just the `addFile` registration — same as any other `.file`
-                    // entry — without ever re-uploading.
-                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: localPath))
                     entry.payload["file_path"] = path
                     entry.payload.removeValue(forKey: "local_file_path")
+                    // Persist the transitioned entry to disk BEFORE deleting the local file or
+                    // attempting `send` (Critical, task review fix round). `send` below is a
+                    // network `await` — if the process is killed while it's suspended, no `catch`
+                    // ever runs, so the ONLY record of "this upload already succeeded" that
+                    // survives a relaunch is whatever's on disk at this exact point. Persisting
+                    // here first — synchronously, before either of the next two operations —
+                    // guarantees a relaunch's `pending()` sees an entry with `file_path` set and
+                    // no `local_file_path`, i.e. an ordinary already-uploaded `.file` entry that
+                    // just retries `addFile` (never re-uploads, and is never mistaken for the
+                    // missing-local-file permanent-failure case above once the line below deletes
+                    // the local copy).
+                    if let checkpoint = try? JSONEncoder().encode(entry) {
+                        try? checkpoint.write(to: fileURL(for: entry.id), options: .atomic)
+                    }
+                    // Only now is it safe to delete the local copy: a crash between the persist
+                    // above and here just leaves a harmless, sweepable local file; a crash after
+                    // here (including mid-`send`) is fully covered by the checkpoint already on
+                    // disk.
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: localPath))
                 }
                 _ = try await send(entry, api: api, accessToken: accessToken)
                 try? FileManager.default.removeItem(at: fileURL(for: entry.id))

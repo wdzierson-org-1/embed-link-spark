@@ -36,6 +36,37 @@ final class UploadRecorder: @unchecked Sendable {
     }
 }
 
+/// `JSONPosting` that always throws — for testing an `addFile` call that fails AFTER a
+/// `local_file_path` entry's upload already succeeded, distinct from `StubPoster` returning a
+/// malformed response (that's a decode-time failure; this is the POST itself failing).
+private final class ThrowingPoster: JSONPosting, @unchecked Sendable {
+    func post(path: String, body: [String: Any], accessToken: String) async throws -> Data {
+        throw CaptureError.badStatus(500)
+    }
+}
+
+/// `JSONPosting` that snapshots whatever `OutboxEntry` is ON DISK (via a fresh `Outbox` over the
+/// same directory — a distinct actor instance, so reading it never contends with `drain`'s own
+/// in-flight call) at the exact instant it's invoked, then throws. This directly observes whether
+/// a `local_file_path` entry's upload-succeeded transition was durably persisted BEFORE `send`
+/// was ever attempted — the one thing a same-process `catch` block can't prove, since Swift's
+/// `do`/`catch` share the enclosing scope's mutable `entry`, so asserting only on the FINAL state
+/// after `drain` returns can't distinguish "persisted before send" from "persisted only in the
+/// catch block after send failed" (both produce the same final on-disk state for an ordinary
+/// in-process throw — they only differ for a real crash mid-`send`, which no unit test can
+/// trigger directly).
+private final class SnapshotPoster: JSONPosting, @unchecked Sendable {
+    private let directory: URL
+    private(set) var payloadAtCallTime: [String: String]?
+
+    init(directory: URL) { self.directory = directory }
+
+    func post(path: String, body: [String: Any], accessToken: String) async throws -> Data {
+        payloadAtCallTime = await Outbox(directory: directory).pending().first?.payload
+        throw CaptureError.badStatus(500)
+    }
+}
+
 final class OutboxTests: XCTestCase {
     var dir: URL!
     override func setUp() {
@@ -257,6 +288,101 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(after[0].attempts, 1)
         XCTAssertEqual(after[0].payload["local_file_path"], localFile.path,
                        "the entry must be retried as a local-file upload again, not silently downgraded")
+    }
+
+    // Task review fix round (Critical + Important): the upload can succeed while the immediately
+    // following `addFile` still fails (or the process dies before `addFile` resolves) — this
+    // interleaving must persist the upload-succeeded transition to disk (`file_path` set,
+    // `local_file_path` gone) BEFORE `send` is even attempted, so a crash between upload and
+    // send can never leave an on-disk entry that still points at a `local_file_path` whose file
+    // has already been deleted (which would hit the missing-file branch and silently drop an
+    // entry whose bytes are actually safe in storage). Verified end-to-end across two SEPARATE
+    // `drain` calls against a freshly rehydrated `Outbox` (same directory) — not just in-memory
+    // state — because the persisted-to-disk shape is exactly what a relaunch-after-crash reads.
+    func testDrainUploadSucceedsButAddFileFailsPersistsTransitionThenRetryNeverReuploads() async throws {
+        let box = Outbox(directory: dir)
+        let localFile = FileManager.default.temporaryDirectory.appending(path: "rec-\(UUID().uuidString).m4a")
+        let bytes = Data([0x0A, 0x0B, 0x0C])
+        try bytes.write(to: localFile)
+        defer { try? FileManager.default.removeItem(at: localFile) }
+        try await box.enqueue(.file, payload: [
+            "local_file_path": localFile.path,
+            "mime_type": "audio/mp4",
+            "is_public": "false",
+        ])
+
+        let userId = UUID()
+        let recorder = UploadRecorder()
+        let uploadClosure: @Sendable (Data, String, String) async throws -> Void = { data, path, contentType in
+            try await recorder.upload(data: data, path: path, contentType: contentType)
+        }
+
+        // First drain: upload succeeds, addFile (the poster itself) throws.
+        let firstSent = await box.drain(api: CaptureAPI(poster: ThrowingPoster()), accessToken: "jwt",
+                                        userId: userId, upload: uploadClosure)
+        XCTAssertEqual(firstSent, 0)
+        XCTAssertEqual(recorder.calls.count, 1, "the upload must have gone through exactly once")
+        let uploadedPath = recorder.calls[0].path
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: localFile.path),
+                       "local copy is redundant once the upload itself succeeded")
+
+        // Re-read from disk via a FRESH Outbox instance — this is the persisted state a relaunch
+        // after a crash would actually see, not in-memory state carried over within this test.
+        let rehydrated = Outbox(directory: dir)
+        let afterFirst = await rehydrated.pending()
+        XCTAssertEqual(afterFirst.count, 1)
+        XCTAssertEqual(afterFirst[0].payload["file_path"], uploadedPath,
+                       "the transitioned entry must be persisted with the uploaded path")
+        XCTAssertNil(afterFirst[0].payload["local_file_path"],
+                     "local_file_path must be cleared on disk so a retry never re-uploads")
+        XCTAssertEqual(afterFirst[0].attempts, 1)
+
+        // Second drain, working poster this time: must send using the ALREADY-uploaded path —
+        // never touching `upload` again.
+        let stub = StubPoster(); stub.response = itemJSON
+        let secondSent = await rehydrated.drain(api: CaptureAPI(poster: stub), accessToken: "jwt",
+                                                 userId: userId, upload: uploadClosure)
+        XCTAssertEqual(secondSent, 1)
+        XCTAssertEqual(recorder.calls.count, 1, "a retry must never re-upload — one call across both drains")
+        XCTAssertEqual(stub.lastPath, "add-file")
+        XCTAssertEqual(stub.lastBody["file_path"] as? String, uploadedPath)
+
+        let afterSecond = await rehydrated.pending()
+        XCTAssertTrue(afterSecond.isEmpty)
+    }
+
+    // Direct ordering proof for the same fix (Critical, task review) — genuinely RED against the
+    // pre-fix code (see task-4-report.md's fix round): observes the ON-DISK entry at the exact
+    // instant `send`/`addFile` is invoked, rather than only the final state after `drain`
+    // returns. The test above can't tell "persisted before send" apart from "persisted only in
+    // the catch block after send failed" for an ordinary in-process throw; this one can, because
+    // it inspects disk DURING the call instead of after.
+    func testDrainPersistsTransitionedEntryToDiskBeforeAttemptingSend() async throws {
+        let box = Outbox(directory: dir)
+        let localFile = FileManager.default.temporaryDirectory.appending(path: "rec-\(UUID().uuidString).m4a")
+        try Data([0x01]).write(to: localFile)
+        defer { try? FileManager.default.removeItem(at: localFile) }
+        try await box.enqueue(.file, payload: [
+            "local_file_path": localFile.path,
+            "mime_type": "audio/mp4",
+            "is_public": "false",
+        ])
+
+        let recorder = UploadRecorder()
+        let snapshotPoster = SnapshotPoster(directory: dir)
+        _ = await box.drain(api: CaptureAPI(poster: snapshotPoster), accessToken: "jwt", userId: UUID(),
+                            upload: { data, path, contentType in
+                                try await recorder.upload(data: data, path: path, contentType: contentType)
+                            })
+
+        let snapshot = try XCTUnwrap(snapshotPoster.payloadAtCallTime, "the poster must have been invoked")
+        XCTAssertNotNil(snapshot["file_path"],
+                        "the transitioned entry must already be durably on disk by the time addFile is attempted")
+        XCTAssertNil(snapshot["local_file_path"],
+                     "local_file_path must already be cleared on disk before addFile is attempted — a crash " +
+                     "during the network call must never leave the on-disk entry still pointing at the " +
+                     "(by-then-deleted) local file")
     }
 
     // Beyond the brief's Step 1 enumeration, but deliberately added (disclosed in
