@@ -76,7 +76,7 @@ public final class SubscriptionStore {
     /// the gates before the first `refresh()` completes fails open rather than blocking a
     /// brand-new session's first save (useSubscription.tsx:48,188).
     public private(set) var isLoading = true
-    public var lastError: String?
+    public private(set) var lastError: String?
 
     public var canAddContent: Bool { isLoading || status?.onTrial == true || status?.subscribed == true }
     public var canUseAI: Bool { canAddContent }   // same boolean on web (useSubscription.tsx:188-192)
@@ -110,7 +110,11 @@ public final class SubscriptionStore {
     ///    softer fallback avoids flipping gates closed over what's likely a transient hiccup
     ///    immediately after a successful initial check.
     public func refresh() async {
-        isLoading = true
+        // `isLoading` is a one-shot first-check flag (web parity: useSubscription's `loading`
+        // never re-arms) — later refreshes must not fail-open, so this must never set it back to
+        // `true` here; the initializer's `isLoading = true` plus this `defer` are the entire
+        // lifecycle. Re-arming it on every call would transiently open the gates for an
+        // unsubscribed user during each poll's network round-trip — a leak the web doesn't have.
         defer { isLoading = false }
         do {
             var result = try await checker.check()
