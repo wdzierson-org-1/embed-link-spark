@@ -228,4 +228,26 @@ public final class ItemEditor {
     public func delete(itemId: UUID) async throws {
         try await patcher.deleteItemCascade(itemId: itemId)
     }
+
+    // MARK: - Tag pass-throughs (Task 9)
+    //
+    // Thin forwards to the private `patcher` so the detail sheet's tag UI can talk to
+    // `ItemEditor` alone, never holding a reference to `ItemPatching`/`SupabaseItemPatcher`
+    // itself — same reasoning as `save`/`delete` above.
+
+    public func itemTags(itemId: UUID) async throws -> [StashTag] {
+        try await patcher.itemTags(itemId: itemId)
+    }
+
+    public func addTag(named: String, userId: UUID, itemId: UUID) async throws {
+        try await patcher.addTag(named: named, userId: userId, itemId: itemId)
+    }
+
+    public func removeTag(tagId: UUID, itemId: UUID) async throws {
+        try await patcher.removeTag(tagId: tagId, itemId: itemId)
+    }
+
+    public func suggestTags(title: String, content: String, description: String, available: [String]) async throws -> [String] {
+        try await patcher.suggestTags(title: title, content: content, description: description, available: available)
+    }
 }

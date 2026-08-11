@@ -3,9 +3,10 @@ import StashKit
 
 /// Detail sheet presented from a Library card tap: optional hero image (image items only), an
 /// editable header (title/description autosave — Task 8), an "Open Link" button for link items,
-/// the segmented content section, a notes-append composer, and delete. On appear, fetches the
-/// full row (adding `page_body`, which the grid's list query omits) for types whose tabs need
-/// it, then merges it back into `store` so the list stays current too.
+/// the segmented content section, a notes-append composer, a tags manager and public/private
+/// toggle with its sticky-note lifecycle (Task 9), and delete. On appear, fetches the full row
+/// (adding `page_body`, which the grid's list query omits) for types whose tabs need it, then
+/// merges it back into `store` so the list stays current too.
 struct ItemDetailView: View {
     @State private var item: Item
     /// The last row we know is confirmed saved — either from the initial load, our own most
@@ -65,6 +66,11 @@ struct ItemDetailView: View {
                     if selectedTab == .notes {
                         NotesAppendComposer(item: item, editor: editor, onSaved: handleSaved)
                     }
+                    Divider()
+                    ItemTagsSection(item: item, editor: editor)
+                    Divider()
+                    PublicToggleSection(item: item, editor: editor,
+                                         supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
                     deleteSection
                 }
                 .padding()
@@ -146,6 +152,16 @@ struct ItemDetailView: View {
         })
     }
 
+    /// Sticky-note text (Task 9's `PublicToggleSection`) rides the same debounced field-autosave
+    /// path as title/description — `saveChangedFields` already diffs `supplementalNote` against
+    /// `snapshot` (wired in Task 8, unused until now since nothing mutated it before this task).
+    private var supplementalNoteBinding: Binding<String> {
+        Binding(get: { item.supplementalNote ?? "" }, set: { newValue in
+            item.supplementalNote = newValue
+            scheduleFieldSave()
+        })
+    }
+
     private func scheduleFieldSave() {
         Task { await fieldDebouncer.call { await saveChangedFields() } }
     }
@@ -193,17 +209,19 @@ struct ItemDetailView: View {
     /// Detail-sheet realtime hygiene: `store.items` (and our own save responses) can bring a
     /// fresher row for this item at any time — an enrichment pipeline finishing, another
     /// device's edit, or our own PATCH echoing back. Adopt it field-by-field: `title`/
-    /// `description` are the only two fields under active local editing in this build, so keep
-    /// the in-progress local value whenever it has already diverged from `snapshot` (our last
-    /// confirmed-saved baseline) — i.e. there's an unsaved edit for that field in flight, so the
-    /// incoming row is stale relative to it and gets dropped for THAT field only. Every other
-    /// field (summary, page_body, content, mime_type, …) always takes the fresher value.
-    /// `snapshot` itself always advances to `incoming`, since its only job is being the next
-    /// diff baseline for `changedFields`.
+    /// `description`/`supplementalNote` are the fields under active local editing in this build
+    /// (the last added by Task 9's sticky-note field), so keep the in-progress local value
+    /// whenever it has already diverged from `snapshot` (our last confirmed-saved baseline) —
+    /// i.e. there's an unsaved edit for that field in flight, so the incoming row is stale
+    /// relative to it and gets dropped for THAT field only. Every other field (summary,
+    /// page_body, content, mime_type, is_public, …) always takes the fresher value. `snapshot`
+    /// itself always advances to `incoming`, since its only job is being the next diff baseline
+    /// for `changedFields`.
     private func adopt(_ incoming: Item) {
         var next = incoming
         if (item.title ?? "") != (snapshot.title ?? "") { next.title = item.title }
         if (item.description ?? "") != (snapshot.description ?? "") { next.description = item.description }
+        if (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? "") { next.supplementalNote = item.supplementalNote }
         snapshot = incoming
         item = next
     }

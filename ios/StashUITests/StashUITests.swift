@@ -457,4 +457,87 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
                       "Expected no results for the deleted item's marker search after deletion")
     }
+
+    /// Tags manager + public toggle/sticky-note lifecycle (Task 9), exercised against the
+    /// permanent `UITEST-FIXTURE: note two` fixture — a different fixture than testEditSmoke's
+    /// "note one" so the two tests' mutations never land on the same row. Leaves the fixture
+    /// exactly as found: the "plan2-smoke" tag is added then removed (item_tags row count
+    /// restored to its pre-test baseline, REST-verified in the shell after this test), and
+    /// public/sticky are toggled on then off (`is_public`/`supplemental_note` restored to
+    /// false/nil, also REST-verified). Note one's "ios-test" tag is never touched by this test.
+    ///
+    /// This is also the live proof of `increment_tag_usage`'s scalar-UUID RPC decode
+    /// (`SupabaseItemPatcher.addTag`, flagged as untested against a live server in
+    /// task-6-report.md) — the tag-add step below only passes end-to-end if that decode is
+    /// actually correct, since a decode failure would throw before the chip ever renders.
+    func testTagsAndPublicSmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        searchField.tap()
+        searchField.typeText("note two")
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'note two'")
+        card0().tap()
+
+        XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
+
+        // --- Tags: add "plan2-smoke" (return-to-submit), assert the chip appears, remove it
+        // (tap-to-remove — the whole chip is the remove control, see ItemTagsSection.swift),
+        // assert it's gone. ---
+        let tagInput = anyElement("detail.tags.input")
+        XCTAssertTrue(tagInput.waitForExistence(timeout: 10), "Tag input field not found")
+        tagInput.tap()
+        tagInput.typeText("plan2-smoke\n")
+
+        let tagChip = app.buttons["detail.tags.chip.plan2-smoke"]
+        XCTAssertTrue(tagChip.waitForExistence(timeout: 15),
+                      "Expected the 'plan2-smoke' tag chip to appear after adding")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: tags\n".data(using: .utf8)!)
+        sleep(3)
+
+        tagChip.tap()
+        let chipGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: tagChip)
+        XCTAssertEqual(XCTWaiter().wait(for: [chipGone], timeout: 15), .completed,
+                       "Expected the tag chip to disappear after removal")
+
+        // --- Public toggle ON, sticky note text, toggle OFF (un-share confirm since a sticky
+        // note is now present), assert the sticky field disappears once confirmed. ---
+        let publicToggle = anyElement("detail.public.toggle")
+        XCTAssertTrue(publicToggle.waitForExistence(timeout: 10), "Public toggle not found")
+        publicToggle.tap()
+
+        let stickyField = anyElement("detail.public.sticky")
+        XCTAssertTrue(stickyField.waitForExistence(timeout: 10), "Sticky note field did not appear after enabling public")
+        stickyField.tap()
+        stickyField.typeText("UITEST-FIXTURE sticky check")
+
+        // Let the sticky note's own debounced autosave land (same 400ms path as title/
+        // description) before toggling off, so the un-share confirm's "a note is present" check
+        // — and the un-share patch's own read of the note — see the saved value rather than
+        // racing the pending debounce (see PublicToggleSection.swift's header doc comment).
+        sleep(2)
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: public\n".data(using: .utf8)!)
+        sleep(3)
+
+        publicToggle.tap()
+        let confirmButton = app.buttons["Make Private"]
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Un-share confirmation dialog did not appear")
+        confirmButton.tap()
+
+        let stickyGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: stickyField)
+        XCTAssertEqual(XCTWaiter().wait(for: [stickyGone], timeout: 15), .completed,
+                       "Expected the sticky note field to disappear after un-sharing")
+
+        sleep(2)   // margin for the un-share PATCH to land before this test's REST verification
+        app.buttons["detail.done"].tap()
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
+    }
 }
