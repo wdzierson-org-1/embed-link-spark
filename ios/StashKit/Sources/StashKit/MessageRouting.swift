@@ -1,5 +1,4 @@
 import Foundation
-import RegexBuilder
 
 public enum RoutedMessage: Equatable, Sendable {
     case saveURL(url: String, note: String)
@@ -13,10 +12,7 @@ public func classifyMessage(_ raw: String) -> RoutedMessage {
 
     // Check for prefix: remember/save/note (case-insensitive)
     if let match = try? Regex("^(?i)(remember|save|note):\\s*").firstMatch(in: text) {
-        let endIndex = text.index(text.startIndex, offsetBy: match.range.upperBound.utf16Offset(in: text))
-        let noteText = String(text[endIndex...])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return .saveNote(noteText)
+        return .saveNote(String(text[match.range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     // Check for URL

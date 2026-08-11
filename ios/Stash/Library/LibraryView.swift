@@ -81,7 +81,12 @@ struct LibraryView: View {
                                   message: "Try a different search term.", identifier: "library.empty")
             }
         } else {
-            grid
+            VStack(spacing: 0) {
+                if let error = store.loadError {
+                    LibraryErrorBanner(message: error) { Task { await store.refresh() } }
+                }
+                grid
+            }
         }
     }
 

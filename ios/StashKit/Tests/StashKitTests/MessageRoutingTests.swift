@@ -7,6 +7,10 @@ final class MessageRoutingTests: XCTestCase {
             ("remember: buy milk", .saveNote("buy milk")),
             ("SAVE:  spaced  ", .saveNote("spaced")),
             ("note: https://x.com is great", .saveNote("https://x.com is great")),  // prefix wins over URL
+            // CRLF-after-colon regression tests: Swift Regex matches "\r\n" as ONE grapheme
+            // spanning 2 UTF-16 units, so a UTF-16-offset->Character-offset walk overshoots.
+            ("note:\r\nbuy milk", .saveNote("buy milk")),
+            ("remember:\r\n\r\ncall mom", .saveNote("call mom")),
             ("https://example.com/a?b=c", .saveURL(url: "https://example.com/a?b=c", note: "")),
             ("read this https://example.com/post.", .saveURL(url: "https://example.com/post", note: "read this")),
             // TS removes the FULL raw match ("https://x.com/y),") from the note, then trims
