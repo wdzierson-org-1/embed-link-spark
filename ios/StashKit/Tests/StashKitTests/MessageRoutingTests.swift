@@ -11,6 +11,8 @@ final class MessageRoutingTests: XCTestCase {
             ("read this https://example.com/post.", .saveURL(url: "https://example.com/post", note: "read this")),
             // TS removes the FULL raw match ("https://x.com/y),") from the note, then trims
             ("https://x.com/y), context after", .saveURL(url: "https://x.com/y", note: "context after")),
+            // TS's replace() only removes FIRST occurrence (string arg, not regex)
+            ("https://a.com and https://a.com again", .saveURL(url: "https://a.com", note: "and https://a.com again")),
             ("what did I save about tokyo?", .ask),
             ("   ", .ask),
         ]

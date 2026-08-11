@@ -13,7 +13,6 @@ public func classifyMessage(_ raw: String) -> RoutedMessage {
 
     // Check for prefix: remember/save/note (case-insensitive)
     if let match = try? Regex("^(?i)(remember|save|note):\\s*").firstMatch(in: text) {
-        let startIndex = text.index(text.startIndex, offsetBy: match.range.lowerBound.utf16Offset(in: text))
         let endIndex = text.index(text.startIndex, offsetBy: match.range.upperBound.utf16Offset(in: text))
         let noteText = String(text[endIndex...])
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,10 +29,13 @@ public func classifyMessage(_ raw: String) -> RoutedMessage {
             url.removeLast()
         }
 
-        // Remove the original matched text from the full text to get the note
-        let note = text.replacingOccurrences(of: NSRegularExpression.escapedPattern(for: matchedText),
-                                            with: "",
-                                            options: .regularExpression)
+        // Remove the original matched text from the full text to get the note (only first occurrence)
+        var mutableText = text
+        let startIndex = mutableText.index(mutableText.startIndex, offsetBy: match.range.lowerBound.utf16Offset(in: mutableText))
+        let endIndex = mutableText.index(mutableText.startIndex, offsetBy: match.range.upperBound.utf16Offset(in: mutableText))
+        mutableText.replaceSubrange(startIndex..<endIndex, with: "")
+
+        let note = mutableText
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
 
