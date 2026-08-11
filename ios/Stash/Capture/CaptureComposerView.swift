@@ -200,10 +200,17 @@ struct CaptureComposerView: View {
         let outcome = await viewModel.submit()
         isSubmitting = false
         switch outcome {
-        case .saved(let count):
-            show(.saved(message: count > 1 ? "Saved \(count) items" : "Saved"))
-        case .queued:
-            show(.queued(message: "Offline — will sync (\(viewModel.pendingOutboxCount) pending)"))
+        case .saved(let count, let dropped) where dropped == 0:
+            show(.saved(message: count > 1 ? "Saved \(count) items" : "Saved", hadDrops: false))
+        case .saved(let count, let dropped):
+            show(.saved(message: "Saved \(count) — \(dropped) couldn't be saved (too large or failed)",
+                        hadDrops: true))
+        case .queued(_, let dropped):
+            var message = "Offline — will sync (\(viewModel.pendingOutboxCount) pending)"
+            if dropped > 0 { message += " — \(dropped) couldn't be saved" }
+            show(.queued(message: message))
+        case .rejected:
+            show(.rejected(message: "Couldn't save — file too large or upload failed"))
         case .nothingToSave:
             break
         }
@@ -268,19 +275,23 @@ struct CaptureComposerView: View {
 }
 
 private enum CaptureToast: Equatable {
-    case saved(message: String)
+    case saved(message: String, hadDrops: Bool)
     case queued(message: String)
+    case rejected(message: String)
 
     var message: String {
         switch self {
-        case .saved(let message), .queued(let message): message
+        case .saved(let message, _), .queued(let message), .rejected(let message): message
         }
     }
 
+    // Amber whenever something didn't make it (dropped attachments, offline queueing, or an
+    // outright rejection) — green is reserved for a fully clean save (fix round: a partially
+    // dropped save must not read as an unqualified success).
     var color: Color {
         switch self {
-        case .saved: .green
-        case .queued: .orange
+        case .saved(_, let hadDrops): hadDrops ? .orange : .green
+        case .queued, .rejected: .orange
         }
     }
 }

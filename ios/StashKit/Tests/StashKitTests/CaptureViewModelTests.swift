@@ -39,7 +39,7 @@ final class CaptureViewModelTests: XCTestCase {
 
         let outcome = await vm.submit()
 
-        XCTAssertEqual(outcome, .saved(count: 1))
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
         XCTAssertEqual(poster.calls.map(\.path), ["add-url"])
         XCTAssertEqual(poster.calls[0].body["url"] as? String, "https://example.com")
         XCTAssertEqual(poster.calls[0].body["content"] as? String, "check this out cool")
@@ -52,7 +52,7 @@ final class CaptureViewModelTests: XCTestCase {
 
         let outcome = await vm.submit()
 
-        XCTAssertEqual(outcome, .saved(count: 1))
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
         XCTAssertEqual(poster.calls.map(\.path), ["add-note"])
         XCTAssertEqual(poster.calls[0].body["content"] as? String, "buy milk")
     }
@@ -66,7 +66,7 @@ final class CaptureViewModelTests: XCTestCase {
 
         let outcome = await vm.submit()
 
-        XCTAssertEqual(outcome, .saved(count: 1))
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
         XCTAssertEqual(poster.calls.map(\.path), ["add-file"])
         XCTAssertEqual(poster.calls[0].body["content"] as? String, "my screenshot")
     }
@@ -81,7 +81,7 @@ final class CaptureViewModelTests: XCTestCase {
 
         let outcome = await vm.submit()
 
-        XCTAssertEqual(outcome, .saved(count: 4))
+        XCTAssertEqual(outcome, .saved(count: 4, dropped: 0))
         let fileCalls = poster.calls.filter { $0.path == "add-file" }
         let noteCalls = poster.calls.filter { $0.path == "add-note" }
         XCTAssertEqual(fileCalls.count, 3)
@@ -97,10 +97,42 @@ final class CaptureViewModelTests: XCTestCase {
 
         let outcome = await vm.submit()
 
-        XCTAssertEqual(outcome, .queued(count: 1))
+        XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
         let box = Outbox(directory: dir)
         let pending = await box.pending()
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending[0].payload["content"], "offline note")
+    }
+
+    // Fix round (review Important finding): oversized/upload-failed attachments were being
+    // dropped print-only, with no way for the caller to know data was lost. Every drop must now
+    // be counted and surfaced via `CaptureOutcome`.
+
+    func testOversizedDocAloneIsRejectedWithNoNetworkCalls() async {
+        let poster = RecordingPoster()
+        let vm = makeViewModel(poster: poster)
+        vm.attachments = [CaptureAttachment(data: Data(count: 21 * 1024 * 1024), fileExtension: "pdf",
+                                            mimeType: "application/pdf", kind: .file)]
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .rejected(dropped: 1))
+        XCTAssertTrue(poster.calls.isEmpty, "An oversized reject must never reach the network")
+    }
+
+    func testThreeAttachmentsWithOneOversizedSavesTwoAndDropsOne() async {
+        let poster = RecordingPoster()
+        let vm = makeViewModel(poster: poster)
+        let smallPhotos = (0..<2).map { _ in
+            CaptureAttachment(data: Data([0x01]), fileExtension: "png", mimeType: "image/png", kind: .photo)
+        }
+        let oversizedDoc = CaptureAttachment(data: Data(count: 21 * 1024 * 1024), fileExtension: "pdf",
+                                             mimeType: "application/pdf", kind: .file)
+        vm.attachments = smallPhotos + [oversizedDoc]
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .saved(count: 2, dropped: 1))
+        XCTAssertEqual(poster.calls.filter { $0.path == "add-file" }.count, 2)
     }
 }

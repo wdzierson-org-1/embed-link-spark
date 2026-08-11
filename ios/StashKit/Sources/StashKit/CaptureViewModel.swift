@@ -22,9 +22,16 @@ public struct CaptureAttachment: Identifiable {
     }
 }
 
+/// `dropped` on `.saved`/`.queued` and the dedicated `.rejected` case exist so data loss is
+/// never silent (fix round, review Important finding): every `UnqueueableFailure` — an oversized
+/// reject or an upload that never landed in storage — is counted and must reach the user, not
+/// just a `print` log. `.nothingToSave` is reserved for the case where `submit()` had literally
+/// nothing to attempt (empty text, no attachments); it is never returned once anything was
+/// attempted, even if everything attempted was dropped (`.rejected` covers that).
 public enum CaptureOutcome: Equatable {
-    case saved(count: Int)
-    case queued(count: Int)
+    case saved(count: Int, dropped: Int)
+    case queued(count: Int, dropped: Int)
+    case rejected(dropped: Int)
     case nothingToSave
 }
 
@@ -94,6 +101,7 @@ public final class CaptureViewModel {
 
         var savedCount = 0
         var queuedCount = 0
+        var droppedCount = 0
         for unit in units {
             do {
                 let ready = try await prepare(unit)
@@ -108,15 +116,20 @@ public final class CaptureViewModel {
                     queuedCount += 1
                 }
             } catch {
-                // Never safe to queue — see `UnqueueableFailure`'s doc comment.
+                // Never safe to queue — see `UnqueueableFailure`'s doc comment. Still counted
+                // (never just logged): silently losing an attachment is exactly the bug this
+                // fix round closes.
+                droppedCount += 1
                 print("Capture: dropped an attachment — \(error)")
             }
         }
 
         await refreshPendingCount()
-        if queuedCount > 0 { return .queued(count: queuedCount) }
-        if savedCount > 0 { return .saved(count: savedCount) }
-        return .nothingToSave
+        if queuedCount > 0 { return .queued(count: queuedCount, dropped: droppedCount) }
+        if savedCount > 0 { return .saved(count: savedCount, dropped: droppedCount) }
+        // `units` was non-empty (guarded above) and neither saved nor queued anything, so
+        // every unit in this submission was dropped.
+        return .rejected(dropped: droppedCount)
     }
 
     public func drainOutbox() async {
@@ -176,9 +189,10 @@ public final class CaptureViewModel {
     /// already in storage and only the `add-file` registration call may need a retry), so
     /// queuing a path nothing was ever written to would let a later drain register an item
     /// pointing at nothing. An oversized reject is the same story: retrying, live or queued,
-    /// can never succeed. Both are logged and dropped; the composer's view spec (Step 3) has no
-    /// dedicated toast for this today, so it is a disclosed gap, not a silent one — see
-    /// task-7-report.md.
+    /// can never succeed. Neither is safe to queue — but both are still counted into `submit()`'s
+    /// `droppedCount` and surfaced via `CaptureOutcome`'s `dropped`/`.rejected` (fix round: this
+    /// used to be logged-and-dropped with no way for the caller to know data was lost — see
+    /// task-7-report.md's fix-round addendum).
     private struct UnqueueableFailure: Error { let reason: String }
 
     private enum ReadyUnit {
