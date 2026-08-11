@@ -1398,3 +1398,18 @@ private func render(nodes: [[String: Any]], into out: inout AttributedString, li
 - **Type consistency:** `Item.decoder` (T5) used by fetcher (T9); `ItemsFetching` signature identical in stub (T9 tests) and `SupabaseItemsFetcher`; `contentTabsConfig(for:)` consumed in T12 matches T7; `MainTabView(userId:)` change in T8 supersedes T4's argless init.
 - **Known risk, accepted:** supabase-swift Realtime/PostgREST call signatures drift between minor versions — Global Constraints tells the implementer to adapt to the pinned version rather than downgrade.
 - **Deliberate deviation:** Tasks 10 and 12's SwiftUI *assembly* steps are specified in exhaustive prose (every element, binding, and consumed interface named) rather than full code listings — the logic they compose is 100% code-specified and unit-tested in Tasks 5–9/12, and the deliverable is verified by on-simulator screenshots. Everything else in this plan is literal code.
+
+---
+
+## Plan 1 outcome (2026-08-11) & plan-2 hygiene list
+
+Shipped on branch `worktree-ios-plan-1` (19 commits, all 12 tasks + final fix wave, every task and the whole branch adversarially reviewed). StashKit 15/15 unit tests; 4-test XCUITest suite green ×2 against production; realtime live-proven (external PATCH ≤1.295s; add-file card + AI description ≤3.42s). Permanent UITEST-FIXTURE data now on the test account: 2 notes, 2 links, 2 images, 1 audio, tag `ios-test`.
+
+**Carry into plan 2 (from the final whole-branch review):**
+- Refresh reentrancy: add a monotonic fetch-generation token in `ItemStore.load`; longer-term targeted row-merge for realtime instead of full refresh.
+- add-file: log discarded enrichment invoke errors; reject `..` path segments; UUID-named uploads (moots URL-encoding gap).
+- Detail sheet holds a snapshot — wire realtime updates into an open sheet.
+- Fixtures: add one public+sticky-note item and one mid-extraction document (closes the unexercised badge/shimmer/document-detail paths); exercise video E2E in plan 4.
+- First task that adds Info.plist keys (camera/photo strings) must diff the committed plist after `xcodegen generate` (merge-vs-overwrite tripwire).
+- Pinned-literal test for `Item.listColumns`/`detailColumns`; `typeIcon` → shared StashKit extension on next touch; keyset cursor id tie-breaker REQUIRED before any bulk-import feature (a tie skips rows — dedupe does not cushion it).
+- Known web/edge bug surfaced (NOT this branch's scope): `analyze-image` re-embed omits item `content` — image captures with notes aren't note-searchable on any client.
