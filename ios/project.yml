@@ -26,3 +26,27 @@ targets:
         CFBundleDisplayName: Stash
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
+  StashUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [StashUITests]
+    dependencies:
+      - target: Stash
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Stash:
+    build:
+      targets:
+        Stash: all
+        StashUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - StashUITests
+    archive:
+      config: Release

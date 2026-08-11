@@ -3,6 +3,8 @@ import SwiftUI
 enum MainTab: Hashable { case add, ask, view, settings }
 
 struct MainTabView: View {
+    let userId: UUID
+
     // Launch on View until the Add composer exists (plan 2 flips this to .add)
     @State private var selection: MainTab = .view
 
