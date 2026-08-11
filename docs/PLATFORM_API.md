@@ -45,9 +45,21 @@ upgrades.
 Returns `{ success, note }` immediately with a derived title; AI title +
 description + re-embed land asynchronously.
 
-Files (images, PDFs, audio) currently upload via Supabase Storage
-(`stash-media/<userId>/…`) + a client-side insert — a `POST /add-file`
-wrapper is the intended next step for parity.
+### `POST /add-file` — save an uploaded file
+
+Upload to Storage first (`stash-media/<userId>/<name>.<ext>`), then:
+
+```json
+{ "file_path": "<userId>/…", "mime_type": "image/png", "file_size": 1234,
+  "content": "optional note", "title": "optional", "is_public": false }
+```
+
+Returns `{ success, item }` fast. Type derives from MIME (image/audio/video,
+else document). Enrichment continues server-side after the response: vision
+description + OCR for images, Whisper transcript into `page_body` for
+audio/video, quick summary + full text extraction for documents, embeddings
+for all — realtime delivers the upgrades. `file_path` must sit inside the
+caller's own folder (403 otherwise).
 
 ## Ask
 
