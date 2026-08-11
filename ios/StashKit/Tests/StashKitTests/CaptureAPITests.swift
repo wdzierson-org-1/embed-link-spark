@@ -73,4 +73,12 @@ final class CaptureAPITests: XCTestCase {
         XCTAssertEqual(path.split(separator: "/").count, 2)
         XCTAssertNil(path.rangeOfCharacter(from: CharacterSet.uppercaseLetters))
     }
+
+    func testInnerItemDecodeFailureMapsToMalformedResponse() async {
+        let stub = StubPoster()
+        stub.response = Data(#"{"success":true,"item":{"id":"not-a-uuid"}}"#.utf8)
+        let api = CaptureAPI(poster: stub)
+        do { _ = try await api.addFile(path: "u/x.png", mimeType: "image/png", fileSize: nil, content: nil, isPublic: false, accessToken: "jwt"); XCTFail() }
+        catch { XCTAssertEqual(error as? CaptureError, .malformedResponse) }
+    }
 }

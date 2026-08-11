@@ -55,7 +55,11 @@ public struct CaptureAPI: Sendable {
               let itemObject = root[envelopeKey],
               let itemData = try? JSONSerialization.data(withJSONObject: itemObject)
         else { throw CaptureError.malformedResponse }
-        return try Item.decoder.decode(Item.self, from: itemData)
+        do {
+            return try Item.decoder.decode(Item.self, from: itemData)
+        } catch {
+            throw CaptureError.malformedResponse
+        }
     }
 }
 
