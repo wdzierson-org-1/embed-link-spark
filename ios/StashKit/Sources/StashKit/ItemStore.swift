@@ -42,7 +42,7 @@ public struct SupabaseItemsFetcher: ItemsFetching {
         if let types { query = query.in("type", values: types.map(\.rawValue)) }
         if !tagIds.isEmpty { query = query.in("item_tags.tag_id", values: tagIds.map(\.uuidString)) }
         if let before {
-            query = query.lt("created_at", value: ISO8601DateFormatter().string(from: before))
+            query = query.lt("created_at", value: before)
         }
         let data = try await query
             .order("created_at", ascending: false)
