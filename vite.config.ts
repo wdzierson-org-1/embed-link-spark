@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
@@ -23,5 +24,7 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
+    // Git worktrees under .claude/ carry a full duplicate of src/ — never test them
+    exclude: [...configDefaults.exclude, ".claude/**", "ios/**"],
   },
 }));

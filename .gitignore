@@ -25,3 +25,6 @@ dist-ssr
 supabase/.temp
 screenshots/
 .playwright-mcp/
+
+# Claude worktrees (full repo copies — never build/test/commit them)
+.claude/worktrees/
