@@ -16,7 +16,7 @@ struct MainTabView: View {
             PlaceholderPane(title: "Ask", note: "Ask Stash arrives in plan 4")
                 .tabItem { Label("Ask", systemImage: "bubble.left.and.text.bubble.right") }
                 .tag(MainTab.ask)
-            Text("View")   // replaced by LibraryView in Task 10
+            LibraryView(userId: userId)
                 .tabItem { Label("View", systemImage: "square.grid.2x2") }
                 .tag(MainTab.view)
             PlaceholderPane(title: "Settings", note: "Settings arrive in plan 5")
