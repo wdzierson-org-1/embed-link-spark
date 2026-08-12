@@ -97,6 +97,87 @@ final class StashUITests: XCTestCase {
         return reached
     }
 
+    // MARK: - Fixture self-repair (Task 8 hardening)
+    //
+    // testEditSmoke's fixture-corruption failure mode has hit TWICE: a crashed run dying
+    // between its in-app edit and its own end-of-test restore (further down in this file) left
+    // "UITEST-FIXTURE: note one" with a mutated TITLE ("... (edited <epoch>)") and a stale
+    // appended notes paragraph (see the Task 5 escalation and task-6-report.md's "discovered +
+    // repaired in passing" note — both in .superpowers/sdd/2026-08-11-ios-plan-3-parity/). The
+    // structural fix is to restore-FIRST, not just restore-after: every run REST-repairs the
+    // fixture to canonical before touching it, so a run is self-healing regardless of what a
+    // previous run crashed and left behind. These helpers back that pre-flight (used by
+    // testEditSmoke below).
+
+    /// Same Supabase project URL + public anon key `StashConfig.swift` (StashKit) ships — not a
+    /// secret, it ships in the committed web client too (see that file's own comment).
+    /// Duplicated here rather than imported: `StashUITests` has no package dependency on
+    /// StashKit per `project.yml` (a UI-test bundle only depends on the `Stash` app target and
+    /// drives it purely through the accessibility tree in a separate process — it cannot
+    /// `import` the host app's own module or its package dependencies).
+    private static let fixtureRepairBaseURL = URL(string: "https://uqqsgmwkvslaomzxptnp.supabase.co")!
+    private static let fixtureRepairAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXNnbXdrdnNsYW9tenhwdG5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2MjU0ODcsImV4cCI6MjA2NjIwMTQ4N30.vGWb1EdshtLFLpUHQ54Vy2CDmuPVCTbvc8UYW6_cvmE"
+
+    private struct FixtureRepairError: Error, CustomStringConvertible {
+        let description: String
+        init(_ description: String) { self.description = description }
+    }
+
+    /// Password-grant access token for the test account, fetched fresh for this repair alone —
+    /// a separate, ephemeral REST session from whatever the app itself is signed into via the
+    /// UI. Uses the same `STASH_TEST_EMAIL`/`STASH_TEST_PASSWORD` (TEST_RUNNER_-sourced) every
+    /// other test in this file already reads via `testCredentials()`.
+    private func fixtureRepairAccessToken(email: String, password: String) async throws -> String {
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/auth/v1/token")
+                .appending(queryItems: [URLQueryItem(name: "grant_type", value: "password")]))
+        request.httpMethod = "POST"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "test-account auth failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1)) — cannot self-heal fixtures")
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = object["access_token"] as? String
+        else {
+            throw FixtureRepairError("test-account auth response missing access_token")
+        }
+        return token
+    }
+
+    /// Restores "UITEST-FIXTURE: note one" to its byte-exact canonical title+content. Matches by
+    /// a LIKE prefix (`UITEST-FIXTURE: note one*`), not an exact title match, specifically so
+    /// this still finds and repairs the row when a prior crash left the TITLE itself mutated —
+    /// an exact-title lookup would silently match nothing in exactly the corruption case this
+    /// exists to fix. Verified live (read-only) against production before wiring this in: the
+    /// prefix matches "note one" only, never "note two" (see task-8-report.md).
+    private func restoreNoteOneFixtureToCanonical(email: String, password: String) async throws {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [URLQueryItem(name: "title", value: "like.UITEST-FIXTURE: note one*")]))
+        request.httpMethod = "PATCH"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "title": "UITEST-FIXTURE: note one",
+            "content": "UITEST-FIXTURE: stable note for library smoke — do not delete",
+        ])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("fixture restore PATCH failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], !rows.isEmpty else {
+            throw FixtureRepairError(
+                "fixture restore PATCH matched zero rows — 'UITEST-FIXTURE: note one' appears to be missing entirely")
+        }
+    }
+
     /// Signs into the real View tab and exercises the grid, type chip, search, and sign-out
     /// against production data. Element types for custom-identifier views (grid/cards) are
     /// looked up type-agnostically since SwiftUI doesn't guarantee a stable XCUIElementType
@@ -115,6 +196,13 @@ final class StashUITests: XCTestCase {
         // 1. Grid shows at least one real item card.
         XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 15), "Library grid did not appear")
         XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected at least one item card in the grid")
+
+        // Screenshot rig (Task 8, same checkpoint technique as testDetailSheets/testAskSmoke):
+        // holds here, on the plain unfiltered grid (all fixtures, "All" chip, no search/tag
+        // filter applied yet — those come next), so an external `xcrun simctl io <udid>
+        // screenshot` can capture the View tab's default state before this test narrows it.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: grid\n".data(using: .utf8)!)
+        sleep(3)
 
         // 2. Type chip narrows server-side; the fixture account has link items.
         let linksChip = app.buttons["library.chip.links"]
@@ -297,6 +385,13 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(editor.waitForExistence(timeout: 15),
                       "Expected the capture editor to appear on launch (Add is the launch tab)")
 
+        // Screenshot rig (Task 8, same checkpoint technique as testDetailSheets/testAskSmoke):
+        // holds here, on the empty composer immediately after launch/sign-in — before this test
+        // types anything into it — so an external `xcrun simctl io <udid> screenshot` can capture
+        // the Add tab's launch state (empty, no keyboard raised yet).
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: add\n".data(using: .utf8)!)
+        sleep(3)
+
         let marker = "UITEST-CAPTURE: smoke note \(Int(Date().timeIntervalSince1970))"
         editor.tap()
         editor.typeText(marker)
@@ -321,17 +416,34 @@ final class StashUITests: XCTestCase {
     /// permanent "UITEST-FIXTURE: note one" fixture. This test mutates that fixture's title
     /// (restored below via the same in-app editing path it was changed with) and its content
     /// (mutated by the notes-append step, which can only ever ADD a paragraph — there's no
-    /// in-app "undo" for that). Content is restored via a REST PATCH run in the shell
-    /// immediately after this test, using the original content captured via REST *before* the
-    /// test runs; see task-8-report.md for the exact commands and verification GETs.
+    /// in-app "undo" for that).
+    ///
+    /// RESTORE-FIRST (Task 8 hardening): before touching anything, this test REST-PATCHes note
+    /// one back to its byte-exact canonical title+content via `restoreNoteOneFixtureToCanonical`
+    /// (above). This fixture-corruption failure mode — a crashed run dying between the in-app
+    /// edit below and this test's own end-of-test restore, leaving the title itself mutated —
+    /// has hit TWICE (see the Task 5 escalation and task-6-report.md's "discovered + repaired in
+    /// passing" note). Restoring first makes every run self-healing regardless of what a prior
+    /// crashed run left behind; the end-of-test restore further down is kept too, as a belt —
+    /// the fast/expected path when nothing crashed, not the actual safety net anymore.
     ///
     /// Title edits go through `replaceText` (see its doc comment) rather than trying to position
     /// the caret and append/trim a suffix — two earlier approaches (a coordinate tap near the
     /// field's trailing edge; a long-press for the system edit callout) both empirically landed
     /// the caret mid-string instead of at the end, corrupting the title (see task-8-report.md).
     /// `replaceText` makes no assumption about caret position at all.
-    func testEditSmoke() throws {
+    ///
+    /// `@MainActor`: XCTest always runs test methods on the main thread/actor in practice (the
+    /// synchronous `throws`-only tests elsewhere in this file rely on that same fact implicitly);
+    /// this just makes it explicit so the compiler doesn't flag every `XCUIElement` call in this
+    /// `async` test as a possible off-main-actor access (each one really is main-actor-isolated
+    /// API — `tap()`, `typeText`, `waitForExistence`, etc. — this annotation matches reality
+    /// rather than working around a false warning).
+    @MainActor
+    func testEditSmoke() async throws {
         let (email, password) = try testCredentials()
+        try await restoreNoteOneFixtureToCanonical(email: email, password: password)
+
         let app = XCUIApplication()
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
                       "Expected the tab bar to appear after sign-in")
@@ -414,8 +526,11 @@ final class StashUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [notesAppeared], timeout: 10), .completed,
                        "Expected the appended note to render in Notes")
 
-        // Restore: back to exactly the canonical fixture title. Content is restored via REST in
-        // the shell after this test (see above).
+        // Restore: back to exactly the canonical fixture title. Content stays mutated after this
+        // test (the notes-append step above can only ever ADD a paragraph — no in-app undo) —
+        // cleaned up either by an explicit REST PATCH in the shell right after this run, or
+        // automatically by the NEXT run's own restore-first pre-flight (top of this test) if
+        // that shell step is ever skipped, or this run crashes before reaching it.
         replaceText(reopenedTitleField, placeholder: "Untitled", with: originalTitle)
         XCTAssertEqual(reopenedTitleField.value as? String, originalTitle,
                        "Expected the title to be restored to exactly the original fixture title")
@@ -545,17 +660,19 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
     }
 
-    /// Ask tab: streaming Q&A against production (one real model call per run — expected and
-    /// budgeted), citation chip, detail sheet. Deliberately does NOT assume `ask.bubble.0` is the
-    /// user question / `ask.bubble.1` is the assistant reply: chat history is durable (Task 2
-    /// persists every exchange to `conversations`/`messages`), so a second run of this same test
-    /// against the same account restores prior turns first and appends after them — the indices
-    /// this run lands on depend on how much history already exists. Instead this finds whichever
+    /// Ask tab: streaming Q&A against production (one real model call per attempt — normally one
+    /// per run, two on the RAG-variance retry path below; expected and budgeted), citation chip,
+    /// detail sheet. Deliberately does NOT assume `ask.bubble.0` is the user question /
+    /// `ask.bubble.1` is the assistant reply: chat history is durable (Task 2 persists every
+    /// exchange to `conversations`/`messages`), so a second run of this same test against the
+    /// same account restores prior turns first and appends after them — the indices this run
+    /// lands on depend on how much history already exists. Instead this finds whichever
     /// `ask.bubble.*`/`ask.sources.*` elements are LAST in the tree right after sending, which are
     /// always the freshly-appended ones regardless of any earlier accumulated history.
     ///
     /// Asks about the permanent document fixture ("persimmons") per the plan's own note that its
-    /// extracted `page_body` guarantees retrievable content, so a source chip is expected.
+    /// extracted `page_body` guarantees retrievable content, so a source chip is expected. Includes
+    /// a one-shot RAG-variance retry (Task 8 hardening) — see the comment at its call site below.
     func testAskSmoke() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -568,13 +685,6 @@ final class StashUITests: XCTestCase {
 
         let input = anyElement("ask.input")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
-        input.tap()
-        input.typeText("What do my saved items say about persimmons?")
-
-        let sendButton = app.buttons["ask.send"]
-        XCTAssertTrue(sendButton.waitForExistence(timeout: 5), "Send button not found")
-        XCTAssertTrue(sendButton.isEnabled, "Expected Send to be enabled for non-empty input")
-        sendButton.tap()
 
         // Whichever `ask.bubble.<N>` is currently LAST in the tree right after sending is the
         // freshly-appended assistant reply (appended immediately after the user's own bubble,
@@ -619,36 +729,75 @@ final class StashUITests: XCTestCase {
             return nil
         }
 
-        guard let bubbleId = lastBubbleIdentifier(timeout: 30) else {
-            XCTFail("Assistant bubble did not appear")
-            return
-        }
-        let assistantBubble = anyElement(bubbleId)
+        // Types `question` into the composer and sends it (the composer clears its own text on
+        // send — `AskView.sendTapped` — so no manual clear is needed between attempts), then
+        // waits for the freshly-appended assistant bubble's label to stop changing (stream
+        // completion, capped at 30s) and asserts it's non-empty. Returns that bubble's
+        // `ask.bubble.<N>` identifier. Factored out so the initial send and the RAG-variance
+        // retry below are byte-identical in behavior — the retry is exactly "do this again", not
+        // a separate, potentially-diverging code path.
+        func askAndAwaitStableReply(_ question: String) -> String {
+            input.tap()
+            input.typeText(question)
 
-        // Poll for the bubble's label to stabilize (stream completion), capped at 30s total.
-        // Uses a real production model call — one per run, expected and budgeted.
-        var previousLabel: String?
-        var stableStreak = 0
-        let deadline = Date().addingTimeInterval(30)
-        while Date() < deadline {
-            let currentLabel = assistantBubble.label
-            let meaningful = currentLabel.trimmingCharacters(in: .whitespaces)
-            if !meaningful.isEmpty, currentLabel == previousLabel {
-                stableStreak += 1
-                if stableStreak >= 3 { break }   // stable across 3 consecutive 0.5s polls (~1.5s quiet)
-            } else {
-                stableStreak = 0
+            let sendButton = app.buttons["ask.send"]
+            XCTAssertTrue(sendButton.waitForExistence(timeout: 5), "Send button not found")
+            XCTAssertTrue(sendButton.isEnabled, "Expected Send to be enabled for non-empty input")
+            sendButton.tap()
+
+            guard let bubbleId = lastBubbleIdentifier(timeout: 30) else {
+                XCTFail("Assistant bubble did not appear")
+                return ""
             }
-            previousLabel = currentLabel
-            usleep(500_000)
-        }
-        let finalLabel = assistantBubble.label.trimmingCharacters(in: .whitespaces)
-        XCTAssertFalse(finalLabel.isEmpty, "Expected a non-empty assistant answer")
+            let assistantBubble = anyElement(bubbleId)
 
-        // ≥1 source chip, derived from the SAME bubble's index (not assumed/hardcoded).
-        let indexSuffix = bubbleId.replacingOccurrences(of: "ask.bubble.", with: "")
-        let sourcesRow = anyElement("ask.sources.\(indexSuffix)")
-        XCTAssertTrue(sourcesRow.waitForExistence(timeout: 10), "Expected at least one source chip for the persimmons question")
+            // Poll for the bubble's label to stabilize (stream completion), capped at 30s total.
+            var previousLabel: String?
+            var stableStreak = 0
+            let deadline = Date().addingTimeInterval(30)
+            while Date() < deadline {
+                let currentLabel = assistantBubble.label
+                let meaningful = currentLabel.trimmingCharacters(in: .whitespaces)
+                if !meaningful.isEmpty, currentLabel == previousLabel {
+                    stableStreak += 1
+                    if stableStreak >= 3 { break }   // stable across 3 consecutive 0.5s polls (~1.5s quiet)
+                } else {
+                    stableStreak = 0
+                }
+                previousLabel = currentLabel
+                usleep(500_000)
+            }
+            let finalLabel = assistantBubble.label.trimmingCharacters(in: .whitespaces)
+            XCTAssertFalse(finalLabel.isEmpty, "Expected a non-empty assistant answer")
+            return bubbleId
+        }
+
+        func sourcesRow(forBubble bubbleId: String) -> XCUIElement {
+            anyElement("ask.sources.\(bubbleId.replacingOccurrences(of: "ask.bubble.", with: ""))")
+        }
+
+        let question = "What do my saved items say about persimmons?"
+        var bubbleId = askAndAwaitStableReply(question)
+
+        // RAG-variance retry (Task 8 hardening): "a real, non-empty streamed answer but NO source
+        // chip" has hit this exact assertion TWICE across T5–T7's full-suite runs (see
+        // task-6-report.md / task-7-report.md), always as the sole failure in an otherwise-clean
+        // run. Root cause, per those reports' own investigation: the SSE `.done` event genuinely
+        // carries an empty `sources` array some fraction of the time — retrieval variance against
+        // the same fixture content on the server side, not an XCUITest race (that's a *different*,
+        // already-fixed bug, documented above in `lastBubbleIdentifier`'s comment). One in-test
+        // retry absorbs that variance without weakening the assertion: if the first attempt's
+        // bubble has real text but no source chip within 10s, ask the IDENTICAL question again as
+        // a fresh message (a brand-new user+assistant bubble pair, found and awaited exactly like
+        // the first) and re-check. This is still a genuine, reportable failure if BOTH attempts
+        // come back sourceless — that would mean retrieval against the document fixture is
+        // actually broken, not just unlucky once.
+        if !sourcesRow(forBubble: bubbleId).waitForExistence(timeout: 10) {
+            bubbleId = askAndAwaitStableReply(question)
+            XCTAssertTrue(
+                sourcesRow(forBubble: bubbleId).waitForExistence(timeout: 10),
+                "Expected at least one source chip for the persimmons question — sourceless on both the initial attempt and the RAG-variance retry")
+        }
 
         // Screenshot rig (same checkpoint technique as testDetailSheets/testTagsAndPublicSmoke):
         // holds here so an external `xcrun simctl io <udid> screenshot` can capture the streamed
@@ -656,6 +805,9 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask\n".data(using: .utf8)!)
         sleep(3)
 
+        // ≥1 source chip, derived from the SAME bubble's index (not assumed/hardcoded) — whichever
+        // attempt (initial or retry) actually produced sources.
+        let indexSuffix = bubbleId.replacingOccurrences(of: "ask.bubble.", with: "")
         let firstChip = anyElement("ask.sources.\(indexSuffix).chip.0")
         XCTAssertTrue(firstChip.waitForExistence(timeout: 5), "Expected a tappable source chip")
         firstChip.tap()
