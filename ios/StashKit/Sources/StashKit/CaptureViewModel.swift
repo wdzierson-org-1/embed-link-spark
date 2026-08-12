@@ -139,6 +139,42 @@ public final class CaptureViewModel {
         return .rejected(dropped: droppedCount)
     }
 
+    /// The voice-note counterpart to `submit()` — a single already-on-disk recording (written by
+    /// the app's `AudioRecorderController` via `RecordingStore`, before this is ever called) is
+    /// read, uploaded, and registered via `addFile`. Unlike `submit()`'s attachment path, there is
+    /// no unqueueable-failure distinction: the recording's bytes are already durably on local disk
+    /// (that's the entire point of recording straight into `RecordingStore` instead of holding the
+    /// bytes in memory), so ANY failure here — reading the file, the upload, or `addFile` itself —
+    /// is always safe, and always correct, to hand to the Outbox: it retries with the exact same
+    /// local file, never invents a `file_path` nothing was ever written to.
+    ///
+    /// `content: nil` is deliberate, not an oversight — voice notes never consume the composer's
+    /// `text` field (the sheet that calls this is a self-contained flow with its own Save button,
+    /// independent of whatever's typed in the composer's editor at the time).
+    public func submitVoiceNote(fileURL: URL) async -> CaptureOutcome {
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let path = makeUploadPath(userId: userId, fileExtension: "m4a")
+            try await upload(data, path, "audio/mp4")
+            let token = try await accessToken()
+            _ = try await api.addFile(path: path, mimeType: "audio/mp4", fileSize: data.count,
+                                      content: nil, isPublic: isPublic, accessToken: token)
+            try? FileManager.default.removeItem(at: fileURL)
+            await refreshPendingCount()
+            return .saved(count: 1, dropped: 0)
+        } catch {
+            // Keep the file — this entry's local_file_path is the only reference to it, and the
+            // Outbox drain (Task 4) uploads it from exactly this path on retry.
+            try? await outbox.enqueue(.file, payload: [
+                "local_file_path": fileURL.path,
+                "mime_type": "audio/mp4",
+                "is_public": isPublic ? "true" : "false",
+            ])
+            await refreshPendingCount()
+            return .queued(count: 1, dropped: 0)
+        }
+    }
+
     public func drainOutbox() async {
         if let token = try? await accessToken() {
             // Reuses this view model's own injected `upload` closure so a test that stubs it out

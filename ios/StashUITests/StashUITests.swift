@@ -661,4 +661,85 @@ final class StashUITests: XCTestCase {
         done.tap()
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Expected the Ask tab after dismissing the detail sheet")
     }
+
+    /// Voice notes (Task 6): record → Stop → Save → success toast → View tab shows the new item.
+    /// "Type audio" is proven the same way `testDetailSheets` proves type for its "audio one"
+    /// fixture — the segmented tab set (`contentTabsConfig`), not any grid-level type indicator,
+    /// since `ItemCardView` exposes no type string directly and this recording has no searchable
+    /// text marker (voice notes never attach the composer's typed text as content — see
+    /// `CaptureViewModel.submitVoiceNote`'s own doc comment, so unlike `testCaptureSmoke` there's
+    /// nothing to type into the search field first). Sim mic permission (`simctl privacy … grant
+    /// microphone`) is granted as a pre-step before this test runs, same spirit as testAskSmoke's
+    /// grants — with it pre-granted, `AudioRecorderController` never shows a system prompt, so the
+    /// sheet's record button is tappable immediately.
+    ///
+    /// The created row and its uploaded storage object are disposable: REST-polled for its
+    /// Whisper-assigned `description` (silence → the "no speech" description path, plan 1) then
+    /// REST-deleted in the shell after this test runs — same cleanup-outside-the-test convention
+    /// testDeleteSmoke/testCaptureSmoke already use; never touches the permanent UITEST-FIXTURE rows.
+    func testVoiceNoteSmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        // Add is the launch tab (plan 2) — the mic button must appear without tapping any tab.
+        let voiceButton = anyElement("capture.voice")
+        XCTAssertTrue(voiceButton.waitForExistence(timeout: 15), "Expected the voice-note mic button on the Add tab")
+        voiceButton.tap()
+
+        let recordButton = anyElement("capture.voice.record")
+        XCTAssertTrue(recordButton.waitForExistence(timeout: 10),
+                      "Voice recorder sheet did not present its record button")
+        recordButton.tap()
+
+        let stopButton = anyElement("capture.voice.stop")
+        XCTAssertTrue(stopButton.waitForExistence(timeout: 5), "Expected the Stop button once recording starts")
+
+        // Screenshot rig (same checkpoint technique as testDetailSheets/testAskSmoke): holds here,
+        // mid-recording, so an external `xcrun simctl io <udid> screenshot` can capture the timer
+        // + level meter + Stop/Cancel state before this test moves on.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: voice-recording\n".data(using: .utf8)!)
+        sleep(2)   // ~2s of host-mic audio — silent on the simulator, which is fine (brief's own note)
+        stopButton.tap()
+
+        let saveButton = anyElement("capture.voice.save")
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 10), "Expected the preview state's Save button after Stop")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: voice-preview\n".data(using: .utf8)!)
+        sleep(3)
+        saveButton.tap()
+
+        XCTAssertTrue(anyElement("capture.toast").waitForExistence(timeout: 15),
+                      "Expected a success toast after saving the voice note")
+
+        app.tabBars.buttons["View"].tap()
+        XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 15), "Library grid did not appear")
+
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the newly-captured voice note's card to appear")
+        card0().tap()
+
+        let done = app.buttons["detail.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for the new voice note")
+        XCTAssertTrue(app.buttons["Notes"].waitForExistence(timeout: 5), "Expected a Notes tab for the voice note")
+        XCTAssertTrue(app.buttons["Transcript"].waitForExistence(timeout: 5),
+                      "Expected a Transcript tab — the signal that this card is type audio")
+        XCTAssertFalse(app.buttons["Summary"].exists, "Did not expect a Summary tab for an audio item")
+        XCTAssertFalse(app.buttons["Original Content"].exists, "Did not expect an Original Content tab for an audio item")
+
+        done.tap()
+        XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 10), "Expected the library after dismiss")
+    }
 }

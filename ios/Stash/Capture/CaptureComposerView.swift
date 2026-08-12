@@ -2,6 +2,7 @@ import SwiftUI
 import StashKit
 import PhotosUI
 import UniformTypeIdentifiers
+import AVFoundation
 
 /// The Add tab (plan 2's launch tab): a resident capture composer — text, detected URLs,
 /// photos, camera, and files, all routed through `CaptureViewModel` with an offline Outbox
@@ -20,6 +21,7 @@ struct CaptureComposerView: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showCameraPicker = false
     @State private var showFileImporter = false
+    @State private var showVoiceRecorder = false
     @FocusState private var editorFocused: Bool
 
     @Environment(\.scenePhase) private var scenePhase
@@ -98,6 +100,13 @@ struct CaptureComposerView: View {
             }
             .ignoresSafeArea()
         }
+        .sheet(isPresented: $showVoiceRecorder) {
+            VoiceRecorderSheet(userId: userId, viewModel: viewModel) { outcome in
+                // `nil` = the sheet was cancelled/dismissed with nothing to report; a real
+                // outcome routes through the exact same toast mapping `submit()` uses below.
+                if let outcome { showOutcome(outcome) }
+            }
+        }
     }
 
     // MARK: - Editor + URL chip
@@ -164,6 +173,21 @@ struct CaptureComposerView: View {
             }
             .accessibilityIdentifier("capture.fileButton")
 
+            // Hidden only when the device truly has no microphone input at all (`isInputAvailable`
+            // — false on some old iPods, never on a real iPhone/simulator). Never gated on
+            // permission here: a denied/undetermined mic still opens the sheet, which owns its own
+            // inline explainer + Settings link (brief: "never on permission — the sheet handles
+            // that").
+            if AVAudioSession.sharedInstance().isInputAvailable {
+                Button {
+                    showVoiceRecorder = true
+                } label: {
+                    Image(systemName: "mic")
+                        .imageScale(.large)
+                }
+                .accessibilityIdentifier("capture.voice")
+            }
+
             Spacer()
 
             Toggle(isOn: $viewModel.isPublic) {
@@ -199,6 +223,12 @@ struct CaptureComposerView: View {
         isSubmitting = true
         let outcome = await viewModel.submit()
         isSubmitting = false
+        showOutcome(outcome)
+    }
+
+    /// Shared by `submit()` and the voice-note sheet's Save completion (`submitVoiceNote` returns
+    /// the same `CaptureOutcome` type) — one toast-mapping source of truth for both submit paths.
+    private func showOutcome(_ outcome: CaptureOutcome) {
         switch outcome {
         case .saved(let count, let dropped) where dropped == 0:
             show(.saved(message: count > 1 ? "Saved \(count) items" : "Saved", hadDrops: false))

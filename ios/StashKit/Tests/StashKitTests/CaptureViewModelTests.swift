@@ -135,4 +135,51 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertEqual(outcome, .saved(count: 2, dropped: 1))
         XCTAssertEqual(poster.calls.filter { $0.path == "add-file" }.count, 2)
     }
+
+    // MARK: - Voice notes (Task 6)
+    //
+    // `submitVoiceNote` is a separate, single-unit submit path, distinct from `submit()`'s
+    // attachment routing: the recording's bytes are already durably on local disk (written by
+    // `AVAudioRecorder` via `RecordingStore`, before this is ever called) — unlike a
+    // `CaptureAttachment`'s in-memory `Data`, nothing is lost by queuing on ANY failure, so
+    // (per the brief) there's no `UnqueueableFailure`-style distinction here: every failure mode
+    // queues, never drops.
+
+    func testSubmitVoiceNoteSuccessUploadsAndDeletesLocalFile() async throws {
+        let poster = RecordingPoster()
+        let vm = makeViewModel(poster: poster)
+        let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
+        try Data([0x01, 0x02, 0x03]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let outcome = await vm.submitVoiceNote(fileURL: fileURL)
+
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
+        XCTAssertEqual(poster.calls.map(\.path), ["add-file"])
+        XCTAssertEqual(poster.calls[0].body["mime_type"] as? String, "audio/mp4")
+        XCTAssertEqual(poster.calls[0].body["file_size"] as? Int, 3)
+        XCTAssertNil(poster.calls[0].body["content"], "voice notes never attach the composer's text as content")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path),
+                       "the local recording must be deleted once its bytes are durably uploaded and registered")
+    }
+
+    func testSubmitVoiceNoteFailureRetainsFileAndEnqueuesOutboxEntryReferencingIt() async throws {
+        let poster = RecordingPoster(); poster.shouldFail = true
+        let vm = makeViewModel(poster: poster)
+        let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
+        try Data([0x0A, 0x0B]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let outcome = await vm.submitVoiceNote(fileURL: fileURL)
+
+        XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
+                      "a failed submit must never delete the only copy of the recording")
+        let box = Outbox(directory: dir)
+        let pending = await box.pending()
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending[0].payload["local_file_path"], fileURL.path,
+                       "the queued entry must point at exactly the file that's still on disk")
+        XCTAssertEqual(pending[0].payload["mime_type"], "audio/mp4")
+    }
 }
