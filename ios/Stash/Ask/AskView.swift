@@ -16,6 +16,12 @@ struct AskView: View {
     @State private var store: ChatStore
     @State private var input = ""
     @State private var dictation = DictationController()
+    /// The composer's content at the instant dictation last started — captured once per
+    /// start/restart so every interim update re-merges against the SAME unchanging prefix (see
+    /// `mergeDictation`). Without this, restarting dictation (redo) or dictating after already
+    /// typing something loses that text the moment `DictationController.start()` resets
+    /// `transcript` to "" (task review finding: the field went blank instantly on a second tap).
+    @State private var dictationPrefix = ""
     @State private var speech = SpeechReader()
     @State private var gateMessage: String?
     @State private var citationItem: Item?
@@ -57,7 +63,16 @@ struct AskView: View {
         .onChange(of: store.errorRestoredInput) { _, restored in
             if let restored { input = restored }
         }
-        .onChange(of: dictation.transcript) { _, newValue in input = newValue }
+        // Ordered before the transcript mirror below: both fire from the same transaction when
+        // `start()` resets `transcript` to "" and flips `isListening` true together, and the
+        // prefix must already be captured by the time the transcript handler re-merges.
+        .onChange(of: dictation.isListening) { _, isListening in
+            if isListening { dictationPrefix = input }
+        }
+        .onChange(of: dictation.transcript) { _, newValue in
+            guard dictation.isListening else { return }
+            input = mergeDictation(prefix: dictationPrefix, interim: newValue)
+        }
         .onDisappear { dictation.stop() }
         .sheet(item: $citationItem) { item in
             ItemDetailView(item: item, store: citationStore)
@@ -81,6 +96,7 @@ struct AskView: View {
                             userId: userId,
                             loadingSourceId: loadingSourceId,
                             speech: speech,
+                            isDictating: dictation.isListening,
                             onCitationTap: openCitation
                         )
                         .id(message.id)

@@ -31,6 +31,18 @@ final class DictationController {
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    /// Registered for the duration of a listening session only (`start()`…`stop()`) — an
+    /// interruption (phone call, alarm, another app taking the mic) with no observer would leave
+    /// `isListening`/the tap/the audio engine stale, since nothing would ever call `stop()`.
+    /// `@ObservationIgnored` (not UI-relevant state — never read by any view) + `nonisolated(unsafe)`
+    /// (plain `nonisolated` is only legal on an immutable `let`; this needs `(unsafe)` because it's
+    /// a `var`): only ever mutated from `@MainActor`-isolated methods while the controller is live,
+    /// except for a single read in `deinit`, which is never MainActor-isolated and by definition
+    /// can't race any other access to `self` — there's nothing else left to access it.
+    /// `@Observable`'s synthesized accessors also reject `nonisolated` outright on a tracked
+    /// mutable property, hence opting this one out of observation tracking first.
+    @ObservationIgnored
+    nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
 
     var isSupported: Bool { recognizer != nil }
 
@@ -90,6 +102,7 @@ final class DictationController {
         }
 
         isListening = true
+        registerInterruptionObserver()
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             // The result handler isn't guaranteed to run on the main thread; hop explicitly
             // before touching any `@MainActor`-isolated state below.
@@ -112,7 +125,45 @@ final class DictationController {
         task = nil
         request = nil
         isListening = false
+        unregisterInterruptionObserver()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    deinit {
+        // Safety net for the (already unlikely — `AskView.onDisappear` calls `stop()`) case of
+        // deallocation while still listening: `stop()`'s own removal above covers the normal path.
+        // Reads/uses the stored token directly (not the `@MainActor`-isolated helper method below)
+        // since `deinit` isn't guaranteed to run on the main actor.
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+    }
+
+    /// A begin-type interruption (phone call, alarm, Siri, another app taking the microphone)
+    /// tears down exactly like a user-initiated `stop()` — no attempt to auto-resume once the
+    /// interruption ends; the user re-taps the mic like any other stopped state.
+    private func registerInterruptionObserver() {
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeValue),
+                  type == .began
+            else { return }
+            // `queue: .main` only promises the callback runs on the main thread at runtime; the
+            // compiler still sees a nonisolated closure, so hop explicitly to call `stop()`.
+            Task { @MainActor in self.stop() }
+        }
+    }
+
+    private func unregisterInterruptionObserver() {
+        if let interruptionObserver {
+            NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+        interruptionObserver = nil
     }
 
     private static func requestSpeechAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
