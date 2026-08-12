@@ -535,7 +535,27 @@ Production debris swept clean: 0 stray `UITEST-CAPTURE*` rows, 0 `plan2-smoke` t
 - `/tmp/stash-plan3-task8-add.png` — Add tab immediately after sign-in: empty composer (placeholder "Save a thought, a link, anything…"), no keyboard raised, four attachment buttons (photo library, camera, file, mic) plus the private/public visibility toggle showing its "lock" (private-by-default) glyph, Add selected in the tab bar ahead of Ask/View/Settings.
 - `/tmp/stash-plan3-task8-ask.png` — Ask tab mid-conversation: the persimmons smoke question (blue user bubble) and its streamed assistant answer, two source chips visible under the reply (`UITEST-FIXTURE: document one` plus a partially-visible second chip), speaker/thumbs-up/thumbs-down row beneath, composer with keyboard raised.
 - `/tmp/stash-plan3-task8-grid.png` — View grid, unfiltered, **"9 items"** header (re-captured via a solo `testLibrarySmoke` run after final cleanup, so this is the clean fixture-only state, not a run-in-progress snapshot with a disposable row still present). `document one` and `public sticky` (yellow sticky badge) sort first, followed by `audio one` and `realtime demo`'s green placeholder image.
-- `/tmp/stash-plan3-task8-settings.png` — Settings: Account (email `will+uitest@dzierson.com`, username `uitest`, feed URL with copy icon), Phone Numbers (empty, Add correctly disabled for blank input), Tags (`ios-test` — the one real permanent tag; captured before `testTagsAndPublicSmoke` runs later in the same suite, so `plan2-smoke` isn't present here), Subscription ("Trial — 5 days left", blue "Manage on gostash.it" link).
+- `/tmp/stash-plan3-task8-settings.png` — Settings: Account (email `will+uitest@dzierson.com`, username `uitest`, feed URL with copy icon), Phone Numbers (empty, Add correctly disabled for blank input), Tags (**both** `ios-test` (1) — the one real permanent tag — **and** `plan2-smoke` (1) are visible; the latter was a cross-run carryover, not evidence of within-run ordering — see the correction note below), Subscription ("Trial — 5 days left", blue "Manage on gostash.it" link).
+
+  **Caption correction (post-review):** this caption originally, incorrectly, claimed only
+  `ios-test` was present, reasoning that `testSettingsSmoke` ran before `testTagsAndPublicSmoke`
+  "in the same suite." That premise was right but insufficient — verified via both runs' raw
+  logs (`Test Case ... started` timestamps, not assumption): execution order in every run was
+  alphabetical, so run 2's `testSettingsSmoke` (started at log line 1206) genuinely did run
+  before run 2's own `testTagsAndPublicSmoke` (line 1365). The tag visible in the frame is real,
+  and the true sequence is a CROSS-run carryover the caption didn't account for: the initial
+  production debris sweep (hardening 3, before either verification run) deleted the pre-existing
+  `plan2-smoke` row (`usage_count: 10`); run 1's own `testTagsAndPublicSmoke` then re-created it
+  fresh (`usage_count: 1`, confirmed via REST immediately after run 1); that row was deliberately
+  left in place between runs (tag cleanup was explicitly deferred to "the final post-run2
+  cleanup pass," not repeated after every run) — so it still existed, unchanged at
+  `usage_count: 1`, when run 2's `testSettingsSmoke` fired this checkpoint partway through run 2.
+  Run 2's own `testTagsAndPublicSmoke` later reused the same row (`usage_count: 1→2`,
+  same id `e9f4b207-…`, confirmed identical across both the post-run-1 and pre-deletion REST
+  reads). It was deleted for good in this task's final cleanup pass (zero `item_tags`
+  references reverified first) — the "Production debris swept clean" line above and the
+  fixture-inventory section already reflect that true, independently-reverified end state; only
+  this screenshot's caption was wrong about the transient mid-run frame.
 
 ## PARITY STATEMENT
 
