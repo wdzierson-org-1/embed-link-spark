@@ -721,6 +721,14 @@ final class StashUITests: XCTestCase {
         sleep(3)
         saveButton.tap()
 
+        // Review fix (task-6 review, Finding 1): Cancel must be disabled the instant Save is
+        // tapped, for the whole in-flight upload — a query right after the tap, with no wait, is
+        // safe either way: `isEnabled` reads false both while genuinely disabled AND if the sheet
+        // has already dismissed (save resolved faster than this line runs), so this can't flake
+        // toward a false failure on a fast save.
+        XCTAssertFalse(anyElement("capture.voice.cancel").isEnabled,
+                       "Expected Cancel to be disabled for the duration of the save")
+
         XCTAssertTrue(anyElement("capture.toast").waitForExistence(timeout: 15),
                       "Expected a success toast after saving the voice note")
 

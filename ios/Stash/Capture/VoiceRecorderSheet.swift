@@ -14,6 +14,13 @@ struct VoiceRecorderSheet: View {
 
     @State private var recorder: AudioRecorderController
     @State private var isSaving = false
+    /// Review fix (task-6 review, Finding 1): stored so `save()` can check `Task.isCancelled`
+    /// after its `await` resumes, before touching `onFinished`/`dismiss()` — the "suspenders" half
+    /// of a belt-and-suspenders pair whose "belt" half is disabling Cancel/Re-record/Close for the
+    /// duration (below). Nothing cancels this task today (the disabled buttons make that
+    /// unreachable from the UI), but the check costs nothing and closes the door on a future
+    /// caller wiring up cancellation without rediscovering this exact bug.
+    @State private var saveTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
 
     init(userId: UUID, viewModel: CaptureViewModel, onFinished: @escaping (CaptureOutcome?) -> Void) {
@@ -49,6 +56,7 @@ struct VoiceRecorderSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { cancelAndDismiss() }
+                        .disabled(isSaving)
                         .accessibilityIdentifier("capture.voice.close")
                 }
             }
@@ -113,11 +121,13 @@ struct VoiceRecorderSheet: View {
                 .font(.system(.title, design: .monospaced))
                 .accessibilityIdentifier("capture.voice.duration")
             HStack(spacing: 16) {
-                Button("Re-record") { recorder.cancel(); recorder.start() }
+                Button("Re-record") { reRecord() }
                     .buttonStyle(.bordered)
+                    .disabled(isSaving)
                     .accessibilityIdentifier("capture.voice.rerecord")
                 Button("Cancel", role: .destructive) { cancelAndDismiss() }
                     .buttonStyle(.bordered)
+                    .disabled(isSaving)
                     .accessibilityIdentifier("capture.voice.cancel")
                 saveButton
             }
@@ -126,7 +136,7 @@ struct VoiceRecorderSheet: View {
 
     private var saveButton: some View {
         Button {
-            Task { await save() }
+            saveTask = Task { await save() }
         } label: {
             if isSaving {
                 ProgressView()
@@ -189,13 +199,33 @@ struct VoiceRecorderSheet: View {
         isSaving = true
         let outcome = await viewModel.submitVoiceNote(fileURL: url)
         isSaving = false
+        // Suspenders (see `saveTask`'s doc comment): skip firing a late outcome/dismiss if this
+        // task was ever cancelled out from under itself.
+        guard !Task.isCancelled else { return }
         onFinished(outcome)
         dismiss()
     }
 
+    /// Belt (see `saveTask`'s doc comment): Cancel is disabled for the duration of a save, so this
+    /// guard is a redundant safety assert, not the primary defense — kept because disabling a
+    /// button doesn't guarantee no action can ever reach its handler (e.g. an in-flight gesture
+    /// synthesized just before the disabled state commits). Without it, tapping Cancel mid-save
+    /// would delete the file a still-in-flight upload is reading and fire a second, late
+    /// `onFinished`/`dismiss()` once that upload's `await` eventually resumes.
     private func cancelAndDismiss() {
+        guard !isSaving else { return }
         recorder.cancel()
         onFinished(nil)
         dismiss()
+    }
+
+    /// Same belt as `cancelAndDismiss()`: without this guard, Re-record mid-save would replace
+    /// `recorder.recordingURL` with a brand-new in-progress recording while the OLD save's `await`
+    /// is still in flight — and when that resumes, its `dismiss()` would close the sheet out from
+    /// under the new, unsaved take.
+    private func reRecord() {
+        guard !isSaving else { return }
+        recorder.cancel()
+        recorder.start()
     }
 }

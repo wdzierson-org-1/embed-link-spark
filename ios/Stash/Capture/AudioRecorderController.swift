@@ -88,9 +88,21 @@ final class AudioRecorderController {
         }
 
         let url = recordingStore.newRecordingURL()
-        guard let newRecorder = try? AVAudioRecorder(url: url, settings: voiceRecordingSettings) else { return }
+        // Review fix (task-6 review, Finding 2): both of these early returns used to leave the
+        // session active — `setActive(true)` above had already succeeded, but a failure past that
+        // point (a bad recorder init, or `record()` itself refusing) meant no recording ever
+        // started to later deactivate the session on `stop()`/`cancel()`. Roll the activation back
+        // on both exits, matching the same `.notifyOthersOnDeactivation` teardown used everywhere
+        // else in this controller.
+        guard let newRecorder = try? AVAudioRecorder(url: url, settings: voiceRecordingSettings) else {
+            deactivateSession()
+            return
+        }
         newRecorder.isMeteringEnabled = true
-        guard newRecorder.record() else { return }
+        guard newRecorder.record() else {
+            deactivateSession()
+            return
+        }
 
         recorder = newRecorder
         recordingURL = url
@@ -150,6 +162,10 @@ final class AudioRecorderController {
         recorder = nil
         isRecording = false
         unregisterInterruptionObserver()
+        deactivateSession()
+    }
+
+    private func deactivateSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
