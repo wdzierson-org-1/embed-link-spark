@@ -115,4 +115,38 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertTrue(store.canAddContent)      // gates stay open
         XCTAssertNil(store.lastError)           // no spurious error surfaced either
     }
+
+    // Final-review Important finding: SubscriptionStore is app-lifetime (@State in StashApp)
+    // and nothing observed `.signedOut`, so user A's status (and any gates A left open) would
+    // persist verbatim into user B's session until B's own refresh() landed — indefinitely if
+    // that refresh was ever cancelled. `reset()` (called from StashApp's session `.onChange` on
+    // `.signedOut`) must put the store back in its exact pre-first-refresh state so the next
+    // account's first refresh fails open identically to a fresh launch, AND gets its own
+    // one-time trial self-heal rather than inheriting `triedTrial` already spent by the prior
+    // account.
+    func testResetClearsStatusAndRearmsLoadingAndSelfHealAcrossAccounts() async {
+        let checker = StubChecker()
+        let none = SubscriptionStatus(subscribed: false, onTrial: false, daysLeft: nil)
+        let trial = SubscriptionStatus(subscribed: false, onTrial: true, daysLeft: 14)
+        checker.results = [.success(none), .success(trial)]
+        let store = SubscriptionStore(checker: checker)
+
+        // Account A: a successful refresh that self-heals once, gates open.
+        await store.refresh()
+        XCTAssertEqual(checker.trialCalls, 1)
+        XCTAssertTrue(store.canAddContent)
+
+        store.reset()
+        XCTAssertNil(store.status)
+        XCTAssertNil(store.lastError)
+        XCTAssertTrue(store.canAddContent)   // isLoading re-armed: fail-open, pre-first-check
+
+        // Account B signs in: an identical none -> trial sequence must self-heal AGAIN —
+        // triedTrial re-armed by reset(), so createTrial() fires a second time across the
+        // reset boundary rather than staying permanently spent from account A.
+        checker.results = [.success(none), .success(trial)]
+        await store.refresh()
+        XCTAssertEqual(checker.trialCalls, 2)
+        XCTAssertTrue(store.canAddContent)
+    }
 }

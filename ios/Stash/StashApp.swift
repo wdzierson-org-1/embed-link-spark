@@ -28,6 +28,12 @@ struct StashApp: App {
             .onChange(of: session.state) { _, newState in
                 if case .signedIn = newState {
                     Task { await subscriptionStore.refresh() }
+                } else if case .signedOut = newState {
+                    // Cross-account gate-bleed fix (final review, plan 3): SubscriptionStore
+                    // is app-lifetime (constructed once above), so without this, user A's
+                    // status — and any gates A left open — would persist verbatim into user
+                    // B's next session. See SubscriptionStore.reset()'s doc comment.
+                    subscriptionStore.reset()
                 }
             }
         }

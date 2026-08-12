@@ -152,4 +152,27 @@ public final class SubscriptionStore {
         try await checker.createTrial()
         return try await checker.check()
     }
+
+    /// Cross-account gate-bleed fix (final review, plan 3): call this the instant a session
+    /// ends (StashApp's session `.onChange`, on `.signedOut`). This store is app-lifetime —
+    /// constructed once in `StashApp` and handed down via environment — so without a reset,
+    /// user A's `status` (and any gates A left open) would otherwise persist verbatim into
+    /// user B's session until B's own first `refresh()` landed, and indefinitely if that
+    /// refresh was ever cancelled. (Web clears its equivalent state the moment `user` goes
+    /// `null`: useSubscription.tsx:53-58.)
+    ///
+    /// Resets `status`/`lastError` to their initializer defaults and re-arms both per-session
+    /// flags: `triedTrial = false`, so the next account — a genuinely different account,
+    /// possibly itself brand-new — gets its own one-time trial self-heal rather than
+    /// inheriting A's already-spent attempt; and `isLoading = true`, putting the store back in
+    /// the exact pre-first-refresh state the initializer starts in (see that property's doc
+    /// comment above), so the next account's first `refresh()` fails open exactly like a fresh
+    /// launch instead of inheriting A's last resolved `canAddContent` value — open *or*
+    /// closed — for however long B's own check takes.
+    public func reset() {
+        status = nil
+        lastError = nil
+        triedTrial = false
+        isLoading = true
+    }
 }
