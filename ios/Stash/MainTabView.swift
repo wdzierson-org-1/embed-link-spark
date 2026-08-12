@@ -15,7 +15,7 @@ struct MainTabView: View {
             CaptureComposerView(userId: userId, switchToView: { selection = .view })
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
                 .tag(MainTab.add)
-            PlaceholderPane(title: "Ask", note: "Ask Stash arrives in plan 4")
+            AskView(userId: userId)
                 .tabItem { Label("Ask", systemImage: "bubble.left.and.text.bubble.right") }
                 .tag(MainTab.ask)
             LibraryView(userId: userId)

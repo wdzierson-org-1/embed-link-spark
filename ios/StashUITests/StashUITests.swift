@@ -540,4 +540,125 @@ final class StashUITests: XCTestCase {
         app.buttons["detail.done"].tap()
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
     }
+
+    /// Ask tab: streaming Q&A against production (one real model call per run — expected and
+    /// budgeted), citation chip, detail sheet. Deliberately does NOT assume `ask.bubble.0` is the
+    /// user question / `ask.bubble.1` is the assistant reply: chat history is durable (Task 2
+    /// persists every exchange to `conversations`/`messages`), so a second run of this same test
+    /// against the same account restores prior turns first and appends after them — the indices
+    /// this run lands on depend on how much history already exists. Instead this finds whichever
+    /// `ask.bubble.*`/`ask.sources.*` elements are LAST in the tree right after sending, which are
+    /// always the freshly-appended ones regardless of any earlier accumulated history.
+    ///
+    /// Asks about the permanent document fixture ("persimmons") per the plan's own note that its
+    /// extracted `page_body` guarantees retrievable content, so a source chip is expected.
+    func testAskSmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        app.tabBars.buttons["Ask"].tap()
+
+        let input = anyElement("ask.input")
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
+        input.tap()
+        input.typeText("What do my saved items say about persimmons?")
+
+        let sendButton = app.buttons["ask.send"]
+        XCTAssertTrue(sendButton.waitForExistence(timeout: 5), "Send button not found")
+        XCTAssertTrue(sendButton.isEnabled, "Expected Send to be enabled for non-empty input")
+        sendButton.tap()
+
+        // Whichever `ask.bubble.<N>` is currently LAST in the tree right after sending is the
+        // freshly-appended assistant reply (appended immediately after the user's own bubble,
+        // well before the network stream produces its first token) — see the doc comment above.
+        //
+        // Needs to match the identifier EXACTLY as "<prefix><digits>", not just BEGINSWITH: an
+        // assistant bubble also carries sibling identifiers like "ask.bubble.5.speak",
+        // "ask.bubble.5.thumbsUp" for its action row, which themselves begin with the exact same
+        // "ask.bubble." prefix — a plain BEGINSWITH query matches those too, and once the action
+        // row renders (as soon as any content has streamed in) one of THEM sorts last in the tree,
+        // not the bare bubble text. Confirmed live: this silently resolved to "ask.bubble.5.speak"
+        // on a real second-suite run, which made the derived "ask.sources.5.speak" lookup fail
+        // (never existing) — the assistant's actual reply/sources were fine; only this query was
+        // wrong. A first fix attempt used an NSPredicate `MATCHES` (regex) — confirmed live that
+        // XCUITest's identifier-query predicate translation doesn't support it (matched nothing at
+        // all, "Assistant bubble did not appear"). A second fix attempt used BEGINSWITH (which IS
+        // well-supported) filtered to an all-digit suffix in plain Swift, but held onto the
+        // resulting `XCUIElement` (from `allElementsBoundByIndex`) and polled `.label` on it
+        // directly — that's still an INDEX-bound reference under the hood, and the thread's
+        // `LazyVStack` virtualizes bubbles that scroll out of the rendered window as the answer
+        // streams in and auto-scroll keeps pace; the match count shifting from under it broke
+        // re-resolution mid-poll ("Failed to get matching snapshot: No matches found for Element at
+        // index 20"). Fix: resolve the identifier STRING once via this filter, then look the
+        // element back up by EXACT identifier for every subsequent read — an identity-based lookup
+        // re-resolves correctly regardless of how the surrounding query's result set shifts,
+        // exactly like every other identifier lookup in this file already does.
+        func lastBubbleIdentifier(timeout: TimeInterval) -> String? {
+            let prefix = "ask.bubble."
+            let deadline = Date().addingTimeInterval(timeout)
+            repeat {
+                let candidates = app.descendants(matching: .any)
+                    .matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+                    .allElementsBoundByIndex
+                if let match = candidates.last(where: { el in
+                    let suffix = el.identifier.dropFirst(prefix.count)
+                    return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
+                })?.identifier {
+                    return match
+                }
+                usleep(300_000)
+            } while Date() < deadline
+            return nil
+        }
+
+        guard let bubbleId = lastBubbleIdentifier(timeout: 30) else {
+            XCTFail("Assistant bubble did not appear")
+            return
+        }
+        let assistantBubble = anyElement(bubbleId)
+
+        // Poll for the bubble's label to stabilize (stream completion), capped at 30s total.
+        // Uses a real production model call — one per run, expected and budgeted.
+        var previousLabel: String?
+        var stableStreak = 0
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            let currentLabel = assistantBubble.label
+            let meaningful = currentLabel.trimmingCharacters(in: .whitespaces)
+            if !meaningful.isEmpty, currentLabel == previousLabel {
+                stableStreak += 1
+                if stableStreak >= 3 { break }   // stable across 3 consecutive 0.5s polls (~1.5s quiet)
+            } else {
+                stableStreak = 0
+            }
+            previousLabel = currentLabel
+            usleep(500_000)
+        }
+        let finalLabel = assistantBubble.label.trimmingCharacters(in: .whitespaces)
+        XCTAssertFalse(finalLabel.isEmpty, "Expected a non-empty assistant answer")
+
+        // ≥1 source chip, derived from the SAME bubble's index (not assumed/hardcoded).
+        let indexSuffix = bubbleId.replacingOccurrences(of: "ask.bubble.", with: "")
+        let sourcesRow = anyElement("ask.sources.\(indexSuffix)")
+        XCTAssertTrue(sourcesRow.waitForExistence(timeout: 10), "Expected at least one source chip for the persimmons question")
+
+        // Screenshot rig (same checkpoint technique as testDetailSheets/testTagsAndPublicSmoke):
+        // holds here so an external `xcrun simctl io <udid> screenshot` can capture the streamed
+        // answer with its source chip(s) visible before this test moves on to tapping one.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask\n".data(using: .utf8)!)
+        sleep(3)
+
+        let firstChip = anyElement("ask.sources.\(indexSuffix).chip.0")
+        XCTAssertTrue(firstChip.waitForExistence(timeout: 5), "Expected a tappable source chip")
+        firstChip.tap()
+
+        let done = app.buttons["detail.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for the tapped source")
+        done.tap()
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "Expected the Ask tab after dismissing the detail sheet")
+    }
 }
