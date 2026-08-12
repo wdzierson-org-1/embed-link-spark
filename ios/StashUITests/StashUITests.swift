@@ -166,12 +166,16 @@ final class StashUITests: XCTestCase {
         app.buttons["tagfilter.done"].tap()
         XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards after clearing the tag filter")
 
-        // 5. Sign out via the avatar menu returns to the sign-in screen.
-        app.buttons["library.menu"].tap()
-        let signOutById = app.buttons["library.signOut"]
-        let signOutButton = signOutById.waitForExistence(timeout: 3) ? signOutById : app.buttons["Sign Out"]
-        XCTAssertTrue(signOutButton.waitForExistence(timeout: 5), "Sign Out menu item not found")
+        // 5. Sign out via the Settings tab (Task 7: relocated from the library toolbar's avatar
+        // menu, which no longer exists — `library.menu`/`library.signOut` are gone).
+        app.tabBars.buttons["Settings"].tap()
+        let signOutButton = app.buttons["settings.signout"]
+        XCTAssertTrue(signOutButton.waitForExistence(timeout: 10), "Sign Out row not found in Settings")
         signOutButton.tap()
+
+        let confirmButton = app.buttons["settings.signout.confirm"]
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Sign-out confirmation dialog did not appear")
+        confirmButton.tap()
 
         XCTAssertTrue(app.textFields["signin.email"].waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
     }
@@ -749,5 +753,49 @@ final class StashUITests: XCTestCase {
 
         done.tap()
         XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 10), "Expected the library after dismiss")
+    }
+
+    /// Settings tab (Task 7): account email, a non-empty subscription status line, and sign-out —
+    /// exercised as its own smoke test now that `testLibrarySmoke`'s sign-out step lives here
+    /// instead (see that test's own updated navigation preamble). The test account carries an
+    /// active trial/subscription (seeded in plan 1), so this only asserts the status line is
+    /// non-empty — never a specific status string, which would make this test brittle against
+    /// any real subscription-lifecycle change (trial expiring, plan changes, etc.).
+    func testSettingsSmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        app.tabBars.buttons["Settings"].tap()
+
+        let emailText = anyElement("settings.account.email")
+        XCTAssertTrue(emailText.waitForExistence(timeout: 10), "Account email not found in Settings")
+        XCTAssertEqual(emailText.label, email, "Expected the signed-in account's own email")
+
+        let statusText = anyElement("settings.subscription.status")
+        XCTAssertTrue(statusText.waitForExistence(timeout: 15), "Subscription status line not found")
+        XCTAssertFalse(statusText.label.trimmingCharacters(in: .whitespaces).isEmpty,
+                       "Expected a non-empty subscription status line")
+
+        // Screenshot rig (same checkpoint technique as testDetailSheets/testAskSmoke/
+        // testVoiceNoteSmoke): holds here, with the full Settings list on screen (account,
+        // phone, tags, subscription all loaded), so an external `xcrun simctl io <udid>
+        // screenshot` can capture it before this test moves on to signing out.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: settings\n".data(using: .utf8)!)
+        sleep(4)
+
+        // Sign out via Settings (Task 7: relocated from the library toolbar).
+        let signOutButton = app.buttons["settings.signout"]
+        XCTAssertTrue(signOutButton.waitForExistence(timeout: 5), "Sign Out row not found in Settings")
+        signOutButton.tap()
+
+        let confirmButton = app.buttons["settings.signout.confirm"]
+        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Sign-out confirmation dialog did not appear")
+        confirmButton.tap()
+
+        XCTAssertTrue(app.textFields["signin.email"].waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
     }
 }

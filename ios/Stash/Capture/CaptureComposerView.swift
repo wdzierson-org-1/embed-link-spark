@@ -25,6 +25,7 @@ struct CaptureComposerView: View {
     @FocusState private var editorFocused: Bool
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(SubscriptionStore.self) private var subscription
 
     init(userId: UUID, switchToView: @escaping () -> Void = {}) {
         self.userId = userId
@@ -48,6 +49,9 @@ struct CaptureComposerView: View {
                 }
                 if !viewModel.attachments.isEmpty {
                     CaptureAttachmentsRow(attachments: $viewModel.attachments)
+                }
+                if !subscription.canAddContent {
+                    subscriptionGateMessage
                 }
                 Spacer(minLength: 0)
                 bottomBar
@@ -131,6 +135,22 @@ struct CaptureComposerView: View {
         .frame(minHeight: 160, maxHeight: 220)
     }
 
+    /// Composer gate (Task 7): proactively disabled + explained, unlike the web's `UnifiedInputPanel`
+    /// (which only toasts "Please subscribe to add new content." on an attempted submit,
+    /// `UnifiedInputPanel.tsx:767-772` — never disables Save). The brief calls for this exact
+    /// stronger iOS treatment; "post-load only" is inherent, not something checked here —
+    /// `SubscriptionStore.canAddContent`'s `isLoading || onTrial || subscribed` (Task 3) can only
+    /// ever read `false` after the one-shot `isLoading` flag has already resolved once.
+    private var subscriptionGateMessage: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "lock.fill").imageScale(.small)
+            Text("Subscribe to add new items.")
+        }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.orange)
+        .accessibilityIdentifier("capture.subscriptionGate")
+    }
+
     private func urlChip(_ url: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "globe")
@@ -185,6 +205,14 @@ struct CaptureComposerView: View {
                     Image(systemName: "mic")
                         .imageScale(.large)
                 }
+                // Task 7: `VoiceRecorderSheet.save()` calls `submitVoiceNote` directly, bypassing
+                // this view's own Save button entirely — that button's `.disabled` gate (above)
+                // doesn't cover this second submission path, so the gate is applied here instead,
+                // at the sheet's only entry point. Disabled rather than hidden (unlike the
+                // capability check this `if` is already gated on) so it reads consistently with
+                // Save's own visible-but-disabled treatment; the inline message above already
+                // explains why.
+                .disabled(!subscription.canAddContent)
                 .accessibilityIdentifier("capture.voice")
             }
 
@@ -213,7 +241,7 @@ struct CaptureComposerView: View {
             }
         }
         .buttonStyle(.borderedProminent)
-        .disabled(isSubmitting || !canSubmit)
+        .disabled(isSubmitting || !canSubmit || !subscription.canAddContent)
         .accessibilityIdentifier("capture.save")
     }
 

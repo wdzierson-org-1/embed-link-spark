@@ -21,20 +21,9 @@ struct MainTabView: View {
             LibraryView(userId: userId)
                 .tabItem { Label("View", systemImage: "square.grid.2x2") }
                 .tag(MainTab.view)
-            PlaceholderPane(title: "Settings", note: "Settings arrive in plan 5")
+            SettingsView(userId: userId)
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(MainTab.settings)
-        }
-    }
-}
-
-struct PlaceholderPane: View {
-    let title: String
-    let note: String
-    var body: some View {
-        VStack(spacing: 8) {
-            Text(title).font(.title2.bold())
-            Text(note).foregroundStyle(.secondary)
         }
     }
 }

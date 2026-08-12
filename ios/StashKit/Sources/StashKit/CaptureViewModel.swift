@@ -48,6 +48,13 @@ public enum CaptureOutcome: Equatable {
 /// capture the View tab's own `RealtimeObserver` subscription (already live, ~1s) picks up the
 /// new row once the user switches tabs. Wiring `applyNew` too would race a second reconciliation
 /// path against realtime for the same event, which Task 4's review flagged as unnecessary.
+///
+/// Subscription-gate note (Task 7): this type deliberately does NOT check
+/// `SubscriptionStore.canAddContent` — same UI-layer-only precedent `ChatStore`/`AskView`
+/// established for the Ask tab's gates (Task 5). `CaptureComposerView` reads the gate from its
+/// environment and disables Save + shows the inline copy before `submit()`/`submitVoiceNote(_:)`
+/// are ever called; nothing here needs new test coverage as a result (the gate boolean itself is
+/// already fully covered by `SubscriptionStoreTests`, Task 3).
 @MainActor
 @Observable
 public final class CaptureViewModel {

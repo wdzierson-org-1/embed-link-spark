@@ -1,13 +1,12 @@
 import SwiftUI
 import StashKit
 
-/// Toolbar for `LibraryView`: item count, tag-filter button (badge when active), and an
-/// avatar menu holding Sign Out.
+/// Toolbar for `LibraryView`: item count and a tag-filter button (badge when active). Sign Out
+/// used to live here behind an avatar menu — Task 7 relocated it to the Settings tab (with a
+/// confirm dialog), so this toolbar no longer needs a `SessionStore` reference at all.
 struct LibraryToolbarContent: ToolbarContent {
     let store: ItemStore
     @Binding var showTagFilter: Bool
-
-    @Environment(SessionStore.self) private var session
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
@@ -26,17 +25,6 @@ struct LibraryToolbarContent: ToolbarContent {
                 }
             }
             .accessibilityIdentifier("library.tagFilterButton")
-        }
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Menu {
-                Button("Sign Out", role: .destructive) {
-                    Task { await session.signOut() }
-                }
-                .accessibilityIdentifier("library.signOut")
-            } label: {
-                Image(systemName: "person.crop.circle")
-            }
-            .accessibilityIdentifier("library.menu")
         }
     }
 }
