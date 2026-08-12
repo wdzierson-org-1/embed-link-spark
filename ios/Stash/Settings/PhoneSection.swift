@@ -138,6 +138,12 @@ struct PhoneSection: View {
             try await StashClient.shared.from("user_phone_numbers")
                 .upsert(body, onConflict: "phone_number")
                 .execute()
+            // Fire-and-forget welcome message (usePhoneNumber.ts:41-48) — its own try/catch on
+            // web never fails the registration over this, so `try?` here discards any failure
+            // the same way; nothing surfaced to the user either way.
+            let welcomeBody: [String: AnyJSON] = ["phoneNumber": .string(formatted.clean)]
+            try? await StashClient.shared.functions
+                .invoke("send-welcome-message", options: FunctionInvokeOptions(body: welcomeBody))
             input = ""
             await reload()
         } catch {

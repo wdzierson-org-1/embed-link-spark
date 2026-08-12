@@ -115,6 +115,14 @@ public final class SubscriptionStore {
         // `true` here; the initializer's `isLoading = true` plus this `defer` are the entire
         // lifecycle. Re-arming it on every call would transiently open the gates for an
         // unsubscribed user during each poll's network round-trip — a leak the web doesn't have.
+        //
+        // No extra cancellation guard needed on the flip itself: by the time any refresh
+        // *Settings' own polling* (SubscriptionSection, Task 7) could ever cancel mid-flight has
+        // run, `isLoading` is already `false` — StashApp's launch refresh (fires the moment
+        // `SessionStore.state` becomes `.signedIn`) always starts, and normally finishes, before
+        // the user can navigate to the Settings tab in the first place. A refresh cancelled
+        // before that very first flip would still leave `isLoading` true here — just not a path
+        // Settings' own polling can reach.
         defer { isLoading = false }
         do {
             var result = try await checker.check()
@@ -127,6 +135,14 @@ public final class SubscriptionStore {
             status = result
             lastError = nil
         } catch {
+            // Review Critical (Task 7 fix round): a cancelled poll is not a failed check.
+            // Settings' while-visible 30s poll cancels an in-flight `refresh()` the instant the
+            // user switches tabs mid-network-call — treating that `CancellationError` like any
+            // other failure wiped `status` to `nil` here, closing every gate (composer Save, Ask)
+            // app-wide for an already-subscribed user, with no prompt recovery short of
+            // revisiting Settings or a foreground cycle. Leave `status`/`lastError` exactly as
+            // they were; only `isLoading` (via the `defer` above) still resolves either way.
+            if error is CancellationError { return }
             status = nil
             lastError = "Couldn't check your subscription status."
         }
