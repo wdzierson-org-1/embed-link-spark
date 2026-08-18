@@ -200,4 +200,15 @@ public struct ItemAttributes: Codable, Equatable, Hashable, Sendable {
         else { return nil }
         return object
     }
+
+    /// `jsonObject()` filtered through the one gate every request-body call site needs (Task 5:
+    /// `CaptureAPI`'s three `add-*` bodies, `CaptureViewModel`'s Outbox `attributes_json`
+    /// payload): `nil` on an encode failure (`jsonObject()`'s own contract) and `nil` for a
+    /// successfully-encoded-but-empty blob (nothing pinned, no media facts — `jsonObject()`
+    /// returns `[:]`, not `nil`, for that case) collapse to the same single "don't send" signal,
+    /// instead of every caller re-deriving `!object.isEmpty` for itself.
+    var nonEmptyJSONObject: [String: Any]? {
+        guard let object = jsonObject(), !object.isEmpty else { return nil }
+        return object
+    }
 }

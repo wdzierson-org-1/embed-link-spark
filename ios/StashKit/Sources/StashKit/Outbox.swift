@@ -136,22 +136,34 @@ public actor Outbox {
 
     private func send(_ entry: OutboxEntry, api: CaptureAPI, accessToken: String) async throws -> Item {
         let isPublic = entry.payload["is_public"] == "true"
+        let attributes = decodedAttributes(from: entry)
         switch entry.kind {
         case .note:
             return try await api.addNote(content: entry.payload["content"] ?? "",
                                          title: entry.payload["title"], isPublic: isPublic,
-                                         accessToken: accessToken)
+                                         attributes: attributes, accessToken: accessToken)
         case .url:
             return try await api.addURL(entry.payload["url"] ?? "",
                                         note: entry.payload["content"] ?? "", isPublic: isPublic,
-                                        accessToken: accessToken)
+                                        attributes: attributes, accessToken: accessToken)
         case .file:
             return try await api.addFile(path: entry.payload["file_path"] ?? "",
                                          mimeType: entry.payload["mime_type"] ?? "application/octet-stream",
                                          fileSize: entry.payload["file_size"].flatMap(Int.init),
                                          content: entry.payload["content"], isPublic: isPublic,
-                                         accessToken: accessToken)
+                                         attributes: attributes, accessToken: accessToken)
         }
+    }
+
+    /// Task 5: the counterpart to `CaptureViewModel.attributesPayloadString` — decodes the
+    /// `attributes_json` string an entry was enqueued with (if any) back into a real
+    /// `ItemAttributes`, so a drained entry sends the identical `attributes` object a live send
+    /// would have. `nil` for an entry with no `attributes_json` key (the ordinary case: nothing
+    /// was pinned/no media facts) or one that fails to decode (defensive — never crashes a drain
+    /// over a malformed persisted string; the entry still sends, just without its attributes).
+    private func decodedAttributes(from entry: OutboxEntry) -> ItemAttributes? {
+        guard let json = entry.payload["attributes_json"], let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(ItemAttributes.self, from: data)
     }
 
     private func fileURL(for id: UUID) -> URL {

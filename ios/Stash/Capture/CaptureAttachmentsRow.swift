@@ -49,10 +49,13 @@ struct CaptureAttachmentsRow: View {
                 Image(systemName: "doc.fill")
                     .font(.title3)
                     .foregroundStyle(.secondary)
-                Text(attachment.fileExtension.uppercased())
+                // Task 5: prefer the real filename captured at pick time; fall back to the bare
+                // extension for a camera capture or anything a picker didn't supply a name for.
+                Text(attachment.fileName ?? attachment.fileExtension.uppercased())
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
     }

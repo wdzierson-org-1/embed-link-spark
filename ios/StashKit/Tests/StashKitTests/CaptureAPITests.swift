@@ -58,6 +58,34 @@ final class CaptureAPITests: XCTestCase {
         XCTAssertEqual(item.type, .image)
     }
 
+    // Task 5: `attributes` threading — `body["attributes"]` must appear ONLY when there's a
+    // non-empty blob to send, never as an empty object (Task 3's whole-blob-PATCH-replace
+    // contract: an empty object would wipe attributes the row already has).
+    func testAddFileEncodesAttributes() async throws {
+        let stub = StubPoster(); stub.response = itemJSON
+        let api = CaptureAPI(poster: stub)
+
+        _ = try await api.addFile(path: "u/x.png", mimeType: "image/png", fileSize: 12,
+                                  content: nil, isPublic: false, accessToken: "jwt")
+        XCTAssertNil(stub.lastBody["attributes"], "no attributes argument -> body must not carry the key")
+
+        _ = try await api.addFile(path: "u/x.png", mimeType: "image/png", fileSize: 12,
+                                  content: nil, isPublic: false, attributes: ItemAttributes(),
+                                  accessToken: "jwt")
+        XCTAssertNil(stub.lastBody["attributes"], "an .isEmpty ItemAttributes must not attach an empty object")
+
+        let attrs = ItemAttributes(location: CapturedLocation(label: "Testville", source: "manual"),
+                                   media: MediaAttributes(durationS: 12, fileName: "clip.mp4"))
+        _ = try await api.addFile(path: "u/x.png", mimeType: "image/png", fileSize: 12,
+                                  content: nil, isPublic: false, attributes: attrs, accessToken: "jwt")
+        let body = try XCTUnwrap(stub.lastBody["attributes"] as? [String: Any])
+        let location = try XCTUnwrap(body["location"] as? [String: Any])
+        XCTAssertEqual(location["label"] as? String, "Testville")
+        let media = try XCTUnwrap(body["media"] as? [String: Any])
+        XCTAssertEqual(media["file_name"] as? String, "clip.mp4")
+        XCTAssertEqual(media["duration_s"] as? Double, 12)
+    }
+
     func testMalformedResponseThrows() async {
         let stub = StubPoster(); stub.response = Data("{}".utf8)
         let api = CaptureAPI(poster: stub)

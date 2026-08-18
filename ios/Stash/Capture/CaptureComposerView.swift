@@ -3,6 +3,7 @@ import StashKit
 import PhotosUI
 import UniformTypeIdentifiers
 import AVFoundation
+import CoreTransferable
 
 /// The Add tab (plan 2's launch tab): a resident capture composer — text, detected URLs,
 /// photos, camera, and files, all routed through `CaptureViewModel` with an offline Outbox
@@ -93,11 +94,15 @@ struct CaptureComposerView: View {
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.pdf, .plainText, .movie, .audio, .image],
                       allowsMultipleSelection: true) { result in
-            handleFileImport(result)
+            // `handleFileImport` is async now (Task 5's AVAsset duration probe for audio/video) —
+            // `fileImporter`'s completion itself can't be, so hop into a `Task`.
+            Task { await handleFileImport(result) }
         }
         .fullScreenCover(isPresented: $showCameraPicker) {
             CameraPicker { image in
                 if let data = image.jpegData(compressionQuality: 0.9) {
+                    // A fresh camera capture has no source filename to carry forward (Task 5:
+                    // "camera → nil") — `fileName`/`durationS` stay at their `nil` defaults.
                     viewModel.attachments.append(
                         CaptureAttachment(data: data, fileExtension: "jpg", mimeType: "image/jpeg", kind: .photo))
                 }
@@ -249,17 +254,31 @@ struct CaptureComposerView: View {
 
     private func submit() async {
         isSubmitting = true
+        // Snapshotted BEFORE `submit()` clears `text` (Task 5) — the multi-save notice's
+        // description switches on whether a note actually rode the batch's first unit.
+        let noteHadContent = viewModel.pendingNoteHasContent
         let outcome = await viewModel.submit()
         isSubmitting = false
-        showOutcome(outcome)
+        showOutcome(outcome, noteHadContent: noteHadContent)
     }
 
     /// Shared by `submit()` and the voice-note sheet's Save completion (`submitVoiceNote` returns
     /// the same `CaptureOutcome` type) — one toast-mapping source of truth for both submit paths.
-    private func showOutcome(_ outcome: CaptureOutcome) {
+    /// `noteHadContent` only matters for the `count > 1` branch below; the voice-note path (always
+    /// `count == 1`) passes `false` as an unused default.
+    private func showOutcome(_ outcome: CaptureOutcome, noteHadContent: Bool = false) {
         switch outcome {
-        case .saved(let count, let dropped) where dropped == 0:
-            show(.saved(message: count > 1 ? "Saved \(count) items" : "Saved", hadDrops: false))
+        case .saved(let count, let dropped) where dropped == 0 && count > 1:
+            // Global Constraints (authoritative, UnifiedInputPanel.tsx:866-873): title + description,
+            // switching on whether the batch's note (if any) rode the first item. The composer's
+            // toast is a single pill, not a title/description pair, so the two lines are joined —
+            // still literally both authoritative strings, just on one `Text`.
+            let description = noteHadContent
+                ? "Stash keeps one object per item — your note went with the first one."
+                : "Stash keeps one object per item, so each got its own."
+            show(.saved(message: "Saved as \(count) items\n\(description)", hadDrops: false))
+        case .saved(_, let dropped) where dropped == 0:
+            show(.saved(message: "Saved", hadDrops: false))
         case .saved(let count, let dropped):
             show(.saved(message: "Saved \(count) — \(dropped) couldn't be saved (too large or failed)",
                         hadDrops: true))
@@ -276,16 +295,29 @@ struct CaptureComposerView: View {
 
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
+            // `Data.self` stays the proven path for the bytes themselves — unchanged from before
+            // Task 5, and must keep working even if the filename probe below doesn't.
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             let type = item.supportedContentTypes.first
             let ext = type?.preferredFilenameExtension ?? "jpg"
             let mime = type?.preferredMIMEType ?? "image/jpeg"
-            viewModel.attachments.append(CaptureAttachment(data: data, fileExtension: ext, mimeType: mime, kind: .photo))
+            // Best-effort ONLY (Task 5): `Data.self` alone carries no filename, and
+            // `PickedPhotoFile`'s file-based `FileRepresentation` transfer is a materially
+            // different (out-of-process file copy, not in-memory bytes) code path than the
+            // proven one above — its failure must never block the attach itself, only leave
+            // `fileName` gracefully nil, same philosophy as the AVAsset duration probe below.
+            let picked = try? await item.loadTransferable(type: PickedPhotoFile.self)
+            if let picked { try? FileManager.default.removeItem(at: picked.url) }
+            // This picker only ever matches `.images` (see `bottomBar`'s `PhotosPicker`), so
+            // there's never a duration to probe here — only `handleFileImport`'s audio/video
+            // branch below does that.
+            viewModel.attachments.append(CaptureAttachment(data: data, fileExtension: ext, mimeType: mime,
+                                                            kind: .photo, fileName: picked?.suggestedFileName))
         }
         selectedPhotoItems = []
     }
 
-    private func handleFileImport(_ result: Result<[URL], Error>) {
+    private func handleFileImport(_ result: Result<[URL], Error>) async {
         guard case .success(let urls) = result else { return }
         for url in urls {
             guard url.startAccessingSecurityScopedResource() else { continue }
@@ -295,8 +327,27 @@ struct CaptureComposerView: View {
             let type = UTType(filenameExtension: ext)
             let mime = type?.preferredMIMEType ?? "application/octet-stream"
             let kind: CaptureAttachment.Kind = (type?.conforms(to: .image) ?? false) ? .photo : .file
-            viewModel.attachments.append(CaptureAttachment(data: data, fileExtension: ext, mimeType: mime, kind: kind))
+            // Probed BEFORE the `defer` above can fire: `stopAccessingSecurityScopedResource()`
+            // only runs once this loop iteration's scope exits, which is after this `await`
+            // returns — so the security scope is still open for the whole probe, and there's no
+            // need to copy the bytes to a temp file first.
+            let isAudioOrVideo = type?.conforms(to: .audiovisualContent) ?? false
+            let durationS = isAudioOrVideo ? await probeDuration(url: url) : nil
+            viewModel.attachments.append(CaptureAttachment(data: data, fileExtension: ext, mimeType: mime,
+                                                            kind: kind, fileName: url.lastPathComponent,
+                                                            durationS: durationS))
         }
+    }
+
+    /// `AVAsset` duration probe for a picked audio/video file (Task 5) — `try?` collapses any
+    /// failure (corrupt file, an asset AVFoundation can't actually parse) into a graceful `nil`
+    /// rather than blocking the attach; `durationS` is optional everywhere downstream for exactly
+    /// this reason. Deviation from the brief's literal `AVAsset(url:)`: the initializer that takes
+    /// a URL is declared on `AVURLAsset` (a concrete `AVAsset` subclass) — the base class has none.
+    private func probeDuration(url: URL) async -> Double? {
+        guard let duration = try? await AVURLAsset(url: url).load(.duration) else { return nil }
+        let seconds = duration.seconds
+        return seconds.isFinite && seconds > 0 ? seconds : nil
     }
 
     // MARK: - Toast
@@ -317,6 +368,7 @@ struct CaptureComposerView: View {
             Text(toast.message)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(toast.color, in: Capsule())
@@ -369,4 +421,27 @@ private enum CaptureToast: Equatable {
     let renderer = UIGraphicsImageRenderer(size: newSize)
     let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
     return resized.jpegData(compressionQuality: 0.85) ?? data
+}
+
+/// A `Transferable` wrapper (Task 5) that surfaces the ORIGINAL filename PhotosPicker suggests for
+/// a picked asset — `loadTransferable(type: Data.self)` alone carries bytes only, no name.
+/// `FileRepresentation`'s file-based import hands back a `ReceivedTransferredFile` whose `.file`
+/// URL's last path component is that suggested name (e.g. "IMG_1234.HEIC"). `received.file` is
+/// only guaranteed valid for the duration of the `importing` closure, so `url` copies it to a
+/// fresh temp path just to keep that name reachable afterward — `loadPhotos` reads only
+/// `suggestedFileName` from the result (the bytes it actually attaches come from its own,
+/// separate `Data.self` load) and deletes this copy immediately without opening it.
+private struct PickedPhotoFile: Transferable {
+    let url: URL
+    let suggestedFileName: String?
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .item) { SentTransferredFile($0.url) } importing: { received in
+            let destination = URL.temporaryDirectory.appending(path: UUID().uuidString)
+                .appendingPathExtension(received.file.pathExtension)
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: received.file, to: destination)
+            return Self(url: destination, suggestedFileName: received.file.lastPathComponent)
+        }
+    }
 }

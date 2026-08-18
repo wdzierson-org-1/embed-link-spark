@@ -30,23 +30,37 @@ public struct CaptureAPI: Sendable {
     let poster: JSONPosting
     public init(poster: JSONPosting = FunctionsPoster()) { self.poster = poster }
 
-    public func addNote(content: String, title: String?, isPublic: Bool, accessToken: String) async throws -> Item {
+    public func addNote(content: String, title: String?, isPublic: Bool,
+                        attributes: ItemAttributes? = nil, accessToken: String) async throws -> Item {
         var body: [String: Any] = ["content": content, "is_public": isPublic]
         if let title { body["title"] = title }
+        addAttributes(attributes, to: &body)
         return try await send(path: "add-note", body: body, envelopeKey: "note", accessToken: accessToken)
     }
 
-    public func addURL(_ url: String, note: String, isPublic: Bool, accessToken: String) async throws -> Item {
-        let body: [String: Any] = ["url": url, "content": note, "is_public": isPublic]
+    public func addURL(_ url: String, note: String, isPublic: Bool,
+                       attributes: ItemAttributes? = nil, accessToken: String) async throws -> Item {
+        var body: [String: Any] = ["url": url, "content": note, "is_public": isPublic]
+        addAttributes(attributes, to: &body)
         return try await send(path: "add-url", body: body, envelopeKey: "item", accessToken: accessToken)
     }
 
-    public func addFile(path: String, mimeType: String, fileSize: Int?, content: String?,
-                        isPublic: Bool, accessToken: String) async throws -> Item {
+    public func addFile(path: String, mimeType: String, fileSize: Int?, content: String?, isPublic: Bool,
+                        attributes: ItemAttributes? = nil, accessToken: String) async throws -> Item {
         var body: [String: Any] = ["file_path": path, "mime_type": mimeType, "is_public": isPublic]
         if let fileSize { body["file_size"] = fileSize }
         if let content, !content.isEmpty { body["content"] = content }
+        addAttributes(attributes, to: &body)
         return try await send(path: "add-file", body: body, envelopeKey: "item", accessToken: accessToken)
+    }
+
+    /// Sets `body["attributes"]` only when there's actually something to send — `nil` attributes,
+    /// an `.isEmpty` blob, and an encode failure (Task 3's `jsonObject()` contract: "do not send",
+    /// never `[:]`, or a caller would silently wipe every attribute the row already has on the
+    /// next whole-blob PATCH-replace) all collapse to the same skip via `nonEmptyJSONObject`.
+    private func addAttributes(_ attributes: ItemAttributes?, to body: inout [String: Any]) {
+        guard let object = attributes?.nonEmptyJSONObject else { return }
+        body["attributes"] = object
     }
 
     private func send(path: String, body: [String: Any], envelopeKey: String, accessToken: String) async throws -> Item {
