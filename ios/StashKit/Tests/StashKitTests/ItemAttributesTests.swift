@@ -53,12 +53,38 @@ final class ItemAttributesTests: XCTestCase {
     func testJSONObjectIsSerializationReady() throws {
         let raw = #"{"link":{"flavor":"video"},"mood":"good"}"#
         let attrs = try JSONDecoder().decode(ItemAttributes.self, from: Data(raw.utf8))
-        let obj = attrs.jsonObject()
+        let obj = try XCTUnwrap(attrs.jsonObject())
         // Must be usable directly as a request body without any further conversion.
         XCTAssertTrue(JSONSerialization.isValidJSONObject(obj))
         let link = obj["link"] as! [String: Any]
         XCTAssertEqual(link["flavor"] as? String, "video")
         XCTAssertEqual(obj["mood"] as? String, "good")
+    }
+
+    /// Review finding #2: a whole-blob-replace PATCH body must never silently substitute an empty
+    /// object for one that failed to encode — that would wipe every attribute the row already
+    /// has. `jsonObject()` returns `nil` (not `[:]`) when `self` can't be encoded (here: a
+    /// `Double` JSON has no representation for), so callers can tell "empty on purpose" apart
+    /// from "unencodable, do not send".
+    func testJSONObjectReturnsNilForUnencodableValue() {
+        let attrs = ItemAttributes(extra: ["bad": .number(Double.infinity)])
+        XCTAssertNil(attrs.jsonObject())
+    }
+
+    /// Review finding #1: a *known* key that's present but doesn't match its expected shape
+    /// (server sent `"location"` as a bare string, not an object) must not fail the whole decode
+    /// — same precedent as `ItemType.unknown` elsewhere in this model: preserve what this build
+    /// can't parse instead of throwing the caller's entire page load away. The malformed value
+    /// still round-trips loss-lessly through `extra`.
+    func testMalformedKnownKeyFallsBackToExtraWithoutThrowing() throws {
+        let raw = #"{"location":"not-an-object","link":{"flavor":"video"}}"#
+        let attrs = try JSONDecoder().decode(ItemAttributes.self, from: Data(raw.utf8))
+        XCTAssertNil(attrs.location)
+        XCTAssertEqual(attrs.link?.flavor, "video")
+        XCTAssertEqual(attrs.extra["location"], .string("not-an-object"))
+
+        let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(attrs)) as! [String: Any]
+        XCTAssertEqual(obj["location"] as? String, "not-an-object")
     }
 
     // MARK: - JSONValue: bool/number decode-order gotcha (Foundation's NSNumber bridging can

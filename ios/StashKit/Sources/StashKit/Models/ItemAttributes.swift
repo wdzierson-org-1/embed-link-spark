@@ -133,14 +133,31 @@ public struct ItemAttributes: Codable, Equatable, Hashable, Sendable {
         var link: LinkAttributes?
         var media: MediaAttributes?
         var extra: [String: JSONValue] = [:]
+
+        // A known key that's present but doesn't match its expected shape (e.g. the server sent
+        // `"location"` as a bare string, not an object) must not fail this decode — same
+        // precedent as `ItemType.unknown` (Item.swift): a value this build can't parse yet still
+        // round-trips loss-lessly via `extra` instead of throwing the caller's entire `[Item]`
+        // page decode away. Before this fallback existed, one malformed known key anywhere in a
+        // user's history would set `ItemStore.loadError` for the whole library, permanently —
+        // pull-to-retry re-runs the same decode and fails the same way every time.
+        func decodeKnownOrPreserveRaw<T: Decodable>(_ type: T.Type, forKey key: AnyKey) -> T? {
+            do {
+                return try container.decodeIfPresent(type, forKey: key)
+            } catch {
+                extra[key.stringValue] = (try? container.decode(JSONValue.self, forKey: key)) ?? .null
+                return nil
+            }
+        }
+
         for key in container.allKeys {
             switch key.stringValue {
             case "location":
-                location = try container.decodeIfPresent(CapturedLocation.self, forKey: key)
+                location = decodeKnownOrPreserveRaw(CapturedLocation.self, forKey: key)
             case "link":
-                link = try container.decodeIfPresent(LinkAttributes.self, forKey: key)
+                link = decodeKnownOrPreserveRaw(LinkAttributes.self, forKey: key)
             case "media":
-                media = try container.decodeIfPresent(MediaAttributes.self, forKey: key)
+                media = decodeKnownOrPreserveRaw(MediaAttributes.self, forKey: key)
             default:
                 extra[key.stringValue] = try container.decode(JSONValue.self, forKey: key)
             }
@@ -170,10 +187,17 @@ public struct ItemAttributes: Codable, Equatable, Hashable, Sendable {
     /// This attribute blob as a `JSONSerialization`-ready object, for building request bodies
     /// (`[String: Any]`, matching `JSONPosting.post(path:body:accessToken:)`) without a second,
     /// hand-written conversion that could drift from `encode(to:)`.
-    public func jsonObject() -> [String: Any] {
+    ///
+    /// Returns `nil` if `self` can't be encoded (e.g. `extra` holds a non-finite `Double`, which
+    /// JSON has no representation for) — deliberately NOT `[:]`. This is a whole-column
+    /// PATCH-replace body: a caller that sent `[:]` on an encode failure would silently wipe every
+    /// attribute the row already has, including ones this build doesn't understand yet. Callers
+    /// MUST treat `nil` as "do not send" and skip the attributes write entirely rather than
+    /// falling back to an empty object.
+    public func jsonObject() -> [String: Any]? {
         guard let data = try? JSONEncoder().encode(self),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return [:] }
+        else { return nil }
         return object
     }
 }

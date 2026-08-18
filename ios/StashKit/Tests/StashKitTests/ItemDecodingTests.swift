@@ -74,6 +74,37 @@ final class ItemDecodingTests: XCTestCase {
         XCTAssertNil(item.fileSize)
     }
 
+    /// Review finding #1: before the fix, a single malformed known `attributes` key anywhere in
+    /// a page threw out of `ItemAttributes.init(from:)`, which threw out of `Item.init(from:)`,
+    /// which failed the whole `[Item]` array decode — `ItemStore` would then set `loadError` for
+    /// the entire library, deterministically and permanently (pull-to-retry re-runs the same
+    /// decode and fails the same way). All 3 items here must decode; only the middle one's
+    /// `location` falls back to `extra`.
+    func testArrayDecodeSurvivesOneItemsMalformedKnownAttributeKey() throws {
+        let json = """
+        [
+          {"id":"6b1e0a4e-9f6a-4d5e-8f2f-0e7c1b2d3a51","type":"text","title":null,"content":null,
+           "url":null,"file_path":null,"description":null,"summary":null,
+           "created_at":"2026-08-10T14:03:22+00:00","mime_type":null,"is_public":false,
+           "supplemental_note":null,"attributes":{"location":{"label":"L1","source":"manual"}}},
+          {"id":"6b1e0a4e-9f6a-4d5e-8f2f-0e7c1b2d3a52","type":"text","title":null,"content":null,
+           "url":null,"file_path":null,"description":null,"summary":null,
+           "created_at":"2026-08-10T14:03:22+00:00","mime_type":null,"is_public":false,
+           "supplemental_note":null,"attributes":{"location":"not-an-object"}},
+          {"id":"6b1e0a4e-9f6a-4d5e-8f2f-0e7c1b2d3a53","type":"text","title":null,"content":null,
+           "url":null,"file_path":null,"description":null,"summary":null,
+           "created_at":"2026-08-10T14:03:22+00:00","mime_type":null,"is_public":false,
+           "supplemental_note":null,"attributes":{"location":{"label":"L3","source":"manual"}}}
+        ]
+        """.data(using: .utf8)!
+        let items = try decoder.decode([Item].self, from: json)
+        XCTAssertEqual(items.count, 3)
+        XCTAssertEqual(items[0].attributes.location?.label, "L1")
+        XCTAssertNil(items[1].attributes.location)
+        XCTAssertEqual(items[1].attributes.extra["location"], .string("not-an-object"))
+        XCTAssertEqual(items[2].attributes.location?.label, "L3")
+    }
+
     // Pin: these strings are the wire contract with the web ITEM_LIST_COLUMNS selects.
     // A drift here (column renamed/reordered/added upstream) should fail loudly, not silently
     // under- or over-fetch columns.
