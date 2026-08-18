@@ -1,0 +1,312 @@
+# Stash iOS — Plan 4: Object-model parity (2026-08-16 web rework alignment)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Absorb the web's single-object/attributes/object-first-card rework into the platform API and the iOS app: `attributes` flows through the capture endpoints (with server-side link-flavor classification — fixing the web's own chat-capture gap), capture batches put the note on the first item, location is a first-class opt-in attribute, and cards follow the object-first anatomy.
+
+**Architecture:** The web writes `attributes` via client-side inserts only; API consumers (iOS, web ChatMole) can't. This plan makes the three capture endpoints the canonical attribute path (accept `attributes`, classify `link.flavor` server-side from one shared implementation) so every client gets identical semantics. iOS decodes/round-trips the blob loss-lessly (unknown keys preserved — the web does whole-blob replaces, so dropped keys are silent data loss), captures location natively (CoreLocation + CLGeocoder; no third-party geocoder), and rebuilds cards on the shared anatomy.
+
+**Tech Stack:** Deno edge functions (supabase-js 2.50.2 pattern), Swift 5.10 / SwiftUI, StashKit (supabase-swift 2.54.1 pinned), CoreLocation + CLGeocoder, AVFoundation (AVAsset duration probing).
+
+**Spec:** `docs/ui-changes.md` (the parity contract, 2026-08-11→16 entry) + `docs/superpowers/specs/2026-08-16-single-object-items-design.md`. Investigation findings (endpoint gap, exact payloads, card mechanics) are embedded below with web file:line references.
+
+**Plan sequence:** 1 foundation ✅ → 2 capture ✅ → 3 parity ✅ → **4 (this): object-model parity** → 5 share extension → 6 widgets/intents → 7 visual/design parity. (Renumbered; the wrap task updates the spec's phase list.)
+
+## Global Constraints
+
+- Everything from plans 1–3 still binds: min iOS 17, worktree-branch commits (no push), warning-free builds, exact-path `git add`, no credentials, `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`, `swift test` from `ios/StashKit`, sim UDID 28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB + `-derivedDataPath DerivedData`, EXPORTED `TEST_RUNNER_*` env vars, `--uitest-reset-auth`, restore-first fixture discipline, testAskSmoke retry + testEditSmoke watch protocols, SourceKit single-file noise, edge deploys via `supabase functions deploy <name>` + `supabase functions list` verify.
+- **Data contract (ui-changes.md):** `content` = user note for ALL types (links included); `description` = the object's own text; `page_body` = source material/transcripts; `attributes` jsonb with `location`/`link`/`media` per `src/types/itemAttributes.ts` (snake_case leaf keys: `accuracy_m`, `captured_at`, `duration_s`, `file_name`, `read_time_min`). `posted_from` column DOES NOT EXIST (dropped in migration 20260811130000) — never reference it.
+- **Whole-blob replace:** every `attributes` write replaces the full blob (web semantics, `contentProcessor.ts:509`, `itemOperations.ts:87-91`). iOS therefore round-trips UNKNOWN keys: decoding must preserve anything it doesn't model and re-encode it (the `extra` mechanism in Task 3). Never PATCH a partial blob.
+- **Single-object model:** never send/create `type='collection'`. N objects → N items; the note goes on the FIRST item only. Multi-save notice copy (authoritative, `UnifiedInputPanel.tsx:866-873`): title `Saved as {N} items`; description with note: `Stash keeps one object per item — your note went with the first one.`; without note: `Stash keeps one object per item, so each got its own.`
+- **Location:** opt-in only; `source` for iOS device fixes is `device-geolocation` (this plan widens the TS union — the type's own comment invites it); manual edits are `{label, source:'manual', captured_at}` with coords DROPPED; label rule: "City, Region" when both known and different, else the non-empty one, else country; `captured_at` = the FIX time (ISO-8601 UTC). Written to EVERY item in a batch. Preview text ("posted from …") is display-only, never stored.
+- **Server-side flavor:** `add-url` classifies `attributes.link.flavor` when the caller didn't provide one, using a shared port of `src/utils/linkFlavor.ts:23-54` (verbatim rules). Caller-provided flavor wins.
+- **add-file PDF gate (parity with commit 83e9809):** only `mime_type === 'application/pdf'` documents enter the quick-pdf-summary/extract-pdf-text pipeline. Other documents get `generate-description` + `summary = description` (clears the processing shimmer) + baseline embedding.
+- **Cards:** exactly two hero heights — standard 160pt, tall 224pt (web `h-40`/`h-56`, CardBits.tsx:10-11); aspect threshold portrait = `height > width × 1.05` (CardHero.tsx:28); favicon-plate subtitle literal `preview limited · saved anyway`; annotation = violet left-bar treatment of `content`, ALWAYS visually distinct from description; text-type inversion (content is the body, AI description shown only when no content); duration format `m:ss` / `h:mm:ss` ≥60min; size format `1.0 MB` (0 decimals for B, 1 for KB+); date `MMM d, yyyy`. Masonry DEFERRED (grid stays 2-col; noted in outcome). PPEditorialNew serif deferred to plan 7 — use `.fontDesign(.serif)` for titles now.
+- Fixture inventory grows 9 → 12 permanent rows (repo link, video link, located note — Task 9). All other fixture discipline unchanged.
+- Out of scope: masonry, rich slash-command composer (plan 7 with markdown bubbles), share extension (plan 5), `extract-office-text` (web agent's in-flight work — untracked/undeployed; do not touch), venue-level geocoding and link enrichment chips (`author`/`stars`/`read_time_min` — render only if data exists, never fake).
+
+---
+
+### Task 1: Platform endpoints — `attributes` passthrough, server-side flavor, PDF gate
+
+**Files:**
+- Create: `supabase/functions/_shared/linkFlavor.ts`
+- Modify: `supabase/functions/add-note/index.ts`, `supabase/functions/add-url/index.ts`, `supabase/functions/add-file/index.ts`, `src/types/itemAttributes.ts:14` (widen LocationSource), `docs/PLATFORM_API.md`
+
+**Interfaces:**
+- Consumes: existing endpoint bodies (add-note `{content,title,is_public}` :59; add-url `{url,title,content,message,supplemental_note,is_public}` :229; add-file `{file_path,mime_type,file_size,content,title,is_public}` :41).
+- Produces: all three accept optional `attributes` (JSON object; non-object → ignored as `{}`); inserted whole-blob on the item row. add-url guarantees `attributes.link.flavor` on every saved link (server-classified when absent). add-file's document branch gates the PDF pipeline on exact mime `application/pdf`. Task 5's `CaptureAPI` and Task 9's fixtures rely on all three.
+
+- [ ] **Step 1: Port the classifier** — `supabase/functions/_shared/linkFlavor.ts`: copy `src/utils/linkFlavor.ts:1-54` verbatim minus the TS type import (declare `type LinkFlavor = 'article'|'video'|'repo'|'book'|'social'|'generic'` locally; export both the type and `classifyLinkFlavor`). Keep every host list and rule identical.
+- [ ] **Step 2: add-note** — destructure `attributes` from the body; sanitize:
+
+```ts
+const safeAttributes =
+  attributes && typeof attributes === 'object' && !Array.isArray(attributes) ? attributes : {};
+```
+
+Add `attributes: safeAttributes` to the insert object (`:78-89`).
+- [ ] **Step 3: add-url** — same destructure+sanitize, then guarantee flavor before insert:
+
+```ts
+import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
+// … after sanitizing:
+const providedLink = (safeAttributes as Record<string, unknown>).link;
+const link = providedLink && typeof providedLink === 'object' ? providedLink as Record<string, unknown> : {};
+if (typeof link.flavor !== 'string') link.flavor = classifyLinkFlavor(url);
+(safeAttributes as Record<string, unknown>).link = link;
+```
+
+Add `attributes: safeAttributes` to the insert (`:317-330`).
+- [ ] **Step 4: add-file** — destructure+sanitize, add to insert (`:61-76`). Then the PDF gate in the document enrichment branch: wrap the `quick-pdf-summary` + `extract-pdf-text` invokes in `if (mime_type === 'application/pdf') { … }`; the `else` branch (non-PDF documents) runs after the existing baseline embedding:
+
+```ts
+        } else {
+          // Non-PDF documents (parity with 83e9809): no PDF pipeline. Give the
+          // card a description and clear the "still extracting" marker
+          // (summary IS NULL drives the shimmer) until office extraction ships.
+          const { data: d, error: descErr } = await supabase.functions.invoke('generate-description', {
+            body: { content: fileName, type: 'document' },
+          });
+          if (descErr) console.error('add-file: generate-description failed for', item.id, descErr);
+          const description = d?.description ?? `Document: ${fileName}`;
+          await supabase.from('items').update({ description, summary: description }).eq('id', item.id);
+        }
+```
+
+(The document placeholder description at insert stays as-is for PDFs; for non-PDFs it is immediately replaced by this branch.)
+- [ ] **Step 5: Widen the TS union** — `src/types/itemAttributes.ts:14`: `export type LocationSource = 'browser-geolocation' | 'device-geolocation' | 'photo-exif' | 'manual';` (the comment above it already says "widen as collectors are added").
+- [ ] **Step 6: Deploy all three + verify listed**
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+supabase functions deploy add-note && supabase functions deploy add-url && supabase functions deploy add-file
+supabase functions list | grep -E "add-note|add-url|add-file"
+```
+
+- [ ] **Step 7: E2E contract checks** (env/JWT pattern from `ios/.env.test.local`; clean up every row created):
+  1. add-note with `{"content":"attr e2e","attributes":{"location":{"label":"Testville","source":"manual"}}}` → GET the row → `attributes.location.label == "Testville"`.
+  2. add-url with `{"url":"https://github.com/supabase/supabase-swift"}` (NO attributes) → row's `attributes.link.flavor == "repo"` (server classified).
+  3. add-url with explicit `{"attributes":{"link":{"flavor":"book"}}}` on the same kind of URL → flavor stays `"book"` (caller wins).
+  4. add-note with `"attributes": []` (array) → row `attributes == {}` (sanitized, no 500).
+  5. add-file with a small uploaded `.txt` (mime `text/plain` routes to document): poll → `summary` non-null AND equals `description`, `page_body` null (no PDF pipeline ran).
+- [ ] **Step 8: PLATFORM_API.md** — document `attributes` on all three capture endpoints (one shared paragraph: optional object, whole-blob, shapes in `src/types/itemAttributes.ts`; add-url fills `link.flavor` server-side).
+- [ ] **Step 9: Commit** — `git add supabase/functions src/types/itemAttributes.ts docs/PLATFORM_API.md && git commit -m "feat: attributes passthrough + server-side link flavor in capture endpoints; add-file PDF gate"`
+
+---
+
+### Task 2: Parked residuals — SubscriptionStore generation token + cancellation-shape widening
+
+**Files:**
+- Modify: `ios/StashKit/Sources/StashKit/SubscriptionStore.swift`
+- Test: `ios/StashKit/Tests/StashKitTests/SubscriptionStoreTests.swift`
+
+**Interfaces:**
+- Consumes: existing store (reset(), one-shot isLoading, GatedChecker test pattern).
+- Produces: a refresh that started before `reset()` (or before a newer refresh) can never write state when it resolves; transport-level cancellations (`URLError(.cancelled)`) are treated like `CancellationError`.
+
+- [ ] **Step 1: Failing tests** — (a) `testStaleRefreshCannotClobberAfterReset`: gated checker; refresh #1 completes (trial, gates open); start refresh #2 blocked in check(); call `reset()` while it's in flight; release #2 with a *different* account's active status → assert `status == nil` still (the stale resolve was dropped; RED: current code applies it); (b) `testURLErrorCancelledTreatedAsCancellation`: checker throws `URLError(.cancelled)` → status/lastError untouched (RED: current code wipes status + sets lastError).
+- [ ] **Step 2: RED**, **Step 3: Implement** — private `var refreshGeneration = 0`; `refresh()` captures `let generation = refreshGeneration` at entry and guards every state write (status/lastError and the trial re-check applications) on `generation == refreshGeneration`; `reset()` increments `refreshGeneration` (comment: ItemStore.loadGeneration pattern; a reset or newer refresh invalidates in-flight resolves). Widen the cancellation check: `if error is CancellationError || (error as? URLError)?.code == .cancelled { return }`.
+- [ ] **Step 4: GREEN** (suite 88). **Step 5: Commit** — `git commit -am "fix(ios): SubscriptionStore generation token + URLError(.cancelled) — closes parked plan-3 residual"`
+
+---
+
+### Task 3: `ItemAttributes` — loss-less blob model + list-columns update
+
+**Files:**
+- Create: `ios/StashKit/Sources/StashKit/Models/JSONValue.swift`, `ios/StashKit/Sources/StashKit/Models/ItemAttributes.swift`
+- Modify: `ios/StashKit/Sources/StashKit/Models/Item.swift`
+- Test: `ios/StashKit/Tests/StashKitTests/ItemAttributesTests.swift`, `ios/StashKit/Tests/StashKitTests/ItemDecodingTests.swift` (update pinned literal + add cases)
+
+**Interfaces:**
+- Produces (Tasks 5–9 consume):
+
+```swift
+public enum JSONValue: Codable, Equatable, Sendable {
+    case string(String), number(Double), bool(Bool), null
+    case object([String: JSONValue]), array([JSONValue])
+}
+public struct CapturedLocation: Codable, Equatable, Sendable {
+    public var label: String
+    public var latitude: Double?
+    public var longitude: Double?
+    public var accuracyM: Double?      // key "accuracy_m"
+    public var city: String?
+    public var region: String?
+    public var country: String?
+    public var source: String          // "device-geolocation" | "manual" | … (open string)
+    public var capturedAt: String?     // key "captured_at", ISO-8601
+}
+public struct LinkAttributes: Codable, Equatable, Sendable {
+    public var flavor: String?         // open string; cards map known values
+    public var author: String?
+    public var durationS: Double?      // "duration_s"
+    public var stars: Int?
+    public var readTimeMin: Int?       // "read_time_min"
+}
+public struct MediaAttributes: Codable, Equatable, Sendable {
+    public var durationS: Double?      // "duration_s"
+    public var fileName: String?       // "file_name"
+}
+public struct ItemAttributes: Codable, Equatable, Sendable {
+    public var location: CapturedLocation?
+    public var link: LinkAttributes?
+    public var media: MediaAttributes?
+    public var extra: [String: JSONValue]   // every unknown top-level key, preserved
+    public var isEmpty: Bool
+    public init(location: CapturedLocation? = nil, link: LinkAttributes? = nil,
+                media: MediaAttributes? = nil, extra: [String: JSONValue] = [:])
+    public func jsonObject() -> [String: Any]   // for request bodies (JSONSerialization-ready)
+}
+```
+
+`ItemAttributes` uses a dynamic-key `CodingKeys` (`struct AnyKey: CodingKey`): decode pulls `location`/`link`/`media` typed and every OTHER key into `extra`; encode writes the three known keys plus everything in `extra` back — byte-level key preservation for the whole-blob-replace world. `Item` gains `fileSize: Int?` (key `file_size`) and `attributes: ItemAttributes` (missing/null column → empty). `Item.listColumns` becomes the web's exact new string (`src/hooks/useItems.ts:7-21`):
+`id,type,title,content,url,file_path,description,summary,created_at,mime_type,file_size,is_public,supplemental_note,attributes`
+(`detailColumns` = listColumns + `,page_body` unchanged in shape). Sub-structs also preserve unknown keys? NO — only the top level (web edit flows replace sub-objects wholesale too; keep leaf structs simple; document the choice).
+
+- [ ] **Step 1: Failing tests** — round-trip preservation is the heart:
+
+```swift
+func testUnknownTopLevelKeysSurviveRoundTrip() throws {
+    let raw = #"{"location":{"label":"L","source":"manual"},"weather":{"temp_c":21},"mood":"good"}"#
+    let attrs = try JSONDecoder().decode(ItemAttributes.self, from: Data(raw.utf8))
+    XCTAssertEqual(attrs.location?.label, "L")
+    XCTAssertEqual(attrs.extra["mood"], .string("good"))
+    let reencoded = try JSONEncoder().encode(attrs)
+    let obj = try JSONSerialization.jsonObject(with: reencoded) as! [String: Any]
+    XCTAssertNotNil(obj["weather"]); XCTAssertNotNil(obj["mood"]); XCTAssertNotNil(obj["location"])
+}
+func testSnakeCaseLeafKeys() throws {
+    let raw = #"{"link":{"flavor":"video","duration_s":58},"media":{"file_name":"a.png","duration_s":2.5}}"#
+    let attrs = try JSONDecoder().decode(ItemAttributes.self, from: Data(raw.utf8))
+    XCTAssertEqual(attrs.link?.durationS, 58)
+    XCTAssertEqual(attrs.media?.fileName, "a.png")
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(attrs)) as! [String: Any]
+    let media = obj["media"] as! [String: Any]
+    XCTAssertNotNil(media["file_name"])
+}
+func testItemDecodesAttributesAndFileSize() throws { /* list-row JSON with attributes + file_size; empty/missing attributes → .isEmpty */ }
+func testListColumnsMatchWebContractLiterally() {  // UPDATE the existing pinned test
+    XCTAssertEqual(Item.listColumns,
+        "id,type,title,content,url,file_path,description,summary,created_at,mime_type,file_size,is_public,supplemental_note,attributes")
+}
+```
+
+- [ ] **Step 2: RED** (existing pinned test also goes red — expected), **Step 3: Implement**, **Step 4: GREEN** (suite ~94; every existing Item construction site in tests gains the two parameters — mechanical, exact-path). **Step 5: Commit** — `git commit -am "feat(ios): loss-less ItemAttributes blob + file_size; list columns match web rework"`
+
+---
+
+### Task 4: Card metadata utilities
+
+**Files:**
+- Create: `ios/StashKit/Sources/StashKit/CardMetadata.swift`
+- Test: `ios/StashKit/Tests/StashKitTests/CardMetadataTests.swift`
+
+**Interfaces:**
+- Produces (Task 7 consumes): `domainOf(_ url: String?) -> String` (host minus `www.`, "" on nil/invalid — port of `linkFlavor.ts:56-63`); `repoPath(_ url: String?) -> (owner: String, repo: String)?` (first two path segments of github/gitlab URLs, else nil — port of `CardHero.tsx:134-142` incl. the non-repo-roots rejection reusing the same root set); `formatFileSizeChip(_ bytes: Int?) -> String?` (`nil`/`<=0`→nil; B `%.0f`, KB/MB/GB `%.1f` → `1.0 MB`); `formatDurationChip(_ seconds: Double?) -> String?` (nil for nil/≤0/non-finite; `m:ss`; `h:mm:ss` at ≥3600s — note web switches at ≥60 MINUTES); `mimeExtensionLabel(_ mime: String?) -> String?` (port CardBits.tsx:58-79 map incl. PPTX/DOCX/XLSX/PPT/XLS/DOC/JPG/SVG/MOV/M4A/MP3; fallback = subtype uppercased, max 5 chars); `isPortraitAspect(width: CGFloat, height: CGFloat) -> Bool` (`height > width * 1.05`).
+- [ ] **Step 1: Failing tests** — table-driven per function: `domainOf("https://www.github.com/a")=="github.com"`; `repoPath("https://github.com/supabase/supabase-swift")==("supabase","supabase-swift")`; `repoPath("https://github.com/features/copilot")==nil`; `formatFileSizeChip(1_048_576)=="1.0 MB"`, `formatFileSizeChip(512)=="512 B"`; `formatDurationChip(58)=="0:58"`, `formatDurationChip(3723)=="1:02:03"`, `formatDurationChip(0)==nil`; `mimeExtensionLabel("application/vnd.openxmlformats-officedocument.wordprocessingml.document")=="DOCX"`, `mimeExtensionLabel("application/x-blorb")=="X-BLO"`; `isPortraitAspect(width:100,height:106)==true`, `(100,105)==false`.
+- [ ] **Step 2: RED**, **Step 3: Implement**, **Step 4: GREEN** (~101). **Step 5: Commit** — `git commit -am "feat(ios): card metadata formatters + repo/domain parsing (tested)"`
+
+---
+
+### Task 5: Capture semantics — note-on-first, attributes threading, media metadata
+
+**Files:**
+- Modify: `ios/StashKit/Sources/StashKit/CaptureAPI.swift` (attributes params), `ios/StashKit/Sources/StashKit/CaptureViewModel.swift` (routing + attributes), `ios/StashKit/Sources/StashKit/Outbox.swift` (attributes in payload), `ios/Stash/Capture/CaptureComposerView.swift` + `CaptureAttachmentsRow.swift` (fileName/duration capture at pick time), `ios/StashKit/Tests/StashKitTests/CaptureAPITests.swift` + `CaptureViewModelTests.swift` + `OutboxTests.swift`
+
+**Interfaces:**
+- Consumes: `ItemAttributes.jsonObject()` (Task 3), Task 1's endpoint contract.
+- Produces: `CaptureAPI.addNote/addURL/addFile` each gain `attributes: ItemAttributes? = nil` (encoded as `body["attributes"] = attributes.jsonObject()` when non-empty); `CaptureAttachment` gains `fileName: String?` and `durationS: Double?` (composer fills: original filename from PhotosPicker/fileImporter/camera; duration via `AVAsset.load(.duration)` for picked audio/video, recorder-elapsed for voice notes); `CaptureViewModel.submit()` batch rules: note text goes as `content` on the FIRST unit ONLY (no more note-as-own-item); every unit's addFile carries `attributes` = `{location?, media:{duration_s?, file_name?}}`; addURL carries `{location?}` (flavor is server-side); addNote carries `{location?}`; `submitVoiceNote` carries `media` too. `CaptureOutcome` unchanged; the composer's toast for `saved(count>1, dropped:0)` becomes the notice copy from Global Constraints. Outbox payloads gain optional `"attributes_json"` (serialized blob string; drain decodes and forwards).
+- Location plumbing arrives in Task 6 — this task threads `pendingLocation: CapturedLocation?` through the ViewModel (settable property, nil default) so Task 6 only wires the UI.
+
+- [ ] **Step 1: Failing tests** — update/extend: `testMultiFileWithTextPutsNoteOnFirstOnly` (3 files + text → three addFile posts; FIRST body has `content`, others don't; NO addNote call — replaces the old separate-note expectation); `testURLPlusFilesNoteGoesToURLFirst` (URL text + 2 files → addURL first with content=stripped text, then 2 addFile nil-content); `testAttributesThreadToEveryUnit` (pendingLocation set + 2 files w/ fileName/duration → both bodies carry attributes.location AND their own media blob); `testVoiceNoteCarriesMediaAttributes`; CaptureAPI: `testAddFileEncodesAttributes` (body["attributes"] present only when non-empty); Outbox: `testFileEntryRoundTripsAttributesJSON` (enqueue with attributes_json → drain body carries decoded attributes).
+- [ ] **Step 2: RED**, **Step 3: Implement** (routing table comment updated to cite the single-object spec; the batch toast copy switches on note-presence per Global Constraints), **Step 4: GREEN** (~109). **Step 5: App builds** (composer changes compile; camera/file pickers store fileName; AVAsset probe async at attach with graceful nil). **Step 6: Commit** — `git commit -am "feat(ios): single-object batch (note on first) + attributes threading through capture"`
+
+---
+
+### Task 6: Location capture — pin toggle, CoreLocation, native reverse geocode
+
+**Files:**
+- Create: `ios/StashKit/Sources/StashKit/LocationBuild.swift`, `ios/Stash/Capture/LocationCapture.swift`
+- Modify: `ios/Stash/Capture/CaptureComposerView.swift` (pin button + preview + wiring), `ios/project.yml` (`NSLocationWhenInUseUsageDescription: "Stash tags saves with where you were — only when you turn the pin on."`)
+- Test: `ios/StashKit/Tests/StashKitTests/LocationBuildTests.swift`, `ios/StashUITests/StashUITests.swift` (`testLocationPinSmoke`)
+
+**Interfaces:**
+- Consumes: `CapturedLocation` (Task 3), `CaptureViewModel.pendingLocation` (Task 5).
+- Produces: StashKit pure logic — `buildLocationLabel(city: String?, region: String?, country: String?) -> String?` (web rule port, `useCaptureLocation.ts:37-45`: place="city", region="region"; both & different → `"City, Region"`; else place else region else country else nil) and `buildCapturedLocation(latitude:longitude:accuracy:city:region:country:fixDate:) -> CapturedLocation?` (nil when label nil; `source: "device-geolocation"`; `capturedAt` = ISO-8601 of fixDate; accuracy rounded). App-side `LocationCapture` (@Observable): `state` (.off/.resolving/.ready(CapturedLocation)/.failed), `toggle()` — off→on requests when-in-use auth if needed, one-shot `CLLocationManager` fix (desiredAccuracy `kCLLocationAccuracyHundredMeters`, 10s timeout), `CLGeocoder().reverseGeocodeLocation` → city=`placemark.locality`, region=`placemark.administrativeArea`, country=`placemark.country` → build; 5-minute cache (re-toggle within window reuses); failure → alert ("Couldn't find your location" / "Location unavailable — allow location access in Settings to tag saves with a place.") + state .off; auth denied → same alert + Settings deep-link button. `submit()` waits ≤2.5s on `.resolving` (Task 5's ViewModel exposes `awaitPendingLocation(timeout:)` — implement here) then proceeds with whatever resolved.
+- Composer UI: pin button (identifier `capture.pin`) next to Save; `.resolving` spinner; `.ready` shows the preview line `posted from {label}` (identifier `capture.pin.preview`) — display-only.
+- [ ] **Step 1: TDD LocationBuild** (label rule table: both→"Saratoga Springs, New York"; same-string city/region → just city; city-only; region-only; country-only; all-nil→nil; buildCapturedLocation nil-label→nil, accuracy rounding, capturedAt formatting). RED → GREEN (~114).
+- [ ] **Step 2: Implement LocationCapture + composer wiring + plist key** (TRIPWIRE: diff committed Info.plist after xcodegen).
+- [ ] **Step 3: `testLocationPinSmoke`** — pre-grant: `xcrun simctl privacy 28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB grant location it.gostash.stash` AND set a simulated location (`xcrun simctl location 28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB set 43.0831,-73.7846`). Test: Add tab → tap `capture.pin` → `capture.pin.preview` appears (≤10s, any non-empty label) → type "UITEST-LOC: pin smoke <epoch>" → Save → toast → REST-poll the row → assert `attributes.location.label` non-empty AND `attributes.location.source == "device-geolocation"` AND latitude present → REST-DELETE the disposable row. Full suite ×2 green.
+- [ ] **Step 4: Screenshots** (pin resolving + preview visible) read + described. **Step 5: Commit** — `git add ios && git commit -m "feat(ios): opt-in location capture — pin toggle, CoreLocation, native geocode"`
+
+---
+
+### Task 7: Object-first cards
+
+**Files:**
+- Create: `ios/Stash/Library/CardHero.swift`, `ios/Stash/Library/CardChips.swift`, `ios/Stash/Library/CollectionStrip.swift`
+- Modify: `ios/Stash/Library/ItemCardView.swift` (rebuilt on the anatomy), `ios/Stash/Library/LibraryView.swift` (grid unchanged; card sizing accommodates variable heights)
+- Test: existing suites stay green; anatomy asserted in Task 9's smoke
+
+**Interfaces:**
+- Consumes: `Item.attributes`, `fileSize` (Task 3); `domainOf/repoPath/formatFileSizeChip/formatDurationChip/mimeExtensionLabel/isPortraitAspect` (Task 4); `renderTipTap` (plain-texting content/description).
+- Produces: the shared anatomy, top to bottom (prose-specified over tested logic — project precedent; every rule below is binding):
+  1. **Object zone** — heights exactly 160 (standard) / 224 (tall). Dispatch: `link` by `attributes.link.flavor ?? "generic"`: `repo` → dark plate (bg `Color(red:0.051,green:0.067,blue:0.09)`), mono `owner/repo` from `repoPath` (fallback `domainOf`), description 2-line clamp; `video`/`book` with a cover image → tall, `scaledToFit` centered over a blurred+dimmed copy of itself, play-triangle overlay for video, domain pill bottom-leading; other flavors with image → standard `scaledToFit`-fill cover; no usable image (nil thumbnailURL or load failure) → **favicon plate**: circle letter avatar (first char of domain, uppercased), domain line, subtitle `preview limited · saved anyway`. `image` → measure on load; portrait (`isPortraitAspect`) → tall contained-on-blur; landscape → standard cover; load failure → file plate (violet/photo icon + mono `attributes.media.fileName` + facts). `video` → thumbnail zone with duration badge (`formatDurationChip(attributes.media.durationS)`) bottom-trailing. `document` → file plate (red/doc icon + mono fileName + `PDF · 1.2 MB` facts from mimeExtensionLabel+formatFileSizeChip). `text`, `audio`, legacy `collection` → NO hero.
+  2. **Kicker** (links only): uppercase `domainOf(url)`, small tracking-wide caption, tappable → opens URL.
+  3. **Title**: `.fontDesign(.serif)`, 2-line clamp.
+  4. **Description**: muted, 3-line clamp, plain-texted — EXCEPT text items (see 5).
+  5. **Annotation**: `content` plain-texted, 2-line clamp, violet 2pt leading bar + inset — rendered AFTER description, always visually distinct. **Text-type inversion**: for `type == .text`, `content` renders as the body (4-line clamp, no annotation treatment) and description appears ONLY when content is empty.
+  6. **Metadata chips** row: mono `fileName` chip (image/audio/video only); `TYPE · SIZE` chip (NOT document/link — the doc plate already shows it); duration chip (audio only — video's lives on the hero).
+  7. **Footer**: `MMM d, yyyy` date · location pin+`attributes.location.label` (truncate ~140pt) when present · type badge (always visible on iOS).
+  Legacy `collection`: rich note (renderTipTap of content, else description) + `CollectionStrip` — fetches `item_attachments` (`item_id` eq, `created_at` asc) on appear, renders ≤4 thumbnail tiles + `+N` overflow tile; footer type badge reads `"N items"`. Read-only.
+  Processing shimmer (`isProcessingDocument`) unchanged. Sticky badge unchanged.
+- [ ] **Step 1: Implement** (each file ≤~120 lines; extract subviews). **Step 2: Build + run; visually verify each fixture type renders its zone** (screenshots per type family: repo/video link cards land in Task 9 after fixtures exist — this step verifies with the 9 current fixtures: image aspect handling, document plate, audio no-hero + duration chip, text inversion, link favicon-plate fallback for the metadata-poor `example.com` fixture, sticky/public, collection none present — note it). Read + describe screenshots. **Step 3: Full UI suite ×1** (card identifier changes: keep `card.<index>` stable; update any assertion that referenced removed elements — preambles only). **Step 4: Commit** — `git add ios && git commit -m "feat(ios): object-first card system — typed heroes, annotation bar, metadata chips, location footer"`
+
+---
+
+### Task 8: Edit sheet — location row, attributes round-trip, legacy Attachments
+
+**Files:**
+- Create: `ios/Stash/Detail/LocationRow.swift`
+- Modify: `ios/StashKit/Sources/StashKit/ItemEditor.swift` (`ItemPatch` gains attributes), `ios/StashKit/Sources/StashKit/ItemRules.swift` (`mergePreservingDetail` unsaved-location deferral), `ios/Stash/Detail/ItemDetailView.swift` + `EditableFieldsSection.swift` (row placement under description), `ios/Stash/Detail/ItemDetailContent.swift` (legacy Attachments section below Notes, titled "Attachments", reusing `CollectionStrip`)
+- Test: `ios/StashKit/Tests/StashKitTests/ItemEditorTests.swift` + `ItemMergeTests.swift` (add cases), `ios/StashUITests/StashUITests.swift` (`testLocationEditSmoke`)
+
+**Interfaces:**
+- Consumes: `ItemAttributes` (Task 3), `ItemEditor.save` plumbing (plan 2), `CollectionStrip` (Task 7).
+- Produces: `ItemPatch.attributes: ItemAttributes?` (encodes into `restBody["attributes"]` as the FULL blob via `jsonObject()`; nil = untouched; counts as a text-field-adjacent change? NO — attributes changes do NOT schedule embedding refresh — web parity: `itemOperations.ts:100-101` gates on title/description/content/supplemental_note only); `mergePreservingDetail` gains `hasUnsavedLocation: Bool` (defers `attributes` to local when true, otherwise incoming wins — attributes IS in list columns). `LocationRow` semantics (web `EditItemLocationSection.tsx`): absent → "Add a location" ghost; present → `posted from {label}` tappable + X remove; editing → autofocused field, placeholder `e.g. Brooklyn, New York`, Enter/blur commit, Escape cancels; commit no-ops on unchanged trim; empty commit removes the `location` key; non-empty → `CapturedLocation(label: trimmed, source: "manual", capturedAt: nowISO)` — every other location field dropped; the rest of the blob (link/media/extra) preserved via the item's decoded `ItemAttributes` (read-modify-write on the freshest adopted row; comment the concurrency caveat matching web's).
+- [ ] **Step 1: Failing tests** — ItemPatch attributes encoding (full-blob in restBody; no refresher scheduled when ONLY attributes change — RecordingSyncer stays empty); merge deferral case; manual-edit builder (coords dropped, source manual). RED → GREEN (~117).
+- [ ] **Step 2: Implement UI** (row + legacy Attachments section). **Step 3: `testLocationEditSmoke`** — on a DISPOSABLE item (create "UITEST-LOC: edit smoke" via add-note with a device-geolocation location blob): open detail → row shows `posted from` label → edit to "Test City" → commit → REST assert `label=="Test City"`, `source=="manual"`, latitude ABSENT, link/media keys preserved (seed one in the create) → clear → REST assert `location` key removed, others intact → DELETE row. Full suite ×2 green.
+- [ ] **Step 4: Commit** — `git add ios && git commit -m "feat(ios): edit-sheet location row + loss-less attributes editing; legacy Attachments section"`
+
+---
+
+### Task 9: Flavor fixtures + anatomy smoke
+
+**Files:**
+- Modify: `ios/StashUITests/StashUITests.swift` (`testCardAnatomySmoke`)
+- Production fixtures (permanent, idempotent by title): via add-url (post-Task-1, server classifies): `https://github.com/supabase/supabase-swift` (expect flavor `repo`) titled by enrichment but content `"UITEST-FIXTURE: repo link — permanent"`; `https://www.youtube.com/watch?v=dQw4w9WgXcQ` (expect flavor `video`) content `"UITEST-FIXTURE: video link — permanent"`; via add-note: `"UITEST-FIXTURE: located note"` with a full device-geolocation location blob (fixed coords, label "Saratoga Springs, New York").
+- [ ] **Step 1: Seed** (idempotency: query `content=like.UITEST-FIXTURE*` / title for the note; only create missing; poll enrichment settle; REST-verify flavors are `repo`/`video` — this E2Es Task 1's server classification in production). Record the 12-row inventory in the report.
+- [ ] **Step 2: `testCardAnatomySmoke`** — View tab: assert the repo card exposes a `card.repoplate` element whose label contains `supabase/supabase-swift`; the located-note card's footer exposes `card.location` with "Saratoga Springs"; the video-link card exposes either a tall hero or favicon plate (identifier `card.hero.tall` or `card.faviconplate` — depends on whether YouTube's og image survived; assert one of the two exists and disclose which); a document fixture card shows `card.fileplate` with "PDF". Add the needed accessibility identifiers in Task 7's views if missing (disclose each). Full suite ×2 green (flake protocols stand).
+- [ ] **Step 3: Screenshots**: grid with the new card variety; repo + located cards close-up. Read + describe. **Step 4: Commit** — `git add ios && git commit -m "test(ios): flavor fixtures + card-anatomy smoke"`
+
+---
+
+### Task 10: Wrap — verification, cross-platform log entry, spec renumber, outcome
+
+**Files:**
+- Modify: `docs/ui-changes.md` (new dated entry), `docs/superpowers/specs/2026-08-10-stash-ios-app-design.md` (phase renumber), `docs/superpowers/plans/2026-08-17-ios-plan-4-object-parity.md` (outcome)
+
+- [ ] **Step 1:** StashKit full suite green (~117) + warning-free; app build clean; full UI suite (14 tests) ×2 green; `npm test` green (web tests must still pass — Task 1 touched `src/types/itemAttributes.ts`; run the full web suite and confirm the type widening broke nothing).
+- [ ] **Step 2:** `docs/ui-changes.md` — prepend a dated entry (follow the file's conventions, newest first): capture endpoints now accept `attributes` (whole-blob, shapes unchanged); `add-url` classifies `link.flavor` server-side when absent (web ChatMole captures now get flavors/locations too — no web code change needed, the gap closes server-side); `LocationSource` gained `'device-geolocation'` (iOS device fixes); `add-file` gates the PDF pipeline on `application/pdf` (83e9809 parity). Note: written FOR the web agent — contracts first.
+- [ ] **Step 3:** Spec phases: 4 = object-model parity ✅ (this), 5 = share extension, 6 = widgets/intents → TestFlight, 7 = visual/design parity.
+- [ ] **Step 4:** Outcome section: date, commits, suite counts, fixture inventory (12), deviations of record, plan-5 handoff (share extension now rides attribute-capable endpoints — share-time location pin is a natural extension; carried items: camera recoverability, orphan-recording sweep, App Group migration, extension memory budget, masonry + serif font + rich composer → plan 7). Commit.
+
+---
+
+## Self-review notes (done at authoring time)
+
+- **Contract coverage vs ui-changes.md:** attributes blob ✓ (T1/T3), field semantics ✓ (already aligned; add-file transcript path unchanged), no posted_from ✓ (never referenced), single-object + note-on-first + notice copy ✓ (T5), location capture rules ✓ (T6 — BigDataCloud replaced by CLGeocoder, same label rule, disclosed), card anatomy incl. per-type zones/chips/footer ✓ (T7), edit location row ✓ (T8), legacy collection strip + "Attachments" naming ✓ (T7/T8), pending-enrichment chips render-only-if-present ✓ (T7 reads optional fields), Enter-submit predicate noted-not-built (rich composer = plan 7) ✓ per scope.
+- **Type consistency:** `ItemAttributes.jsonObject()` consumed by CaptureAPI (T5) and ItemPatch (T8); `CapturedLocation` field names match T3 across T6/T8; formatter names match T4→T7; `pendingLocation`/`awaitPendingLocation` split T5-declares/T6-implements is called out in both tasks.
+- **Deliberate deviations (disclosed):** CLGeocoder over BigDataCloud (native, key-less, same output shape); `device-geolocation` source (TS union widened in T1); masonry/serif/rich-composer deferred to plan 7; sub-object unknown-key preservation is top-level-only (matches web's own wholesale sub-object replaces).
+- **Known risks, accepted:** three endpoint deploys to production (additive params — existing clients unaffected; approved scope: "implement them"); simulator location simulation (`simctl location set`) drives the pin smoke — if the sim refuses a fix, the smoke discloses and falls to the LocationBuild unit layer + manual screenshot; YouTube og-image variability handled with an either-or assertion.
