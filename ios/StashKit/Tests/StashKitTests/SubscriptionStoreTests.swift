@@ -116,6 +116,29 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertNil(store.lastError)           // no spurious error surfaced either
     }
 
+    // Plan-4 named requirement (docs/superpowers/plans/2026-08-11-ios-plan-3-parity.md's
+    // post-review addendum): the CancellationError check above catches Swift-level task
+    // cancellation, but Settings' poll cancels an in-flight URLSession request underneath
+    // `checker.check()` — which surfaces as `URLError(.cancelled)`, a distinct type that
+    // `is CancellationError` does not match. Same failure mode as the test above (status wiped,
+    // gates slammed shut on an already-subscribed user) via a different transport-level shape.
+    func testURLErrorCancelledTreatedAsCancellation() async {
+        let checker = StubChecker()
+        let trial = SubscriptionStatus(subscribed: false, onTrial: true, daysLeft: 5)
+        checker.results = [.success(trial), .failure(URLError(.cancelled))]
+        let store = SubscriptionStore(checker: checker)
+
+        await store.refresh()
+        XCTAssertEqual(store.status, trial)
+        XCTAssertTrue(store.canAddContent)
+
+        await store.refresh()   // throws URLError(.cancelled), not CancellationError
+
+        XCTAssertEqual(store.status, trial)     // untouched — NOT wiped to nil
+        XCTAssertTrue(store.canAddContent)      // gates stay open
+        XCTAssertNil(store.lastError)           // no spurious error surfaced either
+    }
+
     // Final-review Important finding: SubscriptionStore is app-lifetime (@State in StashApp)
     // and nothing observed `.signedOut`, so user A's status (and any gates A left open) would
     // persist verbatim into user B's session until B's own refresh() landed — indefinitely if
@@ -148,5 +171,44 @@ final class SubscriptionStoreTests: XCTestCase {
         await store.refresh()
         XCTAssertEqual(checker.trialCalls, 2)
         XCTAssertTrue(store.canAddContent)
+    }
+
+    // Plan-4 named requirement (docs/superpowers/plans/2026-08-11-ios-plan-3-parity.md's
+    // post-review addendum): `reset()` above closes the unconditional cross-account bleed, but an
+    // in-flight `refresh()` started before sign-out had no generation guard and could still
+    // clobber the next account's freshly-reset state when it resolved late (narrow race: a
+    // same-device account switch inside the ~1s network window). Mirrors `ItemStore.loadGeneration`
+    // (ItemStore.swift final-review Important #3): `reset()` bumps a generation token so any
+    // refresh already in flight recognizes, on resolution, that it's stale and drops its result.
+    func testStaleRefreshCannotClobberAfterReset() async {
+        let checker = GatedChecker()
+        let store = SubscriptionStore(checker: checker)
+        let trial = SubscriptionStatus(subscribed: false, onTrial: true, daysLeft: 5)
+        let otherAccountActive = SubscriptionStatus(subscribed: true, onTrial: false, daysLeft: nil)
+
+        // Account A: refresh #1 completes normally — gates open on a trial status.
+        async let first: Void = store.refresh()
+        try? await Task.sleep(for: .milliseconds(50))
+        checker.release(0, with: trial)
+        await first
+        XCTAssertEqual(store.status, trial)
+
+        // Refresh #2 starts and blocks in check(); before it resolves, the session ends and
+        // `reset()` fires — simulating the same-device account-switch race the addendum names.
+        async let second: Void = store.refresh()
+        try? await Task.sleep(for: .milliseconds(50))
+        store.reset()
+        XCTAssertNil(store.status)
+        XCTAssertTrue(store.isLoading)
+
+        // Refresh #2 finally resolves — with a *different* account's active status, standing in
+        // for whatever A's in-flight request happens to return after B has already signed in.
+        checker.release(1, with: otherAccountActive)
+        await second
+
+        XCTAssertNil(store.status)          // stale resolve dropped, not applied over B's reset state
+        XCTAssertTrue(store.isLoading)      // B's fail-open state untouched by A's late resolve
+        XCTAssertTrue(store.canAddContent)  // still fails open (isLoading), not falsely closed either
+        XCTAssertNil(store.lastError)
     }
 }
