@@ -247,6 +247,7 @@ export type Database = {
           id: string
           is_public: boolean
           mime_type: string | null
+          attributes: Json
           page_body: string | null
           summary: string | null
           supplemental_note: string | null
@@ -268,6 +269,7 @@ export type Database = {
           id?: string
           is_public?: boolean
           mime_type?: string | null
+          attributes?: Json
           page_body?: string | null
           summary?: string | null
           supplemental_note?: string | null
@@ -289,6 +291,7 @@ export type Database = {
           id?: string
           is_public?: boolean
           mime_type?: string | null
+          attributes?: Json
           page_body?: string | null
           summary?: string | null
           supplemental_note?: string | null

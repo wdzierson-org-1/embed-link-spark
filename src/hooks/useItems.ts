@@ -15,8 +15,10 @@ const ITEM_LIST_COLUMNS = [
   'summary',
   'created_at',
   'mime_type',
+  'file_size',
   'is_public',
   'supplemental_note',
+  'attributes',
 ].join(',');
 
 export const useItems = () => {

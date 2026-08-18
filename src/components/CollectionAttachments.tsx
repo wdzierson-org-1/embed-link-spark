@@ -119,7 +119,7 @@ const CollectionAttachments = ({
   if (attachments.length === 0) {
     return (
       <div className="text-sm text-muted-foreground py-2">
-        No items in this collection yet.
+        No attachments yet.
       </div>
     );
   }
@@ -173,8 +173,8 @@ const CollectionAttachments = ({
   return (
     <div className="space-y-4">
       <div className="border-l-2 border-primary/20 pl-3">
-        <h4 className="text-sm font-semibold text-foreground mb-1">Collection Items</h4>
-        <p className="text-xs text-muted-foreground">Original files and links added to this collection</p>
+        <h4 className="text-sm font-semibold text-foreground mb-1">Attachments</h4>
+        <p className="text-xs text-muted-foreground">The files and links captured with this item</p>
       </div>
       
       <div className="space-y-3">

@@ -288,4 +288,24 @@
   .animate-fade-in {
     animation: fade-in 0.3s ease-out;
   }
+
+  /* Novel/Tiptap editor placeholder (capture panel + edit-sheet notes).
+     The Placeholder extension only sets data-placeholder; without this rule
+     the hint text never renders. Scoped to paragraphs/headings only — the
+     extension also marks empty CONTAINERS (task lists, blockquotes) as
+     is-empty, and rendering those doubles the hint text. */
+  .ProseMirror p.is-empty::before,
+  .ProseMirror h1.is-empty::before,
+  .ProseMirror h2.is-empty::before,
+  .ProseMirror h3.is-empty::before,
+  .ProseMirror h4.is-empty::before,
+  .ProseMirror h5.is-empty::before,
+  .ProseMirror h6.is-empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    opacity: 0.7;
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
 }

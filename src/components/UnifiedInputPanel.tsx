@@ -1,25 +1,28 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Plus, ChevronUp, Send, Loader2, Globe } from 'lucide-react';
+import { Plus, Send, Loader2, MapPin } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import InputChip from '@/components/InputChip';
+import CaptureEditor, { type CaptureEditorHandle } from '@/components/capture/CaptureEditor';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
+import { useCaptureLocation } from '@/hooks/useCaptureLocation';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Switch } from '@/components/ui/switch';
 import { MAX_FILE_SIZE_MB, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 import { humanizeUrlSlug, isWeakLinkMetadata } from '@/utils/urlInference';
 import { analyzeDroppedFile, type ChipAnalysisHandle, type ChipAnalysisUpdate, type ChipFileKind, type FileAnalysis } from '@/utils/chipFileAnalysis';
 import { removeStagedFile } from '@/utils/stagedUploader';
+import {
+  docIsEmpty,
+  docIsPlainText,
+  docToPlainText,
+  stripUrlsFromDoc,
+} from '@/utils/captureDoc';
+import { classifyLinkFlavor } from '@/utils/linkFlavor';
+import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface UnifiedInputPanelProps {
-  isInputUICollapsed: boolean;
-  onToggleInputUI: () => void;
-  onUserToggleInputUI?: () => void;
-  onInputFocusChange?: (isFocused: boolean) => void;
   onAddContent: (type: string, data: any) => Promise<void>;
   getSuggestedTags: (content: any) => Promise<string[]>;
 }
@@ -53,22 +56,20 @@ interface InputItem {
 
 const ANALYSIS_SUBMIT_TIMEOUT_MS = 20000;
 
-const UnifiedInputPanel = ({ 
-  isInputUICollapsed, 
-  onToggleInputUI, 
-  onUserToggleInputUI,
-  onInputFocusChange,
-  onAddContent, 
-  getSuggestedTags 
+const UnifiedInputPanel = ({
+  onAddContent,
+  getSuggestedTags
 }: UnifiedInputPanelProps) => {
   const [inputText, setInputText] = useState('');
+  const [editorIsEmpty, setEditorIsEmpty] = useState(true);
+  const [isEditorFocused, setIsEditorFocused] = useState(false);
   const [inputItems, setInputItems] = useState<InputItem[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPanelBuilding, setIsPanelBuilding] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const captureEditorRef = useRef<CaptureEditorHandle>(null);
   const previousInputItemsCountRef = useRef(0);
   const metadataCacheRef = useRef<Map<string, OpenGraphData>>(new Map());
   const metadataInFlightRef = useRef<Map<string, Promise<OpenGraphData | null>>>(new Map());
@@ -79,6 +80,13 @@ const UnifiedInputPanel = ({
   const { toast } = useToast();
   const { user } = useAuth();
   const { canAddContent } = useSubscription();
+  const {
+    enabled: locationEnabled,
+    status: locationStatus,
+    label: locationLabel,
+    toggle: toggleLocation,
+    getLocationForSubmit,
+  } = useCaptureLocation();
 
   useEffect(() => {
     const activeLinkUrls = new Set(
@@ -114,13 +122,6 @@ const UnifiedInputPanel = ({
 
     previousInputItemsCountRef.current = currentCount;
   }, [inputItems.length]);
-
-  useEffect(() => {
-    if (!textareaRef.current) return;
-    const textarea = textareaRef.current;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [inputText]);
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -299,7 +300,7 @@ const UnifiedInputPanel = ({
 
   const validateFileSize = (file: File): { valid: boolean; error?: string } => {
     const fileSizeMB = file.size / 1024 / 1024;
-    
+
     if (file.type.startsWith('video/')) {
       if (fileSizeMB > MAX_VIDEO_SIZE_MB) {
         return {
@@ -322,7 +323,7 @@ const UnifiedInputPanel = ({
         };
       }
     }
-    
+
     return { valid: true };
   };
 
@@ -331,27 +332,27 @@ const UnifiedInputPanel = ({
       console.log('fetchOgData called with URL:', url);
       console.log('User ID:', user?.id);
       console.log('Calling extract-link-metadata edge function...');
-      
+
       const { data, error } = await supabase.functions.invoke('extract-link-metadata', {
         body: { url, userId: user?.id, fastOnly }
       });
-      
+
       console.log('Edge function response:', { data, error });
-      
+
       if (error) {
         console.error('Error fetching metadata:', error);
         return null;
       }
-      
+
       if (data && data.success) {
         console.log('✓ Successfully fetched metadata:', {
           title: !!data.title,
-          description: !!data.description, 
+          description: !!data.description,
           image: data.image,
           previewImagePath: data.previewImagePath,
           previewImageUrl: data.previewImagePublicUrl
         });
-        
+
         const ogDataResult: OpenGraphData = {
           title: data.title,
           description: data.description,
@@ -600,16 +601,19 @@ const UnifiedInputPanel = ({
     }
   }, [updateLinkMetadata, updateMetadataStatus]);
 
-  const handleInputChange = async (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setInputText(value);
+  // CaptureEditor reads this through a ref, so a fresh identity per render is
+  // fine — and lets the URL check see the latest inputItems, as the old
+  // textarea onChange did
+  const handleEditorDocChange = ({ plainText, isEmpty }: { plainText: string; isEmpty: boolean }) => {
+    setInputText(plainText);
+    setEditorIsEmpty(isEmpty);
 
     // Auto-detect URLs and add as link chips
-    const urls = detectUrl(value);
-    
+    const urls = detectUrl(plainText);
+
     if (urls.length > 0) {
       for (const url of urls) {
-        const existingLink = inputItems.find(item => 
+        const existingLink = inputItems.find(item =>
           item.type === 'link' && item.content.url === url
         );
         if (!existingLink) {
@@ -621,16 +625,16 @@ const UnifiedInputPanel = ({
             ogData: provisionalMetadata || undefined,
             metadataStatus: 'fast-loading',
           };
-          
+
           setInputItems(prev => [...prev, newItem]);
-          
+
           hydrateLinkMetadata(newItem.id, url);
         }
       }
     }
-    
+
     // Remove link items if URL was deleted/modified
-    setInputItems(prev => prev.filter(item => 
+    setInputItems(prev => prev.filter(item =>
       item.type !== 'link' || urls.includes(item.content.url)
     ));
   };
@@ -648,12 +652,7 @@ const UnifiedInputPanel = ({
       if (!text?.trim()) return;
 
       e.preventDefault();
-      if (isInputUICollapsed) {
-        onToggleInputUI();
-      }
-      const next = inputText ? `${inputText} ${text.trim()}` : text.trim();
-      void handleInputChange({ target: { value: next } } as React.ChangeEvent<HTMLTextAreaElement>);
-      setTimeout(() => textareaRef.current?.focus(), 60);
+      captureEditorRef.current?.insertText(text.trim());
     };
 
     window.addEventListener('paste', onWindowPaste);
@@ -745,25 +744,18 @@ const UnifiedInputPanel = ({
     return Promise.race([handle.done, timeout]);
   };
 
-  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          const namedFile = new File([file], `screenshot-${Date.now()}.png`, { type: file.type });
-          addFileItem(namedFile);
-        }
-      }
-    }
+  const handleImageFilesPasted = useCallback((files: File[]) => {
+    files.forEach((file) => {
+      const namedFile = new File([file], `screenshot-${Date.now()}.png`, { type: file.type });
+      addFileItem(namedFile);
+    });
   }, [addFileItem]);
 
   const handleSubmit = async () => {
-    if (!inputText.trim() && inputItems.length === 0) return;
-    
+    const docJson = captureEditorRef.current?.getJSON();
+    const editorHasContent = docJson ? !docIsEmpty(docJson) : false;
+    if (!editorHasContent && inputItems.length === 0) return;
+
     if (!canAddContent) {
       toast({
         title: "Feature Restricted",
@@ -772,111 +764,113 @@ const UnifiedInputPanel = ({
       });
       return;
     }
-    
+
     setIsSubmitting(true);
-    
+
     // Clear the form immediately for better UX
-    const textToProcess = inputText;
+    const docToRestore = docJson;
     const itemsToProcess = [...inputItems];
-    setInputText('');
+    captureEditorRef.current?.clear();
     setInputItems([]);
-    
-    // Auto-collapse the input panel after submission to free up space
-    if (!isInputUICollapsed) {
-      onToggleInputUI();
-    }
 
     try {
-      const hasText = textToProcess.trim();
-      const linkItems = itemsToProcess.filter(item => item.type === 'link');
-      const mediaItems = itemsToProcess.filter(item => item.type !== 'link');
+      const linkUrls = itemsToProcess
+        .filter(item => item.type === 'link')
+        .map(item => item.content.url as string | undefined)
+        .filter((url): url is string => Boolean(url));
 
-      // Detected URLs live in both the text and their chips; drop them from the
-      // note text so the URL isn't saved twice (once as link, once as note)
-      const noteText = linkItems
-        .reduce((acc, li) => (li.content.url ? acc.split(li.content.url).join(' ') : acc), textToProcess)
-        .replace(/\s+/g, ' ')
-        .trim();
+      // Detected URLs live in both the note and their chips; drop them from the
+      // note so the URL isn't saved twice (once as link, once as note)
+      const noteDoc = docJson ? stripUrlsFromDoc(docJson, linkUrls) : null;
+      const noteHasContent = noteDoc ? !docIsEmpty(noteDoc) : false;
+      const noteIsRich = noteDoc ? !docIsPlainText(noteDoc) : false;
+      const notePlain = noteDoc ? docToPlainText(noteDoc).trim() : '';
 
-      // Case 1: Single link (with or without text) -> Individual link item
-      if (linkItems.length === 1 && mediaItems.length === 0) {
-        const linkItem = linkItems[0];
-        console.log('Single link submission:', linkItem);
-        await onAddContent('link', {
-          url: linkItem.content.url,
-          title: linkItem.ogData?.title || linkItem.content.title || linkItem.content.url,
-          description: noteText || linkItem.ogData?.description,
-          previewImagePath: linkItem.ogData?.previewImagePath,
-          ogData: {
-            ...linkItem.ogData,
-            // Ensure we have image fallback for contentProcessor
-            image: linkItem.ogData?.previewImageUrl || linkItem.ogData?.image
-          },
-          type: 'link',
-          is_public: isPublic
-        });
-      }
-      // Case 2: Only a single media file, no text, no other items -> Individual media item
-      else if (mediaItems.length === 1 && !hasText && linkItems.length === 0) {
-        const mediaItem = mediaItems[0];
-        const analysis = await resolveFileAnalysis(mediaItem);
-        await onAddContent(mediaItem.type, {
-          file: mediaItem.content.file,
-          uploadedFilePath: analysis?.uploadedFilePath,
-          title: analysis?.title || analysis?.metadataTitle || mediaItem.content.name,
-          description: analysis?.description,
-          content: analysis?.transcription,
-          detectedText: analysis?.detectedText,
-          tags: analysis?.tags,
-          snippet: analysis?.snippet,
-          type: mediaItem.type,
-          is_public: isPublic
-        });
-      }
-      // Case 3: Only text, no attachments -> Text note
-      else if (hasText && linkItems.length === 0 && mediaItems.length === 0) {
+      // Location lives only in the structured attributes blob (cards show the
+      // pin, the edit sheet edits it) — no "posted from" text in note content
+      const capturedLocation = await getLocationForSubmit();
+
+      /** Per-item attributes: shared location + type-specific facts */
+      const buildAttributes = (extra?: Partial<ItemAttributes>): ItemAttributes | undefined => {
+        const merged: ItemAttributes = {
+          ...(capturedLocation ? { location: capturedLocation } : {}),
+          ...(extra ?? {}),
+        };
+        return Object.keys(merged).length > 0 ? merged : undefined;
+      };
+
+      /** The note in its richest storable form (novel JSON when formatted) */
+      const noteContent = noteIsRich && noteDoc ? JSON.stringify(noteDoc) : notePlain;
+
+      // One object per stash item, always. A capture with no objects is a text
+      // note; a capture with N objects saves N items (collections are retired —
+      // legacy ones still render, new ones are never created). The note and its
+      // "posted from" line ride on the first object.
+      if (itemsToProcess.length === 0) {
         await onAddContent('text', {
-          content: hasText,
-          type: 'text'
+          content: noteContent,
+          type: 'text',
+          attributes: buildAttributes()
         });
-      }
-      // Case 4: Multiple links or mixed items -> Collection
-      else {
-        const attachments = [];
-        
-        // Add link attachments
-        for (const linkItem of linkItems) {
-          attachments.push({
-            type: 'link',
-            url: linkItem.content.url,
-            title: linkItem.ogData?.title || linkItem.content.url,
-            description: linkItem.ogData?.description,
-            image: linkItem.ogData?.previewImageUrl || linkItem.ogData?.image,
-            siteName: linkItem.ogData?.siteName
-          });
-        }
-        
-        // Add media attachments (with any chip-time analysis for save reuse)
-        for (const mediaItem of mediaItems) {
-          const analysis = await resolveFileAnalysis(mediaItem);
-          attachments.push({
-            type: mediaItem.type,
-            file: mediaItem.content.file,
-            name: mediaItem.content.name,
-            size: mediaItem.content.size,
-            fileType: mediaItem.content.type,
-            uploadedFilePath: analysis?.uploadedFilePath,
-            title: analysis?.title || analysis?.metadataTitle,
-            description: analysis?.description,
-            processedContent: analysis?.transcription || analysis?.snippet,
-          });
+      } else {
+        for (let index = 0; index < itemsToProcess.length; index++) {
+          const objectItem = itemsToProcess[index];
+          const isFirst = index === 0;
+
+          if (objectItem.type === 'link') {
+            const url = objectItem.content.url as string;
+            await onAddContent('link', {
+              url,
+              title: objectItem.ogData?.title || objectItem.content.title || url,
+              // description stays the object's own (og/AI); the user's note is
+              // the annotation and lives in content like every other type
+              description: objectItem.ogData?.description,
+              content: isFirst && noteHasContent ? noteContent : undefined,
+              previewImagePath: objectItem.ogData?.previewImagePath,
+              ogData: {
+                ...objectItem.ogData,
+                // Ensure we have image fallback for contentProcessor
+                image: objectItem.ogData?.previewImageUrl || objectItem.ogData?.image
+              },
+              type: 'link',
+              is_public: isPublic,
+              attributes: buildAttributes({ link: { flavor: classifyLinkFlavor(url) } })
+            });
+          } else {
+            const analysis = await resolveFileAnalysis(objectItem);
+            const durationSeconds = analysis?.durationSeconds;
+            await onAddContent(objectItem.type, {
+              file: objectItem.content.file,
+              uploadedFilePath: analysis?.uploadedFilePath,
+              title: analysis?.title || analysis?.metadataTitle || objectItem.content.name,
+              description: analysis?.description,
+              // content = the user's note (rich JSON when formatted); the chip
+              // transcript is source material and belongs in page_body
+              content: isFirst && noteHasContent ? noteContent : undefined,
+              page_body: analysis?.transcription,
+              detectedText: analysis?.detectedText,
+              tags: analysis?.tags,
+              snippet: analysis?.snippet,
+              type: objectItem.type,
+              is_public: isPublic,
+              attributes: buildAttributes({
+                media: {
+                  ...(typeof durationSeconds === 'number' ? { duration_s: Math.round(durationSeconds) } : {}),
+                  ...(objectItem.content.name ? { file_name: objectItem.content.name as string } : {}),
+                }
+              })
+            });
+          }
         }
 
-        await onAddContent('collection', {
-          content: noteText || '',
-          type: 'collection',
-          attachments: attachments
-        });
+        if (itemsToProcess.length > 1) {
+          toast({
+            title: `Saved as ${itemsToProcess.length} items`,
+            description: noteHasContent
+              ? 'Stash keeps one object per item — your note went with the first one.'
+              : 'Stash keeps one object per item, so each got its own.',
+          });
+        }
       }
 
       // Handles are only released on success; on error the restored chips keep
@@ -885,13 +879,11 @@ const UnifiedInputPanel = ({
 
     } catch (error) {
       // Restore the form data on error
-      setInputText(textToProcess);
-      setInputItems(itemsToProcess);
-      
-      // Re-expand input panel on error
-      if (isInputUICollapsed) {
-        onToggleInputUI();
+      if (docToRestore) {
+        captureEditorRef.current?.setJSON(docToRestore);
       }
+      setInputItems(itemsToProcess);
+
       console.error('Error adding content:', error);
       toast({
         title: "Error",
@@ -903,233 +895,188 @@ const UnifiedInputPanel = ({
     }
   };
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      if (inputText) {
-        setInputText('');
-      } else if (!isInputUICollapsed) {
-        onToggleInputUI();
-      }
-      return;
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      const hasItems = inputItems.length > 0;
-      const hasText = inputText.trim().length > 0;
-      const isMultiline = inputText.includes('\n');
-
-      if ((hasItems && !hasText) || (hasText && !isMultiline)) {
-        e.preventDefault();
-        handleSubmit();
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputText, inputItems, isInputUICollapsed, onToggleInputUI]);
-
   const panelEase: [number, number, number, number] = [0.22, 1, 0.36, 1];
-  const panelDuration = 0.36;
-  const addToStashDelay = 0.02;
-  const attachDelay = 0.1;
-  const handleManualToggleInputUI = onUserToggleInputUI ?? onToggleInputUI;
   const hasSatisfactoryTextLength = inputText.trim().length >= 3;
-  const canSubmit = (!inputText.trim() && inputItems.length === 0) || isSubmitting ? false : true;
-
-  const getActionTransition = (delayAfterPanel: number) => {
-    if (isInputUICollapsed) {
-      return {
-        opacity: { type: 'tween' as const, duration: 0.14, ease: panelEase, delay: 0 },
-        y: { type: 'tween' as const, duration: 0.14, ease: panelEase, delay: 0 },
-      };
-    }
-
-    return {
-      opacity: { type: 'tween' as const, duration: 0.2, ease: panelEase, delay: panelDuration + delayAfterPanel },
-      y: { type: 'tween' as const, duration: 0.2, ease: panelEase, delay: panelDuration + delayAfterPanel },
-    };
-  };
+  const hasAnyContent = !editorIsEmpty || inputItems.length > 0;
+  const canSubmit = hasAnyContent && !isSubmitting;
+  const sendIsHot = hasSatisfactoryTextLength || inputItems.length > 0 || (!editorIsEmpty && inputText.trim().length === 0);
+  const isPanelActive = isEditorFocused || hasAnyContent;
 
   return (
     <div className="w-full relative">
       {/* Extended animated gradient background */}
       <div className="pointer-events-none absolute inset-0 h-[200vh] animated-gradient opacity-30" />
       <div className="pointer-events-none absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
-      
+
       <div className="relative pt-5 pb-8">
         <div className="container mx-auto px-4">
-          <div data-testid="input-panel-shell" className="bg-white/90 backdrop-blur-sm rounded-[6px] shadow-lg">
-            {/* Input area with minimize button */}
-            <motion.div
-              initial={false}
-              animate={{
-                height: isInputUICollapsed ? 0 : 'auto',
-                opacity: isInputUICollapsed ? 0.1 : 1,
-              }}
-              transition={{
-                // Use the same ease-out tween in both directions for smooth, non-bouncy motion.
-                height: { type: 'tween', duration: panelDuration, ease: panelEase },
-                opacity: { type: 'tween', duration: 0.3, ease: panelEase },
-              }}
-              className="overflow-hidden"
-              style={{ pointerEvents: isInputUICollapsed ? 'none' : 'auto' }}
+          {/* The shell lifts, glows, and takes a violet border while capturing */}
+          <motion.div
+            data-testid="input-panel-shell"
+            className="bg-white/90 backdrop-blur-sm rounded-[6px]"
+            initial={false}
+            animate={{
+              scale: isPanelActive ? 1.006 : 1,
+              y: isPanelActive ? -2 : 0,
+              boxShadow: isPanelActive
+                ? '0 0 0 1.5px rgba(139, 92, 246, 0.5), 0 0 0 6px rgba(139, 92, 246, 0.08), 0 24px 48px -20px rgba(139, 92, 246, 0.35)'
+                : '0 0 0 1px rgba(0, 0, 0, 0.05), 0 10px 30px -18px rgba(0, 0, 0, 0.3)',
+            }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28, mass: 0.7 }}
+          >
+            <div
+              data-testid="capture-dropzone"
+              className={`p-4 space-y-4 relative transition-colors duration-150 ${
+                isDragOver
+                  ? 'bg-violet-50 border-2 border-dashed border-violet-400 rounded-[6px]'
+                  : 'border-2 border-transparent'
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
-              <div
-                data-testid="capture-dropzone"
-                className={`p-4 space-y-4 relative transition-colors duration-150 ${
-                  isDragOver
-                    ? 'bg-violet-50 border-2 border-dashed border-violet-400 rounded-[6px]'
-                    : 'border-2 border-transparent'
-                }`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
+              <motion.div
+                layout
+                initial={false}
+                animate={{
+                  scale: isPanelBuilding ? 1.008 : 1,
+                  y: isPanelBuilding ? -1 : 0,
+                }}
+                transition={{ duration: 0.22, ease: panelEase }}
               >
-                {/* Minimize button in top right */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleManualToggleInputUI}
-                  className="absolute top-2 right-2 h-6 w-6 p-0"
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </Button>
+                <CaptureEditor
+                  ref={captureEditorRef}
+                  onDocChange={handleEditorDocChange}
+                  onSubmit={handleSubmit}
+                  onFocusChange={setIsEditorFocused}
+                  onImageFilesPasted={handleImageFilesPasted}
+                />
+              </motion.div>
 
-                <motion.div
-                  layout
-                  initial={false}
-                  animate={{
-                    scale: isPanelBuilding ? 1.008 : 1,
-                    y: isPanelBuilding ? -1 : 0,
-                  }}
-                  transition={{ duration: 0.22, ease: panelEase }}
-                >
-                  <Textarea
-                    ref={textareaRef}
-                    value={inputText}
-                    onChange={handleInputChange}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                    onFocus={() => {
-                      onInputFocusChange?.(true);
-                    }}
-                    onBlur={() => {
-                      onInputFocusChange?.(false);
-                    }}
-                    placeholder={
-                      inputItems.length === 0
-                        ? 'Paste a link, drop a file, or type a note...'
-                        : 'Add a note (optional)...'
-                    }
-                    className="min-h-[100px] resize-none overflow-hidden border-0 bg-transparent focus:ring-0 focus:border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-base pr-10"
+              {/* Drag-over overlay */}
+              <AnimatePresence>
+                {isDragOver && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none rounded-[4px]"
+                  >
+                    <div className="flex flex-col items-center gap-2 text-violet-500">
+                      <Plus className="h-8 w-8" />
+                      <span className="text-sm font-medium">Drop to add</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Input chips */}
+              <AnimatePresence initial={false}>
+                {inputItems.length > 0 && (
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.2, ease: panelEase }}
+                    className="flex flex-wrap gap-2 pt-2 border-t border-border"
+                  >
+                    <AnimatePresence initial={false}>
+                      {inputItems.map(item => (
+                        <motion.div
+                          key={item.id}
+                          layout
+                          initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                          transition={{ duration: 0.2, ease: panelEase }}
+                        >
+                          <InputChip
+                            type={item.type}
+                            content={item.content}
+                            onRemove={() => removeInputItem(item.id)}
+                            ogData={item.ogData}
+                            metadataStatus={item.metadataStatus}
+                            fileAnalysis={item.fileAnalysis}
+                            uploadState={item.uploadState}
+                            uploadProgress={item.uploadProgress}
+                            analysisState={item.analysisState}
+                          />
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Bottom actions */}
+              <div className="flex items-center justify-between pt-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Attach"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-12 w-12 rounded-full border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 shadow-sm"
+                  >
+                    <Plus className="h-6 w-6" />
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileSelect}
                   />
-                </motion.div>
-                
-                {/* Drag-over overlay */}
-                <AnimatePresence>
-                  {isDragOver && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.12 }}
-                      className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none rounded-[4px]"
-                    >
-                      <div className="flex flex-col items-center gap-2 text-violet-500">
-                        <Plus className="h-8 w-8" />
-                        <span className="text-sm font-medium">Drop to add</span>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                </div>
 
-                {/* Input chips */}
-                <AnimatePresence initial={false}>
-                  {inputItems.length > 0 && (
-                    <motion.div
-                      layout
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -6 }}
-                      transition={{ duration: 0.2, ease: panelEase }}
-                      className="flex flex-wrap gap-2 pt-2 border-t border-border"
-                    >
-                      <AnimatePresence initial={false}>
-                        {inputItems.map(item => (
-                          <motion.div
-                            key={item.id}
-                            layout
-                            initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                            transition={{ duration: 0.2, ease: panelEase }}
-                          >
-                            <InputChip
-                              type={item.type}
-                              content={item.content}
-                              onRemove={() => removeInputItem(item.id)}
-                              ogData={item.ogData}
-                              metadataStatus={item.metadataStatus}
-                              fileAnalysis={item.fileAnalysis}
-                              uploadState={item.uploadState}
-                              uploadProgress={item.uploadProgress}
-                              analysisState={item.analysisState}
-                            />
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                
-                {/* Bottom actions */}
-                <div className="flex items-center justify-between pt-2">
-                  <div className="flex items-center gap-2">
-                    <motion.div
-                      initial={false}
-                      animate={{
-                        opacity: isInputUICollapsed ? 0 : 1,
-                        y: isInputUICollapsed ? 4 : 0,
-                      }}
-                      transition={getActionTransition(attachDelay)}
-                    >
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Attach"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="h-12 w-12 rounded-full border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 shadow-sm"
+                <div className="flex items-center gap-2">
+                  <AnimatePresence>
+                    {locationEnabled && (
+                      <motion.span
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 8 }}
+                        transition={{ duration: 0.18, ease: panelEase }}
+                        className="text-xs text-muted-foreground max-w-[220px] truncate"
                       >
-                        <Plus className="h-6 w-6" />
-                      </Button>
-                    </motion.div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={handleFileSelect}
-                    />
-                  </div>
-                  
+                        {locationStatus === 'locating'
+                          ? 'finding your location…'
+                          : locationLabel
+                            ? `posted from ${locationLabel}`
+                            : ''}
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    aria-label="Include your location"
+                    aria-pressed={locationEnabled}
+                    onClick={toggleLocation}
+                    className={`h-12 w-12 rounded-full border shadow-sm transition-colors duration-150 ${
+                      locationEnabled
+                        ? 'bg-violet-50 border-violet-300 text-violet-600 hover:bg-violet-100 hover:text-violet-700'
+                        : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                    }`}
+                  >
+                    <MapPin className={`h-5 w-5 ${locationStatus === 'locating' ? 'animate-pulse' : ''}`} />
+                  </Button>
+
                   <motion.div
                     initial={false}
-                    animate={{
-                      opacity: isInputUICollapsed ? 0 : 1,
-                      y: isInputUICollapsed ? 4 : 0,
-                      scale: hasSatisfactoryTextLength ? 1 : 0.97,
-                    }}
-                    transition={{
-                      ...getActionTransition(addToStashDelay),
-                      scale: { type: 'tween', duration: 0.14, ease: panelEase },
-                    }}
+                    animate={{ scale: sendIsHot ? 1 : 0.97 }}
+                    transition={{ type: 'tween', duration: 0.14, ease: panelEase }}
                   >
-                    <Button 
+                    <Button
                       aria-label="Add to Stash"
                       onClick={handleSubmit}
                       disabled={!canSubmit}
                       size="icon"
                       className={`h-12 w-12 rounded-full border shadow-sm transition-all duration-150 ${
-                        hasSatisfactoryTextLength || inputItems.length > 0
+                        sendIsHot
                           ? 'bg-[#8B5CF6] border-[#8B5CF6] text-white hover:bg-[#7C3AED] hover:border-[#7C3AED]'
                           : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-50 hover:border-gray-300'
                       } disabled:opacity-100`}
@@ -1143,35 +1090,8 @@ const UnifiedInputPanel = ({
                   </motion.div>
                 </div>
               </div>
-            </motion.div>
-
-            {/* Collapsed state - show expand button */}
-            <motion.div
-              initial={false}
-              animate={{
-                height: isInputUICollapsed ? 'auto' : 0,
-                opacity: isInputUICollapsed ? 1 : 0,
-              }}
-              transition={{
-                height: { type: 'tween', duration: panelDuration, ease: panelEase },
-                opacity: { type: 'tween', duration: 0.24, ease: panelEase },
-              }}
-              className="overflow-hidden"
-              style={{ pointerEvents: isInputUICollapsed ? 'auto' : 'none' }}
-            >
-              <div className="p-4 flex justify-center">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleManualToggleInputUI}
-                  className="flex items-center gap-1"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add something
-                </Button>
-              </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         </div>
       </div>
     </div>

@@ -1,4 +1,5 @@
 
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
@@ -15,6 +16,11 @@ import SubscriptionSuccess from '@/pages/SubscriptionSuccess';
 import NotFound from '@/pages/NotFound';
 import { PublicFeed } from '@/pages/PublicFeed';
 import { Discover } from '@/pages/Discover';
+
+// Dev-only design review pages; never routed in production builds
+const DesignCardPreview = import.meta.env.DEV
+  ? lazy(() => import('@/pages/DesignCardPreview'))
+  : null;
 
 const queryClient = new QueryClient();
 
@@ -37,6 +43,16 @@ function App() {
                 <Route path="/404" element={<NotFound />} />
                 <Route path="/feed/:username" element={<PublicFeed />} />
                 <Route path="/discover" element={<Discover />} />
+                {DesignCardPreview && (
+                  <Route
+                    path="/design/cards"
+                    element={
+                      <Suspense fallback={null}>
+                        <DesignCardPreview />
+                      </Suspense>
+                    }
+                  />
+                )}
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <Toaster />

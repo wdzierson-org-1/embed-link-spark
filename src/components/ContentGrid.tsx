@@ -209,42 +209,46 @@ const ContentGrid = ({
   }
 
   return (
-    <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${compact ? '' : 'lg:grid-cols-3'}`}>
+    // Masonry columns: cards have honest, varied heights (tall portrait heroes,
+    // short text notes), so column flow reads better than a rigid row grid
+    <div className={`columns-1 md:columns-2 gap-4 ${compact ? '' : 'lg:columns-3'} [&>*]:mb-4 [&>*]:break-inside-avoid`}>
       {/* Show optimistic items first */}
-        {optimisticItems.map((item) => (
-          <ContentItemSkeleton 
-            key={item.id} 
+      {optimisticItems.map((item) => (
+        <div key={item.id}>
+          <ContentItemSkeleton
             showProgress={item.showProgress}
             title={item.skeletonProps?.title}
             description={item.skeletonProps?.description}
             type={item.skeletonProps?.type}
             fileSize={item.skeletonProps?.fileSize}
           />
-        ))}
-      
+        </div>
+      ))}
+
       {/* Show real items */}
       {visibleRealItems.map((item) => (
-        <ContentItem
-          key={item.id}
-          item={{
-            ...item,
-            supplemental_note: showStickyNotes ? item.supplemental_note : null
-          }}
-          tags={itemTags[item.id] || []}
-          imageErrors={imageErrors}
-          expandedContent={expandedContent}
-          onImageError={handleImageError}
-          onToggleExpansion={handleToggleExpansion}
-          onDeleteItem={onDeleteItem}
-          onEditItem={onEditItem}
-          onChatWithItem={onChatWithItem}
-          onTagsUpdated={handleTagsUpdated}
-          isPublicView={isPublicView}
-          currentUserId={currentUserId}
-          onTogglePrivacy={onTogglePrivacy}
-          onCommentClick={onCommentClick}
-          collectionAttachments={collectionAttachmentsByItem[item.id]}
-        />
+        <div key={item.id}>
+          <ContentItem
+            item={{
+              ...item,
+              supplemental_note: showStickyNotes ? item.supplemental_note : null
+            }}
+            tags={itemTags[item.id] || []}
+            imageErrors={imageErrors}
+            expandedContent={expandedContent}
+            onImageError={handleImageError}
+            onToggleExpansion={handleToggleExpansion}
+            onDeleteItem={onDeleteItem}
+            onEditItem={onEditItem}
+            onChatWithItem={onChatWithItem}
+            onTagsUpdated={handleTagsUpdated}
+            isPublicView={isPublicView}
+            currentUserId={currentUserId}
+            onTogglePrivacy={onTogglePrivacy}
+            onCommentClick={onCommentClick}
+            collectionAttachments={collectionAttachmentsByItem[item.id]}
+          />
+        </div>
       ))}
     </div>
   );

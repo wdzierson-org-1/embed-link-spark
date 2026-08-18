@@ -16,27 +16,7 @@ import ChatMole from '@/components/ChatMole';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 import { sweepStagingOrphans } from '@/utils/stagedUploader';
 
-const INPUT_UI_PREFERENCE_COOKIE = 'stash_input_ui_collapsed';
 const MOLE_PINNED_KEY = 'stash_mole_pinned';
-
-const readInputUiPreference = (): boolean | null => {
-  if (typeof document === 'undefined') return null;
-
-  const cookieValue = document.cookie
-    .split('; ')
-    .find((cookie) => cookie.startsWith(`${INPUT_UI_PREFERENCE_COOKIE}=`))
-    ?.split('=')[1];
-
-  if (cookieValue === 'true') return true;
-  if (cookieValue === 'false') return false;
-  return null;
-};
-
-const saveInputUiPreference = (isCollapsed: boolean) => {
-  if (typeof document === 'undefined') return;
-  const maxAgeSeconds = 60 * 60 * 24 * 365; // 1 year
-  document.cookie = `${INPUT_UI_PREFERENCE_COOKIE}=${isCollapsed}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax`;
-};
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -66,14 +46,6 @@ const Index = () => {
 
   const [editingItem, setEditingItem] = useState(null);
   const [selectedTags, setSelectedTags] = useState([]);
-  const [isInputUICollapsed, setIsInputUICollapsed] = useState(() => {
-    const savedPreference = readInputUiPreference();
-    if (savedPreference !== null) return savedPreference;
-
-    // Minimize input panel by default for WebKit browsers (Safari) but not Chrome
-    const isWebKit = /WebKit/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-    return isWebKit;
-  });
 
   const { tags } = useTags();
   const [searchQuery, setSearchQuery] = useState('');
@@ -116,16 +88,6 @@ const Index = () => {
     }
   };
 
-  const toggleInputUI = () => {
-    setIsInputUICollapsed(!isInputUICollapsed);
-  };
-
-  const handleUserToggleInputUI = () => {
-    const nextState = !isInputUICollapsed;
-    setIsInputUICollapsed(nextState);
-    saveInputUiPreference(nextState);
-  };
-
   if (loading || (user && isInitialLoadInProgress)) {
     const loadingLabel = loading ? 'Loading...' : 'Loading your items...';
     return (
@@ -164,9 +126,6 @@ const Index = () => {
         </div>
 
         <UnifiedInputPanel
-          isInputUICollapsed={isInputUICollapsed}
-          onToggleInputUI={toggleInputUI}
-          onUserToggleInputUI={handleUserToggleInputUI}
           onAddContent={handleAddContent}
           getSuggestedTags={getSuggestedTags}
         />

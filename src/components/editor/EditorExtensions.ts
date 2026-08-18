@@ -20,7 +20,13 @@ import { createLowlight, common } from 'lowlight';
 import { slashCommand } from './SlashCommand';
 import { toast } from 'sonner';
 
-export const createEditorExtensions = (uploadFn?: UploadFn) => {
+interface EditorExtensionOptions {
+  /** Override the empty-paragraph hint (headings keep their level hint) */
+  placeholder?: string;
+}
+
+export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExtensionOptions) => {
+  const emptyHint = options?.placeholder ?? "Press '/' for commands or start typing...";
   const baseExtensions = [
     StarterKit.configure({
       heading: {
@@ -68,11 +74,13 @@ export const createEditorExtensions = (uploadFn?: UploadFn) => {
       gapcursor: false,
     }),
     Placeholder.configure({
-      placeholder: ({ node }) => {
+      placeholder: ({ node, pos }) => {
         if (node.type.name === "heading") {
           return `Heading ${node.attrs.level}`;
         }
-        return "Press '/' for commands or start typing...";
+        // Only the doc's first paragraph carries the hint — nested empties
+        // (a fresh to-do row, a paragraph inside a quote) stay quiet
+        return pos === 0 ? emptyHint : "";
       },
       includeChildren: true,
     }),

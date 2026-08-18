@@ -4,7 +4,10 @@ import { generateDescription, generateEmbeddings } from '@/utils/aiOperations';
 import { processPdfContent } from '@/utils/pdfProcessor';
 import { uploadFile } from '@/utils/fileUploader';
 import { generateTitle } from '@/utils/titleGenerator';
+import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
+import { plainTitleFromContent, sanitizeItemTitle } from '@/utils/itemTitle';
 import type { Database } from '@/integrations/supabase/types';
+import type { ItemAttributes } from '@/types/itemAttributes';
 
 type ItemType = Database['public']['Enums']['item_type'];
 
@@ -12,11 +15,13 @@ interface ContentData {
   file?: File;
   uploadedFilePath?: string;
   content?: string;
+  page_body?: string; // Chip-time transcript/source text (content stays user notes)
   description?: string;
   url?: string;
   title?: string;
   isProcessing?: boolean;
   is_public?: boolean;
+  attributes?: ItemAttributes; // Extensible blob (location from the pin toggle, …)
   ogData?: any;
   previewImagePath?: string; // New field for link preview images
   detectedText?: string; // Chip-time vision OCR text (images)
@@ -238,10 +243,9 @@ const scheduleCollectionEmbeddingRefresh = (collectionId: string, delayMs: numbe
   collectionEmbeddingTimers.set(collectionId, timer);
 };
 
-const deriveFallbackTitle = (content: string): string => {
-  const firstLine = content.trim().split('\n')[0].trim();
-  return firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine;
-};
+// Rich capture notes arrive as Novel JSON; titles, AI prompts, and embeddings
+// all want the human-readable text (a plain-text note passes through as-is)
+const deriveFallbackTitle = (content: string): string => plainTitleFromContent(content);
 
 const enrichTextItemAsync = async (
   itemId: string,
@@ -250,9 +254,10 @@ const enrichTextItemAsync = async (
   fetchItems: () => Promise<void>
 ) => {
   try {
+    const plainContent = extractPlainTextFromNovelContent(content) || content;
     const [aiTitle, aiDescription] = await Promise.all([
-      generateTitle(content, 'text').catch(() => null),
-      generateDescription('text', { content }).catch(() => null),
+      generateTitle(plainContent, 'text').catch(() => null),
+      generateDescription('text', { content: plainContent }).catch(() => null),
     ]);
 
     const updates: Record<string, string> = {};
@@ -275,7 +280,7 @@ const enrichTextItemAsync = async (
       return;
     }
 
-    const textForEmbedding = [updates.title || currentTitle, content, updates.description]
+    const textForEmbedding = [updates.title || currentTitle, plainContent, updates.description]
       .filter(Boolean)
       .join(' ');
     await generateEmbeddings(itemId, textForEmbedding);
@@ -494,13 +499,14 @@ export const processAndInsertContent = async (
     type: type as ItemType,
     title: title || data.title,
     content: itemContent,
-    page_body: transcription || null,
+    page_body: transcription || data.page_body || null,
     description: aiDescription || null,
     url: data.url,
     file_path: filePath || data.uploadedFilePath,
     file_size: data.file?.size,
     mime_type: data.file?.type,
     is_public: data.is_public ?? false,
+    attributes: data.attributes ?? {},
   };
 
   console.log('processAndInsertContent: Inserting item data:', itemData);
@@ -632,8 +638,8 @@ export const processAndInsertContent = async (
     // Generate embeddings for textual content (including transcriptions and descriptions)
     const textForEmbedding = [
       title || data.title,
-      data.content,
-      transcription,
+      data.content ? extractPlainTextFromNovelContent(data.content) : undefined,
+      transcription || data.page_body,
       aiDescription,
       data.url
     ].filter(Boolean).join(' ');
@@ -660,13 +666,17 @@ const processCollection = async (
   let title = data.title;
   let description = data.description;
 
+  // The note may be Novel JSON (rich capture) — every downstream consumer of
+  // the note as *text* (AI prompt, title fallback) gets the plain version
+  const plainNote = data.content ? extractPlainTextFromNovelContent(data.content) : '';
+
   // If no title/description provided, use AI to analyze the collection
   if (!title || !description) {
     try {
       const { data: analysisResult, error: analysisError } = await supabase.functions.invoke('analyze-collection', {
-        body: { 
+        body: {
           attachments: data.attachments,
-          userText: data.content || ''
+          userText: plainNote
         }
       });
 
@@ -676,10 +686,14 @@ const processCollection = async (
       if (!description) description = analysisResult.description;
     } catch (error) {
       console.error('Error analyzing collection:', error);
-      title = title || 'Collection';
-      description = description || `Collection with ${data.attachments?.length || 0} items`;
+      const attachmentCount = data.attachments?.length || 0;
+      title = title || plainTitleFromContent(plainNote) || 'Collection';
+      description = description || `Collection with ${attachmentCount} item${attachmentCount === 1 ? '' : 's'}`;
     }
   }
+
+  // Never let editor markup through as the visible title, wherever it came from
+  title = sanitizeItemTitle(title, data.content, 'Collection');
 
   // Create the collection item
   const itemData: any = {
@@ -689,6 +703,7 @@ const processCollection = async (
     description,
     content: data.content || null,
     is_public: data.is_public ?? false,
+    attributes: data.attributes ?? {},
   };
 
   console.log('Inserting collection with data:', itemData);

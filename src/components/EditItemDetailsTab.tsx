@@ -25,7 +25,9 @@ import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
 import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
+import EditItemLocationSection from '@/components/EditItemLocationSection';
 import CollectionAttachments from '@/components/CollectionAttachments';
+import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
   id: string;
@@ -39,6 +41,7 @@ interface ContentItem {
   mime_type?: string;
   supplemental_note?: string;
   is_public?: boolean;
+  attributes?: ItemAttributes;
 }
 
 interface EditItemDetailsTabProps {
@@ -65,6 +68,7 @@ interface EditItemDetailsTabProps {
   onSupplementalNoteChange?: (note: string) => void;
   onPublicToggle?: (isPublic: boolean) => void;
   onImageChange?: (filePath: string | null) => Promise<void>;
+  onAttributesSave?: (attributes: ItemAttributes) => Promise<void>;
 }
 
 const EditItemDetailsTab = ({
@@ -91,6 +95,7 @@ const EditItemDetailsTab = ({
   onSupplementalNoteChange = () => {},
   onPublicToggle = () => {},
   onImageChange,
+  onAttributesSave,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
@@ -279,6 +284,14 @@ const EditItemDetailsTab = ({
             className="min-h-[72px] resize-none overflow-hidden rounded-xl border-black/10 bg-gray-50/60 focus-visible:ring-violet-300"
           />
         </div>
+
+        {item && onAttributesSave && (
+          <EditItemLocationSection
+            itemId={item.id}
+            attributes={item.attributes}
+            onSaveAttributes={onAttributesSave}
+          />
+        )}
       </div>
 
       {/* Inline Image for image items and links with images */}
@@ -356,21 +369,8 @@ const EditItemDetailsTab = ({
         />
       )}
 
-      {/* Collection Items Section - only for collection items */}
-      {item?.type === 'collection' && (
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-muted-foreground">Collection Items</label>
-          <div className="border rounded-lg p-4 bg-muted/50">
-            <CollectionAttachments
-              itemId={item.id}
-              showAll={true}
-              isCompactView={false}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Notes & Summary Section */}
+      {/* Notes & Summary Section — for multi-part items the note is the
+          primary content, so it comes before the attachments */}
       <EditItemContentSection
         item={item}
         content={content}
@@ -381,6 +381,17 @@ const EditItemDetailsTab = ({
         isMobile={isMobile}
         mobileEditorReady={mobileEditorReady}
       />
+
+      {/* Attachments — only for multi-part (collection) items */}
+      {item?.type === 'collection' && (
+        <div className={sectionCard}>
+          <CollectionAttachments
+            itemId={item.id}
+            showAll={true}
+            isCompactView={false}
+          />
+        </div>
+      )}
 
       {/* Public Feed Toggle */}
       <div className={sectionCard}>

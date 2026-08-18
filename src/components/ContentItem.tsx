@@ -15,14 +15,16 @@ import ChatInterface from '@/components/ChatInterface';
 import type { Attachment } from '@/components/CollectionAttachments';
 import { supabase } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
+import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
   id: string;
-  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
+  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document' | 'collection';
   title?: string;
   content?: string;
   url?: string;
   file_path?: string;
+  file_size?: number;
   description?: string;
   tags?: string[];
   created_at: string;
@@ -30,6 +32,7 @@ interface ContentItem {
   is_public?: boolean;
   supplemental_note?: string;
   summary?: string;
+  attributes?: ItemAttributes;
 }
 
 interface ContentItemProps {
@@ -288,6 +291,7 @@ const ContentItem = ({
             currentUserId={currentUserId}
             onTogglePrivacy={onTogglePrivacy}
             onCommentClick={onCommentClick}
+            collectionCount={item.type === 'collection' ? collectionAttachments?.length : undefined}
           />
         </div>
 

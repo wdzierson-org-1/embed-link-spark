@@ -3,15 +3,16 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
+import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin, Layers } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
+import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
   id: string;
-  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document';
+  type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document' | 'collection';
   title?: string;
   content?: string;
   url?: string;
@@ -21,6 +22,7 @@ interface ContentItem {
   user_id?: string;
   comment_count?: number;
   summary?: string;
+  attributes?: ItemAttributes;
 }
 
 interface ContentItemFooterProps {
@@ -32,17 +34,20 @@ interface ContentItemFooterProps {
   currentUserId?: string;
   onTogglePrivacy?: (item: ContentItem) => void;
   onCommentClick?: (itemId: string) => void;
+  /** Attachment count for multi-part items — shown instead of "collection" */
+  collectionCount?: number;
 }
 
-const ContentItemFooter = ({ 
-  item, 
-  onDeleteItem, 
-  onEditItem, 
+const ContentItemFooter = ({
+  item,
+  onDeleteItem,
+  onEditItem,
   onChatWithItem,
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
-  onCommentClick
+  onCommentClick,
+  collectionCount
 }: ContentItemFooterProps) => {
   const isProcessing = isDocumentProcessing(item);
   const getIcon = (type: string) => {
@@ -53,9 +58,17 @@ const ContentItemFooter = ({
       case 'audio': return <Mic className="h-4 w-4" />;
       case 'video': return <VideoIcon className="h-4 w-4" />;
       case 'document': return <FileText className="h-4 w-4" />;
+      case 'collection': return <Layers className="h-4 w-4" />;
       default: return <FileText className="h-4 w-4" />;
     }
   };
+
+  const typeBadgeLabel =
+    item.type === 'collection'
+      ? collectionCount != null
+        ? `${collectionCount} item${collectionCount === 1 ? '' : 's'}`
+        : 'items'
+      : item.type;
 
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
@@ -84,17 +97,26 @@ const ContentItemFooter = ({
 
   return (
     <div className="flex items-center justify-between mt-auto">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <p className="text-xs text-muted-foreground whitespace-nowrap">
           {format(new Date(item.created_at), 'MMM d, yyyy')}
         </p>
+        {item.attributes?.location?.label && (
+          <p
+            className="flex items-center gap-0.5 text-xs text-muted-foreground min-w-0"
+            title={`posted from ${item.attributes.location.label}`}
+          >
+            <MapPin className="h-3 w-3 flex-none" />
+            <span className="truncate max-w-[140px]">{item.attributes.location.label}</span>
+          </p>
+        )}
       </div>
       
       <div className="flex items-center gap-2">
         {/* Asset Type Badge - Hidden until hover */}
         <Badge variant="secondary" className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
           {getIcon(item.type)}
-          {item.type}
+          {typeBadgeLabel}
         </Badge>
         
         {/* Comment count with animation */}
