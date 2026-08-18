@@ -209,46 +209,46 @@ const ContentGrid = ({
   }
 
   return (
-    // Masonry columns: cards have honest, varied heights (tall portrait heroes,
-    // short text notes), so column flow reads better than a rigid row grid
-    <div className={`columns-1 md:columns-2 gap-4 ${compact ? '' : 'lg:columns-3'} [&>*]:mb-4 [&>*]:break-inside-avoid`}>
+    // Row-major grid: newest reads left-to-right across the columns (CSS
+    // masonry columns flow top-to-bottom, which scrambles chronology). Each
+    // row stretches to its tallest card; card bodies flex and footers pin to
+    // the bottom, so mixed heights still align cleanly per row.
+    <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${compact ? '' : 'lg:grid-cols-3'}`}>
       {/* Show optimistic items first */}
       {optimisticItems.map((item) => (
-        <div key={item.id}>
-          <ContentItemSkeleton
-            showProgress={item.showProgress}
-            title={item.skeletonProps?.title}
-            description={item.skeletonProps?.description}
-            type={item.skeletonProps?.type}
-            fileSize={item.skeletonProps?.fileSize}
-          />
-        </div>
+        <ContentItemSkeleton
+          key={item.id}
+          showProgress={item.showProgress}
+          title={item.skeletonProps?.title}
+          description={item.skeletonProps?.description}
+          type={item.skeletonProps?.type}
+          fileSize={item.skeletonProps?.fileSize}
+        />
       ))}
 
       {/* Show real items */}
       {visibleRealItems.map((item) => (
-        <div key={item.id}>
-          <ContentItem
-            item={{
-              ...item,
-              supplemental_note: showStickyNotes ? item.supplemental_note : null
-            }}
-            tags={itemTags[item.id] || []}
-            imageErrors={imageErrors}
-            expandedContent={expandedContent}
-            onImageError={handleImageError}
-            onToggleExpansion={handleToggleExpansion}
-            onDeleteItem={onDeleteItem}
-            onEditItem={onEditItem}
-            onChatWithItem={onChatWithItem}
-            onTagsUpdated={handleTagsUpdated}
-            isPublicView={isPublicView}
-            currentUserId={currentUserId}
-            onTogglePrivacy={onTogglePrivacy}
-            onCommentClick={onCommentClick}
-            collectionAttachments={collectionAttachmentsByItem[item.id]}
-          />
-        </div>
+        <ContentItem
+          key={item.id}
+          item={{
+            ...item,
+            supplemental_note: showStickyNotes ? item.supplemental_note : null
+          }}
+          tags={itemTags[item.id] || []}
+          imageErrors={imageErrors}
+          expandedContent={expandedContent}
+          onImageError={handleImageError}
+          onToggleExpansion={handleToggleExpansion}
+          onDeleteItem={onDeleteItem}
+          onEditItem={onEditItem}
+          onChatWithItem={onChatWithItem}
+          onTagsUpdated={handleTagsUpdated}
+          isPublicView={isPublicView}
+          currentUserId={currentUserId}
+          onTogglePrivacy={onTogglePrivacy}
+          onCommentClick={onCommentClick}
+          collectionAttachments={collectionAttachmentsByItem[item.id]}
+        />
       ))}
     </div>
   );

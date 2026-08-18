@@ -440,23 +440,23 @@ const DesignCardPreview = () => (
 
       <h2 className="mt-10 font-editorial text-2xl">Wired — the real components</h2>
       <p className="mb-5 mt-0.5 text-sm text-muted-foreground">
-        These are actual ContentItem renders (the same code now live on /home), fed mock rows per type.
+        Actual ContentItem renders in the app's row-major grid: newest reads left-to-right, each row
+        stretches to its tallest card, footers pin to the bottom.
       </p>
-      <div className="columns-1 gap-6 md:columns-2 xl:columns-3 [&>*]:mb-6 [&>*]:break-inside-avoid">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {wiredItems.map((item) => (
-          <div key={item.id}>
-            <ContentItem
-              item={item}
-              tags={[]}
-              imageErrors={emptySet}
-              expandedContent={emptySet}
-              onImageError={noop}
-              onToggleExpansion={noop}
-              onDeleteItem={noop}
-              onEditItem={noop}
-              onTagsUpdated={noop}
-            />
-          </div>
+          <ContentItem
+            key={item.id}
+            item={item}
+            tags={[]}
+            imageErrors={emptySet}
+            expandedContent={emptySet}
+            onImageError={noop}
+            onToggleExpansion={noop}
+            onDeleteItem={noop}
+            onEditItem={noop}
+            onTagsUpdated={noop}
+          />
         ))}
       </div>
 

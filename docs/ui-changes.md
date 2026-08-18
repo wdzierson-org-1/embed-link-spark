@@ -8,6 +8,16 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-18 · Grid ordering: row-major chronology, not masonry columns
+
+The dashboard grid is a plain row-major CSS grid again: **newest item
+top-left, then left-to-right across the columns, row by row.** (The short-
+lived masonry `columns` layout flowed top-to-bottom per column, which
+scrambled reading order.) Each row stretches to its tallest card — card
+bodies flex and footers pin to the bottom, so mixed hero heights still align
+per row. Any client rendering the library must preserve this reading order:
+reverse-chronological across the row, not down a column.
+
 ## 2026-08-17 · Office documents: no fake PDF processing + real text extraction
 
 - **Only PDFs are "extracting."** `isDocumentProcessing` (the
