@@ -17,6 +17,7 @@ interface ContentItem {
   content?: string;
   url?: string;
   file_path?: string;
+  mime_type?: string;
   created_at: string;
   is_public?: boolean;
   user_id?: string;

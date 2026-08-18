@@ -30,6 +30,7 @@ interface ContentItem {
   description?: string;
   content?: string;
   file_path?: string;
+  mime_type?: string;
   type?: string;
   tags?: string[];
   is_public?: boolean;

@@ -579,9 +579,14 @@ export const processAndInsertContent = async (
       .catch((err) => console.error('Image analysis failed (non-fatal):', err));
   }
 
-  // Handle PDF processing with quick summary first, then full extraction
+  // Handle document processing. Only PDFs have an extraction pipeline —
+  // office formats (pptx/docx/xlsx…) must not be sent to the PDF functions
+  // (they 500) and must not be left with a null summary, which reads as
+  // "still extracting" forever and blocks the edit sheet.
   if (type === 'document' && (filePath || data.uploadedFilePath)) {
-    console.log('Starting PDF processing for item:', insertedItem.id);
+    const isPdf =
+      (data.file?.type || itemData.mime_type) === 'application/pdf' ||
+      Boolean((data.file?.name || filePath || data.uploadedFilePath || '').toLowerCase().endsWith('.pdf'));
 
     // Baseline embedding from title/filename so the document is searchable even
     // if the async full-text extraction below never succeeds; the extraction
@@ -598,6 +603,26 @@ export const processAndInsertContent = async (
         console.error('Baseline document embedding failed (non-fatal):', embeddingError);
       }
     }
+
+    if (!isPdf) {
+      // No extractor for this format yet: settle the item now — summary
+      // mirrors the description so "summary present" keeps meaning "done"
+      const settledSummary = aiDescription || deriveFallbackTitle(data.file?.name || 'Document');
+      if (settledSummary) {
+        const { error: settleError } = await supabase
+          .from('items')
+          .update({ summary: settledSummary })
+          .eq('id', insertedItem.id);
+        if (settleError) {
+          console.error('Failed to settle non-PDF document summary:', settleError);
+        } else {
+          await fetchItems();
+        }
+      }
+      return insertedItem;
+    }
+
+    console.log('Starting PDF processing for item:', insertedItem.id);
 
     // Phase 1: Quick summary (immediate) — skipped when the chip already
     // produced a content-based summary at capture time

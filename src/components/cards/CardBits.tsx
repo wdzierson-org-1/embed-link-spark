@@ -68,6 +68,12 @@ export const mimeExtensionLabel = (mimeType?: string | null): string | null => {
     'x-m4a': 'M4A',
     mp4: 'MP4',
     mpeg: 'MP3',
+    'vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
+    'vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+    'vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+    'vnd.ms-powerpoint': 'PPT',
+    'vnd.ms-excel': 'XLS',
+    msword: 'DOC',
   };
   return known[subtype] ?? known[cleaned] ?? cleaned.toUpperCase().slice(0, 5);
 };
