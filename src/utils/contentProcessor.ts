@@ -605,8 +605,8 @@ export const processAndInsertContent = async (
     }
 
     if (!isPdf) {
-      // No extractor for this format yet: settle the item now — summary
-      // mirrors the description so "summary present" keeps meaning "done"
+      // Settle the item now — summary mirrors the description so "summary
+      // present" keeps meaning "done" and the item is instantly usable
       const settledSummary = aiDescription || deriveFallbackTitle(data.file?.name || 'Document');
       if (settledSummary) {
         const { error: settleError } = await supabase
@@ -618,6 +618,38 @@ export const processAndInsertContent = async (
         } else {
           await fetchItems();
         }
+      }
+
+      // Office Open XML formats get real text extraction (unzip + XML —
+      // extract-office-text). Runs silently after settle: the item never
+      // blocks, and page_body/summary/description upgrade when it lands.
+      const officeMime = data.file?.type || itemData.mime_type;
+      const officeName = data.file?.name || filePath || data.uploadedFilePath || '';
+      const isOfficeExtractable =
+        [
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ].includes(officeMime || '') || /\.(pptx|docx|xlsx)$/i.test(officeName);
+
+      if (isOfficeExtractable) {
+        const officePath = filePath || data.uploadedFilePath;
+        const { data: officeUrl } = supabase.storage.from('stash-media').getPublicUrl(officePath);
+        setTimeout(async () => {
+          try {
+            await supabase.functions.invoke('extract-office-text', {
+              body: {
+                fileUrl: officeUrl.publicUrl,
+                itemId: insertedItem.id,
+                fileName: data.file?.name,
+                mimeType: officeMime,
+              },
+            });
+            await fetchItems();
+          } catch (error) {
+            console.error('Office text extraction failed (non-fatal):', error);
+          }
+        }, 500);
       }
       return insertedItem;
     }

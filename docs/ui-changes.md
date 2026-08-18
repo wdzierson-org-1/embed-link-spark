@@ -8,6 +8,32 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-17 · Office documents: no fake PDF processing + real text extraction
+
+- **Only PDFs are "extracting."** `isDocumentProcessing` (the
+  `summary IS NULL` overlay/edit-block marker) applies to PDFs only (mime
+  `application/pdf`, or `.pdf` extension when mime is absent). Office formats
+  must never enter a blocking processing state — they previously hung forever
+  because only the PDF extractor writes `summary`.
+- **Non-PDF documents settle instantly**: client writes `summary` =
+  description right after insert. Never send non-PDFs to
+  `extract-pdf-text`/`quick-pdf-summary` (they 500).
+- **pptx/docx/xlsx get real extraction** via the new `extract-office-text`
+  edge function (unzip + Office Open XML parsing, no external vendors):
+  writes `page_body` (slide/paragraph/sheet text, "Slide N:" prefixes +
+  speaker notes for decks), regenerates `summary` + `description` from real
+  content, re-embeds the whole item. Clients invoke it fire-and-forget after
+  settle with `{ fileUrl, itemId, fileName, mimeType }` — the item upgrades
+  silently; a failure changes nothing. iOS: the add-file edge function should
+  gain the same gate + invoke (it currently mirrors the old PDF-only logic —
+  check before shipping office uploads on iOS).
+- Office mimes display proper chips (`PPTX`/`DOCX`/`XLSX`/`PPT`/`XLS`/`DOC`),
+  not truncated mime subtypes.
+- Known limits: no OCR of text inside slide images; legacy binary `.ppt`/
+  `.doc`/`.xls` settle without extraction; extraction capped at 50k chars.
+
+---
+
 ## 2026-08-11 → 2026-08-16 · Capture rework, location, single-object model, card system
 
 ### Data contracts (apply to every client — read this even if you skip the rest)
