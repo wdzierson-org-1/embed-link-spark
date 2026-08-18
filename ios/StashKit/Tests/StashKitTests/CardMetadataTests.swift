@@ -25,6 +25,10 @@ final class CardMetadataTests: XCTestCase {
         XCTAssertEqual(domainOf("https://api.github.com/a"), "api.github.com")
     }
 
+    func testDomainOfLowerCasesHostBeforeWwwStrip() {
+        XCTAssertEqual(domainOf("https://WWW.GitHub.COM/a"), "github.com")
+    }
+
     // MARK: - repoPath Tests
 
     func testRepoPathExtractsOwnerAndRepo() {
@@ -61,6 +65,10 @@ final class CardMetadataTests: XCTestCase {
 
     func testRepoPathReturnsNilForSingleSegment() {
         XCTAssertNil(repoPath("https://github.com/owner"))
+    }
+
+    func testRepoPathRejectsGitlabNonRepoRoots() {
+        XCTAssertNil(repoPath("https://gitlab.com/explore/projects"))
     }
 
     // MARK: - formatFileSizeChip Tests

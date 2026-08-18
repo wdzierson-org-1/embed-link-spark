@@ -13,7 +13,8 @@ private let GITHUB_NON_REPO_ROOTS: Set<String> = [
 public func domainOf(_ url: String?) -> String {
     guard let url = url else { return "" }
     guard let parsed = URL(string: url), let hostname = parsed.host else { return "" }
-    return hostname.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
+    let lowercasedHost = hostname.lowercased()
+    return lowercasedHost.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
 }
 
 /// Extracts the owner and repo name from a GitHub or GitLab URL.
@@ -35,8 +36,8 @@ public func repoPath(_ url: String?) -> (owner: String, repo: String)? {
     // Need at least 2 segments (owner/repo)
     guard segments.count >= 2 else { return nil }
 
-    // Reject GitHub non-repo roots
-    if normalizedHost == "github.com" && GITHUB_NON_REPO_ROOTS.contains(segments[0]) {
+    // Reject non-repo roots (applies to both GitHub and GitLab)
+    if GITHUB_NON_REPO_ROOTS.contains(segments[0]) {
         return nil
     }
 
