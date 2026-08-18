@@ -61,10 +61,19 @@ Add `attributes: safeAttributes` to the insert (`:317-330`).
 - [ ] **Step 4: add-file** — destructure+sanitize, add to insert (`:61-76`). Then the PDF gate in the document enrichment branch: wrap the `quick-pdf-summary` + `extract-pdf-text` invokes in `if (mime_type === 'application/pdf') { … }`; the `else` branch (non-PDF documents) runs after the existing baseline embedding:
 
 ```ts
+        } else if (OFFICE_MIMES.has(mime_type)) {
+          // OOXML documents → extract-office-text (committed+deployed c4cbdd0;
+          // mirrors extract-pdf-text: writes page_body + summary + description,
+          // re-embeds). Contract: {fileUrl, itemId, fileName, mimeType}
+          // (extract-office-text/index.ts:127).
+          const { error: offErr } = await supabase.functions.invoke('extract-office-text', {
+            body: { fileUrl: publicUrl, itemId: item.id, fileName, mimeType: mime_type },
+          });
+          if (offErr) console.error('add-file: extract-office-text failed for', item.id, offErr);
         } else {
-          // Non-PDF documents (parity with 83e9809): no PDF pipeline. Give the
-          // card a description and clear the "still extracting" marker
-          // (summary IS NULL drives the shimmer) until office extraction ships.
+          // Other non-PDF documents (parity with 83e9809): no PDF pipeline.
+          // Give the card a description and clear the "still extracting"
+          // marker (summary IS NULL drives the shimmer).
           const { data: d, error: descErr } = await supabase.functions.invoke('generate-description', {
             body: { content: fileName, type: 'document' },
           });
@@ -74,7 +83,7 @@ Add `attributes: safeAttributes` to the insert (`:317-330`).
         }
 ```
 
-(The document placeholder description at insert stays as-is for PDFs; for non-PDFs it is immediately replaced by this branch.)
+with `const OFFICE_MIMES = new Set(['application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);` near `deriveItemType`. (The document placeholder description at insert stays for PDFs and OOXML — their extractors replace it; the plain-stub branch replaces it immediately. E2E check #5's `.txt` exercises the stub branch; add check #6: upload a real `.docx` — generate via `cd /tmp && python3 -c` is unavailable-safe? Simpler: create a minimal docx with `zip` from a hand-written document.xml — the implementer builds it in /tmp with the `zip` CLI (document.xml with one `<w:t>office e2e persimmon deck</w:t>` run inside the standard docx skeleton), uploads with the DOCX mime, add-files it, polls `page_body ilike '%persimmon%'` ≤120s — proving the add-file→extract-office-text path E2E. Clean up.)
 - [ ] **Step 5: Widen the TS union** — `src/types/itemAttributes.ts:14`: `export type LocationSource = 'browser-geolocation' | 'device-geolocation' | 'photo-exif' | 'manual';` (the comment above it already says "widen as collectors are added").
 - [ ] **Step 6: Deploy all three + verify listed**
 
