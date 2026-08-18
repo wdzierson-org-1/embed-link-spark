@@ -17,7 +17,8 @@ final class ItemMergeTests: XCTestCase {
                           supplementalNote: String? = nil) -> Item {
         Item(id: UUID(), type: .link, title: title, content: nil, url: "https://example.com",
              filePath: nil, description: description, summary: "s", pageBody: pageBody,
-             supplementalNote: supplementalNote, mimeType: nil, isPublic: false, createdAt: .now)
+             supplementalNote: supplementalNote, mimeType: nil, isPublic: false, createdAt: .now,
+             fileSize: nil, attributes: ItemAttributes())
     }
 
     func testListRowRefreshPreservesLocalPageBodyButStillTakesNewerFields() {

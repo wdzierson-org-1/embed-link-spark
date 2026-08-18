@@ -8,7 +8,7 @@ final class ItemRulesTests: XCTestCase {
         Item(id: UUID(), type: type, title: title, content: content, url: url,
              filePath: filePath, description: description, summary: summary,
              pageBody: nil, supplementalNote: supplementalNote, mimeType: nil,
-             isPublic: false, createdAt: .now)
+             isPublic: false, createdAt: .now, fileSize: nil, attributes: ItemAttributes())
     }
 
     func testSearchMatchesSameFieldsAsWeb() {

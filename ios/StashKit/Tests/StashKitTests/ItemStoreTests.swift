@@ -34,7 +34,8 @@ final class ItemStoreTests: XCTestCase {
         Item(id: UUID(), type: .text, title: "t\(minutesAgo)", content: nil, url: nil,
              filePath: nil, description: nil, summary: nil, pageBody: nil,
              supplementalNote: nil, mimeType: nil, isPublic: false,
-             createdAt: Date(timeIntervalSinceNow: Double(-60 * minutesAgo)))
+             createdAt: Date(timeIntervalSinceNow: Double(-60 * minutesAgo)),
+             fileSize: nil, attributes: ItemAttributes())
     }
 
     func testPaginationAdvancesCursorAndStops() async {

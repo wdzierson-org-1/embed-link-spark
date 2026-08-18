@@ -26,7 +26,7 @@ final class ItemEditorTests: XCTestCase {
     func snapshot(title: String? = "T", note: String? = nil, isPublic: Bool = false) -> Item {
         Item(id: UUID(), type: .text, title: title, content: nil, url: nil, filePath: nil,
              description: "D", summary: nil, pageBody: nil, supplementalNote: note,
-             mimeType: nil, isPublic: isPublic, createdAt: .now)
+             mimeType: nil, isPublic: isPublic, createdAt: .now, fileSize: nil, attributes: ItemAttributes())
     }
 
     func testChangedFieldsDiffIsMinimal() {
