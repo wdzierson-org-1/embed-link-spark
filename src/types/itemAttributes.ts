@@ -11,7 +11,7 @@
  */
 
 /** How a location was collected — widen as collectors are added */
-export type LocationSource = 'browser-geolocation' | 'photo-exif' | 'manual';
+export type LocationSource = 'browser-geolocation' | 'device-geolocation' | 'photo-exif' | 'manual';
 
 export type CapturedLocation = {
   /** Display string, e.g. "Saratoga Springs, New York" — always present */

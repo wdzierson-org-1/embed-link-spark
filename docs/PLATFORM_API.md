@@ -21,6 +21,16 @@ owner is always derived from the JWT server-side — never sent by the client.
 
 ## Capture
 
+Every capture endpoint (`add-url`, `add-note`, `add-file`) accepts an optional
+`attributes` object in the request body — structured facts about the item
+(location, link metadata, media info; shapes defined in
+`src/types/itemAttributes.ts`) that aren't its content. It's stored whole-blob
+on `items.attributes` (jsonb): omit it, send `{}`, or send anything that
+isn't a plain object (e.g. an array) and it's treated as `{}` — never a 500.
+`add-url` additionally guarantees `attributes.link.flavor` on every saved
+link: a caller-supplied flavor wins, otherwise the server classifies one from
+the URL alone (`article` / `video` / `repo` / `book` / `social` / `generic`).
+
 ### `POST /add-url` — save a link
 
 ```json
@@ -57,9 +67,13 @@ Upload to Storage first (`stash-media/<userId>/<name>.<ext>`), then:
 Returns `{ success, item }` fast. Type derives from MIME (image/audio/video,
 else document). Enrichment continues server-side after the response: vision
 description + OCR for images, Whisper transcript into `page_body` for
-audio/video, quick summary + full text extraction for documents, embeddings
-for all — realtime delivers the upgrades. `file_path` must sit inside the
-caller's own folder (403 otherwise).
+audio/video, embeddings for all. Documents branch by exact MIME: `application/
+pdf` gets quick summary + full text extraction into `page_body`; Office Open
+XML (`.pptx`/`.docx`/`.xlsx`) gets text extraction via the same page_body/
+summary/description contract; anything else settles immediately with an AI
+description (`summary` mirrors `description` — no `page_body`). Realtime
+delivers the upgrades. `file_path` must sit inside the caller's own folder
+(403 otherwise).
 
 ## Ask
 
