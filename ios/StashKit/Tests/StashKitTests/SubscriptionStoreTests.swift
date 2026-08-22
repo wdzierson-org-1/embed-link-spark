@@ -211,4 +211,31 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertTrue(store.canAddContent)  // still fails open (isLoading), not falsely closed either
         XCTAssertNil(store.lastError)
     }
+
+    // Web parity (plan-4 Task 6b, commit 42c2e67: "fail-open subscription errors"): a transient
+    // error checking subscription status does NOT wipe the last known status — an errored check
+    // means unknown, not unsubscribed. Keeps gates open on a prior success while connection
+    // hiccups or other transient failures resolve. Non-cancellation errors (distinguished from
+    // cancellation by the early guard above) still set `lastError` for UI reporting.
+    func testTransientErrorKeepsLastKnownStatus() async {
+        let checker = StubChecker()
+        let trial = SubscriptionStatus(subscribed: false, onTrial: true, daysLeft: 5)
+        checker.results = [.success(trial), .failure(CaptureError.badStatus(500))]
+        let store = SubscriptionStore(checker: checker)
+
+        // First refresh succeeds — gates open on a trial status.
+        await store.refresh()
+        XCTAssertEqual(store.status, trial)
+        XCTAssertTrue(store.canAddContent)
+        XCTAssertNil(store.lastError)
+
+        // Second refresh hits a transient error.
+        await store.refresh()
+
+        // Status must remain: unknown ≠ unsubscribed, so gates stay open.
+        XCTAssertEqual(store.status, trial)
+        XCTAssertTrue(store.canAddContent)
+        // Error is recorded for UI to show.
+        XCTAssertEqual(store.lastError, "Couldn't check your subscription status.")
+    }
 }

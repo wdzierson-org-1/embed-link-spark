@@ -171,7 +171,11 @@ public final class SubscriptionStore {
             // alone does not catch.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
             guard generation == refreshGeneration else { return }
-            status = nil
+            // Web parity (plan-4 Task 6b, commit 42c2e67: "fail-open subscription errors"): a
+            // transient error checking subscription status does NOT wipe the last known status —
+            // an errored check means unknown, not unsubscribed. Keep gates open on a prior
+            // success while connection hiccups or other transient failures resolve. Only set
+            // `lastError` for UI reporting; never nil `status`.
             lastError = "Couldn't check your subscription status."
         }
     }

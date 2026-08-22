@@ -20,7 +20,9 @@ final class SessionStore {
         // on the Simulator, so a UI test that signs in once would silently skip the
         // sign-in screen on every subsequent run. Let the UI test force a clean slate.
         if CommandLine.arguments.contains("--uitest-reset-auth") {
-            try? await StashClient.shared.auth.signOut()
+            // Web parity (plan-4 Task 6b, commit 166b7c6: "local-scope sign-out"): sign out
+            // locally without broadcast to other sessions — matches web's LogoutButton behavior.
+            try? await StashClient.shared.auth.signOut(scope: .local)
         }
         #endif
         // Zombie-session lesson: any failure here (incl. "Auth session missing")
@@ -52,7 +54,10 @@ final class SessionStore {
     }
 
     func signOut() async {
-        try? await StashClient.shared.auth.signOut()
+        // Web parity (plan-4 Task 6b, commit 166b7c6: "local-scope sign-out"): sign out
+        // locally without broadcast to other sessions — matches web's LogoutButton behavior.
+        // Fixes zombie-session incident (see memory/supabase-log-forensics.md).
+        try? await StashClient.shared.auth.signOut(scope: .local)
         state = .signedOut
     }
 }
