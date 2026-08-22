@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    console.log('Request body:', body);
+    console.log('add-url called', { hasAttributes: !!body.attributes, url: body.url });
 
     const { url, title: customTitle, content: userNotes, message, supplemental_note, is_public = false, attributes } = body;
     const safeAttributes =
@@ -317,7 +317,7 @@ Deno.serve(async (req) => {
     // Guarantee attributes.link.flavor on every saved link — caller-supplied
     // flavor wins; otherwise classify server-side from the URL alone
     const providedLink = (safeAttributes as Record<string, unknown>).link;
-    const link = providedLink && typeof providedLink === 'object' ? providedLink as Record<string, unknown> : {};
+    const link = providedLink && typeof providedLink === 'object' && !Array.isArray(providedLink) ? providedLink as Record<string, unknown> : {};
     if (typeof link.flavor !== 'string') link.flavor = classifyLinkFlavor(url);
     (safeAttributes as Record<string, unknown>).link = link;
 

@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    console.log('Request body:', body);
+    console.log('add-note called', { hasAttributes: !!body.attributes, contentLength: (body.content ?? '').length });
 
     const { content, title, is_public = false, attributes } = body;
     const safeAttributes =
