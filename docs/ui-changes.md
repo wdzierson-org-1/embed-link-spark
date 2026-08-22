@@ -8,6 +8,54 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-22 · Capture endpoints: `attributes` passthrough + server-side link flavor (iOS plan 4)
+
+Written for the web agent — contracts first. This is the iOS client absorbing
+the 2026-08-11→16 entry below into the platform API; the endpoint changes
+apply to every caller, including web's own server-side/API paths.
+
+- **`add-note`, `add-url`, `add-file` all accept an optional `attributes`
+  object** in the request body now — the same whole-blob shape the web
+  already writes client-side (`src/types/itemAttributes.ts`). Non-object
+  (including array) values sanitize to `{}` server-side rather than 500ing.
+  Web's own client-side `attributes` inserts are unaffected (this is additive
+  — existing callers that never send `attributes` see no change); this only
+  matters to you if some web code path calls these edge functions directly
+  instead of inserting via the client SDK.
+- **`add-url` now classifies `attributes.link.flavor` server-side when the
+  caller doesn't supply one** (`supabase/functions/_shared/linkFlavor.ts`, a
+  verbatim port of `src/utils/linkFlavor.ts:1-54`). Caller-supplied flavor
+  always wins. **This closes the gap for any link saved through `add-url`
+  without a client-computed flavor** — e.g. ChatMole/API-driven captures that
+  don't run `UnifiedInputPanel`'s own client-side classification — with zero
+  web code change required; the fix is entirely server-side.
+- **`LocationSource` (`src/types/itemAttributes.ts:14`) widened**:
+  `'browser-geolocation' | 'device-geolocation' | 'photo-exif' | 'manual'`.
+  `'device-geolocation'` is iOS's CoreLocation-sourced fixes — same
+  `CapturedLocation` shape as `'browser-geolocation'`, just a different
+  collector. No web rendering change needed (the label/source distinction was
+  already designed to be open-ended).
+- **`add-file`'s document branch now gates on MIME** (parity with web commits
+  83e9809 + c4cbdd0): exactly `mime_type === 'application/pdf'` enters the
+  `quick-pdf-summary`/`extract-pdf-text` pipeline; the three OOXML mimes
+  (pptx/docx/xlsx) invoke `extract-office-text`; everything else settles
+  immediately via `generate-description` + `summary = description`. Was
+  previously PDF-pipeline-for-everything on iOS's add-file (pre-dating the
+  web's own 83e9809 fix) — now matches.
+- **Flagged divergence, awaiting product sign-off — not yet aligned either
+  direction:** iOS's single-object batch note-placement is **URL-first
+  deterministic** (a detected URL is always its own unit and always receives
+  the batch's note, regardless of attachment count or order) rather than the
+  web's **chip-order** rule (`UnifiedInputPanel.tsx:754-873` — whichever
+  object the user chipped first gets the note). The two agree whenever a URL
+  is typed/pasted before attachments are added (the common case) and diverge
+  only when files are attached first and a URL is added after. iOS's rule
+  also happens to fix a pre-existing single-attachment+URL fold bug. Needs a
+  decision: align iOS to chip-order, align web to URL-first, or keep the
+  platform difference — tracked for plan 7, not resolved here.
+
+---
+
 ## 2026-08-17 · Office documents: no fake PDF processing + real text extraction
 
 - **Only PDFs are "extracting."** `isDocumentProcessing` (the
