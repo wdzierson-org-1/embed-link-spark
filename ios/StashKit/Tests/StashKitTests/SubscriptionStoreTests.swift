@@ -50,7 +50,10 @@ final class SubscriptionStoreTests: XCTestCase {
         await store.refresh()                        // later refresh sees `none` again…
         XCTAssertEqual(checker.trialCalls, 1)        // …but never re-creates a trial
     }
-    func testLoadingFailsOpenThenErrorClosesGates() async {
+    // Distinguishes the NO-prior-status error path: a first-check error with no prior
+    // subscription status leaves gates closed. Contrasts with testTransientErrorKeepsLastKnownStatus
+    // which covers the has-prior-status path (transient error after a successful check).
+    func testErrorWithNoPriorStatusLeavesGatesClosed() async {
         let checker = StubChecker()                  // empty results → throw
         let store = SubscriptionStore(checker: checker)
         XCTAssertTrue(store.canAddContent)           // pre-first-refresh: loading state fail-open
