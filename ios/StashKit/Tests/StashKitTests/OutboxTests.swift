@@ -449,4 +449,72 @@ final class OutboxTests: XCTestCase {
         let after = await box.pending()
         XCTAssertTrue(after.isEmpty, "retrying a permanently-failed entry can never succeed, so it must not be retained")
     }
+
+    // MARK: - Task 3: cross-process drain claims
+    //
+    // Plan 5 Task 5+ puts the share extension and the app in the same App-Group-backed Outbox
+    // directory (`AppGroup.userScopedURL`), so `drain` must coordinate across OS PROCESSES, not
+    // just within one — `isDraining` above only guards reentrancy inside a single actor instance.
+    // These tests use two separate `Outbox` instances over the SAME directory to stand in for
+    // "two processes/instances," and inspect the raw `<id>.claim` sidecar file on disk directly
+    // (rather than only asserting through `pending()`, which deliberately never surfaces `.claim`
+    // files) to prove the claim's own lifecycle, not just its externally-visible effect.
+
+    func testClaimedEntryIsSkippedByASecondOutbox() async throws {
+        let boxA = Outbox(directory: dir)
+        try await boxA.enqueue(.note, payload: ["content": "n1", "is_public": "false"])
+        let pendingA = await boxA.pending()
+        let entryId = try XCTUnwrap(pendingA.first).id
+        let claimed = await boxA.claimEntry(id: entryId)
+        XCTAssertTrue(claimed, "the first claim on a never-claimed entry must succeed")
+
+        let boxB = Outbox(directory: dir)
+        let stub = StubPoster(); stub.response = noteJSON
+        let sent = await boxB.drain(api: CaptureAPI(poster: stub), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+
+        XCTAssertEqual(sent, 0, "an entry already claimed by another process must be skipped, not sent")
+        let pending = await boxB.pending()
+        XCTAssertEqual(pending.count, 1, "the claimed entry itself must survive untouched")
+        let claimURL = dir.appending(path: "\(entryId.uuidString).claim")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: claimURL.path),
+                      "a second process's drain must never remove a live claim it doesn't own")
+    }
+
+    func testStaleClaimIsReclaimed() async throws {
+        let stalePast = Date().addingTimeInterval(-700)   // > the 600s staleClaimInterval
+        let crashedBox = Outbox(directory: dir, now: { stalePast })
+        try await crashedBox.enqueue(.note, payload: ["content": "n1", "is_public": "false"])
+        let pendingCrashed = await crashedBox.pending()
+        let entryId = try XCTUnwrap(pendingCrashed.first).id
+        let claimed = await crashedBox.claimEntry(id: entryId)
+        XCTAssertTrue(claimed)
+
+        let box = Outbox(directory: dir)   // real clock — reclaims the stale claim above
+        let stub = StubPoster(); stub.response = noteJSON
+        let sent = await box.drain(api: CaptureAPI(poster: stub), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+
+        XCTAssertEqual(sent, 1, "a claim older than staleClaimInterval must be reclaimed and the entry sent")
+        let pending = await box.pending()
+        XCTAssertTrue(pending.isEmpty)
+        let claimURL = dir.appending(path: "\(entryId.uuidString).claim")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: claimURL.path),
+                       "the reclaimed-then-sent entry's claim must be removed along with the entry itself")
+    }
+
+    func testFailedSendReleasesClaim() async throws {
+        let box = Outbox(directory: dir)
+        try await box.enqueue(.note, payload: ["content": "n1", "is_public": "false"])
+        let pendingBefore = await box.pending()
+        let entryId = try XCTUnwrap(pendingBefore.first).id
+        let failing = StubPoster(); failing.response = Data("{}".utf8)   // malformed → throw
+        let sent = await box.drain(api: CaptureAPI(poster: failing), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+
+        XCTAssertEqual(sent, 0)
+        let after = await box.pending()
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after[0].attempts, 1, "attempts must still increment on a failed send even though the claim is released")
+        let claimURL = dir.appending(path: "\(entryId.uuidString).claim")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: claimURL.path),
+                       "a failed send must release its claim so a retry — by this process or another — can pick the entry up")
+    }
 }

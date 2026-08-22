@@ -9,14 +9,56 @@ public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
     public var attempts: Int
 }
 
-/// One JSON file per pending capture. Survives crashes and offline periods;
-/// plan 3 moves the directory into the App Group container.
+/// Cross-process claim sidecar (Plan 5 Task 3): `<entryId>.claim`, written and read next to the
+/// entry it guards. Existence alone is the mutex — `Outbox.claimEntry` creates it with
+/// `Data.write(options: [.withoutOverwriting])`, which maps to POSIX `O_EXCL` on APFS, so at most
+/// one of any number of concurrent creators targeting the same `id` ever succeeds. The fields
+/// inside are diagnostic-only: nothing ever reads `owner` or `claimedAt` back to arbitrate
+/// ownership, only to decide whether a claim has gone stale (see `Outbox.staleClaimInterval`).
+private struct OutboxClaim: Codable, Sendable {
+    let owner: String
+    let claimedAt: Date
+}
+
+/// One JSON file per pending capture. Survives crashes and offline periods. See
+/// `defaultDirectory` below for how the directory itself is resolved (per-user, App-Group-backed
+/// since Plan 5 Task 2) and `drain` for the claim protocol (Plan 5 Task 3) that lets the app and
+/// the share extension (Task 5+) safely share one such directory without double-sending an entry.
 public actor Outbox {
     private let directory: URL
     private var isDraining = false
+    private let now: @Sendable () -> Date
 
-    public init(directory: URL) {
+    /// How long a claim sidecar is honored before `drain` treats its owner as dead (crashed,
+    /// force-quit, or killed by the OS mid-upload) and reclaims the entry for itself. There's no
+    /// liveness signal beyond the sidecar's age — a process holding a claim never renews it — so
+    /// this is a blunt timeout, not a lease with heartbeats: comfortably longer than any single
+    /// entry's processing should ever legitimately take (including the local-file lane's upload
+    /// step), while short enough that a genuinely abandoned claim doesn't block an entry forever.
+    private static let staleClaimInterval: TimeInterval = 600
+
+    /// Diagnostic value stamped into a claim's `owner` field — never read back to decide
+    /// ownership (the O_EXCL create is the actual mutex), but distinguishes which process holds a
+    /// claim if one is ever inspected by hand. Bundle id (falls back to the bare process name
+    /// when there's no bundle, e.g. the `swift test`/XCTest host) plus pid, so the app and the
+    /// share extension — two separate processes/bundles that legitimately point at the same App
+    /// Group directory — are always distinguishable from each other.
+    private static let processOwner: String = {
+        let name = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        return "\(name)#\(ProcessInfo.processInfo.processIdentifier)"
+    }()
+
+    /// - Parameter now: Injectable for tests (`testStaleClaimIsReclaimed` backdates a claim by
+    ///   constructing an `Outbox` whose `now` returns a past instant). Defaults to the current
+    ///   time so no existing call site needs to change.
+    public init(directory: URL,
+                // A bare `Date.init` reference triggers "converting non-Sendable function value
+                // to '@Sendable () -> Date' may introduce data races" on this toolchain — the
+                // same quirk `drain`'s `upload` parameter default already works around by wrapping
+                // in a closure literal instead of passing the function value directly.
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.directory = directory
+        self.now = now
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
@@ -57,7 +99,9 @@ public actor Outbox {
 
     public func pending() -> [OutboxEntry] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        return files.compactMap { try? JSONDecoder().decode(OutboxEntry.self, from: Data(contentsOf: $0)) }
+        return files
+            .filter { $0.pathExtension == "json" }   // exclude `.claim` sidecars (Task 3)
+            .compactMap { try? JSONDecoder().decode(OutboxEntry.self, from: Data(contentsOf: $0)) }
             .sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -82,6 +126,15 @@ public actor Outbox {
         defer { isDraining = false }
         var sent = 0
         for var entry in pending() {
+            // Cross-process claim (Task 3): acquired BEFORE any processing of this entry —
+            // including the missing-local-file drop check and the local-file upload lane below —
+            // so the claim spans the entry's entire lifecycle for this pass, not just the final
+            // `send`. `false` means some other in-flight drain (this process's own reentrant call
+            // can't reach here at all, thanks to `isDraining` above, so in practice this is
+            // another PROCESS — the share extension, Task 5+ — or a previous crashed run that
+            // hasn't gone stale yet) already owns this entry; skip it and move on to the next one.
+            guard acquireClaim(for: entry.id) else { continue }
+
             // Recording durability (Task 4): a `.file` entry can carry `local_file_path` instead
             // of (as well as, briefly) `file_path` — the app's recorder (Task 6) writes audio
             // straight to local disk via `RecordingStore` and enqueues before any network call
@@ -99,6 +152,7 @@ public actor Outbox {
                 // for nothing.
                 print("Outbox: dropping entry \(entry.id) — its local recording file is missing, upload can never succeed")
                 try? FileManager.default.removeItem(at: fileURL(for: entry.id))
+                releaseClaim(for: entry.id)
                 continue
             }
 
@@ -132,15 +186,84 @@ public actor Outbox {
                 }
                 _ = try await send(entry, api: api, accessToken: accessToken)
                 try? FileManager.default.removeItem(at: fileURL(for: entry.id))
+                releaseClaim(for: entry.id)
                 sent += 1
             } catch {
                 entry.attempts += 1
                 if let data = try? JSONEncoder().encode(entry) {
                     try? data.write(to: fileURL(for: entry.id), options: .atomic)
                 }
+                // Release even on failure (attempts still increments above) so the entry is
+                // re-eligible immediately on the very next drain — by this process or another —
+                // rather than waiting out `staleClaimInterval` for no reason.
+                releaseClaim(for: entry.id)
             }
         }
         return sent
+    }
+
+    /// Attempts to acquire ownership of `id` for this `drain` pass. Returns `true` if this call
+    /// now owns the entry — either there was no existing claim, or there was a stale one this
+    /// call just replaced — and `false` if a live claim exists (owned by this process's own
+    /// earlier, still-in-flight attempt or, cross-process, by another one entirely), meaning the
+    /// entry must be skipped this pass.
+    private func acquireClaim(for id: UUID) -> Bool {
+        if claimEntry(id: id) { return true }
+        // Creation failed: a claim sidecar already exists. Read it to decide whether it's stale;
+        // an unreadable/corrupt sidecar is treated the same as a live one (conservative — never
+        // double-process an entry just because its claim file looks odd).
+        let url = claimFileURL(for: id)
+        guard let data = try? Data(contentsOf: url),
+              let claim = try? JSONDecoder().decode(OutboxClaim.self, from: data),
+              now().timeIntervalSince(claim.claimedAt) > Self.staleClaimInterval else {
+            return false
+        }
+        // Stale: the owning process almost certainly crashed or was force-quit mid-entry. Delete
+        // the stale sidecar, then recreate it with the SAME `.withoutOverwriting` atomicity as a
+        // fresh claim (`claimEntry` again) rather than assuming this call now owns it outright.
+        // There's a tiny race window right here, between `removeItem` and that recreate, where a
+        // second process independently polling the same stale claim could slip in — that's fine
+        // and intentional, not a bug to close: exactly one of the two `claimEntry` calls wins the
+        // O_EXCL create, and the loser's `false` return means it skips the entry this pass, same
+        // as any ordinary live-claim contention. The delete itself isn't atomic with the recreate,
+        // but the recreate is the step that actually decides ownership, and that one is.
+        try? FileManager.default.removeItem(at: url)
+        return claimEntry(id: id)
+    }
+
+    /// Removes the claim sidecar for `id`, if any. Called once an entry reaches a terminal state
+    /// for this pass — sent, permanently dropped, or retried-after-failure — so the entry is
+    /// immediately re-eligible rather than waiting out `staleClaimInterval`.
+    private func releaseClaim(for id: UUID) {
+        try? FileManager.default.removeItem(at: claimFileURL(for: id))
+    }
+
+    /// Attempts to atomically create the claim sidecar for `id` (see `OutboxClaim`'s doc comment
+    /// for why existence alone is the mutex). Returns `true` if this call created it — the entry
+    /// is now owned by this process/instance for the remainder of this pass — or `false` if a
+    /// claim already existed and this call therefore did nothing.
+    ///
+    /// `internal` (no `public`/`private`) rather than folded entirely into `drain`/`acquireClaim`:
+    /// exposed so `OutboxTests` can simulate a second process's live claim by calling this
+    /// directly from a separate `Outbox` instance over the same directory, without needing two
+    /// real OS processes.
+    ///
+    /// Local-only note: `.withoutOverwriting`'s O_EXCL atomicity is a guarantee of the local
+    /// filesystem (APFS) the App Group container lives on. It would not hold over iCloud Drive or
+    /// a network filesystem — neither of which applies here (`AppGroup.containerURL()` is always a
+    /// local App Group / Application Support directory, never an iCloud-backed one).
+    ///
+    /// Deliberately not `@discardableResult`: ignoring the outcome would be a bug at any call
+    /// site (processing an entry without knowing whether this call actually owns it), so every
+    /// caller — internal or in `OutboxTests` — is required to look at it.
+    func claimEntry(id: UUID) -> Bool {
+        let claim = OutboxClaim(owner: Self.processOwner, claimedAt: now())
+        guard let data = try? JSONEncoder().encode(claim) else { return false }
+        return (try? data.write(to: claimFileURL(for: id), options: .withoutOverwriting)) != nil
+    }
+
+    private func claimFileURL(for id: UUID) -> URL {
+        directory.appending(path: "\(id.uuidString).claim")
     }
 
     private func send(_ entry: OutboxEntry, api: CaptureAPI, accessToken: String) async throws -> Item {

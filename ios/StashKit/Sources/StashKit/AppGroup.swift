@@ -70,6 +70,28 @@ public enum AppGroup {
     /// two paths are identical (the un-entitled case), this is a no-op. Cheap enough (one or two
     /// `fileExists` stats in the common case) to call unconditionally on every `defaultDirectory`
     /// resolution.
+    ///
+    /// Carried from the Task 2 review: the `fileExists`-then-`moveItem` sequence below is a
+    /// check-then-act race with no lock, and this runs on every composer/recorder presentation
+    /// (`defaultDirectory` is called on every access, not cached) — worst case, Plan 5 Task 5+
+    /// puts the app and the share extension in separate PROCESSES that could both call this for
+    /// the same user around the same first-launch-after-upgrading moment. Left unguarded rather
+    /// than adding a lock, per the review's own judgment: low risk, not risk-free. Two overlapping
+    /// callers can both pass the `fileExists` guard, but `moveItem` resolves to a single POSIX
+    /// `rename()` of `legacy` — atomic at the filesystem level — so at most one caller's move can
+    /// actually succeed; the other's `try?` just fails harmlessly once `legacy` is already gone.
+    /// Also cited by the review: `legacy`/`destination` are per-user directories (UUID user-id
+    /// segment), so two DIFFERENT users' migrations can never target the same path pair in the
+    /// first place — only two callers racing to migrate the SAME user, the scenario above, are
+    /// ever in play at all.
+    ///
+    /// That atomicity is also why a losing/failing caller is intentionally untested here: `legacy`
+    /// is only ever removed by a `moveItem` call that itself succeeded, so a caller that loses the
+    /// race (or hits any other `moveItem` failure) leaves `legacy` exactly as it was, and the next
+    /// `defaultDirectory` call anywhere just retries the move. There's no way to force `moveItem`
+    /// to fail partway through in a unit test without mocking `FileManager` itself, and the
+    /// property that actually matters — source survives any failure — falls out of `moveItem`'s
+    /// own all-or-nothing contract, not out of code written here.
     static func migrateLegacyDirectory(from legacy: URL, to destination: URL) {
         guard legacy != destination else { return }
         let fm = FileManager.default
