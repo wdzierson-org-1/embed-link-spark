@@ -907,6 +907,133 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 10), "Expected the library after dismiss")
     }
 
+    // MARK: - Location pin (Task 6)
+    //
+    // Polls `items?content=eq.<marker>` until the row `testLocationPinSmoke` just created via the
+    // UI appears (the in-app save + this REST read are two independent paths — same "give it a
+    // moment" reasoning as `testCaptureSmoke`'s in-app realtime-search step, just via REST instead
+    // of the UI here), returning `id`/`attributes` for that test's own assertions. Reuses
+    // `fixtureRepairAccessToken`/`fixtureRepairBaseURL`/`fixtureRepairAnonKey`/`FixtureRepairError`
+    // (above) rather than duplicating the auth dance.
+    private func pollForRow(matchingContent marker: String, email: String, password: String,
+                            timeout: TimeInterval) async throws -> [String: Any] {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [
+                    URLQueryItem(name: "content", value: "eq.\(marker)"),
+                    URLQueryItem(name: "select", value: "id,attributes"),
+                ]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               let row = rows.first {
+                return row
+            }
+            try? await Task.sleep(for: .seconds(1))
+        } while Date() < deadline
+        throw FixtureRepairError("timed out waiting for the disposable location row '\(marker)' to appear via REST")
+    }
+
+    /// Cleanup for `testLocationPinSmoke`'s disposable row — same REST-verified deletion
+    /// `testDeleteSmoke` exercises through the in-app UI, performed here directly since this test
+    /// already has the row's `id` in hand from `pollForRow` above and never touches the permanent
+    /// UITEST-FIXTURE rows.
+    private func deleteRow(id: String, email: String, password: String) async throws {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [URLQueryItem(name: "id", value: "eq.\(id)")]))
+        request.httpMethod = "DELETE"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("cleanup DELETE failed for disposable location row \(id)")
+        }
+    }
+
+    /// Opt-in location capture (Task 6): pin toggle → CoreLocation one-shot fix (simulator location
+    /// pre-set via `simctl location set`, permission pre-granted via `simctl privacy grant
+    /// location` — both shell pre-steps run before this suite, see task-6-report.md) → native
+    /// reverse geocode → non-empty preview line → Save → REST-verified `attributes.location` on
+    /// the saved row (label, `source == "device-geolocation"`, latitude). The created row is
+    /// disposable: REST-polled then REST-DELETEd within this test itself (`pollForRow`/`deleteRow`
+    /// above), never touching the permanent UITEST-FIXTURE rows.
+    ///
+    /// `@MainActor`: same reasoning as `testEditSmoke` — XCTest always runs test methods on the
+    /// main thread/actor in practice; this just makes the `XCUIElement` calls in this `async` test
+    /// explicit about it rather than leaving the compiler to flag each one as a possible
+    /// off-main-actor access.
+    @MainActor
+    func testLocationPinSmoke() async throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        // Add is the launch tab (plan 2) — the pin button must appear without tapping any tab.
+        let pinButton = anyElement("capture.pin")
+        XCTAssertTrue(pinButton.waitForExistence(timeout: 15), "Expected the location pin button on the Add tab")
+        pinButton.tap()
+
+        // Screenshot rig (same checkpoint technique as testDetailSheets/testAskSmoke): holds
+        // briefly right after the tap, while CoreLocation/CLGeocoder are still resolving (the
+        // pin button shows a spinner in this state — see `pinIconName`/`.resolving` in
+        // CaptureComposerView), before the wait below moves on to the resolved preview.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: pin-resolving\n".data(using: .utf8)!)
+        sleep(2)
+
+        let preview = anyElement("capture.pin.preview")
+        XCTAssertTrue(preview.waitForExistence(timeout: 10),
+                      "Expected a 'posted from <label>' preview once the pin resolves")
+        let previewLabel = preview.label
+        XCTAssertTrue(previewLabel.hasPrefix("posted from "),
+                      "Expected the pin preview text to read 'posted from <place>', got '\(previewLabel)'")
+        let place = previewLabel.dropFirst("posted from ".count).trimmingCharacters(in: .whitespaces)
+        XCTAssertFalse(place.isEmpty, "Expected a non-empty resolved location label")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: pin-preview\n".data(using: .utf8)!)
+        sleep(3)
+
+        let marker = "UITEST-LOC: pin smoke \(Int(Date().timeIntervalSince1970))"
+        let editor = anyElement("capture.editor")
+        editor.tap()
+        editor.typeText(marker)
+
+        app.buttons["capture.save"].tap()
+        XCTAssertTrue(anyElement("capture.toast").waitForExistence(timeout: 10),
+                      "Expected a success toast after saving")
+
+        let row = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
+        let attributes = row["attributes"] as? [String: Any]
+        let location = attributes?["location"] as? [String: Any]
+        XCTAssertNotNil(location, "Expected an attributes.location blob on the saved row")
+        XCTAssertFalse(((location?["label"] as? String) ?? "").isEmpty, "Expected a non-empty location label")
+        XCTAssertEqual(location?["source"] as? String, "device-geolocation")
+        XCTAssertNotNil(location?["latitude"], "Expected a latitude on the device-resolved location")
+
+        if let id = row["id"] as? String {
+            try await deleteRow(id: id, email: email, password: password)
+        }
+    }
+
     /// Settings tab (Task 7): account email, a non-empty subscription status line, and sign-out —
     /// exercised as its own smoke test now that `testLibrarySmoke`'s sign-out step lives here
     /// instead (see that test's own updated navigation preamble). The test account carries an

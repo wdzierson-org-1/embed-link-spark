@@ -15,9 +15,11 @@ struct CaptureComposerView: View {
     var switchToView: () -> Void = {}
 
     @State private var viewModel: CaptureViewModel
+    @State private var locationCapture: LocationCapture
     @State private var isSubmitting = false
     @State private var toast: CaptureToast?
     @State private var toastToken = UUID()
+    @State private var showLocationAlert = false
 
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showCameraPicker = false
@@ -31,10 +33,21 @@ struct CaptureComposerView: View {
     init(userId: UUID, switchToView: @escaping () -> Void = {}) {
         self.userId = userId
         self.switchToView = switchToView
-        // Same custom-init/State(initialValue:) shape LibraryView uses to build its ItemStore —
-        // the app is the one place allowed to import UIKit, so it supplies the real
-        // UIImage-based `downscale`; StashKit's own default is the identity closure.
-        _viewModel = State(initialValue: CaptureViewModel(userId: userId, downscale: downscaleImageData))
+        // Built as a local `let` (not read back off `self` — `@State`'s wrapper isn't available
+        // until after `init` assigns it) so BOTH `_locationCapture` and the closure captured below
+        // reference the exact same instance. Same custom-init/State(initialValue:) shape
+        // LibraryView uses to build its ItemStore.
+        let capture = LocationCapture()
+        _locationCapture = State(initialValue: capture)
+        // The app is the one place allowed to import UIKit, so it supplies the real
+        // UIImage-based `downscale`; StashKit's own default is the identity closure. Task 6:
+        // `awaitPendingLocation` bridges to `capture` — StashKit never imports CoreLocation, so
+        // this closure is the only place that connects the two.
+        _viewModel = State(initialValue: CaptureViewModel(
+            userId: userId,
+            downscale: downscaleImageData,
+            awaitPendingLocation: { [capture] timeout in await capture.awaitResolution(timeout: timeout) }
+        ))
     }
 
     private var canSubmit: Bool {
@@ -50,6 +63,9 @@ struct CaptureComposerView: View {
                 }
                 if !viewModel.attachments.isEmpty {
                     CaptureAttachmentsRow(attachments: $viewModel.attachments)
+                }
+                if case .ready(let location) = locationCapture.state {
+                    pinPreview(location.label)
                 }
                 if !subscription.canAddContent {
                     subscriptionGateMessage
@@ -86,6 +102,24 @@ struct CaptureComposerView: View {
         .task { await viewModel.drainOutbox() }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { Task { await viewModel.drainOutbox() } }
+        }
+        // Task 6: any resolution failure (fix timeout, geocode came back with nothing nameable, or
+        // auth denied) surfaces here — `locationCapture.toggle()` itself never presents UI, it only
+        // updates `state`, so this is the one place that turns `.failed` into the brief's alert.
+        .onChange(of: locationCapture.state) { _, newState in
+            if newState == .failed { showLocationAlert = true }
+        }
+        .alert("Couldn't find your location", isPresented: $showLocationAlert) {
+            // Only offered when the failure was specifically an auth denial (Task 6 brief: "auth
+            // denied → same alert + Settings deep-link button") — a plain fix/geocode failure with
+            // permission already granted has nothing for Settings to fix.
+            if locationCapture.authDenied {
+                Button("Open Settings") { openLocationSettings() }
+                    .accessibilityIdentifier("capture.pin.openSettings")
+            }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Location unavailable — allow location access in Settings to tag saves with a place.")
         }
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -229,9 +263,60 @@ struct CaptureComposerView: View {
             .toggleStyle(.button)
             .accessibilityIdentifier("capture.toggle.public")
 
+            pinButton
             saveButton
         }
         .buttonStyle(.bordered)
+    }
+
+    // MARK: - Location pin (Task 6)
+
+    private var pinButton: some View {
+        Button {
+            locationCapture.toggle()
+        } label: {
+            if locationCapture.state == .resolving {
+                ProgressView()
+            } else {
+                Image(systemName: pinIconName)
+                    .imageScale(.large)
+            }
+        }
+        .accessibilityIdentifier("capture.pin")
+    }
+
+    private var pinIconName: String {
+        switch locationCapture.state {
+        case .ready: "mappin.circle.fill"
+        case .off, .resolving, .failed: "mappin"
+        }
+    }
+
+    private func pinPreview(_ label: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "mappin.circle.fill")
+            Text("posted from \(label)")
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+        // Without `.ignore` + an explicit label, the Image and Text below are each independently
+        // accessible and BOTH inherit the identifier applied below (confirmed live: an XCUITest
+        // query for "capture.pin.preview" matched two elements — the icon AND the text, "Multiple
+        // matching elements found"). `.ignore` collapses the HStack to one element with an explicit
+        // label — NOT `.combine`, which would concatenate the icon's own implicit "Map Pin" label
+        // in front of the text this view's own accessibility contract (display-only preview line)
+        // and `testLocationPinSmoke`'s "posted from <place>" prefix check both depend on.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("posted from \(label)")
+        .accessibilityIdentifier("capture.pin.preview")
+    }
+
+    private func openLocationSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
     }
 
     private var saveButton: some View {

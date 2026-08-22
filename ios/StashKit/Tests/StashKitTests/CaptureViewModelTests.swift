@@ -116,6 +116,29 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertNil(poster.calls[2].body["content"])
     }
 
+    // Rider (Task 6, from Task 5's review): T5 generalized "a URL is always its own unit and
+    // always comes first" to every attachment count, including exactly one — previously,
+    // `attachments.count == 1` short-circuited before any URL check ran at all, so a single
+    // attached file + URL-bearing text used to merge the raw text (URL included) into the file's
+    // `content` instead of splitting into two units. Only the 2-attachment case had a dedicated
+    // test; this closes that gap for the 1-attachment case specifically. Pins existing behavior —
+    // no production code changed for this test.
+    func testSingleAttachmentWithURLTextMakesTwoUnitsNoteOnURL() async {
+        let poster = RecordingPoster()
+        let vm = makeViewModel(poster: poster)
+        vm.text = "check this https://example.com"
+        vm.attachments = [CaptureAttachment(data: Data([0x01]), fileExtension: "png",
+                                            mimeType: "image/png", kind: .photo)]
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .saved(count: 2, dropped: 0))
+        XCTAssertEqual(poster.calls.map(\.path), ["add-url", "add-file"])
+        XCTAssertEqual(poster.calls[0].body["url"] as? String, "https://example.com")
+        XCTAssertEqual(poster.calls[0].body["content"] as? String, "check this")
+        XCTAssertNil(poster.calls[1].body["content"], "the note already rode the URL unit")
+    }
+
     // `pendingLocation` (Task 6 wires the UI that sets it) threads into EVERY unit's attributes,
     // alongside that unit's own per-attachment media facts (fileName/durationS captured at pick
     // time by the composer) — each file keeps its own media blob, not a shared one.
@@ -262,5 +285,131 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertEqual(location["label"] as? String, "Testville")
         let media = try XCTUnwrap(body["media"] as? [String: Any])
         XCTAssertEqual(media["duration_s"] as? Double, 12.5)
+    }
+
+    // MARK: - Location resolution wait (Task 6)
+    //
+    // `awaitPendingLocation(timeout:)` bridges to the app's `LocationCapture` via a closure
+    // injected at init — StashKit itself never imports CoreLocation, so it has no idea what
+    // ".resolving" means, only "the app may still be working on a location and here's how long to
+    // wait for it." NO hook at all (every OTHER test in this file, which never injects one, plus
+    // `makeViewModel` below) is a true no-op that never touches `pendingLocation` — that's what
+    // lets every attributes-threading test above set `pendingLocation` directly and trust it stays
+    // put. Once a hook IS wired, its result unconditionally REPLACES `pendingLocation`, nil
+    // included — a pin the user turned off (or that failed) must be able to clear a location a
+    // previous toggle-on cycle left behind, not just skip setting a new one.
+
+    func testNoHookIsANoOpAndNeverTouchesAnExistingValue() async {
+        let vm = makeViewModel(poster: RecordingPoster())   // no awaitPendingLocation hook injected
+        vm.pendingLocation = CapturedLocation(label: "AlreadySet", source: "device-geolocation")
+        await vm.awaitPendingLocation(timeout: 2.5)
+        XCTAssertEqual(vm.pendingLocation?.label, "AlreadySet",
+                       "with no hook wired, awaitPendingLocation must never touch pendingLocation")
+    }
+
+    func testHookResultReplacesPendingLocationEvenOverwritingADirectlySetValue() async {
+        let vm = CaptureViewModel(
+            userId: UUID(), api: CaptureAPI(poster: RecordingPoster()), outbox: Outbox(directory: dir),
+            upload: { _, _, _ in }, accessToken: { "jwt" },
+            awaitPendingLocation: { _ in CapturedLocation(label: "Resolved", source: "device-geolocation") }
+        )
+        vm.pendingLocation = CapturedLocation(label: "Stale", source: "device-geolocation")
+        await vm.awaitPendingLocation(timeout: 2.5)
+        XCTAssertEqual(vm.pendingLocation?.label, "Resolved")
+    }
+
+    // The regression this contract exists to prevent: `LocationCapture.awaitResolution` returns
+    // `nil` for an `.off`/`.failed` pin (Task 6, app target) — e.g. the user resolved a location on
+    // an earlier save, then explicitly turned the pin back off before this one. A hook that's
+    // wired but resolves `nil` must CLEAR `pendingLocation`, not leave the earlier save's location
+    // attached to a batch the user never asked to tag.
+    func testHookReturningNilClearsAPreviouslySetPendingLocation() async {
+        let vm = CaptureViewModel(
+            userId: UUID(), api: CaptureAPI(poster: RecordingPoster()), outbox: Outbox(directory: dir),
+            upload: { _, _, _ in }, accessToken: { "jwt" },
+            awaitPendingLocation: { _ in nil }   // simulates an .off/.failed pin
+        )
+        vm.pendingLocation = CapturedLocation(label: "FromAnEarlierSave", source: "device-geolocation")
+        await vm.awaitPendingLocation(timeout: 2.5)
+        XCTAssertNil(vm.pendingLocation, "a wired hook resolving nil must clear a stale pendingLocation")
+    }
+
+    func testSubmitCallsAwaitPendingLocationBeforeSnapshottingAttributes() async {
+        let poster = RecordingPoster()
+        let vm = CaptureViewModel(
+            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
+            upload: { _, _, _ in }, accessToken: { "jwt" },
+            awaitPendingLocation: { _ in CapturedLocation(label: "JustResolved", source: "device-geolocation") }
+        )
+        vm.text = "note while pin resolves"
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
+        let location = (poster.calls[0].body["attributes"] as? [String: Any])?["location"] as? [String: Any]
+        XCTAssertEqual(location?["label"] as? String, "JustResolved")
+    }
+
+    // Pins the literal "≤2.5s" budget (Global Constraints) at the `submit()` call site itself,
+    // rather than just proving the hook is called at all (the test above) — the hook only returns
+    // a location when it's handed exactly the documented timeout, so a future edit that changes
+    // (or drops) that argument fails this test even though the wiring still "works".
+    func testSubmitAwaitsExactlyTheDocumentedTimeoutBudget() async {
+        let poster = RecordingPoster()
+        let vm = CaptureViewModel(
+            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
+            upload: { _, _, _ in }, accessToken: { "jwt" },
+            awaitPendingLocation: { timeout in
+                timeout == 2.5 ? CapturedLocation(label: "SawExpectedTimeout", source: "device-geolocation") : nil
+            }
+        )
+        vm.text = "note"
+
+        _ = await vm.submit()
+
+        let location = (poster.calls[0].body["attributes"] as? [String: Any])?["location"] as? [String: Any]
+        XCTAssertEqual(location?["label"] as? String, "SawExpectedTimeout",
+                       "submit() must await with the documented ≤2.5s budget")
+    }
+
+    func testSubmitVoiceNoteCallsAwaitPendingLocationBeforeSnapshottingAttributes() async throws {
+        let poster = RecordingPoster()
+        let vm = CaptureViewModel(
+            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
+            upload: { _, _, _ in }, accessToken: { "jwt" },
+            awaitPendingLocation: { _ in CapturedLocation(label: "VoiceResolved", source: "device-geolocation") }
+        )
+        let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
+        try Data([0x01]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let outcome = await vm.submitVoiceNote(fileURL: fileURL)
+
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
+        let location = (poster.calls[0].body["attributes"] as? [String: Any])?["location"] as? [String: Any]
+        XCTAssertEqual(location?["label"] as? String, "VoiceResolved")
+    }
+
+    // End-to-end proof of the same regression `testHookReturningNilClearsAPreviouslySetPendingLocation`
+    // covers at the unit level, through the actual `submit()` path a real save takes: a location
+    // left over from an earlier batch (pin was on, then explicitly turned off before THIS save)
+    // must not silently ride along — the sent body must carry no `attributes.location` at all
+    // (media is absent too here, so `attributes` itself must be entirely absent — Task 3's
+    // never-send-`{}` contract).
+    func testSubmitDoesNotAttachAStaleLocationOnceTheHookResolvesNil() async {
+        let poster = RecordingPoster()
+        let vm = CaptureViewModel(
+            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
+            upload: { _, _, _ in }, accessToken: { "jwt" },
+            awaitPendingLocation: { _ in nil }   // simulates the pin now being .off
+        )
+        vm.pendingLocation = CapturedLocation(label: "FromAnEarlierSave", source: "device-geolocation")
+        vm.text = "a fresh note with the pin off"
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
+        XCTAssertNil(poster.calls[0].body["attributes"],
+                     "the stale location must be cleared, not silently attached to this batch")
     }
 }

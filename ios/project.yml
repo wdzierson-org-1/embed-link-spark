@@ -29,6 +29,7 @@ targets:
         NSCameraUsageDescription: "Stash uses the camera to capture photos straight into your stash."
         NSMicrophoneUsageDescription: "Stash uses the microphone for voice notes and dictation."
         NSSpeechRecognitionUsageDescription: "Stash transcribes your speech on-device to fill the composer."
+        NSLocationWhenInUseUsageDescription: "Stash tags saves with where you were — only when you turn the pin on."
   StashUITests:
     type: bundle.ui-testing
     platform: iOS

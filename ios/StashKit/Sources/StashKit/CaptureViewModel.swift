@@ -75,9 +75,9 @@ public final class CaptureViewModel {
     public private(set) var pendingOutboxCount: Int = 0
     /// A device location, ready to ride every unit of the NEXT `submit()`/`submitVoiceNote()` call
     /// (Global Constraints: "written to EVERY item in a batch"). `nil` (default) attaches nothing.
-    /// Settable so Task 6's pin-toggle UI can assign it directly; this task only threads it through
-    /// — `awaitPendingLocation(timeout:)`, the in-flight-resolution wait `submit()` will need once
-    /// Task 6's async location fix exists, is that task's own addition, not built here.
+    /// Settable so Task 6's pin-toggle UI can assign it directly; `submit()`/`submitVoiceNote()`
+    /// also assign it indirectly via `awaitPendingLocation(timeout:)` below, whenever the injected
+    /// resolver hook has something newer to offer.
     public var pendingLocation: CapturedLocation?
 
     private let userId: UUID
@@ -86,6 +86,12 @@ public final class CaptureViewModel {
     private let upload: @Sendable (Data, String, String) async throws -> Void
     private let accessToken: @Sendable () async throws -> String
     private let downscale: @Sendable (Data) -> Data
+    private let awaitPendingLocationHook: (@Sendable (TimeInterval) async -> CapturedLocation?)?
+
+    /// Global Constraints / Task 6 brief: "submit() waits ≤2.5s on .resolving … then proceeds with
+    /// whatever resolved." Single source of truth for that budget, referenced at every call site
+    /// (`submit()`, `submitVoiceNote()`) so it can't drift between them.
+    private static let locationAwaitTimeout: TimeInterval = 2.5
 
     public init(
         userId: UUID,
@@ -104,7 +110,15 @@ public final class CaptureViewModel {
         accessToken: @escaping @Sendable () async throws -> String = {
             try await StashClient.shared.auth.session.accessToken
         },
-        downscale: @escaping @Sendable (Data) -> Data = { $0 }
+        downscale: @escaping @Sendable (Data) -> Data = { $0 },
+        // Bridges to the app's Task 6 `LocationCapture` (CLLocationManager/CLGeocoder plumbing —
+        // deliberately kept out of StashKit, which has no CoreLocation dependency and never will).
+        // `nil` (default: every StashKit test, and any future call site that never wires one up)
+        // makes `awaitPendingLocation(timeout:)` a true no-op that leaves `pendingLocation` exactly
+        // as it already was. This is an OPTIONAL closure, not a closure defaulted to "always
+        // returns nil" — see that method's own doc comment for why the two are not
+        // interchangeable here.
+        awaitPendingLocation: (@Sendable (TimeInterval) async -> CapturedLocation?)? = nil
     ) {
         self.userId = userId
         self.api = api
@@ -112,6 +126,27 @@ public final class CaptureViewModel {
         self.upload = upload
         self.accessToken = accessToken
         self.downscale = downscale
+        self.awaitPendingLocationHook = awaitPendingLocation
+    }
+
+    /// Waits (bounded by `timeout` seconds) on an in-flight pin resolution before this batch's
+    /// location is snapshotted — the injected `awaitPendingLocationHook` (Task 6's app-side
+    /// `LocationCapture`) supplies the actual wait/poll logic; StashKit itself has no idea what
+    /// ".resolving" means, only how long it may take.
+    ///
+    /// No hook at all (`nil` — every StashKit test, any call site that never wires one up) is a
+    /// true no-op: `pendingLocation` stays exactly as it already was, including whatever a test
+    /// set it to directly. Once a hook IS wired (every real app launch), its result UNCONDITIONALLY
+    /// replaces `pendingLocation` — nil included. That's deliberate, not "nil means don't touch":
+    /// nil is exactly what `LocationCapture.awaitResolution` returns for an `.off`/`.failed` pin,
+    /// and a pin the user has explicitly turned off (or that failed) must be able to CLEAR a
+    /// location a previous toggle-on cycle left behind, not just skip setting a new one. A pin
+    /// still `.resolving` past `timeout` resolves to whatever `currentLocation` reads at that
+    /// point (Global Constraints: "then proceeds with whatever resolved") — never blocks past that
+    /// budget either way.
+    public func awaitPendingLocation(timeout: TimeInterval) async {
+        guard let hook = awaitPendingLocationHook else { return }
+        pendingLocation = await hook(timeout)
     }
 
     // MARK: - Submit / drain
@@ -129,6 +164,11 @@ public final class CaptureViewModel {
         // one-token-per-batch shape (Task 3). `try?` turns "no session" into a nil token,
         // which `send` below treats as an ordinary queueable failure.
         let token = try? await accessToken()
+
+        // Task 6: give an in-flight pin resolution up to `locationAwaitTimeout` to finish before
+        // snapshotting — placed AFTER the immediate text/attachments clear above, so the "clear
+        // the form immediately" UX (web parity, noted above) isn't itself delayed by the wait.
+        await awaitPendingLocation(timeout: Self.locationAwaitTimeout)
 
         // Snapshotted once, same reasoning as `token` above: every unit in THIS batch gets the
         // same location (Global Constraints: "written to EVERY item in a batch"), not whatever
@@ -183,8 +223,12 @@ public final class CaptureViewModel {
     /// - Parameter durationS: Recorder-elapsed seconds (`AudioRecorderController.elapsed` at Stop),
     ///   threaded into `attributes.media.duration_s` exactly like a picked file's `CaptureAttachment
     ///   .durationS` — `nil` (default) omits the media fact entirely, same as a picked file whose
-    ///   own probe came back empty. `pendingLocation` rides along too, same as every `submit()` unit.
+    ///   own probe came back empty. `pendingLocation` rides along too, same as every `submit()`
+    ///   unit — including the same Task 6 `awaitPendingLocation` wait, in case the pin is still
+    ///   `.resolving` when a voice note is saved (e.g. the user toggled it on immediately before
+    ///   opening the recorder sheet).
     public func submitVoiceNote(fileURL: URL, durationS: Double? = nil) async -> CaptureOutcome {
+        await awaitPendingLocation(timeout: Self.locationAwaitTimeout)
         let attributes = buildAttributes(location: pendingLocation, media: buildMedia(fileName: nil, durationS: durationS))
         do {
             let data = try Data(contentsOf: fileURL)
