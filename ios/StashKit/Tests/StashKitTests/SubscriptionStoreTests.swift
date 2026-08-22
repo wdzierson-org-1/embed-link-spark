@@ -28,6 +28,14 @@ final class GatedChecker: SubscriptionChecking, @unchecked Sendable {
     func releaseWithCancellation(_ index: Int) { gates[index].resume(throwing: CancellationError()) }
 }
 
+/// Records every `gateCacheWrite` call in order — Task 7's injection point, same
+/// `@unchecked Sendable` recorder pattern `StubChecker`/`GatedChecker` above already use for their
+/// own call tallies.
+final class GateCacheRecorder: @unchecked Sendable {
+    private(set) var writes: [Bool] = []
+    func record(_ value: Bool) { writes.append(value) }
+}
+
 @MainActor
 final class SubscriptionStoreTests: XCTestCase {
     func testActiveSubscriptionOpensGates() async {
@@ -240,5 +248,40 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertTrue(store.canAddContent)
         // Error is recorded for UI to show.
         XCTAssertEqual(store.lastError, "Couldn't check your subscription status.")
+    }
+
+    // MARK: - Task 7: gate-cache write hook
+
+    // The share extension has no `SubscriptionStore` of its own — it reads a cached bool this
+    // hook writes into App Group `UserDefaults` instead. Must fire with the settled, POST-flip
+    // `canAddContent` value (not the pre-flip fail-open `true` every fresh refresh briefly reads).
+    func testRefreshWritesGateCacheWithFinalCanAddContentValueOnResolve() async {
+        let checker = StubChecker()
+        checker.results = [.success(SubscriptionStatus(subscribed: true, onTrial: false, daysLeft: nil))]
+        let recorder = GateCacheRecorder()
+        let store = SubscriptionStore(checker: checker, gateCacheWrite: { recorder.record($0) })
+
+        await store.refresh()
+
+        XCTAssertEqual(recorder.writes, [true])
+    }
+
+    // `reset()` (StashApp's sign-out path) must ALSO refresh the cache — otherwise a share
+    // extension launched between a sign-out and the next account's first `refresh()` would keep
+    // reading the PRIOR account's last-cached value (open or closed) instead of the fail-open
+    // state `reset()` puts every other gate back into.
+    func testResetWritesGateCacheReopeningItAfterAClosedGate() async {
+        let checker = StubChecker()
+        checker.results = [.success(SubscriptionStatus(subscribed: false, onTrial: false, daysLeft: nil))]
+        let recorder = GateCacheRecorder()
+        let store = SubscriptionStore(checker: checker, gateCacheWrite: { recorder.record($0) })
+
+        await store.refresh()
+        XCTAssertEqual(recorder.writes, [false])
+        XCTAssertFalse(store.canAddContent)
+
+        store.reset()
+
+        XCTAssertEqual(recorder.writes, [false, true], "reset() must write again, reopening the cache")
     }
 }

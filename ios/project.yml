@@ -40,7 +40,16 @@ targets:
   StashShareExtension:
     type: app-extension
     platform: iOS
-    sources: [StashShareExtension]
+    sources:
+      - path: StashShareExtension
+      # Plan 5 Task 7: shares the app target's `LocationCapture.swift` verbatim (compiled as a
+      # SEPARATE copy into this target, same file on disk — standard "shared glue file between
+      # app + extension" pattern) rather than re-implementing its CLLocationManager state machine
+      # a second time. The file has no UIKit/app-only dependencies (CoreLocation + Foundation +
+      # Observation + StashKit only — verified by reading it), and re-implementing it here would
+      # risk reintroducing the exact continuation-leak/concurrent-resolution bugs its own doc
+      # comments describe having already found and fixed once.
+      - path: Stash/Capture/LocationCapture.swift
     dependencies:
       - package: StashKit
     settings:

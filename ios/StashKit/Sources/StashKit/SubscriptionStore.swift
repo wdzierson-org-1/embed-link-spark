@@ -94,8 +94,42 @@ public final class SubscriptionStore {
     /// fresher call or an intentional reset already wrote.
     private var refreshGeneration = 0
 
-    public init(checker: SubscriptionChecking) {
+    /// Plan 5 Task 7: the key `gateCacheWrite`'s default writes into `UserDefaults(suiteName:
+    /// AppGroup.identifier)` — the share extension's ONLY window into this store's gate, since the
+    /// extension has no `SubscriptionStore` of its own and must never make a network call just to
+    /// decide whether Save is enabled (every extension flow in this plan's own "never block or
+    /// delay a save" constraint). `ShareComposeView`'s read side uses this exact same key. The
+    /// key's ABSENCE (never written yet — a fresh install, or an app that predates this task) is
+    /// the documented fail-open signal; a written `false` is a real, meaningful "closed" the
+    /// extension must honor, never mistaken for "missing".
+    /// `nonisolated` — a plain immutable `String` is trivially `Sendable`, but `@MainActor` on the
+    /// enclosing class isolates its static members too by default; without this, the default
+    /// `gateCacheWrite` closure below (a `@Sendable` value, callable off the main actor) can't read
+    /// it (Swift 6 mode: hard error; today: warning). `ShareComposeView` (the extension, a
+    /// different module/target entirely) also reads this constant directly.
+    public nonisolated static let gateCacheKey = "subscription.canAddContent"
+
+    /// Injectable (Task 7) so tests can observe every write without touching real `UserDefaults` —
+    /// same "app supplies the real platform touch point, tests inject a recorder" precedent as
+    /// `CaptureViewModel`'s `upload`/`downscale`/`awaitPendingLocation` closures. The default is
+    /// `#if os(iOS)`-gated for the SAME reason `AppGroup.containerURL()`/
+    /// `SharedKeychainStorage.resolvedAccessGroup` are (see their doc comments): an unsigned macOS
+    /// `swift test` host isn't sandboxed, so an ungated `UserDefaults(suiteName:)` write here would
+    /// silently create/mutate a real preferences file under the developer's own machine on every
+    /// test that doesn't inject a custom `gateCacheWrite` (i.e. every EXISTING `SubscriptionStoreTests`
+    /// case) — gating keeps `swift test` hermetic unconditionally, exactly like those two.
+    private let gateCacheWrite: @Sendable (Bool) -> Void
+
+    public init(
+        checker: SubscriptionChecking,
+        gateCacheWrite: @escaping @Sendable (Bool) -> Void = { canAddContent in
+            #if os(iOS)
+            UserDefaults(suiteName: AppGroup.identifier)?.set(canAddContent, forKey: SubscriptionStore.gateCacheKey)
+            #endif
+        }
+    ) {
         self.checker = checker
+        self.gateCacheWrite = gateCacheWrite
     }
 
     /// useSubscription.tsx:51-108 — check, and if the account looks brand-new (neither subscribed
@@ -142,7 +176,19 @@ public final class SubscriptionStore {
         // too, though: without it, a stale refresh resolving after `reset()` re-arms `isLoading`
         // for the next account would flip it back to `false` under that account before its own
         // first refresh ever lands.
-        defer { if generation == refreshGeneration { isLoading = false } }
+        defer {
+            if generation == refreshGeneration {
+                isLoading = false
+                // Task 7: fires on every settled resolve (success, self-heal, or a real —
+                // non-cancelled — failure) with the FINAL `canAddContent` for this call, computed
+                // AFTER the `isLoading` flip above so a fresh session's first resolve caches the
+                // real status, not the pre-flip fail-open `true`. The SAME generation guard as
+                // `isLoading`'s own flip excludes a superseded (stale-generation) resolve, so a
+                // slow refresh that's since been overtaken by a newer `refresh()` or a `reset()`
+                // can never overwrite the cache with a stale value.
+                gateCacheWrite(canAddContent)
+            }
+        }
         do {
             var result = try await checker.check()
             guard generation == refreshGeneration else { return }   // superseded while check() was in flight
@@ -212,5 +258,11 @@ public final class SubscriptionStore {
         triedTrial = false
         isLoading = true
         refreshGeneration += 1
+        // Task 7: re-opens the CACHE the instant a session ends, matching `isLoading`'s own
+        // re-arm-to-fail-open above — without this, a share extension launched between this
+        // sign-out and the next account's first `refresh()` landing would still read WHATEVER the
+        // prior account last cached (open or closed), rather than the fail-open state a fresh,
+        // not-yet-checked session is supposed to present.
+        gateCacheWrite(canAddContent)
     }
 }

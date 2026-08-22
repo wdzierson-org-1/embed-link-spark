@@ -324,4 +324,88 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertEqual(result, ShareIntakeResult(queued: 1))
         XCTAssertTrue(poster.calls.isEmpty, "with no session, a live send must never even be attempted")
     }
+
+    // MARK: - Task 7 carry (a): `.text` poster-throws falls back to a `.note` Outbox entry
+
+    func testTextSendFailureFallsBackToOutboxNoteEntry() async {
+        let poster = RecordingPoster(); poster.shouldFail = true
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(poster: poster, outbox: outbox)
+
+        let result = await intake.submit([.text("shared body")], note: nil, location: nil)
+
+        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending[0].kind, .note)
+        XCTAssertEqual(pending[0].payload["content"], "shared body")
+    }
+
+    // MARK: - Task 7 carry (b): attributes_json (location) + note/content asserted in QUEUED entries
+
+    // The pre-existing `testURLSendFailureFallsBackToOutboxURLEntry` never passed a `location`, so
+    // it could never have caught a regression that dropped `attributes_json` from the fallback
+    // path specifically (as opposed to the live-send path, already covered by
+    // `testLocationThreadsToEveryUnitsAttributes`).
+    func testQueuedURLEntryCarriesAttributesJSONForLocation() async throws {
+        let poster = RecordingPoster(); poster.shouldFail = true
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(poster: poster, outbox: outbox)
+        let location = CapturedLocation(label: "Testville", source: "device-geolocation")
+
+        let result = await intake.submit([.url("https://example.com")], note: "ctx", location: location)
+
+        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.count, 1)
+        let json = try XCTUnwrap(pending[0].payload["attributes_json"])
+        let decoded = try JSONDecoder().decode(ItemAttributes.self, from: try XCTUnwrap(json.data(using: .utf8)))
+        XCTAssertEqual(decoded.location?.label, "Testville")
+    }
+
+    // The pre-existing big-file test never passed `note`/`location`, so it could never have caught
+    // a regression that dropped either from the over-the-limit fallback path (`enqueueFile`).
+    func testBigFileQueuedEntryCarriesNoteAndAttributesJSON() async throws {
+        let poster = RecordingPoster()
+        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
+        let staged = try stageFile(store: store, bytes: Data(repeating: 0xAB, count: 20), ext: "bin")
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(poster: poster, outbox: outbox, staging: store, directSendLimit: 10)
+        let location = CapturedLocation(label: "Testville", source: "device-geolocation")
+
+        let result = await intake.submit(
+            [.file(stagedURL: staged, mimeType: "application/octet-stream", fileName: nil, durationS: nil)],
+            note: "big file note", location: location)
+
+        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending[0].payload["content"], "big file note")
+        let json = try XCTUnwrap(pending[0].payload["attributes_json"])
+        let decoded = try JSONDecoder().decode(ItemAttributes.self, from: try XCTUnwrap(json.data(using: .utf8)))
+        XCTAssertEqual(decoded.location?.label, "Testville")
+    }
+
+    // MARK: - Task 7 carry (c): `ProviderLoader` ordering decision — `reorderURLFirst`
+
+    func testReorderURLFirstMovesURLToFront() {
+        let objects: [SharedObject] = [.text("a"), .url("https://example.com"), .text("b")]
+        XCTAssertEqual(ShareIntake.reorderURLFirst(objects),
+                       [.url("https://example.com"), .text("a"), .text("b")])
+    }
+
+    func testReorderURLFirstIsNoOpWhenNoURLPresent() {
+        let objects: [SharedObject] = [.text("a"), .text("b")]
+        XCTAssertEqual(ShareIntake.reorderURLFirst(objects), objects)
+    }
+
+    func testReorderURLFirstIsNoOpWhenURLAlreadyFirst() {
+        let objects: [SharedObject] = [.url("https://example.com"), .text("a")]
+        XCTAssertEqual(ShareIntake.reorderURLFirst(objects), objects)
+    }
+
+    func testReorderURLFirstOnEmptyOrURLOnlyObjectsIsANoOp() {
+        XCTAssertEqual(ShareIntake.reorderURLFirst([]), [])
+        XCTAssertEqual(ShareIntake.reorderURLFirst([.url("https://example.com")]), [.url("https://example.com")])
+    }
 }

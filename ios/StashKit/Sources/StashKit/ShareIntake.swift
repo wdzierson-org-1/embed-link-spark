@@ -87,10 +87,11 @@ public struct ShareIntake: Sendable {
     private enum UnitOutcome { case saved, queued, failed }
 
     /// - Parameters:
-    ///   - objects: Already-materialized shared objects, in the order the OS/extension supplied
-    ///     them. No reordering happens here (unlike `CaptureViewModel.route()`, which always moves
-    ///     a detected URL to the front) — `objects[0]` is unconditionally "the first object" for
-    ///     note-attachment purposes.
+    ///   - objects: Already-materialized shared objects. No reordering happens HERE (unlike
+    ///     `CaptureViewModel.route()`, which always moves a detected URL to the front) —
+    ///     `objects[0]` is unconditionally "the first object" for note-attachment purposes. Task 7:
+    ///     that URL-first ordering decision does still apply to a share, just one layer up — see
+    ///     `reorderURLFirst` below, which `ProviderLoader` calls before objects ever reach here.
     ///   - note: The compose card's own optional typed note — attaches to `objects[0]` ONLY, same
     ///     "note on the first unit" rule the composer uses (Global Constraints/plan-4 parity).
     ///     Blank/whitespace-only collapses to "no note", same as the composer's own trimming.
@@ -134,6 +135,36 @@ public struct ShareIntake: Sendable {
             }
         }
         return ShareIntakeResult(saved: saved, queued: queued, failed: failed)
+    }
+
+    // MARK: - Ordering (Task 7, T6-review carry: adopted ordering decision)
+
+    /// Moves the first `.url` case (if any) to index 0, preserving the relative order of
+    /// everything else — a no-op when there's no `.url` object, or it's already first. Lives here
+    /// (a pure StashKit function `swift test` can exercise directly) rather than inside `T7`'s
+    /// `ProviderLoader`, which is NOT `swift test`-able at all (an Xcode extension target, not part
+    /// of this package) — `ProviderLoader.load` calls this after assembling its raw
+    /// `[SharedObject]` list, before ever handing it to `submit`.
+    ///
+    /// Why this exists: `submit`'s own doc comment above says `objects[0]` is unconditionally "the
+    /// first object" for note-attachment purposes and trusts caller-supplied order as-is (T6
+    /// disclosure #6) — correct for `ShareIntake` itself, but it pushes the actual ordering
+    /// decision onto whoever builds the array. `NSExtensionContext.inputItems`/`.attachments` order
+    /// is the OS's/sending-app's choice, not guaranteed to put a shared URL first (e.g. a URL
+    /// shared alongside inline text). The composer's own `CaptureViewModel.route()` has a
+    /// deterministic rule for the equivalent situation — "a URL detected anywhere ... always comes
+    /// FIRST when present" — so a share with a URL object anywhere in it should land its note on
+    /// that URL too, matching iOS-wide capture behavior with no second, extension-only ordering
+    /// variant.
+    public static func reorderURLFirst(_ objects: [SharedObject]) -> [SharedObject] {
+        guard let urlIndex = objects.firstIndex(where: {
+            if case .url = $0 { return true }
+            return false
+        }), urlIndex != 0 else { return objects }
+        var reordered = objects
+        let url = reordered.remove(at: urlIndex)
+        reordered.insert(url, at: 0)
+        return reordered
     }
 
     // MARK: - Per-type handling
