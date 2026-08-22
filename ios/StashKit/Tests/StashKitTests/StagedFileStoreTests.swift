@@ -171,13 +171,6 @@ final class StagedFileStoreTests: XCTestCase {
 
         let orphan = recordings.newRecordingURL()
         try Data([0x01, 0x02]).write(to: orphan)
-        // NOT `orphan.path` — `pendingRecordings()` lists via `FileManager.contentsOfDirectory`,
-        // which (on macOS) reports the SYMLINK-RESOLVED `/private/var/...` form of `temporaryDirectory`'s
-        // own `/var/...`, so the path `sweepOrphans` actually captures differs textually (though not
-        // in the file it names) from the hand-built URL above — exact same quirk
-        // RecordingStoreTests documents for `pendingRecordings()` itself. Deriving the expected
-        // value through the same listing call sidesteps it.
-        let canonicalOrphanPath = try XCTUnwrap(recordings.pendingRecordings().first).path
 
         let farFuture: @Sendable () -> Date = { Date().addingTimeInterval(3600) }
         let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings,
@@ -187,7 +180,12 @@ final class StagedFileStoreTests: XCTestCase {
         let pending = await outbox.pending()
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending[0].kind, .file)
-        XCTAssertEqual(pending[0].payload["local_file_path"], canonicalOrphanPath)
+        // Fix round 1: `sweepOrphans` now stores the CANONICALIZED path (see `canonicalPath`),
+        // which — for a path built by plain appending like `orphan` here — is identical to
+        // `orphan.path` itself, so this compares directly rather than round-tripping through
+        // another `pendingRecordings()` call the way this test used to (deviation #9, no longer
+        // needed now that the comparison, not the test, absorbs the `/private/var` divergence).
+        XCTAssertEqual(pending[0].payload["local_file_path"], orphan.path)
         XCTAssertEqual(pending[0].payload["mime_type"], "audio/mp4")
     }
 
@@ -250,20 +248,68 @@ final class StagedFileStoreTests: XCTestCase {
         let staging = StagedFileStore(userId: userId, directory: dir)
         let source = try makeSourceFile()
         defer { try? FileManager.default.removeItem(at: source) }
-        _ = try staging.stage(from: source, fileExtension: "png")
-        // See `testSweepOrphansCreatesEntryForUnreferencedRecording`'s comment: derive the
-        // expected path through the same `contentsOfDirectory`-backed listing `sweepOrphans`
-        // itself uses, rather than the hand-built `URL` returned by `stage`, to sidestep macOS's
-        // `/var` vs `/private/var` symlink-resolution quirk.
-        let canonicalOrphanPath = try XCTUnwrap(staging.pendingStaged().first).path
+        let orphan = try staging.stage(from: source, fileExtension: "png")
         let farFuture: @Sendable () -> Date = { Date().addingTimeInterval(3600) }
 
         let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging, now: farFuture)
 
         XCTAssertEqual(created, 1)
         let pending = await outbox.pending()
-        XCTAssertEqual(pending[0].payload["local_file_path"], canonicalOrphanPath)
+        // Fix round 1: compares directly against `orphan.path` — see the comment on
+        // `testSweepOrphansCreatesEntryForUnreferencedRecording` for why the old round-trip-through
+        // -a-listing workaround (deviation #9) is no longer needed.
+        XCTAssertEqual(pending[0].payload["local_file_path"], orphan.path)
         XCTAssertEqual(pending[0].payload["mime_type"], "image/png")
+    }
+
+    // Fix round 1 (Important review finding): `referencedPaths` (built from entry payloads written
+    // by plain `URL.appending(path:)` — `RecordingStore.newRecordingURL`, `StagedFileStore.stage`,
+    // `CaptureViewModel`'s own recording path) and `candidates` (built from
+    // `FileManager.contentsOfDirectory` listings) can be TWO DIFFERENT SPELLINGS of the identical
+    // file on macOS: a listing reports the symlink-resolved `/private/var/...` form of
+    // `temporaryDirectory`'s own `/var/...`. A raw string compare between the two must never read a
+    // genuinely-pending file as "unreferenced" — that would mint a duplicate entry for the same
+    // physical file, which has no claim protection against its sibling across processes (the exact
+    // cross-process double-upload hazard T5+'s claim protocol exists to prevent).
+    //
+    // This deliberately enqueues the entry the way a NORMAL (non-sweep) capture path does —
+    // `CaptureViewModel.submitVoiceNote`'s failure branch stores `fileURL.path` straight off
+    // `RecordingStore.newRecordingURL()`, never round-tripped through a directory listing — so the
+    // divergence in `sweepOrphans`'s own comparison is exactly what's under test, not an artifact
+    // of the test's own setup.
+    func testSweepOrphansNeverDuplicatesAnEntryWhoseLocalFilePathDiffersOnlyBySymlinkForm() async throws {
+        let outboxDir = FileManager.default.temporaryDirectory.appending(path: "outbox-\(UUID().uuidString)")
+        let recordingsDir = FileManager.default.temporaryDirectory.appending(path: "recordings-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outboxDir)
+            try? FileManager.default.removeItem(at: recordingsDir)
+        }
+        let userId = UUID()
+        let outbox = Outbox(directory: outboxDir)
+        let recordings = RecordingStore(userId: userId, directory: recordingsDir)
+        let staging = StagedFileStore(userId: userId, directory: dir)
+
+        let recording = recordings.newRecordingURL()
+        try Data([0x01, 0x02, 0x03]).write(to: recording)
+        // Sanity: this must actually exercise the unresolved `/var/...` form — if `temporaryDirectory`
+        // ever stopped resolving this way on some future OS, this test would otherwise silently pass
+        // for the wrong reason (no divergence to catch).
+        XCTAssertTrue(recording.path.hasPrefix("/var/"),
+                      "fixture assumption: temporaryDirectory must be the unresolved /var form on this host")
+        try await outbox.enqueue(.file, payload: [
+            "local_file_path": recording.path,
+            "mime_type": "audio/mp4",
+            "is_public": "false",
+        ])
+
+        let farFuture: @Sendable () -> Date = { Date().addingTimeInterval(3600) }
+        let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging, now: farFuture)
+
+        XCTAssertEqual(created, 0,
+                       "a file already referenced by a pending entry must never be treated as an " +
+                       "orphan just because the listing form of its path differs from the entry's own")
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.count, 1, "there must be exactly one entry for this file, never a duplicate")
     }
 
     // MARK: - sweepOrphans: stray Outbox `.claim` sidecars with no matching entry (Task 3 review carry)

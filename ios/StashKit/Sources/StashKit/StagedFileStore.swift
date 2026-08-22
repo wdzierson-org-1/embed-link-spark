@@ -145,19 +145,41 @@ private func mimeType(forFileExtension fileExtension: String) -> String {
 /// deliberately the same number without being the same mechanism.
 private let orphanSweepGracePeriod: TimeInterval = 60
 
+/// Canonicalizes a file path so `sweepOrphans` can compare two INDEPENDENTLY-constructed spellings
+/// of the same file (Fix round 1, Important review finding). `FileManager.contentsOfDirectory`
+/// reports paths with every symlink in their directory chain already resolved — on macOS, `/var`
+/// (and `/tmp`, `/etc`) is itself a symlink to `/private/var`, so a `candidates` entry from a
+/// listing can read `/private/var/folders/...` while the IDENTICAL file's path as written into an
+/// Outbox payload (`RecordingStore.newRecordingURL`, `StagedFileStore.stage`, and
+/// `CaptureViewModel`'s own recording path — all built by plain `URL.appending(path:)` on a
+/// directory that was never listed) reads `/var/folders/...`. A raw string compare between the two
+/// spellings of one inode would read a genuinely-pending file as unreferenced and mint a duplicate
+/// entry for it — the exact cross-process double-upload hazard T5+'s claim protocol exists to
+/// prevent, since the sweep-created duplicate has no claim relationship to the original at all.
+///
+/// `resolvingSymlinksInPath()` closes this specifically for `/private/var`↔`/var` (and `/tmp`,
+/// `/etc`): empirically verified (not just assumed) to collapse `/private/var/...` DOWN to
+/// `/var/...` — the reverse of naive symlink resolution, and Apple's documented special case for
+/// exactly these three top-level BSD symlinks — while being a no-op on a path that's already in
+/// the short form. Applying it to both sides makes them converge on the same string either way.
+private func canonicalPath(_ path: String) -> String {
+    URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+}
+
 /// Recovers files in `recordings`/`staging` that have no Outbox entry pointing at them — the
 /// generalization of `RecordingStore.pendingRecordings()`'s long-documented "orphaned by a crash"
 /// case (which nothing ever actually acted on before this task) to every local-file producer this
-/// plan adds, not just voice recordings. Matches purely on `local_file_path` string equality
-/// against every currently-pending entry's payload — a file with no entry whose `local_file_path`
-/// equals its path gains one; a file that already has one is left alone.
+/// plan adds, not just voice recordings. Matches on `local_file_path` equality (via `canonicalPath`
+/// above, not raw string equality — Fix round 1) against every currently-pending entry's payload —
+/// a file with no entry whose `local_file_path` names it gains one; a file that already has one is
+/// left alone.
 ///
-/// Idempotent by construction: the entry this creates carries `local_file_path` set to the exact
-/// file it recovered, so a second sweep sees that file as already-referenced and skips it — no
-/// separate bookkeeping (a "swept" marker, a moved/renamed file, …) is needed to avoid
-/// double-creating entries for the same orphan. New entries default to `is_public: "false"` and
-/// carry no `content`/`attributes` — there is no user-provided context left to recover for a file
-/// whose original capture attempt never got that far.
+/// Idempotent by construction: the entry this creates carries `local_file_path` set to the
+/// (canonicalized) file it recovered, so a second sweep sees that file as already-referenced and
+/// skips it — no separate bookkeeping (a "swept" marker, a moved/renamed file, …) is needed to
+/// avoid double-creating entries for the same orphan. New entries default to `is_public: "false"`
+/// and carry no `content`/`attributes` — there is no user-provided context left to recover for a
+/// file whose original capture attempt never got that far.
 ///
 /// Also cleans up a second, unrelated crash artifact while it's here (Task 3 review carry, folded
 /// in per the brief): stray `Outbox` `.claim` sidecars whose entry is already gone (a process
@@ -172,17 +194,18 @@ private let orphanSweepGracePeriod: TimeInterval = 60
 ///   default, real `Date()`.
 public func sweepOrphans(userId: UUID, outbox: Outbox, recordings: RecordingStore, staging: StagedFileStore,
                          now: @Sendable () -> Date = { Date() }) async -> Int {
-    let referencedPaths = Set(await outbox.pending().compactMap { $0.payload["local_file_path"] })
+    let referencedPaths = Set(await outbox.pending().compactMap { $0.payload["local_file_path"] }.map(canonicalPath))
     let candidates = recordings.pendingRecordings() + staging.pendingStaged()
 
     var created = 0
     for url in candidates {
-        guard !referencedPaths.contains(url.path) else { continue }
+        let path = canonicalPath(url.path)
+        guard !referencedPaths.contains(path) else { continue }
         guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
               now().timeIntervalSince(modified) >= orphanSweepGracePeriod else { continue }
 
         let payload = [
-            "local_file_path": url.path,
+            "local_file_path": path,
             "mime_type": mimeType(forFileExtension: url.pathExtension),
             "is_public": "false",
         ]
