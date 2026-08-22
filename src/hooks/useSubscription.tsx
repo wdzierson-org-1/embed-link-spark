@@ -46,14 +46,23 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
   const [hasStripeCustomer, setHasStripeCustomer] = useState(false);
   const [loading, setLoading] = useState(true);
+  // True once the server has given a definitive answer this session. Errors
+  // (expired-JWT race, network blip, Stripe hiccup) never flip this — an
+  // errored check means "unknown", not "unsubscribed".
+  const [statusKnown, setStatusKnown] = useState(false);
   const trialEnsuredRef = useRef(false);
 
   const checkSubscription = async () => {
     if (!user) {
       setSubscribed(false);
+      setSubscriptionStatus(null);
       setOnTrial(false);
+      setTrialEnd(null);
+      setDaysLeftInTrial(0);
       setProductId(null);
       setSubscriptionEnd(null);
+      setHasStripeCustomer(false);
+      setStatusKnown(false);
       setLoading(false);
       return;
     }
@@ -73,15 +82,9 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
       }
 
       if (error) {
-        console.error('Error checking subscription:', error);
-        setSubscribed(false);
-        setSubscriptionStatus(null);
-        setOnTrial(false);
-        setTrialEnd(null);
-        setDaysLeftInTrial(0);
-        setProductId(null);
-        setSubscriptionEnd(null);
-        setHasStripeCustomer(false);
+        // Fail open: keep the last known state. The next 30s poll (or the
+        // re-check fired by a token refresh) will get the real answer.
+        console.warn('Subscription check failed, keeping last known state:', error);
       } else {
         setSubscribed(data.subscribed || false);
         setSubscriptionStatus(data.subscriptionStatus);
@@ -91,17 +94,10 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
         setProductId(data.productId);
         setSubscriptionEnd(data.subscriptionEnd);
         setHasStripeCustomer(data.hasStripeCustomer || false);
+        setStatusKnown(true);
       }
     } catch (error) {
-      console.error('Exception checking subscription:', error);
-      setSubscribed(false);
-      setSubscriptionStatus(null);
-      setOnTrial(false);
-      setTrialEnd(null);
-      setDaysLeftInTrial(0);
-      setProductId(null);
-      setSubscriptionEnd(null);
-      setHasStripeCustomer(false);
+      console.warn('Subscription check failed, keeping last known state:', error);
     } finally {
       setLoading(false);
     }
@@ -182,10 +178,14 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
     return () => clearInterval(interval);
   }, [user]);
 
-  // Feature access based on subscription status. While the first check (and
-  // trial self-heal) is still in flight, stay permissive — blocking a brand-new
-  // trial user's first save is worse than letting a lapsed one through briefly.
-  const hasAccess = loading || subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
+  // Feature access based on subscription status. Block only on a definitive
+  // "not subscribed" answer from the server: while the first check (and trial
+  // self-heal) is in flight — or if no check has succeeded yet this session —
+  // stay permissive. Blocking a subscribed user over a transient error (the
+  // 2026-08-10 zombie-session incident, expired-JWT poll races after laptop
+  // wake) is worse than letting a lapsed one through briefly.
+  const hasAccess = loading || !statusKnown ||
+    subscriptionStatus === 'trialing' || subscriptionStatus === 'active';
   const canAddContent = hasAccess;
   const canUseAI = hasAccess;
   const canSearch = hasAccess;

@@ -39,6 +39,12 @@ verify_jwt = false
 [functions.create-trial-subscription]
 verify_jwt = true
 
+# Auth is checked in-function (getUser) so failures return our 401 JSON with
+# forensics logging; matches the deployed state — do not let a deploy flip
+# this on and move auth rejection to the opaque gateway.
+[functions.check-subscription]
+verify_jwt = false
+
 [functions.quick-pdf-summary]
 verify_jwt = true
 

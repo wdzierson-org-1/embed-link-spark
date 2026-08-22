@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { ReactNode } from "react";
 import { SubscriptionProvider, useSubscription } from "./useSubscription";
 
@@ -73,5 +73,75 @@ describe("useSubscription", () => {
 
     expect(result.current.loading).toBe(true);
     expect(result.current.canAddContent).toBe(true);
+  });
+
+  it("keeps the last known subscription when a later check fails transiently", async () => {
+    let failChecks = false;
+    invokeMock.mockImplementation((name: string) => {
+      if (name === "check-subscription") {
+        if (failChecks) {
+          return Promise.resolve({ data: null, error: new Error("Edge Function returned a non-2xx status code") });
+        }
+        return Promise.resolve({
+          data: { subscribed: true, subscriptionStatus: "active", hasStripeCustomer: true },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    const { result } = renderHook(() => useSubscription(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.subscriptionStatus).toBe("active");
+    });
+
+    failChecks = true;
+    await act(async () => {
+      await result.current.checkSubscription();
+    });
+
+    expect(result.current.subscriptionStatus).toBe("active");
+    expect(result.current.canAddContent).toBe(true);
+  });
+
+  it("stays permissive when the very first check fails before any definitive answer", async () => {
+    invokeMock.mockImplementation((name: string) => {
+      if (name === "check-subscription") {
+        return Promise.reject(new Error("Failed to fetch"));
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    const { result } = renderHook(() => useSubscription(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.canAddContent).toBe(true);
+  });
+
+  it("still blocks on a definitive not-subscribed answer", async () => {
+    invokeMock.mockImplementation((name: string) => {
+      if (name === "check-subscription") {
+        return Promise.resolve({
+          data: { subscribed: false, subscriptionStatus: "canceled", hasStripeCustomer: true },
+          error: null,
+        });
+      }
+      if (name === "create-trial-subscription") {
+        return Promise.resolve({ data: { success: true }, error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    const { result } = renderHook(() => useSubscription(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.subscriptionStatus).toBe("canceled");
+    });
+
+    expect(result.current.canAddContent).toBe(false);
   });
 });
