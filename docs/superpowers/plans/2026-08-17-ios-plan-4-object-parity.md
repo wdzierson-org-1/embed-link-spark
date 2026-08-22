@@ -251,6 +251,21 @@ func testListColumnsMatchWebContractLiterally() {  // UPDATE the existing pinned
 
 ---
 
+### Task 6b: Web-alignment riders (2026-08-21 web commits, added mid-plan)
+
+**Files:**
+- Modify: `ios/Stash/Auth/SessionStore.swift`, `ios/StashKit/Sources/StashKit/SubscriptionStore.swift`
+- Test: `ios/StashKit/Tests/StashKitTests/SubscriptionStoreTests.swift`
+
+**Interfaces:**
+- Consumes: existing SessionStore.signOut + the `--uitest-reset-auth` hook; SubscriptionStore.refresh error path.
+- Produces: (1) **local-scope sign-out** (web 166b7c6): both `signOut()` call sites become `signOut(scope: .local)` — comment cites the web commit and the zombie-session history; this also closes the ledgered CI cross-invalidation concern. (2) **Fail-open subscription errors** (web 42c2e67): a non-cancellation refresh error KEEPS the last known `status` (never nils it) — "an errored check means unknown, not unsubscribed"; `lastError` still set for Settings display; a fresh-launch error with no prior status leaves gates closed (status nil from init — web equivalent). (3) Row-major grid note: iOS LazyVGrid is already row-major — record in the outcome; footer-pinning/row-height-equalization → plan 7.
+
+- [ ] **Step 1: Failing test** — `testTransientErrorKeepsLastKnownStatus`: refresh #1 succeeds (trial, gates open); refresh #2 throws a plain error → assert `status` UNCHANGED (still trial), `canAddContent` still true, `lastError` set. (RED: current code nils status.) Keep the existing fresh-launch-error test asserting gates closed when no prior status — update its name/comment to reflect the distinction, not its assertions.
+- [ ] **Step 2: Implement both changes.** **Step 3: GREEN** (suite +1); UI suite ×1 (sign-out flow unaffected functionally — verify testSettingsSmoke's sign-out still passes). **Step 4: Commit** — `git commit -am "fix(ios): local-scope sign-out + fail-open subscription errors (web 166b7c6/42c2e67 parity)"`
+
+---
+
 ### Task 7: Object-first cards
 
 **Files:**
