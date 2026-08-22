@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -226,7 +227,9 @@ Deno.serve(async (req) => {
     const body = await req.json();
     console.log('Request body:', body);
 
-    const { url, title: customTitle, content: userNotes, message, supplemental_note, is_public = false } = body;
+    const { url, title: customTitle, content: userNotes, message, supplemental_note, is_public = false, attributes } = body;
+    const safeAttributes =
+      attributes && typeof attributes === 'object' && !Array.isArray(attributes) ? attributes : {};
 
     // Validate URL
     if (!url) {
@@ -311,6 +314,13 @@ Deno.serve(async (req) => {
     const allTags = [...new Set([...messageResult.tags, ...supplementalResult.tags])];
     console.log('Extracted tags:', allTags);
 
+    // Guarantee attributes.link.flavor on every saved link — caller-supplied
+    // flavor wins; otherwise classify server-side from the URL alone
+    const providedLink = (safeAttributes as Record<string, unknown>).link;
+    const link = providedLink && typeof providedLink === 'object' ? providedLink as Record<string, unknown> : {};
+    if (typeof link.flavor !== 'string') link.flavor = classifyLinkFlavor(url);
+    (safeAttributes as Record<string, unknown>).link = link;
+
     // Insert the link into the items table with cleaned content
     const { data: item, error } = await supabase
       .from('items')
@@ -324,7 +334,8 @@ Deno.serve(async (req) => {
         description: finalDescription,
         file_path: previewImagePath,
         is_public: is_public,
-        visibility: is_public ? 'public' : 'private'
+        visibility: is_public ? 'public' : 'private',
+        attributes: safeAttributes
       })
       .select()
       .single();

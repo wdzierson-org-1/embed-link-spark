@@ -10,6 +10,7 @@ struct ItemDetailHeader: View {
     let item: Item
     @Binding var title: String
     @Binding var description: String
+    @Binding var attributes: ItemAttributes
     let saveStatus: SaveStatus
 
     var body: some View {
@@ -21,7 +22,8 @@ struct ItemDetailHeader: View {
                 Spacer(minLength: 8)
                 if item.isPublic { publicBadge }
             }
-            EditableFieldsSection(title: $title, description: $description, saveStatus: saveStatus)
+            EditableFieldsSection(title: $title, description: $description, attributes: $attributes,
+                                   saveStatus: saveStatus)
             Text(item.createdAt, format: .relative(presentation: .named))
                 .font(.caption)
                 .foregroundStyle(.tertiary)

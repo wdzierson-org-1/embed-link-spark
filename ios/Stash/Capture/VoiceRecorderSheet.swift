@@ -197,7 +197,9 @@ struct VoiceRecorderSheet: View {
     private func save() async {
         guard let url = recorder.recordingURL else { return }
         isSaving = true
-        let outcome = await viewModel.submitVoiceNote(fileURL: url)
+        // Recorder-elapsed seconds (Task 5) — the same "how long is this" fact a picked
+        // audio/video file gets from its `AVAsset` probe, threaded into `attributes.media.duration_s`.
+        let outcome = await viewModel.submitVoiceNote(fileURL: url, durationS: recorder.elapsed)
         isSaving = false
         // Suspenders (see `saveTask`'s doc comment): skip firing a late outcome/dismiss if this
         // task was ever cancelled out from under itself.

@@ -11,7 +11,7 @@ final class EmbeddingRefresherTests: XCTestCase {
         Item(id: UUID(uuidString: "6B1E0A4E-9F6A-4D5E-8F2F-0E7C1B2D3A4B")!, type: .text,
              title: title, content: "body", url: "https://x.com", filePath: nil,
              description: "desc", summary: "sum", pageBody: "pb", supplementalNote: "sn",
-             mimeType: nil, isPublic: false, createdAt: .now)
+             mimeType: nil, isPublic: false, createdAt: .now, fileSize: nil, attributes: ItemAttributes())
     }
     func testEmbeddingTextOrderMatchesWeb() {
         let text = buildEmbeddingText(from: fixture(title: "T"))

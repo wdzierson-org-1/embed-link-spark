@@ -20,6 +20,14 @@ export const deriveItemType = (mime: string): 'image' | 'audio' | 'video' | 'doc
   return 'document';
 };
 
+// Office Open XML formats routed to extract-office-text (c4cbdd0); everything
+// else non-PDF settles with a stub description (parity with 83e9809)
+const OFFICE_MIMES = new Set([
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
 const fileNameFrom = (path: string) => path.split('/').pop() ?? 'file';
 
 Deno.serve(async (req) => {
@@ -38,7 +46,9 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return json(401, { error: 'Invalid or expired token' });
 
-    const { file_path, mime_type, file_size, content, title, is_public = false } = await req.json();
+    const { file_path, mime_type, file_size, content, title, is_public = false, attributes } = await req.json();
+    const safeAttributes =
+      attributes && typeof attributes === 'object' && !Array.isArray(attributes) ? attributes : {};
     if (!file_path || typeof file_path !== 'string') return json(400, { error: 'file_path is required' });
     if (!mime_type || typeof mime_type !== 'string') return json(400, { error: 'mime_type is required' });
     if (!file_path.startsWith(`${user.id}/`)) {
@@ -71,6 +81,7 @@ Deno.serve(async (req) => {
         mime_type,
         is_public,
         visibility: is_public ? 'public' : 'private',
+        attributes: safeAttributes,
       })
       .select()
       .single();
@@ -116,15 +127,36 @@ Deno.serve(async (req) => {
             });
             if (embErr) console.error('add-file: generate-embeddings failed for', item.id, embErr);
           }
-          const { error: qpsErr } = await supabase.functions.invoke('quick-pdf-summary', {
-            body: { fileUrl: publicUrl, itemId: item.id, fileName },
-          });
-          if (qpsErr) console.error('add-file: quick-pdf-summary failed for', item.id, qpsErr);
-          // writes page_body + summary + content embeddings itself
-          const { error: extErr } = await supabase.functions.invoke('extract-pdf-text', {
-            body: { fileUrl: publicUrl, itemId: item.id },
-          });
-          if (extErr) console.error('add-file: extract-pdf-text failed for', item.id, extErr);
+          if (mime_type === 'application/pdf') {
+            const { error: qpsErr } = await supabase.functions.invoke('quick-pdf-summary', {
+              body: { fileUrl: publicUrl, itemId: item.id, fileName },
+            });
+            if (qpsErr) console.error('add-file: quick-pdf-summary failed for', item.id, qpsErr);
+            // writes page_body + summary + content embeddings itself
+            const { error: extErr } = await supabase.functions.invoke('extract-pdf-text', {
+              body: { fileUrl: publicUrl, itemId: item.id },
+            });
+            if (extErr) console.error('add-file: extract-pdf-text failed for', item.id, extErr);
+          } else if (OFFICE_MIMES.has(mime_type)) {
+            // OOXML documents → extract-office-text (committed+deployed c4cbdd0;
+            // mirrors extract-pdf-text: writes page_body + summary + description,
+            // re-embeds). Contract: {fileUrl, itemId, fileName, mimeType}
+            // (extract-office-text/index.ts:127).
+            const { error: offErr } = await supabase.functions.invoke('extract-office-text', {
+              body: { fileUrl: publicUrl, itemId: item.id, fileName, mimeType: mime_type },
+            });
+            if (offErr) console.error('add-file: extract-office-text failed for', item.id, offErr);
+          } else {
+            // Other non-PDF documents (parity with 83e9809): no PDF pipeline.
+            // Give the card a description and clear the "still extracting"
+            // marker (summary IS NULL drives the shimmer).
+            const { data: d, error: descErr } = await supabase.functions.invoke('generate-description', {
+              body: { content: fileName, type: 'document' },
+            });
+            if (descErr) console.error('add-file: generate-description failed for', item.id, descErr);
+            const description = d?.description ?? `Document: ${fileName}`;
+            await supabase.from('items').update({ description, summary: description }).eq('id', item.id);
+          }
         }
       } catch (e) {
         console.error('add-file enrichment failed (non-fatal):', e);

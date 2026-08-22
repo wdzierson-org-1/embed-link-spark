@@ -299,7 +299,15 @@ final class StashUITests: XCTestCase {
             searchField.tap()
             searchField.typeText(search)
             XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
-            card0().tap()
+            // Task 7: a plain `.tap()` (XCUITest's geometric center of the card) can land on the
+            // link kicker's own tap target now that one exists — for a card as compact as the
+            // `example.com` fixture (short favicon-plate hero + one-line description, no
+            // annotation), the card's vertical center sits almost exactly on the kicker's single
+            // line, so the tap opens Safari instead of this sheet (bisected live: dy 0.30-0.45
+            // and 0.55-0.70 all open the sheet; only dy≈0.50 hits the kicker and backgrounds the
+            // app). A near-bottom offset reliably clears the kicker for every type this loop
+            // searches (link/text/image/audio all place their footer there).
+            card0().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
 
             let done = app.buttons["detail.done"]
             XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for '\(search)'")
@@ -337,6 +345,101 @@ final class StashUITests: XCTestCase {
             XCTAssertFalse(transcript.label.isEmpty, "Expected non-empty transcript text")
             XCTAssertNotEqual(transcript.label, "Transcription in progress…",
                               "Expected a real transcript, not the in-progress placeholder")
+        }
+    }
+
+    /// Card anatomy (Task 7's object-first rework) exercised against real fixtures for the first
+    /// time: the repo/video-link and located-note fixtures Task 9 adds, plus the pre-existing
+    /// "document one" fixture for the file-plate assertion. View tab only — no detail-sheet dive.
+    /// Task 7 added all five identifiers asserted below (`card.repoplate`/`card.faviconplate`/
+    /// `card.hero.tall`/`card.fileplate`/`card.location`) but had no repo/video/located fixtures
+    /// to verify them against yet (see task-7-report.md's own disclosed verification gap) — this
+    /// test closes that gap, and the repo/video fixtures' mere existence with the correct flavor
+    /// E2Es Task 1's server-side link-flavor classification in production one more time (seeded
+    /// via a bare `add-url` POST with no explicit `attributes.link.flavor` — the server classified
+    /// both correctly; see task-9-report.md for the REST seed/verify transcript).
+    func testCardAnatomySmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected at least one card in the grid")
+
+        // Screenshot rig (same checkpoint technique as testLibrarySmoke/testDetailSheets): the
+        // plain, unfiltered "All" grid — sorted newest-first, so the three Task 9 fixtures (repo/
+        // video/located, all seeded together) sit at or near the top alongside older fixture
+        // types, giving one screenshot real card-anatomy variety.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: anatomy-grid\n".data(using: .utf8)!)
+        sleep(3)
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+
+        /// Narrows the grid to one fixture via a unique local-search substring (never grid
+        /// position — same reasoning `testDetailSheets` documents), waits for its card, runs
+        /// `assert`, screenshots, then clears the search back out and waits for the grid to
+        /// return before the next iteration types into the (shared) field — same clear-then-
+        /// confirm technique `testLibrarySmoke`'s own search step already established.
+        func isolateAndCheck(search: String, checkpoint: String, assert: () -> Void) {
+            searchField.tap()
+            searchField.typeText(search)
+            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
+
+            assert()
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: anatomy-\(checkpoint)\n".data(using: .utf8)!)
+            sleep(2)
+
+            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
+            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the grid back after clearing '\(search)'")
+        }
+
+        // 1. Repo link (Task 9 fixture) → dark repo plate, mono "owner/repo" label.
+        isolateAndCheck(search: "repo link", checkpoint: "repo") {
+            let plate = anyElement("card.repoplate")
+            XCTAssertTrue(plate.waitForExistence(timeout: 10), "Expected a repo plate for the repo-link fixture")
+            XCTAssertTrue(plate.label.contains("supabase/supabase-swift"),
+                          "Expected the repo plate's label to contain 'supabase/supabase-swift', got '\(plate.label)'")
+        }
+
+        // 2. Located note (Task 9 fixture) → footer location badge, "posted from <label>".
+        isolateAndCheck(search: "located note", checkpoint: "location") {
+            let location = anyElement("card.location")
+            XCTAssertTrue(location.waitForExistence(timeout: 10), "Expected a location badge for the located-note fixture")
+            XCTAssertTrue(location.label.contains("Saratoga Springs"),
+                          "Expected the location badge's label to contain 'Saratoga Springs', got '\(location.label)'")
+        }
+
+        // 3. Video link (Task 9 fixture) → EITHER a tall hero (YouTube's og:image survived and
+        // decoded) OR a favicon plate (it didn't) — both are correct anatomy outcomes per the
+        // brief; a link preview image's survival is an external, non-deterministic fact about the
+        // live URL (and this app's own image-decode step), not something the app's own
+        // correctness hinges on, so this asserts "one of the two", not a specific one. Whichever
+        // branch actually renders is written to stderr and disclosed in the report rather than
+        // silently assumed.
+        isolateAndCheck(search: "video link", checkpoint: "video") {
+            let tallHero = anyElement("card.hero.tall")
+            let favicon = anyElement("card.faviconplate")
+            let heroExists = tallHero.waitForExistence(timeout: 8)
+            // 30s: the faviconplate branch renders only after AsyncImage fetch-FAILS the watch-page HTML — budget must exceed slow-network fetch failure, not just render time.
+            let faviconExists = !heroExists && favicon.waitForExistence(timeout: 30)
+            XCTAssertTrue(heroExists || faviconExists,
+                          "Expected the video-link card to expose either card.hero.tall or card.faviconplate")
+            FileHandle.standardError.write(
+                "VIDEO_HERO_BRANCH: \(heroExists ? "card.hero.tall" : "card.faviconplate")\n".data(using: .utf8)!)
+        }
+
+        // 4. Document (pre-existing "document one" fixture — Task 7's own file-plate case, first
+        // asserted on here rather than just visually confirmed) → file plate, "PDF" facts.
+        isolateAndCheck(search: "document one", checkpoint: "document") {
+            let plate = anyElement("card.fileplate")
+            XCTAssertTrue(plate.waitForExistence(timeout: 10), "Expected a file plate for the document fixture")
+            XCTAssertTrue(plate.label.contains("PDF"),
+                          "Expected the file plate's label to contain 'PDF', got '\(plate.label)'")
         }
     }
 
@@ -745,6 +848,18 @@ final class StashUITests: XCTestCase {
             XCTAssertTrue(sendButton.isEnabled, "Expected Send to be enabled for non-empty input")
             sendButton.tap()
 
+            // Gate-vs-RAG disambiguation (final review, plan-4): on a lapsed-subscription
+            // account, `AskView.sendTapped`'s `guard subscription.canUseAI` (AskView.swift:196-199)
+            // returns before `ChatStore.send` is ever called — no new bubble is appended, so
+            // `lastBubbleIdentifier` below would silently resolve to a stale, already-on-screen
+            // RESTORED history bubble instead (`ChatHistoryAPI.loadHistory` never persists/reloads
+            // `sources`, so a restored bubble is sourceless by construction) — misreadable as a RAG
+            // failure. Fail loudly and specifically instead. See the plan-5 handoff in
+            // docs/superpowers/plans/2026-08-17-ios-plan-4-object-parity.md for the full hypothesis
+            // and its falsification protocol.
+            XCTAssertFalse(anyElement("ask.gateError").waitForExistence(timeout: 2),
+                           "Ask send was subscription-gate-blocked — adjudicate as gate, not RAG")
+
             guard let bubbleId = lastBubbleIdentifier(timeout: 30) else {
                 XCTFail("Assistant bubble did not appear")
                 return ""
@@ -905,6 +1020,273 @@ final class StashUITests: XCTestCase {
 
         done.tap()
         XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 10), "Expected the library after dismiss")
+    }
+
+    // MARK: - Location pin (Task 6)
+    //
+    // Polls `items?content=eq.<marker>` until the row `testLocationPinSmoke` just created via the
+    // UI appears (the in-app save + this REST read are two independent paths — same "give it a
+    // moment" reasoning as `testCaptureSmoke`'s in-app realtime-search step, just via REST instead
+    // of the UI here), returning `id`/`attributes` for that test's own assertions. Reuses
+    // `fixtureRepairAccessToken`/`fixtureRepairBaseURL`/`fixtureRepairAnonKey`/`FixtureRepairError`
+    // (above) rather than duplicating the auth dance.
+    private func pollForRow(matchingContent marker: String, email: String, password: String,
+                            timeout: TimeInterval) async throws -> [String: Any] {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [
+                    URLQueryItem(name: "content", value: "eq.\(marker)"),
+                    URLQueryItem(name: "select", value: "id,attributes"),
+                ]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               let row = rows.first {
+                return row
+            }
+            try? await Task.sleep(for: .seconds(1))
+        } while Date() < deadline
+        throw FixtureRepairError("timed out waiting for the disposable location row '\(marker)' to appear via REST")
+    }
+
+    /// Cleanup for `testLocationPinSmoke`'s disposable row — same REST-verified deletion
+    /// `testDeleteSmoke` exercises through the in-app UI, performed here directly since this test
+    /// already has the row's `id` in hand from `pollForRow` above and never touches the permanent
+    /// UITEST-FIXTURE rows.
+    private func deleteRow(id: String, email: String, password: String) async throws {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [URLQueryItem(name: "id", value: "eq.\(id)")]))
+        request.httpMethod = "DELETE"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("cleanup DELETE failed for disposable location row \(id)")
+        }
+    }
+
+    /// Opt-in location capture (Task 6): pin toggle → CoreLocation one-shot fix (simulator location
+    /// pre-set via `simctl location set`, permission pre-granted via `simctl privacy grant
+    /// location` — both shell pre-steps run before this suite, see task-6-report.md) → native
+    /// reverse geocode → non-empty preview line → Save → REST-verified `attributes.location` on
+    /// the saved row (label, `source == "device-geolocation"`, latitude). The created row is
+    /// disposable: REST-polled then REST-DELETEd within this test itself (`pollForRow`/`deleteRow`
+    /// above), never touching the permanent UITEST-FIXTURE rows.
+    ///
+    /// `@MainActor`: same reasoning as `testEditSmoke` — XCTest always runs test methods on the
+    /// main thread/actor in practice; this just makes the `XCUIElement` calls in this `async` test
+    /// explicit about it rather than leaving the compiler to flag each one as a possible
+    /// off-main-actor access.
+    @MainActor
+    func testLocationPinSmoke() async throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        // Add is the launch tab (plan 2) — the pin button must appear without tapping any tab.
+        let pinButton = anyElement("capture.pin")
+        XCTAssertTrue(pinButton.waitForExistence(timeout: 15), "Expected the location pin button on the Add tab")
+        pinButton.tap()
+
+        // Screenshot rig (same checkpoint technique as testDetailSheets/testAskSmoke): holds
+        // briefly right after the tap, while CoreLocation/CLGeocoder are still resolving (the
+        // pin button shows a spinner in this state — see `pinIconName`/`.resolving` in
+        // CaptureComposerView), before the wait below moves on to the resolved preview.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: pin-resolving\n".data(using: .utf8)!)
+        sleep(2)
+
+        let preview = anyElement("capture.pin.preview")
+        XCTAssertTrue(preview.waitForExistence(timeout: 10),
+                      "Expected a 'posted from <label>' preview once the pin resolves")
+        let previewLabel = preview.label
+        XCTAssertTrue(previewLabel.hasPrefix("posted from "),
+                      "Expected the pin preview text to read 'posted from <place>', got '\(previewLabel)'")
+        let place = previewLabel.dropFirst("posted from ".count).trimmingCharacters(in: .whitespaces)
+        XCTAssertFalse(place.isEmpty, "Expected a non-empty resolved location label")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: pin-preview\n".data(using: .utf8)!)
+        sleep(3)
+
+        let marker = "UITEST-LOC: pin smoke \(Int(Date().timeIntervalSince1970))"
+        let editor = anyElement("capture.editor")
+        editor.tap()
+        editor.typeText(marker)
+
+        app.buttons["capture.save"].tap()
+        XCTAssertTrue(anyElement("capture.toast").waitForExistence(timeout: 10),
+                      "Expected a success toast after saving")
+
+        let row = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
+        let attributes = row["attributes"] as? [String: Any]
+        let location = attributes?["location"] as? [String: Any]
+        XCTAssertNotNil(location, "Expected an attributes.location blob on the saved row")
+        XCTAssertFalse(((location?["label"] as? String) ?? "").isEmpty, "Expected a non-empty location label")
+        XCTAssertEqual(location?["source"] as? String, "device-geolocation")
+        XCTAssertNotNil(location?["latitude"], "Expected a latitude on the device-resolved location")
+
+        if let id = row["id"] as? String {
+            try await deleteRow(id: id, email: email, password: password)
+        }
+    }
+
+    // MARK: - Location edit (Task 8)
+
+    /// Seeds `testLocationEditSmoke`'s disposable item directly via the `add-note` edge function
+    /// (Task 1: accepts `attributes` in its body, sanitized server-side) — never through the
+    /// in-app composer. This sidesteps the plan-wide blocker documented on `testCaptureSmoke`/
+    /// `testLocationPinSmoke`/`testVoiceNoteSmoke` (the UI-test account's Stripe trial lapsed
+    /// 2026-08-16, gate-blocking in-app capture actions client-side): a raw REST call to an edge
+    /// function isn't a capture-UI action, so it isn't affected by that client-side gate either
+    /// way, and the edit flow this test actually exercises isn't subscription-gated at all (only
+    /// capture/AI actions are). `content` is the caller's own unique marker, matched back via
+    /// `pollForRow` the same way `testLocationPinSmoke` polls for its own disposable row.
+    private func seedNoteWithLocationAndLink(content: String, email: String, password: String) async throws {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/functions/v1/add-note"))
+        request.httpMethod = "POST"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "content": content,
+            "is_public": false,
+            "attributes": [
+                "location": [
+                    "label": "Seed Location", "latitude": 40.7128, "longitude": -74.0060,
+                    "accuracy_m": 12, "city": "Seed Location", "region": "NY", "country": "US",
+                    "source": "device-geolocation", "captured_at": "2026-08-01T12:00:00Z",
+                ],
+                "link": ["flavor": "article"],
+            ],
+        ])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "add-note seed failed for disposable location-edit row (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+    }
+
+    /// Edit-sheet location row (Task 8): a DISPOSABLE item seeded directly via the `add-note` edge
+    /// function (`seedNoteWithLocationAndLink` above) with a device-geolocation location blob AND
+    /// a `link` attribute, so this test can prove the row's read-modify-write survives a sibling
+    /// key it doesn't touch. Opens the row (asserts the seeded device location renders), edits it
+    /// to "Test City" (asserts `source: "manual"`, coordinates dropped, `link` still present via
+    /// REST), clears it via the row's own remove button (asserts the `location` key is gone
+    /// entirely while `link` still survives), then deletes the disposable row — same REST
+    /// seed/poll/delete shape `testLocationPinSmoke` already established.
+    ///
+    /// Edit flows are NOT subscription-gated (plan-wide note: only capture/AI actions are) — this
+    /// smoke is expected to fully pass despite the UI-test account's lapsed Stripe trial, unlike
+    /// `testCaptureSmoke`/`testLocationPinSmoke`/`testVoiceNoteSmoke`.
+    ///
+    /// `@MainActor`: same reasoning as `testEditSmoke`/`testLocationPinSmoke` — makes the
+    /// `XCUIElement` calls in this `async` test's main-actor isolation explicit.
+    @MainActor
+    func testLocationEditSmoke() async throws {
+        let (email, password) = try testCredentials()
+        let marker = "UITEST-LOC: edit smoke \(Int(Date().timeIntervalSince1970))"
+        try await seedNoteWithLocationAndLink(content: marker, email: email, password: password)
+
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        searchField.tap()
+        searchField.typeText(marker)
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for the seeded location item")
+        card0().tap()
+
+        XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
+
+        let locationLabel = anyElement("detail.location.label")
+        XCTAssertTrue(locationLabel.waitForExistence(timeout: 10), "Expected the row to show the seeded device location")
+        XCTAssertEqual(locationLabel.label, "posted from Seed Location")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-display\n".data(using: .utf8)!)
+        sleep(3)
+
+        locationLabel.tap()
+        let field = anyElement("detail.location.field")
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "Expected the location field to appear for editing")
+        XCTAssertEqual(field.value as? String, "Seed Location", "Expected the field to prefill with the current label")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-editing\n".data(using: .utf8)!)
+        sleep(3)
+
+        // Same reliable length-based clear `testEditSmoke`'s `clearField` uses (never assumes
+        // caret position — see that helper's own doc comment for why).
+        let prefilled = (field.value as? String) ?? ""
+        field.tap()
+        if !prefilled.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: prefilled.count))
+        }
+        field.typeText("Test City\n")
+
+        let editedLabel = anyElement("detail.location.label")
+        XCTAssertTrue(editedLabel.waitForExistence(timeout: 10), "Expected the row to show the edited label")
+        XCTAssertEqual(editedLabel.label, "posted from Test City")
+
+        sleep(2)   // margin for the commit's (un-debounced but still async) PATCH to land
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-edited\n".data(using: .utf8)!)
+        sleep(3)
+
+        let afterEdit = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
+        let afterEditAttributes = afterEdit["attributes"] as? [String: Any]
+        let afterEditLocation = afterEditAttributes?["location"] as? [String: Any]
+        XCTAssertEqual(afterEditLocation?["label"] as? String, "Test City")
+        XCTAssertEqual(afterEditLocation?["source"] as? String, "manual")
+        XCTAssertNil(afterEditLocation?["latitude"], "Expected coordinates to be dropped on a manual edit")
+        XCTAssertEqual((afterEditAttributes?["link"] as? [String: Any])?["flavor"] as? String, "article",
+                       "Expected the seeded link attribute to survive the location edit")
+
+        // Clear via the row's own remove button — no need to re-enter edit mode.
+        let removeButton = anyElement("detail.location.remove")
+        XCTAssertTrue(removeButton.waitForExistence(timeout: 10), "Expected a remove button on the populated row")
+        removeButton.tap()
+
+        let addButton = anyElement("detail.location.add")
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Expected the ghost 'Add a location' button after clearing")
+
+        sleep(2)
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-cleared\n".data(using: .utf8)!)
+        sleep(3)
+
+        let afterClear = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
+        let afterClearAttributes = afterClear["attributes"] as? [String: Any]
+        XCTAssertNil(afterClearAttributes?["location"], "Expected the location key to be fully removed after clearing")
+        XCTAssertEqual((afterClearAttributes?["link"] as? [String: Any])?["flavor"] as? String, "article",
+                       "Expected the link attribute to still survive after clearing location")
+
+        app.buttons["detail.done"].tap()
+
+        if let id = afterClear["id"] as? String {
+            try await deleteRow(id: id, email: email, password: password)
+        }
     }
 
     /// Settings tab (Task 7): account email, a non-empty subscription status line, and sign-out —

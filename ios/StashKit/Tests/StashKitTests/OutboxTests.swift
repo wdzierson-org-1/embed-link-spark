@@ -156,6 +156,32 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(stub.lastBody["is_public"] as? Bool, false)
     }
 
+    // Task 5: `attributes_json` — the Outbox's own text-only `[String: String]` payload can't hold
+    // a nested attributes object directly, so `CaptureViewModel.enqueue` serializes the blob to a
+    // JSON string under this key; `drain` must decode it back and forward it to `addFile` as a
+    // real `attributes` object, exactly like the live-send path would have.
+    func testFileEntryRoundTripsAttributesJSON() async throws {
+        let box = Outbox(directory: dir)
+        let attributes = ItemAttributes(location: CapturedLocation(label: "Testville", source: "manual"),
+                                        media: MediaAttributes(durationS: 12, fileName: "clip.mp4"))
+        let attributesJSON = String(data: try JSONEncoder().encode(attributes), encoding: .utf8)!
+        try await box.enqueue(.file, payload: [
+            "file_path": "u/x.png", "mime_type": "image/png", "file_size": "1234",
+            "is_public": "false", "attributes_json": attributesJSON,
+        ])
+        let stub = StubPoster(); stub.response = itemJSON
+        let api = CaptureAPI(poster: stub)
+
+        let sent = await box.drain(api: api, accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+
+        XCTAssertEqual(sent, 1)
+        let body = try XCTUnwrap(stub.lastBody["attributes"] as? [String: Any])
+        let location = try XCTUnwrap(body["location"] as? [String: Any])
+        XCTAssertEqual(location["label"] as? String, "Testville")
+        let media = try XCTUnwrap(body["media"] as? [String: Any])
+        XCTAssertEqual(media["file_name"] as? String, "clip.mp4")
+    }
+
     // Cross-account capture leak (Critical, final review): `defaultDirectory()` used to be a
     // single path shared by every account that ever signed into this device, so the composer's
     // launch-time drain (which always runs under whatever session is CURRENT, not whichever

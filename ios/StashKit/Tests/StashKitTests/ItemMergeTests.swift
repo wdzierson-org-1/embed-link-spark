@@ -14,10 +14,11 @@ final class ItemMergeTests: XCTestCase {
     /// Mirrors `ItemRulesTests.fixture` but also varies `pageBody`, which that fixture always
     /// pins to `nil` (irrelevant to `ItemRulesTests`'s own cases, load-bearing for these).
     private func fixture(title: String? = "t", description: String? = "d", pageBody: String? = nil,
-                          supplementalNote: String? = nil) -> Item {
+                          supplementalNote: String? = nil, attributes: ItemAttributes = ItemAttributes()) -> Item {
         Item(id: UUID(), type: .link, title: title, content: nil, url: "https://example.com",
              filePath: nil, description: description, summary: "s", pageBody: pageBody,
-             supplementalNote: supplementalNote, mimeType: nil, isPublic: false, createdAt: .now)
+             supplementalNote: supplementalNote, mimeType: nil, isPublic: false, createdAt: .now,
+             fileSize: nil, attributes: attributes)
     }
 
     func testListRowRefreshPreservesLocalPageBodyButStillTakesNewerFields() {
@@ -26,7 +27,8 @@ final class ItemMergeTests: XCTestCase {
         let incoming = fixture(description: "newer description", pageBody: nil)
 
         let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: false,
-                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false)
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: false)
 
         XCTAssertEqual(merged.pageBody, "loaded body",
                        "a list row's nil page_body must never clobber an already-loaded one")
@@ -39,7 +41,8 @@ final class ItemMergeTests: XCTestCase {
         let incoming = fixture(title: "server title", pageBody: nil)
 
         let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: true,
-                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false)
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: false)
 
         XCTAssertEqual(merged.title, "draft title in progress",
                        "an in-flight unsaved title edit must never be overwritten by a stale incoming row")
@@ -52,9 +55,47 @@ final class ItemMergeTests: XCTestCase {
         let incoming = fixture(pageBody: "fresh full body")
 
         let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: false,
-                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false)
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: false)
 
         XCTAssertEqual(merged.pageBody, "fresh full body",
                        "a non-nil incoming page_body is a real fetch and must always win")
+    }
+
+    // MARK: - hasUnsavedLocation (Task 8)
+    //
+    // Same shape as the title/description/supplementalNote flags above, but for `attributes` —
+    // the detail sheet's `LocationRow` writes `item.attributes` optimistically the instant a
+    // location edit commits (`ItemDetailView.attributesBinding`), before that edit's own PATCH
+    // response has landed. Unlike `pageBody`, `attributes` IS part of `Item.listColumns`, so a
+    // realtime list-row refresh racing in during that window carries a REAL (not omitted)
+    // attributes value — one that predates this edit — and would clobber it without this guard.
+
+    func testHasUnsavedLocationDefersAttributesToLocal() {
+        let localAttrs = ItemAttributes(location: CapturedLocation(label: "Test City", source: "manual"))
+        let staleIncomingAttrs = ItemAttributes(location: CapturedLocation(label: "Stale Town", source: "device-geolocation"))
+        let local = fixture(attributes: localAttrs)
+        let incoming = fixture(attributes: staleIncomingAttrs)
+
+        let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: false,
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: true)
+
+        XCTAssertEqual(merged.attributes, localAttrs,
+                       "an in-flight unsaved location edit must never be overwritten by a stale incoming row")
+    }
+
+    func testNoUnsavedLocationTakesIncomingAttributes() {
+        let localAttrs = ItemAttributes(location: CapturedLocation(label: "Old", source: "manual"))
+        let freshIncomingAttrs = ItemAttributes(location: CapturedLocation(label: "Fresh", source: "manual"))
+        let local = fixture(attributes: localAttrs)
+        let incoming = fixture(attributes: freshIncomingAttrs)
+
+        let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: false,
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: false)
+
+        XCTAssertEqual(merged.attributes, freshIncomingAttrs,
+                       "with no unsaved location edit in flight, a fresher incoming attributes blob wins")
     }
 }

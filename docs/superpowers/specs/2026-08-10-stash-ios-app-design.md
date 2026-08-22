@@ -223,11 +223,18 @@ Migrating the web's upload path onto it is explicitly out of scope here.
 2. **Capture:** `add-file` function; capture sheet (text/URL/photos); Outbox; edit/delete/tags in detail.
 3. **Functional parity: Ask tab + voice notes + Settings.** *(Re-sequenced
    2026-08-11 per Will — parity with the web before new capture surfaces.)*
-4. **Share extension** — links, screenshots, videos, voice notes/audio, PDFs
+4. **Object-model parity with the 2026-08-16 web rework.** ✅ *(Added
+   2026-08-22 — the web shipped a single-object/attributes/object-first-card
+   rework mid-build; this phase made the capture endpoints the canonical
+   `attributes` path for every client, taught iOS location capture and the
+   object-first card anatomy, and closed a parked plan-3 residual, so plan 5
+   doesn't build share extension against a stale contract. Plan:
+   `docs/superpowers/plans/2026-08-17-ios-plan-4-object-parity.md`.)*
+5. **Share extension** — links, screenshots, videos, voice notes/audio, PDFs
    shared from any app.
-5. **Widgets + App Intents** — home-screen/lock-screen one-tap capture and
+6. **Widgets + App Intents** — home-screen/lock-screen one-tap capture and
    Siri background save (no app open) → TestFlight.
-6. **Visual/design parity with the web app.** *(Added 2026-08-11 — the apps
+7. **Visual/design parity with the web app.** *(Added 2026-08-11 — the apps
    currently look very different; align the iOS look with gostash.it's design
    language after function lands.)*
 

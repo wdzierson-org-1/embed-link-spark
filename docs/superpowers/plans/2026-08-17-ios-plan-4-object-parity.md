@@ -61,10 +61,19 @@ Add `attributes: safeAttributes` to the insert (`:317-330`).
 - [ ] **Step 4: add-file** — destructure+sanitize, add to insert (`:61-76`). Then the PDF gate in the document enrichment branch: wrap the `quick-pdf-summary` + `extract-pdf-text` invokes in `if (mime_type === 'application/pdf') { … }`; the `else` branch (non-PDF documents) runs after the existing baseline embedding:
 
 ```ts
+        } else if (OFFICE_MIMES.has(mime_type)) {
+          // OOXML documents → extract-office-text (committed+deployed c4cbdd0;
+          // mirrors extract-pdf-text: writes page_body + summary + description,
+          // re-embeds). Contract: {fileUrl, itemId, fileName, mimeType}
+          // (extract-office-text/index.ts:127).
+          const { error: offErr } = await supabase.functions.invoke('extract-office-text', {
+            body: { fileUrl: publicUrl, itemId: item.id, fileName, mimeType: mime_type },
+          });
+          if (offErr) console.error('add-file: extract-office-text failed for', item.id, offErr);
         } else {
-          // Non-PDF documents (parity with 83e9809): no PDF pipeline. Give the
-          // card a description and clear the "still extracting" marker
-          // (summary IS NULL drives the shimmer) until office extraction ships.
+          // Other non-PDF documents (parity with 83e9809): no PDF pipeline.
+          // Give the card a description and clear the "still extracting"
+          // marker (summary IS NULL drives the shimmer).
           const { data: d, error: descErr } = await supabase.functions.invoke('generate-description', {
             body: { content: fileName, type: 'document' },
           });
@@ -74,7 +83,7 @@ Add `attributes: safeAttributes` to the insert (`:317-330`).
         }
 ```
 
-(The document placeholder description at insert stays as-is for PDFs; for non-PDFs it is immediately replaced by this branch.)
+with `const OFFICE_MIMES = new Set(['application/vnd.openxmlformats-officedocument.presentationml.presentation','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);` near `deriveItemType`. (The document placeholder description at insert stays for PDFs and OOXML — their extractors replace it; the plain-stub branch replaces it immediately. E2E check #5's `.txt` exercises the stub branch; add check #6: upload a real `.docx` — generate via `cd /tmp && python3 -c` is unavailable-safe? Simpler: create a minimal docx with `zip` from a hand-written document.xml — the implementer builds it in /tmp with the `zip` CLI (document.xml with one `<w:t>office e2e persimmon deck</w:t>` run inside the standard docx skeleton), uploads with the DOCX mime, add-files it, polls `page_body ilike '%persimmon%'` ≤120s — proving the add-file→extract-office-text path E2E. Clean up.)
 - [ ] **Step 5: Widen the TS union** — `src/types/itemAttributes.ts:14`: `export type LocationSource = 'browser-geolocation' | 'device-geolocation' | 'photo-exif' | 'manual';` (the comment above it already says "widen as collectors are added").
 - [ ] **Step 6: Deploy all three + verify listed**
 
@@ -242,6 +251,21 @@ func testListColumnsMatchWebContractLiterally() {  // UPDATE the existing pinned
 
 ---
 
+### Task 6b: Web-alignment riders (2026-08-21 web commits, added mid-plan)
+
+**Files:**
+- Modify: `ios/Stash/Auth/SessionStore.swift`, `ios/StashKit/Sources/StashKit/SubscriptionStore.swift`
+- Test: `ios/StashKit/Tests/StashKitTests/SubscriptionStoreTests.swift`
+
+**Interfaces:**
+- Consumes: existing SessionStore.signOut + the `--uitest-reset-auth` hook; SubscriptionStore.refresh error path.
+- Produces: (1) **local-scope sign-out** (web 166b7c6): both `signOut()` call sites become `signOut(scope: .local)` — comment cites the web commit and the zombie-session history; this also closes the ledgered CI cross-invalidation concern. (2) **Fail-open subscription errors** (web 42c2e67): a non-cancellation refresh error KEEPS the last known `status` (never nils it) — "an errored check means unknown, not unsubscribed"; `lastError` still set for Settings display; a fresh-launch error with no prior status leaves gates closed (status nil from init — web equivalent). (3) Row-major grid note: iOS LazyVGrid is already row-major — record in the outcome; footer-pinning/row-height-equalization → plan 7.
+
+- [ ] **Step 1: Failing test** — `testTransientErrorKeepsLastKnownStatus`: refresh #1 succeeds (trial, gates open); refresh #2 throws a plain error → assert `status` UNCHANGED (still trial), `canAddContent` still true, `lastError` set. (RED: current code nils status.) Keep the existing fresh-launch-error test asserting gates closed when no prior status — update its name/comment to reflect the distinction, not its assertions.
+- [ ] **Step 2: Implement both changes.** **Step 3: GREEN** (suite +1); UI suite ×1 (sign-out flow unaffected functionally — verify testSettingsSmoke's sign-out still passes). **Step 4: Commit** — `git commit -am "fix(ios): local-scope sign-out + fail-open subscription errors (web 166b7c6/42c2e67 parity)"`
+
+---
+
 ### Task 7: Object-first cards
 
 **Files:**
@@ -310,3 +334,148 @@ func testListColumnsMatchWebContractLiterally() {  // UPDATE the existing pinned
 - **Type consistency:** `ItemAttributes.jsonObject()` consumed by CaptureAPI (T5) and ItemPatch (T8); `CapturedLocation` field names match T3 across T6/T8; formatter names match T4→T7; `pendingLocation`/`awaitPendingLocation` split T5-declares/T6-implements is called out in both tasks.
 - **Deliberate deviations (disclosed):** CLGeocoder over BigDataCloud (native, key-less, same output shape); `device-geolocation` source (TS union widened in T1); masonry/serif/rich-composer deferred to plan 7; sub-object unknown-key preservation is top-level-only (matches web's own wholesale sub-object replaces).
 - **Known risks, accepted:** three endpoint deploys to production (additive params — existing clients unaffected; approved scope: "implement them"); simulator location simulation (`simctl location set`) drives the pin smoke — if the sim refuses a fix, the smoke discloses and falls to the LocationBuild unit layer + manual screenshot; YouTube og-image variability handled with an either-or assertion.
+
+---
+
+## Outcome (2026-08-22)
+
+**Commit range:** `52fc80f..HEAD` — 18 commits (base `52fc80f` = this plan's own authoring commit; 17 implementation/fix-round commits across Tasks 1–9 plus this wrap's own docs commit).
+
+| Commit | Task | Message |
+|---|---|---|
+| `11e790c` | T1 amendment | docs: route OOXML through extract-office-text in plan-4 T1 (c4cbdd0 landed) |
+| `b9957e6` | T1 | feat: attributes passthrough + server-side link flavor in capture endpoints; add-file PDF gate |
+| `2524fc1` | T2 | fix(ios): SubscriptionStore generation token + URLError(.cancelled) — closes parked plan-3 residual |
+| `914aa3c` | T3 | feat(ios): loss-less ItemAttributes blob + file_size; list columns match web rework |
+| `17e2028` | T3 fix round | fix(ios): ItemAttributes tolerates malformed known keys; jsonObject() returns nil on encode failure |
+| `3b10883` | T4 | feat(ios): card metadata formatters + repo/domain parsing (tested) |
+| `6272b5a` | T4 fix round | fix(ios): card metadata critical & important fixes |
+| `555f136` | T5 | feat(ios): single-object batch (note on first) + attributes threading through capture |
+| `d0930bb` | (mid-plan) | docs: add Task 6b — local signOut + fail-open subscription (web parity riders) |
+| `4aa013d` | T6 | feat(ios): opt-in location capture — pin toggle, CoreLocation, native geocode |
+| `50d93f2` | T6 fix round | fix(ios): close LocationCapture continuation leak on rapid toggle |
+| `dc7208f` | T6b | feat(ios): plan-4 task-6b web-parity riders — local-scope sign-out + fail-open subscription errors |
+| `f1eb686` | T6b fix round | test(ios): clarify subscription error handling — rename error-path test |
+| `f9a4152` | T7 | feat(ios): object-first card system — typed heroes, annotation bar, metadata chips, location footer |
+| `fb04bb9` | T8 | feat(ios): edit-sheet location row + loss-less attributes editing; legacy Attachments section |
+| `807f1d3` | T9 | test(ios): flavor fixtures + card-anatomy smoke |
+| `715d189` | T9 fix round | test(ios): widen favicon-plate wait timeout from 5s to 30s |
+| *(this commit)* | T10 | docs(ios): plan-4 wrap — ui-changes log, spec renumber, outcome |
+
+Mid-plan interruption: T6 was dispatched, interrupted by Will 2026-08-18, and reset to a clean `555f136`; main gained 3 web commits in the interim (local signOut `166b7c6`, fail-open subscription `42c2e67`, row-major grid `62a205b`), absorbed as Task 6b. T6 was re-dispatched fresh and completed 2026-08-22.
+
+### Verification
+
+- **StashKit:** `swift test` → **204/204 passing, 0 failures.** `swift build` → 0 warnings. (The plan's own Step-1 estimates drifted upward every task as scope/coverage grew — 204 is the actual final count, not the brief's stale "~117"; each task's own report disclosed its count mismatch at the time.)
+- **App build:** `xcodebuild build` (clean rebuild, `rm -rf DerivedData`) against sim `28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB` → **BUILD SUCCEEDED**, 0 new warnings (only the two pre-existing environmental notices carried since plan 1: multiple-destination-match, `appintentsmetadataprocessor` AppIntents-framework skip).
+- **Web:** `npm test` (`vitest run`) → **20 test files, 127 tests, all passed.** `npx tsc --noEmit` → clean. Confirms Task 1's `LocationSource` union widening (`src/types/itemAttributes.ts`) didn't regress the web suite or its types.
+- **Full `StashUITests` suite, run twice** against production (account `will+uitest@dzierson.com`), fresh `STASH_DELETE_MARKER` reseeded via REST before each run:
+
+  | Test | Run 1 | Run 2 |
+  |---|---|---|
+  | testWrongPasswordShowsErrorThenCorrectPasswordSignsIn | passed | passed |
+  | testLibrarySmoke | passed | passed |
+  | testDetailSheets | passed | passed |
+  | testCardAnatomySmoke | passed | passed |
+  | testTagFilterSheetOpens | passed | passed |
+  | testCaptureSmoke | **failed** (subscription gate) | **failed** (subscription gate) |
+  | testEditSmoke | passed | passed |
+  | testDeleteSmoke | passed | passed |
+  | testTagsAndPublicSmoke | passed | passed |
+  | testAskSmoke | **failed** (sourceless after retry — see corrected record below) | **failed** (sourceless after retry — see corrected record below) |
+  | testVoiceNoteSmoke | passed | passed |
+  | testLocationPinSmoke | **failed** (subscription gate) | **failed** (subscription gate) |
+  | testLocationEditSmoke | passed | passed |
+  | testSettingsSmoke | passed | passed |
+
+  Both runs: **11/14 passed**, matching the pre-adjudicated failure set by test name (testCaptureSmoke, testLocationPinSmoke, testAskSmoke) — but `testAskSmoke`'s failures are **not** ordinary flake; see the corrected record and live probe immediately below, which supersedes the "RAG-variance" framing this section originally used. Zero OTHER failures across both runs. Both runs independently hit the pre-existing, previously-documented (task-9-report.md) "Restarting after unexpected exit, crash, or test timeout" xcodebuild-runner recovery immediately after `testLocationPinSmoke`'s gate-blocked throw — cosmetic, not a new issue. Post-run REST cleanup: both runs' disposable delete-marker rows were consumed by `testDeleteSmoke` as designed; `note one`/`note two` fixtures self-healed to their canonical state (REST-verified: title/content exact, `is_public:false`, `supplemental_note:null`, 0 `item_tags` rows); 9 accumulated voice-note debris rows (7 pre-existing from Tasks 6–9's own runs + 1 from each of this task's 2 runs) plus their `stash-media` storage objects were deleted — the 12-fixture inventory was reconfirmed intact throughout.
+
+#### `testAskSmoke` — corrected record + live probe (added at final review; a Critical review finding on the first draft of this section)
+
+**The first draft of this section mis-framed this as ordinary flake. It is not.** The actual record across this plan, tabulated from every task's own report: **8-for-8 full-suite runs have failed `testAskSmoke`, always the same way** (a real, coherent streamed answer, but the SSE `.done` event's `sources` array empty on both the initial attempt AND the in-test retry) — T6 ×2 (task-6-report.md), T7 ×1 (task-7-report.md), T8 ×1 (task-8-report.md), T9 ×2 (task-9-report.md), T10 ×2 (this task, both runs above). Zero passes since Task 6. Contrast with **plan 3's own outcome doc** (`docs/superpowers/plans/2026-08-11-ios-plan-3-parity.md:507,513`): both of plan 3's full-suite runs had `testAskSmoke` **succeed on the first attempt — the in-test retry never fired, 2-for-2 clean, ~24s each**. Something changed the observed behavior completely, coincident with this plan's start. The original framing ("worth a future look... isn't a regression this plan introduced") asserted the second half of that sentence with no supporting evidence — dropped, per review.
+
+**Live probe (this task, in response to the review finding):** called `POST /functions/v1/chat-with-all-content` directly via curl (ROPC JWT, same `message`, `conversationHistory: []`, bypassing the app/test entirely) — **twice**:
+
+- **Run 1:** streamed text non-empty ("Your saved items mention persimmons in the Stash UITEST fixture document...") — `sources`: **4 items**, first `{"id":"e5f66ca4-fa45-48b9-9d2a-d5aa8cb5aba4","title":"UITEST-FIXTURE: document one","type":"document","url":null}` (exactly the persimmons fixture).
+- **Run 2:** same shape — non-empty text, **4 sources**, same document first.
+
+**Both direct calls were correctly sourced.** Per the review's own decision rule ("if sourced → the break is client/test-side"): **server-side retrieval is confirmed working right now** — the `embeddings` row for `UITEST-FIXTURE: document one` (`item_id e5f66ca4-…`) exists, non-empty (`content_chunk` contains "persimmons" 3×), and `hybrid_search_content` finds and ranks it correctly. This rules out "plan 4's corpus changes broke retrieval" as the mechanism, since retrieval is demonstrably intact against the current corpus (62 items / 56 embeddings, post plan-4 fixture adds and Task-1 E2E row deletions — `embeddings.item_id` is `ON DELETE CASCADE`, so the deleted E2E rows left no orphaned vectors to pollute results).
+
+**Additional finding, not requested but directly relevant:** the account's single `conversations` row has exactly 40 `messages`, and **the newest one is dated 2026-08-12T03:43** — before every one of the 8 plan-4 failures (T6 starts 2026-08-18). Plan 3's own testAskSmoke runs (and an evident manual investigation session asking the identical question ~5× in a row on 2026-08-11/12) **did** persist to this table; **nothing from plan 4's 8 runs has**, sourced or not. Whether persistence is conditioned on a successful/sourced exchange (in which case this is consistent with, not independent evidence for, 8/8 sourceless) or is itself broken since Task 6 is not established here — flagged as a concrete lead, not a conclusion.
+
+**Corrected conclusion:** the server-side RAG pipeline is proven healthy by direct probe. What is **not** established, and is not resolved by this probe, is why the actual app/test invocation deterministically fails where a raw API call twice succeeds, or whether this began as something plan 4 introduced (the plan-3-vs-plan-4 behavioral discontinuity is real and unexplained, not dismissed). This needs client-side instrumentation (the literal outgoing request/response inside the app, not a curl proxy for it) to actually reproduce and root-cause — not attempted here, out of this task's scope. See the plan-5 handoff below for the escalation.
+
+### 12-fixture inventory (REST-reconfirmed 2026-08-22, post-cleanup)
+
+| Type | Title | Flavor / location |
+|---|---|---|
+| text | UITEST-FIXTURE: note one | — |
+| text | UITEST-FIXTURE: note two | — |
+| text | UITEST-FIXTURE: public sticky | — (public + sticky note) |
+| text | UITEST-FIXTURE: located note | location: "Saratoga Springs, New York" |
+| link | UITEST-FIXTURE: link one (example.com) | — (favicon-plate case) |
+| link | UITEST-FIXTURE: link two (Wikipedia) | — (cover-image case) |
+| link | GitHub — supabase/supabase-swift | flavor: repo |
+| link | Rick Astley — Never Gonna Give You Up | flavor: video |
+| image | UITEST-FIXTURE: image one | — |
+| image | UITEST-FIXTURE: realtime demo — permanent | — |
+| audio | UITEST-FIXTURE: audio one — permanent | — |
+| document | UITEST-FIXTURE: document one | — |
+
+### Deviations of record
+
+1. **CLGeocoder, not BigDataCloud** (Task 6) — native, key-less reverse geocoding; same output shape (city/region/country → the same "City, Region" label rule as the web's `useCaptureLocation.ts`). Deliberate, disclosed at authoring time.
+2. **`device-geolocation` LocationSource** (Task 1) — the TS union (`src/types/itemAttributes.ts`) widened to carry iOS's own collector name alongside the web's `browser-geolocation`; same `CapturedLocation` shape.
+3. **URL-first note tie-break vs. web's chip-order** (Task 5) — iOS deterministically gives a batch's note to a detected URL (always first), where the web gives it to whichever object the user chipped first. Flagged for Will/product sign-off in both `docs/ui-changes.md`'s 2026-08-22 entry and task-5-report.md; not resolved in this plan.
+4. **`CardPlates.swift`** — a 4th new file beyond the brief's named 3-file list for Task 7 (splitting `RepoPlate`/`FaviconPlate`/`FilePlate` out of `CardHero.swift` to honor the same brief's own "~120 lines per file" rule). `ItemCardView.swift` (**286 lines, re-measured at this final review** — 273 at Task 7's own commit, +13 from Task 9's `typeBadge` wrapping fix) and `CardHero.swift` (188 lines) still exceed that target even after the split — judged as reasonable given the scope (7 anatomy steps + legacy-collection branch + sticky/shimmer machinery; the web's equivalent split is 598 lines across 3 files for the same scope). Disclosed and reasoned in task-7-report.md.
+5. **Native `.video`-type hero renders a static dark plate** (play-triangle icon + duration badge), not a real extracted poster frame — no `AVAssetImageGenerator` call. No fixture exists to verify against (none of the 12 permanent fixtures are a native video upload; Task 9's "video" fixture is link-flavor video, i.e. a `link` item). `item.thumbnailURL` for a true video type points at the video file itself, which can't be decoded as an image, so the honest static plate was chosen over a network fetch known to fail.
+
+This list covers deviations material enough to affect a plan-5+ reader's decisions. It is not the full record of every disclosed minor — each task's own report has its own "Deviations"/"Concerns" section, and `progress.md` (this plan's running SDD ledger) has one line per task summarizing all of them, including several smaller, genuinely-inconsequential items not repeated here (e.g. Task 4's report-count arithmetic, Task 5's PhotosPicker-filename-probe coverage gap, Task 8's untested Escape-to-cancel path). See `progress.md` for the complete deferred-minors ledger.
+
+### Triaged at this final review
+
+Two items were explicitly ledgered as "final review to triage" (progress.md) rather than fixed inline during their originating tasks, since both are narrow, self-healing races in imperative/async glue code that StashKit's test suite has no seam to exercise directly (no CoreLocation mock, no network-response-ordering harness):
+
+- **T6 — abandoned 10s location-fix timer lacks a generation check.** A cancelled resolution cycle's own timeout timer isn't itself invalidated, so it can (real-device-likelihood; not reproduced on the simulator, where fixes resolve instantly) spuriously fail a later, unrelated resolve. **Triage: accept, non-blocking, carry forward.** The Critical continuation/Task leak that was in the same area IS fixed (`50d93f2`, with a live sim sanity check); this is a narrower, lower-probability residual on top of that fix, not something the fix left behind.
+- **T8 — rapid double location-commit race.** Two location-row edits committed in quick succession can have the first PATCH's response land after the second's and transiently revert it via `applyDetail` (no debounce/in-flight tracking on `saveAttributes`, unlike the debounced text fields — a location commit was treated as already-discrete, matching `NotesAppendComposer`'s own precedent). **Triage: accept, non-blocking, carry forward.** Self-healing on the next realtime update; the window requires committing the same row's location twice within one network round-trip, an edge case for a field that isn't the primary edit target of the sheet.
+
+Recommendation: a dedicated hardening pass (not urgent, not plan-5-blocking) rather than a blind fix now — both need either a CoreLocation test double or a network-race harness StashKit doesn't currently have.
+
+### Stripe-lapse blocker — PENDING WILL DECISION
+
+Verbatim from the plan ledger (`progress.md`), confirmed still unresolved as of this wrap (`check-subscription` on the test account still returns `subscribed: false, subscriptionStatus: "paused", trialEnd: "2026-08-16T16:05:38.000Z"` — 6 days lapsed, visible directly in the Settings screenshot below as "Status: Expired"):
+
+> UI-test account Stripe trial LAPSED 2026-08-16 (paused, no payment method); self-heal correctly refuses (history exists). Capture smokes (testCaptureSmoke/testLocationPinSmoke/testVoiceNoteSmoke) gate-blocked client-side; REST/server saves unaffected; edit/anatomy/settings smokes unaffected. Options for Will: comp the account (100% coupon / far-future trial_end) [recommended, durable], new history-free account + fixture re-seed [14-day time bomb], or accept degraded capture-smoke verification. Implementer correctly did NOT touch Stripe.
+
+This plan's own implementers (Tasks 6, 6b) independently reconfirmed the mechanism (`create-trial-subscription`'s self-heal refuses once any subscription has ever existed — "lapsed users go through checkout, not a fresh trial") and did not touch Stripe. No plan-5 (or later) implementer should either, absent Will's decision here.
+
+### Plan-5 (share extension) handoff
+
+- **Ask "sourceless" — gate hypothesis (final review), supersedes this section's "Corrected conclusion" above, which called for client-side instrumentation before this evidence existed.** `testAskSmoke`'s 8-for-8 sourceless failures (T6–T10 above, all post-dating the account's 2026-08-16 Stripe lapse — see the blocker below) are far more parsimoniously explained by the subscription gate than by a client- or server-side RAG break, and every fact already gathered above is consistent with it: `SubscriptionStore.canUseAI` (`SubscriptionStore.swift:82`, an alias of `canAddContent`) evaluates `false` for this lapsed account once `isLoading` settles, and `AskView.sendTapped`'s `guard subscription.canUseAI else { gateMessage = …; return }` (`AskView.swift:196-199`) returns **before `ChatStore.send` is ever invoked** — no new message is sent, no new bubble is appended. `testAskSmoke`'s `lastBubbleIdentifier` lookup then resolves to whatever bubble `loadHistoryOnce()` already restored onto screen, and `ChatHistoryAPI.loadHistory` (`ChatHistoryAPI.swift:70-82`) queries `id, role, content, created_at` but decodes and constructs each restored `ChatMessage` with only `id`/`role`/`content` — `sources` defaults to `[]` (init at `ChatHistoryAPI.swift:17-18`) and is never populated from history. A restored bubble is therefore **sourceless by construction**, indistinguishable in the UI from a genuine unsourced answer. This also resolves the "Additional finding" above without residue: zero messages have persisted since 2026-08-12 because `store.send` — the only path that persists — never ran in any of the 8 gated attempts.
+
+  **Falsification protocol** for whoever makes the Stripe call: comp the account (100% coupon / far-future `trial_end`, per the blocker below) and re-run the full suite once. Predicted outcome: `testAskSmoke` passes, landing alongside `testCaptureSmoke`/`testLocationPinSmoke` (all three share this exact gate). If `testAskSmoke` still fails post-comp, the gate hypothesis is falsified and the RAG-overhaul/client-instrumentation track originally proposed here is the right next step — and its failure screenshot should show real streamed-but-sourceless content, not the `ask.gateError` banner.
+
+  **Guard added this pass:** `testAskSmoke` now asserts, immediately after each send tap, that `ask.gateError` has NOT appeared — so any future gate-block fails loudly and specifically instead of being silently misread as a sourceless answer (`StashUITests.swift`).
+
+  **RAG-overhaul pointer, narrowed, not dropped:** `testAskSmoke`'s own one-shot variance retry exists because of genuine sourceless responses observed pre-lapse in T5–T7 (see the retry's own comment in `StashUITests.swift`) — that variance predates the 2026-08-16 lapse, is unexplained by the gate hypothesis, and remains a legitimate, open, lower-priority input to Will's RAG-overhaul priority. The 8-for-8 post-lapse record (T6–T10) documented above is not additional evidence of it.
+- **Rides the attribute-capable endpoints for free.** `add-note`/`add-url`/`add-file` already accept `attributes` (Task 1) and `add-url` classifies `link.flavor` server-side — the extension's own capture calls carry `location`/`media` from day one, no new endpoint work needed.
+- **Share-time location pin is a natural extension** of Task 6's `LocationBuild` (pure, StashKit-side, already shared-package-clean) — the app-side `LocationCapture` CoreLocation wrapper would need its own instance in the extension process (same pattern, new host).
+- **Carried items** (open before plan 4, unaffected by it, load-bearing for plan 5 specifically — see `docs/superpowers/plans/2026-08-11-ios-plan-3-parity.md`'s own ledger for full detail):
+  - **Camera recoverability** — attachments still live only in in-memory `CaptureAttachment.data`; `RecordingStore`'s local-first-write pattern (proven durable for voice notes) isn't generalized to camera/file-picker attachments yet.
+  - **Orphan-recording sweep** — `RecordingStore.pendingRecordings()` is dead API; a force-quit between Stop and Save still orphans `.m4a` files with no startup reconciliation.
+  - **App Group Outbox migration** (per-user scoping + cross-process drain claim) — `Outbox.defaultDirectory(userId:)` still resolves under the app-sandboxed container (its own doc comment says "Plan 3 is expected to move this" — stale; it's now plan 5's prerequisite). A share extension process can't see the app's Outbox until this migrates, and the per-instance `isDraining` flag doesn't span processes.
+  - **Extension memory budget** — the composer's attachment paths still read whole-file `Data` eagerly; a share extension's ~120MB cap needs streamed/bounded reads before this pipeline is reused there.
+  - **Abandoned-timer generation check [T6] / double-location-commit race [T8]** (triaged above) — watch for real-device manifestation once the extension exercises location capture under tighter time/memory pressure than the host app.
+  - **T9 date-wrap cosmetic** — the located-note footer wraps its date to 3 lines when a long location label + type badge share one row on a narrow 2-column card; two fix variants were tried live and rejected as worse (task-9-report.md). A real fix likely needs a layout rethink, not a footer patch — see masonry below.
+  - **Masonry grid, serif display font (PPEditorialNew), rich slash-command composer, footer-pinning/row-height-equalization** — all explicitly deferred to plan 7 (visual/design parity) per this plan's Global Constraints and Task 6b's row-major-grid note.
+- Other plan-2/3 carried items not specific to plan 5 (un-share/sticky-debounce race, Outbox attempts cap + dead-letter, `quick-pdf-summary` title-overwrite server fix) remain open and untouched by plan 4 — tracked in `docs/superpowers/plans/2026-08-11-ios-plan-3-parity.md`'s own ledger, not restated here.
+
+### Screenshots (read + described; ephemeral, kept in `/tmp`, not committed)
+
+Captured via one temporary `StashUITests` method (`testTemporaryFourTabScreenshotRig` — written, run, screenshotted, then fully removed; `git diff` on `StashUITests.swift` confirmed zero residual diff before committing), same checkpoint/`xcrun simctl io screenshot` technique as every prior task. Tab order in the rig was Add → View → Settings → Ask (Ask last, deliberately — tapping another tab bar button immediately after an Ask send intermittently only dismissed the keyboard instead of switching, a live-reproduced glitch; putting Ask last sidesteps it without needing a real fix in a throwaway test).
+
+- **Add tab** — the empty launch-tab composer: "Save a thought, a link, anything…" placeholder, attachment row (photos/camera/file/mic + lock + location-pin toggles), Add/Ask/View/Settings tab bar with Add active.
+- **View tab (grid top)** — "12 items", search field, type chips (All/Links/Notes/Docs/Media/Collections), and excellent card variety in one screen: the located-note text card (footer shows date + location pin + "text" badge), the video-link favicon-plate ("Y" avatar, "youtube.com", "preview limited · saved anyway", "YOUTUBE.COM" kicker), and (partially visible) the repo dark plate (`</> supabase/su…`) and a document file-plate ("PDF").
+- **View tab (scrolled)** — further variety: the public-sticky text card (yellow sticky badge), the audio card (M4A chip, violet annotation bar showing the user's own note under the AI transcript description), and the two plain-color image fixtures (green/purple squares, standard-height covers).
+- **Settings tab** — Account (email, username, public feed URL), Phone Numbers, Tags (`plan2-smoke`: 12, `ios-test`: 1), and Subscription: **"Status: Expired"** with "Manage on gostash.it" — a direct, live, in-app confirmation of the Stripe-lapse blocker documented above.
+- **Ask tab** — shows a prior successful sourced exchange (persisted server-side conversation history; `--uitest-reset-auth` only resets local auth, not server-side `conversations`) above a red **"AI chat needs an active trial or subscription."** banner, with this rig's own question ("What's in my stash?") sitting unsent in the composer — the send was blocked by the same client-side subscription gate documented throughout this plan (Ask was deliberately visited last in the rig, well past the fail-open `isLoading` window other smokes sometimes win by accident, so this screenshot shows the gate's steady-state behavior honestly rather than a lucky pass). That visible historical exchange is dated **2026-08-12** (confirmed via REST while investigating the `testAskSmoke` finding above) — it predates this entire plan; nothing from any plan-4 run appears in this account's conversation history at all.

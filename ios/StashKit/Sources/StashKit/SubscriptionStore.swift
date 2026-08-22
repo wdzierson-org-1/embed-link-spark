@@ -86,6 +86,14 @@ public final class SubscriptionStore {
     /// at most once per store lifetime, matching `trialEnsuredRef` (useSubscription.tsx:49,68).
     private var triedTrial = false
 
+    /// Plan-4 named requirement (docs/superpowers/plans/2026-08-11-ios-plan-3-parity.md's
+    /// post-review addendum) — mirrors `ItemStore.loadGeneration`. Bumped at the start of every
+    /// `refresh()` and by `reset()`. Lets a `refresh()` still in flight recognize, once it
+    /// resolves, that a newer `refresh()` — or a `reset()` (cross-account sign-out/in) — has
+    /// since superseded it, so it can drop its own stale result instead of clobbering state a
+    /// fresher call or an intentional reset already wrote.
+    private var refreshGeneration = 0
+
     public init(checker: SubscriptionChecking) {
         self.checker = checker
     }
@@ -110,6 +118,14 @@ public final class SubscriptionStore {
     ///    softer fallback avoids flipping gates closed over what's likely a transient hiccup
     ///    immediately after a successful initial check.
     public func refresh() async {
+        // Generation token (plan-4 named requirement, mirrors `ItemStore.loadGeneration`): bump
+        // first, capture locally, guard every write below on the captured value still matching —
+        // so if a newer `refresh()` or a `reset()` supersedes this call before it resolves, its
+        // (stale) result is silently dropped instead of clobbering whatever the newer call or the
+        // reset already wrote.
+        refreshGeneration += 1
+        let generation = refreshGeneration
+
         // `isLoading` is a one-shot first-check flag (web parity: useSubscription's `loading`
         // never re-arms) — later refreshes must not fail-open, so this must never set it back to
         // `true` here; the initializer's `isLoading = true` plus this `defer` are the entire
@@ -122,15 +138,20 @@ public final class SubscriptionStore {
         // `SessionStore.state` becomes `.signedIn`) always starts, and normally finishes, before
         // the user can navigate to the Settings tab in the first place. A refresh cancelled
         // before that very first flip would still leave `isLoading` true here — just not a path
-        // Settings' own polling can reach.
-        defer { isLoading = false }
+        // Settings' own polling can reach. The generation guard below still applies to this flip
+        // too, though: without it, a stale refresh resolving after `reset()` re-arms `isLoading`
+        // for the next account would flip it back to `false` under that account before its own
+        // first refresh ever lands.
+        defer { if generation == refreshGeneration { isLoading = false } }
         do {
             var result = try await checker.check()
+            guard generation == refreshGeneration else { return }   // superseded while check() was in flight
             if !result.subscribed, !result.onTrial, !triedTrial {
                 triedTrial = true
                 if let healed = try? await selfHeal() {
                     result = healed
                 }
+                guard generation == refreshGeneration else { return }   // ...or while the self-heal re-check was in flight
             }
             status = result
             lastError = nil
@@ -142,8 +163,19 @@ public final class SubscriptionStore {
             // app-wide for an already-subscribed user, with no prompt recovery short of
             // revisiting Settings or a foreground cycle. Leave `status`/`lastError` exactly as
             // they were; only `isLoading` (via the `defer` above) still resolves either way.
-            if error is CancellationError { return }
-            status = nil
+            //
+            // Plan-4 named requirement: widened to also match `URLError(.cancelled)` — Settings'
+            // poll cancels the `Task` running `refresh()`, but that cancellation can surface from
+            // underneath `checker.check()`'s network call as a transport-level `URLError` instead
+            // of (or in addition to) Swift's `CancellationError`, which `is CancellationError`
+            // alone does not catch.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
+            guard generation == refreshGeneration else { return }
+            // Web parity (plan-4 Task 6b, commit 42c2e67: "fail-open subscription errors"): a
+            // transient error checking subscription status does NOT wipe the last known status —
+            // an errored check means unknown, not unsubscribed. Keep gates open on a prior
+            // success while connection hiccups or other transient failures resolve. Only set
+            // `lastError` for UI reporting; never nil `status`.
             lastError = "Couldn't check your subscription status."
         }
     }
@@ -169,10 +201,16 @@ public final class SubscriptionStore {
     /// comment above), so the next account's first `refresh()` fails open exactly like a fresh
     /// launch instead of inheriting A's last resolved `canAddContent` value — open *or*
     /// closed — for however long B's own check takes.
+    ///
+    /// Plan-4 named requirement (post-review addendum to the plan-3 doc above): also bumps
+    /// `refreshGeneration`, so a `refresh()` that was already in flight for account A when this
+    /// fires can't land its (now-stale) result over account B's freshly-reset state — the narrow
+    /// same-device-account-switch race the unconditional resets alone didn't cover.
     public func reset() {
         status = nil
         lastError = nil
         triedTrial = false
         isLoading = true
+        refreshGeneration += 1
     }
 }
