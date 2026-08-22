@@ -31,13 +31,22 @@ public actor Outbox {
     /// resolves to a directory user A's queued entries were never written into, so a drain can
     /// never cross the account boundary no matter whose session happens to be active.
     ///
-    /// Plan 3 is expected to move this directory into the shared App Group container (so the
-    /// share extension can enqueue into the same Outbox the app drains) — that migration MUST
-    /// preserve this per-user segment; collapsing back to one shared directory across accounts
-    /// would reopen this leak.
+    /// Plan 5 Task 2: now resolves through `AppGroup.userScopedURL`, which moves this directory
+    /// into the shared App Group container when the app is entitled (falling back to the exact
+    /// old Application Support formula otherwise, e.g. `swift test`) — so the share extension
+    /// (Task 5+) can enqueue into the same Outbox the app drains. This preserves the per-user
+    /// segment described above; collapsing back to one shared directory across accounts would
+    /// reopen the leak. A one-time `AppGroup.migrateLegacyDirectory` call relocates any entries
+    /// already queued at the pre-Task-2 location (dev-stage: no real users yet, but a
+    /// not-yet-drained entry from a developer's own test run would otherwise go silently
+    /// invisible on the first App-Group-entitled launch) — a no-op once moved, and a no-op
+    /// (guaranteed, since the two paths are then identical) wherever the App Group entitlement
+    /// isn't active.
     public static func defaultDirectory(userId: UUID) -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appending(path: "StashOutbox").appending(path: userId.uuidString.lowercased())
+        let destination = AppGroup.userScopedURL("StashOutbox", userId: userId)
+        AppGroup.migrateLegacyDirectory(from: AppGroup.legacyUserScopedURL("StashOutbox", userId: userId),
+                                        to: destination)
+        return destination
     }
 
     public func enqueue(_ kind: OutboxEntry.Kind, payload: [String: String]) throws {

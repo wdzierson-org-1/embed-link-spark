@@ -1,0 +1,80 @@
+import Foundation
+
+/// The App Group container the app and (from Plan 5 Task 5) the share extension both read and
+/// write: durable on-disk state — `Outbox`, `RecordingStore`, and Task 4's `StagedFileStore` —
+/// lives here so the extension can enqueue into the same Outbox the app drains. This is a
+/// SEPARATE sharing mechanism from the Keychain: see `SharedKeychainStorage` for session sharing,
+/// which uses its own `keychain-access-groups` entitlement/namespace, not this identifier.
+public enum AppGroup {
+    public static let identifier = "group.it.gostash.stash"
+
+    private static var applicationSupportURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    }
+
+    /// The shared container when the `com.apple.security.application-groups` entitlement is
+    /// present and actually honored; falls back to this process's own Application Support
+    /// directory otherwise (unit tests + any other un-entitled context). Callers never need to
+    /// know which one they got — the returned URL is always a valid, creatable directory root.
+    ///
+    /// `#if os(iOS)`-gated rather than trusting
+    /// `containerURL(forSecurityApplicationGroupIdentifier:)`'s return value on every platform:
+    /// verified empirically (throwaway `swift run` spike, not checked in) that a bare, unsigned
+    /// macOS host process — exactly what `swift test` runs as, since Package.swift lists
+    /// `.macOS(.v14)` solely so this suite can run on the host Mac; there is no macOS Stash
+    /// target — asking for `containerURL(forSecurityApplicationGroupIdentifier: identifier)` with
+    /// NO entitlement at all got back a real, non-nil `~/Library/Group Containers/...` URL. The
+    /// directory didn't exist yet, but ordinary POSIX permissions would have let the process
+    /// create and write under it anyway: macOS only enforces the Group-Containers redirect for
+    /// App-Sandboxed processes, and a bare command-line/XCTest host binary isn't sandboxed. Left
+    /// ungated, that would make `swift test` silently read/write real files under the
+    /// developer's own `~/Library/Group Containers/group.it.gostash.stash/` — exactly what the
+    /// brief's "Application Support fallback" design is meant to prevent. iOS (device/Simulator)
+    /// DOES enforce the entitlement correctly (confirmed working for the real, entitled app), so
+    /// the real check only ever runs there; every other platform always takes the Application
+    /// Support branch, which keeps `swift test` hermetic unconditionally.
+    public static func containerURL() -> URL {
+        #if os(iOS)
+        if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
+            return url
+        }
+        #endif
+        return applicationSupportURL
+    }
+
+    /// `<container>/<component>/<uid-lowercased>` — the per-user scoping `Outbox` and
+    /// `RecordingStore` both rely on to keep one account's on-disk state invisible to another
+    /// after a sign-out/sign-in on the same device (see `Outbox.defaultDirectory`'s doc comment
+    /// for the cross-account leak this closes).
+    public static func userScopedURL(_ component: String, userId: UUID) -> URL {
+        containerURL().appending(path: component).appending(path: userId.uuidString.lowercased())
+    }
+
+    /// Where `userScopedURL` resolved BEFORE this App Group container existed — plain
+    /// Application Support, no App Group indirection (exactly `Outbox.defaultDirectory`'s formula
+    /// prior to this task). Only ever differs from `userScopedURL` when the App Group entitlement
+    /// is genuinely active (a real, entitled iOS run): an un-entitled process computes the
+    /// IDENTICAL path for both, which is what makes `migrateLegacyDirectory` below a guaranteed
+    /// no-op there.
+    static func legacyUserScopedURL(_ component: String, userId: UUID) -> URL {
+        applicationSupportURL.appending(path: component).appending(path: userId.uuidString.lowercased())
+    }
+
+    /// One-time, move-if-exists relocation for on-disk state that predates the App Group
+    /// container. Dev-stage decision of record (Task 2 report): zero real users, so this is
+    /// cheap insurance against silently orphaning a not-yet-drained Outbox entry or a
+    /// not-yet-uploaded recording on the first launch that starts resolving `defaultDirectory` to
+    /// the real App Group container instead of Application Support — NOT a general migration
+    /// framework. No merge semantics: if `destination` already has anything, `legacy` is left
+    /// untouched rather than clobbered (never destroys data); if `legacy` never existed, or the
+    /// two paths are identical (the un-entitled case), this is a no-op. Cheap enough (one or two
+    /// `fileExists` stats in the common case) to call unconditionally on every `defaultDirectory`
+    /// resolution.
+    static func migrateLegacyDirectory(from legacy: URL, to destination: URL) {
+        guard legacy != destination else { return }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: legacy.path), !fm.fileExists(atPath: destination.path) else { return }
+        try? fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.moveItem(at: legacy, to: destination)
+    }
+}

@@ -21,9 +21,16 @@ public struct RecordingStore: Sendable {
     /// `@testable import` without the side effect of `init` creating a real directory under the
     /// test machine's actual Application Support folder — same rationale as
     /// `OutboxTests.testPerUserDirectoriesAreIsolated`.
+    ///
+    /// Plan 5 Task 2: resolves through `AppGroup.userScopedURL` (App Group container when
+    /// entitled, Application Support fallback otherwise) with the same one-time
+    /// `AppGroup.migrateLegacyDirectory` insurance as `Outbox.defaultDirectory` — see that doc
+    /// comment for the full rationale.
     static func defaultDirectory(userId: UUID) -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appending(path: "StashRecordings").appending(path: userId.uuidString.lowercased())
+        let destination = AppGroup.userScopedURL("StashRecordings", userId: userId)
+        AppGroup.migrateLegacyDirectory(from: AppGroup.legacyUserScopedURL("StashRecordings", userId: userId),
+                                        to: destination)
+        return destination
     }
 
     public init(userId: UUID, directory: URL? = nil) {

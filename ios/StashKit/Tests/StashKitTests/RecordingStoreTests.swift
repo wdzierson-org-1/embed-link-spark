@@ -33,6 +33,15 @@ final class RecordingStoreTests: XCTestCase {
         XCTAssertEqual(dir1, RecordingStore.defaultDirectory(userId: uid1))
     }
 
+    // Task 2 (App Group): `defaultDirectory` now delegates to `AppGroup.userScopedURL` instead of
+    // computing the Application-Support-plus-"StashRecordings" formula inline — mirrors
+    // `OutboxTests.testDefaultDirectoryDelegatesToAppGroupUserScopedURL`.
+    func testDefaultDirectoryDelegatesToAppGroupUserScopedURL() {
+        let uid = UUID()
+        XCTAssertEqual(RecordingStore.defaultDirectory(userId: uid),
+                       AppGroup.userScopedURL("StashRecordings", userId: uid))
+    }
+
     func testNewRecordingURLIsUniqueWithM4ASuffix() {
         let store = RecordingStore(userId: UUID(), directory: dir)
 

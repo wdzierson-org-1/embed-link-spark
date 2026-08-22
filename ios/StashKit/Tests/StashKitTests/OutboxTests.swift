@@ -213,6 +213,16 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(dir1, dir1Again)
     }
 
+    // Task 2 (App Group): `defaultDirectory` now delegates to `AppGroup.userScopedURL` instead of
+    // computing the Application-Support-plus-"StashOutbox" formula inline — this proves the
+    // WIRING directly (distinct from `testPerUserDirectoriesAreIsolated` above, which only
+    // asserts the resulting path SHAPE and would keep passing even if some future refactor
+    // reimplemented the same shape without actually going through `AppGroup`).
+    func testDefaultDirectoryDelegatesToAppGroupUserScopedURL() {
+        let uid = UUID()
+        XCTAssertEqual(Outbox.defaultDirectory(userId: uid), AppGroup.userScopedURL("StashOutbox", userId: uid))
+    }
+
     // Behavioral companion to the path-shape assertion above: two `Outbox`es rooted at two
     // different (tmp, here — real per-user directories in the app) directories must be fully
     // isolated end-to-end — not just "different paths" but "an entry enqueued in one is never

@@ -20,6 +20,9 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.10"
+        # Plan 5 Task 2: App Group (Outbox/RecordingStore sharing, Task 5+) + keychain access
+        # group (shared session, SharedKeychainStorage) — see Stash.entitlements.
+        CODE_SIGN_ENTITLEMENTS: Stash/Stash.entitlements
     info:
       path: Stash/Info.plist
       properties:
