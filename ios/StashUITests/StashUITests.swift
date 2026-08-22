@@ -848,6 +848,18 @@ final class StashUITests: XCTestCase {
             XCTAssertTrue(sendButton.isEnabled, "Expected Send to be enabled for non-empty input")
             sendButton.tap()
 
+            // Gate-vs-RAG disambiguation (final review, plan-4): on a lapsed-subscription
+            // account, `AskView.sendTapped`'s `guard subscription.canUseAI` (AskView.swift:196-199)
+            // returns before `ChatStore.send` is ever called — no new bubble is appended, so
+            // `lastBubbleIdentifier` below would silently resolve to a stale, already-on-screen
+            // RESTORED history bubble instead (`ChatHistoryAPI.loadHistory` never persists/reloads
+            // `sources`, so a restored bubble is sourceless by construction) — misreadable as a RAG
+            // failure. Fail loudly and specifically instead. See the plan-5 handoff in
+            // docs/superpowers/plans/2026-08-17-ios-plan-4-object-parity.md for the full hypothesis
+            // and its falsification protocol.
+            XCTAssertFalse(anyElement("ask.gateError").waitForExistence(timeout: 2),
+                           "Ask send was subscription-gate-blocked — adjudicate as gate, not RAG")
+
             guard let bubbleId = lastBubbleIdentifier(timeout: 30) else {
                 XCTFail("Assistant bubble did not appear")
                 return ""

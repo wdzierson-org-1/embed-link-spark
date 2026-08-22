@@ -140,6 +140,17 @@ final class CardMetadataTests: XCTestCase {
         XCTAssertEqual(formatDurationChip(58.6), "0:59")
     }
 
+    /// Data-driven crash guard: `attributes.media.duration_s` is caller-writable JSON (any JWT
+    /// holder can PATCH an item's attributes blob) — a huge-but-finite value must fail soft, not
+    /// trap `Int(round(seconds))` into a grid crash-loop for that user.
+    func testFormatDurationChipReturnsNilForHugeFiniteValue() {
+        XCTAssertNil(formatDurationChip(1e300))
+    }
+
+    func testFormatDurationChipReturnsNilForGreatestFiniteMagnitude() {
+        XCTAssertNil(formatDurationChip(Double.greatestFiniteMagnitude))
+    }
+
     // MARK: - mimeExtensionLabel Tests
 
     func testMimeExtensionLabelReturnsNilForNil() {

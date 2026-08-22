@@ -72,7 +72,11 @@ public func formatFileSizeChip(_ bytes: Int?) -> String? {
 public func formatDurationChip(_ seconds: Double?) -> String? {
     guard let seconds = seconds, seconds.isFinite && seconds > 0 else { return nil }
 
-    let total = Int(round(seconds))
+    // `attributes.media.duration_s` is caller-writable JSON (any JWT holder can PATCH an item's
+    // attributes blob), so a huge-but-finite value (e.g. 1e300) must fail soft here — `Int(_:)`'s
+    // non-failable init traps for magnitudes outside Int's representable range, which previously
+    // crash-looped the grid for that item. `Int(exactly:)` returns nil instead of trapping.
+    guard let total = Int(exactly: round(seconds)) else { return nil }
     let minutes = total / 60
     let secs = total % 60
 
