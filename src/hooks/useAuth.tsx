@@ -70,7 +70,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    // Local scope: sign out this device only. The default 'global' scope
+    // deletes every session for the account, leaving other devices with a
+    // valid-looking JWT whose session row is gone — all authed edge calls
+    // fail while the UI still shows the user as signed in.
+    await supabase.auth.signOut({ scope: 'local' });
   };
 
   return (
