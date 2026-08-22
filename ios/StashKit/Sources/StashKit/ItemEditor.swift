@@ -13,23 +13,36 @@ public struct ItemPatch: Equatable, Sendable {
     public var content: String?
     public var supplementalNote: String?
     public var isPublic: Bool?
+    /// The FULL `items.attributes` blob to write (never a per-key merge — same whole-value-
+    /// replace convention as every other field here), driven by the detail sheet's `LocationRow`
+    /// (Task 8). `nil` means "don't touch this column" (key absent from `restBody`), same
+    /// convention as every other `Optional` field on this type — NOT the same as sending `{}`,
+    /// which would wipe every attribute the row already has. An empty-but-present
+    /// `ItemAttributes` (e.g. the user just cleared their item's only attribute) is a real,
+    /// intentional value and DOES get sent as `{}` — see `restBody`'s attributes branch below.
+    public var attributes: ItemAttributes?
 
     public init(title: String? = nil, description: String? = nil, content: String? = nil,
-                supplementalNote: String? = nil, isPublic: Bool? = nil) {
+                supplementalNote: String? = nil, isPublic: Bool? = nil, attributes: ItemAttributes? = nil) {
         self.title = title
         self.description = description
         self.content = content
         self.supplementalNote = supplementalNote
         self.isPublic = isPublic
+        self.attributes = attributes
     }
 
     public var isEmpty: Bool {
-        title == nil && description == nil && content == nil && supplementalNote == nil && isPublic == nil
+        title == nil && description == nil && content == nil && supplementalNote == nil
+            && isPublic == nil && attributes == nil
     }
 
     /// Any of the search-relevant text fields changed — mirrors web's
     /// `['title','description','content','supplemental_note'].some(field => field in updates)`,
-    /// which gates whether a save schedules an embedding refresh.
+    /// which gates whether a save schedules an embedding refresh. Deliberately excludes
+    /// `attributes`: web parity, `itemOperations.ts:100-101` — an attributes-only PATCH (e.g.
+    /// this task's location-row edit) never touches any of the four fields
+    /// `buildEmbeddingText` actually reads, so it must never schedule a refresh either.
     public var touchesTextFields: Bool {
         title != nil || description != nil || content != nil || supplementalNote != nil
     }
@@ -44,6 +57,13 @@ public struct ItemPatch: Equatable, Sendable {
     /// in `restBody` (key present, value nil) while `supplementalNote == nil` means "don't touch
     /// the column" (key absent). `updateValue(_:forKey:)` is required for that null entry because
     /// `dict[key] = nil` on a `[String: Any?]` deletes the key instead of storing a null value.
+    ///
+    /// `attributes` uses `ItemAttributes.jsonObject()`'s own Optional contract (Task 3) instead:
+    /// `nil` there means "can't encode, do not send" and never falls back to `{}` (which would
+    /// silently wipe every attribute the row already has), so both `attributes == nil` (this
+    /// patch doesn't touch the column) and a `jsonObject()` encode failure leave the `"attributes"`
+    /// key out of `restBody` entirely — only a successfully-encoded object (which CAN legitimately
+    /// be `[:]`) is written.
     public var restBody: [String: Any?] {
         var body: [String: Any?] = [:]
         if let title { body["title"] = title }
@@ -53,6 +73,9 @@ public struct ItemPatch: Equatable, Sendable {
             body.updateValue(supplementalNote.isEmpty ? nil : supplementalNote, forKey: "supplemental_note")
         }
         if let isPublic { body["is_public"] = isPublic }
+        if let attributes, let object = attributes.jsonObject() {
+            body["attributes"] = object
+        }
         return body
     }
 }
@@ -164,7 +187,8 @@ public struct SupabaseItemPatcher: ItemPatching {
 
     /// `.update()` requires an `Encodable` body; `ItemPatch.restBody`'s `[String: Any?]` isn't
     /// one, so this converts field-by-field into `[String: AnyJSON]` (`AnyJSON: Codable`, hence
-    /// the dictionary is `Encodable`). Every restBody value is a `String`, `Bool`, or the null
+    /// the dictionary is `Encodable`). Every restBody value is a `String`, `Bool`, the
+    /// `[String: Any]` attributes blob (Task 8's `ItemAttributes.jsonObject()`), or the null
     /// convention described on `restBody` — the switch's `default` is unreachable in practice.
     private static func jsonBody(_ body: [String: Any?]) -> [String: AnyJSON] {
         var result: [String: AnyJSON] = [:]
@@ -173,10 +197,28 @@ public struct SupabaseItemPatcher: ItemPatching {
             case .none: result[key] = .null
             case let string as String: result[key] = .string(string)
             case let bool as Bool: result[key] = .bool(bool)
+            case let object as [String: Any]:
+                // Drop the key entirely on a (practically unreachable — see doc comment below)
+                // conversion failure rather than falling back to `.null`/`.object([:])`, which
+                // would silently wipe every attribute the row already has.
+                if let json = anyJSON(fromJSONObject: object) { result[key] = json }
             default: result[key] = .null
             }
         }
         return result
+    }
+
+    /// Round-trips a `JSONSerialization`-ready `[String: Any]` (only ever `ItemAttributes.
+    /// jsonObject()`'s output in practice) into `AnyJSON.object` via `Data`, since `AnyJSON` has
+    /// no direct `[String: Any]` initializer — only one for a `Codable` VALUE
+    /// (`AnyJSON.init(_: some Codable)`), which a heterogeneous `[String: Any]` doesn't conform
+    /// to. Returns `nil` on failure, which should be unreachable in practice: `object` already
+    /// passed `JSONSerialization` once, inside `jsonObject()` itself, to get here.
+    private static func anyJSON(fromJSONObject object: [String: Any]) -> AnyJSON? {
+        guard let data = try? JSONSerialization.data(withJSONObject: object),
+              let json = try? JSONDecoder().decode(AnyJSON.self, from: data)
+        else { return nil }
+        return json
     }
 }
 

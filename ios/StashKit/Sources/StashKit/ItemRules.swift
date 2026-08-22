@@ -64,10 +64,18 @@ public func needsSourceContent(_ type: ItemType) -> Bool {
 /// fetched with.
 ///
 /// Extracted from `ItemDetailView.adopt(_:)` (finding #2, final review — see that call site for
-/// how the three `hasUnsaved*` flags are computed from `local`/`snapshot`). Original semantics
+/// how the four `hasUnsaved*` flags are computed from `local`/`snapshot`). Original semantics
 /// preserved exactly: `title`/`description`/`supplementalNote` defer to `local` whenever the
 /// corresponding `hasUnsaved*` flag is set (there's an unsaved edit in flight, so `incoming` is
 /// stale relative to it), and every other field takes `incoming` as-is.
+///
+/// `hasUnsavedLocation` (Task 8) follows the exact same shape, for `attributes`: the detail
+/// sheet's `LocationRow` writes `item.attributes` optimistically the instant a location edit
+/// commits (`ItemDetailView.attributesBinding`), before that edit's own PATCH response has
+/// landed. Unlike `pageBody` below, `attributes` IS part of `Item.listColumns` — a realtime
+/// list-row refresh racing in during that window carries a REAL (not omitted) `attributes`
+/// value, one that predates this edit, so without this guard it would clobber the just-committed
+/// edit until the PATCH's own response arrives a moment later and corrects it again.
 ///
 /// `pageBody` gets one addition, independent of the unsaved-edit flags: `Item.listColumns` (what
 /// every realtime-triggered `store.refresh()` re-queries with) never selects `page_body`, so a
@@ -83,11 +91,13 @@ public func needsSourceContent(_ type: ItemType) -> Bool {
 /// `summary` needs no equivalent guard: unlike `pageBody`, it IS part of `Item.listColumns`, so
 /// every incoming row — list or detail — carries a real value for it.
 public func mergePreservingDetail(local: Item, incoming: Item, hasUnsavedTitle: Bool,
-                                   hasUnsavedDescription: Bool, hasUnsavedSupplementalNote: Bool) -> Item {
+                                   hasUnsavedDescription: Bool, hasUnsavedSupplementalNote: Bool,
+                                   hasUnsavedLocation: Bool) -> Item {
     var result = incoming
     if hasUnsavedTitle { result.title = local.title }
     if hasUnsavedDescription { result.description = local.description }
     if hasUnsavedSupplementalNote { result.supplementalNote = local.supplementalNote }
+    if hasUnsavedLocation { result.attributes = local.attributes }
     if incoming.pageBody == nil { result.pageBody = local.pageBody }
     return result
 }

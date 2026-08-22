@@ -60,6 +60,70 @@ final class ItemEditorTests: XCTestCase {
         XCTAssertNil(toPublic.supplementalNote)          // sharing never touches the note
     }
 
+    // MARK: - Attributes patch (Task 8)
+    //
+    // `ItemPatch.attributes` is a full-blob write (never a per-key merge, same convention as
+    // every other field on this type) driven by the detail sheet's `LocationRow`. It must never
+    // count toward `touchesTextFields` (web parity: `itemOperations.ts:100-101` gates the
+    // embedding refresh on title/description/content/supplemental_note only — an attributes-only
+    // save changes nothing `buildEmbeddingText` reads).
+
+    func testAttributesPatchEncodesFullBlobInRestBody() throws {
+        let attrs = ItemAttributes(location: CapturedLocation(label: "Testville", source: "manual"),
+                                    link: LinkAttributes(flavor: "article"))
+        let patch = ItemPatch(attributes: attrs)
+
+        XCTAssertFalse(patch.isEmpty)
+        let body = try XCTUnwrap(patch.restBody["attributes"] as? [String: Any])
+        let location = try XCTUnwrap(body["location"] as? [String: Any])
+        XCTAssertEqual(location["label"] as? String, "Testville")
+        XCTAssertEqual(location["source"] as? String, "manual")
+        let link = try XCTUnwrap(body["link"] as? [String: Any])
+        XCTAssertEqual(link["flavor"] as? String, "article")
+    }
+
+    /// `attributes == nil` means "don't touch this column" — same convention as every other
+    /// `Optional` field on `ItemPatch` — so the key must be entirely absent, not `null`.
+    func testNilAttributesLeavesKeyOutOfRestBody() {
+        let patch = ItemPatch(title: "T")
+        XCTAssertFalse(patch.restBody.keys.contains("attributes"))
+    }
+
+    /// An attributes-only patch is a real, non-empty patch (so `ItemEditor.save` won't reject it
+    /// as `.emptyPatch`), but it must never trip the text-field embedding-refresh gate.
+    func testAttributesOnlyPatchIsNotEmptyButDoesNotTouchTextFields() {
+        let patch = ItemPatch(attributes: ItemAttributes(location: CapturedLocation(label: "X", source: "manual")))
+        XCTAssertFalse(patch.isEmpty)
+        XCTAssertFalse(patch.touchesTextFields)
+    }
+
+    /// Clearing an item's only attribute is a real, intentional write of `{}` — distinct from
+    /// `attributes == nil` ("don't touch the column" above) — so it must still be encoded and
+    /// sent, never collapsed to "nothing to send" the way `ItemAttributes.nonEmptyJSONObject`
+    /// (the capture-time convention) would.
+    func testEmptyAttributesBlobStillEncodesAsEmptyObjectNotOmitted() throws {
+        let patch = ItemPatch(attributes: ItemAttributes())
+        let body = try XCTUnwrap(patch.restBody["attributes"] as? [String: Any])
+        XCTAssertTrue(body.isEmpty)
+    }
+
+    /// End-to-end through `ItemEditor.save`: an attributes-only save reaches the patcher (so the
+    /// PATCH itself still happens) but never schedules an embedding refresh — `RecordingSyncer`
+    /// stays empty even after the refresher's own idle window elapses.
+    func testSaveWithOnlyAttributesDoesNotScheduleEmbeddingRefresh() async throws {
+        let patcher = RecordingPatcher()
+        patcher.patchResult = snapshot()
+        let syncer = RecordingSyncer()
+        let editor = ItemEditor(patcher: patcher, refresher: EmbeddingRefresher(syncer: syncer, idle: .milliseconds(10)))
+        let attrs = ItemAttributes(location: CapturedLocation(label: "Testville", source: "manual"))
+
+        _ = try await editor.save(itemId: UUID(), patch: ItemPatch(attributes: attrs))
+
+        XCTAssertEqual(patcher.patches.count, 1)
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertTrue(syncer.calls.isEmpty, "an attributes-only save must never schedule an embedding refresh")
+    }
+
     // MARK: - Tag pass-throughs (Task 9)
     //
     // Thin forwards to `patcher` — these just confirm the forwarding happens with the right

@@ -52,7 +52,7 @@ struct ItemDetailView: View {
                         heroImage(url)
                     }
                     ItemDetailHeader(item: item, title: titleBinding, description: descriptionBinding,
-                                      saveStatus: saveStatus)
+                                      attributes: attributesBinding, saveStatus: saveStatus)
                     if item.type == .link, let urlString = item.url, let url = URL(string: urlString) {
                         Link(destination: url) {
                             Label("Open Link", systemImage: "arrow.up.right.square")
@@ -162,6 +162,20 @@ struct ItemDetailView: View {
         })
     }
 
+    /// Backs `LocationRow` (Task 8). Unlike title/description/supplementalNote, a location commit
+    /// is already a discrete, deliberate action (Enter/blur/remove-X — never per-keystroke), so
+    /// this saves immediately rather than routing through `fieldDebouncer`: there's no
+    /// "in-progress draft" worth debouncing here, same reasoning `NotesAppendComposer`'s own doc
+    /// comment gives for its own atomic save. The optimistic `item.attributes = newValue` write
+    /// (before the save's own await resolves) is exactly what `adopt(_:)`'s `hasUnsavedLocation`
+    /// flag protects from a racing realtime refresh — see `mergePreservingDetail`'s doc comment.
+    private var attributesBinding: Binding<ItemAttributes> {
+        Binding(get: { item.attributes }, set: { newValue in
+            item.attributes = newValue
+            Task { await saveAttributes(newValue) }
+        })
+    }
+
     private func scheduleFieldSave() {
         Task { await fieldDebouncer.call { await saveChangedFields() } }
     }
@@ -198,6 +212,23 @@ struct ItemDetailView: View {
         }
     }
 
+    /// `LocationRow`'s save path (via `attributesBinding` above): an attributes-only `ItemPatch`
+    /// is never `.isEmpty` (so `editor.save` never throws `.emptyPatch` here), and never schedules
+    /// an embedding refresh (`ItemPatch.touchesTextFields` deliberately excludes `attributes` —
+    /// web parity, `itemOperations.ts:100-101`). No dedicated error UI on failure, matching the
+    /// web's own fire-and-forget `catch { console.error(...) }` in `EditItemLocationSection.tsx`:
+    /// a failed save just means the next realtime/detail refresh's `adopt` shows whatever the
+    /// server actually has, rather than the optimistic local edit silently drifting from it.
+    @MainActor
+    private func saveAttributes(_ attributes: ItemAttributes) async {
+        do {
+            let merged = try await editor.save(itemId: item.id, patch: ItemPatch(attributes: attributes))
+            handleSaved(merged)
+        } catch {
+            print("Location save failed (non-fatal): \(error)")
+        }
+    }
+
     /// Shared by every successful `editor.save` call site (field autosave, notes append): folds
     /// the merged server row into local state and keeps the background grid in sync so it
     /// doesn't wait on the next realtime broadcast to reflect the edit.
@@ -211,19 +242,20 @@ struct ItemDetailView: View {
     /// device's edit, or our own PATCH echoing back. The actual merge is StashKit's
     /// `mergePreservingDetail` (finding #2, final review — see its doc comment for the full
     /// rationale, including why `pageBody` needs its own guard against list-row refreshes
-    /// nulling an already-loaded value): `title`/`description`/`supplementalNote` are the fields
-    /// under active local editing in this build (the last added by Task 9's sticky-note field),
-    /// so we compute "is there an unsaved edit in flight" for each — has it already diverged from
-    /// `snapshot`, our last confirmed-saved baseline? — and hand those three flags in. `snapshot`
-    /// itself always advances to `incoming` here, since its only job is being the next diff
-    /// baseline for `changedFields`.
+    /// nulling an already-loaded value): `title`/`description`/`supplementalNote`/`attributes`
+    /// (the last added by Task 8's `LocationRow`, alongside Task 9's sticky-note field) are the
+    /// fields under active local editing in this build, so we compute "is there an unsaved edit
+    /// in flight" for each — has it already diverged from `snapshot`, our last confirmed-saved
+    /// baseline? — and hand those four flags in. `snapshot` itself always advances to `incoming`
+    /// here, since its only job is being the next diff baseline for `changedFields`.
     private func adopt(_ incoming: Item) {
         let next = mergePreservingDetail(
             local: item,
             incoming: incoming,
             hasUnsavedTitle: (item.title ?? "") != (snapshot.title ?? ""),
             hasUnsavedDescription: (item.description ?? "") != (snapshot.description ?? ""),
-            hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? "")
+            hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? ""),
+            hasUnsavedLocation: item.attributes != snapshot.attributes
         )
         snapshot = incoming
         item = next

@@ -1042,6 +1042,146 @@ final class StashUITests: XCTestCase {
         }
     }
 
+    // MARK: - Location edit (Task 8)
+
+    /// Seeds `testLocationEditSmoke`'s disposable item directly via the `add-note` edge function
+    /// (Task 1: accepts `attributes` in its body, sanitized server-side) — never through the
+    /// in-app composer. This sidesteps the plan-wide blocker documented on `testCaptureSmoke`/
+    /// `testLocationPinSmoke`/`testVoiceNoteSmoke` (the UI-test account's Stripe trial lapsed
+    /// 2026-08-16, gate-blocking in-app capture actions client-side): a raw REST call to an edge
+    /// function isn't a capture-UI action, so it isn't affected by that client-side gate either
+    /// way, and the edit flow this test actually exercises isn't subscription-gated at all (only
+    /// capture/AI actions are). `content` is the caller's own unique marker, matched back via
+    /// `pollForRow` the same way `testLocationPinSmoke` polls for its own disposable row.
+    private func seedNoteWithLocationAndLink(content: String, email: String, password: String) async throws {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/functions/v1/add-note"))
+        request.httpMethod = "POST"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "content": content,
+            "is_public": false,
+            "attributes": [
+                "location": [
+                    "label": "Seed Location", "latitude": 40.7128, "longitude": -74.0060,
+                    "accuracy_m": 12, "city": "Seed Location", "region": "NY", "country": "US",
+                    "source": "device-geolocation", "captured_at": "2026-08-01T12:00:00Z",
+                ],
+                "link": ["flavor": "article"],
+            ],
+        ])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "add-note seed failed for disposable location-edit row (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+    }
+
+    /// Edit-sheet location row (Task 8): a DISPOSABLE item seeded directly via the `add-note` edge
+    /// function (`seedNoteWithLocationAndLink` above) with a device-geolocation location blob AND
+    /// a `link` attribute, so this test can prove the row's read-modify-write survives a sibling
+    /// key it doesn't touch. Opens the row (asserts the seeded device location renders), edits it
+    /// to "Test City" (asserts `source: "manual"`, coordinates dropped, `link` still present via
+    /// REST), clears it via the row's own remove button (asserts the `location` key is gone
+    /// entirely while `link` still survives), then deletes the disposable row — same REST
+    /// seed/poll/delete shape `testLocationPinSmoke` already established.
+    ///
+    /// Edit flows are NOT subscription-gated (plan-wide note: only capture/AI actions are) — this
+    /// smoke is expected to fully pass despite the UI-test account's lapsed Stripe trial, unlike
+    /// `testCaptureSmoke`/`testLocationPinSmoke`/`testVoiceNoteSmoke`.
+    ///
+    /// `@MainActor`: same reasoning as `testEditSmoke`/`testLocationPinSmoke` — makes the
+    /// `XCUIElement` calls in this `async` test's main-actor isolation explicit.
+    @MainActor
+    func testLocationEditSmoke() async throws {
+        let (email, password) = try testCredentials()
+        let marker = "UITEST-LOC: edit smoke \(Int(Date().timeIntervalSince1970))"
+        try await seedNoteWithLocationAndLink(content: marker, email: email, password: password)
+
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        searchField.tap()
+        searchField.typeText(marker)
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for the seeded location item")
+        card0().tap()
+
+        XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
+
+        let locationLabel = anyElement("detail.location.label")
+        XCTAssertTrue(locationLabel.waitForExistence(timeout: 10), "Expected the row to show the seeded device location")
+        XCTAssertEqual(locationLabel.label, "posted from Seed Location")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-display\n".data(using: .utf8)!)
+        sleep(3)
+
+        locationLabel.tap()
+        let field = anyElement("detail.location.field")
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "Expected the location field to appear for editing")
+        XCTAssertEqual(field.value as? String, "Seed Location", "Expected the field to prefill with the current label")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-editing\n".data(using: .utf8)!)
+        sleep(3)
+
+        // Same reliable length-based clear `testEditSmoke`'s `clearField` uses (never assumes
+        // caret position — see that helper's own doc comment for why).
+        let prefilled = (field.value as? String) ?? ""
+        field.tap()
+        if !prefilled.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: prefilled.count))
+        }
+        field.typeText("Test City\n")
+
+        let editedLabel = anyElement("detail.location.label")
+        XCTAssertTrue(editedLabel.waitForExistence(timeout: 10), "Expected the row to show the edited label")
+        XCTAssertEqual(editedLabel.label, "posted from Test City")
+
+        sleep(2)   // margin for the commit's (un-debounced but still async) PATCH to land
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-edited\n".data(using: .utf8)!)
+        sleep(3)
+
+        let afterEdit = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
+        let afterEditAttributes = afterEdit["attributes"] as? [String: Any]
+        let afterEditLocation = afterEditAttributes?["location"] as? [String: Any]
+        XCTAssertEqual(afterEditLocation?["label"] as? String, "Test City")
+        XCTAssertEqual(afterEditLocation?["source"] as? String, "manual")
+        XCTAssertNil(afterEditLocation?["latitude"], "Expected coordinates to be dropped on a manual edit")
+        XCTAssertEqual((afterEditAttributes?["link"] as? [String: Any])?["flavor"] as? String, "article",
+                       "Expected the seeded link attribute to survive the location edit")
+
+        // Clear via the row's own remove button — no need to re-enter edit mode.
+        let removeButton = anyElement("detail.location.remove")
+        XCTAssertTrue(removeButton.waitForExistence(timeout: 10), "Expected a remove button on the populated row")
+        removeButton.tap()
+
+        let addButton = anyElement("detail.location.add")
+        XCTAssertTrue(addButton.waitForExistence(timeout: 10), "Expected the ghost 'Add a location' button after clearing")
+
+        sleep(2)
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: location-cleared\n".data(using: .utf8)!)
+        sleep(3)
+
+        let afterClear = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
+        let afterClearAttributes = afterClear["attributes"] as? [String: Any]
+        XCTAssertNil(afterClearAttributes?["location"], "Expected the location key to be fully removed after clearing")
+        XCTAssertEqual((afterClearAttributes?["link"] as? [String: Any])?["flavor"] as? String, "article",
+                       "Expected the link attribute to still survive after clearing location")
+
+        app.buttons["detail.done"].tap()
+
+        if let id = afterClear["id"] as? String {
+            try await deleteRow(id: id, email: email, password: password)
+        }
+    }
+
     /// Settings tab (Task 7): account email, a non-empty subscription status line, and sign-out —
     /// exercised as its own smoke test now that `testLibrarySmoke`'s sign-out step lives here
     /// instead (see that test's own updated navigation preamble). The test account carries an

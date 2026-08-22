@@ -106,6 +106,95 @@ final class LocationBuildTests: XCTestCase {
         XCTAssertEqual(location.capturedAt, "1970-01-01T00:00:00Z")
     }
 
+    // MARK: - buildManualLocation (Task 8)
+    //
+    // The detail sheet's `LocationRow` builder for a typed (manual) edit — web port,
+    // `EditItemLocationSection.tsx:51-55`. Unlike `buildCapturedLocation` above (a resolved
+    // device fix), a manual edit has no coordinates/placemark to attach, ever — only a label.
+
+    func testManualLocationHasManualSourceAndOnlyLabel() {
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)   // 2023-11-14T22:13:20Z
+        let location = buildManualLocation(label: "Brooklyn, New York", now: fixedNow)
+        XCTAssertEqual(location.label, "Brooklyn, New York")
+        XCTAssertEqual(location.source, "manual")
+        XCTAssertNil(location.latitude)
+        XCTAssertNil(location.longitude)
+        XCTAssertNil(location.accuracyM)
+        XCTAssertNil(location.city)
+        XCTAssertNil(location.region)
+        XCTAssertNil(location.country)
+        XCTAssertEqual(location.capturedAt, "2023-11-14T22:13:20Z")
+    }
+
+    /// The exact server-facing proof `testLocationEditSmoke` (StashUITests) asserts live: a
+    /// manual location's JSON has no `latitude` KEY at all — Swift's synthesized `Encodable` for
+    /// an `Optional` stored property uses `encodeIfPresent`, which omits absent values rather
+    /// than writing `null`. Pinned here so a regression (e.g. a future hand-written `encode(to:)`
+    /// that switches to plain `encode`) fails fast in a unit test instead of only showing up as a
+    /// stray `"latitude": null` on a live PATCH.
+    func testManualLocationOmitsCoordinateKeysEntirelyWhenJSONEncoded() throws {
+        let location = buildManualLocation(label: "Brooklyn, New York")
+        let data = try JSONEncoder().encode(location)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertFalse(object.keys.contains("latitude"))
+        XCTAssertFalse(object.keys.contains("longitude"))
+        XCTAssertFalse(object.keys.contains("accuracy_m"))
+        XCTAssertEqual(object["label"] as? String, "Brooklyn, New York")
+        XCTAssertEqual(object["source"] as? String, "manual")
+    }
+
+    // MARK: - locationEditCommit (Task 8)
+    //
+    // The detail sheet's `LocationRow` read-modify-write — web port,
+    // `EditItemLocationSection.tsx:39-58`'s `commit`. Pure so every edge case (no-op, clear,
+    // sibling-key preservation, coordinate-dropping) is unit-testable without a simulator.
+
+    func testCommitNoOpsWhenTrimmedLabelUnchanged() {
+        let current = ItemAttributes(location: CapturedLocation(label: "Brooklyn", source: "manual"))
+        XCTAssertNil(locationEditCommit(current: current, rawValue: "Brooklyn"))
+        XCTAssertNil(locationEditCommit(current: current, rawValue: "  Brooklyn  "),
+                     "surrounding whitespace alone must not count as a change")
+    }
+
+    func testCommitNoOpsWhenAbsentAndTypedEmpty() {
+        let current = ItemAttributes()
+        XCTAssertNil(locationEditCommit(current: current, rawValue: "   "))
+    }
+
+    func testEmptyCommitRemovesLocationKeyButPreservesRestOfBlob() throws {
+        let link = LinkAttributes(flavor: "article")
+        let current = ItemAttributes(location: CapturedLocation(label: "Brooklyn", source: "manual"), link: link)
+
+        let next = try XCTUnwrap(locationEditCommit(current: current, rawValue: ""))
+
+        XCTAssertNil(next.location)
+        XCTAssertEqual(next.link, link, "clearing location must never touch sibling attribute keys")
+    }
+
+    func testNonEmptyCommitBuildsManualLocationAndDropsPriorCoordinates() throws {
+        let deviceLocation = CapturedLocation(label: "Old Place", latitude: 1, longitude: 2, accuracyM: 3,
+                                              city: "Old Place", region: "OP", country: "US",
+                                              source: "device-geolocation", capturedAt: "2020-01-01T00:00:00Z")
+        let extra: [String: JSONValue] = ["mood": .string("good")]
+        let current = ItemAttributes(location: deviceLocation, extra: extra)
+        let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let next = try XCTUnwrap(locationEditCommit(current: current, rawValue: "  Test City  ", now: fixedNow))
+
+        let location = try XCTUnwrap(next.location)
+        XCTAssertEqual(location.label, "Test City")
+        XCTAssertEqual(location.source, "manual")
+        XCTAssertNil(location.latitude)
+        XCTAssertNil(location.city)
+        XCTAssertEqual(location.capturedAt, "2023-11-14T22:13:20Z")
+        XCTAssertEqual(next.extra, extra, "unrelated top-level keys must survive the read-modify-write")
+    }
+
+    func testChangingLabelToADifferentNonEmptyValueIsNotANoOp() {
+        let current = ItemAttributes(location: CapturedLocation(label: "Brooklyn", source: "manual"))
+        XCTAssertNotNil(locationEditCommit(current: current, rawValue: "Queens"))
+    }
+
     // MARK: - decideLocationToggleAction (review fix, Critical finding)
     //
     // `LocationCapture.toggle()`'s own CLLocationManager/continuation plumbing has no unit-test

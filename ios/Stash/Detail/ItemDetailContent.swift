@@ -6,6 +6,13 @@ import StashKit
 /// and `.notes` read fields the grid already loaded; `.original`/`.transcript` read
 /// `pageBody`, which only arrives after `ItemDetailView`'s on-appear detail fetch — while
 /// that's in flight, those two tabs show a spinner instead of a premature empty state.
+///
+/// Legacy `Attachments` section (Task 8): `collection`-type items predate the single-object model
+/// (Global Constraints: never created going forward) and carry no `content`/notes of their own
+/// worth writing to — `contentTabsConfig(for: .collection)` still resolves to the generic
+/// single-"Notes"-tab default, so this section renders directly below that tab's body, reusing
+/// `CollectionStrip` (Task 7) read-only exactly as the card grid does. Gated strictly to
+/// `.collection` — every other type has no `item_attachments` rows to show.
 struct ItemDetailContent: View {
     let item: Item
     @Binding var selectedTab: ContentTabKey
@@ -24,7 +31,21 @@ struct ItemDetailContent: View {
             .accessibilityIdentifier("detail.tabPicker")
 
             tabBody(for: selectedTab)
+
+            if item.type == .collection {
+                attachmentsSection
+            }
         }
+    }
+
+    private var attachmentsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Attachments")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            CollectionStrip(itemId: item.id)
+        }
+        .accessibilityIdentifier("detail.attachments")
     }
 
     @ViewBuilder private func tabBody(for tab: ContentTabKey) -> some View {

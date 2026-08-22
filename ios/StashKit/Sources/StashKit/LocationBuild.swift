@@ -57,6 +57,45 @@ public func buildCapturedLocation(
     )
 }
 
+// MARK: - Manual (typed) edits — Task 8, detail sheet's LocationRow
+
+/// Builds the `CapturedLocation` for a manual (typed) location edit — port of the web's
+/// `EditItemLocationSection.tsx:51-55`. Typing a label always authors `source: "manual"` with
+/// ONLY that label: unlike `buildCapturedLocation` above (a resolved device fix), a manual edit
+/// has no coordinates/placemark to attach — any earlier fix's `latitude`/`longitude`/`city`/
+/// `region`/`country` are simply never carried forward, since they no longer describe whatever
+/// place the user just typed by hand. `capturedAt` is "now" (there's no fix to timestamp);
+/// injectable for tests, every non-test call site uses the default `Date()`.
+public func buildManualLocation(label: String, now: Date = Date()) -> CapturedLocation {
+    CapturedLocation(label: label, source: "manual", capturedAt: capturedAtFormatter.string(from: now))
+}
+
+/// Computes the next `ItemAttributes` for a `LocationRow` commit, or `nil` for a no-op — port of
+/// the web's `EditItemLocationSection.tsx:39-58` `commit`. `rawValue` is the field's raw typed
+/// text (untrimmed); trimmed and compared against the CURRENT location's label (both treated as
+/// `""` when absent, matching the web's `label === (location?.label ?? '')`) — unchanged means
+/// nothing to save, so callers should skip the write entirely rather than sending a same-value
+/// PATCH. An empty trimmed value removes `location` outright; a non-empty one replaces it wholesale
+/// with a fresh manual `CapturedLocation` (`buildManualLocation` above). Either way, every other
+/// top-level key on `current` — `link`/`media`/`extra` — rides through untouched: this only ever
+/// reassigns the `location` property of a copy of `current`, never rebuilds the blob from scratch.
+///
+/// Concurrency caveat (matches the web's own "sheet's item prop freezes while open" comment on
+/// `EditItemLocationSection.tsx`): this function is pure and just trusts whatever `current` it's
+/// given — it's the CALLER's job to pass the freshest adopted attributes at the moment of commit,
+/// not a value captured once when editing started. `LocationRow` (Stash app target) does this via
+/// a live `Binding` onto `ItemDetailView`'s `item.attributes`, which is arguably fresher than the
+/// web's own frozen-at-open-time prop, but the same class of race remains possible in principle if
+/// some other attributes-writing flow saved in between — see `LocationRow`'s own doc comment.
+public func locationEditCommit(current: ItemAttributes, rawValue: String, now: Date = Date()) -> ItemAttributes? {
+    let label = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard label != (current.location?.label ?? "") else { return nil }
+
+    var next = current
+    next.location = label.isEmpty ? nil : buildManualLocation(label: label, now: now)
+    return next
+}
+
 /// Plain ISO-8601 UTC, no fractional seconds (e.g. `"2023-11-14T22:13:20Z"`) — `Item.swift`'s own
 /// decoder tolerates either shape with or without fractional seconds on the way IN; this is the
 /// way OUT, so it only needs to pick one, and whole-second precision is enough for a location fix.
