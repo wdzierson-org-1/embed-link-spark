@@ -37,6 +37,18 @@ public actor Outbox {
     /// step), while short enough that a genuinely abandoned claim doesn't block an entry forever.
     private static let staleClaimInterval: TimeInterval = 600
 
+    /// How long a claim sidecar with NO matching entry is left alone before `sweepOrphanClaims`
+    /// (Task 4) treats it as inert clutter rather than a claim mid-cleanup by its own owning
+    /// process. Unrelated to `staleClaimInterval` above (that one governs claims whose entry is
+    /// still PENDING and eligible for `drain` to reclaim and retry); this one only ever applies to
+    /// a claim whose entry is already gone entirely, so it only needs to outlast the ordinary,
+    /// microseconds-wide gap between `drain` deleting an entry and releasing its claim — 60s is
+    /// ample margin without waiting anywhere near as long as a genuine stale-drain reclaim does.
+    /// Deliberately the same NUMBER `sweepOrphans`'s own young-file skip uses, per the task brief —
+    /// not because the two share a mechanism, just because both are "give an in-flight local
+    /// operation a full minute before treating its leftovers as abandoned."
+    private static let orphanClaimGracePeriod: TimeInterval = 60
+
     /// Diagnostic value stamped into a claim's `owner` field — never read back to decide
     /// ownership (the O_EXCL create is the actual mutex), but distinguishes which process holds a
     /// claim if one is ever inspected by hand. Bundle id (falls back to the bare process name
@@ -108,22 +120,29 @@ public actor Outbox {
     /// - Parameters:
     ///   - userId: Needed to build the fresh `makeUploadPath` a `local_file_path` entry uploads
     ///     to — see the `local_file_path` handling below.
-    ///   - upload: Injectable for tests; defaults to the real `uploadToStorage`. Only ever called
-    ///     for a `.file` entry whose payload contains `local_file_path` (a locally-recorded file
+    ///   - upload: Injectable for tests; `nil` (every real call site) resolves to the real
+    ///     `uploadToStorageFromFile` using THIS call's own `accessToken`. Only ever called for a
+    ///     `.file` entry whose payload contains `local_file_path` (a locally-staged/recorded file
     ///     not yet uploaded) — a `.file` entry with an already-uploaded `file_path` (Task 3) never
-    ///     touches this closure.
+    ///     touches this closure. Task 4: takes the local file's `URL` directly, not a loaded
+    ///     `Data` blob — `drain` streams straight from disk, never materializing a recording's or
+    ///     staged share's full bytes in this process's memory.
+    ///
+    ///     `Optional`, not a plain closure with a default expression, because Swift default
+    ///     argument expressions can't reference a sibling parameter (verified: `accessToken` isn't
+    ///     in scope there) — the same constraint `CaptureViewModel`'s own `accessToken`-consuming
+    ///     defaults sidestep by fetching independently instead. Resolving the real default inside
+    ///     the function body (below) is what lets it reuse the CALLER's own `accessToken` — one
+    ///     token fetch per `drain`, not a second independent one buried in a default closure.
     public func drain(api: CaptureAPI, accessToken: String, userId: UUID,
-                      // Wrapped in a closure literal rather than passing the `uploadToStorage`
-                      // function value directly (as sketched in the task brief): a bare reference
-                      // triggers "converting non-Sendable function value to '@Sendable ...' may
-                      // introduce data races" on this toolchain — the same reason
-                      // `CaptureViewModel`'s `upload` parameter wraps it identically.
-                      upload: @Sendable (Data, String, String) async throws -> Void = { data, path, contentType in
-                          try await uploadToStorage(data: data, path: path, contentType: contentType)
-                      }) async -> Int {
+                      upload: (@Sendable (URL, String, String) async throws -> Void)? = nil) async -> Int {
         guard !isDraining else { return 0 }
         isDraining = true
         defer { isDraining = false }
+        let performUpload: @Sendable (URL, String, String) async throws -> Void = upload ?? { fileURL, path, contentType in
+            try await uploadToStorageFromFile(fileURL: fileURL, path: path, contentType: contentType,
+                                              accessToken: accessToken)
+        }
         var sent = 0
         for var entry in pending() {
             // Cross-process claim (Task 3): acquired BEFORE any processing of this entry —
@@ -158,10 +177,9 @@ public actor Outbox {
 
             do {
                 if let localPath {
-                    let data = try Data(contentsOf: URL(fileURLWithPath: localPath))
-                    let path = makeUploadPath(userId: userId,
-                                              fileExtension: URL(fileURLWithPath: localPath).pathExtension)
-                    try await upload(data, path, entry.payload["mime_type"] ?? "application/octet-stream")
+                    let localURL = URL(fileURLWithPath: localPath)
+                    let path = makeUploadPath(userId: userId, fileExtension: localURL.pathExtension)
+                    try await performUpload(localURL, path, entry.payload["mime_type"] ?? "application/octet-stream")
                     entry.payload["file_path"] = path
                     entry.payload.removeValue(forKey: "local_file_path")
                     // Persist the transitioned entry to disk BEFORE deleting the local file or
@@ -182,7 +200,7 @@ public actor Outbox {
                     // above and here just leaves a harmless, sweepable local file; a crash after
                     // here (including mid-`send`) is fully covered by the checkpoint already on
                     // disk.
-                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: localPath))
+                    try? FileManager.default.removeItem(at: localURL)
                 }
                 _ = try await send(entry, api: api, accessToken: accessToken)
                 try? FileManager.default.removeItem(at: fileURL(for: entry.id))
@@ -264,6 +282,35 @@ public actor Outbox {
 
     private func claimFileURL(for id: UUID) -> URL {
         directory.appending(path: "\(id.uuidString).claim")
+    }
+
+    /// Deletes stray `.claim` sidecars that have no matching `<id>.json` entry — the crash window
+    /// this closes (Task 3 review carry, folded into Task 4's `sweepOrphans`): `drain` deletes a
+    /// sent/permanently-dropped entry's `.json` a few lines before it releases that entry's claim,
+    /// so a process killed in that narrow gap leaves an inert `.claim` file nothing will otherwise
+    /// ever remove. A claim WITH a matching entry is left alone no matter its age — that's either
+    /// a live claim or a stale-but-still-pending one `drain`'s own `acquireClaim` already knows how
+    /// to reclaim; only a claim whose entry is entirely gone is this method's business. `internal`
+    /// (no access modifier), same visibility rationale as `claimEntry`: called from `sweepOrphans`
+    /// (same module) and exercised directly by tests via `@testable import`.
+    ///
+    /// - Parameter now: mirrors `drain`'s own injectable clock — see `orphanClaimGracePeriod`.
+    /// - Returns: the count deleted. `sweepOrphans` deliberately does NOT fold this into its own
+    ///   "entries created" return value (disclosed in task-4-report.md) — deleting an inert claim
+    ///   file creates nothing.
+    func sweepOrphanClaims(now: @Sendable () -> Date = { Date() }) -> Int {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        var deleted = 0
+        for file in files where file.pathExtension == "claim" {
+            let entryURL = file.deletingPathExtension().appendingPathExtension("json")
+            guard !FileManager.default.fileExists(atPath: entryURL.path) else { continue }
+            guard let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                  now().timeIntervalSince(modified) >= Self.orphanClaimGracePeriod else { continue }
+            try? FileManager.default.removeItem(at: file)
+            deleted += 1
+        }
+        return deleted
     }
 
     private func send(_ entry: OutboxEntry, api: CaptureAPI, accessToken: String) async throws -> Item {

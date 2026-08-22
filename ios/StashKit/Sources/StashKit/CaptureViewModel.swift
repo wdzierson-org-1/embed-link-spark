@@ -257,10 +257,19 @@ public final class CaptureViewModel {
 
     public func drainOutbox() async {
         if let token = try? await accessToken() {
-            // Reuses this view model's own injected `upload` closure so a test that stubs it out
-            // (or the app's real `uploadToStorage`) also governs any queued recording's upload,
-            // not just the attachments `submit()` uploads directly.
-            _ = await outbox.drain(api: api, accessToken: token, userId: userId, upload: upload)
+            // Task 4: `Outbox.drain`'s `local_file_path` lane is now file-based
+            // (`@Sendable (URL, String, String) async throws -> Void`), a different shape than
+            // this view model's own `upload` (`Data`-based — still right for `prepare`'s
+            // already-in-memory attachments and `submitVoiceNote`'s happy path, both of which
+            // start from bytes already held, not a bare file reference). So this no longer reuses
+            // `self.upload` for the drain call — it builds a small adapter around the real
+            // `uploadToStorageFromFile`, reusing the SAME token already fetched above rather than
+            // letting `drain`'s own default independently re-fetch one.
+            _ = await outbox.drain(api: api, accessToken: token, userId: userId,
+                                   upload: { fileURL, path, contentType in
+                                       try await uploadToStorageFromFile(fileURL: fileURL, path: path,
+                                                                         contentType: contentType, accessToken: token)
+                                   })
         }
         await refreshPendingCount()
     }

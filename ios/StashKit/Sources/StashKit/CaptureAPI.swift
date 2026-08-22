@@ -85,3 +85,31 @@ public func uploadToStorage(data: Data, path: String, contentType: String) async
     try await StashClient.shared.storage.from("stash-media")
         .upload(path, data: data, options: FileOptions(contentType: contentType))
 }
+
+/// Task 4 (Plan 5): the streaming counterpart to `uploadToStorage` above — same bucket, same
+/// eventual bytes-on-the-wire, but reached via `URLSession.upload(for:fromFile:)` (the async/await
+/// form of `uploadTask(with:fromFile:)`) instead of the Supabase Storage SDK client. That SDK call
+/// needs the caller to already hold the file's bytes as `Data`; this one streams straight off
+/// disk, which is the entire point — `Outbox.drain`'s `local_file_path` lane (a recording that may
+/// be many MB) and, from Task 6, the share extension's own uploads (under a ~120 MB process
+/// ceiling) can never afford to materialize a whole shared/recorded file in memory first.
+///
+/// Hand-builds the request against the object endpoint
+/// (`/storage/v1/object/stash-media/<path>`) rather than going through the SDK — deliberately NOT
+/// `StashConfig.publicStorageURL`, which builds the separate `/object/public/...` READ path used
+/// to fetch an already-uploaded file back, not to write one. Headers and the non-2xx →
+/// `CaptureError.badStatus` mapping mirror `FunctionsPoster.post` exactly (same two auth headers,
+/// same status-code check) — the one deliberate difference is no fixed `timeoutInterval`: that
+/// poster's 20s budget suits a small JSON POST, but a large file upload over a slow connection
+/// can legitimately take longer, so this leaves `URLRequest`'s ordinary default in place.
+public func uploadToStorageFromFile(fileURL: URL, path: String, contentType: String, accessToken: String) async throws {
+    var request = URLRequest(url: StashConfig.supabaseURL.appending(path: "/storage/v1/object/stash-media/\(path)"))
+    request.httpMethod = "POST"
+    request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+    request.setValue(StashConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    let (_, response) = try await URLSession.shared.upload(for: request, fromFile: fileURL)
+    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        throw CaptureError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+    }
+}

@@ -47,6 +47,11 @@ public struct RecordingStore: Sendable {
     /// entry references one by path) or orphaned by a crash before that entry was ever enqueued.
     /// Filters to regular files only: this directory should only ever hold `.m4a` recordings, but
     /// a stray subdirectory must never be handed back to a caller as if it were one.
+    ///
+    /// Task 4: this finally gets a caller for the orphan case above — `sweepOrphans`
+    /// (`StagedFileStore.swift`) reads this exact list (alongside `StagedFileStore.pendingStaged`)
+    /// and re-enqueues an `Outbox` entry for any file no pending entry's `local_file_path` already
+    /// references, recovering a recording that was written to disk but never got that far.
     public func pendingRecordings() -> [URL] {
         let contents = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.isRegularFileKey])) ?? []

@@ -20,19 +20,29 @@ actor SlowPoster: JSONPosting {
 }
 
 /// `drain`'s `upload` parameter for tests that never enqueue a `local_file_path` entry, so it's
-/// never actually invoked — passed explicitly (rather than relying on the default `uploadToStorage`)
-/// so none of these tests can ever reach real network/Supabase Storage code by accident.
-private let noOpUpload: @Sendable (Data, String, String) async throws -> Void = { _, _, _ in }
+/// never actually invoked — passed explicitly (rather than relying on the default
+/// `uploadToStorageFromFile`) so none of these tests can ever reach real network/Supabase Storage
+/// code by accident. `(URL, String, String)` since Task 4: `drain`'s local-file lane now streams
+/// straight from disk (never `Data(contentsOf:)`s the file itself).
+private let noOpUpload: @Sendable (URL, String, String) async throws -> Void = { _, _, _ in }
 
 /// Records every `upload` call `drain` makes for a `local_file_path` entry (unlike `noOpUpload`,
-/// which discards everything) so tests can assert exactly what bytes/path/content-type it received.
+/// which discards everything) so tests can assert exactly what file URL/path/content-type it
+/// received. Task 4: takes the local file's `URL` directly, not a loaded `Data` blob — proving
+/// `drain` never materializes the file's bytes itself is exactly the point of recording the URL.
+/// `bytesAtCallTime` snapshots the file's content AT THE MOMENT of the call (by reading it here,
+/// inside this already-`@unchecked Sendable` recorder, rather than via a `var` captured by the
+/// `@Sendable` upload closure itself, which trips "mutation of captured var in
+/// concurrently-executing code") — the local file is deleted later in the same `drain` pass, so
+/// this is the only point a test can still read its bytes from disk directly.
 final class UploadRecorder: @unchecked Sendable {
-    private(set) var calls: [(data: Data, path: String, contentType: String)] = []
+    private(set) var calls: [(fileURL: URL, path: String, contentType: String, bytesAtCallTime: Data?)] = []
     var shouldFail = false
 
-    func upload(data: Data, path: String, contentType: String) async throws {
+    func upload(fileURL: URL, path: String, contentType: String) async throws {
         if shouldFail { throw CaptureError.badStatus(500) }
-        calls.append((data: data, path: path, contentType: contentType))
+        let bytesAtCallTime = try? Data(contentsOf: fileURL)
+        calls.append((fileURL: fileURL, path: path, contentType: contentType, bytesAtCallTime: bytesAtCallTime))
     }
 }
 
@@ -275,13 +285,15 @@ final class OutboxTests: XCTestCase {
         let recorder = UploadRecorder()
         let stub = StubPoster(); stub.response = itemJSON
         let sent = await box.drain(api: CaptureAPI(poster: stub), accessToken: "jwt", userId: userId,
-                                   upload: { data, path, contentType in
-                                       try await recorder.upload(data: data, path: path, contentType: contentType)
+                                   upload: { fileURL, path, contentType in
+                                       try await recorder.upload(fileURL: fileURL, path: path, contentType: contentType)
                                    })
 
         XCTAssertEqual(sent, 1)
         XCTAssertEqual(recorder.calls.count, 1, "the local file's bytes must be uploaded exactly once")
-        XCTAssertEqual(recorder.calls[0].data, bytes)
+        XCTAssertEqual(recorder.calls[0].fileURL, localFile,
+                       "drain must hand the upload closure the FILE URL directly — never a loaded Data blob")
+        XCTAssertEqual(recorder.calls[0].bytesAtCallTime, bytes, "the file's content must still be intact at upload time")
         XCTAssertEqual(recorder.calls[0].contentType, "audio/mp4")
         let uploadedPath = recorder.calls[0].path
         XCTAssertTrue(uploadedPath.hasPrefix("\(userId.uuidString.lowercased())/"),
@@ -311,8 +323,8 @@ final class OutboxTests: XCTestCase {
         let recorder = UploadRecorder(); recorder.shouldFail = true
         let stub = StubPoster(); stub.response = itemJSON
         let sent = await box.drain(api: CaptureAPI(poster: stub), accessToken: "jwt", userId: UUID(),
-                                   upload: { data, path, contentType in
-                                       try await recorder.upload(data: data, path: path, contentType: contentType)
+                                   upload: { fileURL, path, contentType in
+                                       try await recorder.upload(fileURL: fileURL, path: path, contentType: contentType)
                                    })
 
         XCTAssertEqual(sent, 0)
@@ -349,8 +361,8 @@ final class OutboxTests: XCTestCase {
 
         let userId = UUID()
         let recorder = UploadRecorder()
-        let uploadClosure: @Sendable (Data, String, String) async throws -> Void = { data, path, contentType in
-            try await recorder.upload(data: data, path: path, contentType: contentType)
+        let uploadClosure: @Sendable (URL, String, String) async throws -> Void = { fileURL, path, contentType in
+            try await recorder.upload(fileURL: fileURL, path: path, contentType: contentType)
         }
 
         // First drain: upload succeeds, addFile (the poster itself) throws.
@@ -408,8 +420,8 @@ final class OutboxTests: XCTestCase {
         let recorder = UploadRecorder()
         let snapshotPoster = SnapshotPoster(directory: dir)
         _ = await box.drain(api: CaptureAPI(poster: snapshotPoster), accessToken: "jwt", userId: UUID(),
-                            upload: { data, path, contentType in
-                                try await recorder.upload(data: data, path: path, contentType: contentType)
+                            upload: { fileURL, path, contentType in
+                                try await recorder.upload(fileURL: fileURL, path: path, contentType: contentType)
                             })
 
         let snapshot = try XCTUnwrap(snapshotPoster.payloadAtCallTime, "the poster must have been invoked")
@@ -439,8 +451,8 @@ final class OutboxTests: XCTestCase {
         let recorder = UploadRecorder()
         let stub = StubPoster(); stub.response = itemJSON
         let sent = await box.drain(api: CaptureAPI(poster: stub), accessToken: "jwt", userId: UUID(),
-                                   upload: { data, path, contentType in
-                                       try await recorder.upload(data: data, path: path, contentType: contentType)
+                                   upload: { fileURL, path, contentType in
+                                       try await recorder.upload(fileURL: fileURL, path: path, contentType: contentType)
                                    })
 
         XCTAssertEqual(sent, 0, "a dropped entry was never delivered, so it must not count as sent")
