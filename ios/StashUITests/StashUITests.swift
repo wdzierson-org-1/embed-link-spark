@@ -299,7 +299,15 @@ final class StashUITests: XCTestCase {
             searchField.tap()
             searchField.typeText(search)
             XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
-            card0().tap()
+            // Task 7: a plain `.tap()` (XCUITest's geometric center of the card) can land on the
+            // link kicker's own tap target now that one exists — for a card as compact as the
+            // `example.com` fixture (short favicon-plate hero + one-line description, no
+            // annotation), the card's vertical center sits almost exactly on the kicker's single
+            // line, so the tap opens Safari instead of this sheet (bisected live: dy 0.30-0.45
+            // and 0.55-0.70 all open the sheet; only dy≈0.50 hits the kicker and backgrounds the
+            // app). A near-bottom offset reliably clears the kicker for every type this loop
+            // searches (link/text/image/audio all place their footer there).
+            card0().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
 
             let done = app.buttons["detail.done"]
             XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for '\(search)'")
