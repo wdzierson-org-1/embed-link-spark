@@ -13,6 +13,10 @@ targets:
     sources: [Stash]
     dependencies:
       - package: StashKit
+      # Plan 5 Task 5: embeds the built StashShareExtension.appex into Stash.app/PlugIns —
+      # `embed: true` is what makes it appear in the system share sheet once Stash is installed.
+      - target: StashShareExtension
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: it.gostash.stash
@@ -33,6 +37,36 @@ targets:
         NSMicrophoneUsageDescription: "Stash uses the microphone for voice notes and dictation."
         NSSpeechRecognitionUsageDescription: "Stash transcribes your speech on-device to fill the composer."
         NSLocationWhenInUseUsageDescription: "Stash tags saves with where you were — only when you turn the pin on."
+  StashShareExtension:
+    type: app-extension
+    platform: iOS
+    sources: [StashShareExtension]
+    dependencies:
+      - package: StashKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: it.gostash.stash.share
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.10"
+        # Plan 5 Task 5: SAME App Group + keychain access group as Stash.entitlements — the
+        # extension and the app must see the same Outbox/RecordingStore container and session.
+        CODE_SIGN_ENTITLEMENTS: StashShareExtension/StashShareExtension.entitlements
+    info:
+      path: StashShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Stash
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsImageWithMaxCount: 10
+              NSExtensionActivationSupportsMovieWithMaxCount: 3
+              NSExtensionActivationSupportsFileWithMaxCount: 5
   StashUITests:
     type: bundle.ui-testing
     platform: iOS
