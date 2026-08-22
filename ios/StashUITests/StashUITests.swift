@@ -425,7 +425,8 @@ final class StashUITests: XCTestCase {
             let tallHero = anyElement("card.hero.tall")
             let favicon = anyElement("card.faviconplate")
             let heroExists = tallHero.waitForExistence(timeout: 8)
-            let faviconExists = !heroExists && favicon.waitForExistence(timeout: 5)
+            // 30s: the faviconplate branch renders only after AsyncImage fetch-FAILS the watch-page HTML — budget must exceed slow-network fetch failure, not just render time.
+            let faviconExists = !heroExists && favicon.waitForExistence(timeout: 30)
             XCTAssertTrue(heroExists || faviconExists,
                           "Expected the video-link card to expose either card.hero.tall or card.faviconplate")
             FileHandle.standardError.write(
