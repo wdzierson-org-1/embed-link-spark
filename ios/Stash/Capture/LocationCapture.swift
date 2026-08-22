@@ -44,11 +44,20 @@ final class LocationCapture: NSObject {
     private var cache: (location: CapturedLocation, at: Date)?
 
     /// Generation token (same idiom as `SubscriptionStore.refreshGeneration`/
-    /// `ItemStore.loadGeneration`): bumped by every `toggle()` call, captured locally at the start
-    /// of `resolve(generation:)`, and checked before every `state` write inside it — so a
-    /// resolution superseded by a later toggle (off, or a fresh on-cycle) can't clobber whatever
-    /// that later call already decided, without needing Task-cancellation plumbing.
+    /// `ItemStore.loadGeneration`): bumped every time a FRESH resolution starts, captured locally
+    /// at the start of `resolve(generation:)`, and checked before every `state` write inside it —
+    /// belt-and-suspenders alongside `Task.isCancelled` (below): a resolution superseded by a
+    /// later cycle can't clobber whatever that later cycle already decided.
     private var generation = 0
+
+    /// Review fix (Critical finding): the currently-running `resolve(generation:)` Task, if any —
+    /// tracked explicitly so `toggle()` can tell "is one already in flight" apart from "nothing is
+    /// happening" and never start a second concurrent resolution (web parity,
+    /// `useCaptureLocation.ts:62-63`'s `if (inFlightRef.current) return inFlightRef.current`).
+    /// Cleared on both normal completion (the task's own trailing cleanup, generation-guarded so a
+    /// stale task's cleanup can't clobber a newer one's reference) and explicit cancellation
+    /// (`cancelInFlightResolve()`).
+    private var inFlightResolve: Task<Void, Never>?
 
     private var fixContinuation: CheckedContinuation<CLLocation, Error>?
     private var authorizationContinuation: CheckedContinuation<Void, Never>?
@@ -70,28 +79,69 @@ final class LocationCapture: NSObject {
         return nil
     }
 
-    /// off→on: reuse a cache hit inside the 5-minute window immediately (no CoreLocation/geocode
-    /// round trip); otherwise request auth if needed and resolve a fresh fix. on→off (from ANY
-    /// non-off state, including mid-resolution or a stale failure): cancels this pin's claim on
-    /// whatever's still in flight (via the generation bump — see its own doc comment) and goes
-    /// straight back to `.off`. This is an explicit user cancel, never a failure, so no alert.
+    /// Delegates to the pure `decideLocationToggleAction` (StashKit) for WHAT to do, then acts on
+    /// it. off→on: reuse an already-in-flight resolution if one exists (review fix, Critical
+    /// finding — never start a second concurrent one), else a cache hit inside the 5-minute
+    /// window immediately (no CoreLocation/geocode round trip), else request auth if needed and
+    /// resolve a fresh fix. on→off (from ANY non-off state, including mid-resolution or a stale
+    /// failure): cancels whatever's in flight (`cancelInFlightResolve()`) and goes straight back
+    /// to `.off`. This is an explicit user cancel, never a failure, so no alert.
     func toggle() {
-        generation += 1
-
-        guard state == .off else {
+        let action = decideLocationToggleAction(
+            isOff: state == .off,
+            hasInFlightResolve: inFlightResolve != nil,
+            hasCacheWithinWindow: cache.map { Date().timeIntervalSince($0.at) < Self.cacheWindow } ?? false
+        )
+        switch action {
+        case .turnOff:
+            cancelInFlightResolve()
             state = .off
-            return
+        case .reuseInFlight:
+            // Nothing to start — the already-running `resolve(generation:)` will update `state`
+            // itself when it finishes; this only needs to keep reflecting `.resolving`, which it
+            // already does by construction (see `cancelInFlightResolve`'s doc comment for why
+            // `state == .off` and `inFlightResolve != nil` can never coexist in practice).
+            state = .resolving
+        case .useCache:
+            if let cache { state = .ready(cache.location) }
+        case .startFresh:
+            authDenied = false
+            state = .resolving
+            generation += 1
+            let thisGeneration = generation
+            inFlightResolve = Task { [weak self] in
+                await self?.resolve(generation: thisGeneration)
+                // Generation-guarded: if a NEWER cycle has already started by the time this one
+                // finishes (shouldn't happen given `toggle()` is synchronous/MainActor-serialized
+                // and `reuseInFlight` prevents a second concurrent start, but cheap to guard
+                // regardless), don't let this stale cleanup clobber that cycle's own reference.
+                if self?.generation == thisGeneration { self?.inFlightResolve = nil }
+            }
         }
+    }
 
-        if let cache, Date().timeIntervalSince(cache.at) < Self.cacheWindow {
-            state = .ready(cache.location)
-            return
+    /// Review fix (Critical finding): unsticks whatever `resolve(generation:)` is currently doing
+    /// — a bare `Task.cancel()` alone does NOT resume a suspended `withCheckedContinuation`
+    /// (CoreLocation's delegate callback / the 10s timeout Task are the only two things that
+    /// normally resume `fixContinuation`; neither fires just because the wrapping Task was marked
+    /// cancelled). Without this, toggling off mid-resolution left the `resolve` coroutine
+    /// suspended forever on `fixContinuation`/`authorizationContinuation`, holding `self` alive —
+    /// and toggling back on started a SECOND resolve whose own `requestOneShotFix()` overwrote
+    /// `fixContinuation` with a new one, permanently orphaning the first (a genuine leak: Swift's
+    /// runtime logs "SWIFT TASK CONTINUATION MISUSE" for a `CheckedContinuation` deallocated
+    /// without ever calling `resume`).
+    private func cancelInFlightResolve() {
+        inFlightResolve?.cancel()
+        inFlightResolve = nil
+        manager.stopUpdatingLocation()
+        if let continuation = fixContinuation {
+            fixContinuation = nil
+            continuation.resume(throwing: CancellationError())
         }
-
-        authDenied = false
-        state = .resolving
-        let thisGeneration = generation
-        Task { await resolve(generation: thisGeneration) }
+        if let continuation = authorizationContinuation {
+            authorizationContinuation = nil
+            continuation.resume()
+        }
     }
 
     /// The app-side half of `CaptureViewModel.awaitPendingLocation(timeout:)`'s injected hook
@@ -111,12 +161,19 @@ final class LocationCapture: NSObject {
 
     // MARK: - Resolution
 
+    /// Every guard below checks BOTH `Task.isCancelled` (review fix, Critical finding: set the
+    /// instant `cancelInFlightResolve()` cancels this task — the reliable signal for "the user
+    /// explicitly turned the pin off, `state` is already `.off`, do NOT overwrite it with
+    /// `.failed`") and the generation token (belt-and-suspenders, see its own doc comment). The
+    /// final `catch` needs the SAME cancellation check for the same reason: `requestOneShotFix()`
+    /// throwing a `CancellationError` (via `cancelInFlightResolve`'s explicit resume) is an
+    /// intentional cancel, not a real fix failure.
     private func resolve(generation: Int) async {
         if manager.authorizationStatus == .notDetermined {
             manager.requestWhenInUseAuthorization()
             await waitForAuthorizationDecision()
         }
-        guard generation == self.generation else { return }   // superseded while awaiting auth
+        guard !Task.isCancelled, generation == self.generation else { return }
 
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
@@ -136,10 +193,10 @@ final class LocationCapture: NSObject {
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         do {
             let fix = try await requestOneShotFix()
-            guard generation == self.generation else { return }   // superseded while awaiting the fix
+            guard !Task.isCancelled, generation == self.generation else { return }
 
             let placemark = try? await geocoder.reverseGeocodeLocation(fix).first
-            guard generation == self.generation else { return }   // superseded while awaiting the geocode
+            guard !Task.isCancelled, generation == self.generation else { return }
 
             guard let built = buildCapturedLocation(
                 latitude: fix.coordinate.latitude,
@@ -156,6 +213,7 @@ final class LocationCapture: NSObject {
             cache = (built, Date())
             state = .ready(built)
         } catch {
+            guard !Task.isCancelled else { return }   // explicit user cancel — `.off` already set
             state = .failed
         }
     }
@@ -167,6 +225,16 @@ final class LocationCapture: NSObject {
     /// rather than relying on the manager's own internal timeout.
     private func requestOneShotFix() async throws -> CLLocation {
         try await withCheckedThrowingContinuation { continuation in
+            // Review fix belt (see `cancelInFlightResolve`'s doc comment for the "suspenders"
+            // half): by construction this should never find a stale continuation here — the
+            // `reuseInFlight` decision in `toggle()` means a second `requestOneShotFix()` call
+            // can't start while one's already pending — but resuming defensively before
+            // overwriting the reference costs nothing and turns "should never happen" into
+            // "can't leak even if it does".
+            if let stale = fixContinuation {
+                fixContinuation = nil
+                stale.resume(throwing: CancellationError())
+            }
             fixContinuation = continuation
             manager.requestLocation()
             Task { [weak self] in
@@ -186,6 +254,11 @@ final class LocationCapture: NSObject {
     private func waitForAuthorizationDecision() async {
         guard manager.authorizationStatus == .notDetermined else { return }
         await withCheckedContinuation { continuation in
+            // Same defensive belt as `requestOneShotFix()` above.
+            if let stale = authorizationContinuation {
+                authorizationContinuation = nil
+                stale.resume()
+            }
             authorizationContinuation = continuation
         }
     }

@@ -72,3 +72,41 @@ private extension String {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
+
+// MARK: - Toggle decision (review fix, Critical finding)
+
+/// What a tap on the pin button should do next. Extracted as a pure enum + decision function
+/// (below) so `LocationCapture.toggle()`'s state-machine logic — including the
+/// never-start-a-second-concurrent-resolution rule the review's Critical finding was about — is
+/// unit-testable under `swift test`, even though the surrounding CLLocationManager/continuation
+/// plumbing that ACTS on this decision is CoreLocation-coupled and lives app-side only.
+public enum LocationToggleAction: Equatable {
+    /// Turn off: cancel anything in flight (if any) and clear to `.off`. Fires from ANY non-off
+    /// state, including `.failed` (a second tap is what actually retries — ledgered UX polish,
+    /// not fixed here) and `.ready` (turning an already-resolved pin back off).
+    case turnOff
+    /// A resolution is already in flight — reflect `.resolving` but do NOT start a second one.
+    /// Web parity: `useCaptureLocation.ts:62-63`'s `if (inFlightRef.current) return
+    /// inFlightRef.current`.
+    case reuseInFlight
+    /// A cached location is still within its window — adopt it immediately, no CoreLocation/
+    /// geocode round trip.
+    case useCache
+    /// Nothing else applies — begin a fresh one-shot resolution.
+    case startFresh
+}
+
+/// Pure decision table backing `LocationCapture.toggle()`. `isOff` is `state == .off` at the
+/// moment of the tap; `hasInFlightResolve`/`hasCacheWithinWindow` are the two other facts the
+/// live implementation already tracks (`inFlightResolve != nil`, and the 5-minute cache-window
+/// check respectively). In-flight reuse takes priority over a cache hit whenever both could
+/// apply — there's nothing to gain from replacing an already-running resolution with a cached
+/// value that's actually staler than what's about to land.
+public func decideLocationToggleAction(
+    isOff: Bool, hasInFlightResolve: Bool, hasCacheWithinWindow: Bool
+) -> LocationToggleAction {
+    guard isOff else { return .turnOff }
+    if hasInFlightResolve { return .reuseInFlight }
+    if hasCacheWithinWindow { return .useCache }
+    return .startFresh
+}
