@@ -348,6 +348,100 @@ final class StashUITests: XCTestCase {
         }
     }
 
+    /// Card anatomy (Task 7's object-first rework) exercised against real fixtures for the first
+    /// time: the repo/video-link and located-note fixtures Task 9 adds, plus the pre-existing
+    /// "document one" fixture for the file-plate assertion. View tab only — no detail-sheet dive.
+    /// Task 7 added all five identifiers asserted below (`card.repoplate`/`card.faviconplate`/
+    /// `card.hero.tall`/`card.fileplate`/`card.location`) but had no repo/video/located fixtures
+    /// to verify them against yet (see task-7-report.md's own disclosed verification gap) — this
+    /// test closes that gap, and the repo/video fixtures' mere existence with the correct flavor
+    /// E2Es Task 1's server-side link-flavor classification in production one more time (seeded
+    /// via a bare `add-url` POST with no explicit `attributes.link.flavor` — the server classified
+    /// both correctly; see task-9-report.md for the REST seed/verify transcript).
+    func testCardAnatomySmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected at least one card in the grid")
+
+        // Screenshot rig (same checkpoint technique as testLibrarySmoke/testDetailSheets): the
+        // plain, unfiltered "All" grid — sorted newest-first, so the three Task 9 fixtures (repo/
+        // video/located, all seeded together) sit at or near the top alongside older fixture
+        // types, giving one screenshot real card-anatomy variety.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: anatomy-grid\n".data(using: .utf8)!)
+        sleep(3)
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+
+        /// Narrows the grid to one fixture via a unique local-search substring (never grid
+        /// position — same reasoning `testDetailSheets` documents), waits for its card, runs
+        /// `assert`, screenshots, then clears the search back out and waits for the grid to
+        /// return before the next iteration types into the (shared) field — same clear-then-
+        /// confirm technique `testLibrarySmoke`'s own search step already established.
+        func isolateAndCheck(search: String, checkpoint: String, assert: () -> Void) {
+            searchField.tap()
+            searchField.typeText(search)
+            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
+
+            assert()
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: anatomy-\(checkpoint)\n".data(using: .utf8)!)
+            sleep(2)
+
+            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
+            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the grid back after clearing '\(search)'")
+        }
+
+        // 1. Repo link (Task 9 fixture) → dark repo plate, mono "owner/repo" label.
+        isolateAndCheck(search: "repo link", checkpoint: "repo") {
+            let plate = anyElement("card.repoplate")
+            XCTAssertTrue(plate.waitForExistence(timeout: 10), "Expected a repo plate for the repo-link fixture")
+            XCTAssertTrue(plate.label.contains("supabase/supabase-swift"),
+                          "Expected the repo plate's label to contain 'supabase/supabase-swift', got '\(plate.label)'")
+        }
+
+        // 2. Located note (Task 9 fixture) → footer location badge, "posted from <label>".
+        isolateAndCheck(search: "located note", checkpoint: "location") {
+            let location = anyElement("card.location")
+            XCTAssertTrue(location.waitForExistence(timeout: 10), "Expected a location badge for the located-note fixture")
+            XCTAssertTrue(location.label.contains("Saratoga Springs"),
+                          "Expected the location badge's label to contain 'Saratoga Springs', got '\(location.label)'")
+        }
+
+        // 3. Video link (Task 9 fixture) → EITHER a tall hero (YouTube's og:image survived and
+        // decoded) OR a favicon plate (it didn't) — both are correct anatomy outcomes per the
+        // brief; a link preview image's survival is an external, non-deterministic fact about the
+        // live URL (and this app's own image-decode step), not something the app's own
+        // correctness hinges on, so this asserts "one of the two", not a specific one. Whichever
+        // branch actually renders is written to stderr and disclosed in the report rather than
+        // silently assumed.
+        isolateAndCheck(search: "video link", checkpoint: "video") {
+            let tallHero = anyElement("card.hero.tall")
+            let favicon = anyElement("card.faviconplate")
+            let heroExists = tallHero.waitForExistence(timeout: 8)
+            let faviconExists = !heroExists && favicon.waitForExistence(timeout: 5)
+            XCTAssertTrue(heroExists || faviconExists,
+                          "Expected the video-link card to expose either card.hero.tall or card.faviconplate")
+            FileHandle.standardError.write(
+                "VIDEO_HERO_BRANCH: \(heroExists ? "card.hero.tall" : "card.faviconplate")\n".data(using: .utf8)!)
+        }
+
+        // 4. Document (pre-existing "document one" fixture — Task 7's own file-plate case, first
+        // asserted on here rather than just visually confirmed) → file plate, "PDF" facts.
+        isolateAndCheck(search: "document one", checkpoint: "document") {
+            let plate = anyElement("card.fileplate")
+            XCTAssertTrue(plate.waitForExistence(timeout: 10), "Expected a file plate for the document fixture")
+            XCTAssertTrue(plate.label.contains("PDF"),
+                          "Expected the file plate's label to contain 'PDF', got '\(plate.label)'")
+        }
+    }
+
     /// Opens the tag-filter sheet — independent of item-count data, so it stays meaningful
     /// even when the account has no items. Also the screenshot rig for task-10-report.md's
     /// required tag-filter-sheet capture: sleeps briefly post-presentation so an external

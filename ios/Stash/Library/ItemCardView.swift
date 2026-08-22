@@ -202,6 +202,19 @@ struct ItemCardView: View {
         Label(typeBadgeLabel, systemImage: typeIcon)
             .font(.caption2.weight(.medium))
             .labelStyle(.titleAndIcon)
+            // Bug found live via Task 9's located-note fixture (first permanent fixture pairing
+            // a long `card.location` label with this badge in the same footer row): with neither
+            // `.lineLimit`/`.fixedSize` here, an HStack width squeeze (date + long location text
+            // + this badge exceeding the card's content width) fell entirely on this Label — the
+            // one sibling with no stated size preference — degrading to one-character-per-line
+            // vertical text ("t/e/x/t") instead of the intended horizontal pill. `locationBadge`
+            // already opts into graceful shrink-by-truncation (`.lineLimit(1)` + `maxWidth: 140`)
+            // for exactly this squeeze; this badge should instead hold its single-line size and
+            // never wrap, matching every other type name ("link"/"image"/"audio"/"video"/
+            // "document"/"collection"/"N items") which are equally short and equally unsuited to
+            // vertical wrapping.
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(Color(.tertiarySystemFill), in: Capsule())
