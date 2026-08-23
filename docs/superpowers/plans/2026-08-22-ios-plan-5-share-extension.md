@@ -213,3 +213,68 @@ public struct ShareIntake: Sendable {
 - **Type consistency:** `SharedObject`/`ShareIntake` (T6) consumed by T7; `StagedFileStore`/`uploadToStorageFromFile` (T4) consumed by T6/T7; upload-closure signature change (Data→URL) called out with mechanical call-site sweep in T4; `AppGroup` (T2) consumed everywhere; gate-cache key string identical in T7's two sites.
 - **Known risks, accepted:** AuthLocalStorage protocol shape verified at execution (T2); share-sheet XCUITest automation is genuinely flaky territory — T8 carries an explicit honest-fallback protocol instead of pretending; extension location-permission UX verified live with a disclosed outcome; the lapsed-account gate keeps save-path assertions adjudicated (Stripe decision pending).
 - **Ethos check:** nothing here adds a capture-time decision beyond the optional note and optional pin; failures never surface as friction (always saved-or-queued); enrichment stays entirely behind the endpoints.
+
+---
+
+## Outcome (2026-08-22)
+
+**Commit range:** `6649a7f..HEAD` — 12 commits (base `6649a7f` = this plan's own authoring commit; 11 implementation/fix-round commits across Tasks 1–8, plus this wrap's own docs commit).
+
+| Commit | Task | Message |
+|---|---|---|
+| `a57e31a` | T1 | fix: sanitize array link attributes; redact capture-endpoint logs |
+| `4ad3ead` | T2 | feat(ios): App Group container + shared keychain session storage |
+| `84af615` | T3 | feat(ios): cross-process Outbox drain claims with stale recovery |
+| `9648d36` | T4 | feat(ios): streaming file staging, file-based uploads, orphan sweep |
+| `d6fac1b` | T4 fix round | fix(ios): normalize sweepOrphans path comparison to close a duplicate-entry hazard |
+| `4587e98` | T5 | feat(ios): share extension target — appears in the system share sheet |
+| `5f7546c` | T6 | feat(ios): ShareIntake — direct-send-with-durable-fallback orchestration (tested) |
+| `f477a89` | T7 | feat(ios): share compose card + provider staging; startup orphan sweep + gate cache |
+| `391836d` | T7 fix round 1 | fix(ios): correct mime derivation, surface dropped shares, discard on abandon |
+| `80e2717` | T7 fix round 2 | fix(ios): consume staged files at Save tap; track mid-load staging; widen mime map |
+| `5307dd1` | T8 | test(ios): share-extension smoke with honest automation-fallback protocol |
+| *(this commit)* | T9 | docs(ios): plan-5 wrap — share extension shipped; ui-changes entry + outcome |
+
+### Verification
+
+- **StashKit:** `rm -rf .build && swift test` → **281/281 passing, 0 failures**, 0 build warnings. Baseline carried into this plan was 206 (post plan-4-wrap fix-round additions); +75 across Tasks 2–8 (App Group/keychain, cross-process claims, `StagedFileStore`/streaming uploads/orphan sweep, `ShareIntake`, gate-cache + `ShareAbandonTracker` + mime-map hardening).
+- **App + extension build:** `xcodegen generate` → tripwire `xcodebuild -showBuildSettings` on **both** targets confirms `CODE_SIGN_ENTITLEMENTS` (`Stash` → `Stash/Stash.entitlements`; `StashShareExtension` → `StashShareExtension/StashShareExtension.entitlements`) → clean `xcodebuild build` (`rm -rf DerivedData`, sim `28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB`) → **BUILD SUCCEEDED**, zero `: warning:` matches (only the two pre-existing environmental notices carried since plan 1: multiple-matching-destinations, `appintentsmetadataprocessor` no-AppIntents-framework skip).
+- **Web:** `npm test` (from the worktree root) → **20 test files, 130 tests, all passed.**
+- **UI suite (cited, not re-run this task — per the wrap brief's own correction):** T8 already ran the full 15-test suite twice consecutively, clean both times (`task-8-report.md`): **12/15 passed in both runs, with EXACTLY the standing 3 gate-blocked adjudicated failures** (`testCaptureSmoke`/`testLocationPinSmoke`/`testAskSmoke`, unchanged from plan 4) and zero other failures. The new `testShareExtensionURLSmoke` passed both runs via its condition-aware gate-CLOSED branch (Save disabled, REST-confirmed no item created) — it does not join the adjudicated set, by design. UI suite count: **14 → 15** (the one new smoke).
+
+### Adopted decisions of record
+
+1. **Save-and-dismiss, ~0.8 s, no open-app affordance** — the compose card's outcome line ("Saved to Stash" / "Saved — will sync") shows for `Task.sleep(for: .seconds(0.8))`, then the extension calls `completeRequest` itself; there is no button or link back into the app (T7).
+2. **8 MB direct-send line** — `ShareIntake`'s `directSendLimit` defaults to `8 * 1024 * 1024`; a file at or under it tries a direct upload + `add-file`, a file over it skips the direct attempt entirely and goes straight to the Outbox (T6).
+3. **Stream-copy big files** — `StagedFileStore.stage` is a bare `FileManager.copyItem` (never `Data`); `uploadToStorageFromFile` streams via `URLSession.upload(for:fromFile:)`; `Outbox.drain`'s local-file lane never calls `Data(contentsOf:)` (T4).
+4. **Save-tap = staged-file intent boundary** — `ShareAbandonTracker.markConsumed()` is the literal first statement of `ShareComposeView.save()`, before any `await` or `guard`; a swipe landing anytime after the Save tap is a no-op on the staged files no matter how long `submit()` takes (T7 fix round 2 — closed a real race where a swipe mid-save could delete files an in-flight send still needed, producing a false "Saved — will sync").
+5. **Swipe-dismiss = Cancel** — any teardown of the extension's UI without a completed Save (including an untouched interactive swipe) discards every staged file for that share, the same as tapping Cancel explicitly; a swipe while `ProviderLoader.load()` is still mid-flight is caught by a late-registration catch-up rather than missed (T7 fix rounds 1–2).
+6. **URL-hoist** — `ShareIntake.reorderURLFirst` moves the first shared `.url` object to index 0 before `ProviderLoader.load` returns, so the batch note (always object 0) lands on a URL whenever one is present, regardless of the OS's own ordering (T6 carry, implemented T7).
+7. **`.text` + note plain-merge** — shared plain text becomes an item's `content` verbatim; a typed note is appended as a new paragraph via the same `appendNoteParagraph` helper the notes-append composer uses. No structural marker distinguishes the two in v1 (T6, confirmed final at T7 with no code change).
+8. **Pin hidden at `.notDetermined`** — the location pin only renders once `CLLocationManager().authorizationStatus` is anything other than `.notDetermined`; `.denied`/`.restricted` still show it (tapping surfaces the existing terminal-failure state, no OS prompt) (T7, v1 scope decision).
+
+### Observed behaviors
+
+- **The extension inherits the host app's location grant — live-verified.** Granting location permission to the **host app's** bundle id (`it.gostash.stash`), not the extension's own bundle id, was sufficient for the extension process's own `CLLocationManager().authorizationStatus` to read authorized and for the pin to resolve a real fix ("posted from San Francisco, CA"); no separate per-extension prompt or grant appeared (T7 fix round 1).
+- **Extension App Group container naming.** On iOS/Simulator, an entitled App Group container resolves under `Containers/Shared/AppGroup/<uuid>/`, not `~/Library/Group Containers/…` — that's macOS's own naming convention (what an earlier macOS-host `swift test` spike in T2 had found, and what `AppGroup.swift`'s doc comment still references for that context). Independently confirmed against `xcrun simctl listapps`'s own `GroupContainers` metadata for the installed app, which reports the identical `Containers/Shared/AppGroup` shape (T5).
+
+### FINDINGS FOR WILL
+
+1. **No server-side subscription check on `add-note`/`add-url`/`add-file`** — the paywall is entirely client-side. Pre-existing, not introduced by this plan; confirmed by a reviewer reading all three edge functions directly, and independently reproduced live: with the App Group gate cache absent (fail-open), a direct `add-url` send from the lapsed test account succeeded against the live server and created a real item (REST-verified, then cleaned up) — `task-7-report.md`, "Live checks" section.
+2. **No idempotency key on the capture endpoints** — a crash after the server accepts a send but before the client's own local cleanup (deleting the Outbox entry / staged file) runs can duplicate an item. Pre-existing and single-process-too (not a cross-process regression this plan introduced); flagged as a candidate future server-side fix, not attempted here — Task 3's carry in `progress.md`.
+3. **The Stripe comp decision (carried from plan 4) is still pending**, and now gates three existing UI smokes (`testCaptureSmoke`/`testLocationPinSmoke`/`testAskSmoke`) plus the new share smoke's gate-**OPEN** branch specifically. `testShareExtensionURLSmoke` itself passes either way (it's condition-aware), but its "Save enabled, direct send succeeds" branch has so far only been exercised via T7's manual live checks, never yet by the automated UI suite — the account's trial has stayed lapsed throughout this plan. The next full-suite run after Will's Stripe decision lands will be the first automated exercise of that branch — `task-8-report.md`, Concerns #1.
+4. **The note tie-break product-sign-off decision (web chip-order vs. iOS URL-first), flagged at the plan-4 wrap, is still open.** Unaffected in kind by this plan, but wider in surface: the share extension now also implements iOS's URL-first rule, so both iOS capture paths agree with each other while still disagreeing with web — `docs/ui-changes.md`'s 2026-08-22 entries (plan 4's, and plan 5's, updated this task).
+
+### Plan-6 (widgets + App Intents) handoff
+
+- **Widgets/App Intents ride the SAME App Group + `ShareIntake` + gate-cache groundwork this plan built** — a widget or App Intent needs no new session/storage mechanism, just a new caller of `ShareIntake.submit` (or a thin wrapper around it) plus its own UI. **Siri background save** ("Hey Siri, save a note to Stash") = an App Intent that resolves the shared session from the keychain access group and calls `ShareIntake.submit` directly, exactly as the extension does today.
+- **Real-device/TestFlight needs App Groups + Keychain Sharing capabilities registered on the App ID in the Apple Developer portal.** Every verification across plans 4–5 has been Simulator-only (per this plan's own Global Constraints); the entitlements are correct in the built product (verified down to the compiled `.xcent` blob on both targets), but nothing has yet proven a real device/provisioning profile can request the same capabilities.
+- **Carried minors from the ledger** (`progress.md`; read individually, not invented — resolved/open status verified against current source this task):
+  - **Resolved:** the T2-review-carried "partial-move (`moveItem`) is untested — comment it" item — `AppGroup.swift`'s `migrateLegacyDirectory` doc comment (lines ~74–93) now explains why a partial-move failure can't be forced/tested and why the source-survives-any-failure guarantee falls out of `moveItem`'s own all-or-nothing contract (done T3).
+  - **Resolved:** "gif/webp (+ mp3/wav) missing from the staged-file mime map" — widened in T7 fix round 2 (`StagedFileStore.mimeType(forFileExtension:)`).
+  - **Still open:** the T2-review-carried "`teamIDProbe` keychain item is deliberately never deleted — comment it" item. Checked against current source for this wrap: `SharedKeychainStorage.discoverTeamIDPrefix` still writes a `teamIDProbe` keychain item with no corresponding delete, and no doc comment yet explains this is intentional (unlike the sibling `accessGroupProbe` item in `resolvedAccessGroup`, which IS cleaned up via `probe.remove`). Genuinely still open — carry to plan 6.
+  - **Still open:** T8's dwell-before-Safari-switch uses a flat `sleep(3)` to cover cross-process `cfprefsd` propagation of the gate cache; a hardening candidate is polling the App Group prefs plist directly instead of sleeping a fixed interval.
+  - **Still open:** T8's `urlField` wait is 5 s, below the suite's own established 10s-wait convention used elsewhere.
+  - **Still open:** T8 used an inline `.any`-typed element query in one spot instead of the suite's `anyElement` helper convention — a style inconsistency, not a behavior gap.
+  - **Still open:** T4's ledgered simplification — `CaptureViewModel.drainOutbox` could pass `upload: nil` to `Outbox.drain` and let it build the real upload closure internally (the same pattern `ShareIntake.submit` already uses), instead of building its own adapter closure. Never applied; purely a call-site simplification, no behavior difference.
+- **Other unexercised-but-implemented paths, not part of the named minors list above:** PDF/audio/movie `ProviderLoader` paths and the "N items couldn't be read" dropped-count line were implemented per spec (structurally identical to the live-verified image path) but never live-exercised — only URL and image shares were driven live across T7/T8 (`task-7-report.md`/`task-8-report.md` Concerns). Worth a specific live check whenever plan 6 or a follow-up next touches the extension.

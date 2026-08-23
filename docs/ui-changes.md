@@ -8,6 +8,86 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-22 · iOS share extension: system share sheet capture (iOS plan 5)
+
+Written for the web/mac agents — contracts first.
+
+- **The app now has a share extension** (`StashShareExtension`, bundle id
+  `it.gostash.stash.share`) — share links, text, photos/screenshots, videos,
+  audio, and files/PDFs into Stash from any app via the system share sheet.
+  Activation rule (Apple's real constraint keys — there is no separate
+  "audio" key; audio shares through the generic file count): 1 web URL,
+  unlimited plain text, up to 10 images, up to 3 movies, up to 5 generic
+  files. Whichever rule matches the shared UTIs activates the extension;
+  anything outside every count (e.g. 2 URLs at once) doesn't offer Stash at
+  all.
+- **Session + durable state are shared with the app via two OS mechanisms:**
+  an App Group (`group.it.gostash.stash`) holds the Outbox/staging
+  directories both processes read and write, and a shared keychain access
+  group holds the Supabase auth session (a custom `AuthLocalStorage` backed
+  by `SecItemAdd`/`SecItemCopyMatching` scoped to that access group) — the
+  extension never re-authenticates, it just sees the app's session directly.
+  **One-time cost:** moving the session onto a new keychain service string
+  means every existing dev install signs out once on first launch after this
+  ships (dev-stage decision, nothing migrated, no real users affected).
+- **Direct-vs-queue rule** (a mac client sharing this convention should match
+  it): URLs/text always try a direct `add-url`/`add-note` first. Files ≤ 8 MB
+  direct-upload (streamed from a staged file on disk — never loaded into
+  memory whole) + `add-file`. Files > 8 MB skip the direct attempt and go
+  straight into the shared Outbox with `local_file_path` pointing at the
+  still-staged file, for the app to drain on next foreground/launch. **Any**
+  failure on any unit (network/auth/5xx) falls back the same way — the user
+  always sees a success line ("Saved to Stash" / "Saved — will sync"), never
+  an error, then the sheet auto-dismisses (~0.8 s, no "open app" affordance).
+  Because app + extension can now drain the same Outbox directory from two
+  OS processes, drain claims are cross-process: each pending entry is
+  claimed via an atomic `O_EXCL` sidecar file before sending (stale after 10
+  min, then reclaimable), so the two processes can never double-send one
+  entry. **A mac client adopting this Outbox container would need the same
+  claim-sidecar convention, not just the same directory.**
+- **Multi-item shares are N single-object items, never a collection** — the
+  OS handing over several attachments is not a user grouping decision, so
+  each becomes its own item; a note typed on the compose card attaches to
+  the **first** item only. **New decision of record:** if any shared object
+  is a URL, it is hoisted to index 0 before submit, so the note always lands
+  on the URL regardless of the OS's own ordering or how many files came with
+  it. This makes iOS's **URL-first deterministic** note-placement rule (see
+  the entry below) span **both** iOS capture surfaces — the Add-tab composer
+  and the share extension — consistently. It is still an iOS-only rule, not
+  applied on web; see the flagged divergence below, now updated.
+- **New decision of record — shared text + a typed note plain-merge into
+  `content`:** when the OS hands the extension plain text (not a URL) and
+  the user also types a note, the two are not stored as separate fields —
+  the shared text is treated as the base content and the note is appended as
+  a new paragraph (the same helper the notes-append composer uses — the
+  web's own "paste, then annotate" model). No structural marker separates
+  the two in v1.
+- **Subscription gate is a cross-process cache, not a live check:** the
+  extension has no budget to spend on a network subscription lookup before
+  rendering, so it reads a cached bool (`subscription.canAddContent`) from
+  `UserDefaults(suiteName: "group.it.gostash.stash")`, written by the app's
+  `SubscriptionStore` on **every** resolve — success, error, and reset, not
+  just success. Missing key (fresh install, never resolved yet) fails open
+  (Save enabled, no gate line), matching the live gate's own "open while
+  unknown" rule. `false` → Save disabled + an inline "Subscribe on
+  gostash.it to add items" line. **No Supabase session at all** (not merely
+  gated) shows only "Sign in to the Stash app to share." + Cancel — nothing
+  is staged or queued, since there's no user id to scope a directory under.
+- **Location pin is hidden, not shown-then-blocked, when permission was
+  never asked** (`CLLocationManager().authorizationStatus == .notDetermined`)
+  — v1 scope decision, a prompt was judged too heavy for a save-and-dismiss
+  surface. `.denied`/`.restricted` still show the pin. Observed live: the
+  extension does **not** need its own permission grant — granting location
+  to the **host app's** bundle id was sufficient for the extension process
+  to read the authorized state too; no separate extension-scoped prompt
+  appeared.
+- **Mac note:** the App Group + Outbox-with-claims convention above is
+  designed to generalize — a menubar app sharing the same container and
+  using the same atomic-sidecar claim file would interoperate with iOS's
+  Outbox directly, no protocol changes needed on either side.
+
+---
+
 ## 2026-08-22 · Capture endpoints: `attributes` passthrough + server-side link flavor (iOS plan 4)
 
 Written for the web agent — contracts first. This is the iOS client absorbing
@@ -52,7 +132,11 @@ apply to every caller, including web's own server-side/API paths.
   only when files are attached first and a URL is added after. iOS's rule
   also happens to fix a pre-existing single-attachment+URL fold bug. Needs a
   decision: align iOS to chip-order, align web to URL-first, or keep the
-  platform difference — tracked for plan 7, not resolved here.
+  platform difference — tracked for plan 7, not resolved here. **Update
+  (plan 5):** the share extension applies the identical URL-hoist before
+  submit (see the 2026-08-22 plan-5 entry above), so this is now iOS's one
+  internally-consistent rule across both its capture surfaces — the
+  sign-off decision itself is still open.
 
 ---
 

@@ -230,8 +230,15 @@ Migrating the web's upload path onto it is explicitly out of scope here.
    object-first card anatomy, and closed a parked plan-3 residual, so plan 5
    doesn't build share extension against a stale contract. Plan:
    `docs/superpowers/plans/2026-08-17-ios-plan-4-object-parity.md`.)*
-5. **Share extension** — links, screenshots, videos, voice notes/audio, PDFs
-   shared from any app.
+5. **Share extension** — links, text, images/screenshots, videos, audio, and
+   files/PDFs shared from any app. ✅ *(Completed 2026-08-22 — the
+   `StashShareExtension` target ships: App Group + shared-keychain session
+   (one-time re-sign-in cost), cross-process Outbox drain claims, streamed
+   file staging (no whole-file loads, honoring the extension's ~120 MB
+   ceiling), direct-send (≤8 MB) with Outbox fallback for everything else,
+   multi-item shares as N single-object items with note-on-first and a
+   detected URL hoisted to the front, and a cached subscription gate. Plan:
+   `docs/superpowers/plans/2026-08-22-ios-plan-5-share-extension.md`.)*
 6. **Widgets + App Intents** — home-screen/lock-screen one-tap capture and
    Siri background save (no app open) → TestFlight.
 7. **Visual/design parity with the web app.** *(Added 2026-08-11 — the apps
