@@ -137,8 +137,24 @@ public struct StagedFileStore: Sendable {
     /// Widened in Task 7 fix round 2 to also cover gif/webp (images) and mp3/wav (audio) — cheap,
     /// low-risk additions to the same map under the same fallback contract; not tied to any
     /// specific bug, just closing an easy gap while this map was already under review.
+    ///
+    /// Final fix wave: before falling all the way to `application/octet-stream`, tries
+    /// `UTType(filenameExtension:)?.preferredMIMEType` as a third tier. This is deliberately keyed
+    /// off the CONCRETE file extension, not the abstract category constants the paragraph above
+    /// already ruled out (`UTType(typeIdentifier:)` for `public.image`/`.movie`/`.audio`, whose
+    /// `.preferredMIMEType` is `nil`) — a concrete extension resolves to a concrete, OS-registered
+    /// UTI, which DOES carry a real `.preferredMIMEType` for most system types (verified empirically
+    /// on this toolchain — see `StagedFileStoreTests`, e.g. `tiff`→`image/tiff`,
+    /// `m4v`→`video/x-m4v`). This closes the long tail (heif/tiff/bmp/avif/dng/m4v/aac/caf/aiff/flac
+    /// and whatever else the OS has a registered type for) without hand-maintaining an
+    /// ever-growing `case` list, while keeping the explicit map above as the fast, deterministic,
+    /// dependency-free path for the extensions this app actually produces/consumes most. A
+    /// genuinely unrecognized extension (no registered UTI at all, or one with no
+    /// `.preferredMIMEType` of its own — e.g. `caf`, confirmed empirically) still falls all the way
+    /// through to `application/octet-stream`, exactly as before.
     public static func mimeType(forFileExtension fileExtension: String) -> String {
-        switch fileExtension.lowercased() {
+        let ext = fileExtension.lowercased()
+        switch ext {
         case "m4a": return "audio/mp4"
         case "mp3": return "audio/mpeg"
         case "wav": return "audio/wav"
@@ -150,7 +166,8 @@ public struct StagedFileStore: Sendable {
         case "mp4": return "video/mp4"
         case "mov": return "video/quicktime"
         case "pdf": return "application/pdf"
-        default: return "application/octet-stream"
+        default:
+            return UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
         }
     }
 }

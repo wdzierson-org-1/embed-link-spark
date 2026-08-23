@@ -14,13 +14,24 @@ Written for the web/mac agents — contracts first.
 
 - **The app now has a share extension** (`StashShareExtension`, bundle id
   `it.gostash.stash.share`) — share links, text, photos/screenshots, videos,
-  audio, and files/PDFs into Stash from any app via the system share sheet.
+  audio, and PDFs into Stash from any app via the system share sheet.
   Activation rule (Apple's real constraint keys — there is no separate
   "audio" key; audio shares through the generic file count): 1 web URL,
   unlimited plain text, up to 10 images, up to 3 movies, up to 5 generic
   files. Whichever rule matches the shared UTIs activates the extension;
   anything outside every count (e.g. 2 URLs at once) doesn't offer Stash at
-  all.
+  all. **Correction (final fix wave, honesty pass):** the "up to 5 generic
+  files" activation clause accepts **any** file UTI — it is not scoped to
+  PDFs — but `ProviderLoader` only maps `public.image`/`.movie`/`.audio`/
+  `com.adobe.pdf` providers into a `SharedObject`. Share a file type outside
+  that list (a `.docx`/`.txt` from the Files app, say) and the extension
+  still opens and still activates, but that attachment comes back
+  unreadable and surfaces through the existing "N item(s) couldn't be read"
+  line — it doesn't silently vanish, but it also doesn't save. **Plan-6
+  candidate:** a generic-`else` staging branch in `ProviderLoader` (stage
+  the raw bytes, tag with a best-guess mime, let `add-file` decide) would
+  light up the OOXML support `add-file` already has server-side (see the
+  2026-08-22 plan-4 entry below) for free, with no new server work.
 - **Session + durable state are shared with the app via two OS mechanisms:**
   an App Group (`group.it.gostash.stash`) holds the Outbox/staging
   directories both processes read and write, and a shared keychain access
@@ -30,6 +41,16 @@ Written for the web/mac agents — contracts first.
   **One-time cost:** moving the session onto a new keychain service string
   means every existing dev install signs out once on first launch after this
   ships (dev-stage decision, nothing migrated, no real users affected).
+  **Decision of record (final fix wave):** the plan's original constraint
+  was "the extension never initiates a token refresh"; the shipped Save
+  path actually resolves its access token via `auth.session` (the same
+  refreshing accessor the full app uses elsewhere), not the non-refreshing
+  `auth.currentSession` the compose card's own `load()` uses — so a Save can
+  trigger a network refresh call if the stored token has expired. Reviewed
+  and **kept**: the SDK single-flights a refresh per process, and any
+  resulting failure still falls back to the Outbox exactly like any other
+  Save-time failure — judged better UX than forcing an expired-token share
+  to queue when a quiet refresh would otherwise have succeeded.
 - **Direct-vs-queue rule** (a mac client sharing this convention should match
   it): URLs/text always try a direct `add-url`/`add-note` first. Files ≤ 8 MB
   direct-upload (streamed from a staged file on disk — never loaded into

@@ -135,10 +135,48 @@ final class ShareAbandonTrackerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: second.path))
     }
 
+    /// Final fix wave: `ShareComposeView.cancel()` now delegates directly to
+    /// `discardIfAbandoned()` (see that method's own doc comment for the BLOCKER this closed)
+    /// instead of hand-rolling its own discard loop + `markConsumed()`. That means a Cancel TAP
+    /// landing mid-load — `showsCancel` includes `.loading`, so this is genuinely reachable, not
+    /// hypothetical — now produces exactly this discardIfAbandoned()-then-late-track() ordering,
+    /// the same mechanism `testLateTrackAfterDiscardAlreadyRanDiscardsImmediately` above already
+    /// covers for an interactive swipe. Kept as its own test (not folded into that one) specifically
+    /// to document the Cancel-tap call site as a first-class caller of this exact ordering, since
+    /// that's the scenario this fix wave was written to close.
+    func testCancelDuringLoadDiscardsFilesOnceLoadCatchesUp() throws {
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let staged = try stageFile(store: store)
+        let tracker = ShareAbandonTracker()
+
+        // Cancel tapped while ProviderLoader.load() is still staging files: track() hasn't run
+        // yet, so the tracker has nothing recorded and this call is a real no-op — exactly like
+        // production.
+        tracker.discardIfAbandoned()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path), "sanity: nothing to discard yet")
+
+        // load() finishes AFTER the Cancel tap and hands the tracker its full, final list.
+        tracker.track(objects: [.file(stagedURL: staged, mimeType: "image/png", fileName: nil, durationS: nil)], staging: store)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path),
+                       "a Cancel tap mid-load must discard every file load() goes on to stage, once load() catches the tracker up")
+    }
+
     /// If Save was tapped (and therefore consumed) before the late track() arrives, the catch-up
-    /// path must still respect `consumed` — this can't actually happen in production (viewDidDisappear
-    /// firing before load() completes means the UI is already gone, so Save can't be tapped), but
-    /// the tracker's own invariant ("consumed always wins") must hold regardless of call order.
+    /// path must still respect `consumed` — the tracker's own invariant ("consumed always wins")
+    /// must hold regardless of call order. An earlier version of this comment claimed the whole
+    /// scenario "can't happen in production" reasoning only about Save (viewDidDisappear firing
+    /// before load() completes implies the UI is already gone, so Save can't be tapped) — true as
+    /// far as it went, but incomplete: Cancel was ALSO tappable mid-load (`showsCancel` includes
+    /// `.loading`), and the PRE-fix-wave `cancel()` called `markConsumed()` directly rather than
+    /// going through `discardIfAbandoned()`, so a mid-load Cancel tap could reach a
+    /// consumed-before-track state too — the exact BLOCKER this fix wave closed (see
+    /// `ShareComposeView.cancel()`'s own doc comment). Now that `cancel()` delegates to
+    /// `discardIfAbandoned()` instead of calling `markConsumed()` itself, `markConsumed()` is
+    /// called from exactly one call site (`save()`), so THIS specific ordering — discard already
+    /// having run, then `consumed` becoming true, before a late `track()` arrives — genuinely can
+    /// only happen via Save now, and Save can't be tapped once the UI backing it is already gone.
+    /// Retained as a regression guard on the invariant itself, independent of reachability.
     func testLateTrackAfterDiscardRanRespectsConsumedIfSetFirst() throws {
         let store = StagedFileStore(userId: UUID(), directory: dir)
         let staged = try stageFile(store: store)

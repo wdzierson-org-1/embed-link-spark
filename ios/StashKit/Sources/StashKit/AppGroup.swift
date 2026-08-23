@@ -1,4 +1,5 @@
 import Foundation
+import os.log
 
 /// The App Group container the app and (from Plan 5 Task 5) the share extension both read and
 /// write: durable on-disk state — `Outbox`, `RecordingStore`, and Task 4's `StagedFileStore` —
@@ -33,11 +34,31 @@ public enum AppGroup {
     /// DOES enforce the entitlement correctly (confirmed working for the real, entitled app), so
     /// the real check only ever runs there; every other platform always takes the Application
     /// Support branch, which keeps `swift test` hermetic unconditionally.
+    /// Final fix wave: fires exactly once, the first time (if ever) `containerURL()` below takes
+    /// the Application-Support fallback ON iOS — i.e. the `com.apple.security.application-groups`
+    /// entitlement exists in source but ISN'T actually being honored at runtime (a mis-provisioned
+    /// build/profile), as distinct from the `#if os(iOS)` guard's OWN documented fallback case
+    /// (the un-sandboxed `swift test` macOS host, which never reaches this call at all). Silent
+    /// before this fix: the app and the share extension would each quietly fall back to their own
+    /// PROCESS-LOCAL Application Support directory, meaning nothing captured by one process is
+    /// EVER visible to the other — indistinguishable from a subtle, silent data-loss bug unless
+    /// someone happens to compare the two processes' sandboxes directly. `static let` (rather than
+    /// a mutable `Bool` flag checked-then-set by the caller) so the one-time contract rides on
+    /// Swift's own lazy-static single-initialization guarantee instead of hand-rolled
+    /// synchronization — safe even if `containerURL()` is ever called concurrently from app and
+    /// extension processes (each process gets its own one-time log, which is the correct behavior
+    /// here: a warning per PROCESS that hit the fallback, not a single global warning). Log-only:
+    /// no behavior change, and the fallback itself is unchanged.
+    private static let logUnentitledFallbackOnce: Void = {
+        os_log(.error, "App Group container unavailable — captures will not be shared between app and extension; check provisioning")
+    }()
+
     public static func containerURL() -> URL {
         #if os(iOS)
         if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
             return url
         }
+        _ = logUnentitledFallbackOnce
         #endif
         return applicationSupportURL
     }

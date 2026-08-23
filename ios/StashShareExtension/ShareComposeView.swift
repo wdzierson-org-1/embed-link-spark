@@ -451,18 +451,28 @@ struct ShareComposeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Cancel discards every staged file (Task 7 brief) — a save was never attempted, so nothing
-    /// is queued in the Outbox yet; without this, an abandoned share's staged copy would sit until
-    /// `sweepOrphans`' 60s grace period recovered it as an orphan (harmless, but needlessly delayed
-    /// and needlessly mints an Outbox entry for a share the user explicitly declined to send).
-    /// `markConsumed()` afterward stops `ShareViewController.viewDidDisappear`'s own
-    /// `discardIfAbandoned()` from attempting a second (harmless, but redundant) pass over files
-    /// this method already discarded explicitly.
+    /// Cancel delegates entirely to `abandonTracker.discardIfAbandoned()` (final fix wave — BLOCKER
+    /// fix). The previous implementation hand-rolled its own loop over `objects` and then called
+    /// `markConsumed()`: harmless when Cancel was tapped POST-load (`objects` was fully populated,
+    /// so the loop discarded everything, and `markConsumed()` merely blocked the later, redundant
+    /// `viewDidDisappear` pass) — but Cancel is ALSO reachable mid-load (`showsCancel` includes
+    /// `.loading`), and mid-load `objects` is still empty: the loop discarded nothing, yet
+    /// `markConsumed()` still latched `consumed = true`, which made `ShareAbandonTracker.track()`'s
+    /// own late-registration catch-up (see that type's "Mid-load staging" doc comment) a permanent
+    /// no-op — every file `load()` went on to stage sat on disk unreferenced by any Outbox entry
+    /// until the next app launch's `sweepOrphans` recovered them as "orphans" and silently
+    /// auto-saved a share the user had explicitly cancelled.
+    ///
+    /// Delegating instead closes this with no special-casing: POST-load this is byte-identical to
+    /// the old behavior, since the tracker's own `objects`/`staging` are exactly this view's
+    /// (`track()` copied them over at the end of `load()`). MID-load, `discardIfAbandoned()` finds
+    /// nothing yet (same as a mid-load swipe) but latches `discardHasRun`, so the still-running
+    /// `load()`'s eventual `track()` call immediately discards everything it just staged instead of
+    /// leaving it for `sweepOrphans` to find minutes later. `ShareViewController.viewDidDisappear`'s
+    /// own unconditional `discardIfAbandoned()` call afterward stays exactly what it already was: a
+    /// safe, idempotent no-op once this method has run.
     private func cancel() {
-        for object in objects {
-            if case .file(let url, _, _, _) = object { staging?.discard(url) }
-        }
-        abandonTracker.markConsumed()
+        abandonTracker.discardIfAbandoned()
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
     }
 }

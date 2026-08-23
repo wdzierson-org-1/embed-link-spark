@@ -186,6 +186,26 @@ final class StagedFileStoreTests: XCTestCase {
     func testMimeTypeForFileExtensionFallsBackToOctetStreamForUnknownExtensions() {
         XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "xyz"), "application/octet-stream")
         XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: ""), "application/octet-stream")
+        // Final fix wave: a second, more emphatically-bogus extension — confirms the new
+        // UTType(filenameExtension:) tier doesn't accidentally swallow a genuinely-unknown
+        // extension into some non-octet-stream mime. `UTType(filenameExtension:)` resolves even
+        // "xyz" to a dynamic `dyn.*` UTI (verified empirically), so this exercises the same
+        // "dynamic UTI with no preferredMIMEType" path with an extension that has zero chance of
+        // colliding with a real registered type.
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "zzzznotarealext123"), "application/octet-stream")
+    }
+
+    // MARK: - mimeType(forFileExtension:) UTType long-tail fallback (final fix wave)
+
+    /// Extensions NOT in the explicit map above, resolved via the new
+    /// `UTType(filenameExtension:)?.preferredMIMEType` third tier — see that method's own doc
+    /// comment for why this is safe (concrete extension → concrete UTI, unlike the abstract
+    /// category constants ruled out by the Task 7 fix round). Values below were verified
+    /// empirically on this toolchain (a throwaway `swift` script spike, not checked in) rather
+    /// than guessed from the extension name alone.
+    func testMimeTypeForFileExtensionFallsBackToUTTypeForExtensionsNotInTheExplicitMap() {
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "tiff"), "image/tiff")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "m4v"), "video/x-m4v")
     }
 
     // MARK: - sweepOrphans: recordings/staging files with no referencing Outbox entry
