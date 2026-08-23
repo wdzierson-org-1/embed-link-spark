@@ -466,6 +466,28 @@ final class StashUITests: XCTestCase {
     /// via the same realtime path `testLibrarySmoke` already exercises. The created row is
     /// disposable — deleted via REST in the shell after this test runs, unlike the permanent
     /// UITEST-FIXTURE rows `testDetailSheets`/`testLibrarySmoke` depend on.
+    ///
+    /// STANDING ADJUDICATED GATE FAILURE (plan-4 wrap onward): the UI-test account's Stripe trial
+    /// lapsed 2026-08-16 and remains lapsed (Settings still reads "Expired" as of this plan's own
+    /// live checks) — Will's Stripe decision (comp the account / new history-free account / accept
+    /// degraded capture-smoke verification) is still pending; see the plan-4 outcome's
+    /// "Stripe-lapse blocker" section and its plan-5 handoff. `capture.save` is client-side gated by
+    /// `SubscriptionStore.canAddContent`, so this test is EXPECTED TO FAIL on every full-suite run
+    /// against this account, exactly like `testLocationPinSmoke` (same Add-tab gate) and
+    /// `testAskSmoke` (same underlying gate via `AskView`'s `canUseAI` alias — see that test's own
+    /// "Gate-vs-RAG disambiguation" comment). These three are the standing adjudicated-failure set a
+    /// full-suite run should reproduce; anything else is a genuine regression.
+    ///
+    /// Plan-5 Task 8 EXTENDS this adjudication rather than adding a fourth member to it:
+    /// `testShareExtensionURLSmoke` reads the SAME underlying subscription gate — mirrored into the
+    /// share extension's own cached App Group `UserDefaults` bool by `SubscriptionStore.refresh()`
+    /// — but, unlike this test, is written CONDITION-AWARE: it asserts the pre-gate compose-card
+    /// flow (URL preview + note field) unconditionally, then branches on whichever gate state is
+    /// actually live — closed: Save disabled + REST-verified no item created; open/a post-comp
+    /// future: Save succeeds + REST-verified item created, then cleaned up. It is written to PASS
+    /// either way, so it never joins this standing-failure set. If Will's Stripe decision ever lifts
+    /// the lapse, this test (and `testLocationPinSmoke`/`testAskSmoke`) should be expected to start
+    /// passing too — that would be the moment to revisit this comment, not before.
     func testCaptureSmoke() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -1073,6 +1095,32 @@ final class StashUITests: XCTestCase {
         }
     }
 
+    /// One-shot existence check for `testShareExtensionURLSmoke`'s gate-CLOSED branch. Unlike
+    /// `pollForRow` above (which retries until a row APPEARS — correct for "this save should have
+    /// landed eventually"), a gate-blocked Save must never create a row AT ALL, so there is nothing
+    /// to wait for: the correct check for an expected ABSENCE is a single fetch, taken only after
+    /// the caller has already given the (non-)event a generous settle window — polling-until-absent
+    /// would just race a save that was never going to happen, and could only ever time out, not
+    /// confirm anything sooner.
+    private func rowExists(matchingContent marker: String, email: String, password: String) async throws -> Bool {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [
+                    URLQueryItem(name: "content", value: "eq.\(marker)"),
+                    URLQueryItem(name: "select", value: "id"),
+                ]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "existence check failed for marker '\(marker)' (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        let rows = (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+        return !rows.isEmpty
+    }
+
     /// Opt-in location capture (Task 6): pin toggle → CoreLocation one-shot fix (simulator location
     /// pre-set via `simctl location set`, permission pre-granted via `simctl privacy grant
     /// location` — both shell pre-steps run before this suite, see task-6-report.md) → native
@@ -1286,6 +1334,168 @@ final class StashUITests: XCTestCase {
 
         if let id = afterClear["id"] as? String {
             try await deleteRow(id: id, email: email, password: password)
+        }
+    }
+
+    // MARK: - Share extension (Task 8, plan 5)
+
+    /// Share-extension smoke: drives Safari's REAL system share sheet end-to-end into the live
+    /// `StashShareExtension` process — the GOLD automation recipe this reuses verbatim from T5/T7's
+    /// own live checks (see task-5-report.md/task-7-report.md): `XCUIApplication(bundleIdentifier:
+    /// "com.apple.mobilesafari")` driving Safari's own `ShareButton`, with Stash appearing directly
+    /// in the share sheet's FIRST ROW (no "More" step needed on this iOS/Simulator version) — no
+    /// springboard-bundle-id workaround required.
+    ///
+    /// Two NEW automation findings this task adds to T7's own leaf-identifier note (extension-
+    /// hosting accessibility quirks — see `ShareComposeView.swift`'s own `doneView`/`gateMessage`
+    /// doc comments for the original one):
+    /// 1. The compose card's BUTTONS (`share.cancel`/`share.save`) resolve as an ambiguous
+    ///    container+child pair through Safari's proxy — a wrapping `Other` element inherits the
+    ///    SAME identifier as the real `Button` beneath it — under a type-erased
+    ///    `.descendants(matching: .any)` query ("Multiple matching elements found", confirmed live).
+    ///    A TYPED query (`app.buttons["…"]`) resolves unambiguously, since only the actual Button
+    ///    matches that element type. `share.gate`/`share.preview.url` (leaf `Text`s) don't hit this
+    ///    — `.staticTexts["…"]` resolves to a single clean match, matching T7's own verified leaf-
+    ///    identifier approach.
+    /// 2. The note field (`TextField(..., axis: .vertical)`) surfaces to accessibility as a
+    ///    `TextView`, not a `TextField` — `app.textViews["share.note"]`, not `app.textFields[...]`.
+    ///
+    /// CONDITION-AWARE, same adjudication shape as `testCaptureSmoke`/`testLocationPinSmoke` (see
+    /// `testCaptureSmoke`'s own doc comment for the standing gate context this extends): the
+    /// UI-test account's lapsed Stripe trial means the extension's cached gate (App Group
+    /// `UserDefaults`, written by `SubscriptionStore.refresh()`) currently reads `false`. This smoke
+    /// asserts the PRE-GATE flow (compose card renders, URL preview + note field both present)
+    /// UNCONDITIONALLY either way, then branches on the live gate state: gate visible -> Save
+    /// disabled, Cancel, REST-verify NO item was created; gate absent (fail-open / a post-comp
+    /// future) -> Save, REST-verify the item WAS created, clean it up. Unlike the three standing-
+    /// adjudicated smokes, this test is written to PASS regardless of which branch fires — it never
+    /// joins that failure set.
+    ///
+    /// Dwells on Settings right after sign-in (reading the real subscription status line, same
+    /// technique `testSettingsSmoke` uses) BEFORE ever switching over to Safari:
+    /// `SubscriptionStore.refresh()` needs a moment to actually resolve and write the gate cache —
+    /// observed live that skipping this dwell reads the cache as MISSING (fail-open) regardless of
+    /// the true account state, a timing artifact of this test's own launch sequence, not a genuine
+    /// "gate removed" signal (see task-8-report.md).
+    ///
+    /// Loads example.com by typing into Safari's OWN address bar — never `xcrun simctl openurl`,
+    /// which can only run as an external shell step BETWEEN separate `xcodebuild test` invocations
+    /// (T5/T7's own scratch-probe discovery methodology); this is one self-contained test. Safari's
+    /// address bar identifier changes from "TabBarItemTitle" (idle) to "URL" (once tapped/editing) —
+    /// a stale reference to the pre-tap identifier fails to re-resolve; this re-queries the NEW
+    /// identifier instead of reusing the original one.
+    ///
+    /// A unique marker is typed into the note field regardless of which branch fires — this ties
+    /// "REST-verify no item was created" to something concrete and falsifiable (an actual `content`
+    /// value that WOULD exist if a bug ever let a gate-disabled Save slip through) rather than a
+    /// coarser, fixture-collision-prone check against the shared, non-unique `example.com` URL.
+    ///
+    /// `@MainActor`: same reasoning as `testEditSmoke`/`testLocationPinSmoke` — makes the
+    /// `XCUIElement` calls in this `async` test's main-actor isolation explicit.
+    @MainActor
+    func testShareExtensionURLSmoke() async throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        // Let SubscriptionStore.refresh() resolve + write the gate cache before switching to
+        // Safari — see doc comment above.
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["settings.subscription.status"].waitForExistence(timeout: 15),
+                      "Subscription status line not found")
+        sleep(3)
+
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        safari.launch()
+
+        let addressBar = safari.textFields["TabBarItemTitle"]
+        XCTAssertTrue(addressBar.waitForExistence(timeout: 10), "Safari address bar not found")
+        addressBar.tap()
+        let urlField = safari.textFields["URL"]
+        XCTAssertTrue(urlField.waitForExistence(timeout: 5),
+                      "Safari URL edit field not found after tapping the address bar")
+        urlField.typeText("example.com\n")
+
+        let shareButton = safari.buttons["ShareButton"]
+        XCTAssertTrue(shareButton.waitForExistence(timeout: 15), "Safari's Share button did not appear")
+        shareButton.tap()
+
+        // Springboard/activity-sheet timing is the finicky part (brief) — budgeted generously.
+        // Stash appeared in the first row with no "More" step in every prior live check (T5/T7).
+        let stashCell = safari.cells["Stash"]
+        XCTAssertTrue(stashCell.waitForExistence(timeout: 20), "Stash did not appear in the share sheet")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-sheet\n".data(using: .utf8)!)
+        sleep(2)
+
+        stashCell.tap()
+
+        // --- Unconditional pre-gate flow: the compose card renders with the URL preview + note
+        // field, regardless of gate state. ---
+        let urlPreview = safari.staticTexts["share.preview.url"]
+        XCTAssertTrue(urlPreview.waitForExistence(timeout: 20), "Compose card's URL preview did not render")
+        XCTAssertTrue(urlPreview.label.contains("example.com"),
+                      "Expected the URL preview to reference example.com, got '\(urlPreview.label)'")
+
+        let noteField = safari.textViews["share.note"]
+        XCTAssertTrue(noteField.waitForExistence(timeout: 10), "Compose card's note field did not render")
+
+        let saveButton = safari.buttons["share.save"]
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 10), "Compose card's Save button did not render")
+
+        let marker = "UITEST-SHARE: \(Int(Date().timeIntervalSince1970))"
+        noteField.tap()
+        noteField.typeText(marker)
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-compose\n".data(using: .utf8)!)
+        sleep(3)
+
+        if safari.staticTexts["share.gate"].waitForExistence(timeout: 3) {
+            // --- Gate visible (this account's current lapsed-trial state): Save disabled, no item
+            // created. ---
+            XCTAssertFalse(saveButton.isEnabled, "Expected Save to be disabled while the gate is showing")
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-gate-closed\n".data(using: .utf8)!)
+            sleep(3)
+
+            safari.buttons["share.cancel"].tap()
+            XCTAssertTrue(shareButton.waitForExistence(timeout: 15), "Expected to return to Safari after Cancel")
+
+            // Generous settle window before the REST check — this is an ABSENCE assertion, so
+            // there's nothing to poll-until; a fixed wait then a single check is the correct shape
+            // (see `rowExists`'s own doc comment).
+            sleep(5)
+            let exists = try await rowExists(matchingContent: marker, email: email, password: password)
+            XCTAssertFalse(exists, "Expected NO item to be created while the share-extension gate was showing")
+        } else {
+            // --- Gate absent (fail-open / a post-comp future): Save, REST-verify, clean up. ---
+            XCTAssertTrue(saveButton.isEnabled, "Expected Save to be enabled while the gate is absent")
+            saveButton.tap()
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-gate-open-saving\n".data(using: .utf8)!)
+
+            // Do NOT assert on the transient "share.outcome" text — T7's own disclosed ~0.8s
+            // window is too narrow to reliably catch (task-7-report.md's own Concerns section).
+            // Assert on the durable REST effect instead, with a generous poll.
+            let row = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
+            XCTAssertNotNil(row["id"], "Expected the shared URL to have landed as a real item")
+            if let id = row["id"] as? String {
+                try await deleteRow(id: id, email: email, password: password)
+            }
+
+            // The extension auto-dismisses ~0.8s after a successful save and hands focus back to
+            // Safari — belt confirmation, not the primary assertion (which is the REST check above).
+            _ = shareButton.waitForExistence(timeout: 15)
         }
     }
 
