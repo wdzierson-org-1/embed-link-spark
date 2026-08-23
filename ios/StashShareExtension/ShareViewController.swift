@@ -12,15 +12,31 @@ import UIKit
 /// `NSExtensionPrincipalClass`, so the system instantiates it with the plain `UIViewController`
 /// initializer and sets `extensionContext` before `viewDidLoad`.
 final class ShareViewController: UIViewController {
+    /// Fix round 1 (Important review finding): owned here (not by `ShareComposeView`, a plain
+    /// `struct` SwiftUI recreates freely) so it survives independent of the SwiftUI view's own
+    /// lifecycle and is reachable from `viewDidDisappear` below. See `ShareAbandonTracker`'s own
+    /// doc comment for the full discard-on-abandon contract.
+    private let abandonTracker = ShareAbandonTracker()
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        let compose = ShareComposeView(extensionContext: extensionContext)
+        let compose = ShareComposeView(extensionContext: extensionContext, abandonTracker: abandonTracker)
         let hosting = UIHostingController(rootView: compose)
         addChild(hosting)
         hosting.view.frame = view.bounds
         hosting.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(hosting.view)
         hosting.didMove(toParent: self)
+    }
+
+    /// Fires on EVERY teardown of this extension's UI — an explicit Cancel tap, a completed Save's
+    /// own `completeRequest`, or a swipe-to-dismiss the system drives with no app code in the loop
+    /// at all (the actual case this fix round closes). Unconditional by design: `abandonTracker`'s
+    /// own `consumed` guard is what makes calling this on every path — including the two that
+    /// already handled their own file lifecycle — safe rather than a double-discard hazard.
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        abandonTracker.discardIfAbandoned()
     }
 }

@@ -66,6 +66,12 @@ targets:
       path: StashShareExtension/Info.plist
       properties:
         CFBundleDisplayName: Stash
+        # Fix round 1 (Important review finding): the app target declares this; the extension
+        # needs its OWN copy (an extension's Info.plist is entirely separate from its host app's,
+        # regardless of any TCC-inheritance question the pin-visibility live check settles
+        # separately) — cheap insurance, and CLLocationManager would otherwise have no usage string
+        # to show if this process ever DID need to prompt.
+        NSLocationWhenInUseUsageDescription: "Stash tags saves with where you were — only when you turn the pin on."
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController

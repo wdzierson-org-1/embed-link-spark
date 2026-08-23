@@ -6,6 +6,54 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+/// Tracks whether this share's staged files have been handed off to `ShareIntake.submit` — Fix
+/// round 1 (Important review finding): only the explicit Cancel button used to discard staged
+/// files, so an ABANDONED share sheet (swiped away — a normal iOS gesture, not just Cancel/Save)
+/// left them on disk with no Outbox entry pointing at them; `sweepOrphans`' 60s grace period would
+/// eventually auto-enqueue and upload them on the next app launch — a share the user quietly
+/// declined to send appearing in Stash anyway.
+///
+/// DECISION (adopted): any dismissal without a completed Save = abandonment = discard.
+/// `markConsumed()` fires the instant `ShareComposeView.save()` hands `objects` to
+/// `ShareIntake.submit` — from that point on, `ShareIntake`'s OWN internal logic owns every staged
+/// file's lifecycle (discards on a successful direct send; deliberately RETAINS a file for a queued
+/// Outbox entry) and this tracker must never touch them again, including during the 0.8s outcome
+/// window between `.done` and `completeRequest`. `ShareViewController.viewDidDisappear` calls
+/// `discardIfAbandoned()` UNCONDITIONALLY on every teardown (explicit Cancel, a completed Save, OR
+/// a swipe) — the `consumed` guard is what makes that safe to call unconditionally rather than
+/// needing the caller to know which case it is. `@MainActor`: every call site (`ShareComposeView`'s
+/// own methods, `UIViewController` lifecycle callbacks) already runs on the main actor; this just
+/// makes that explicit.
+@MainActor
+final class ShareAbandonTracker {
+    private var consumed = false
+    private var objects: [SharedObject] = []
+    private var staging: StagedFileStore?
+
+    /// Called once `load()` finishes populating `objects`/`staging` (a no-op past `markConsumed()`,
+    /// which shouldn't be reachable here — `load()` always precedes `save()` — but cheap to guard).
+    func track(objects: [SharedObject], staging: StagedFileStore) {
+        guard !consumed else { return }
+        self.objects = objects
+        self.staging = staging
+    }
+
+    /// Every currently-tracked staged file is owned elsewhere from this point on —
+    /// `discardIfAbandoned()` becomes a permanent no-op after this call.
+    func markConsumed() {
+        consumed = true
+    }
+
+    /// Discards every currently-tracked staged file. A no-op once `markConsumed()` has fired, or if
+    /// nothing was ever tracked (e.g. the `.noSession` branch, which never stages anything).
+    func discardIfAbandoned() {
+        guard !consumed, let staging else { return }
+        for object in objects {
+            if case .file(let url, _, _, _) = object { staging.discard(url) }
+        }
+    }
+}
+
 /// The real share-extension compose card (Task 7) — replaces Task 5's placeholder. Compact,
 /// type-appropriate preview, an optional note, an optional location pin (reusing the app's own
 /// `LocationCapture` state machine — see `project.yml`'s doc comment on why that file is shared
@@ -14,6 +62,9 @@ import UniformTypeIdentifiers
 /// Constraints: the user ALWAYS sees success, never an error, never a stuck spinner.
 struct ShareComposeView: View {
     let extensionContext: NSExtensionContext?
+    /// Owned by `ShareViewController` (persists across this struct's own re-creations) — see
+    /// `ShareAbandonTracker`'s own doc comment for the abandon/discard contract this implements.
+    let abandonTracker: ShareAbandonTracker
 
     private enum Phase: Equatable {
         case loading
@@ -25,6 +76,11 @@ struct ShareComposeView: View {
 
     @State private var phase: Phase = .loading
     @State private var objects: [SharedObject] = []
+    /// Fix round 1 (Important review finding): how many of the OS-handed providers did NOT become
+    /// a `SharedObject` — an unsupported type, or a genuine load/stage failure; both look identical
+    /// to the user (nothing renders) unless surfaced. Rendered as a one-line "N item(s) couldn't be
+    /// read" whenever non-zero — parity with the composer's own dropped-attachment surfacing.
+    @State private var droppedCount = 0
     @State private var note: String = ""
     @State private var locationCapture = LocationCapture()
     /// Task 7 brief: CoreLocation auth prompts can behave hostilely inside a share sheet — a
@@ -91,7 +147,10 @@ struct ShareComposeView: View {
         userId = resolvedUserId
         let store = StagedFileStore(userId: resolvedUserId)
         staging = store
-        objects = await ProviderLoader(staging: store).load(from: extensionContext)
+        let result = await ProviderLoader(staging: store).load(from: extensionContext)
+        objects = result.objects
+        droppedCount = result.droppedCount
+        abandonTracker.track(objects: result.objects, staging: store)
         canAddContent = readGateCache()
         pinHidden = CLLocationManager().authorizationStatus == .notDetermined
         phase = .ready
@@ -143,6 +202,9 @@ struct ShareComposeView: View {
     private var composeBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             preview
+            if droppedCount > 0 {
+                droppedMessage
+            }
             if !canAddContent {
                 gateMessage
             }
@@ -161,6 +223,19 @@ struct ShareComposeView: View {
         }
         .padding()
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Fix round 1 (Important review finding): "user shared N things, we present M < N — say so."
+    /// Counts both an unsupported-UTI provider and a genuine load/stage failure the same way —
+    /// either one is a share the user made that silently didn't show up otherwise.
+    private var droppedMessage: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
+            Text(droppedCount == 1 ? "1 item couldn't be read" : "\(droppedCount) items couldn't be read")
+                .accessibilityIdentifier("share.dropped")
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
     }
 
     /// Task 7: "Subscribe on gostash.it to add items" — a cached-false gate, unlike the composer's
@@ -367,6 +442,12 @@ struct ShareComposeView: View {
             staging: staging,
             accessToken: { try await StashClient.shared.auth.session.accessToken }
         )
+        // From here on, `ShareIntake` owns every staged file's lifecycle (discards on a successful
+        // direct send, deliberately retains a file it queues) — `abandonTracker` must never discard
+        // out from under it, including during the 0.8s outcome window below and the
+        // `viewDidDisappear` teardown `completeRequest` triggers afterward. See
+        // `ShareAbandonTracker`'s own doc comment.
+        abandonTracker.markConsumed()
         let result = await intake.submit(objects, note: trimmedNote.isEmpty ? nil : trimmedNote, location: location)
 
         let message: String
@@ -409,10 +490,14 @@ struct ShareComposeView: View {
     /// is queued in the Outbox yet; without this, an abandoned share's staged copy would sit until
     /// `sweepOrphans`' 60s grace period recovered it as an orphan (harmless, but needlessly delayed
     /// and needlessly mints an Outbox entry for a share the user explicitly declined to send).
+    /// `markConsumed()` afterward stops `ShareViewController.viewDidDisappear`'s own
+    /// `discardIfAbandoned()` from attempting a second (harmless, but redundant) pass over files
+    /// this method already discarded explicitly.
     private func cancel() {
         for object in objects {
             if case .file(let url, _, _, _) = object { staging?.discard(url) }
         }
+        abandonTracker.markConsumed()
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
     }
 }

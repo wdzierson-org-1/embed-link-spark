@@ -43,5 +43,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 	</dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Stash tags saves with where you were — only when you turn the pin on.</string>
 </dict>
 </plist>

@@ -155,6 +155,34 @@ final class StagedFileStoreTests: XCTestCase {
         XCTAssertEqual(StagedFileStore.defaultDirectory(userId: uid), AppGroup.userScopedURL("StashStaging", userId: uid))
     }
 
+    // MARK: - mimeType(forFileExtension:) (Task 7 fix round, Critical review finding)
+
+    // `public` specifically so `ProviderLoader` (share extension, a different MODULE) can derive a
+    // mime type from a STAGED file's own concrete extension instead of `UTType(typeIdentifier:)`'s
+    // abstract category constants (`public.image`/`public.movie`/`public.audio`), whose
+    // `.preferredMIMEType` returns `nil` on this toolchain — verified here against the same
+    // extensions `ProviderLoader`'s image/movie/audio/pdf branches actually stage to.
+    func testMimeTypeForFileExtensionCoversEveryKnownExtension() {
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "png"), "image/png")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "jpg"), "image/jpeg")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "jpeg"), "image/jpeg")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "heic"), "image/heic")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "mov"), "video/quicktime")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "mp4"), "video/mp4")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "m4a"), "audio/mp4")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "pdf"), "application/pdf")
+    }
+
+    func testMimeTypeForFileExtensionIsCaseInsensitive() {
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "PNG"), "image/png")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "MOV"), "video/quicktime")
+    }
+
+    func testMimeTypeForFileExtensionFallsBackToOctetStreamForUnknownExtensions() {
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "xyz"), "application/octet-stream")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: ""), "application/octet-stream")
+    }
+
     // MARK: - sweepOrphans: recordings/staging files with no referencing Outbox entry
 
     func testSweepOrphansCreatesEntryForUnreferencedRecording() async throws {

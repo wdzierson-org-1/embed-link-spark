@@ -116,25 +116,34 @@ public struct StagedFileStore: Sendable {
     public func fileSize(of url: URL) -> Int? {
         (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
     }
-}
 
-/// Small extension → MIME map for `sweepOrphans` below, which (unlike every other `.file` entry,
-/// always enqueued alongside an explicit `mime_type` by whichever picker/recorder produced it) has
-/// no source of truth for a recovered orphan's content type beyond its file extension. Falls back
-/// to `application/octet-stream` for anything unrecognized — the same fallback
-/// `Outbox.drain`/`send` already use for a `mime_type`-less payload — rather than skipping the
-/// file: tagging it generically still gets its bytes durably queued, where dropping it silently
-/// would not.
-private func mimeType(forFileExtension fileExtension: String) -> String {
-    switch fileExtension.lowercased() {
-    case "m4a": return "audio/mp4"
-    case "jpg", "jpeg": return "image/jpeg"
-    case "png": return "image/png"
-    case "heic": return "image/heic"
-    case "mp4": return "video/mp4"
-    case "mov": return "video/quicktime"
-    case "pdf": return "application/pdf"
-    default: return "application/octet-stream"
+    /// Small extension → MIME map. Originally private, for `sweepOrphans` below alone (which —
+    /// unlike every other `.file` entry, always enqueued alongside an explicit `mime_type` by
+    /// whichever picker/recorder produced it — has no source of truth for a recovered orphan's
+    /// content type beyond its file extension). Made `public` (Task 7 fix round, Critical review
+    /// finding) so a cross-MODULE caller — the share extension's `ProviderLoader` — can reuse this
+    /// EXACT map instead of re-deriving mime types from `UTType(typeIdentifier:)`'s ABSTRACT
+    /// category constants (`public.image`/`public.movie`/`public.audio`): verified empirically that
+    /// `.preferredMIMEType` returns `nil` for those (only a concrete type like `com.adobe.pdf`
+    /// resolves), which was silently mislabeling every shared PNG/movie/voice-memo as
+    /// `application/octet-stream` — wrong DB `type` server-side, no analyze-image/transcribe-audio
+    /// enrichment. A `static` method on `StagedFileStore` (not a bare top-level function) so the
+    /// public API reads clearly at that cross-module call site:
+    /// `StagedFileStore.mimeType(forFileExtension:)`. Falls back to `application/octet-stream` for
+    /// anything unrecognized — the same fallback `Outbox.drain`/`send` already use for a
+    /// `mime_type`-less payload — rather than skipping the file: tagging it generically still gets
+    /// its bytes durably queued/registered, where dropping it silently would not.
+    public static func mimeType(forFileExtension fileExtension: String) -> String {
+        switch fileExtension.lowercased() {
+        case "m4a": return "audio/mp4"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+        case "heic": return "image/heic"
+        case "mp4": return "video/mp4"
+        case "mov": return "video/quicktime"
+        case "pdf": return "application/pdf"
+        default: return "application/octet-stream"
+        }
     }
 }
 
@@ -206,7 +215,7 @@ public func sweepOrphans(userId: UUID, outbox: Outbox, recordings: RecordingStor
 
         let payload = [
             "local_file_path": path,
-            "mime_type": mimeType(forFileExtension: url.pathExtension),
+            "mime_type": StagedFileStore.mimeType(forFileExtension: url.pathExtension),
             "is_public": "false",
         ]
         if (try? await outbox.enqueue(.file, payload: payload)) != nil {
