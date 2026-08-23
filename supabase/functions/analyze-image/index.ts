@@ -141,7 +141,7 @@ serve(async (req) => {
         .from('items')
         .update({ description, page_body: hasOcrText ? detected_text : null })
         .eq('id', itemId)
-        .select('title, supplemental_note')
+        .select('title, content, supplemental_note')
         .single();
 
       if (updateError) {
@@ -151,12 +151,15 @@ serve(async (req) => {
       }
 
       // Re-embed the full item: generate-embeddings replaces prior chunks, so the
-      // text must carry the title/note too, not just the Vision output
+      // text must carry the title/note too, not just the Vision output. Mirrors
+      // extract-pdf-text/extract-office-text's composition order: title,
+      // description, content (the user's own note), supplemental_note, body text.
       const textContent = [
         updatedItem?.title,
         description,
-        hasOcrText ? detected_text : null,
+        updatedItem?.content,
         updatedItem?.supplemental_note,
+        hasOcrText ? detected_text : null,
       ].filter(Boolean).join(' ');
 
       // Invoke generate-embeddings

@@ -93,21 +93,40 @@ serve(async (req) => {
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseKey);
 
+      // Never clobber an existing title (including a user-edited one) — only fill
+      // it in when the item doesn't have one yet. Fetch the current title first;
+      // if the fetch itself fails, be conservative and skip the title write
+      // rather than risk overwriting something better.
+      const { data: existingItem, error: fetchError } = await supabase
+        .from('items')
+        .select('title')
+        .eq('id', itemId)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching item before quick summary update (skipping title write):', fetchError);
+      }
+
+      const currentTitle = existingItem?.title;
+      const shouldWriteTitle = !fetchError && !(currentTitle && currentTitle.trim().length > 0);
+
+      const updates: Record<string, string> = { description };
+      if (shouldWriteTitle) {
+        updates.title = title;
+      }
+
       // Only apply the filename-based guess while full extraction hasn't landed yet
       // (extract-pdf-text sets page_body); never overwrite real content-based results
       const { error: updateError } = await supabase
         .from('items')
-        .update({
-          title,
-          description,
-        })
+        .update(updates)
         .eq('id', itemId)
         .is('page_body', null);
 
       if (updateError) {
         console.error('Error updating item with quick summary:', updateError);
       } else {
-        console.log('Quick summary updated successfully:', { itemId, title });
+        console.log('Quick summary updated successfully:', { itemId, title: shouldWriteTitle ? title : '(kept existing title)' });
       }
     }
 
