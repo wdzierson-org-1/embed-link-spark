@@ -6,54 +6,6 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// Tracks whether this share's staged files have been handed off to `ShareIntake.submit` — Fix
-/// round 1 (Important review finding): only the explicit Cancel button used to discard staged
-/// files, so an ABANDONED share sheet (swiped away — a normal iOS gesture, not just Cancel/Save)
-/// left them on disk with no Outbox entry pointing at them; `sweepOrphans`' 60s grace period would
-/// eventually auto-enqueue and upload them on the next app launch — a share the user quietly
-/// declined to send appearing in Stash anyway.
-///
-/// DECISION (adopted): any dismissal without a completed Save = abandonment = discard.
-/// `markConsumed()` fires the instant `ShareComposeView.save()` hands `objects` to
-/// `ShareIntake.submit` — from that point on, `ShareIntake`'s OWN internal logic owns every staged
-/// file's lifecycle (discards on a successful direct send; deliberately RETAINS a file for a queued
-/// Outbox entry) and this tracker must never touch them again, including during the 0.8s outcome
-/// window between `.done` and `completeRequest`. `ShareViewController.viewDidDisappear` calls
-/// `discardIfAbandoned()` UNCONDITIONALLY on every teardown (explicit Cancel, a completed Save, OR
-/// a swipe) — the `consumed` guard is what makes that safe to call unconditionally rather than
-/// needing the caller to know which case it is. `@MainActor`: every call site (`ShareComposeView`'s
-/// own methods, `UIViewController` lifecycle callbacks) already runs on the main actor; this just
-/// makes that explicit.
-@MainActor
-final class ShareAbandonTracker {
-    private var consumed = false
-    private var objects: [SharedObject] = []
-    private var staging: StagedFileStore?
-
-    /// Called once `load()` finishes populating `objects`/`staging` (a no-op past `markConsumed()`,
-    /// which shouldn't be reachable here — `load()` always precedes `save()` — but cheap to guard).
-    func track(objects: [SharedObject], staging: StagedFileStore) {
-        guard !consumed else { return }
-        self.objects = objects
-        self.staging = staging
-    }
-
-    /// Every currently-tracked staged file is owned elsewhere from this point on —
-    /// `discardIfAbandoned()` becomes a permanent no-op after this call.
-    func markConsumed() {
-        consumed = true
-    }
-
-    /// Discards every currently-tracked staged file. A no-op once `markConsumed()` has fired, or if
-    /// nothing was ever tracked (e.g. the `.noSession` branch, which never stages anything).
-    func discardIfAbandoned() {
-        guard !consumed, let staging else { return }
-        for object in objects {
-            if case .file(let url, _, _, _) = object { staging.discard(url) }
-        }
-    }
-}
-
 /// The real share-extension compose card (Task 7) — replaces Task 5's placeholder. Compact,
 /// type-appropriate preview, an optional note, an optional location pin (reusing the app's own
 /// `LocationCapture` state machine — see `project.yml`'s doc comment on why that file is shared
@@ -431,6 +383,25 @@ struct ShareComposeView: View {
     private static let locationAwaitTimeout: TimeInterval = 2.5
 
     private func save() async {
+        // Fix round 2 (Important review finding): `markConsumed()` is the FIRST statement here,
+        // before any `await` — including `awaitResolution` below, which can itself suspend for up
+        // to `locationAwaitTimeout`. The Save TAP is the intent boundary, not whatever
+        // `ShareIntake.submit` does internally afterward: a swipe-to-dismiss landing during that
+        // suspension used to find `consumed` still `false`, so `viewDidDisappear` discarded the
+        // staged files out from under this still-running `save()` Task — which then found its own
+        // file missing (`StagedFileStore.fileSize(of:)` -> nil -> treated as 0 -> passed the
+        // direct-send-limit check -> the upload itself threw), fell back to a queued Outbox entry
+        // pointing at a path that no longer existed (permanently un-drainable), and still reported
+        // "Saved — will sync" to the user. Calling this before any suspension point closes that
+        // window entirely: from here on, EITHER `ShareIntake` owns every staged file's lifecycle
+        // (discards on a successful direct send, deliberately RETAINS a file it queues) OR — if
+        // this process dies before `submit` finishes — the files are left on disk with no Outbox
+        // entry, which `sweepOrphans` recovers on next launch. Both outcomes match the user's
+        // already-expressed intent to save; `abandonTracker` must never discard out from under
+        // either one, including during the 0.8s outcome window below and the `viewDidDisappear`
+        // teardown `completeRequest` triggers afterward. See `ShareAbandonTracker`'s own doc
+        // comment.
+        abandonTracker.markConsumed()
         guard let userId, let staging else { return }
         phase = .saving
 
@@ -442,12 +413,6 @@ struct ShareComposeView: View {
             staging: staging,
             accessToken: { try await StashClient.shared.auth.session.accessToken }
         )
-        // From here on, `ShareIntake` owns every staged file's lifecycle (discards on a successful
-        // direct send, deliberately retains a file it queues) — `abandonTracker` must never discard
-        // out from under it, including during the 0.8s outcome window below and the
-        // `viewDidDisappear` teardown `completeRequest` triggers afterward. See
-        // `ShareAbandonTracker`'s own doc comment.
-        abandonTracker.markConsumed()
         let result = await intake.submit(objects, note: trimmedNote.isEmpty ? nil : trimmedNote, location: location)
 
         let message: String

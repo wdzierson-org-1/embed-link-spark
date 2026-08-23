@@ -133,12 +133,20 @@ public struct StagedFileStore: Sendable {
     /// anything unrecognized — the same fallback `Outbox.drain`/`send` already use for a
     /// `mime_type`-less payload — rather than skipping the file: tagging it generically still gets
     /// its bytes durably queued/registered, where dropping it silently would not.
+    ///
+    /// Widened in Task 7 fix round 2 to also cover gif/webp (images) and mp3/wav (audio) — cheap,
+    /// low-risk additions to the same map under the same fallback contract; not tied to any
+    /// specific bug, just closing an easy gap while this map was already under review.
     public static func mimeType(forFileExtension fileExtension: String) -> String {
         switch fileExtension.lowercased() {
         case "m4a": return "audio/mp4"
+        case "mp3": return "audio/mpeg"
+        case "wav": return "audio/wav"
         case "jpg", "jpeg": return "image/jpeg"
         case "png": return "image/png"
         case "heic": return "image/heic"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
         case "mp4": return "video/mp4"
         case "mov": return "video/quicktime"
         case "pdf": return "application/pdf"

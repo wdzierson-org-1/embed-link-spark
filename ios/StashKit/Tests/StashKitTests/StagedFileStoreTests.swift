@@ -171,6 +171,11 @@ final class StagedFileStoreTests: XCTestCase {
         XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "mp4"), "video/mp4")
         XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "m4a"), "audio/mp4")
         XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "pdf"), "application/pdf")
+        // Task 7 fix round 2: widened map coverage.
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "gif"), "image/gif")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "webp"), "image/webp")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "mp3"), "audio/mpeg")
+        XCTAssertEqual(StagedFileStore.mimeType(forFileExtension: "wav"), "audio/wav")
     }
 
     func testMimeTypeForFileExtensionIsCaseInsensitive() {
