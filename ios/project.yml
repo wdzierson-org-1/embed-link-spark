@@ -6,6 +6,15 @@ options:
 packages:
   StashKit:
     path: StashKit
+# Plan 6 Task 2: single-source app version + release-signing team here so every target (Stash,
+# StashShareExtension, StashUITests) inherits identical values — App Store validation requires
+# the appex's CFBundleShortVersionString/CFBundleVersion to EQUAL the app's, so these must never
+# be set per-target again.
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: 3CH3K9NTT2
 targets:
   Stash:
     type: application
@@ -20,8 +29,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: it.gostash.stash
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.10"
         # Plan 6 Task 1: single-size universal AppIcon.appiconset (Stash/Assets.xcassets).
@@ -33,6 +40,11 @@ targets:
       path: Stash/Info.plist
       properties:
         CFBundleDisplayName: Stash
+        # Plan 6 Task 2: XcodeGen writes literal defaults (1.0/1) for these two keys unless told
+        # otherwise — pin them to the single-sourced project settings instead, so the app and
+        # appex versions can never drift apart (App Store validation requires equality).
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: "Stash uses the camera to capture photos straight into your stash."
@@ -57,8 +69,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: it.gostash.stash.share
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.10"
         # Plan 6 Task 1: same single-size AppIcon (StashShareExtension/Assets.xcassets) — the
@@ -71,6 +81,11 @@ targets:
       path: StashShareExtension/Info.plist
       properties:
         CFBundleDisplayName: Stash
+        # Plan 6 Task 2: same fix as the app target — XcodeGen's literal 1.0/1 defaults are the
+        # exact latent App Store upload rejection (appex CFBundleShortVersionString must equal
+        # the app's); pin both to the single-sourced project settings.
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Fix round 1 (Important review finding): the app target declares this; the extension
         # needs its OWN copy (an extension's Info.plist is entirely separate from its host app's,
         # regardless of any TCC-inheritance question the pin-visibility live check settles
