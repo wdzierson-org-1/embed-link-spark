@@ -39,6 +39,8 @@ interface ContentItemHeaderProps {
   onEditItem: (item: ContentItem) => void;
   onVideoExpand?: () => void;
   isPublicView?: boolean;
+  /** Enrichment pieces that just landed — animate them in */
+  reveals?: { title?: boolean; preview?: boolean };
 }
 
 const ContentItemHeader = ({
@@ -47,7 +49,8 @@ const ContentItemHeader = ({
   onImageError,
   onEditItem,
   onVideoExpand,
-  isPublicView = false
+  isPublicView = false,
+  reveals
 }: ContentItemHeaderProps) => {
   const [linkCoverFailed, setLinkCoverFailed] = useState(false);
   const isProcessing = isDocumentProcessing(item);
@@ -173,7 +176,7 @@ const ContentItemHeader = ({
     <TooltipProvider>
       <div>
         {hero ? (
-          <div className="relative">
+          <div className={`relative ${reveals?.preview ? 'animate-piece-in' : ''}`}>
             {isVideoHero ? (
               hero
             ) : (
@@ -232,7 +235,7 @@ const ContentItemHeader = ({
 
         {/* Title section with clickable link */}
         {item.title && (
-          <div className={`mb-3 px-6 ${showKicker ? 'pt-1.5' : 'pt-6'}`}>
+          <div className={`mb-3 px-6 ${showKicker ? 'pt-1.5' : 'pt-6'} ${reveals?.title ? 'animate-piece-in' : ''}`}>
             {!isPublicView ? (
               <Tooltip>
                 <TooltipTrigger asChild>

@@ -8,6 +8,34 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-26 · Feed: "assembling" cards while enrichment lands (web)
+
+Behavior contract first — iOS/mac should mirror the *rules*, with
+platform-native motion.
+
+- **A fresh capture visibly assembles.** While an item is less than
+  `ASSEMBLY_WINDOW_MS` (2.5 min) old **and** the pipeline still owes it
+  pieces, its card breathes gently and carries a small top-left chip:
+  **"Filling in the blanks…"**. Each piece animates in as realtime delivers
+  it (short rise + violet wash echoing the card shadows). When the last
+  expected piece lands, the chip flips to **"Filled in ✓"** for ~2s and
+  everything goes quiet. If enrichment dies, the state retires honestly at
+  the window edge — no eternal pulsing.
+- **Expected pieces per type** (ETHOS: never fake enrichment — only promise
+  what reliably arrives): image → description + AI title (placeholder-title
+  rule from the entry below); audio/video → description; PDF → summary (the
+  existing "summary present = done" contract); links and notes promise
+  nothing, but whatever does land (description, better title, preview image,
+  summary) still gets its reveal moment.
+- **Mechanics** (`src/utils/itemAssembly.ts`, pure + unit-tested): the grid
+  diffs each realtime items snapshot against the previous one
+  (`landedPieces`) — no new realtime wiring, so it works for captures from
+  **any** channel (web box, chrome extension, iOS share sheet, SMS). New
+  cards younger than 15s also get an entrance rise.
+- **Motion discipline:** transform/opacity only; `prefers-reduced-motion`
+  disables all of it (the chip still renders statically — the information
+  survives, the motion doesn't).
+
 ## 2026-08-26 · Image titles are AI-derived; filenames become metadata (all channels)
 
 Written for the iOS/mac agents — contracts first.

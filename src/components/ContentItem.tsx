@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -15,6 +15,13 @@ import ChatInterface from '@/components/ChatInterface';
 import type { Attachment } from '@/components/CollectionAttachments';
 import { supabase } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
+import {
+  ASSEMBLY_WINDOW_MS,
+  itemAgeMs,
+  missingPieces,
+  REVEAL_TTL_MS,
+  type AssemblyPiece,
+} from '@/utils/itemAssembly';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -51,6 +58,8 @@ interface ContentItemProps {
   onTogglePrivacy?: (item: ContentItem) => void;
   onCommentClick?: (itemId: string) => void;
   collectionAttachments?: Attachment[];
+  /** Enrichment pieces that just landed (piece → epoch ms), from ContentGrid */
+  assemblyReveals?: Partial<Record<AssemblyPiece, number>>;
 }
 
 const ContentItem = ({
@@ -68,7 +77,8 @@ const ContentItem = ({
   currentUserId,
   onTogglePrivacy,
   onCommentClick,
-  collectionAttachments
+  collectionAttachments,
+  assemblyReveals
 }: ContentItemProps) => {
   const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -78,6 +88,46 @@ const ContentItem = ({
 
   // Updates arrive via the realtime items subscription in useItems (no polling)
   const isProcessing = isDocumentProcessing(item);
+
+  // ---- Assembling state: fresh capture, enrichment still landing ----------
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const missing = isPublicView ? [] : missingPieces(item);
+  const withinWindow = itemAgeMs(item, nowMs) < ASSEMBLY_WINDOW_MS;
+  const isAssemblingNow = withinWindow && missing.length > 0;
+
+  // While assembling, tick so the pulse honestly retires when the window
+  // closes even if no further updates arrive (e.g. an enrichment step died)
+  useEffect(() => {
+    if (!isAssemblingNow) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [isAssemblingNow]);
+
+  // One completion beat when the last expected piece lands
+  const wasAssemblingRef = useRef(isAssemblingNow);
+  const [showAssembled, setShowAssembled] = useState(false);
+  useEffect(() => {
+    const was = wasAssemblingRef.current;
+    wasAssemblingRef.current = isAssemblingNow;
+    if (was && !isAssemblingNow && missing.length === 0) {
+      setShowAssembled(true);
+      const timer = setTimeout(() => setShowAssembled(false), 2200);
+      return () => clearTimeout(timer);
+    }
+  }, [isAssemblingNow, missing.length]);
+
+  // Cards born moments ago rise into the feed (realtime insert / first paint)
+  const [enteredFresh] = useState(() => itemAgeMs(item, Date.now()) < 15_000);
+
+  const revealIsFresh = (piece: AssemblyPiece) => {
+    const at = assemblyReveals?.[piece];
+    return typeof at === 'number' && Date.now() - at < REVEAL_TTL_MS;
+  };
+  const headerReveals = {
+    title: revealIsFresh('title'),
+    preview: revealIsFresh('preview'),
+  };
+  const contentReveal = revealIsFresh('description') || revealIsFresh('summary');
 
   const getPlainTextFromContent = (content: string) => {
     if (!content) return '';
@@ -218,10 +268,31 @@ const ContentItem = ({
     <TooltipProvider>
       {/* No overflow-hidden here — the sticky-note overlay hangs past the card
           edge; the image wrapper clips its own top corners instead */}
-      <Card className="group flex flex-col h-full bg-card border-0 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(160,120,200,0.12)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.08),0_14px_36px_rgba(160,120,200,0.18)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl">
+      <Card className={`group flex flex-col h-full bg-card border-0 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(160,120,200,0.12)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.08),0_14px_36px_rgba(160,120,200,0.18)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl ${
+        enteredFresh ? 'animate-card-enter' : ''
+      } ${isAssemblingNow ? 'animate-assembly-breathe' : ''}`}>
         {/* Note Overlay */}
         {renderNoteOverlay()}
-        
+
+        {/* Assembling thumper: enrichment is landing on this card right now */}
+        {(isAssemblingNow || showAssembled) && (
+          <div className="absolute top-2 left-2 z-30 animate-chip-pop">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.06] bg-white/85 px-2.5 py-1 text-[11px] font-medium text-foreground/70 shadow-sm backdrop-blur-sm">
+              {isAssemblingNow ? (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-assembly-dot" aria-hidden />
+                  Filling in the blanks…
+                </>
+              ) : (
+                <>
+                  <span className="text-emerald-600" aria-hidden>✓</span>
+                  Filled in
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
         <ContentItemHeader
           item={item}
           imageErrors={imageErrors}
@@ -229,6 +300,7 @@ const ContentItem = ({
           onEditItem={onEditItem}
           onVideoExpand={() => setIsVideoLightboxOpen(true)}
           isPublicView={isPublicView}
+          reveals={headerReveals}
         />
 
         <div className="flex flex-col flex-1 p-6 pt-0">
@@ -262,6 +334,7 @@ const ContentItem = ({
               onToggleExpansion={onToggleExpansion}
               isPublicView={isPublicView}
               collectionAttachments={collectionAttachments}
+              revealDescription={contentReveal}
             />
           </div>
           

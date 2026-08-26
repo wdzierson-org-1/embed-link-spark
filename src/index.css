@@ -309,3 +309,114 @@
     pointer-events: none;
   }
 }
+/* ---- Assembling cards (feed enrichment choreography) ----------------------
+   A fresh capture rises in, breathes gently while server enrichment runs, and
+   each piece (title, description, preview) lands with a short rise + violet
+   wash that echoes the cards' purple-tinted shadows. Transform/opacity only. */
+@layer utilities {
+  @keyframes card-enter {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-card-enter {
+    animation: card-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes assembly-breathe {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.96;
+    }
+  }
+  .animate-assembly-breathe {
+    animation: assembly-breathe 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  @keyframes assembly-dot {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .animate-assembly-dot {
+    animation: assembly-dot 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  @keyframes chip-pop {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-chip-pop {
+    animation: chip-pop 0.25s cubic-bezier(0.25, 1, 0.5, 1) both;
+  }
+
+  @keyframes piece-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes piece-wash {
+    0% {
+      opacity: 0;
+    }
+    18% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  .animate-piece-in {
+    position: relative;
+    animation: piece-in 0.4s cubic-bezier(0.25, 1, 0.5, 1) both;
+  }
+  .animate-piece-in::after {
+    content: '';
+    position: absolute;
+    inset: -4px -6px;
+    border-radius: 8px;
+    background: rgba(160, 120, 200, 0.1);
+    opacity: 0;
+    animation: piece-wash 1.2s cubic-bezier(0.25, 1, 0.5, 1) 0.05s both;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-card-enter,
+    .animate-assembly-breathe,
+    .animate-assembly-dot,
+    .animate-chip-pop,
+    .animate-piece-in {
+      animation: none;
+    }
+    .animate-piece-in::after {
+      animation: none;
+      opacity: 0;
+    }
+  }
+}

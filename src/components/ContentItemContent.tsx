@@ -25,6 +25,8 @@ interface ContentItemContentProps {
   onToggleExpansion: (itemId: string) => void;
   isPublicView?: boolean;
   collectionAttachments?: Attachment[];
+  /** The AI description/summary just landed — animate it in */
+  revealDescription?: boolean;
 }
 
 const ContentItemContent = ({
@@ -33,6 +35,7 @@ const ContentItemContent = ({
   onToggleExpansion,
   isPublicView,
   collectionAttachments,
+  revealDescription,
 }: ContentItemContentProps) => {
   // Legacy multi-part items: rich note + attachment tiles (frozen design)
   if (item.type === 'collection') {
@@ -93,9 +96,13 @@ const ContentItemContent = ({
   return (
     <div className="space-y-2.5">
       {item.description && (
-        <p className="text-muted-foreground text-sm line-clamp-3">
-          {extractPlainTextFromNovelContent(item.description)}
-        </p>
+        // Wrapper carries the reveal animation — the clamped paragraph's
+        // -webkit-box/overflow-hidden would clip the highlight wash
+        <div className={revealDescription ? 'animate-piece-in' : undefined}>
+          <p className="text-muted-foreground text-sm line-clamp-3">
+            {extractPlainTextFromNovelContent(item.description)}
+          </p>
+        </div>
       )}
 
       {annotation && <CardAnnotation>{annotation}</CardAnnotation>}

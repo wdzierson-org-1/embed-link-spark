@@ -1,11 +1,14 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ContentItem from './ContentItem';
 import ContentItemSkeleton from './ContentItemSkeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { itemMatchesSearchQuery } from '@/utils/itemSearch';
+import { landedPieces, REVEAL_TTL_MS, type AssemblyPiece } from '@/utils/itemAssembly';
 import type { Attachment } from '@/components/CollectionAttachments';
+
+type RevealMap = Record<string, Partial<Record<AssemblyPiece, number>>>;
 
 export type ContentTypeFilter = 'all' | 'link' | 'note' | 'doc' | 'media';
 
@@ -52,6 +55,49 @@ const ContentGrid = ({
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
   const { user } = useAuth();
+
+  // Assembling cards: diff each realtime snapshot against the previous one so
+  // enrichment pieces (title, description, summary, preview) can animate in
+  // as they land. Lives here — the grid sees every refetched items array.
+  const prevItemsRef = useRef<Map<string, any>>(new Map());
+  const [assemblyReveals, setAssemblyReveals] = useState<RevealMap>({});
+
+  useEffect(() => {
+    const prev = prevItemsRef.current;
+    const next = new Map<string, any>();
+    const nowMs = Date.now();
+    const fresh: RevealMap = {};
+
+    for (const item of items) {
+      if (item.isOptimistic || !item.id) continue;
+      next.set(item.id, item);
+      if (isPublicView) continue;
+      const before = prev.get(item.id);
+      if (!before) continue; // brand-new card — the entrance animation owns it
+      const landed = landedPieces(before, item);
+      if (landed.length > 0) {
+        fresh[item.id] = Object.fromEntries(landed.map((piece) => [piece, nowMs]));
+      }
+    }
+
+    prevItemsRef.current = next;
+    if (Object.keys(fresh).length > 0) {
+      setAssemblyReveals((current) => {
+        const merged: RevealMap = {};
+        // Keep only entries that are still animating or belong to this batch
+        for (const [id, pieces] of Object.entries(current)) {
+          const alive = Object.fromEntries(
+            Object.entries(pieces).filter(([, at]) => nowMs - (at as number) < REVEAL_TTL_MS)
+          );
+          if (Object.keys(alive).length > 0) merged[id] = alive;
+        }
+        for (const [id, pieces] of Object.entries(fresh)) {
+          merged[id] = { ...merged[id], ...pieces };
+        }
+        return merged;
+      });
+    }
+  }, [items, isPublicView]);
 
   const realItems = useMemo(() => items.filter(item => !item.isOptimistic), [items]);
   const realItemIds = useMemo(() => realItems.map(item => item.id), [realItems]);
@@ -248,6 +294,7 @@ const ContentGrid = ({
           onTogglePrivacy={onTogglePrivacy}
           onCommentClick={onCommentClick}
           collectionAttachments={collectionAttachmentsByItem[item.id]}
+          assemblyReveals={assemblyReveals[item.id]}
         />
       ))}
     </div>
