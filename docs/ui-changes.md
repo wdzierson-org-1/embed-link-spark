@@ -8,6 +8,44 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-26 · Chrome extension: "Stash it" capture surface (`extension/`)
+
+Written for the iOS/mac agents — contracts first.
+
+- **New capture client** at `extension/` — Chrome MV3, plain JS, no build
+  step, no dependencies; loads unpacked (not on the Web Store yet). Three
+  gestures, all against existing platform endpoints — **zero server changes**:
+  - Toolbar button → `add-url` with the active tab's URL (http/https only;
+    anything else shows the failure badge).
+  - Right-click selected text → **"Stash it"** → `add-note` with the
+    selection as `content`. Exact text (newlines preserved) is read via a
+    `scripting` injection; where injection is blocked (PDF viewer, chrome://
+    pages) it falls back to Chrome's whitespace-collapsed `selectionText`.
+  - Right-click an image → **"Stash it"** → service worker fetches the image
+    bytes (with that site's cookies), uploads to
+    `stash-media/<userId>/<Date.now()>.<ext>` (same naming as web
+    `fileUploader.ts`), then `add-file` — so it becomes a real image item
+    with vision/OCR enrichment, not a link. 20 MB cap mirroring
+    `MAX_FILE_SIZE_MB`; `blob:` URLs and non-image content-types (CDN error
+    pages) fail visibly rather than saving garbage.
+- **Deliberate scope decision (Will, 2026-08-26): no annotation UI
+  anywhere.** Capture is zero-input; context gets added later in the app.
+  Selection saves as a plain note — no source URL attached in v1.
+- **Feedback contract:** transient badge on the toolbar icon, scoped to the
+  originating tab — `…` while saving, green `✓` ~2.2 s on success, red `!`
+  ~4 s on failure. No page injection for feedback.
+- **Auth:** one-time email/password sign-in (the options page doubles as the
+  sign-in page), raw GoTrue REST (`/auth/v1/token`, the path
+  `PLATFORM_API.md` sanctions), session in `chrome.storage.local`,
+  refresh-on-demand (<60 s token life → refresh, single-flight, one retry on
+  401) — the MV3-safe pattern, since service-worker sleeps kill timers. A
+  signed-out save opens the sign-in page instead of failing silently.
+- **Mac-agent note:** this is the desktop-browser sibling of the iOS share
+  extension, but it does **not** implement iOS's direct-vs-queue Outbox rule
+  — any failure just shows `!` and the user retries. Judged acceptable for a
+  v1 on an effectively always-online desktop; adopt the Outbox pattern if
+  offline capture ever matters here.
+
 ## 2026-08-22 · iOS share extension: system share sheet capture (iOS plan 5)
 
 Written for the web/mac agents — contracts first.

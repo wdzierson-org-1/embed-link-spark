@@ -1,0 +1,9 @@
+{
+  "name": "stash-it-extension",
+  "private": true,
+  "type": "module",
+  "description": "Stash it — Chrome extension for gostash.it. No build step; load unpacked.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

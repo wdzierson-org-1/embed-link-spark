@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stash it — sign in</title>
+    <link rel="stylesheet" href="signin.css" />
+  </head>
+  <body>
+    <main class="card">
+      <h1>Stash</h1>
+
+      <section id="signed-out" hidden>
+        <p class="sub">Sign in once with your Stash account. After that, saving is one click.</p>
+        <form id="signin-form">
+          <label for="email">Email</label>
+          <input id="email" type="email" autocomplete="email" required />
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="current-password" required />
+          <button id="submit" type="submit">Sign in</button>
+          <p id="error" class="error" role="alert" hidden></p>
+        </form>
+        <p class="fine">No account yet? Create one at <a href="https://www.gostash.it" target="_blank" rel="noreferrer">gostash.it</a>.</p>
+      </section>
+
+      <section id="signed-in" hidden>
+        <p class="sub">Signed in as <strong id="who"></strong> — you're all set.</p>
+        <ul class="how">
+          <li>Click the <strong>Stash</strong> button in the toolbar to save the page you're on.</li>
+          <li>Right-click selected text and choose <strong>Stash it</strong> to save it as a note.</li>
+          <li>Right-click any image and choose <strong>Stash it</strong> to save the image itself.</li>
+        </ul>
+        <p class="fine">A small <span class="ok">✓</span> appears on the toolbar icon when a save lands. Add context to anything later at <a href="https://www.gostash.it" target="_blank" rel="noreferrer">gostash.it</a>.</p>
+        <button id="signout" type="button" class="ghost">Sign out</button>
+      </section>
+    </main>
+    <script type="module" src="signin.js"></script>
+  </body>
+</html>

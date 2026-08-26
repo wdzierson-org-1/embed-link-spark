@@ -20,6 +20,8 @@ https://www.gostash.it (Vercel; push to `main` auto-deploys the web app).
 ## Surfaces
 
 - **Web** — `src/` (Vite + React + TS + shadcn; tests: `npm test`).
+- **Chrome extension** — `extension/` (MV3, plain JS, no build step; load
+  unpacked; tests: `cd extension && npm test`).
 - **iOS** — `ios/` (SwiftUI app + `StashKit` Swift package; unit tests:
   `cd ios/StashKit && swift test`; specs/plans in `docs/superpowers/`).
 - **macOS** — separate repo (`stash-mac`, menubar wrapper).

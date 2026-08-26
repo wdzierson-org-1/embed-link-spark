@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- Icon source. Headless Chrome enforces a minimum window size, so render
+  once at 1024 and downscale (keeps alpha):
+  CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  "$CHROME" --headless --disable-gpu --screenshot=icon1024.png \
+    --window-size=1024,1024 --default-background-color=00000000 icon-src.html
+  for s in 16 32 48 128; do sips -z $s $s icon1024.png --out icon$s.png; done
+  rm icon1024.png
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; background: transparent; }
+      .tile {
+        width: 1024px;
+        height: 1024px;
+        border-radius: 194px;
+        background: hsl(220, 13%, 18%);
+        display: grid;
+        place-items: center;
+      }
+      .tile span {
+        color: #fff;
+        font: 700 676px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        transform: translateY(-3%);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tile"><span>S</span></div>
+  </body>
+</html>
