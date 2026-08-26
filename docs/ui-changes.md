@@ -8,6 +8,36 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-26 · Image titles are AI-derived; filenames become metadata (all channels)
+
+Written for the iOS/mac agents — contracts first.
+
+- **`analyze-image` contract change (deployed):** the vision pass now also
+  returns a `TITLE:` line — ultra-short (3–7 words), "Screenshot of X" when
+  the image is a screenshot of an app/website/chat/code/any UI, "Image of X"
+  otherwise. On its DB-write path the function replaces the item's title
+  **only when the current title is a placeholder**: empty, equal to the
+  storage basename, or any filename-looking string (`*.png`, `*.jpg`, …). A
+  user-typed title is never touched. `precomputed` may now carry `title`;
+  filename-ish precomputed titles are ignored server-side. If neither vision
+  nor precomputed supplies one (older client, older chip result), the title
+  is composed from the description via gpt-4o-mini — so **every channel gets
+  the behavior with zero client changes**.
+- **The filename is metadata, not a title.** When a *real* filename title is
+  replaced ("CleanShot 2026-08-11.png" — not our own `<timestamp>.ext`
+  storage names), it's preserved into `attributes.media.file_name`
+  (whole-blob merge, existing key from the media-attributes design). It now
+  also rides in the re-embed text, and the web search predicate
+  (`src/utils/itemSearch.ts`) matches it — finding an image by its filename
+  works even though the filename no longer appears as the title. Web cards
+  already render `media.file_name` as the mono chip on image/audio/video.
+- **Clients:** web chip analysis captures the vision title, so box-saved
+  images carry the AI title from first paint (no rename flicker). Chrome
+  extension v1.1.0 sends `attributes.media.file_name` derived from the image
+  URL's path. **iOS action item:** keep sending the original filename (as
+  `title` or ideally `attributes.media.file_name`) — the server upgrade path
+  then applies unchanged.
+
 ## 2026-08-26 · Chrome extension: "Stash it" capture surface (`extension/`)
 
 Written for the iOS/mac agents — contracts first.

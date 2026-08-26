@@ -4,6 +4,7 @@
 
 import {
   MAX_IMAGE_MB,
+  displayNameFromUrl,
   extForMime,
   resolveImageMime,
   sessionIsFresh,
@@ -162,9 +163,17 @@ export async function stashImage(srcUrl) {
     throw new Error(`Upload failed (${upload.status}): ${text.slice(0, 200)}`);
   }
 
+  // The image's own filename is metadata worth keeping (searchable, shown as
+  // a chip); the title becomes an AI description server-side.
+  const originalName = displayNameFromUrl(srcUrl);
   return callFn(
     'add-file',
-    { file_path: path, mime_type: mime, file_size: blob.size },
+    {
+      file_path: path,
+      mime_type: mime,
+      file_size: blob.size,
+      ...(originalName ? { attributes: { media: { file_name: originalName } } } : {}),
+    },
     session,
   );
 }

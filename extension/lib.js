@@ -98,6 +98,26 @@ export function extForMime(mime) {
   return subtype.replace(/[^a-z0-9]/g, '') || 'img';
 }
 
+/**
+ * Human-meaningful filename from an image URL's path ("golden-gate.jpg"), or
+ * null when there isn't one (data:/blob: URLs, extension-less paths). Feeds
+ * attributes.media.file_name — titles are AI-derived, the filename is
+ * metadata (docs/ui-changes.md 2026-08-26).
+ */
+export function displayNameFromUrl(url) {
+  try {
+    const { protocol, pathname } = new URL(url);
+    if (protocol !== 'http:' && protocol !== 'https:') return null;
+    const last = decodeURIComponent(pathname.split('/').pop() ?? '');
+    const dot = last.lastIndexOf('.');
+    if (dot <= 0 || dot === last.length - 1) return null;
+    if (!MIME_BY_EXT[last.slice(dot + 1).toLowerCase()]) return null;
+    return last.length > 120 ? null : last;
+  } catch {
+    return null;
+  }
+}
+
 /** Only http(s) pages can be stashed as links. */
 export function isStashableUrl(url) {
   try {

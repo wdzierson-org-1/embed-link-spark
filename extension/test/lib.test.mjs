@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   cleanMime,
   dataUrlMime,
+  displayNameFromUrl,
   urlExt,
   resolveImageMime,
   extForMime,
@@ -69,6 +70,15 @@ test('isStashableUrl accepts only http(s)', () => {
   assert.equal(isStashableUrl('file:///tmp/a.html'), false);
   assert.equal(isStashableUrl('data:text/html,<p>'), false);
   assert.equal(isStashableUrl(undefined), false);
+});
+
+test('displayNameFromUrl keeps real image filenames only', () => {
+  assert.equal(displayNameFromUrl('https://cdn.x.com/photos/golden%20gate.jpg?w=800'), 'golden gate.jpg');
+  assert.equal(displayNameFromUrl('https://x.com/IMG_2041.HEIC'), 'IMG_2041.HEIC');
+  assert.equal(displayNameFromUrl('https://x.com/render.php'), null);
+  assert.equal(displayNameFromUrl('https://x.com/image'), null);
+  assert.equal(displayNameFromUrl('data:image/png;base64,iVBOR'), null);
+  assert.equal(displayNameFromUrl('https://x.com/a/'), null);
 });
 
 test('storageName matches the web app convention', () => {

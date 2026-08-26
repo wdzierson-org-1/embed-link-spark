@@ -560,8 +560,15 @@ export const processAndInsertContent = async (
     const { data: imgUrlData } = supabase.storage.from('stash-media').getPublicUrl(imagePath);
     // Chip-time vision results ride along so the function writes page_body +
     // embeddings without paying for a second vision pass
+    // Precomputed carries chip-time *vision* results. The saved title only
+    // rides along when it's a real title — a filename fallback isn't vision
+    // output (the server guards against this too).
+    const titleIsFilename = /\.(png|jpe?g|jfif|gif|webp|avif|svg|bmp|ico|tiff?|heic|heif)$/i.test(
+      (data.title ?? '').trim()
+    );
     const precomputed = data.description
       ? {
+          ...(data.title && !titleIsFilename ? { title: data.title } : {}),
           description: data.description,
           detected_text: data.detectedText ?? 'none',
           tags: data.tags ?? [],
