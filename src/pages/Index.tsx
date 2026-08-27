@@ -88,6 +88,12 @@ const Index = () => {
     }
   };
 
+  // Starting a new search clears any chat-answer focus — the search intent wins
+  const handleSearchChange = (q: string) => {
+    setSearchQuery(q);
+    if (q.trim()) setFocusItemIds(null);
+  };
+
   const handleFocusSources = (ids: string[] | null) => {
     setFocusItemIds(ids);
     if (ids) setMainView('cards'); // focusing is a request to SEE items — the list yields
@@ -155,7 +161,7 @@ const Index = () => {
         {realItemCount > 0 && mainView === 'cards' && (
           <LibraryToolbar
             searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
+            onSearchChange={handleSearchChange}
             itemCount={realItemCount}
             tags={tags}
             selectedTags={selectedTags}

@@ -95,11 +95,13 @@ const ChatMole = ({
   const isExpanded = pinned || open;
 
   const loadConversationMessages = async (conversationId: string) => {
+    // Newest 200 (descending), reversed to chronological — ascending+limit
+    // would return the OLDEST 200 of a long conversation
     const { data: history } = await supabase
       .from('messages')
       .select('id, role, content, source_items, created_at')
       .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(200);
     const restored: MoleMessage[] = (history ?? [])
       .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -108,7 +110,8 @@ const ChatMole = ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
         sourceItemIds: m.source_items ?? undefined,
-      }));
+      }))
+      .reverse();
     setMessages(restored);
   };
 
@@ -194,17 +197,25 @@ const ChatMole = ({
     return data.id;
   };
 
+  // The explicit-resume exemption lasts only until the mole is next collapsed
+  useEffect(() => {
+    if (!isExpanded) sessionRef.current.explicit = false;
+  }, [isExpanded]);
+
   // Returns the conversation id to persist into, creating a new session when
-  // the 3h gap elapsed. Explicitly resumed sessions are exempt from the gap.
-  const ensureSessionForSend = async (): Promise<string | null> => {
+  // the 3h gap elapsed (isNew: true). Explicitly resumed sessions are exempt
+  // from the gap.
+  const ensureSessionForSend = async (): Promise<{ id: string | null; isNew: boolean }> => {
     const s = sessionRef.current;
     const now = Date.now();
-    if (s.id && (s.explicit || now - s.lastMessageAt < SESSION_GAP_MS)) return s.id;
+    if (s.id && (s.explicit || now - s.lastMessageAt < SESSION_GAP_MS)) {
+      return { id: s.id, isNew: false };
+    }
     if (s.id) setMessages([]); // stale session on screen — new session starts a fresh thread
     const id = await createConversation();
     sessionRef.current = { id, lastMessageAt: now, explicit: false };
     setSessionTitle(null);
-    return id;
+    return { id, isNew: true };
   };
 
   const sendTranscript = useCallback((text: string) => {
@@ -252,7 +263,7 @@ const ChatMole = ({
       return;
     }
 
-    await ensureSessionForSend();
+    const { isNew } = await ensureSessionForSend();
 
     const userMessage: MoleMessage = { id: `u-${Date.now()}`, role: 'user', content: question };
     pushMessage(userMessage);
@@ -264,9 +275,14 @@ const ChatMole = ({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not signed in');
 
-      const history = messagesRef.current
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({ role: m.role, content: m.content }));
+      // A brand-new session has no prior turns; messagesRef can still hold the
+      // stale thread here (setMessages([]) may not have flushed yet), so don't
+      // read it — the old session's messages must not leak into the request
+      const history = isNew
+        ? []
+        : messagesRef.current
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .map(m => ({ role: m.role, content: m.content }));
 
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-with-all-content`, {
         method: 'POST',
