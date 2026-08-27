@@ -1,6 +1,6 @@
 -- Chat sessions (spec: docs/superpowers/specs/2026-08-27-chat-sessions-design.md).
 -- Conversations become time-gap sessions — a client convention; the DB only
--- guarantees last_message_at is true (trigger) and serves the list RPC.
+-- guarantees last_message_at stays accurate (trigger) and serves the list RPC.
 
 ALTER TABLE public.conversations ADD COLUMN IF NOT EXISTS last_message_at timestamptz;
 
@@ -66,3 +66,6 @@ AS $$
   WHERE c.user_id = auth.uid()
   ORDER BY c.last_message_at DESC NULLS LAST
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.list_conversations() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.list_conversations() TO authenticated, service_role;
