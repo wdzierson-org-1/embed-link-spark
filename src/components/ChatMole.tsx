@@ -433,8 +433,7 @@ const ChatMole = ({
       <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (
           <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
-            Ask anything about what you've saved — or paste a link here and I'll stash it.
-            Start a message with <b>remember:</b> to save a quick note.
+            Ask anything about what you've saved — answers cite the cards they came from.
           </div>
         )}
         {messages.map(message => {
