@@ -350,6 +350,19 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
             const baked = bakeCitationLinks(streamed, sources);
             setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: baked, sources } : m)));
             persistMessage('assistant', baked, sources.map((s: MoleSource) => s.id));
+
+            // Auto-title the conversation after the first exchange
+            if (!sessionTitleRef.current && sessionRef.current.id) {
+              const conversationId = sessionRef.current.id;
+              void supabase.functions
+                .invoke('generate-title', { body: { content: question } })
+                .then(async ({ data }) => {
+                  const title = (data?.title || question).trim().slice(0, 80);
+                  setSessionTitle(title);
+                  await supabase.from('conversations').update({ title }).eq('id', conversationId);
+                })
+                .catch((e: unknown) => console.error('Title generation failed (non-fatal):', e));
+            }
           } else if (payload.error) {
             throw new Error(payload.error);
           }
