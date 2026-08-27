@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
 import { useItemOperations } from '@/hooks/useItemOperations';
 import { useTags } from '@/hooks/useTags';
+import { useServerSearch } from '@/hooks/useServerSearch';
 import HeaderSection from '@/components/HeaderSection';
 import SubscriptionBanner from '@/components/SubscriptionBanner';
 import UnifiedInputPanel from '@/components/UnifiedInputPanel';
@@ -13,6 +14,7 @@ import DismissibleHint from '@/components/DismissibleHint';
 import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
 import ChatMole from '@/components/ChatMole';
+import ConversationsView from '@/components/ConversationsView';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 import { sweepStagingOrphans } from '@/utils/stagedUploader';
 
@@ -49,6 +51,7 @@ const Index = () => {
 
   const { tags } = useTags();
   const [searchQuery, setSearchQuery] = useState('');
+  const { serverResultIds } = useServerSearch(searchQuery);
   const [molePinned, setMolePinned] = useState(() => {
     try {
       return localStorage.getItem(MOLE_PINNED_KEY) === 'true';
@@ -56,6 +59,9 @@ const Index = () => {
       return false;
     }
   });
+  const [mainView, setMainView] = useState<'cards' | 'chats'>('cards');
+  const [focusItemIds, setFocusItemIds] = useState<string[] | null>(null);
+  const [openConvoReq, setOpenConvoReq] = useState<{ id: string; title: string | null; token: number } | null>(null);
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
@@ -66,6 +72,11 @@ const Index = () => {
     if (!loading && !user) {
       navigate('/auth');
     }
+    // Try-stash visitors (anonymous sessions) belong on the landing page —
+    // the dashboard would self-heal a trial subscription for them otherwise
+    if (!loading && user && (user as { is_anonymous?: boolean }).is_anonymous) {
+      navigate('/');
+    }
   }, [loading, user, navigate]);
 
   const handleMolePinnedChange = (pinned: boolean) => {
@@ -75,6 +86,16 @@ const Index = () => {
     } catch {
       // localStorage unavailable — pin state just won't persist
     }
+  };
+
+  const handleFocusSources = (ids: string[] | null) => {
+    setFocusItemIds(ids);
+    if (ids) setMainView('cards'); // focusing is a request to SEE items — the list yields
+  };
+
+  const handleOpenConversation = (c: { id: string; title: string | null }) => {
+    setOpenConvoReq({ ...c, token: Date.now() });
+    handleMolePinnedChange(true); // surface the mole if minimized
   };
 
   const handleEditItem = (item) => {
@@ -131,7 +152,7 @@ const Index = () => {
         />
 
         {/* Search / count / tag filter only make sense once something is stashed */}
-        {realItemCount > 0 && (
+        {realItemCount > 0 && mainView === 'cards' && (
           <LibraryToolbar
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
@@ -143,15 +164,37 @@ const Index = () => {
         )}
 
         <main className="container mx-auto px-4 pb-28 bg-white">
-          <ContentGrid
-            items={items}
-            onDeleteItem={handleDeleteItem}
-            onEditItem={handleEditItem}
-            onChatWithItem={() => {}}
-            tagFilters={selectedTags}
-            searchQuery={searchQuery}
-            compact={molePinned}
-          />
+          {mainView === 'chats' ? (
+            <ConversationsView
+              onOpenConversation={handleOpenConversation}
+              onBack={() => setMainView('cards')}
+            />
+          ) : (
+            <>
+              {focusItemIds && (
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-violet-100 py-1 pl-3 pr-1.5 text-xs text-violet-700">
+                  <span>Showing <b>{focusItemIds.length}</b> cards from this answer</span>
+                  <button
+                    onClick={() => setFocusItemIds(null)}
+                    className="rounded-full bg-white px-2.5 py-0.5 text-[11.5px]"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+              <ContentGrid
+                items={items}
+                onDeleteItem={handleDeleteItem}
+                onEditItem={handleEditItem}
+                onChatWithItem={() => {}}
+                tagFilters={selectedTags}
+                searchQuery={searchQuery}
+                serverResultIds={serverResultIds}
+                focusItemIds={focusItemIds}
+                compact={molePinned}
+              />
+            </>
+          )}
         </main>
       </div>
 
@@ -168,6 +211,11 @@ const Index = () => {
         onPinnedChange={handleMolePinnedChange}
         onSourceClick={handleSourceClick}
         itemCount={realItemCount}
+        conversationsOpen={mainView === 'chats'}
+        onToggleConversations={() => setMainView(v => (v === 'chats' ? 'cards' : 'chats'))}
+        focusedSourceIds={focusItemIds}
+        onFocusSources={handleFocusSources}
+        openConversationRequest={openConvoReq}
       />
     </div>
   );

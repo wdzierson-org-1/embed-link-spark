@@ -26,6 +26,11 @@ interface ContentGridProps {
   onChatWithItem: (item: any) => void;
   tagFilters: string[];
   searchQuery?: string;
+  // Relevance-ordered ids from the server hybrid search; null = unavailable
+  // (pending/failed/short query), fall back to the client substring filter
+  serverResultIds?: string[] | null;
+  // Focused citation ids from a chat answer; overrides search filtering entirely
+  focusItemIds?: string[] | null;
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: any) => void;
@@ -42,6 +47,8 @@ const ContentGrid = ({
   onChatWithItem,
   tagFilters,
   searchQuery = '',
+  serverResultIds = null,
+  focusItemIds = null,
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
@@ -210,6 +217,13 @@ const ContentGrid = ({
     fetchItemTags(realItemIds);
   };
 
+  // Server search results (when available) beat the client substring filter:
+  // they reach page_body/summary and match semantically, ranked by relevance.
+  // A focus request (from a chat answer's citations) overrides both entirely.
+  const rankIds = focusItemIds ?? serverResultIds;
+  const searchRank = rankIds ? new Map(rankIds.map((id, index) => [id, index])) : null;
+  const focusActive = Boolean(focusItemIds);
+
   // Filter items based on type, tag filters, and search query
   const filteredItems = items.filter(item => {
     // Type filter
@@ -220,19 +234,28 @@ const ContentGrid = ({
     // Tag filter
     if (tagFilters && tagFilters.length > 0) {
       const currentItemTags = itemTags[item.id] || [];
-      const matchesTag = tagFilters.some(filter => 
+      const matchesTag = tagFilters.some(filter =>
         currentItemTags.includes(filter)
       );
       if (!matchesTag) return false;
     }
-    
-    // Search filter (includes supplemental_note)
-    return itemMatchesSearchQuery(item, searchQuery);
+
+    // Search filter — just-saved optimistic items aren't indexed server-side
+    // yet, so they normally go through the client predicate; a focus request
+    // overrides that exemption too, since it's not a search at all.
+    if (searchRank && (focusActive || !item.isOptimistic)) {
+      return searchRank.has(item.id);
+    }
+    return !focusActive && itemMatchesSearchQuery(item, searchQuery);
   });
 
   // Separate optimistic and real items
   const optimisticItems = filteredItems.filter(item => item.isOptimistic);
   const visibleRealItems = filteredItems.filter(item => !item.isOptimistic);
+  if (searchRank) {
+    // Relevance order while a server search is active (grid is otherwise chronological)
+    visibleRealItems.sort((a, b) => searchRank.get(a.id)! - searchRank.get(b.id)!);
+  }
 
   // Empty state: no real items and no search active
   if (visibleRealItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim()) {
