@@ -5,7 +5,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/integrations/supabase/client';
-import { classifyMoleMessage } from '@/utils/moleRouting';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import ReactMarkdown from 'react-markdown';
 import ChatMessageSources from './ChatMessageSources';
@@ -25,11 +24,10 @@ interface MoleSource {
 
 interface MoleMessage {
   id: string;
-  role: 'user' | 'assistant' | 'saved';
+  role: 'user' | 'assistant';
   content: string;
   question?: string;
   sources?: MoleSource[];
-  savedItem?: { title: string; kind: string };
   sourceItemIds?: string[];
 }
 
@@ -39,6 +37,10 @@ interface ChatMoleProps {
   onSourceClick?: (sourceId: string) => void;
   itemCount: number;
   openConversationRequest?: { id: string; title: string | null; token: number } | null;
+  conversationsOpen?: boolean;
+  onToggleConversations?: () => void;
+  focusedSourceIds?: string[] | null;
+  onFocusSources?: (ids: string[] | null) => void;
 }
 
 const MoleGlyph = ({ className }: { className?: string }) => (
@@ -59,7 +61,17 @@ const stripForSpeech = (markdown: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConversationRequest }: ChatMoleProps) => {
+const ChatMole = ({
+  pinned,
+  onPinnedChange,
+  onSourceClick,
+  itemCount,
+  openConversationRequest,
+  conversationsOpen = false,
+  onToggleConversations,
+  focusedSourceIds,
+  onFocusSources,
+}: ChatMoleProps) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<MoleMessage[]>([]);
   const [input, setInput] = useState('');
@@ -70,7 +82,7 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
   const messagesRef = useRef<MoleMessage[]>([]);
   messagesRef.current = messages;
   const { toast } = useToast();
-  const { canUseAI, canAddContent } = useSubscription();
+  const { canUseAI } = useSubscription();
   const { user } = useAuth();
   const sessionRef = useRef<{ id: string | null; lastMessageAt: number; explicit: boolean }>(
     { id: null, lastMessageAt: 0, explicit: false }
@@ -234,60 +246,6 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
     setMessages(prev => [...prev, message]);
   };
 
-  const saveUrl = async (url: string, note: string) => {
-    if (!canAddContent) {
-      toast({ title: 'Subscription needed', description: 'Subscribe to add new items.', variant: 'destructive' });
-      return;
-    }
-    const pendingId = `saved-${Date.now()}`;
-    pushMessage({
-      id: pendingId,
-      role: 'saved',
-      content: url,
-      savedItem: { title: 'Saving…', kind: 'link' },
-    });
-    const { data, error } = await supabase.functions.invoke('add-url', {
-      body: { url, content: note || undefined },
-    });
-    if (error || !data?.success) {
-      setMessages(prev => prev.filter(m => m.id !== pendingId));
-      toast({ title: 'Could not save link', description: 'Please try again.', variant: 'destructive' });
-      return;
-    }
-    setMessages(prev => prev.map(m =>
-      m.id === pendingId
-        ? { ...m, savedItem: { title: data.item?.title || url, kind: 'link' } }
-        : m
-    ));
-  };
-
-  const saveNote = async (note: string) => {
-    if (!canAddContent) {
-      toast({ title: 'Subscription needed', description: 'Subscribe to add new items.', variant: 'destructive' });
-      return;
-    }
-    const pendingId = `saved-${Date.now()}`;
-    pushMessage({
-      id: pendingId,
-      role: 'saved',
-      content: note,
-      savedItem: { title: 'Saving…', kind: 'note' },
-    });
-    const { data, error } = await supabase.functions.invoke('add-note', {
-      body: { content: note },
-    });
-    if (error || !data?.success) {
-      setMessages(prev => prev.filter(m => m.id !== pendingId));
-      toast({ title: 'Could not save note', description: 'Please try again.', variant: 'destructive' });
-      return;
-    }
-    setMessages(prev => prev.map(m =>
-      m.id === pendingId
-        ? { ...m, savedItem: { title: data.note?.title || note.slice(0, 60), kind: 'note' } }
-        : m
-    ));
-  };
-
   const ask = async (question: string) => {
     if (!canUseAI) {
       toast({ title: 'Subscription needed', description: 'AI chat needs an active trial or subscription.', variant: 'destructive' });
@@ -384,14 +342,7 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
     setInput('');
     setIsBusy(true);
     try {
-      const route = classifyMoleMessage(text);
-      if (route.kind === 'save-url') {
-        await saveUrl(route.url, route.note);
-      } else if (route.kind === 'save-note') {
-        await saveNote(route.note);
-      } else {
-        await ask(text);
-      }
+      await ask(text);
     } finally {
       setIsBusy(false);
     }
@@ -487,17 +438,6 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
           </div>
         )}
         {messages.map(message => {
-          if (message.role === 'saved') {
-            return (
-              <div key={message.id} className="flex w-[92%] items-center gap-3 rounded-xl border border-border bg-white px-3 py-2.5">
-                <div className={`h-9 w-9 flex-none rounded-lg ${message.savedItem?.kind === 'link' ? 'bg-blue-500' : 'bg-violet-500'}`} />
-                <div className="min-w-0">
-                  <div className="truncate text-[13px] font-semibold leading-tight">{message.savedItem?.title}</div>
-                  <div className="text-[11.5px] text-green-600">✓ Saved to your stash · describing it now…</div>
-                </div>
-              </div>
-            );
-          }
           if (message.role === 'user') {
             return (
               <div key={message.id} className="ml-auto max-w-[86%] rounded-2xl rounded-br-sm bg-gray-900 px-3.5 py-2.5 text-sm text-white">
@@ -509,6 +449,7 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
           // sources row only lists whatever wasn't already linked in the text
           const inlineItemIds = extractLinkedItemIds(message.content);
           const extraSources = (message.sources ?? []).filter(s => !inlineItemIds.has(s.id));
+          const focusIds = message.sources?.map(s => s.id) ?? message.sourceItemIds ?? [];
           return (
             <div key={message.id} className="max-w-[92%] rounded-2xl rounded-bl-sm bg-muted/70 px-3.5 py-2.5 text-sm">
               <div className="prose prose-sm max-w-none [&_p]:my-1">
@@ -548,6 +489,23 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
                   className={`mt-1 inline-grid h-6 w-6 place-items-center rounded-md ${speakingId === message.id ? 'bg-violet-200 text-violet-700' : 'bg-black/5 text-muted-foreground hover:bg-black/10'}`}
                 >
                   {speakingId === message.id ? <Square className="h-3 w-3" /> : <Volume2 className="h-3.5 w-3.5" />}
+                </button>
+              )}
+              {focusIds.length > 0 && onFocusSources && (
+                <button
+                  onClick={() => {
+                    const isActive =
+                      focusedSourceIds?.length === focusIds.length &&
+                      focusIds.every(id => focusedSourceIds.includes(id));
+                    onFocusSources(isActive ? null : focusIds);
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11.5px] ${
+                    focusedSourceIds && focusIds.every(id => focusedSourceIds.includes(id)) && focusedSourceIds.length === focusIds.length
+                      ? 'border-violet-600 bg-violet-600 text-white'
+                      : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-50'
+                  }`}
+                >
+                  ⌖ Focus sources ({focusIds.length})
                 </button>
               )}
               {extraSources.length > 0 && (
@@ -613,7 +571,7 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleSend(); }}
-                placeholder="Ask, or paste something to save…"
+                placeholder="Ask your stash…"
                 className="h-10 flex-1 rounded-xl border border-border bg-gray-50 px-3 text-sm outline-none focus:border-violet-300"
               />
               {voice.isSupported && (
@@ -637,8 +595,17 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConver
                 <Send className="h-4 w-4" />
               </Button>
             </div>
-            <div className="mt-2 text-[11.5px] text-muted-foreground">
-              Answers come with sources · <b>links pasted here are saved</b> · <b>remember:</b> saves a note
+            <div className="mt-2 text-[11.5px]">
+              <button
+                onClick={onToggleConversations}
+                className={
+                  conversationsOpen
+                    ? 'font-medium text-violet-700 hover:underline underline-offset-2'
+                    : 'text-muted-foreground hover:text-violet-700 hover:underline underline-offset-2'
+                }
+              >
+                {conversationsOpen ? 'Back to your stash' : 'Earlier conversations'}
+              </button>
             </div>
           </>
         )}
