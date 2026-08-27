@@ -10,12 +10,17 @@ import { useVoiceInput } from '@/hooks/useVoiceInput';
 import ReactMarkdown from 'react-markdown';
 import ChatMessageSources from './ChatMessageSources';
 import ChatMessageFeedback from './ChatMessageFeedback';
+import { bakeCitationLinks, extractLinkedItemIds, itemIdFromHref } from '@/utils/chatCitations';
+import { resolveSessionTarget, SESSION_GAP_MS } from '@/utils/chatSessions';
 
 interface MoleSource {
   id: string;
   title: string;
   type: string;
   url?: string;
+  // Citation number in the answer text ([n] / (#n)) — used once at stream end
+  // to bake item links into the markdown; absent on history reloads
+  n?: number;
 }
 
 interface MoleMessage {
@@ -25,6 +30,7 @@ interface MoleMessage {
   question?: string;
   sources?: MoleSource[];
   savedItem?: { title: string; kind: string };
+  sourceItemIds?: string[];
 }
 
 interface ChatMoleProps {
@@ -32,6 +38,7 @@ interface ChatMoleProps {
   onPinnedChange: (pinned: boolean) => void;
   onSourceClick?: (sourceId: string) => void;
   itemCount: number;
+  openConversationRequest?: { id: string; title: string | null; token: number } | null;
 }
 
 const MoleGlyph = ({ className }: { className?: string }) => (
@@ -45,9 +52,14 @@ const MoleGlyph = ({ className }: { className?: string }) => (
 );
 
 const stripForSpeech = (markdown: string): string =>
-  markdown.replace(/\[(\d+)\]/g, '').replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim();
+  markdown
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // flatten links to their text
+    .replace(/\[(\d+)\]/g, '')
+    .replace(/[*_#`>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMoleProps) => {
+const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount, openConversationRequest }: ChatMoleProps) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<MoleMessage[]>([]);
   const [input, setInput] = useState('');
@@ -60,53 +72,66 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
   const { toast } = useToast();
   const { canUseAI, canAddContent } = useSubscription();
   const { user } = useAuth();
-  const conversationIdRef = useRef<string | null>(null);
+  const sessionRef = useRef<{ id: string | null; lastMessageAt: number; explicit: boolean }>(
+    { id: null, lastMessageAt: 0, explicit: false }
+  );
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  const sessionTitleRef = useRef<string | null>(null);
+  sessionTitleRef.current = sessionTitle;
   const historyLoadedRef = useRef(false);
 
   const isExpanded = pinned || open;
 
+  const loadConversationMessages = async (conversationId: string) => {
+    const { data: history } = await supabase
+      .from('messages')
+      .select('id, role, content, source_items, created_at')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    const restored: MoleMessage[] = (history ?? [])
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        sourceItemIds: m.source_items ?? undefined,
+      }));
+    setMessages(restored);
+  };
+
   // First-class memory: the thread lives in the conversations/messages tables
-  // and survives sessions. Loaded once, on first expand.
+  // and survives sessions. Loaded once, on first expand. Targets the latest
+  // session and applies the 3h gap rule; never creates a row here (rows are
+  // created lazily on first send).
   useEffect(() => {
     if (!isExpanded || !user?.id || historyLoadedRef.current) return;
     historyLoadedRef.current = true;
 
     const loadHistory = async () => {
       try {
-        let { data: conversation } = await supabase
+        const { data: latest } = await supabase
           .from('conversations')
-          .select('id')
+          .select('id, title, last_message_at')
           .eq('user_id', user.id)
-          .order('created_at', { ascending: true })
+          .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(1)
           .maybeSingle();
 
-        if (!conversation) {
-          const { data: created, error: createError } = await supabase
-            .from('conversations')
-            .insert({ user_id: user.id, title: 'Ask Stash' })
-            .select('id')
-            .single();
-          if (createError) throw createError;
-          conversation = created;
+        const target = resolveSessionTarget(latest ?? null, new Date());
+        if (target.kind === 'new') {
+          // Fresh thread; the conversation row is created on first send
+          sessionRef.current = { id: null, lastMessageAt: 0, explicit: false };
+          return;
         }
 
-        conversationIdRef.current = conversation.id;
-
-        const { data: history } = await supabase
-          .from('messages')
-          .select('id, role, content, created_at')
-          .eq('conversation_id', conversation.id)
-          .order('created_at', { ascending: false })
-          .limit(60);
-
-        if (history && history.length > 0) {
-          const restored: MoleMessage[] = history
-            .reverse()
-            .filter(m => m.role === 'user' || m.role === 'assistant')
-            .map(m => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content }));
-          setMessages(prev => (prev.length === 0 ? restored : prev));
-        }
+        sessionRef.current = {
+          id: target.id,
+          lastMessageAt: new Date(latest!.last_message_at!).getTime(),
+          explicit: false,
+        };
+        setSessionTitle(target.title);
+        await loadConversationMessages(target.id);
       } catch (error) {
         console.error('Failed to load chat history (non-fatal):', error);
       }
@@ -115,8 +140,19 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
     void loadHistory();
   }, [isExpanded, user?.id]);
 
+  // Open a specific conversation from the Conversations view. The token
+  // forces re-fire even when re-opening the same id.
+  useEffect(() => {
+    const req = openConversationRequest;
+    if (!req) return;
+    sessionRef.current = { id: req.id, lastMessageAt: Date.now(), explicit: true };
+    setSessionTitle(req.title);
+    void loadConversationMessages(req.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openConversationRequest?.token]);
+
   const persistMessage = (role: 'user' | 'assistant', content: string, sourceItemIds?: string[]) => {
-    const conversationId = conversationIdRef.current;
+    const conversationId = sessionRef.current.id;
     if (!conversationId || !content.trim()) return;
     void supabase
       .from('messages')
@@ -128,7 +164,35 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
       })
       .then(({ error }) => {
         if (error) console.error('Failed to persist chat message (non-fatal):', error);
+        else sessionRef.current.lastMessageAt = Date.now();
       });
+  };
+
+  const createConversation = async (): Promise<string | null> => {
+    if (!user?.id) return null;
+    const { data, error } = await supabase
+      .from('conversations')
+      .insert({ user_id: user.id, title: null })
+      .select('id')
+      .single();
+    if (error) {
+      console.error('Failed to create conversation (non-fatal):', error);
+      return null;
+    }
+    return data.id;
+  };
+
+  // Returns the conversation id to persist into, creating a new session when
+  // the 3h gap elapsed. Explicitly resumed sessions are exempt from the gap.
+  const ensureSessionForSend = async (): Promise<string | null> => {
+    const s = sessionRef.current;
+    const now = Date.now();
+    if (s.id && (s.explicit || now - s.lastMessageAt < SESSION_GAP_MS)) return s.id;
+    if (s.id) setMessages([]); // stale session on screen — new session starts a fresh thread
+    const id = await createConversation();
+    sessionRef.current = { id, lastMessageAt: now, explicit: false };
+    setSessionTitle(null);
+    return id;
   };
 
   const sendTranscript = useCallback((text: string) => {
@@ -230,6 +294,8 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
       return;
     }
 
+    await ensureSessionForSend();
+
     const userMessage: MoleMessage = { id: `u-${Date.now()}`, role: 'user', content: question };
     pushMessage(userMessage);
     persistMessage('user', question);
@@ -277,9 +343,13 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
             streamed += payload.delta;
             setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: streamed } : m)));
           } else if (payload.done) {
-            const sources = payload.sources || [];
-            setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, sources } : m)));
-            persistMessage('assistant', streamed, sources.map((s: MoleSource) => s.id));
+            const sources: MoleSource[] = payload.sources || [];
+            // Bake (#n) citation targets into stable item links so titles are
+            // clickable now AND after a history reload (which restores only
+            // the message text)
+            const baked = bakeCitationLinks(streamed, sources);
+            setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: baked, sources } : m)));
+            persistMessage('assistant', baked, sources.map((s: MoleSource) => s.id));
           } else if (payload.error) {
             throw new Error(payload.error);
           }
@@ -363,9 +433,9 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
       <div className="flex items-center gap-2.5 border-b border-black/5 px-4 py-3">
         <MoleGlyph className="h-5 w-5 text-gray-900" />
         <div className="min-w-0">
-          <div className="text-sm font-semibold leading-tight">Ask Stash</div>
+          <div className="text-sm font-semibold leading-tight">{sessionTitle ?? 'Ask Stash'}</div>
           <div className="truncate text-xs text-muted-foreground">
-            Answers from your {itemCount} items · paste links here to save them
+            Answers from your {itemCount} items
           </div>
         </div>
         <div className="ml-auto flex gap-1.5">
@@ -422,10 +492,41 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
               </div>
             );
           }
+          // Cited cards are linked inline (baked `#item=` hrefs); the bottom
+          // sources row only lists whatever wasn't already linked in the text
+          const inlineItemIds = extractLinkedItemIds(message.content);
+          const extraSources = (message.sources ?? []).filter(s => !inlineItemIds.has(s.id));
           return (
             <div key={message.id} className="max-w-[92%] rounded-2xl rounded-bl-sm bg-muted/70 px-3.5 py-2.5 text-sm">
               <div className="prose prose-sm max-w-none [&_p]:my-1">
-                <ReactMarkdown>{message.content}</ReactMarkdown>
+                <ReactMarkdown
+                  components={{
+                    a: ({ href, children }) => {
+                      const itemId = itemIdFromHref(href);
+                      if (itemId) {
+                        return (
+                          <button
+                            onClick={() => onSourceClick?.(itemId)}
+                            className="inline p-0 font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:decoration-violet-700"
+                          >
+                            {children}
+                          </button>
+                        );
+                      }
+                      // Mid-stream (#n) targets aren't resolvable yet — show as text
+                      if (href?.startsWith('#')) {
+                        return <span>{children}</span>;
+                      }
+                      return (
+                        <a href={href} target="_blank" rel="noreferrer" className="underline">
+                          {children}
+                        </a>
+                      );
+                    },
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
               </div>
               {message.content && (
                 <button
@@ -436,9 +537,9 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
                   {speakingId === message.id ? <Square className="h-3 w-3" /> : <Volume2 className="h-3.5 w-3.5" />}
                 </button>
               )}
-              {message.sources && message.sources.length > 0 && (
+              {extraSources.length > 0 && (
                 <ChatMessageSources
-                  sources={message.sources}
+                  sources={extraSources}
                   onSourceClick={(id) => onSourceClick?.(id)}
                   onViewAllSources={() => {}}
                 />
