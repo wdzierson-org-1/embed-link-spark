@@ -8,6 +8,220 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-27 · Chat sessions, retrieval-only mole, Conversations view, focus sources (web + contract)
+
+Spec: `docs/superpowers/specs/2026-08-27-chat-sessions-design.md` ·
+Prototype: `docs/superpowers/prototypes/2026-08-27-chat-workspace.html`
+
+- **Sessions (all platforms — client convention):** a conversation is a burst
+  of activity; 3+ hours of silence starts a new one. Resolve on open AND on
+  send: latest conversation by `last_message_at`, continue iff < 3h old, else
+  create a row lazily on first send (`title` null → auto-titled from the
+  first question via `generate-title`). Send only the current session as
+  `conversationHistory`. Explicitly opened old sessions resume (gap exempt).
+  DB: `conversations.last_message_at` (trigger-maintained) + RPC
+  `list_conversations()` → `(id, title, last_message_at, message_count,
+  preview)` (migration `20260827120000_chat_sessions.sql`, applied).
+- **Mole is retrieval-only (product decision, all platforms):** capture
+  routing removed from the web mole (`moleRouting.ts` deleted); composer
+  placeholder "Ask your stash…". iOS: remove `MessageRouting` from the Ask
+  composer to match. Capture belongs to capture surfaces.
+- **"Earlier conversations"** link replaces the footer hint under the mole
+  composer; it swaps the main pane between the card grid and a bucketed
+  Conversations list (Today / Yesterday / This week / month / older). Row
+  click loads that session into the mole (pinning it if minimized).
+- **Focus sources:** answers with sources show "⌖ Focus sources (n)"; click
+  filters the card grid to the cited items in citation order with a
+  "Showing n cards from this answer · Clear" pill. Focus overrides search
+  filtering while active and always switches the main pane back to cards.
+  Works on reloaded history via `messages.source_items`.
+
+## 2026-08-27 · Ask Stash citations: item titles are inline links; sources row only for extras (server deployed + web)
+
+When an answer names a saved item, the title itself is now a clickable link
+that opens the card, and the bottom "Source(s):" row only lists sources NOT
+already linked in the text — usually none, so it disappears.
+
+- **Contract (server, deployed):** the model cites by writing item titles as
+  markdown links targeting the citation number — `[Beyond the Basics](#3)` —
+  and bare `[3]` markers only for claims that don't name the item. Each entry
+  in the `done` frame's `sources` array now carries its citation number `n`:
+  `{id, title, type, url, n}`.
+- **Client baking (web; iOS/mac mirror this):** at stream end, rewrite the
+  markdown using the `n` map — `](#3)` → `](#item=<uuid>)` and bare `[3]` →
+  `[[3]](#item=<uuid>)` — and persist the BAKED text (util:
+  `src/utils/chatCitations.ts`, unit-tested incl. idempotence). History
+  reloads restore only message text, so baked links keep working forever;
+  mid-stream `(#n)` targets render as plain text until baked.
+- **Rendering (web):** ReactMarkdown custom `a` — `#item=` hrefs render as
+  violet underlined buttons calling the same open-card handler as source
+  chips; other hrefs open in a new tab. Bottom row = sources filtered by
+  `extractLinkedItemIds(content)`. Read-aloud flattens links to their text.
+- iOS: parse `[text](#item=<uuid>)` in chat markdown into taps that open the
+  item; hide any source chip whose id already appears inline.
+
+## 2026-08-26 · Ask Stash goes agentic: tool-calling retrieval loop (server, deployed)
+
+Retrieval-overhaul phase 3. `chat-with-all-content` rewritten from one-shot
+RAG (embed message → one search → stuff 7,000 chars) into a **tool-calling
+loop**: the model drives retrieval via `search_stash` (hybrid search with
+type/date/tag filters) and `get_item` (full notes/summary/captured text), up
+to 4 tool rounds per turn. What this changes for users on every platform:
+
+- **Follow-ups finally work** — "what were the two priorities from it
+  again?" gets rewritten into a real query using conversation history before
+  searching (verified live).
+- Time/type-anchored questions ("that PDF from last week") can use real
+  filters; the system prompt knows today's date.
+- The model reads items in full before quoting, instead of seeing only a
+  1,500-char truncation; per-item context is no longer pre-truncated.
+- Honest empty results: it searches before ever claiming something isn't
+  saved, and says so plainly when it isn't. App-usage questions skip search.
+- Model: `gpt-5-mini` (reasoning_effort low) replaces `gpt-4.1-mini`.
+
+**Wire contract unchanged** — same `{delta}` / `{done, sources}` SSE frames;
+no client changes needed anywhere. New optional `{status:"searching"|"reading"}`
+frames stream while tools run (all frames remain valid JSON; parse and ignore
+unknown keys). `sources` is now the items the answer cites (fallback: items
+read in full) rather than everything retrieved. History cap raised 6 → 10
+turns. Clients that want a "searching your stash…" shimmer can render the
+status frames (web doesn't yet). Contract details in `PLATFORM_API.md`.
+
+Shared auth for edge functions moved to `_shared/auth.ts`
+(chat-with-all-content's local copy removed; search-items uses it too).
+
+Known issue found while testing (NOT fixed, needs a product decision):
+deleting an auth user fails with an FK violation once they own items —
+`items_user_id_fkey` references `auth.users` without `ON DELETE CASCADE`.
+Account deletion is effectively broken for active accounts.
+
+## 2026-08-26 · `search-items` endpoint; web library search goes server-side; chat context gains dates (server + web, deployed)
+
+Retrieval-overhaul phase 2. **`search-items` is the canonical search surface**
+— every retrieval consumer (web toolbar today; chat tool-calling, MCP, and
+iOS/Siri next) should build on it rather than on the RPC directly.
+
+- **New edge function `POST /functions/v1/search-items`** (Supabase JWT auth).
+  Request: `{ query?, types?, tags?, after?, before?, limit? }` — `types` is
+  an array of item types, `tags` any-of (lowercased), `after`/`before` ISO
+  timestamps, `limit` 1–50 (default 20). Two modes:
+  - *query mode* (non-empty `query`): hybrid semantic+keyword search
+    (embeds the query, calls `hybrid_search_content` v2), deduped to one
+    result per item, relevance-ordered.
+  - *filter mode* (no query): newest-first listing under the same filters.
+  Response: `{ results: [{ id, title, type, url, created_at, description,
+  snippet, score }] }` (`score` null in filter mode; `snippet` is the best
+  matching chunk in query mode, the description otherwise).
+- **`hybrid_search_content` v2** (migration
+  `20260826110000_search_filters_recency.sql`): optional `filter_types`,
+  `after_ts`/`before_ts`, `filter_tags` (any-of), and a gentle recency boost
+  (`score += recency_weight/(rrf_k + age_days)`, default weight 0.3, pass 0
+  to disable). Result rows gained `item_description`. Existing callers
+  unaffected (new params have defaults). Still service_role-only.
+- **Web library search now upgrades to server results** (`useServerSearch`
+  hook → `search-items`, 300 ms debounce, ≥2 chars, per-query session
+  cache). While pending or on failure the instant client substring filter
+  keeps working; when results land the grid switches to **relevance order**
+  (otherwise chronological). Net new capability on web: keyword search
+  finally reaches `page_body`/`summary`, plus semantic matching. iOS: mirror
+  by calling `search-items` when the library search box is non-empty (keep
+  the local filter as the instant/offline layer).
+- **Ask Stash context blocks now carry saved dates** — headers read
+  `[n] Title (type · saved 2026-08-26)` and the system prompt tells the
+  model to use them for time-anchored questions ("when did I save…").
+  No client changes; SSE contract unchanged.
+
+## 2026-08-26 · Search hygiene: RPC locked to service_role, FTS covers summaries/URLs, fairer ranking (server, deployed)
+
+Retrieval-overhaul phase 1. No client code changes required on any platform,
+but the contracts below matter to anyone building retrieval features.
+
+- **`hybrid_search_content` is no longer callable with the anon or user JWT**
+  (REST probe now returns 42501). It is `SECURITY DEFINER` with a
+  caller-supplied `target_user_id` — tenancy lives in the edge functions —
+  so the default PUBLIC grant let any API-key holder read any user's chunks.
+  Clients must never call it directly; go through `chat-with-all-content`
+  (or future search endpoints). Legacy `search_similar_content` is dropped.
+- **RPC result shape gained `item_created_at`** (timestamptz) so callers can
+  render/reason about recency. Existing callers are unaffected (they select
+  fields by name).
+- **Ranking fixes:** the FTS top-30 is now actually ordered by rank before
+  the cut (was arbitrary), and vector hits are capped at **2 chunks per
+  item** so one long document can't crowd the fused list (parity with the
+  SMS path's dedupe).
+- **`items.fts` rebuilt to include `summary` and `url`** — keyword search
+  now reaches AI summaries and link hosts/slugs. All 563 items repopulated.
+- **`increment_tag_usage` now enforces tenancy** (`user_uuid` must match
+  `auth.uid()` for authenticated callers; service-role passes through; anon
+  grant revoked). Web/iOS callers pass their own id already — no change.
+- **Embedding chunker fixed (`generate-embeddings`, deployed):** whitespace
+  normalization was collapsing newlines before the paragraph splitter ran,
+  so every text >1200 chars went through the blind sliding window.
+  Paragraph-aware chunking now actually fires; giant single paragraphs get
+  windowed with overlap. Applies to new/re-embedded items only (no backfill).
+- Migration: `supabase/migrations/20260826090000_search_hygiene.sql` (applied
+  to prod + recorded). `src/integrations/supabase/types.ts` regenerated from
+  the live schema (was stale: missing `hybrid_search_content`, `fts`,
+  `attributes`, scrape-retry columns).
+
+## 2026-08-26 · Link cover images verified at save; media filename chip everywhere (server + extension)
+
+- **Only verified images land in `file_path` (deployed):** the deep
+  `extract-link-metadata` pass now (a) sanitizes the extracted image URL
+  (first token of srcset-style values, trailing commas stripped, page URLs
+  like YouTube watch links rejected) and (b) drops any external image that
+  doesn't answer a GET with `image/*` bytes ≥100B (`verifyRemoteImage`,
+  `_shared/blockedContentFallbacks.ts`). `add-url` and
+  `retry-pending-scrapes` apply the same check before writing a raw external
+  URL; a stored copy in `previews/` still always wins. Net effect for all
+  clients: `file_path` on a link is either our own storage path or an
+  external URL that served an image at save time — cards degrade to the
+  favicon plate instead of a broken cover. One-time cleanup ran 2026-08-26:
+  9 of 28 stored external URLs were dead/malformed and were nulled.
+- **Media filename chip is now universal (extension):** the web upload path
+  always records `attributes.media.file_name`; the extension previously only
+  did when the source URL ended in a known image extension. It now
+  synthesizes a name for any http(s) source — path basename (or hostname as
+  last resort) plus the resolved format extension ("photo-14556789.avif") —
+  and also records `attributes.media.source_url` for provenance. iOS/mac:
+  mirror this — every media save should carry `media.file_name`; cards show
+  it as a mono chip under the description and the search bar matches it
+  (`src/utils/itemSearch.ts`). Only data:/blob: sources may omit it.
+
+## 2026-08-26 · Assembling copy + dim; AVIF vision; junk-title rescue (web + server)
+
+Three related fixes; the server parts are deployed and benefit every channel
+with zero client changes.
+
+- **Assembling card, new look (web; iOS/mac mirror the rules):** the chip now
+  reads **"Gathering more info…"** (was "Filling in the blanks…"), and while
+  assembling the whole card sits at **50% opacity with a subtle pulse**
+  (0.5 → 0.65, 2.6s loop) instead of the old near-invisible 1.0 → 0.96
+  breathe. Full opacity returns when assembly completes/retires.
+  `prefers-reduced-motion`: static 50%, no pulse. Same state machine as the
+  entry below (`itemAssembly.ts` unchanged).
+- **`analyze-image` accepts every stored image format (deployed):** OpenAI
+  Vision only takes png/jpeg/gif/webp, so avif/heic/tiff/bmp/ico/svg uploads
+  silently produced no title/description (confirmed: extension AVIF saves).
+  The function now routes non-safe extensions through Supabase Storage's
+  `render/image` transcoder (`Accept: image/jpeg`, width 1024) and inlines
+  the result as a base64 data URL for the vision call. Any transcode failure
+  falls back to the original URL (fails honestly, as before). Clients keep
+  uploading originals — do **not** transcode client-side.
+- **Challenge-page titles never stick (deployed):** bot walls that 200 with
+  "Client Challenge" / "Just a moment…" pages were being stored as titles.
+  New shared `isBlockedPageTitle` (`_shared/blockedContentFallbacks.ts`):
+  `add-url` discards challenge-page quick-fetch metadata and lets the deep
+  pass replace junk; `extract-link-metadata` treats a junk title as blocked
+  (triggers the rescue cascade) and never returns one; `retry-pending-scrapes`
+  treats junk titles as placeholders worth upgrading.
+- **Final-review headline rescue (deployed):** after a successful scrape,
+  `scrape-page-content` checks the stored title — if it's still junk, the
+  bare hostname, or the raw URL, it derives the real headline from the
+  scraped content (`deriveTitleFromContent`, gpt-4o-mini, ≤140 chars) and
+  writes it (also folded into the re-embed text). User-typed titles are
+  structurally safe: they never match the junk patterns.
+
 ## 2026-08-26 · Feed: "assembling" cards while enrichment lands (web)
 
 Behavior contract first — iOS/mac should mirror the *rules*, with
