@@ -29,6 +29,15 @@ first, visuals second, with pointers to specs and source.
 - iOS: if Ask/history surfaces share a screen with capture affordances,
   mirror the hide rule — no capture entry points while browsing
   conversations or a focused source set.
+- **Letting go of loaded conversations (same-day addition):** collapsing the
+  mole while an explicitly loaded old conversation is open clears the thread
+  (reopen = mostly clean mole) and remembers it; an empty mole then shows a
+  "Load previous conversation — <title>" restore banner at the top of the
+  thread. A persistent "Start new chat" link sits beside "Earlier
+  conversations" in the mole footer — it clears the thread and forces the
+  next send into a brand-new session (gap rule bypassed; behavior
+  unit-tested). Nothing is ever lost: old threads always remain in the
+  Conversations list. iOS: mirror all three behaviors on the Ask surface.
 
 ## 2026-08-27 · Chat sessions, retrieval-only mole, Conversations view, focus sources (web + contract)
 

@@ -143,6 +143,27 @@ describe('ChatMole session gap on send', () => {
     );
   });
 
+  it('"Start new chat" forces a new conversation even inside the gap', async () => {
+    latestConversation.current = { id: 'old', title: 'T', last_message_at: hoursBefore(1) };
+
+    render(<ChatMole pinned onPinnedChange={() => {}} itemCount={1} />);
+    await waitFor(() => expect(convMaybeSingle).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText('Start new chat'));
+
+    const input = await screen.findByPlaceholderText('Ask your stash…');
+    fireEvent.change(input, { target: { value: 'fresh context please' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+
+    await waitFor(() => expect(convInsert).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(msgInsert).toHaveBeenCalledWith(
+        expect.objectContaining({ conversation_id: 'new-conv', role: 'user' })
+      )
+    );
+  });
+
   it('continues the existing conversation inside the gap', async () => {
     latestConversation.current = { id: 'old', title: 'T', last_message_at: hoursBefore(1) };
 

@@ -90,6 +90,8 @@ const ChatMole = ({
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const sessionTitleRef = useRef<string | null>(null);
   sessionTitleRef.current = sessionTitle;
+  // A loaded-then-let-go conversation, restorable with one click
+  const [lastLoaded, setLastLoaded] = useState<{ id: string; title: string | null } | null>(null);
   const historyLoadedRef = useRef(false);
 
   const isExpanded = pinned || open;
@@ -160,6 +162,7 @@ const ChatMole = ({
   useEffect(() => {
     const req = openConversationRequest;
     if (!req) return;
+    setLastLoaded(null); // a fresh explicit load supersedes any remembered one
     sessionRef.current = { id: req.id, lastMessageAt: Date.now(), explicit: true };
     setSessionTitle(req.title);
     void loadConversationMessages(req.id);
@@ -197,10 +200,40 @@ const ChatMole = ({
     return data.id;
   };
 
-  // The explicit-resume exemption lasts only until the mole is next collapsed
+  // Collapsing the mole "lets go" of an explicitly loaded old conversation:
+  // the thread clears so reopening shows a mostly clean mole, and the loaded
+  // conversation is remembered so it can be restored with one click.
   useEffect(() => {
-    if (!isExpanded) sessionRef.current.explicit = false;
+    if (isExpanded) return;
+    if (sessionRef.current.explicit && sessionRef.current.id) {
+      setLastLoaded({ id: sessionRef.current.id, title: sessionTitleRef.current });
+      setMessages([]);
+      sessionRef.current = { id: null, lastMessageAt: 0, explicit: false };
+      setSessionTitle(null);
+    } else {
+      sessionRef.current.explicit = false;
+    }
   }, [isExpanded]);
+
+  // Fresh context on demand — the old thread stays reachable in Earlier
+  // conversations (and via the restore link if it was an explicit load)
+  const startNewChat = () => {
+    if (sessionRef.current.explicit && sessionRef.current.id) {
+      setLastLoaded({ id: sessionRef.current.id, title: sessionTitleRef.current });
+    }
+    setMessages([]);
+    sessionRef.current = { id: null, lastMessageAt: 0, explicit: false };
+    setSessionTitle(null);
+  };
+
+  const restorePreviousConversation = () => {
+    const prev = lastLoaded;
+    if (!prev) return;
+    setLastLoaded(null);
+    sessionRef.current = { id: prev.id, lastMessageAt: Date.now(), explicit: true };
+    setSessionTitle(prev.title);
+    void loadConversationMessages(prev.id);
+  };
 
   // Returns the conversation id to persist into, creating a new session when
   // the 3h gap elapsed (isNew: true). Explicitly resumed sessions are exempt
@@ -447,6 +480,15 @@ const ChatMole = ({
       </div>
 
       <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
+        {messages.length === 0 && lastLoaded && (
+          <button
+            onClick={restorePreviousConversation}
+            className="block w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-left text-[13px] text-violet-700 hover:bg-violet-100"
+          >
+            Load previous conversation
+            {lastLoaded.title ? <span className="text-violet-500"> — {lastLoaded.title}</span> : null}
+          </button>
+        )}
         {messages.length === 0 && (
           <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
             Ask anything about what you've saved — answers cite the cards they came from.
@@ -610,7 +652,14 @@ const ChatMole = ({
                 <Send className="h-4 w-4" />
               </Button>
             </div>
-            <div className="mt-2 text-[11.5px]">
+            <div className="mt-2 flex items-center gap-2 text-[11.5px]">
+              <button
+                onClick={startNewChat}
+                className="text-muted-foreground hover:text-violet-700 hover:underline underline-offset-2"
+              >
+                Start new chat
+              </button>
+              <span className="text-muted-foreground/40">·</span>
               <button
                 onClick={onToggleConversations}
                 className={
