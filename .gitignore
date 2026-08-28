@@ -28,3 +28,9 @@ screenshots/
 
 # Claude worktrees (full repo copies — never build/test/commit them)
 .claude/worktrees/
+
+# Brainstorm companion sessions
+.superpowers/
+
+# Vendored design-inspiration template (reactbits pro) — not part of the app
+new_site/
