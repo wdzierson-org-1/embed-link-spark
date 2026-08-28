@@ -53,7 +53,9 @@ export const SubscriptionProvider = ({ children }: { children: ReactNode }) => {
   const trialEnsuredRef = useRef(false);
 
   const checkSubscription = async () => {
-    if (!user) {
+    // Anonymous try-stash sessions have no subscription and never should —
+    // treat them like signed-out (no polling, no trial creation)
+    if (!user || (user as { is_anonymous?: boolean }).is_anonymous) {
       setSubscribed(false);
       setSubscriptionStatus(null);
       setOnTrial(false);

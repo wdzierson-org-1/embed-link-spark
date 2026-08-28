@@ -1,227 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, useReducedMotion } from 'framer-motion';
+import Lenis from 'lenis';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Brain, MessageSquare, FileText, Globe, BookOpen, Mic, type LucideIcon } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 import StashWordmark from '@/components/StashWordmark';
 import LandingChatDemo from '@/components/LandingChatDemo';
-import Cloth, { supportsHtmlInCanvas } from '@/components/landing/Cloth';
 import LightRays from '@/components/landing/LightRays';
+import TryStash from '@/components/landing/TryStash';
 import demoAddLink from '@/assets/demo_add_link.mp4';
-import coverRecipe from '@/assets/landing/cover-recipe.jpg';
-import coverArticle from '@/assets/landing/cover-article.jpg';
-import coverRestaurant from '@/assets/landing/cover-restaurant.jpg';
-import coverApp from '@/assets/landing/cover-app.jpg';
-import coverConversation from '@/assets/landing/cover-conversation.jpg';
-import coverTutorial from '@/assets/landing/cover-tutorial.jpg';
 
-// The floating hero cards stand in for real stashed items — the "you know
-// that thing you saved" examples, with photographic covers.
-const StashedCard = ({
-  kind,
-  title,
-  note,
-  coverSrc,
-  coverClass = 'h-28',
-  className,
-}: {
-  kind: string;
-  title: string;
-  note: string;
-  coverSrc: string;
-  coverClass?: string;
-  className?: string;
-}) => (
-  <div className={`flex flex-col bg-card border border-border/20 rounded-lg p-3 ${className ?? ''}`}>
-    <div className={`relative ${coverClass} flex-none overflow-hidden rounded-md mb-2`}>
-      <img src={coverSrc} alt="" className="absolute inset-0 h-full w-full object-cover" />
-      <span className="absolute left-1.5 top-1.5 rounded bg-black/35 px-1.5 py-px text-[10px] font-mori uppercase tracking-wider text-white">
-        {kind}
-      </span>
-    </div>
-    <h4 className="font-tobias text-[15px] mb-1 leading-snug line-clamp-2">{title}</h4>
-    <p className="text-xs text-muted-foreground font-mori leading-snug line-clamp-2">{note}</p>
-  </div>
+// Quiet section label — plain tracked small caps, no numbering, no rules.
+// The page's sections aren't a sequence; pretending otherwise is decoration.
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <p className="mb-4 font-mori text-[11px] uppercase tracking-[0.24em] text-muted-foreground/70">
+    {children}
+  </p>
 );
 
-// Scattered-on-a-table layout for the floating hero cards: uneven insets from
-// the screen edge, irregular vertical gaps, and per-card entrance motion so
-// nothing reads as a tidy column. Width/height are explicit pixels because the
-// Cloth capture canvas can't derive intrinsic size from its children.
-interface FloatingCardSpec {
-  side: 'left' | 'right';
-  pos: string;          // absolute top/inset classes
-  size: { w: number; h: number };
-  coverClass?: string;
-  tilt: number;         // resting rotation, deg
-  entrance: { x: number; y: number; rotate: number };
-  delay: number;        // entrance delay, s (deliberately out of visual order)
-  float: { dur: number; y: number; rot: number };
-  scrollRot: number;    // scroll-linked rotation factor
-  card: { kind: string; title: string; note: string; coverSrc: string };
-}
-
-const FLOATING_CARDS: FloatingCardSpec[] = [
-  {
-    side: 'left',
-    pos: 'top-14 left-4',
-    size: { w: 224, h: 222 },
-    tilt: 2.5,
-    entrance: { x: -170, y: -50, rotate: -12 },
-    delay: 0.5,
-    float: { dur: 6.4, y: 7, rot: 1.2 },
-    scrollRot: 0.03,
-    card: {
-      kind: 'Image',
-      title: 'That recipe you want to try',
-      note: 'Roasted tomato pasta — saved with the full recipe.',
-      coverSrc: coverRecipe,
-    },
-  },
-  {
-    side: 'left',
-    pos: 'top-[20rem] left-14',
-    size: { w: 240, h: 226 },
-    tilt: -4,
-    entrance: { x: -200, y: 40, rotate: 10 },
-    delay: 0.15,
-    float: { dur: 7.8, y: 9, rot: 1.5 },
-    scrollRot: -0.02,
-    card: {
-      kind: 'Sound',
-      title: 'The conversation you need to save for later',
-      note: 'Voice memo — transcribed, 2:41.',
-      coverSrc: coverConversation,
-    },
-  },
-  {
-    side: 'left',
-    pos: 'top-[35.5rem] left-7',
-    size: { w: 208, h: 218 },
-    tilt: 5.5,
-    entrance: { x: -150, y: 70, rotate: 18 },
-    delay: 0.85,
-    float: { dur: 5.6, y: 6, rot: 1 },
-    scrollRot: 0.025,
-    card: {
-      kind: 'Screenshot',
-      title: 'That app you heard about',
-      note: 'App screenshot — Stash read every pixel.',
-      coverSrc: coverApp,
-    },
-  },
-  {
-    side: 'right',
-    pos: 'top-20 right-10',
-    size: { w: 240, h: 242 },
-    coverClass: 'h-32',
-    tilt: -2.5,
-    entrance: { x: 180, y: -60, rotate: 11 },
-    delay: 0.05,
-    float: { dur: 7.1, y: 8, rot: 1.3 },
-    scrollRot: -0.03,
-    card: {
-      kind: 'Place',
-      title: 'The restaurant you want to try',
-      note: '1 Central Park West — book for October.',
-      coverSrc: coverRestaurant,
-    },
-  },
-  {
-    side: 'right',
-    pos: 'top-[23rem] right-5',
-    size: { w: 224, h: 204 },
-    tilt: 3.5,
-    entrance: { x: 160, y: 30, rotate: -14 },
-    delay: 0.65,
-    float: { dur: 6.9, y: 7, rot: 1.4 },
-    scrollRot: 0.02,
-    card: {
-      kind: 'Video',
-      title: 'That tutorial',
-      note: '12 minutes — watch this weekend.',
-      coverSrc: coverTutorial,
-    },
-  },
-  {
-    side: 'right',
-    pos: 'top-[38rem] right-16',
-    size: { w: 208, h: 218 },
-    tilt: -5,
-    entrance: { x: 190, y: 80, rotate: -20 },
-    delay: 0.35,
-    float: { dur: 8.4, y: 9, rot: 1.1 },
-    scrollRot: 0.02,
-    card: {
-      kind: 'Link',
-      title: 'The article about that thing',
-      note: 'Saved with full text — findable forever.',
-      coverSrc: coverArticle,
-    },
-  },
-];
-
-// Numbered kickers that give the page's sections a visible spine
-const SectionEyebrow = ({ index, label }: { index: string; label: string }) => (
-  <div className="mb-5 flex items-center justify-center gap-3 font-mori text-[11px] uppercase tracking-[0.28em] text-muted-foreground/70">
-    <span className="h-px w-10 bg-border" aria-hidden />
-    <span>{index} — {label}</span>
-    <span className="h-px w-10 bg-border" aria-hidden />
-  </div>
-);
-
-const CAPABILITIES: { icon: LucideIcon; chip: string; iconColor: string; title: string; body: string }[] = [
-  {
-    icon: FileText,
-    chip: 'border-blue-200/60 bg-blue-100 group-hover:bg-blue-200/70',
-    iconColor: 'text-blue-600',
-    title: 'Drop anything in',
-    body: 'Links, PDFs, images, voice notes, video, plain thoughts. One box for all of it — no sorting first.',
-  },
-  {
-    icon: Globe,
-    chip: 'border-green-200/60 bg-green-100 group-hover:bg-green-200/70',
-    iconColor: 'text-green-600',
-    title: 'Links describe themselves',
-    body: 'Paste a URL and Stash fetches the title, preview image, and full page text on its own.',
-  },
-  {
-    icon: BookOpen,
-    chip: 'border-orange-200/60 bg-orange-100 group-hover:bg-orange-200/70',
-    iconColor: 'text-orange-600',
-    title: 'Documents read themselves',
-    body: 'PDFs are read, summarized, and made searchable the moment they land in your stash.',
-  },
-  {
-    icon: Mic,
-    chip: 'border-red-200/60 bg-red-100 group-hover:bg-red-200/70',
-    iconColor: 'text-red-600',
-    title: 'Voice becomes text',
-    body: 'Voice notes are transcribed and summarized automatically, so spoken thoughts are findable too.',
-  },
-  {
-    icon: MessageSquare,
-    chip: 'border-teal-200/60 bg-teal-100 group-hover:bg-teal-200/70',
-    iconColor: 'text-teal-600',
-    title: 'Text it by WhatsApp or SMS',
-    body: 'Text a link, photo, or voice note to your Stash number without opening the app at all.',
-  },
-  {
-    icon: Brain,
-    chip: 'border-purple-200/60 bg-purple-100 group-hover:bg-purple-200/70',
-    iconColor: 'text-purple-600',
-    title: 'Ask instead of dig',
-    body: "Chat with everything you've saved and get answers back with the sources they came from.",
-  },
+// What you toss in → what Stash does with it. The ledger IS the product
+// explanation: each row is one real transformation the pipeline performs.
+const LEDGER: { thing: string; done: string }[] = [
+  { thing: 'A link you’ll want later', done: 'Title, preview, and the full page text — fetched and made searchable.' },
+  { thing: 'A PDF', done: 'Read and summarized, ready to quote.' },
+  { thing: 'A voice memo', done: 'Transcribed word for word.' },
+  { thing: 'A screenshot', done: 'Every pixel read — names, prices, places.' },
+  { thing: 'A half-formed thought', done: 'Titled, tagged, and filed for you.' },
+  { thing: 'A text from your phone', done: 'WhatsApp or SMS, straight into your stash.' },
 ];
 
 const Landing = () => {
   const [scrollY, setScrollY] = useState(0);
-  const prefersReducedMotion = useReducedMotion();
-  // When the browser can render the cloth (HTML-in-canvas), the fabric supplies
-  // the idle motion; without it, framer's float keeps the cards alive.
-  const [clothActive] = useState(() => supportsHtmlInCanvas());
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);
@@ -229,8 +38,14 @@ const Landing = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Lenis smooth scrolling, landing only; skipped for reduced motion
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const lenis = new Lenis({ autoRaf: true, lerp: 0.12 });
+    return () => lenis.destroy();
+  }, []);
+
   const gradientOpacity = Math.max(0, 1 - (scrollY / 800));
-  const cardsTranslate = Math.min(scrollY * 0.5, 400);
 
   return (
     <div className="min-h-screen bg-background font-inter relative overflow-hidden paper-texture">
@@ -274,87 +89,6 @@ const Landing = () => {
           distortion={0.04}
         />
       </div>
-      
-      {/* Floating stashed cards, scattered like cards on a table. Only from lg
-          up, where there are margins for them to sit in; below that they crowd
-          the hero copy. Each card springs in from its screen edge on its own
-          schedule, then hangs like fabric rippling in the wind (Cloth) — brush
-          them with the cursor. Browsers without HTML-in-canvas get the same
-          cards with a gentle framer float instead. */}
-      {(['left', 'right'] as const).map(side => (
-        <div
-          key={side}
-          className={`hidden lg:block fixed top-0 h-screen w-80 pointer-events-none ${
-            side === 'left' ? 'left-0 z-[800]' : 'right-0 z-[850]'
-          }`}
-        >
-          {FLOATING_CARDS.filter(c => c.side === side).map(c => (
-            <div
-              key={c.card.title}
-              className={`absolute ${c.pos} transform-gpu transition-transform duration-500 ease-out`}
-              style={{
-                transform: `translateX(${side === 'left' ? -cardsTranslate : cardsTranslate}px) rotate(${scrollY * c.scrollRot}deg)`,
-              }}
-            >
-              <motion.div
-                initial={prefersReducedMotion ? false : {
-                  opacity: 0,
-                  x: c.entrance.x,
-                  y: c.entrance.y,
-                  rotate: c.entrance.rotate,
-                  scale: 0.85,
-                }}
-                animate={{ opacity: 1, x: 0, y: 0, rotate: c.tilt, scale: 1 }}
-                transition={{ type: 'spring', stiffness: 78, damping: 11.5, mass: 1, delay: c.delay }}
-              >
-                <motion.div
-                  animate={prefersReducedMotion || clothActive ? undefined : {
-                    y: [0, -c.float.y, 0],
-                    rotate: [0, c.float.rot, 0],
-                  }}
-                  transition={{
-                    duration: c.float.dur,
-                    repeat: Infinity,
-                    repeatType: 'mirror',
-                    ease: 'easeInOut',
-                    delay: c.delay + 1.4,
-                  }}
-                >
-                  <Cloth
-                    // Fallback browsers get a CSS shadow here — the card's own
-                    // shadow is clipped by the cloth's overflow-hidden capture
-                    // box; when the fabric renders it draws its own shadow.
-                    className={`pointer-events-auto rounded-lg ${clothActive ? '' : 'shadow-md'}`}
-                    style={{ width: c.size.w, height: c.size.h }}
-                    pin="top"
-                    wind={3}
-                    speed={0.5}
-                    amplitude={18}
-                    drape={22}
-                    brush={2.05}
-                    brushSize={120}
-                    damping={1}
-                    light={0.5}
-                    sheen={0.1}
-                    shadow={0.25}
-                    cornerRadius={12}
-                    perspective={1000}
-                  >
-                    <StashedCard
-                      className="h-full w-full"
-                      kind={c.card.kind}
-                      title={c.card.title}
-                      note={c.card.note}
-                      coverSrc={c.card.coverSrc}
-                      coverClass={c.coverClass}
-                    />
-                  </Cloth>
-                </motion.div>
-              </motion.div>
-            </div>
-          ))}
-        </div>
-      ))}
 
       {/* Main Content */}
       <div className="relative z-[1000]">
@@ -363,7 +97,7 @@ const Landing = () => {
           <div className="flex items-center">
             <StashWordmark className="h-5 text-[#666666]" />
           </div>
-          
+
           <div className="flex items-center space-x-3">
             <Link to="/auth">
               <Button variant="ghost" className="text-muted-foreground hover:text-foreground text-sm font-mori">
@@ -378,60 +112,41 @@ const Landing = () => {
           </div>
         </nav>
 
-        {/* Hero Section */}
-        <section className="px-6 pt-24 pb-32 max-w-4xl mx-auto text-center">
+        {/* Hero: the product, working. The headline makes the promise and the
+            capture box underneath keeps it thirty seconds later. */}
+        <section className="px-6 pt-16 pb-24 max-w-4xl mx-auto text-center">
           <div className="fade-in">
-            <h1 className="text-5xl md:text-7xl font-tobias font-thin text-foreground mb-8 leading-[1.05] tracking-tight">
+            <h1 className="text-5xl md:text-6xl font-tobias font-thin text-foreground mb-5 leading-[1.05] tracking-tight">
               Save anything <span className="font-editorial-italic">easily</span>.<br />
               <span className="text-muted-foreground">Find everything <span className="font-editorial-italic">effortlessly</span>.</span>
             </h1>
 
-            <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
-              Links, PDFs, screenshots, voice notes — toss them into Stash. Stash understands each one, describes it, stores it for later, and makes it easy to find.
+            <p className="text-lg font-mori text-muted-foreground max-w-xl mx-auto leading-relaxed">
+              Stash reads whatever you toss in and hands it back the moment you ask.
             </p>
 
-            <div className="slide-up">
-              <Link to="/pricing">
-                <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
-                  Start stashing — free for 14 days
-                </Button>
-              </Link>
-              <p className="text-sm font-mori text-muted-foreground mt-4">
-                Then $4.99/month. No credit card to start.
-              </p>
-            </div>
+            <TryStash />
           </div>
         </section>
 
-        {/* The Middle Section */}
-        <section className="px-6 py-20 max-w-6xl mx-auto">
+        {/* The ledger: input → what the pipeline actually does */}
+        <section className="px-6 py-24 max-w-3xl mx-auto">
           <div className="text-center">
-            <SectionEyebrow index="01" label="One place" />
-            <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4">Your every <span className="font-editorial-italic">thing</span> app.</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
-              Notes, links, files, photos, voice memos — everything you'd normally scatter across five apps, in one place that remembers all of it.
-            </p>
-          </div>
-        </section>
-
-        {/* Capabilities Grid */}
-        <section className="px-6 py-24 max-w-6xl mx-auto">
-          <div className="text-center mb-14">
-            <SectionEyebrow index="02" label="Zero effort" />
-            <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground max-w-3xl mx-auto">No need to tag, describe, organize, or think. We do it all for you.</h2>
+            <SectionLabel>Your every thing app</SectionLabel>
+            <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-12">
+              Toss it in. Stash <span className="font-editorial-italic">does the rest</span>.
+            </h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {CAPABILITIES.map(({ icon: Icon, chip, iconColor, title, body }) => (
+          <div className="border-t border-black/10">
+            {LEDGER.map(row => (
               <div
-                key={title}
-                className="group rounded-2xl border border-border/60 bg-card/70 p-6 text-left backdrop-blur-[2px] transition-all duration-300 hover:-translate-y-1 hover:border-violet-200 hover:shadow-[0_12px_32px_rgba(160,120,200,0.16)]"
+                key={row.thing}
+                className="grid grid-cols-1 gap-1 border-b border-black/10 py-5 sm:grid-cols-[1fr_auto_1.3fr] sm:items-baseline sm:gap-6"
               >
-                <div className={`mb-4 grid h-10 w-10 place-items-center rounded-xl border transition-colors ${chip}`}>
-                  <Icon className={`h-5 w-5 ${iconColor}`} />
-                </div>
-                <h3 className="text-lg font-tobias leading-snug text-foreground mb-2">{title}</h3>
-                <p className="text-sm text-muted-foreground font-mori leading-relaxed">{body}</p>
+                <span className="font-tobias text-xl text-foreground">{row.thing}</span>
+                <span aria-hidden className="hidden font-mori text-violet-600 sm:block">→</span>
+                <span className="font-mori text-[15px] leading-relaxed text-muted-foreground">{row.done}</span>
               </div>
             ))}
           </div>
@@ -440,7 +155,7 @@ const Landing = () => {
         {/* Paste Demo Section */}
         <section className="px-6 py-24 max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <SectionEyebrow index="03" label="Watch it work" />
+            <SectionLabel>Watch it work</SectionLabel>
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4 max-w-3xl mx-auto">Just paste the link and Stash does the describing <span className="font-editorial-italic">automagically</span>.</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
               Stash collects everything it can about a link the moment you paste it — title, preview, full text — and makes it searchable. No description to write, nothing to categorize.
@@ -448,7 +163,7 @@ const Landing = () => {
           </div>
 
           <div className="max-w-3xl mx-auto">
-            <video 
+            <video
               src={demoAddLink}
               autoPlay
               loop
@@ -464,7 +179,7 @@ const Landing = () => {
         {/* Product Screenshots - Overlapping Cards Style */}
         <section className="px-6 py-24 max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <SectionEyebrow index="04" label="Your library" />
+            <SectionLabel>Your library</SectionLabel>
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4">Capture everything, search anything</h2>
             <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
               Voice, video, text, links, and images. We transcribe the contents and make everything searchable and conversational.
@@ -533,7 +248,7 @@ const Landing = () => {
         {/* AI Chat Section */}
         <section className="px-6 py-24 max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <SectionEyebrow index="05" label="Total recall" />
+            <SectionLabel>Total recall</SectionLabel>
             <h2 className="text-4xl md:text-5xl font-tobias text-foreground mb-5 tracking-tight leading-[1.1]">
               Forget about forgetting
             </h2>
@@ -583,7 +298,7 @@ const Landing = () => {
           </div>
         </footer>
       </div>
-      
+
       {/* Bottom Gradient */}
       <div className="absolute bottom-0 inset-x-0 hero-gradient pointer-events-none z-[700] rotate-180" style={{ height: '60vh' }} />
     </div>
