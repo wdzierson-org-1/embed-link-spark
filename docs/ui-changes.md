@@ -8,17 +8,26 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
-## 2026-08-28 · Capture panel hidden in conversations/focus states; solid conversation rows (web)
+## 2026-08-28 · Capture panel hidden in conversations/focus states; gradient page-level; conversations search + pagination (web)
 
 - The capture input panel is hidden while the Conversations list is open OR
-  focus-sources is active — those are retrieval states; capture returns with
-  the normal card grid. (Side effect by design: the panel's 200vh gradient
-  backdrop disappears too, so those views render on the plain background.)
-- Conversation rows are guaranteed solid white (`relative z-10` above any
-  page backdrop overlays). Dark mode is not currently wired on web
-  (`darkMode: ["class"]` configured, no theme provider), so light-only.
-- iOS: if the Ask/history surfaces share a screen with capture affordances,
-  mirror the same rule — no capture entry points while browsing
+  focus-sources is active — retrieval states; capture returns with the card
+  grid. The animated gradient backdrop moved from inside the panel to the
+  page level (Index content wrapper), so the ambience persists in every
+  state; conversation rows are positioned (`relative`) solid white above it.
+  Dark mode is not wired on web (`darkMode:["class"]`, no provider) —
+  light-only for now.
+- Focusing sources from a FLOATING mole auto-pins it — the floating panel
+  otherwise overlays the focus pill's Clear button (found via real-browser
+  pixel/click verification).
+- **Conversations list gained search + pagination.**
+  `list_conversations(search_text, page_limit, page_offset)` v2 (migration
+  `20260828100000`, applied): search matches title OR any message content
+  (ILIKE), pages clamp 1–100, rows carry `total_count`. UI: debounced
+  search box, "Showing X–Y of Z", 25/50/100 page-size select, Prev/Next.
+  iOS: same RPC serves a paged history screen directly.
+- iOS: if Ask/history surfaces share a screen with capture affordances,
+  mirror the hide rule — no capture entry points while browsing
   conversations or a focused source set.
 
 ## 2026-08-27 · Chat sessions, retrieval-only mole, Conversations view, focus sources (web + contract)

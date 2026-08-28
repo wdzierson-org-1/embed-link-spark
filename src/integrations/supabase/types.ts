@@ -582,13 +582,18 @@ export type Database = {
       }
       is_following: { Args: { target_id: string }; Returns: boolean }
       list_conversations: {
-        Args: never
+        Args: {
+          page_limit?: number
+          page_offset?: number
+          search_text?: string
+        }
         Returns: {
           id: string
           last_message_at: string
           message_count: number
           preview: string
           title: string
+          total_count: number
         }[]
       }
       unfollow_user: { Args: { target_id: string }; Returns: boolean }

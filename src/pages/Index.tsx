@@ -96,7 +96,12 @@ const Index = () => {
 
   const handleFocusSources = (ids: string[] | null) => {
     setFocusItemIds(ids);
-    if (ids) setMainView('cards'); // focusing is a request to SEE items — the list yields
+    if (ids) {
+      setMainView('cards'); // focusing is a request to SEE items — the list yields
+      // A floating mole overlays the content column (and the pill's Clear
+      // button) — dock it so chat and focused cards sit side by side
+      if (!molePinned) handleMolePinnedChange(true);
+    }
   };
 
   const handleOpenConversation = (c: { id: string; title: string | null }) => {
@@ -140,7 +145,11 @@ const Index = () => {
       />
 
       {/* Content shifts right when the mole is pinned as a left dock */}
-      <div className={molePinned ? 'transition-[padding] duration-200 sm:pl-[384px]' : 'transition-[padding] duration-200'}>
+      <div className={`relative ${molePinned ? 'transition-[padding] duration-200 sm:pl-[384px]' : 'transition-[padding] duration-200'}`}>
+        {/* Extended animated gradient backdrop — page-level so it survives the
+            capture panel being hidden in conversations/focus states */}
+        <div className="pointer-events-none absolute inset-0 h-[200vh] animated-gradient opacity-30" />
+        <div className="pointer-events-none absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
         {/* Banner + hint share one spacing stack: every combination of them
             (minimized banner, dismissed hint, neither) keeps even 16px gaps,
             and the stack vanishes entirely when both are gone */}
