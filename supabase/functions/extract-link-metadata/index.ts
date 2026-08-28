@@ -9,10 +9,12 @@ import {
   fetchViaJinaReader,
   fetchViaWayback,
   inferMetadataFromUrl,
+  isBlockedPageTitle,
   isGenericTitle,
   isJunkDescription,
   looksBlocked,
   requestWaybackSnapshot,
+  verifyRemoteImage,
 } from '../_shared/blockedContentFallbacks.ts';
 
 const corsHeaders = {
@@ -572,11 +574,21 @@ const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: 
 
   // Extract image with comprehensive strategies including video thumbnails
   let image = jsonLdData.image ||
-             parseMetaContent(cleanHtml, 'og:image') || 
+             parseMetaContent(cleanHtml, 'og:image') ||
              parseMetaContent(cleanHtml, 'twitter:image') ||
              parseMetaContent(cleanHtml, 'twitter:image:src') ||
              parseMetaContent(cleanHtml, 'og:video:thumbnail') ||
              parseMetaContent(cleanHtml, 'twitter:player:image');
+
+  // Some sites stuff a srcset ("url 80w, url2 160w") into the image slot —
+  // keep only the first URL, or the stored value 404s forever
+  if (image) {
+    image = image.trim().split(/\s+/)[0].replace(/,+$/, '');
+  }
+  // A page URL is never an image (seen: YouTube watch URLs riding og fields)
+  if (image && (image === originalUrl || /youtube\.com\/watch|youtu\.be\//i.test(image))) {
+    image = null;
+  }
   
   // YouTube-specific image extraction
   if ((originalUrl.includes('youtube.com') || originalUrl.includes('youtu.be')) && !image) {
@@ -668,22 +680,6 @@ const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: 
     videoUrl: videoUrl?.trim(),
     strategyUsed: 'html-meta-parse'
   };
-};
-
-// More permissive image validation
-const validateImageUrl = async (imageUrl: string): Promise<boolean> => {
-  try {
-    const response = await fetch(imageUrl, { 
-      method: 'HEAD',
-      signal: AbortSignal.timeout(5000) // 5 second timeout
-    });
-    
-    // Accept if request succeeds, don't be strict about content-type
-    // Some servers don't return proper content-type headers
-    return response.ok;
-  } catch {
-    return false;
-  }
 };
 
 // Download and store image server-side
@@ -852,6 +848,7 @@ const isWeakOrBlockedMetadata = (metadata: { title?: string | null; description?
     const hostname = new URL(originalUrl).hostname;
     const title = (metadata.title || '').trim().toLowerCase();
     if (!title) return true;
+    if (isBlockedPageTitle(title)) return true;
     if (title === hostname.toLowerCase() || title === hostname.replace(/^www\./, '').toLowerCase()) return true;
     if (!metadata.description && !metadata.image) return true;
     return false;
@@ -1070,13 +1067,16 @@ serve(async (req) => {
         }
       }
 
-      // More permissive image validation - don't remove image if validation fails
+      // Deep pass only returns images that verifiably serve image bytes right
+      // now — clients store this URL in file_path, and an unfetchable one
+      // renders as a broken/fallback cover forever. (Fast path skips the check
+      // to stay responsive; the deep pass re-runs and overwrites.)
       let validImage = metadata.image;
-      if (!fastOnly && metadata.image) {
-        const isValidImage = await validateImageUrl(metadata.image);
-        if (!isValidImage) {
-          console.log(`Image validation failed for: ${metadata.image}, but keeping it anyway`);
-          // Keep the image URL even if validation fails - some valid images might fail validation
+      if (!fastOnly && validImage) {
+        const ok = await verifyRemoteImage(validImage);
+        if (!ok) {
+          console.log(`Image failed verification, dropping: ${validImage}`);
+          validImage = undefined;
         }
       }
 
@@ -1100,6 +1100,12 @@ serve(async (req) => {
       } else {
         console.log('Skipping image download:', { validImage: !!validImage, userId: !!userId });
       }
+
+      // Never hand challenge-page boilerplate downstream — the bare hostname
+      // is more honest, and it leaves the door open for the scrape pass to
+      // rescue the real headline from content later
+      if (isBlockedPageTitle(metadata.title)) metadata.title = undefined;
+      if (metadata.description && isJunkDescription(metadata.description)) metadata.description = undefined;
 
       // Create result with all available metadata
       const result: MetadataResult = {

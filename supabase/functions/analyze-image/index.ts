@@ -1,11 +1,48 @@
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { encode as encodeBase64 } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+// OpenAI Vision only accepts png/jpeg/gif/webp. Clients legitimately store
+// other formats (avif from the extension, heic from iOS, svg, …); for those,
+// Supabase Storage's render endpoint transcodes on the fly — fetch the
+// rendition with an explicit Accept and inline it as a data URL so OpenAI
+// never sees the original format. Falls back to the original URL on any
+// failure, which fails the vision pass the same honest way it does today.
+const VISION_SAFE_EXT_RE = /\.(png|jpe?g|jfif|gif|webp)(\?.*)?$/i;
+const VISION_SAFE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+const toVisionImageUrl = async (imageUrl: string): Promise<string> => {
+  if (VISION_SAFE_EXT_RE.test(imageUrl) || imageUrl.startsWith('data:')) return imageUrl;
+  const renderUrl = imageUrl.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
+  if (renderUrl === imageUrl) return imageUrl; // not our storage — nothing to transcode with
+  try {
+    const res = await fetch(`${renderUrl}?width=1024&quality=85`, {
+      headers: { 'Accept': 'image/jpeg' },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) {
+      console.error('Image transcode fetch failed:', res.status, 'for', imageUrl);
+      return imageUrl;
+    }
+    const contentType = res.headers.get('content-type')?.split(';')[0].trim() ?? '';
+    if (!VISION_SAFE_MIMES.includes(contentType)) {
+      console.error('Image transcode returned unusable type:', contentType, 'for', imageUrl);
+      return imageUrl;
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    console.log(`Transcoded image for vision: ${imageUrl} -> ${contentType}, ${bytes.length} bytes`);
+    return `data:${contentType};base64,${encodeBase64(bytes)}`;
+  } catch (e) {
+    console.error('Image transcode failed (falling back to original URL):', e);
+    return imageUrl;
+  }
 };
 
 const parseVisionResponse = (text: string): { title: string; description: string; detected_text: string; tags: string[] } => {
@@ -151,6 +188,8 @@ serve(async (req) => {
     } else {
       console.log('Starting Vision analysis for item:', itemId ?? '(chip-time, no item)', 'image:', imageUrl);
 
+      const visionImageUrl = await toVisionImageUrl(imageUrl);
+
       // Call OpenAI Vision
       const visionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -166,7 +205,7 @@ serve(async (req) => {
               content: [
                 {
                   type: 'image_url',
-                  image_url: { url: imageUrl, detail: 'high' },
+                  image_url: { url: visionImageUrl, detail: 'high' },
                 },
                 {
                   type: 'text',

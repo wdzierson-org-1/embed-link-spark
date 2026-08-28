@@ -31,7 +31,38 @@ export const CRAWLER_UA =
 // Block/challenge pages that come back with HTTP 200 but no real content
 export const looksBlocked = (text: string): boolean => {
   const sample = text.slice(0, 5000).toLowerCase();
-  return /just a moment|enable javascript and cookies|access denied|attention required|are you a robot|please verify you|captcha|sign in to read|to continue reading|checking your browser/.test(sample);
+  return /just a moment|enable javascript and cookies|access denied|attention required|are you a robot|please verify you|captcha|sign in to read|to continue reading|checking your browser|client challenge|pardon our interruption|verifying you are human/.test(sample);
+};
+
+// Titles that bot walls serve instead of the real page ("Client Challenge" is
+// the PerimeterX/HUMAN wall many newspaper sites front with). Storing one as
+// an item title is always wrong — treat it like having no title at all.
+const BLOCKED_PAGE_TITLES = new Set([
+  'client challenge',
+  'just a moment',
+  'access denied',
+  'attention required',
+  'security check',
+  'are you a robot',
+  'robot or human',
+  'human verification',
+  'verify you are human',
+  'verifying you are human',
+  'one moment, please',
+  'one moment please',
+  'please wait',
+  'pardon our interruption',
+  'checking your browser',
+  'bot verification',
+  'error',
+  'found',
+  '403 forbidden',
+]);
+
+export const isBlockedPageTitle = (title: string | null | undefined): boolean => {
+  if (!title) return false;
+  const normalized = title.trim().toLowerCase().replace(/[.…!?]+$/, '');
+  return BLOCKED_PAGE_TITLES.has(normalized);
 };
 
 export const fetchHtml = async (
@@ -158,6 +189,34 @@ export const requestWaybackSnapshot = (url: string): void => {
   });
 };
 
+// A raw external og:image URL is only worth storing if it actually serves an
+// image — dead CDN links, hotlink walls, and parser junk (srcset fragments,
+// page URLs) otherwise sit in file_path and render as broken/fallback covers
+// forever. One cheap GET at save time settles it.
+export const verifyRemoteImage = async (
+  imageUrl: string | null | undefined,
+  timeoutMs = 8_000
+): Promise<boolean> => {
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return false;
+  try {
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/avif,image/apng,image/*,*/*;q=0.8',
+        'Referer': new URL(imageUrl).origin,
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return false;
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.startsWith('image/')) return false;
+    const bytes = await response.arrayBuffer();
+    return bytes.byteLength >= 100; // tracking pixels / empty bodies don't count
+  } catch {
+    return false;
+  }
+};
+
 // When every fetch tier fails, the URL itself still names the topic. Turn the
 // slug into a readable title and (when a key is available) let a small model
 // phrase the gist — clearly labeled as inferred so the UI is honest about it.
@@ -237,10 +296,9 @@ export const inferMetadataFromUrl = async (
 // member wall, a challenge page) is not a real extraction
 export const isGenericTitle = (title: string | undefined, originalUrl: string): boolean => {
   if (!title) return true;
+  if (isBlockedPageTitle(title)) return true;
   const normalized = title.trim().toLowerCase();
-  if (['medium', 'just a moment', 'just a moment...', 'access denied', 'attention required'].includes(normalized)) {
-    return true;
-  }
+  if (normalized === 'medium') return true;
   try {
     const hostname = new URL(originalUrl).hostname.toLowerCase();
     return normalized === hostname || normalized === hostname.replace(/^www\./, '');

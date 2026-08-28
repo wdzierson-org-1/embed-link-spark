@@ -72,3 +72,51 @@ export const generateSummary = async (
   const summary = data.choices?.[0]?.message?.content?.trim();
   return summary ? stripPreamble(summary) : null;
 };
+
+// Final-review rescue: when a saved link is stuck with a junk title (challenge
+// page, bare hostname, raw URL) but a scrape tier DID get the article, recover
+// the real headline from the content itself. Returns null on any failure so
+// callers can leave the title alone.
+export const deriveTitleFromContent = async (
+  openAIApiKey: string,
+  sourceText: string,
+  url?: string | null,
+): Promise<string | null> => {
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You recover the title of a saved web page from its extracted content. ' +
+              'If the content contains the actual headline, return it verbatim; otherwise write a ' +
+              'faithful, specific 4-12 word title for the page. Never invent facts not in the content. ' +
+              NO_PREAMBLE_RULES,
+          },
+          {
+            role: 'user',
+            content: `${url ? `URL: ${url}\n\n` : ''}Page content:\n\n${sourceText.slice(0, 8_000)}`,
+          },
+        ],
+        max_tokens: 60,
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const title = data.choices?.[0]?.message?.content?.trim().replace(/^["']|["']$/g, '');
+    if (!title) return null;
+    return title.length > 140 ? `${title.slice(0, 140).trimEnd()}…` : title;
+  } catch (e) {
+    console.error('deriveTitleFromContent failed (non-fatal):', e);
+    return null;
+  }
+};
