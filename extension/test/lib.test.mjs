@@ -72,12 +72,23 @@ test('isStashableUrl accepts only http(s)', () => {
   assert.equal(isStashableUrl(undefined), false);
 });
 
-test('displayNameFromUrl keeps real image filenames only', () => {
+test('displayNameFromUrl keeps real image filenames', () => {
   assert.equal(displayNameFromUrl('https://cdn.x.com/photos/golden%20gate.jpg?w=800'), 'golden gate.jpg');
   assert.equal(displayNameFromUrl('https://x.com/IMG_2041.HEIC'), 'IMG_2041.HEIC');
-  assert.equal(displayNameFromUrl('https://x.com/render.php'), null);
+});
+
+test('displayNameFromUrl synthesizes a name from the path + resolved format', () => {
+  assert.equal(displayNameFromUrl('https://x.com/render.php', 'jpg'), 'render.jpg');
+  assert.equal(displayNameFromUrl('https://x.com/image', 'webp'), 'image.webp');
+  assert.equal(displayNameFromUrl('https://cdn.x.com/photo-14556789?auto=format', 'avif'), 'photo-14556789.avif');
+  // Root path: hostname is the only name the URL offers
+  assert.equal(displayNameFromUrl('https://www.x.com/a/', 'png'), 'x.com.png');
+});
+
+test('displayNameFromUrl still returns null when it has nothing to name', () => {
+  assert.equal(displayNameFromUrl('https://x.com/render.php'), null); // no fallback ext
   assert.equal(displayNameFromUrl('https://x.com/image'), null);
-  assert.equal(displayNameFromUrl('data:image/png;base64,iVBOR'), null);
+  assert.equal(displayNameFromUrl('data:image/png;base64,iVBOR', 'png'), null);
   assert.equal(displayNameFromUrl('https://x.com/a/'), null);
 });
 

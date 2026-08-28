@@ -99,20 +99,26 @@ export function extForMime(mime) {
 }
 
 /**
- * Human-meaningful filename from an image URL's path ("golden-gate.jpg"), or
- * null when there isn't one (data:/blob: URLs, extension-less paths). Feeds
- * attributes.media.file_name — titles are AI-derived, the filename is
- * metadata (docs/ui-changes.md 2026-08-26).
+ * Filename for a stashed image, from its URL's path ("golden-gate.jpg").
+ * Feeds attributes.media.file_name — titles are AI-derived, the filename is
+ * metadata (docs/ui-changes.md 2026-08-26). Every card shows this chip, so
+ * when the path has no recognizable image extension (CDN ids, dynamic
+ * endpoints) we synthesize one from the basename — or the hostname as a last
+ * resort — plus the resolved format (`fallbackExt`). Only data:/blob: URLs,
+ * which carry no name at all, return null.
  */
-export function displayNameFromUrl(url) {
+export function displayNameFromUrl(url, fallbackExt) {
   try {
-    const { protocol, pathname } = new URL(url);
+    const { protocol, pathname, hostname } = new URL(url);
     if (protocol !== 'http:' && protocol !== 'https:') return null;
     const last = decodeURIComponent(pathname.split('/').pop() ?? '');
     const dot = last.lastIndexOf('.');
-    if (dot <= 0 || dot === last.length - 1) return null;
-    if (!MIME_BY_EXT[last.slice(dot + 1).toLowerCase()]) return null;
-    return last.length > 120 ? null : last;
+    const hasRealExt = dot > 0 && dot < last.length - 1 && MIME_BY_EXT[last.slice(dot + 1).toLowerCase()];
+    if (hasRealExt) return last.length > 120 ? null : last;
+    if (!fallbackExt) return null;
+    const base = (dot > 0 ? last.slice(0, dot) : last) || hostname.replace(/^www\./, '');
+    if (!base) return null;
+    return `${base.slice(0, 60)}.${fallbackExt}`;
   } catch {
     return null;
   }

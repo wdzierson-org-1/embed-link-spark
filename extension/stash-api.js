@@ -164,15 +164,20 @@ export async function stashImage(srcUrl) {
   }
 
   // The image's own filename is metadata worth keeping (searchable, shown as
-  // a chip); the title becomes an AI description server-side.
-  const originalName = displayNameFromUrl(srcUrl);
+  // a chip); the title becomes an AI description server-side. The source URL
+  // rides along for provenance.
+  const originalName = displayNameFromUrl(srcUrl, extForMime(mime));
+  const media = {
+    ...(originalName ? { file_name: originalName } : {}),
+    ...(/^https?:/i.test(srcUrl) ? { source_url: srcUrl } : {}),
+  };
   return callFn(
     'add-file',
     {
       file_path: path,
       mime_type: mime,
       file_size: blob.size,
-      ...(originalName ? { attributes: { media: { file_name: originalName } } } : {}),
+      ...(Object.keys(media).length ? { attributes: { media } } : {}),
     },
     session,
   );
