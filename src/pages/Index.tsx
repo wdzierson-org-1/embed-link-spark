@@ -152,10 +152,14 @@ const Index = () => {
           </DismissibleHint>
         </div>
 
-        <UnifiedInputPanel
-          onAddContent={handleAddContent}
-          getSuggestedTags={getSuggestedTags}
-        />
+        {/* Capture is out of place while browsing conversations or focused on
+            an answer's cards — hide the panel (and its gradient backdrop) there */}
+        {mainView === 'cards' && !focusItemIds && (
+          <UnifiedInputPanel
+            onAddContent={handleAddContent}
+            getSuggestedTags={getSuggestedTags}
+          />
+        )}
 
         {/* Search / count / tag filter only make sense once something is stashed */}
         {realItemCount > 0 && mainView === 'cards' && (

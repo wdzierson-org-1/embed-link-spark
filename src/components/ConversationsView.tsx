@@ -30,7 +30,8 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
   const buckets = rows ? bucketConversations(rows, new Date()) : [];
 
   return (
-    <div className="mx-auto max-w-3xl">
+    // relative z-10 keeps rows solid white above any page backdrop overlays
+    <div className="relative z-10 mx-auto max-w-3xl">
       <button
         onClick={onBack}
         className="mb-4 text-sm text-muted-foreground hover:text-foreground"

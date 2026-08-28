@@ -8,6 +8,19 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-28 · Capture panel hidden in conversations/focus states; solid conversation rows (web)
+
+- The capture input panel is hidden while the Conversations list is open OR
+  focus-sources is active — those are retrieval states; capture returns with
+  the normal card grid. (Side effect by design: the panel's 200vh gradient
+  backdrop disappears too, so those views render on the plain background.)
+- Conversation rows are guaranteed solid white (`relative z-10` above any
+  page backdrop overlays). Dark mode is not currently wired on web
+  (`darkMode: ["class"]` configured, no theme provider), so light-only.
+- iOS: if the Ask/history surfaces share a screen with capture affordances,
+  mirror the same rule — no capture entry points while browsing
+  conversations or a focused source set.
+
 ## 2026-08-27 · Chat sessions, retrieval-only mole, Conversations view, focus sources (web + contract)
 
 Spec: `docs/superpowers/specs/2026-08-27-chat-sessions-design.md` ·
