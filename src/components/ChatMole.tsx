@@ -406,7 +406,7 @@ const ChatMole = ({
     <div
       className={
         pinned
-          ? 'fixed left-0 top-16 bottom-0 z-40 flex w-full sm:w-[384px] flex-col border-r border-black/5 bg-gradient-to-b from-white to-[#fdf8fd] shadow-[8px_0_24px_rgba(40,20,60,0.10)]'
+          ? 'fixed left-0 top-0 bottom-0 z-40 flex w-full sm:w-[384px] flex-col border-r border-black/5 bg-gradient-to-b from-white to-[#fdf8fd] shadow-[8px_0_24px_rgba(40,20,60,0.10)]'
           : 'fixed left-0 right-0 bottom-0 sm:left-5 sm:right-auto sm:bottom-5 z-50 flex h-[72vh] sm:h-[560px] w-full sm:w-[384px] max-h-[calc(100vh-96px)] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-gradient-to-b from-white to-[#fdf8fd] shadow-[0_24px_60px_rgba(40,20,60,0.28),0_2px_8px_rgba(0,0,0,0.10)] ring-1 ring-black/5'
       }
     >

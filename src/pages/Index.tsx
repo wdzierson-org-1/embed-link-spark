@@ -140,16 +140,18 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-white">
-      <HeaderSection
-        user={user}
-      />
-
-      {/* Content shifts right when the mole is pinned as a left dock */}
+      {/* Header lives INSIDE the dock-padded wrapper so its container centers
+          on the same axis as the content below — logo/avatar edges align with
+          the capture panel, toolbar, and cards whether or not the mole is pinned */}
       <div className={`relative ${molePinned ? 'transition-[padding] duration-200 sm:pl-[384px]' : 'transition-[padding] duration-200'}`}>
         {/* Extended animated gradient backdrop — page-level so it survives the
             capture panel being hidden in conversations/focus states */}
         <div className="pointer-events-none absolute inset-0 h-[200vh] animated-gradient opacity-30" />
         <div className="pointer-events-none absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
+
+        <HeaderSection
+          user={user}
+        />
         {/* Banner + hint share one spacing stack: every combination of them
             (minimized banner, dismissed hint, neither) keeps even 16px gaps,
             and the stack vanishes entirely when both are gone */}
