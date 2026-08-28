@@ -64,21 +64,19 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
   const hasNext = lastShown < totalCount;
 
   return (
-    <div className="mx-auto max-w-3xl pt-6">
+    // pt clears the header's drop shadow; back link sits at the container's
+    // left edge, aligned with the Stash wordmark above
+    <div className="pt-8">
       <button
         onClick={onBack}
-        className="mb-4 text-sm text-muted-foreground hover:text-foreground"
+        className="mb-8 block text-sm text-muted-foreground hover:text-foreground"
       >
         ← Back to your stash
       </button>
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Conversations</h1>
-          <p className="text-sm text-muted-foreground">
-            Chats start fresh after a few hours away — nothing to name or file.
-          </p>
-        </div>
+      <div className="mx-auto max-w-3xl">
+      <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+        <h1 className="text-lg font-semibold">Conversations</h1>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -168,6 +166,7 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

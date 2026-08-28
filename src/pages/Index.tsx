@@ -170,8 +170,11 @@ const Index = () => {
           />
         )}
 
-        {/* Search / count / tag filter only make sense once something is stashed */}
+        {/* Search / count / tag filter only make sense once something is stashed.
+            With the capture panel hidden (focus mode), give the toolbar breathing
+            room below the header instead of hugging its drop shadow */}
         {realItemCount > 0 && mainView === 'cards' && (
+          <div className={focusItemIds ? 'pt-[26px]' : ''}>
           <LibraryToolbar
             searchQuery={searchQuery}
             onSearchChange={handleSearchChange}
@@ -180,6 +183,7 @@ const Index = () => {
             selectedTags={selectedTags}
             onTagFilterChange={setSelectedTags}
           />
+          </div>
         )}
 
         <main className="container mx-auto px-4 pb-28 bg-white">
