@@ -1,6 +1,6 @@
 // Which enrichment pieces a fresh item is still waiting on, and which pieces
 // just landed between two feed snapshots. Drives the assembling card state
-// (light pulse + "Filling in the blanks…" chip) and the piece-reveal
+// (dimmed pulsing card + "Gathering more info…" chip) and the piece-reveal
 // animations as realtime delivers server-side enrichment.
 //
 // Honest by design (ETHOS: never fake enrichment): a piece is only "expected"

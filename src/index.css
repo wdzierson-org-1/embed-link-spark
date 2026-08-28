@@ -331,10 +331,10 @@
   @keyframes assembly-breathe {
     0%,
     100% {
-      opacity: 1;
+      opacity: 0.5;
     }
     50% {
-      opacity: 0.96;
+      opacity: 0.65;
     }
   }
   .animate-assembly-breathe {
@@ -417,6 +417,10 @@
     .animate-piece-in::after {
       animation: none;
       opacity: 0;
+    }
+    /* Still communicate "assembling" without motion: hold the dimmed state */
+    .animate-assembly-breathe {
+      opacity: 0.5;
     }
   }
 }

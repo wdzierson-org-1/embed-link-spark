@@ -281,7 +281,7 @@ const ContentItem = ({
               {isAssemblingNow ? (
                 <>
                   <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-assembly-dot" aria-hidden />
-                  Filling in the blanks…
+                  Gathering more info…
                 </>
               ) : (
                 <>
