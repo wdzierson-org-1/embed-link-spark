@@ -1,0 +1,68 @@
+{
+  "_readme": [
+    "Golden-question regression set for Ask retrieval (spec R6:",
+    "docs/superpowers/specs/2026-08-29-ask-retrieval-reliability-and-intent-gate-spec.md).",
+    "This is a SYSTEM regression suite, not per-user calibration: each entry",
+    "represents a CLASS of query every user will hit (type-word mismatch,",
+    "absent-word FTS miss, single-word lookup, fuzzy recall). Entries are",
+    "replayed against a live account's data by scripts/eval-retrieval.mjs,",
+    "which mimics the edge function's soft-filter merge. Seeded 2026-08-30",
+    "from real production failures; grow it from retrieval_log across",
+    "accounts as classes of miss appear — never to tune to one user's",
+    "phrasing. expect_item ids are per-account, so entries carry user_email.",
+    "Filters mirror what an over-eager agent would send — the suite asserts",
+    "the system survives wrong filter guesses."
+  ],
+  "cases": [
+    {
+      "id": "type-mismatch-note-is-audio",
+      "class": "type filter vs storage taxonomy",
+      "user_email": "will@dzierson.com",
+      "query": "reincarnation book author",
+      "filters": { "types": ["text"] },
+      "expect_item": "f5c68b8b-296f-492a-8818-6e589accd8aa",
+      "expect_in_top": 8,
+      "note": "Real failure 2026-08-30 01:48 UTC: 'the book I was making a note of' is a VOICE note (audio). Hard types=[text] excluded the #1 unfiltered hit."
+    },
+    {
+      "id": "type-mismatch-video-is-link",
+      "class": "type filter vs storage taxonomy",
+      "user_email": "will@dzierson.com",
+      "query": "how to use Claude tutorial video",
+      "filters": { "types": ["video"] },
+      "expect_item": "58dd229c-7ea0-499f-aa37-00ead38c1f2f",
+      "expect_in_top": 8,
+      "note": "Real failure 2026-08-30 03:03 UTC: YouTube saves are type=link (flavor video). types=[video] returned only uploaded video files."
+    },
+    {
+      "id": "fts-absent-word",
+      "class": "FTS AND-semantics, one absent word",
+      "user_email": "will@dzierson.com",
+      "query": "reincarnation book author",
+      "filters": null,
+      "expect_item": "f5c68b8b-296f-492a-8818-6e589accd8aa",
+      "expect_in_top": 3,
+      "note": "'author' appears nowhere in the item; websearch_to_tsquery ANDs terms so the keyword leg misses. The vector leg must carry it."
+    },
+    {
+      "id": "single-word-lookup",
+      "class": "bare-word query",
+      "user_email": "will@dzierson.com",
+      "query": "claude",
+      "filters": null,
+      "expect_item": "58dd229c-7ea0-499f-aa37-00ead38c1f2f",
+      "expect_in_top": 8,
+      "note": "One-word entries are lookups; title-bearing items must surface."
+    },
+    {
+      "id": "episodic-object-recall",
+      "class": "fuzzy episodic recall",
+      "user_email": "will@dzierson.com",
+      "query": "chair I was looking at west elm",
+      "filters": null,
+      "expect_item": "e2df8482-16ca-41cf-aa03-28d814e4e653",
+      "expect_in_top": 5,
+      "note": "Worked 2026-08-29 (kept as a don't-regress case): photographed store tag, found via OCR/description enrichment."
+    }
+  ]
+}

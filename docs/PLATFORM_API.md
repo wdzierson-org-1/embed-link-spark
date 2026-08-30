@@ -88,6 +88,7 @@ Responds with Server-Sent Events:
 ```
 data: {"delta":"token"}          ← repeatedly
 data: {"status":"searching","query":"…"}   ← optional, while a tool runs
+data: {"status":"browsing"}                ← optional (2026-08-30: catalog scan)
 data: {"status":"reading"}                 ← optional
 data: {"done":true,"sources":[{"id","title","type","url","n"}]}
 ```
