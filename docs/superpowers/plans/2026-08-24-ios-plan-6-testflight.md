@@ -211,3 +211,45 @@ No files — a checklist handed to Will, results recorded in the ledger/outcome:
 - **Type consistency:** script subcommand names used in T4/T5 match T3's definitions; ExportOptions filenames consistent; key-discovery contract (`config.env` names) identical in T3 Step 1/Step 4 and T4 Step 1.
 - **Known risks, accepted:** cloud signing's first contact with the portal may hit team-agreement prompts only Will can accept (surfaces as a clear xcodebuild error → becomes a W-step, disclosed); ASC app-record creation is genuinely UI-only (W2 stands); internal-tester API limits → T5 Step 3's fallback; Xcode 26 flag drift for `-exportArchive upload` (if `destination: upload` misbehaves, fall back to exporting then `xcrun altool`-successor per `xcodebuild -help` on this machine — investigate, don't guess).
 - **Ethos check:** no capture-time behavior changes anywhere; this plan is pure distribution plumbing.
+
+## Outcome (2026-08-30)
+
+**Commit range:** `18f090b..HEAD` (base = this plan's own authoring commit) — 3 implementation commits (T1–T3) + this wrap commit (T5). **Task 4 produced no commit** (artifacts under gitignored `ios/build/`, by design — ledgered instead).
+
+| Commit | Task | Message |
+|---|---|---|
+| `2548ee9` | T1 | feat(ios): app icon placeholder from brand mark — single-size catalogs, both targets |
+| `52a8a74` | T2 | fix(ios): single-source versions across app+appex; set team for release signing |
+| `37302c8` | T3 | feat(ios): scripted release pipeline (archive/export/upload) + ASC key drop-box |
+| *(T4)* | T4 | no commit — signed archive/`.ipa` are gitignored build artifacts; evidence lives in `.superpowers/sdd/2026-08-24-ios-plan-6-testflight/progress.md` |
+| *(this commit)* | T5 | docs(ios): TestFlight release pipeline + plan-6 outcome; session-auth release mode |
+
+### W-checkpoint résumé
+
+- **W1 (ASC API key)** — resolved 2026-08-28 without a new download: the team's existing key (`AuthKey_QC98GTFRC6.p8`, found in `stash-mac/`) probe-verified and placed in the worktree's gitignored `ios/.asc/`.
+- **W2 (ASC app record for `it.gostash.stash`)** — outstanding at the T4 handoff, **confirmed resolved by Will before this task started**: `GET /v1/apps` now returns the app record (id `6806459949`, name "Stash -- save anything"), independently re-verified here rather than assumed.
+- **W3 (TestFlight invite accepted + device checklist)** — **still open**, now the entirety of Task 6. Will's Apple ID (`willdzierson@gmail.com`) is created as an internal tester and attached to the "Internal" beta group with build 1 already available to it; the invite email's dispatch was still pending several minutes after attachment (see "Observed behaviors" below) — check inbox/spam, or use the documented UI fallback in `docs/RELEASING.md` if it never lands.
+
+### Verification
+
+- **StashKit:** `swift test` → **283/283 passing, 0 failures** (floor held — no Swift source touched this task, session-auth work is entirely `ios/scripts/release.sh` bash + docs).
+- **UI suite:** unchanged at **15** (cited, not re-run — this plan's Global Constraints explicitly freeze extension/UI behavior; nothing in T5 touches app/extension source).
+- **`release.sh` amendment:** `bash -n scripts/release.sh` clean; functionally exercised against a stub `xcodebuild` for every branch — default session mode (no flags, key present or absent) omits all three `-authenticationKey*` flags; `--key-auth`/`STASH_RELEASE_AUTH=key` includes them when the key is present and fails fast with the original actionable message when it's not; bad flag/bad env value/too-many-args all hit `usage`. `ios/.asc/config.env` was round-tripped (moved aside, restored) during this test, never edited or lost.
+- **Live release:** `xcodebuild -exportArchive` (session auth, `ExportOptions-upload.plist`) → `** EXPORT SUCCEEDED **`, `Upload succeeded` — build `1` (`0.1.0`) uploaded 2026-08-30. ASC processing: `PROCESSING` → `VALID` in **~1 minute** (well under the 5–15 min typical estimate). `usesNonExemptEncryption` resolved to `false` on the build resource automatically — no PATCH, no compliance prompt.
+- **TestFlight wiring, 100% API, zero role errors:** created the "Internal" beta group (`isInternalGroup: true`) for the app; created a `betaTesters` resource for Will (matched to his existing ACCOUNT_HOLDER/ADMIN user) with a `betaGroups` relationship — **HTTP 201, no role rejection**; attached build 1 to the group — **HTTP 204**. The Step-3 "document the exact clicks" fallback this task was briefed to prepare for never triggered for group/tester/build wiring; it ended up applying to a smaller, different residual (see below).
+
+### Adopted decisions of record
+
+1. **Session auth is now `release.sh`'s unconditional default for `archive`/`export`/`upload`.** `ios/.asc/config.env` presence/absence no longer matters for the default path — only an explicit `--key-auth` flag or `STASH_RELEASE_AUTH=key` env var pulls in the three `-authenticationKey*` flags (and only then can a missing key fail the run). This formalizes the T4 deviation: the API key's xcodebuild cloud-signing path is broken on this account/team ("Cloud signing permission error"); session auth is the only path that has ever produced a valid archive/export/upload here. The key remains fully live for ASC REST calls (this task's builds/betaGroups/betaTesters/users calls all used it successfully).
+2. **Bash 3.2 compatibility tax.** macOS ships bash 3.2.57 as `/bin/bash`/`env bash`; `"${AUTH_FLAGS[@]}"` on an empty array under `set -u` throws `unbound variable` on this version (fixed only in bash 4.4+). Every call site uses `"${AUTH_FLAGS[@]+"${AUTH_FLAGS[@]}"}"` instead — verified empirically against both empty and populated arrays before shipping.
+3. **`docs/RELEASING.md` created** as the durable, human+agent-readable release story (prerequisites, the auth split with its citation, one-command release, version/build-bump rule, processing/beta-review expectations, TestFlight group/tester REST recipe, troubleshooting). No Will-checkpoints remain in the documented pipeline for future releases — the one call-out is that an expired Xcode session is a manual sign-in-again step, not a Will-checkpoint the release process itself introduces.
+
+### Observed behaviors
+
+- **Build processing was fast:** ~1 minute from "Upload succeeded" to `processingState: VALID`, against a 5–15 minute typical/30 minute ceiling budgeted in the brief. First-ever build for this app record; no compliance prompt, no manual review gate (internal testing doesn't require one).
+- **Internal-tester invite-email dispatch has no public "send now" API and was still pending at report time.** `buildBetaDetail.autoNotifyEnabled: true` and `internalBuildState: IN_BETA_TESTING` both confirm the build is live for the group, and the tester/group/build wiring itself hit zero errors — but `GET .../betaGroups/<id>/betaTesters` kept reporting `state: NOT_INVITED` for several minutes after attachment, with no ASC endpoint to force-send the invite. Documented as the one genuine "honest fallback, not silent skip" residual: `docs/RELEASING.md` gives Will the exact two-click UI fallback (TestFlight → Internal Testing → Internal group → tester row → Resend Invite) if the email hasn't arrived by the time he checks.
+
+### FINDINGS FOR WILL
+
+1. **Check for the TestFlight invite email** (`willdzierson@gmail.com`, subject involves "Stash -- save anything" / TestFlight) — including spam. If it hasn't arrived, App Store Connect → your app → TestFlight → Internal Testing → **Internal** group → select your name → **Resend Invite** (or remove/re-add you to the group) will do it; there's no API call that forces this.
+2. **Task 6 (device verification) is the only work left in this plan** and is entirely yours: install from TestFlight, sign in, and run the five-item checklist in the plan (share URL/photo, location pin toggle, voice note + Ask tab, report anything broken). Nothing else in the pipeline needs you going forward — `docs/RELEASING.md` documents an agent-runnable release from here on.

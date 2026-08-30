@@ -240,7 +240,14 @@ Migrating the web's upload path onto it is explicitly out of scope here.
    detected URL hoisted to the front, and a cached subscription gate. Plan:
    `docs/superpowers/plans/2026-08-22-ios-plan-5-share-extension.md`.)*
 6. **Widgets + App Intents** — home-screen/lock-screen one-tap capture and
-   Siri background save (no app open) → TestFlight.
+   Siri background save (no app open) → TestFlight. **TestFlight distribution
+   milestone ✅** *(Completed 2026-08-30 — the pipeline this line points at
+   now exists and is agent-runnable: `ios/scripts/release.sh` archives,
+   exports, and uploads via the logged-in Xcode session; the first build
+   (`0.1.0`/1) is live in Internal TestFlight testing with Will enrolled as
+   a tester. Widgets/App Intents themselves are separate, not-yet-started
+   feature work — see plan 7. Plan: `docs/superpowers/plans/2026-08-24-ios-plan-6-testflight.md`;
+   full story: `docs/RELEASING.md`.)*
 7. **Visual/design parity with the web app.** *(Added 2026-08-11 — the apps
    currently look very different; align the iOS look with gostash.it's design
    language after function lands.)*
