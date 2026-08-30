@@ -12,7 +12,7 @@ import {
   Mic,
   MapPin,
   Link2,
-  Camera,
+  UtensilsCrossed,
   ImageIcon,
   StickyNote,
   Play,
@@ -24,10 +24,13 @@ import LandingChatDemo from '@/components/LandingChatDemo';
 import Cloth, { supportsHtmlInCanvas } from '@/components/landing/Cloth';
 import LightRays from '@/components/landing/LightRays';
 import demoAddLink from '@/assets/demo_add_link.mp4';
+// Cover photos are real photographs via Unsplash (unsplash.com/license) —
+// never AI renders or mocked-up interfaces; the cards must read as items a
+// real person saved. IDs/credits in the commit that introduced each file.
 import coverRecipe from '@/assets/landing/cover-recipe.jpg';
 import coverArticle from '@/assets/landing/cover-article.jpg';
 import coverRestaurant from '@/assets/landing/cover-restaurant.jpg';
-import coverApp from '@/assets/landing/cover-app.jpg';
+import coverInspiration from '@/assets/landing/cover-inspiration.jpg';
 
 // Static waveform for the voice-note card — heights are fixed so the Cloth
 // canvas capture and reduced-motion renders are deterministic.
@@ -126,11 +129,11 @@ const FLOATING_CARDS: FloatingCardSpec[] = [
     float: { dur: 6.4, y: 7, rot: 1.2 },
     scrollRot: 0.03,
     card: {
-      kind: 'Photo',
-      icon: Camera,
-      meta: 'handwriting read',
-      title: "Mom's tomato sauce recipe",
-      note: 'Snapped from the recipe box — every word transcribed.',
+      kind: 'Recipe',
+      icon: UtensilsCrossed,
+      meta: '40 min',
+      title: 'Tomato & mozzarella penne',
+      note: 'For Sunday — full recipe captured.',
       coverSrc: coverRecipe,
     },
   },
@@ -162,11 +165,12 @@ const FLOATING_CARDS: FloatingCardSpec[] = [
     float: { dur: 5.6, y: 6, rot: 1 },
     scrollRot: 0.025,
     card: {
-      kind: 'Screenshot',
+      kind: 'Image',
       icon: ImageIcon,
-      title: 'Onboarding flow inspiration',
-      note: 'For the redesign — Stash read every pixel.',
-      coverSrc: coverApp,
+      meta: 'inspiration',
+      title: 'Ceramics for the open shelves',
+      note: 'Ask for “those cream vases” — Stash will know.',
+      coverSrc: coverInspiration,
       coverClass: 'h-32',
     },
   },
