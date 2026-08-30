@@ -5,18 +5,59 @@ import { processVideo } from './videoProcessor.ts';
 import { saveMediaToStorage } from './mediaStorage.ts';
 import { successMessages } from './constants.ts';
 
+export interface NoteResult {
+  message: string;
+  itemId: string | null;
+}
+
+const BARE_URL_RE = /(https?:\/\/[^\s]+)/i;
+
 export async function handleNoteIntent(
-  message: string, 
-  mediaUrl: string | null, 
-  mediaContentType: string | null, 
+  message: string,
+  mediaUrl: string | null,
+  mediaContentType: string | null,
   userId: string,
   supabase: any,
   openaiApiKey: string
-): Promise<string> {
+): Promise<NoteResult> {
   try {
     let contentToSave = message || '';
     let processedMedia = '';
     let savedMediaPath = null;
+
+    // A texted link becomes a real link item (title/page text/embeddings via
+    // scrape-page-content), not a plain text note — same object the web
+    // paste-capture produces. Any short caption around the URL is kept as the
+    // user's own words in `content`.
+    const urlMatch = !mediaUrl ? (message || '').match(BARE_URL_RE) : null;
+    if (urlMatch) {
+      const url = urlMatch[0].replace(/[)\].,!?;:]+$/, '');
+      const caption = (message || '').replace(urlMatch[0], ' ').replace(/\s+/g, ' ').trim();
+      if (caption.length < 200) {
+        const { data: linkItem, error: linkError } = await supabase
+          .from('items')
+          .insert({
+            user_id: userId,
+            type: 'link',
+            url,
+            title: caption || url,
+            content: caption || null,
+          })
+          .select()
+          .single();
+        if (!linkError && linkItem) {
+          try {
+            await supabase.functions.invoke('scrape-page-content', {
+              body: { itemId: linkItem.id, url },
+            });
+          } catch (scrapeError) {
+            console.error('SMS link scrape failed (item still saved):', scrapeError);
+          }
+          return { message: 'Link saved! 🔗 I\'m fetching the page details now.', itemId: linkItem.id };
+        }
+        console.error('SMS link item insert failed, falling back to text note:', linkError);
+      }
+    }
 
     // Handle media if present
     if (mediaUrl && mediaContentType) {
@@ -81,18 +122,18 @@ export async function handleNoteIntent(
     }
 
     const randomMessage = successMessages[Math.floor(Math.random() * successMessages.length)];
-    
+
     if (processedMedia) {
-      return `${randomMessage} ${processedMedia.substring(0, 100)}...`;
+      return { message: `${randomMessage} ${processedMedia.substring(0, 100)}...`, itemId: item.id };
     } else if (savedMediaPath) {
-      return `${randomMessage} Media saved successfully!`;
+      return { message: `${randomMessage} Media saved successfully!`, itemId: item.id };
     } else {
-      return randomMessage;
+      return { message: randomMessage, itemId: item.id };
     }
 
   } catch (error) {
     console.error('Error handling note intent:', error);
-    return 'Sorry, I couldn\'t save that note. Please try again.';
+    return { message: 'Sorry, I couldn\'t save that note. Please try again.', itemId: null };
   }
 }
 

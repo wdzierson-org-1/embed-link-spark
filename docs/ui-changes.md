@@ -8,6 +8,42 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-30 · Ask retrieval reliability + WhatsApp/SMS intent gate (backend; no client changes required)
+
+Spec: `docs/superpowers/specs/2026-08-29-ask-retrieval-reliability-and-intent-gate-spec.md`.
+Root cause + reproduction of the 2026-08-30 retrieval misses are in the spec.
+
+- **Ask (`chat-with-all-content`), all platforms:** `search_stash` type/tag
+  filters are now **soft** — an unfiltered backstop search always runs, and
+  strong hits the filter excluded are surfaced ranked by score, labeled
+  "outside your filters". "Video" also matches links whose
+  `attributes.link.flavor` is `video` (YouTube etc.). New internal
+  `browse_catalog` tool lists the user's whole library for bare-word/fuzzy
+  queries. **SSE contract:** unchanged except a new optional status value —
+  `data:{"status":"browsing"}` — verified no current client parses status
+  frames (web and iOS both ignore them), so nothing to mirror; any future
+  status UI should treat unknown values as "working".
+  Sources/citations behavior unchanged. Every retrieval is logged to the new
+  service-role `retrieval_log` table; golden regression set at
+  `supabase/evals/golden-retrieval.json` (`node scripts/eval-retrieval.mjs`),
+  5/5 passing post-deploy, including both real 2026-08-30 failures at rank 1.
+- **WhatsApp/SMS (`twilio-webhook`):** inbound messages now pass an intent
+  gate (`_shared/intentGate.ts`) instead of a forced note/question guess.
+  Rules first: bare URLs and media saves — and a texted URL now becomes a
+  real **link item** (scrape + embeddings via `scrape-page-content`), not a
+  text note. Ambiguous text gets one confirm question ("Reply 1 to save it,
+  or 2 for an answer"), held in the new `pending_intents` table (15-min TTL,
+  one per user+channel). After an auto-save the reply offers `undo` / `ask`
+  one-word flips; classifier failure now defaults to answering (recoverable)
+  instead of silently saving. `sms_conversations.intent` gains values
+  `clarify` (confirm question sent) alongside note/question/command.
+- **DB:** `hybrid_search_content` v3 adds `item_flavor` output column
+  (appended last; existing callers unaffected). New tables `retrieval_log`,
+  `pending_intents` (both service-role only, RLS on/no policies).
+- Not shipped yet (follow-ups in spec): doc2query enrichment + audio titles
+  (R5), web/iOS save-suggestion chip via `data:{suggest:'save'}` frame (G4),
+  WhatsApp quick-reply buttons (needs a Twilio Content template).
+
 ## 2026-08-29 · Web: landing page back to periphery-cards hero; cards rebuilt as authentic library items (web only)
 
 - **Reverted the TryStash progressive-capture landing** (2026-08-28's anonymous

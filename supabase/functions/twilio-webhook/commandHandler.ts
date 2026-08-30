@@ -24,5 +24,6 @@ Try saying "remember to call mom" or "what did I save about meetings?"`;
   }
 
   // Default: treat unclear commands as notes
-  return await handleNoteIntent(message, null, null, userId, supabase, openaiApiKey);
+  const saved = await handleNoteIntent(message, null, null, userId, supabase, openaiApiKey);
+  return saved.message;
 }
