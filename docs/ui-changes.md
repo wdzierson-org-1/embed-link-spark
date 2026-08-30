@@ -8,6 +8,170 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-29 · Web: landing page back to periphery-cards hero; cards rebuilt as authentic library items (web only)
+
+- **Reverted the TryStash progressive-capture landing** (2026-08-28's anonymous
+  capture hero + ledger section — it was a concept) to the periphery-cards
+  layout from `1e582d7`: six floating stashed-item cards down the left/right
+  edges (Cloth fabric physics, light rays, scroll parallax), hero CTA to
+  /pricing, capabilities grid, paste demo, screenshots, chat demo. `TryStash.tsx`
+  and the anon-profile plumbing stay in the tree, just unmounted.
+- **Cards rebuilt as believable saved objects**, one per capture type, each
+  with the anatomy that type really has instead of one photo+badge template:
+  recipe (pasta photo, cook-time meta), **voice note with waveform + play
+  chip + duration + transcript snippet (no cover)**, ceramics inspiration
+  image, place (café photo, name + neighborhood meta + user's own note),
+  article link (read-time meta, "full text saved"), and a **plain note with
+  auto-tag chips**. Shared anatomy: optional cover → icon+kind meta row
+  (replaces the black badge-on-photo) → tobias title → mori note. No
+  contract changes — marketing page only; nothing for iOS/macOS to mirror.
+- **All cover photos are now real photographs** (Unsplash-licensed, credits
+  in the commit); the AI-generated mockups (gibberish handwriting, fake app
+  UIs) are deleted. Standing rule, commented in `Landing.tsx`: card covers
+  must be real photography, never AI renders or mocked-up interfaces.
+- Source: `src/pages/Landing.tsx` (`StashedCard`, `FLOATING_CARDS`).
+- **Sign-in lockout fixed** (latent since the TryStash landing): `/auth`'s
+  already-signed-in redirect fired for **anonymous** try-stash sessions too,
+  and `/home` bounces anonymous users to `/`, so visitors with a lingering
+  `signInAnonymously()` session flashed the sign-in form then landed on the
+  homepage — locked out. `/auth` now redirects only real (non-anonymous)
+  accounts; an anonymous session stays on the form and is replaced on
+  sign-in. Contract for other platforms: treat `is_anonymous` sessions as
+  signed-out everywhere except the try-stash surface itself.
+
+## 2026-08-29 · iOS: app icon (wordmark's second S over splash gradient); share card redesigned in the design language (iOS)
+
+- **App icon shipped** (was empty — TestFlight upload hard-fails without one):
+  the wordmark's stitched second-S glyph, white, centered at ~55% height over
+  the splash gradient's pink-hued slice (`#667eea → #764ba2 → #f093fb →
+  #f5576c`, 135°). Single 1024 universal PNG in
+  `ios/Stash/Assets.xcassets/AppIcon.appiconset`. The **share extension
+  carries the same icon** in its own catalog
+  (`ios/StashShareExtension/Assets.xcassets` — an appex bundle can't see the
+  host app's catalog), so the share sheet shows the branded S too;
+  `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` set on both targets in
+  `project.yml`. Source of truth for regenerating: the icon is rendered from
+  the wordmark SVG's second-S paths (x≈587–726 in the viewBox) — no separate
+  design file.
+- **Share compose card redesigned** to the app design language
+  (`StashDesign.swift` now compiled into the extension target, same
+  shared-glue pattern as `LocationCapture.swift`): gradient backdrop +
+  wordmark header replace the `NavigationStack` inline "Stash" title; Cancel
+  is a round `xmark` `CircleIcon`; previews + note field sit on hairline
+  cards (solid bg, gray hairline, soft shadow — no stock `.roundedBorder`);
+  URL glyph wears the violet toggled-circle treatment; pin is the composer's
+  `CircleIcon` mappin (violet when pinned, spinner in-circle while
+  resolving); Save is the weighted violet capsule (CircleSubmitIcon's
+  hot/resting split, never dimmed). **Contracts unchanged:** every
+  `share.*` accessibility identifier, element type (note stays a
+  vertical-axis TextField → bridges as TextView), and all
+  save/gate/abandon-tracker behavior byte-identical.
+  `testShareExtensionURLSmoke` re-verified green against production.
+
+## 2026-08-29 · iOS: chat sessions + Conversations screen (iOS ports web 2026-08-27/28)
+
+Prototype (reviewed & approved): `docs/superpowers/prototypes/2026-08-29-ios-ask-conversations.html`.
+Client-only — the trigger, gap convention, and `list_conversations` RPC were
+already deployed by the web migrations.
+
+- **`ChatSessions` (StashKit):** port of `chatSessions.ts` — 3h gap
+  (`resolveTarget`), bucket labels (Today/Yesterday/This week [Mon start]/
+  month), timestamptz parsing. Unit-tested (gap boundaries, buckets).
+- **`ChatHistoryStoring` reshaped:** `latestConversation` (by
+  `last_message_at`), `createConversation` (title null, lazy),
+  `generateTitle` + `setTitle` (auto-title, non-fatal), `listConversations`
+  (RPC pass-through). The old eager `loadOrCreateConversation` (earliest-ever
+  row titled "Ask Stash") is gone.
+- **`ChatStore` session machine:** open-time resolution (continue < 3h, else
+  fresh; row created lazily on first send), `ensureSessionForSend` (explicit
+  resumes gap-exempt; stale thread clears first; brand-new session sends NO
+  prior turns), auto-title after the first exchange (optimistic
+  question-fallback title, generated title replaces it), `openConversation` /
+  `startNewChat` / `letGoIfExplicit` / `restorePrevious` + `lastLoaded`.
+  All unit-tested with an injected clock.
+- **Ask tab UI:** NavigationStack (the one pushed screen in the app — back
+  reads "‹ Ask" under the hidden wordmark header, per the titling
+  convention); header gains new-chat + history circle buttons; violet title
+  pill while an explicit old conversation is open; "Load previous
+  conversation — <title>" restore banner on an empty thread.
+  **Let-go trigger on iOS = leaving the Ask tab** (the analog of collapsing
+  the web mole), via the NavigationStack's `onDisappear`.
+- **`ConversationsListView`:** server-paged (25/page, infinite scroll instead
+  of web's Prev/Next), debounced search (300ms, titles + message contents),
+  bucket labels, untitled rows italic. Row tap loads explicit + pops.
+- Card **focus mode intentionally not ported** (Will's call, 2026-08-29).
+- New `testConversationsSmoke` (ungated — listing needs no subscription):
+  passes green against production.
+
+## 2026-08-29 · iOS polish: Add-tab tab-bar hairline; search submit key (iOS)
+
+- Add tab forces `.toolbarBackground(.visible, for: .tabBar)` — the other tabs
+  get the bar's material + hairline for free from content scrolling beneath
+  it; Add has no scroll view, so the bar rendered transparent there (no
+  separator line).
+- Library search pill: `.submitLabel(.search)` — return dismisses the
+  keyboard (the custom pill spawns no system Cancel button, unlike
+  `.searchable`). UI tests updated accordingly; `testTagFilterSheetOpens`
+  deleted with the tag filter. `testLibrarySmoke` + `testDetailSheets`
+  verified green against production after the redesign.
+
+## 2026-08-28 · iOS: web design language adopted — round buttons, wordmark headers, gradient, splash; chips/tags removed from View (iOS)
+
+Second pass the same day (below entry is the first): the iOS app now mirrors
+the web's visual conventions instead of stock-iOS chrome.
+
+- **Design system** (`ios/Stash/Design/StashDesign.swift`): the web's exact
+  values ported — Tailwind violet/gray hexes, `UnifiedInputPanel.tsx`'s round
+  iconographic buttons (white circle, hairline gray border, soft shadow;
+  violet-tinted active state; the one weighted control is the violet-filled
+  #8B5CF6 paperplane submit, never dimmed when disabled — white/gray instead),
+  and `index.css`'s six-stop `.animated-gradient` (15s ease shift) as a
+  page-level backdrop fading to background.
+- **One titling convention across all four tabs:** no per-screen titles (the
+  tab bar already says where you are; no tab goes deeper than one level).
+  Every tab carries the same compact header — Stash wordmark leading (ported
+  as a template-rendered SVG asset), per-tab accessory trailing (View: item
+  count; Add: outbox badge). If push navigation ever arrives, the system
+  inline back bar slots underneath without clashing.
+- **View tab decluttered:** type chips (All/Links/Notes/…) removed entirely;
+  tag filter removed (tags are being deprecated product-wide — they remain
+  visible only in Settings for now); large title + `.searchable` bar replaced
+  by the header row + one pill search field (web `LibraryToolbar`'s
+  rounded-full pill, violet ring while focused). Cards are white surfaces
+  with hairline border + soft shadow over the gradient backdrop.
+- **Ask composer** restyled to the same circles (mic resting = white circle;
+  live dictation keeps its red state signal; send = weighted violet circle).
+- **Splash screen** (`SplashView`): wordmark centered over the animated
+  gradient at 0.35 opacity, ~1.6s on cold launch, cross-fades out while
+  session restore continues underneath. Sign-in screen intentionally plain.
+- UI tests updated: chip/tag steps dropped; search now targets the custom
+  pill field (`library.search` text field, not `searchFields`), which spawns
+  no system Cancel button.
+
+## 2026-08-28 · iOS: single-column card grid on phones; full-screen Add composer (iOS)
+
+- **Library grid is single-column on compact width** (phones); two-up only on
+  regular width (iPad). `LibraryView.columns` switches on
+  `horizontalSizeClass`. Motivation: the two-up grid shipped with a card-width
+  blowout — `.fill`-scaled hero images inflated cards past their grid column.
+  Structural fix in `CardHero.swift`: `TallContainedImage` /
+  `StandardCoverImage` now render imagery in an `.overlay` of a fixed-height
+  base (overlays don't participate in layout negotiation), so a hero can never
+  drive card width again, at any column count.
+- **Add composer owns the whole screen.** The editor fills all space between
+  the large title and a bottom stack (no bounded 160–220pt frame, no dead
+  space — there's no card grid under the input on iOS, unlike the web's
+  panel-over-grid). Full-bleed panel (12pt text inset only). Bottom stack
+  order, top→bottom: URL chip → attachments row → subscription gate →
+  location line → controls row. The location preview gets its own line
+  directly above the controls, never inline between buttons.
+- Controls row buttons are `.borderless` (was `.bordered`): seven bordered
+  controls exceeded a phone's width, overflowing the composer off both display
+  edges (Save clipped entirely off-screen).
+- `MainTabView` accepts `--uitest-tab-view` / `--uitest-tab-ask` /
+  `--uitest-tab-settings` launch arguments (same family as
+  `--uitest-reset-auth`) so headless verification can land on a tab directly.
+
 ## 2026-08-28 · Capture panel hidden in conversations/focus states; gradient page-level; conversations search + pagination (web)
 
 - The capture input panel is hidden while the Conversations list is open OR

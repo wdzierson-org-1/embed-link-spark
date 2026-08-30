@@ -55,29 +55,21 @@ struct CaptureComposerView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                editor
-                if let url = detectFirstURL(in: viewModel.text) {
-                    urlChip(url)
-                }
-                if !viewModel.attachments.isEmpty {
-                    CaptureAttachmentsRow(attachments: $viewModel.attachments)
-                }
-                if case .ready(let location) = locationCapture.state {
-                    pinPreview(location.label)
-                }
-                if !subscription.canAddContent {
-                    subscriptionGateMessage
-                }
-                Spacer(minLength: 0)
-                bottomBar
-            }
-            .padding()
-            .navigationTitle("Add")
-            .toolbar {
-                if viewModel.pendingOutboxCount > 0 {
-                    ToolbarItem(placement: .topBarTrailing) {
+        ZStack(alignment: .top) {
+            Color(.systemBackground).ignoresSafeArea()
+            // Same page-level gradient ambience as the web's capture surface — subtler here
+            // so long-form typing stays on a calm background.
+            GradientBackdrop(opacity: 0.22)
+                .frame(height: 320)
+                .ignoresSafeArea(edges: .top)
+
+            // Full-height composer: the editor takes every point between the header and the
+            // bottom stack — no dead space (there are no cards beneath the input on this
+            // screen, unlike the web's panel-over-grid layout). Everything contextual (URL
+            // chip, attachments, gate, location) gathers just above the controls row.
+            VStack(alignment: .leading, spacing: 0) {
+                StashHeader {
+                    if viewModel.pendingOutboxCount > 0 {
                         Text("\(viewModel.pendingOutboxCount)")
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(.white)
@@ -87,15 +79,38 @@ struct CaptureComposerView: View {
                             .accessibilityIdentifier("capture.outboxBadge")
                     }
                 }
-                // Standard keyboard-accessory dismiss: the composer has no reliable "empty"
-                // area to tap once the keyboard pushes the attachments row/bottom bar up
-                // against it, so a Done button (always present whenever the keyboard is up,
-                // regardless of how little free space remains) is the robust choice here.
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { editorFocused = false }
-                        .accessibilityIdentifier("capture.dismissKeyboard")
+                editor
+                VStack(alignment: .leading, spacing: 10) {
+                    if let url = detectFirstURL(in: viewModel.text) {
+                        urlChip(url)
+                    }
+                    if !viewModel.attachments.isEmpty {
+                        CaptureAttachmentsRow(attachments: $viewModel.attachments)
+                    }
+                    if !subscription.canAddContent {
+                        subscriptionGateMessage
+                    }
+                    // Location gets its own line directly above the controls — never inline
+                    // between the buttons, where it had no room to breathe.
+                    if case .ready(let location) = locationCapture.state {
+                        pinPreview(location.label)
+                    }
+                    bottomBar
                 }
+                .padding(.horizontal)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+            }
+        }
+        // Standard keyboard-accessory dismiss: the composer has no reliable "empty"
+        // area to tap once the keyboard pushes the attachments row/bottom bar up
+        // against it, so a Done button (always present whenever the keyboard is up,
+        // regardless of how little free space remains) is the robust choice here.
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { editorFocused = false }
+                    .accessibilityIdentifier("capture.dismissKeyboard")
             }
         }
         .overlay(alignment: .bottom) { toastView }
@@ -168,10 +183,11 @@ struct CaptureComposerView: View {
                 .scrollContentBackground(.hidden)
                 .accessibilityIdentifier("capture.editor")
         }
-        // A bounded range, not just `minHeight`: TextEditor has no strong intrinsic content
-        // size and will otherwise greedily fill all space the Spacer below would take instead,
-        // shoving the URL chip / attachments row down against the bottom bar.
-        .frame(minHeight: 160, maxHeight: 220)
+        // TextEditor's greedy vertical fill is exactly right here — the composer owns the
+        // whole screen between the title and the bottom stack. Full-bleed panel; the small
+        // horizontal inset just keeps text off the display edge.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 12)
     }
 
     /// Composer gate (Task 7): proactively disabled + explained, unlike the web's `UnifiedInputPanel`
@@ -206,11 +222,14 @@ struct CaptureComposerView: View {
 
     // MARK: - Bottom bar
 
+    // Web button convention (`UnifiedInputPanel.tsx` bottom actions): round iconographic
+    // controls with hairline borders, violet active states, and one weighted violet submit.
+    // Secondary circles are 40pt (7 × 48pt won't fit a phone row; 40 clears even an SE) with
+    // the 48pt save carrying the visual weight.
     private var bottomBar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 8) {
             PhotosPicker(selection: $selectedPhotoItems, matching: .images) {
-                Image(systemName: "photo.on.rectangle")
-                    .imageScale(.large)
+                CircleIcon(systemImage: "photo.on.rectangle")
             }
             .accessibilityIdentifier("capture.photosPicker")
 
@@ -218,8 +237,7 @@ struct CaptureComposerView: View {
                 Button {
                     showCameraPicker = true
                 } label: {
-                    Image(systemName: "camera")
-                        .imageScale(.large)
+                    CircleIcon(systemImage: "camera")
                 }
                 .accessibilityIdentifier("capture.cameraButton")
             }
@@ -227,8 +245,7 @@ struct CaptureComposerView: View {
             Button {
                 showFileImporter = true
             } label: {
-                Image(systemName: "doc.badge.plus")
-                    .imageScale(.large)
+                CircleIcon(systemImage: "doc.badge.plus")
             }
             .accessibilityIdentifier("capture.fileButton")
 
@@ -241,8 +258,7 @@ struct CaptureComposerView: View {
                 Button {
                     showVoiceRecorder = true
                 } label: {
-                    Image(systemName: "mic")
-                        .imageScale(.large)
+                    CircleIcon(systemImage: "mic")
                 }
                 // Task 7: `VoiceRecorderSheet.save()` calls `submitVoiceNote` directly, bypassing
                 // this view's own Save button entirely — that button's `.disabled` gate (above)
@@ -255,41 +271,32 @@ struct CaptureComposerView: View {
                 .accessibilityIdentifier("capture.voice")
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            Toggle(isOn: $viewModel.isPublic) {
-                Image(systemName: viewModel.isPublic ? "globe" : "lock")
+            Button {
+                viewModel.isPublic.toggle()
+            } label: {
+                CircleIcon(systemImage: viewModel.isPublic ? "globe" : "lock", active: viewModel.isPublic)
             }
-            .toggleStyle(.button)
             .accessibilityIdentifier("capture.toggle.public")
 
             pinButton
             saveButton
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
     }
 
     // MARK: - Location pin (Task 6)
 
     private var pinButton: some View {
-        Button {
+        let state = locationCapture.state
+        let engaged = if case .ready = state { true } else { state == .resolving }
+        return Button {
             locationCapture.toggle()
         } label: {
-            if locationCapture.state == .resolving {
-                ProgressView()
-            } else {
-                Image(systemName: pinIconName)
-                    .imageScale(.large)
-            }
+            CircleIcon(systemImage: "mappin", active: engaged, busy: state == .resolving)
         }
         .accessibilityIdentifier("capture.pin")
-    }
-
-    private var pinIconName: String {
-        switch locationCapture.state {
-        case .ready: "mappin.circle.fill"
-        case .off, .resolving, .failed: "mappin"
-        }
     }
 
     private func pinPreview(_ label: String) -> some View {
@@ -324,13 +331,9 @@ struct CaptureComposerView: View {
             editorFocused = false
             Task { await submit() }
         } label: {
-            if isSubmitting {
-                ProgressView()
-            } else {
-                Text("Save")
-            }
+            CircleSubmitIcon(hot: canSubmit && subscription.canAddContent && !isSubmitting,
+                             busy: isSubmitting)
         }
-        .buttonStyle(.borderedProminent)
         .disabled(isSubmitting || !canSubmit || !subscription.canAddContent)
         .accessibilityIdentifier("capture.save")
     }

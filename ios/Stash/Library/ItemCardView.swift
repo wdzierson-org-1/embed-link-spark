@@ -38,11 +38,15 @@ struct ItemCardView: View {
             .padding(12)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(Color(.systemBackground))
         // One outer clip (rather than porting the web's per-plate `rounded-t-2xl`) crops
         // whatever's in the hero zone to the card's own top corners — the hero sits flush
         // against the top/sides with no gap, so this alone produces the same silhouette.
         .clipShape(RoundedRectangle(cornerRadius: 14))
+        // Web card treatment: a white surface lifted off the gradient backdrop by a hairline
+        // border + soft shadow, instead of the flat gray-fill look.
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.black.opacity(0.06), lineWidth: 1))
+        .shadow(color: .black.opacity(0.07), radius: 10, y: 3)
         .overlay(alignment: .topTrailing) { stickyBadge }
         .redacted(reason: item.isProcessingDocument ? .placeholder : [])
         .overlay { if item.isProcessingDocument { shimmer } }

@@ -28,15 +28,28 @@ public struct ChatMessage: Identifiable, Equatable, Sendable {
 
 // MARK: - ChatHistoryStoring
 
-/// Port of ChatMole.tsx's `conversations`/`messages` persistence (:70-132) — the Ask surface's
-/// thread survives sessions in two tables instead of living only in view state.
+/// Port of ChatMole.tsx's `conversations`/`messages` persistence — the Ask surface's thread
+/// survives sessions in two tables instead of living only in view state. Sessions rework
+/// (2026-08-29, mirroring the web's 2026-08-27/28 model): conversations are 3h-gap sessions
+/// (`ChatSessions`), rows are created lazily on first send with a null title, auto-titled via
+/// `generate-title`, and browsable through the `list_conversations` RPC.
 public protocol ChatHistoryStoring: Sendable {
-    func loadOrCreateConversation(userId: UUID) async throws -> UUID
+    /// The user's most recent conversation by `last_message_at` (ChatMole.tsx's open-time
+    /// resolution query), or nil for a first-ever chat.
+    func latestConversation(userId: UUID) async throws -> ChatSessions.Candidate?
+    /// A fresh session row — title null, auto-titled after the first exchange.
+    func createConversation(userId: UUID) async throws -> UUID
     /// Oldest-first — mirrors the web's desc-ordered page, `.reverse()`d for display.
     func loadHistory(conversationId: UUID, limit: Int) async throws -> [ChatMessage]
     /// Fire-and-forget, matching ChatMole.tsx:121-131: a message that fails to save is logged,
     /// never thrown, so a persistence hiccup can't interrupt the conversation in progress.
     func persist(conversationId: UUID, role: String, content: String, sourceItemIds: [UUID]?) async
+    /// `generate-title` edge function; nil on any failure (the caller falls back to the question).
+    func generateTitle(for question: String) async -> String?
+    /// Fire-and-forget title write, same non-fatal contract as `persist`.
+    func setTitle(conversationId: UUID, title: String) async
+    /// `list_conversations(search_text, page_limit, page_offset)` — newest-first.
+    func listConversations(searchText: String?, pageLimit: Int, pageOffset: Int) async throws -> [ConversationListRow]
 }
 
 // MARK: - SupabaseChatHistory
@@ -44,20 +57,29 @@ public protocol ChatHistoryStoring: Sendable {
 public struct SupabaseChatHistory: ChatHistoryStoring {
     public init() {}
 
-    /// ChatMole.tsx:76-92 — earliest conversation for the user; created on first use if none exists.
-    public func loadOrCreateConversation(userId: UUID) async throws -> UUID {
-        struct ConversationRow: Decodable { let id: UUID }
-        let existing: ConversationRow? = try await StashClient.shared.from("conversations")
-            .select("id")
+    public func latestConversation(userId: UUID) async throws -> ChatSessions.Candidate? {
+        struct Row: Decodable {
+            let id: UUID
+            let title: String?
+            let last_message_at: String?
+        }
+        let row: Row? = try await StashClient.shared.from("conversations")
+            .select("id, title, last_message_at")
             .eq("user_id", value: userId.uuidString)
-            .order("created_at", ascending: true)
+            .order("last_message_at", ascending: false, nullsFirst: false)
             .limit(1)
             .maybeSingle()
             .execute().value
-        if let existing { return existing.id }
+        guard let row else { return nil }
+        return ChatSessions.Candidate(id: row.id, title: row.title,
+                                       lastMessageAt: ChatSessions.parseTimestamp(row.last_message_at))
+    }
 
-        let created: ConversationRow = try await StashClient.shared.from("conversations")
-            .insert(["user_id": userId.uuidString, "title": "Ask Stash"])
+    public func createConversation(userId: UUID) async throws -> UUID {
+        struct Row: Decodable { let id: UUID }
+        // `title` omitted → SQL null; the auto-title lands after the first exchange.
+        let created: Row = try await StashClient.shared.from("conversations")
+            .insert(["user_id": userId.uuidString])
             .select("id")
             .single()
             .execute().value
@@ -113,6 +135,60 @@ public struct SupabaseChatHistory: ChatHistoryStoring {
             try await StashClient.shared.from("messages").insert(payload).execute()
         } catch {
             print("Failed to persist chat message (non-fatal): \(error)")
+        }
+    }
+
+    /// ChatMole.tsx's auto-title branch: `generate-title` returns `{ title }` (with its own
+    /// "Untitled Note" fallback body even on server error); any transport failure here just
+    /// yields nil and the caller falls back to the question text.
+    public func generateTitle(for question: String) async -> String? {
+        struct Response: Decodable { let title: String? }
+        do {
+            let response: Response = try await StashClient.shared.functions
+                .invoke("generate-title", options: .init(body: ["content": question]))
+            let title = response.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (title?.isEmpty == false) ? title : nil
+        } catch {
+            print("Title generation failed (non-fatal): \(error)")
+            return nil
+        }
+    }
+
+    public func setTitle(conversationId: UUID, title: String) async {
+        do {
+            try await StashClient.shared.from("conversations")
+                .update(["title": title])
+                .eq("id", value: conversationId.uuidString)
+                .execute()
+        } catch {
+            print("Failed to set conversation title (non-fatal): \(error)")
+        }
+    }
+
+    public func listConversations(searchText: String?, pageLimit: Int, pageOffset: Int) async throws -> [ConversationListRow] {
+        struct Params: Encodable {
+            let search_text: String?
+            let page_limit: Int
+            let page_offset: Int
+        }
+        struct Row: Decodable {
+            let id: UUID
+            let title: String?
+            let last_message_at: String
+            let message_count: Int
+            let preview: String?
+            let total_count: Int
+        }
+        let rows: [Row] = try await StashClient.shared
+            .rpc("list_conversations", params: Params(search_text: searchText,
+                                                       page_limit: pageLimit,
+                                                       page_offset: pageOffset))
+            .execute().value
+        return rows.compactMap { row in
+            guard let lastMessageAt = ChatSessions.parseTimestamp(row.last_message_at) else { return nil }
+            return ConversationListRow(id: row.id, title: row.title, lastMessageAt: lastMessageAt,
+                                        messageCount: row.message_count, preview: row.preview,
+                                        totalCount: row.total_count)
         }
     }
 }

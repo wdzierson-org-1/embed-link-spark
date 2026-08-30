@@ -12,7 +12,8 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            StashHeader()
             List {
                 AccountSection(userId: userId)
                 PhoneSection(userId: userId)
@@ -22,7 +23,6 @@ struct SettingsView: View {
                 footerSection
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Settings")
             .confirmationDialog("Sign out of Stash?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
                 Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
                     .accessibilityIdentifier("settings.signout.confirm")

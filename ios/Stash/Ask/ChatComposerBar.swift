@@ -1,20 +1,27 @@
 import SwiftUI
 
-/// TextField + mic + send. Pure input collection — routing (`store.send`, chip/gate handling)
-/// lives in `AskView`; this view only reports a tap.
+/// TextField + mic + send, in the web's round-button convention (`StashDesign.swift`): white
+/// circles with hairline borders, the send circle violet-filled while there's something to send.
+/// Pure input collection — routing (`store.send`, chip/gate handling) lives in `AskView`; this
+/// view only reports a tap.
 struct ChatComposerBar: View {
     @Binding var text: String
     let isSending: Bool
     var dictation: DictationController
     let onSend: () -> Void
 
+    private var canSend: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+    }
+
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
+        HStack(alignment: .bottom, spacing: 8) {
             TextField("Ask, or paste a link / 'remember:' to save", text: $text, axis: .vertical)
                 .lineLimit(1...4)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(StashColor.gray300, lineWidth: 1))
                 .accessibilityIdentifier("ask.input")
 
             if dictation.isSupported, dictation.authorizationState != .denied {
@@ -27,23 +34,28 @@ struct ChatComposerBar: View {
 
     private var micButton: some View {
         Button(action: handleMicTap) {
-            Image(systemName: dictation.isListening ? "waveform" : "mic.fill")
-                .imageScale(.medium)
-                .foregroundStyle(dictation.isListening ? Color.white : Color.accentColor)
-                .frame(width: 34, height: 34)
-                .background(dictation.isListening ? Color.red : Color(.secondarySystemBackground),
-                            in: Circle())
+            // Live dictation keeps its red recording treatment — that's a state signal, not a
+            // style; at rest it's the standard circle.
+            if dictation.isListening {
+                Image(systemName: "waveform")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Color.red, in: Circle())
+            } else {
+                CircleIcon(systemImage: "mic")
+            }
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("ask.mic")
     }
 
     private var sendButton: some View {
         Button(action: onSend) {
-            Image(systemName: "arrow.up.circle.fill")
-                .imageScale(.large)
-                .frame(width: 34, height: 34)
+            CircleSubmitIcon(size: 40, hot: canSend, busy: isSending)
         }
-        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+        .buttonStyle(.plain)
+        .disabled(!canSend)
         .accessibilityIdentifier("ask.send")
     }
 
