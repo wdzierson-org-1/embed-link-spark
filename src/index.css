@@ -231,7 +231,10 @@
   }
 
   .animated-gradient {
-    background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f5576c, #4facfe, #00f2fe);
+    /* Purple/blue-biased spectrum — the milky orchid (#f093fb) and salmon
+       (#f5576c) stops read "pepto" through the white overlay; deeper violet
+       and raspberry keep the warmth without the chalk (2026-08-30) */
+    background: linear-gradient(-45deg, #667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8);
     background-size: 400% 400%;
     animation: gradientShift 15s ease infinite;
   }

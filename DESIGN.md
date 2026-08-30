@@ -13,6 +13,10 @@ Reference implementations (interactive HTML, open from the repo):
 - Cards: `docs/superpowers/prototypes/2026-08-30-card-type-gallery-neue-montreal.html`
 - Detail panel: `docs/superpowers/prototypes/2026-08-30-detail-panel-surface-neue-montreal.html`
 
+Where those comps and this file disagree, **this file wins** (2026-08-30
+revisions after live review: serif card titles, full-bleed screenshots, violet
+document tint, deeper purple-biased page gradient).
+
 ---
 
 ## Philosophy
@@ -32,8 +36,10 @@ Reference implementations (interactive HTML, open from the repo):
 4. **Lively, not cute.** No emoji anywhere in product UI, ever — including
    toasts, empty states, and notifications. Iconography is Lucide (see below).
    Motion is purposeful and brief; `prefers-reduced-motion` is always honored.
-5. **One family, weight is hierarchy.** PP Neue Montreal everywhere; the old
-   serif/sans split is now a weight split (500 titles vs 400 UI).
+5. **One UI family; the serif belongs to the objects.** PP Neue Montreal for
+   all UI and content text, with weight as hierarchy. The single serif moment
+   is the **card title** — PP Editorial New marks "this is a saved object" in
+   the library grid. Nothing else is serif on product surfaces.
 6. **Enrichment answers "why did I save this?"** before the user asks. Cards
    answer at a glance (type tint, title, one or two fact chips); the panel
    answers in full (summary, transcript, dotted facts).
@@ -48,7 +54,7 @@ bundle); fall back to SF Pro only if the face fails to load.
 
 | Role | Weight | Size / line | Tracking | Notes |
 |---|---|---|---|---|
-| Object title (card) | 500 | 20 / 1.24 | −0.014em | 2-line clamp |
+| Object title (card) | **PP Editorial New** 400 | 20 / tight | 0 | 2-line clamp — the one serif role |
 | Object title (panel) | 500 | 28 / 1.2 | −0.02em | inline-editable |
 | Display header (marketing, empty states) | 600 | 32–40 / 1.12 | −0.022em | |
 | Body / description | 400 | 13.5–14.5 / 1.5–1.6 | 0 | muted color |
@@ -58,10 +64,11 @@ bundle); fall back to SF Pro only if the face fails to load.
 | Kicker / eyebrow | 600 | 11 caps | +0.10em | |
 | Date / meta | 400 | 12 | 0 | `faint` |
 
-**Exceptions:** marketing pages (homepage, pricing) may use Tobias as the
-display face, with PP Editorial New *Ultralight Italic* for single accent words
-inside display headlines — nowhere else. Upright PP Editorial New and PP Mori
-are retired everywhere — do not introduce them in new work.
+**Exceptions:** card titles use upright **PP Editorial New** (see table);
+marketing pages (homepage, pricing) may use Tobias as the display face, with
+PP Editorial New *Ultralight Italic* for single accent words inside display
+headlines. PP Mori is retired everywhere; don't introduce Editorial in any
+other product role.
 
 ## Color
 
@@ -93,7 +100,7 @@ type; these are the only decorative-adjacent colors allowed:
 |---|---|---|
 | voice note | `84,88,178` @ .11–.12 | `#544eba` (play, waveform), text `#45408c` |
 | recording / audio file | `126,74,158` @ .10–.11 | `#8b4a9e`, text `#703c77` |
-| document (pdf/office) | `205,90,105` @ .10–.11 | text `#a33d52` |
+| document (pdf/office) | `150,70,190` @ .10–.11 | text `#7d3f9e` |
 | screenshot | `52,132,201` @ .08–.12 | text `#22689c` |
 | repo | plate `#0d1117` | mono `#e6edf3`, owner `#8b7bd8` |
 | social post | `70,100,180` @ .07 | quote in ink |
@@ -134,7 +141,7 @@ Per-type hero:
 | recording | compressed player on audio field (height 96) |
 | video (upload or link) | poster frame + centered play badge + duration on scrim — no native `<video controls>` chrome |
 | photo | full-bleed image (h-40; tall h-56 with blurred self-backdrop for portrait) |
-| screenshot | white "window" frame rising from the screenshot field |
+| screenshot | full-bleed image, same as photo — the tinted screenshot chip carries the identity |
 | document | first-page thumbnail floating on document field + format badge |
 | article/product/recipe/place link | cover image (+ price pill for product) |
 | social | pull-quote (500) + avatar/handle on social field |

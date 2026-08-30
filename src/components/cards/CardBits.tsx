@@ -19,7 +19,7 @@ export type SpectrumTint = 'voice' | 'audio' | 'doc' | 'shot' | 'social';
 const FIELD_TINTS: Record<SpectrumTint, string> = {
   voice: 'rgba(84,88,178,0.12)',
   audio: 'rgba(126,74,158,0.11)',
-  doc: 'rgba(205,90,105,0.11)',
+  doc: 'rgba(150,70,190,0.10)',
   shot: 'rgba(52,132,201,0.11)',
   social: 'rgba(70,100,180,0.07)',
 };
@@ -27,7 +27,7 @@ const FIELD_TINTS: Record<SpectrumTint, string> = {
 const CHIP_TINTS: Record<SpectrumTint, { background: string; color: string }> = {
   voice: { background: 'rgba(84,88,178,0.12)', color: '#45408c' },
   audio: { background: 'rgba(139,74,158,0.12)', color: '#7d3d84' },
-  doc: { background: 'rgba(205,90,105,0.12)', color: '#a33d52' },
+  doc: { background: 'rgba(150,70,190,0.11)', color: '#7d3f9e' },
   shot: { background: 'rgba(52,132,201,0.12)', color: '#22689c' },
   social: { background: 'rgba(70,100,180,0.1)', color: '#3a4f8c' },
 };
@@ -133,7 +133,7 @@ export const formatBadgeColor = (ext?: string | null): string => {
     case 'DOC':
       return '#2b579a';
     default:
-      return '#a33d52';
+      return '#7d3f9e';
   }
 };
 

@@ -63,12 +63,6 @@ const ContentItemFooter = ({
     }
   };
 
-  const handleChatWithItem = () => {
-    if (onChatWithItem) {
-      onChatWithItem(item);
-    }
-  };
-
   const fileUrl = getFileUrl(item);
   const isOwner = currentUserId && item.user_id === currentUserId;
   const showOwnerControls = isPublicView && isOwner;
@@ -111,12 +105,6 @@ const ContentItemFooter = ({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {!isPublicView && (
-              <DropdownMenuItem onClick={handleChatWithItem}>
-                <MessageCircle className="h-4 w-4 mr-2" />
-                Chat with item
-              </DropdownMenuItem>
-            )}
             {isPublicView && onCommentClick && (
               <DropdownMenuItem onClick={() => onCommentClick(item.id)}>
                 <MessageCircle className="h-4 w-4 mr-2" />

@@ -127,7 +127,7 @@ const getTypeChip = (
       return {
         Icon: FileText,
         label: isPdf ? 'pdf' : 'document',
-        className: 'bg-[rgba(205,90,105,0.12)] text-[#a33d52]',
+        className: 'bg-[rgba(150,70,190,0.11)] text-[#7d3f9e]',
       };
     }
     case 'link': {

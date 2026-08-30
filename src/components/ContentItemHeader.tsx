@@ -13,13 +13,11 @@ import {
   LinkCover,
   PlayerHero,
   RepoPlate,
-  ScreenshotHero,
   VideoPosterHero,
 } from '@/components/cards/CardHero';
 import {
   audioSubtype,
   formatFileSizeChip,
-  isScreenshotItem,
   mimeExtensionLabel,
 } from '@/components/cards/CardBits';
 import type { ItemAttributes } from '@/types/itemAttributes';
@@ -131,16 +129,10 @@ const ContentItemHeader = ({
         return <DocumentHero ext={mimeExtensionLabel(item.mime_type)} />;
 
       case 'image': {
+        // Screenshots render full-bleed like any image (the framed-window
+        // treatment was tried and reverted 2026-08-30); the screenshot
+        // identity lives in the tinted type chip instead.
         if (fileUrl && !imageErrors.has(item.id)) {
-          if (isScreenshotItem(item)) {
-            return (
-              <ScreenshotHero
-                src={fileUrl}
-                alt={item.title || 'Screenshot'}
-                onError={() => onImageError(item.id)}
-              />
-            );
-          }
           return (
             <AspectAwareImage
               src={fileUrl}
@@ -256,7 +248,7 @@ const ContentItemHeader = ({
                     disabled={isProcessing}
                     className={`text-left w-full group/title ${isProcessing ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
-                    <h3 className={`font-montreal text-[20px] font-medium leading-[1.24] tracking-[-0.014em] line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
+                    <h3 className={`font-editorial text-xl leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
                       {item.title}
                     </h3>
                   </button>
@@ -275,7 +267,7 @@ const ContentItemHeader = ({
                 }`}
                 disabled={!(item.type === 'link' && item.url)}
               >
-                <h3 className={`font-montreal text-[20px] font-medium leading-[1.24] tracking-[-0.014em] line-clamp-2 ${
+                <h3 className={`font-editorial text-xl leading-tight line-clamp-2 ${
                   item.type === 'link' && item.url ? 'group-hover/title:underline transition-all duration-200 text-blue-600' : ''
                 }`}>
                   {item.title}

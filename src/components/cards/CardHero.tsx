@@ -319,12 +319,12 @@ export const DocumentHero = ({ ext }: { ext?: string | null }) => {
     <SpectrumField tint="doc" className={`${HERO_STANDARD} grid place-items-center`}>
       <div
         className="relative z-[1] flex h-[132px] w-[104px] flex-col gap-[5px] rounded-md bg-white px-3 py-3.5"
-        style={{ boxShadow: '0 10px 26px rgba(163,61,82,0.2), 0 1px 2px rgba(0,0,0,0.08)' }}
+        style={{ boxShadow: '0 10px 26px rgba(120,60,160,0.2), 0 1px 2px rgba(0,0,0,0.08)' }}
       >
         <span
           className="absolute right-0 top-0 h-[18px] w-[18px] rounded-tr-md"
           style={{
-            background: 'linear-gradient(225deg, transparent 50%, rgba(163,61,82,0.14) 50%)',
+            background: 'linear-gradient(225deg, transparent 50%, rgba(120,60,160,0.14) 50%)',
             borderRadius: '0 6px 0 6px',
           }}
         />
@@ -356,7 +356,7 @@ export const DocumentHero = ({ ext }: { ext?: string | null }) => {
       {ext && (
         <span
           className="absolute bottom-3.5 right-4 z-[2] rounded-[7px] bg-white px-[7px] py-[3px] text-[10px] font-bold tracking-[0.06em]"
-          style={{ color: formatBadgeColor(ext), boxShadow: '0 2px 8px rgba(163,61,82,0.18)' }}
+          style={{ color: formatBadgeColor(ext), boxShadow: '0 2px 8px rgba(120,60,160,0.18)' }}
         >
           {ext}
         </span>
@@ -364,51 +364,6 @@ export const DocumentHero = ({ ext }: { ext?: string | null }) => {
     </SpectrumField>
   );
 };
-
-/* ── screenshots: white window frame rising from the screenshot field ──── */
-
-/**
- * Screenshot hero: the capture inside a white window frame on the cool
- * screenshot field — full-bleed screenshots are mostly white and bleed into
- * the card; the frame gives them an edge.
- */
-export const ScreenshotHero = ({
-  src,
-  alt,
-  onError,
-}: {
-  src: string;
-  alt: string;
-  onError?: () => void;
-}) => (
-  <SpectrumField tint="shot" className={`${HERO_STANDARD} px-[26px] pt-[18px]`}>
-    <div
-      className="relative z-[1] h-full w-full overflow-hidden rounded-t-[10px] border border-b-0 bg-white"
-      style={{ borderColor: 'rgba(34,104,156,0.15)', boxShadow: '0 10px 30px rgba(34,104,156,0.2)' }}
-    >
-      <div
-        className="flex h-4 items-center gap-[3px] border-b px-[7px]"
-        style={{ background: '#f2f5f8', borderColor: 'rgba(34,104,156,0.1)' }}
-      >
-        {[0, 1, 2].map((dot) => (
-          <span
-            key={dot}
-            className="h-[5px] w-[5px] rounded-full"
-            style={{ background: 'rgba(34,104,156,0.25)' }}
-          />
-        ))}
-      </div>
-      <img
-        src={src}
-        alt={alt}
-        className="h-[calc(100%-16px)] w-full object-cover object-top"
-        loading="lazy"
-        decoding="async"
-        onError={onError}
-      />
-    </div>
-  </SpectrumField>
-);
 
 /* ── video uploads: poster frame, not native chrome ────────────────────── */
 

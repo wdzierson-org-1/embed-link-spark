@@ -8,6 +8,26 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-30 · Design-system revisions after live review (amends the three entries below; DESIGN.md updated to match)
+
+- **Card titles are serif again**: upright PP Editorial New returns for the
+  library-card title *only* — the one serif role in the product ("this is a
+  saved object"). Panel titles and everything else stay Neue Montreal. iOS:
+  mirror exactly this split.
+- **Screenshots render full-bleed** like any image; the framed-window hero was
+  reverted. The screenshot identity lives in the tinted type chip.
+- **Document tint moved from coral to violet** (`rgba(150,70,190)` @ ~.10,
+  text `#7d3f9e`) — the coral read peach. Spectrum table in DESIGN.md updated.
+- **Page gradient rebalanced toward purple/blue** (`.animated-gradient` stops:
+  milky orchid/salmon → `#9d5fd8`/`#c2418f`, cyan tail deepened) — kills the
+  "pepto" cast at the 30%-opacity wash.
+- **"Chat with item" removed from the card overflow menu** (behavior change —
+  other platforms drop the same affordance; chat with a single item remains
+  reachable through Ask). `onChatWithItem` prop still accepted, now unused.
+- **og.jpg regenerated** (1200×630) to match the current periphery-cards
+  homepage: new card anatomy (icon+kind row, Tobias titles, violet voice
+  waveform, tag chips, real photography) on the deeper purple wash.
+
 ## 2026-08-30 · DESIGN.md introduced; app typeface is now PP Neue Montreal everywhere; login redesigned (all platforms take note)
 
 - **`DESIGN.md` now exists at the repo root** and is the single source of truth
