@@ -81,12 +81,20 @@ function refresh() {
 async function doRefresh() {
   const session = await getStored(); // re-read: another caller may have rotated it
   if (!session?.refresh_token) throw new NotSignedInError('Not signed in');
-  const { ok, data } = await tokenRequest('grant_type=refresh_token', {
+  const { ok, status, data } = await tokenRequest('grant_type=refresh_token', {
     refresh_token: session.refresh_token,
   });
   if (!ok) {
-    await clearSession();
-    throw new NotSignedInError('Session expired — sign in again');
+    // Only a definitive rejection means the token is dead. Transient trouble
+    // (5xx, 429, gateway blips) must NOT sign the user out — keep the session
+    // and let the next save retry with the same refresh token.
+    if (status === 400 || status === 401 || status === 403) {
+      await clearSession();
+      throw new NotSignedInError('Session expired — sign in again');
+    }
+    throw new Error(
+      data?.msg || data?.error_description || `Session refresh failed (${status})`,
+    );
   }
   const next = toStoredSession(data);
   // Refresh responses may omit the user object; keep what we knew.
@@ -99,8 +107,18 @@ async function doRefresh() {
 async function requireSession() {
   const session = await getStored();
   if (!session?.refresh_token) throw new NotSignedInError('Not signed in');
-  if (sessionIsFresh(session, Math.floor(Date.now() / 1000))) return session;
-  return refresh();
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (sessionIsFresh(session, nowSec)) return session;
+  try {
+    return await refresh();
+  } catch (error) {
+    // We refresh 60s ahead of expiry, so on a transient refresh failure the
+    // old token may still be valid — use it and the save goes through anyway.
+    if (!(error instanceof NotSignedInError) && (session.expires_at ?? 0) > nowSec) {
+      return session;
+    }
+    throw error;
+  }
 }
 
 async function callFn(name, body, session, retried = false) {
