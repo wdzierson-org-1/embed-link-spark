@@ -39,9 +39,14 @@ const Auth = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated — but only for real accounts. A
+  // lingering try-stash anonymous session must stay on the form (Index
+  // bounces anonymous users to "/", so redirecting here would loop
+  // /auth → /home → / and lock the visitor out of signing in); signing in
+  // simply replaces the anonymous session.
+  const isRealUser = !!user && !(user as { is_anonymous?: boolean }).is_anonymous;
   useEffect(() => {
-    if (user) {
+    if (isRealUser) {
       if (returnTo && commentItem) {
         // Redirect back to the original page with comment panel open
         navigate(`${returnTo}?openComment=${commentItem}`);
@@ -51,7 +56,7 @@ const Auth = () => {
         navigate('/home');
       }
     }
-  }, [user, navigate, returnTo, commentItem]);
+  }, [isRealUser, navigate, returnTo, commentItem]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
