@@ -1,4 +1,13 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { NO_PREAMBLE_RULES, stripPreamble } from '../_shared/summarize.ts';
+import {
+  KEEP_FILENAME_TOKEN,
+  capTitle,
+  isPlaceholderTitle,
+  isStorageTimestampName,
+  isUuidObjectName,
+  transcriptTitleSystemPrompt,
+} from '../_shared/titlePolicy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,6 +38,44 @@ const OFFICE_MIMES = new Set([
 ]);
 
 const fileNameFrom = (path: string) => path.split('/').pop() ?? 'file';
+
+// Title policy (ui-changes.md 2026-08-26): audio/video titles are AI-derived
+// from the transcript; the original filename is metadata
+// (attributes.media.file_name). Returns null whenever there is no usable
+// title — missing key, API failure, or the model judged the content deeply
+// personal and returned KEEP_FILENAME — and the caller then leaves the
+// filename title in place.
+const titleFromTranscript = async (transcript: string): Promise<string | null> => {
+  const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!openAIApiKey) return null;
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${openAIApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: transcriptTitleSystemPrompt(NO_PREAMBLE_RULES) },
+          { role: 'user', content: `Transcript:\n\n${transcript.slice(0, 6000)}` },
+        ],
+        max_tokens: 40,
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      console.error('titleFromTranscript: OpenAI error', res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const raw = stripPreamble(data.choices?.[0]?.message?.content?.trim() ?? '');
+    if (!raw || raw.includes(KEEP_FILENAME_TOKEN)) return null;
+    return capTitle(raw);
+  } catch (e) {
+    console.error('titleFromTranscript failed (non-fatal):', e);
+    return null;
+  }
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
@@ -104,13 +151,64 @@ Deno.serve(async (req) => {
             body: { audioUrl: publicUrl, fileName },
           });
           if (tErr) throw tErr;
+          const transcript = typeof t.transcription === 'string' ? t.transcription.trim() : '';
+
           // Transcript is captured source → page_body (content model,
           // migration 20260810120000); description is the short AI summary
-          await supabase.from('items').update({
+          const updates: Record<string, unknown> = {
             page_body: t.transcription || null,
             description: t.description || null,
-          }).eq('id', item.id);
-          const text = [itemTitle, content, t.transcription, t.description].filter(Boolean).join(' ');
+          };
+
+          // Re-read current state: the title guard must see the title as it
+          // is NOW (the user may have renamed during enrichment), and
+          // attributes is a whole-blob jsonb column — read-merge-write,
+          // preserving every key we don't model. Fetch failure → be
+          // conservative and skip both writes.
+          const { data: current, error: curErr } = await supabase
+            .from('items')
+            .select('title, attributes')
+            .eq('id', item.id)
+            .single();
+          if (curErr) {
+            console.error('add-file: re-fetch before media enrichment failed (skipping title/attributes):', curErr);
+          }
+
+          let finalTitle = current?.title ?? itemTitle;
+          if (current) {
+            // attributes.media.kind — the media subtype clients render against:
+            // voice_note (audio < 10 min or unknown duration), recording
+            // (audio ≥ 10 min), video.
+            const attrs = (current.attributes ?? {}) as Record<string, unknown>;
+            const media = (attrs.media ?? {}) as Record<string, unknown>;
+            const durationS = typeof media.duration_s === 'number' ? media.duration_s : null;
+            const kind =
+              type === 'video' ? 'video' : durationS !== null && durationS >= 600 ? 'recording' : 'voice_note';
+            // The original filename is metadata worth keeping — but only a
+            // real one, never our own storage timestamp/UUID object names.
+            const meaningfulName =
+              !isStorageTimestampName(fileName) && !isUuidObjectName(fileName) ? fileName : undefined;
+            const fileNameForMedia =
+              meaningfulName ?? (typeof media.file_name === 'string' ? media.file_name : undefined);
+            updates.attributes = {
+              ...attrs,
+              media: { ...media, ...(fileNameForMedia ? { file_name: fileNameForMedia } : {}), kind },
+            };
+
+            // Title policy (_shared/titlePolicy.ts): replace a placeholder
+            // (filename-shaped) title with one derived from the transcript;
+            // a real user title is never touched.
+            if (transcript && isPlaceholderTitle(current.title, file_path)) {
+              const aiTitle = await titleFromTranscript(transcript);
+              if (aiTitle) {
+                updates.title = aiTitle;
+                finalTitle = aiTitle;
+              }
+            }
+          }
+
+          await supabase.from('items').update(updates).eq('id', item.id);
+          const text = [finalTitle, content, t.transcription, t.description].filter(Boolean).join(' ');
           if (text.trim()) {
             const { error: embErr } = await supabase.functions.invoke('generate-embeddings', {
               body: { itemId: item.id, textContent: text },

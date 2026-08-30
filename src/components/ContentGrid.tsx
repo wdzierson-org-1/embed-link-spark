@@ -261,7 +261,7 @@ const ContentGrid = ({
   if (visibleRealItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim() && !focusActive) {
     return (
       <div className="text-center py-12 relative z-10">
-        <h2 className="text-2xl font-editorial text-gray-900 mb-2">Start building your knowledge base</h2>
+        <h2 className="text-2xl font-montreal font-semibold tracking-[-0.02em] text-gray-900 mb-2">Start building your knowledge base</h2>
         <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
       </div>
     );
@@ -271,7 +271,7 @@ const ContentGrid = ({
   if (visibleRealItems.length === 0 && optimisticItems.length === 0 && (searchQuery.trim() || focusActive)) {
     return (
       <div className="text-center py-12">
-        <h2 className="text-xl font-editorial text-gray-900 mb-2">No results found</h2>
+        <h2 className="text-xl font-montreal font-semibold tracking-[-0.02em] text-gray-900 mb-2">No results found</h2>
         <p className="text-gray-600">
           {focusActive ? "The cards cited by this answer aren't in your library anymore." : 'Try adjusting your search terms or filters.'}
         </p>

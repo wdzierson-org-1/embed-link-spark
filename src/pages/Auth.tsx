@@ -4,14 +4,19 @@ import { useAuth } from '@/hooks/useAuth';
 import StashWordmark from '@/components/StashWordmark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
-import { getGradientPlaceholder } from '@/utils/gradientPlaceholders';
 import { supabase } from '@/integrations/supabase/client';
+
+// Visual tokens (DESIGN.md): quiet inputs — hairline border, radius 12,
+// 2px violet-300 focus ring — and a solid violet-600 primary CTA.
+const quietInput =
+  'h-11 rounded-xl border-black/[0.07] bg-white px-3.5 text-[15px] text-[#22262f] placeholder:text-[#959ba6] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0';
+const primaryCta =
+  'h-11 w-full rounded-xl bg-[#6d5bd0] text-[15px] font-medium text-white hover:bg-[#5f4ec2] focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0';
 
 const Auth = () => {
   const [email, setEmail] = useState('');
@@ -22,18 +27,12 @@ const Auth = () => {
   const [usernameError, setUsernameError] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [searchParams] = useSearchParams();
-  
+
   // Get URL parameters for return flow
   const mode = searchParams.get('mode') || 'signin';
   const returnTo = searchParams.get('returnTo');
   const commentItem = searchParams.get('commentItem');
-  
-  // Get a random gradient background
-  const backgroundGradient = useMemo(() => {
-    const randomId = Math.random().toString(36);
-    return getGradientPlaceholder(randomId);
-  }, []);
-  
+
   const { signIn, signUp, user } = useAuth();
   const { registerPhoneNumber } = usePhoneNumber();
   const { toast } = useToast();
@@ -189,41 +188,62 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen relative animated-gradient">
-      {/* Overlay for better text readability */}
-      <div className="absolute inset-0 bg-black/30"></div>
-      <div className="relative z-10">
-        {/* Logo in upper left */}
-        <div className="absolute top-6 left-6">
-          <div className="flex items-center">
-            <StashWordmark className="h-6 text-white" />
-          </div>
-        </div>
+    <div className="relative min-h-screen bg-[#f7f7f9] font-montreal">
+      {/* Page wash (DESIGN.md): grey paper base with a faint, static
+          brand-spectrum tint — same product feel as the app pages, no
+          ambient animation on this surface */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'linear-gradient(115deg, #667eea 0%, #764ba2 30%, #f093fb 55%, #f5576c 72%, #4facfe 100%)',
+          opacity: 0.14,
+        }}
+      />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#f7f7f9]/40 via-[#f7f7f9]/80 to-[#f7f7f9]" />
 
-        <div className="min-h-screen flex items-center justify-center p-4">
-          <Card className="w-full max-w-md bg-white/95 backdrop-blur-sm">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl font-editorial font-semibold">Welcome to Stash</CardTitle>
-              <CardDescription>
-                Your smart content companion for capturing, organizing, and discovering insights
-              </CardDescription>
-            </CardHeader>
-          <CardContent>
+      <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
+        {/* One centered surface: white card, radius 20, neutral sheet shadow */}
+        <div className="w-full max-w-[400px] rounded-[20px] border border-black/[0.07] bg-white px-7 py-8 shadow-[0_2px_6px_rgba(20,22,30,0.05),0_24px_70px_rgba(30,33,44,0.16)] sm:px-8">
+          <div className="flex justify-center">
+            <StashWordmark className="h-6 text-[#22262f]" />
+          </div>
+          <div className="mt-6 text-center">
+            <h1 className="text-2xl font-semibold tracking-[-0.02em] text-[#22262f]">
+              Welcome to Stash
+            </h1>
+            <p className="mt-1.5 text-sm text-[#646b76]">
+              Sign in or create your account.
+            </p>
+          </div>
+
+          <div className="mt-6">
             <Tabs defaultValue={mode} className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="signin">Sign In</TabsTrigger>
-                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              <TabsList className="grid h-10 w-full grid-cols-2 rounded-full bg-[rgba(20,22,30,0.05)] p-1 text-[#646b76]">
+                <TabsTrigger
+                  value="signin"
+                  className="rounded-full text-sm focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0 data-[state=active]:text-[#22262f]"
+                >
+                  Sign in
+                </TabsTrigger>
+                <TabsTrigger
+                  value="signup"
+                  className="rounded-full text-sm focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0 data-[state=active]:text-[#22262f]"
+                >
+                  Sign up
+                </TabsTrigger>
               </TabsList>
-              
-              <TabsContent value="signin">
+
+              <TabsContent value="signin" className="mt-5">
                 <form onSubmit={handleSignIn} className="space-y-4">
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     <Input
                       type="email"
                       placeholder="Email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
+                      className={quietInput}
                     />
                     <Input
                       type="password"
@@ -231,23 +251,25 @@ const Auth = () => {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
+                      className={quietInput}
                     />
                   </div>
-                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" disabled={loading}>
-                    {loading ? "Signing in..." : "Sign In"}
+                  <Button type="submit" className={primaryCta} disabled={loading}>
+                    {loading ? "Signing in..." : "Sign in"}
                   </Button>
                 </form>
               </TabsContent>
-              
-              <TabsContent value="signup">
+
+              <TabsContent value="signup" className="mt-5">
                 <form onSubmit={handleSignUp} className="space-y-4">
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     <Input
                       type="email"
                       placeholder="Email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
+                      className={quietInput}
                     />
                     <Input
                       type="password"
@@ -255,10 +277,11 @@ const Auth = () => {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
+                      className={quietInput}
                     />
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="relative">
-                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+                        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px] text-[#959ba6]">@</span>
                         <Input
                           type="text"
                           placeholder="username"
@@ -275,27 +298,27 @@ const Auth = () => {
                           required
                           minLength={3}
                           maxLength={20}
-                          className={`pl-8 ${usernameError ? 'border-red-500' : ''}`}
+                          className={`${quietInput} pl-8 ${usernameError ? 'border-[#c93a3a]' : ''}`}
                         />
                       </div>
                       {usernameError && (
-                        <p className="text-xs text-red-600">{usernameError}</p>
+                        <p className="text-xs text-[#c93a3a]">{usernameError}</p>
                       )}
                       {username && !usernameError && username.length >= 3 ? (
-                        <p className="text-xs text-muted-foreground">
-                          You'll be <span className="font-medium text-foreground">@{username}</span> on Stash —
+                        <p className="text-xs text-[#646b76]">
+                          You'll be <span className="font-medium text-[#22262f]">@{username}</span> on Stash —
                           your public feed lives at gostash.it/feed/{username}
                         </p>
                       ) : (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-[#646b76]">
                           Your username becomes your @handle and your public feed address.
                         </p>
                       )}
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <Input
                         type="tel"
-                        placeholder="Phone Number (optional)"
+                        placeholder="Phone number (optional)"
                         value={phoneNumber}
                         onChange={(e) => {
                           setPhoneNumber(e.target.value);
@@ -305,24 +328,23 @@ const Auth = () => {
                             setPhoneError('');
                           }
                         }}
-                        className={phoneError ? 'border-red-500' : ''}
+                        className={`${quietInput} ${phoneError ? 'border-[#c93a3a]' : ''}`}
                       />
                       {phoneError && (
-                        <p className="text-xs text-red-600">{phoneError}</p>
+                        <p className="text-xs text-[#c93a3a]">{phoneError}</p>
                       )}
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-[#646b76]">
                         Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.
                       </p>
                     </div>
                   </div>
-                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700" disabled={loading || !!usernameError || !!phoneError}>
-                    {loading ? "Creating account..." : "Sign Up"}
+                  <Button type="submit" className={primaryCta} disabled={loading || !!usernameError || !!phoneError}>
+                    {loading ? "Creating account..." : "Create account"}
                   </Button>
                 </form>
               </TabsContent>
             </Tabs>
-          </CardContent>
-          </Card>
+          </div>
         </div>
       </div>
     </div>

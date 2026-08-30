@@ -2,19 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Stash — detail panel as one surface (pass 2)</title>
+<title>Stash — detail panel as one surface (type study: Neue Montreal)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  @font-face { font-family:'PP Editorial New'; src:url('../../../src/assets/fonts/PPEditorialNew-Regular.woff2') format('woff2'); font-weight:400; font-display:swap; }
-  @font-face { font-family:'PP Mori'; src:url('../../../src/assets/fonts/PPMori-Regular.woff2') format('woff2'); font-weight:400; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Medium.woff2') format('woff2'); font-weight:500; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Semibold.woff2') format('woff2'); font-weight:600; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-BookItalic.woff2') format('woff2'); font-weight:400; font-style:italic; font-display:swap; }
 
   :root {
     --ink:#22262f; --muted:#646b76; --faint:#959ba6;
     --violet-600:#6d5bd0; --violet-300:#b6a8ef;
     --hairline:rgba(0,0,0,.07); --dotted:rgba(0,0,0,.18);
     --dp-indigo:#4c5fd7; --dp-plum:#6d3e95; --dp-orchid:#b95bc9; --dp-coral:#dd4b63; --dp-blue:#2f8fe8;
-    --serif:'PP Editorial New', Georgia, serif;
-    --sans:'PP Mori', Inter, -apple-system, sans-serif;
+    --serif:'PP Neue Montreal', -apple-system, sans-serif;
+    --sans:'PP Neue Montreal', Inter, -apple-system, sans-serif;
   }
   * { box-sizing:border-box; margin:0; }
   body {
@@ -208,13 +210,17 @@
   .sheet-foot .saved { font-size:12px; color:var(--faint); }
 
   @media (max-width:1240px) { body { flex-wrap:wrap; } .controls { position:static; width:800px; } }
+
+  /* ── Neue Montreal type-study overrides ── */
+  .obj-title { font-weight:500; letter-spacing:-.02em; font-size:28px; line-height:1.2; }
+  .controls h1 { font-weight:600; letter-spacing:-.02em; }
 </style>
 </head>
 <body>
 
 <!-- ═══════ prototype controls + notes ═══════ -->
 <div class="controls">
-  <div class="eyebrow">Stash · detail panel · Aug 30 2026 · pass 3</div>
+  <div class="eyebrow">Stash · detail panel · Aug 30 2026 · type study: Neue Montreal</div>
   <h1>One surface, not a stack of cards</h1>
   <p class="sub">Flow layout locked in. Flat tints replace the header gradients; color stays only where it informs. <b>This one is live</b> — try play/pause and speed, switch the content tabs, open Details, and flip the Sharing toggle to see the public state grow its feed link.</p>
 

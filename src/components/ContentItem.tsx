@@ -8,8 +8,6 @@ import { X } from 'lucide-react';
 import ContentItemHeader from '@/components/ContentItemHeader';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemFooter from '@/components/ContentItemFooter';
-import ItemTagsManager from '@/components/ItemTagsManager';
-import MediaPlayer from '@/components/MediaPlayer';
 import VideoLightbox from '@/components/VideoLightbox';
 import ChatInterface from '@/components/ChatInterface';
 import type { Attachment } from '@/components/CollectionAttachments';
@@ -268,7 +266,7 @@ const ContentItem = ({
     <TooltipProvider>
       {/* No overflow-hidden here — the sticky-note overlay hangs past the card
           edge; the image wrapper clips its own top corners instead */}
-      <Card className={`group flex flex-col h-full bg-card border-0 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(160,120,200,0.12)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.08),0_14px_36px_rgba(160,120,200,0.18)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl ${
+      <Card className={`group flex flex-col h-full bg-card border-0 shadow-[0_1px_2px_rgba(20,22,30,0.05),0_8px_24px_rgba(30,33,44,0.08)] hover:shadow-[0_2px_4px_rgba(20,22,30,0.06),0_14px_36px_rgba(30,33,44,0.13)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl ${
         enteredFresh ? 'animate-card-enter' : ''
       } ${isAssemblingNow ? 'animate-assembly-breathe' : ''}`}>
         {/* Note Overlay */}
@@ -304,16 +302,6 @@ const ContentItem = ({
         />
 
         <div className="flex flex-col flex-1 p-6 pt-0">
-          {/* Audio player - always visible */}
-          {item.type === 'audio' && fileUrl && (
-            <div className="mb-4">
-              <MediaPlayer
-                src={fileUrl}
-                fileName={item.title || 'Audio file'}
-              />
-            </div>
-          )}
-          
           {/* Content section with processing overlay */}
           <div className="flex-1 mb-4 relative">
             {isProcessing && (
@@ -338,23 +326,7 @@ const ContentItem = ({
             />
           </div>
           
-          {/* Tags - hidden by default, shown on hover - only for non-public views */}
-          {!isPublicView && (
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 mb-4">
-              <ItemTagsManager
-                itemId={item.id}
-                currentTags={tags}
-                onTagsUpdated={onTagsUpdated}
-                itemContent={{
-                  title: item.title,
-                  content: item.content,
-                  description: item.description
-                }}
-              />
-            </div>
-          )}
-          
-          {/* Bottom section with date, type badge, and menu */}
+          {/* Bottom section with date, location pin, and overflow menu */}
           <ContentItemFooter
             item={item}
             onDeleteItem={onDeleteItem}
@@ -364,7 +336,6 @@ const ContentItem = ({
             currentUserId={currentUserId}
             onTogglePrivacy={onTogglePrivacy}
             onCommentClick={onCommentClick}
-            collectionCount={item.type === 'collection' ? collectionAttachments?.length : undefined}
           />
         </div>
 

@@ -26,6 +26,45 @@
   font-display: swap;
 }
 
+/* PP Neue Montreal — the app typeface (DESIGN.md). One family, weight does the
+   work: 400 Book for UI/body, 500 Medium for object titles, 600 Semibold for
+   display headers. Served locally like the other PP faces. */
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-Book.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-Medium.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-Medium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-Semibold.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-Semibold.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-BookItalic.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-BookItalic.woff') format('woff');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 @font-face {
   font-family: 'Tobias';
   src: url('https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/fonts/Tobias-TRIAL-Light.woff2') format('woff2');
@@ -174,7 +213,7 @@
   }
 
   body {
-    @apply bg-background text-foreground font-inter;
+    @apply bg-background text-foreground font-montreal;
     background-image: url('/paper-texture.jpg');
     background-size: 400px 400px;
     background-repeat: repeat;

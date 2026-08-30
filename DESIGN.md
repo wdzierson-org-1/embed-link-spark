@@ -1,0 +1,208 @@
+# DESIGN.md — the Stash design system
+
+This file is the single source of truth for how Stash looks and feels, on every
+surface: the **web app** (`src/`), the **marketing homepage** (`src/pages/Landing.tsx`),
+the **Chrome extension** (`extension/`), the **iOS app** (`ios/`, tokens live in
+`StashDesign.swift`), the **iOS share sheet** (`ios/StashShareExtension/`), and the
+**macOS menubar app** (separate repo). Agents and humans: read this before any UI
+work; when a change alters a token or rule, edit this file in the same branch.
+Behavioral contracts still go in `docs/ui-changes.md` — this file is *how things
+look*, that one is *what changed and when*.
+
+Reference implementations (interactive HTML, open from the repo):
+- Cards: `docs/superpowers/prototypes/2026-08-30-card-type-gallery-neue-montreal.html`
+- Detail panel: `docs/superpowers/prototypes/2026-08-30-detail-panel-surface-neue-montreal.html`
+
+---
+
+## Philosophy
+
+1. **Grey chrome; color is information.** Every surface that isn't information
+   is neutral grey — shadows, page wash, chips, dividers. Color appears only
+   where it encodes something: an object's *type* (the spectrum tints), an
+   *interactive* element (violet), a *state* (public = violet switch,
+   destructive = red). If a color isn't telling the user something, remove it.
+2. **The object is the hero.** Cards and panels present what the user saved,
+   not our UI around it. The title is the AI's (or the user's) reading of the
+   object — never a filename, never a platform slogan. The user's own words
+   (annotations) always get the violet-bar treatment and italic voice.
+3. **Flat, not gradient.** Type fields are single flat tints (plus optional
+   paper grain as *texture*). Saturation lives in small functional accents —
+   a play button, waveform bars — never washed across a surface.
+4. **Lively, not cute.** No emoji anywhere in product UI, ever — including
+   toasts, empty states, and notifications. Iconography is Lucide (see below).
+   Motion is purposeful and brief; `prefers-reduced-motion` is always honored.
+5. **One family, weight is hierarchy.** PP Neue Montreal everywhere; the old
+   serif/sans split is now a weight split (500 titles vs 400 UI).
+6. **Enrichment answers "why did I save this?"** before the user asks. Cards
+   answer at a glance (type tint, title, one or two fact chips); the panel
+   answers in full (summary, transcript, dotted facts).
+
+## Typography
+
+**Family: PP Neue Montreal** (Pangram Pangram), served locally.
+Web files: `src/assets/fonts/PPNeueMontreal-{Book,Medium,Semibold,BookItalic}.woff2`
+(+ `.woff`). Tailwind: `font-montreal` (the `body` default). iOS: bundle the same
+weights in the app *and* share-extension targets (an appex cannot read the host
+bundle); fall back to SF Pro only if the face fails to load.
+
+| Role | Weight | Size / line | Tracking | Notes |
+|---|---|---|---|---|
+| Object title (card) | 500 | 20 / 1.24 | −0.014em | 2-line clamp |
+| Object title (panel) | 500 | 28 / 1.2 | −0.02em | inline-editable |
+| Display header (marketing, empty states) | 600 | 32–40 / 1.12 | −0.022em | |
+| Body / description | 400 | 13.5–14.5 / 1.5–1.6 | 0 | muted color |
+| User annotation | 400 italic | 13.5–14 | 0 | violet left bar, 2px |
+| Micro-label (section headers) | 600 | 11 caps | +0.11em | `faint` color |
+| Chip | 500 | 11 | 0 | mono variant: ui-monospace 10–11.5 |
+| Kicker / eyebrow | 600 | 11 caps | +0.10em | |
+| Date / meta | 400 | 12 | 0 | `faint` |
+
+**Exceptions:** marketing pages (homepage, pricing) may use Tobias as the
+display face, with PP Editorial New *Ultralight Italic* for single accent words
+inside display headlines — nowhere else. Upright PP Editorial New and PP Mori
+are retired everywhere — do not introduce them in new work.
+
+## Color
+
+Neutrals (chrome):
+
+| Token | Value | Use |
+|---|---|---|
+| `ink` | `#22262f` | primary text |
+| `muted` | `#646b76` | descriptions, secondary text |
+| `faint` | `#959ba6` | meta, labels, icons at rest |
+| hairline | `rgba(0,0,0,.07)` | section rules, borders |
+| dotted rule | `rgba(0,0,0,.18)` | facts-row separators only |
+| chip bg | `rgba(20,22,30,.05)` | neutral chips, icon tiles |
+| page wash | grey base `#f7f7f9` + faint spectrum tint (see `src/index.css`) | app background |
+
+Intent colors:
+
+| Token | Value | Use |
+|---|---|---|
+| `violet-600` | `#6d5bd0` | interactive: links, active pills, switches-on, focus |
+| `violet-300` | `#b6a8ef` | focus rings, annotation bar |
+| destructive | `#c93a3a` | delete, irreversible |
+
+**Type spectrum** — flat tints at ~11–12% alpha over white for fields/chips,
+with one saturated accent per type for controls. Color encodes the object's
+type; these are the only decorative-adjacent colors allowed:
+
+| Type | Field tint (rgba) | Accent / text |
+|---|---|---|
+| voice note | `84,88,178` @ .11–.12 | `#544eba` (play, waveform), text `#45408c` |
+| recording / audio file | `126,74,158` @ .10–.11 | `#8b4a9e`, text `#703c77` |
+| document (pdf/office) | `205,90,105` @ .10–.11 | text `#a33d52` |
+| screenshot | `52,132,201` @ .08–.12 | text `#22689c` |
+| repo | plate `#0d1117` | mono `#e6edf3`, owner `#8b7bd8` |
+| social post | `70,100,180` @ .07 | quote in ink |
+
+Photos, videos, and link covers use real imagery — no field, no tint.
+
+## Space, radius, elevation
+
+- Radius: **16px** cards & fields · **12–14px** inputs, inner tiles, media
+  blocks · **999px** pills/chips. Sheet/panel: 20px.
+- **`--card-gap: 18px`** — the gap between hero bottom and card body top, for
+  *every* hero type, no per-type exceptions. Card body side padding 24px;
+  cards without a hero take 22px top padding.
+- Card shadow: `0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08)`;
+  hover: `0 2px 4px rgba(20,22,30,.06), 0 14px 36px rgba(30,33,44,.13)` with a
+  2px lift. Sheet shadow: `0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16)`.
+- Panel section grammar: uppercase micro-label over a hairline rule — never a
+  nested card/box. Dotted rules appear *only* between facts rows.
+
+## Iconography
+
+**Lucide only**, 2px stroke, `currentColor`, round caps/joins. Typical sizes:
+11–13px in chips, 14–16px standalone. On iOS, SF Symbols may stand in where a
+1:1 analog exists (lock, globe, play); otherwise ship the Lucide asset. Never
+emoji, never mixed icon sets on one surface.
+
+## Components
+
+**Card anatomy** (top to bottom): hero → kicker (links: domain or author
+handle) → title (500) → description (muted, clamp 3) → annotation (violet bar,
+italic) → chips → footer (date left; overflow `more-horizontal` right).
+
+Per-type hero:
+
+| Type | Hero |
+|---|---|
+| voice note | player on voice field: solid play circle, waveform, duration (height 116) |
+| recording | compressed player on audio field (height 96) |
+| video (upload or link) | poster frame + centered play badge + duration on scrim — no native `<video controls>` chrome |
+| photo | full-bleed image (h-40; tall h-56 with blurred self-backdrop for portrait) |
+| screenshot | white "window" frame rising from the screenshot field |
+| document | first-page thumbnail floating on document field + format badge |
+| article/product/recipe/place link | cover image (+ price pill for product) |
+| social | pull-quote (500) + avatar/handle on social field |
+| repo | dark plate: `owner/repo` mono + stars/language/freshness |
+| note | no hero — the text is the hero |
+
+**Chips grammar**, in order, nothing else: tinted type chip (always visible —
+replaces any hover-only type badge) → format·size (mono) → one salient fact
+(duration / pages / read-time / price-date). **No tag UI on cards or panel** —
+tags are retired; themes will handle grouping.
+
+**Player** (card hero and panel strip share it): flat type-tint field, solid
+accent play/pause circle, waveform bars in accent at .72 (unplayed .26),
+tabular-numeral times, speed pill (1× → 1.5× → 2×).
+
+**Detail panel**: one surface, flow layout (no rail). Order: eyebrow (type
+chip + source) → title → description → annotation → media → content tabs
+(Notes/Transcript/Summary/Original per type) → **Details drawer** (collapsed by
+default; summary shows format · size · duration inline; expands to dotted
+key-value rows incl. original filename and location) → Sharing → footer
+(Delete left, autosave right).
+
+**Sharing row states**: private = grey lock tile, switch off. Public = violet
+globe tile, violet switch, feed-link chip (`gostash.it/feed/{username}`) with
+copy-confirm, and the un-share warning inline. Un-sharing an item with a sticky
+note confirms first.
+
+**Switches**: 40×24, knob 20, violet-600 when on. **Focus**: 2px `violet-300`
+ring. **Inline-editable text** (panel title/description): no input chrome at
+rest; violet wash on hover; wash + ring on focus.
+
+## Motion
+
+- Card hover: shadow + 2px lift, 200ms. Drawer/chevron: 180ms. Feed-link chip:
+  180ms fade/slide-in.
+- Playing state: unplayed waveform bars pulse opacity (1.4s loop).
+- Every animation has a `prefers-reduced-motion` guard. No perpetual ambient
+  animation on product surfaces (the homepage hero is the one sanctioned
+  exception).
+
+## Voice & copy
+
+Active voice, sentence case, plain verbs ("Save changes", not "Submit").
+Buttons say what happens; an action keeps its name through the flow. Errors say
+what went wrong and what to do next — no apology, no vagueness. Empty states
+invite an action. Never filler ("Here is…", "Certainly…") in AI-generated
+titles/descriptions — enrichment prompts enforce this (`NO_PREAMBLE_RULES`).
+
+## Per-surface notes
+
+- **Web app**: tokens land through Tailwind utilities + `src/index.css`. The
+  violet identity is currently hard-coded in utilities; when touching a
+  component, prefer these documented values over inventing new ones.
+- **Homepage**: follows everything here; Tobias display hero + ambient
+  gradient are its two sanctioned exceptions.
+- **iOS (app + share sheet)**: `StashDesign.swift` mirrors these tokens —
+  when it disagrees with this file, this file wins and both get fixed in the
+  same change. Bundle PP Neue Montreal in both targets. SF Symbols per the
+  iconography rule. The share sheet is the same design language, not a
+  simplified one.
+- **Chrome extension** (restyle upcoming): plain-CSS the tokens above; no
+  build step means copying values, so cite this file's section in a comment
+  next to each token block.
+
+## For agents
+
+Read this file before building or changing UI on any surface. Match existing
+rules exactly; don't introduce fonts, colors, icon sets, or radii not listed
+here. If the work genuinely needs a new token, add it to this file in the same
+branch with one line of rationale. Log behavior/contract changes in
+`docs/ui-changes.md` as usual.

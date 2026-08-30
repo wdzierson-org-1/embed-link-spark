@@ -16,6 +16,9 @@ https://www.gostash.it (Vercel; push to `main` auto-deploys the web app).
    change behavior, add the entry in the same branch.
 3. **`docs/PLATFORM_API.md`** — the wire contract every client builds on
    (`add-note` / `add-url` / `add-file`, chat SSE, realtime).
+4. **`DESIGN.md`** — the cross-surface design system (tokens + rules for web,
+   homepage, iOS app + share sheet, Chrome extension). Read before ANY UI work
+   on ANY surface; token/rule changes edit that file in the same branch.
 
 ## Surfaces
 

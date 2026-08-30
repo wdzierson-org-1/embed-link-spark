@@ -1,20 +1,27 @@
 
 import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
-import { Expand } from 'lucide-react';
 import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
 import { domainOfUrl } from '@/utils/linkFlavor';
 import {
   AspectAwareImage,
+  DocumentHero,
   FaviconPlate,
   FilePlate,
   LinkCover,
+  PlayerHero,
   RepoPlate,
+  ScreenshotHero,
+  VideoPosterHero,
 } from '@/components/cards/CardHero';
-import { formatDurationChip, formatFileSizeChip, mimeExtensionLabel } from '@/components/cards/CardBits';
+import {
+  audioSubtype,
+  formatFileSizeChip,
+  isScreenshotItem,
+  mimeExtensionLabel,
+} from '@/components/cards/CardBits';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -94,42 +101,46 @@ const ContentItemHeader = ({
   const renderHero = (): React.ReactNode => {
     switch (item.type) {
       case 'text':
-      case 'audio':
       case 'collection':
         return null;
 
+      case 'audio': {
+        if (!fileUrl) return null;
+        return (
+          <PlayerHero
+            itemId={item.id}
+            src={fileUrl}
+            kind={audioSubtype(item.attributes)}
+            durationS={item.attributes?.media?.duration_s}
+          />
+        );
+      }
+
       case 'video': {
         if (!fileUrl) return null;
-        const duration = formatDurationChip(item.attributes?.media?.duration_s);
         return (
-          <div className="relative w-full h-48 bg-black rounded-t-2xl overflow-hidden">
-            <video src={fileUrl} className="w-full h-full object-cover" controls preload="metadata">
-              Your browser does not support the video tag.
-            </video>
-            {duration && (
-              <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white">
-                {duration}
-              </span>
-            )}
-            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onVideoExpand}
-                className="h-8 w-8 rounded-full bg-black/50 hover:bg-black/70 text-white p-0"
-              >
-                <Expand className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+          <VideoPosterHero
+            src={fileUrl}
+            durationS={item.attributes?.media?.duration_s}
+            onExpand={onVideoExpand}
+          />
         );
       }
 
       case 'document':
-        return <FilePlate kind="document" fileName={mediaFileName} factsLine={fileFactsLine || null} />;
+        return <DocumentHero ext={mimeExtensionLabel(item.mime_type)} />;
 
       case 'image': {
         if (fileUrl && !imageErrors.has(item.id)) {
+          if (isScreenshotItem(item)) {
+            return (
+              <ScreenshotHero
+                src={fileUrl}
+                alt={item.title || 'Screenshot'}
+                onError={() => onImageError(item.id)}
+              />
+            );
+          }
           return (
             <AspectAwareImage
               src={fileUrl}
@@ -220,9 +231,10 @@ const ContentItemHeader = ({
           </div>
         ) : null}
 
-        {/* Kicker: the object's source, clickable */}
+        {/* Kicker: the object's source, clickable. One spacing token: hero
+            bottom → body top is 18px for every hero type; 22px without one */}
         {showKicker && (
-          <div className={`px-6 ${hero ? 'pt-5' : 'pt-6'}`}>
+          <div className={`px-6 ${hero ? 'pt-[18px]' : 'pt-[22px]'}`}>
             <button
               onClick={() => window.open(item.url, '_blank')}
               className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-violet-600"
@@ -235,7 +247,7 @@ const ContentItemHeader = ({
 
         {/* Title section with clickable link */}
         {item.title && (
-          <div className={`mb-3 px-6 ${showKicker ? 'pt-1.5' : 'pt-6'} ${reveals?.title ? 'animate-piece-in' : ''}`}>
+          <div className={`mb-3 px-6 ${showKicker ? 'pt-1.5' : hero ? 'pt-[18px]' : 'pt-[22px]'} ${reveals?.title ? 'animate-piece-in' : ''}`}>
             {!isPublicView ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -244,7 +256,7 @@ const ContentItemHeader = ({
                     disabled={isProcessing}
                     className={`text-left w-full group/title ${isProcessing ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
-                    <h3 className={`text-xl font-editorial leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
+                    <h3 className={`font-montreal text-[20px] font-medium leading-[1.24] tracking-[-0.014em] line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
                       {item.title}
                     </h3>
                   </button>
@@ -263,7 +275,7 @@ const ContentItemHeader = ({
                 }`}
                 disabled={!(item.type === 'link' && item.url)}
               >
-                <h3 className={`text-xl font-editorial leading-tight line-clamp-2 ${
+                <h3 className={`font-montreal text-[20px] font-medium leading-[1.24] tracking-[-0.014em] line-clamp-2 ${
                   item.type === 'link' && item.url ? 'group-hover/title:underline transition-all duration-200 text-blue-600' : ''
                 }`}>
                   {item.title}

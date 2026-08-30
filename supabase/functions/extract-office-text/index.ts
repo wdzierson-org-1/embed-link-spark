@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 import { unzipSync } from 'https://esm.sh/fflate@0.8.2';
 import { generateSummary, stripPreamble, NO_PREAMBLE_RULES } from '../_shared/summarize.ts';
+import { capTitle, isPlaceholderTitle } from '../_shared/titlePolicy.ts';
 
 // Office Open XML files (pptx/docx/xlsx) are ZIP archives of XML — text
 // extraction needs no external parser: unzip, collect the text runs, done.
@@ -202,6 +203,55 @@ serve(async (req) => {
       aiDescription = stripPreamble(descriptionData.choices[0].message.content ?? '');
     }
 
+    // Title policy (_shared/titlePolicy.ts): clients pre-write the filename as
+    // the title. When it is still that placeholder (filename-shaped/empty),
+    // derive a real title from the extracted content; a real user title is
+    // never touched. If the pre-check fetch fails, be conservative and skip
+    // the title write.
+    let aiTitle: string | null = null;
+    const { data: currentItem, error: currentError } = await supabase
+      .from('items')
+      .select('title, file_path')
+      .eq('id', itemId)
+      .single();
+    if (currentError) {
+      console.error('Error fetching item before office title write (skipping title):', currentError);
+    } else if (isPlaceholderTitle(currentItem?.title, currentItem?.file_path)) {
+      try {
+        const titleResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openAIApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'system',
+                content:
+                  "You title documents for the user's personal library from their extracted text. " +
+                  'Write a specific, descriptive title of 5-10 words. ' +
+                  NO_PREAMBLE_RULES,
+              },
+              { role: 'user', content: `Document content:\n\n${extractedText.slice(0, 1500)}` },
+            ],
+            max_tokens: 40,
+            temperature: 0.2,
+          }),
+        });
+        if (titleResponse.ok) {
+          const titleData = await titleResponse.json();
+          const raw = stripPreamble(titleData.choices?.[0]?.message?.content?.trim() ?? '');
+          if (raw) aiTitle = capTitle(raw);
+        } else {
+          console.error('Office title generation failed:', titleResponse.status, await titleResponse.text());
+        }
+      } catch (titleError) {
+        console.error('Office title generation failed (non-fatal):', titleError);
+      }
+    }
+
     // Store extraction in page_body and the summary in summary. content is the
     // user's own notes and is deliberately left untouched. Only overwrite the
     // description when we produced a content-based one.
@@ -210,6 +260,7 @@ serve(async (req) => {
       summary: summary || aiDescription || extractedText.slice(0, 300),
     };
     if (aiDescription) updates.description = aiDescription;
+    if (aiTitle) updates.title = aiTitle;
 
     const { data: updatedItem, error: updateError } = await supabase
       .from('items')

@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Stash — card type gallery (refinement pass 2)</title>
+<title>Stash — card type gallery (type study: Neue Montreal)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   /* Fonts: same faces the app loads (src/index.css). Relative paths work when this
      file is opened from the repo; system serif/sans stand in otherwise. */
-  @font-face { font-family:'PP Editorial New'; src:url('../../../src/assets/fonts/PPEditorialNew-Regular.woff2') format('woff2'); font-weight:400; font-display:swap; }
-  @font-face { font-family:'PP Mori'; src:url('../../../src/assets/fonts/PPMori-Regular.woff2') format('woff2'); font-weight:400; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Medium.woff2') format('woff2'); font-weight:500; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Semibold.woff2') format('woff2'); font-weight:600; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-BookItalic.woff2') format('woff2'); font-weight:400; font-style:italic; font-display:swap; }
 
   :root {
     --ink:#22262f; --muted:#646b76; --faint:#959ba6;
@@ -19,8 +21,8 @@
     /* type spectrum — deepened from the splash gradient, mineral not milky */
     --dp-indigo:#4c5fd7; --dp-plum:#6d3e95; --dp-orchid:#b95bc9; --dp-coral:#dd4b63; --dp-blue:#2f8fe8; --dp-cyan:#00b8d4;
     --card-gap:18px; /* THE token: hero bottom → body top, identical for every hero type */
-    --serif:'PP Editorial New', Georgia, 'Times New Roman', serif;
-    --sans:'PP Mori', Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    --serif:'PP Neue Montreal', -apple-system, sans-serif;
+    --sans:'PP Neue Montreal', Inter, -apple-system, sans-serif;
   }
   * { box-sizing:border-box; margin:0; }
   html { -webkit-font-smoothing:antialiased; }
@@ -196,12 +198,20 @@
   .impl b { font-weight:600; }
 
   @media (prefers-reduced-motion: reduce) { .card, .card:hover { transition:none; transform:none; } }
+
+  /* ── Neue Montreal type-study overrides (weights stand in for the serif/sans split) ── */
+  .title { font-weight:500; letter-spacing:-.014em; font-size:20px; line-height:1.24; }
+  h1 { font-weight:600; letter-spacing:-.022em; }
+  .rowlabel h2 { font-weight:600; letter-spacing:-.012em; font-size:20px; }
+  .impl h2 { font-weight:600; letter-spacing:-.012em; }
+  .social-hero .q { font-weight:500; letter-spacing:-.008em; }
+  .before .b-title { font-weight:500; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <div class="eyebrow">Stash · design refinement · Aug 30 2026 · pass 3</div>
+  <div class="eyebrow">Stash · design refinement · Aug 30 2026 · type study: Neue Montreal</div>
   <h1>Grey chrome. Color only where it means something.</h1>
   <p class="lede">The card anatomy stays what shipped — hero, serif title, description, violet annotation bar, meta chips, quiet footer. Pass 3 tightens the system further: <b>every surface that isn’t information goes grey</b> (shadows, chips, page wash), and the spectrum fields go <b>flat</b> — one quiet tint per type, no gradients. Saturation lives only in the functional accents (play button, waveform) so the fields can stay calm without reading pastel. One spacing token governs the hero-to-title gap on every card. All iconography is Lucide-style vector; no emoji anywhere. Tag controls are gone from cards — grouping moves to themes.</p>
 

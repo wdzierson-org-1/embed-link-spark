@@ -1,9 +1,8 @@
 
 import React from 'react';
-import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { FileText, Link as LinkIcon, Image, Mic, Video as VideoIcon, MoreVertical, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin, Layers } from 'lucide-react';
+import { MoreHorizontal, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
@@ -35,8 +34,6 @@ interface ContentItemFooterProps {
   currentUserId?: string;
   onTogglePrivacy?: (item: ContentItem) => void;
   onCommentClick?: (itemId: string) => void;
-  /** Attachment count for multi-part items — shown instead of "collection" */
-  collectionCount?: number;
 }
 
 const ContentItemFooter = ({
@@ -47,29 +44,9 @@ const ContentItemFooter = ({
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
-  onCommentClick,
-  collectionCount
+  onCommentClick
 }: ContentItemFooterProps) => {
   const isProcessing = isDocumentProcessing(item);
-  const getIcon = (type: string) => {
-    switch (type) {
-      case 'text': return <FileText className="h-4 w-4" />;
-      case 'link': return <LinkIcon className="h-4 w-4" />;
-      case 'image': return <Image className="h-4 w-4" />;
-      case 'audio': return <Mic className="h-4 w-4" />;
-      case 'video': return <VideoIcon className="h-4 w-4" />;
-      case 'document': return <FileText className="h-4 w-4" />;
-      case 'collection': return <Layers className="h-4 w-4" />;
-      default: return <FileText className="h-4 w-4" />;
-    }
-  };
-
-  const typeBadgeLabel =
-    item.type === 'collection'
-      ? collectionCount != null
-        ? `${collectionCount} item${collectionCount === 1 ? '' : 's'}`
-        : 'items'
-      : item.type;
 
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
@@ -114,12 +91,6 @@ const ContentItemFooter = ({
       </div>
       
       <div className="flex items-center gap-2">
-        {/* Asset Type Badge - Hidden until hover */}
-        <Badge variant="secondary" className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-          {getIcon(item.type)}
-          {typeBadgeLabel}
-        </Badge>
-        
         {/* Comment count with animation */}
         {isPublicView && onCommentClick && (
           <AnimatedCommentCount 
@@ -131,8 +102,12 @@ const ContentItemFooter = ({
         {/* Menu dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-gray-200">
-              <MoreVertical className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 rounded-full p-0 text-muted-foreground hover:bg-black/5 hover:text-foreground"
+            >
+              <MoreHorizontal className="h-[15px] w-[15px]" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

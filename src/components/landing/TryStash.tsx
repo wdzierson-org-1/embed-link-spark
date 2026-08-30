@@ -186,7 +186,7 @@ const TryStash = () => {
       <div className="mx-auto mt-10 max-w-xl text-center">
         <button
           onClick={() => navigate('/home')}
-          className="inline-flex items-center gap-2 rounded-full bg-foreground px-8 py-3.5 font-mori text-background transition-colors hover:bg-foreground/90"
+          className="inline-flex items-center gap-2 rounded-full bg-foreground px-8 py-3.5 font-montreal text-background transition-colors hover:bg-foreground/90"
         >
           Open your stash
           <ArrowRight className="h-4 w-4" />
@@ -214,7 +214,7 @@ const TryStash = () => {
       <h3 className="font-tobias text-xl text-foreground">
         {atLimit ? 'Your first ten are safe.' : 'Keep this stash forever.'}
       </h3>
-      <p className="mb-4 mt-1 font-mori text-sm text-muted-foreground">
+      <p className="mb-4 mt-1 font-montreal text-sm text-muted-foreground">
         Create a free account and everything here comes with you. 14 days free, then $4.99/month.
       </p>
       <div className="space-y-2">
@@ -224,7 +224,7 @@ const TryStash = () => {
           placeholder="Email"
           value={email}
           onChange={e => setEmail(e.target.value)}
-          className="w-full rounded-xl border border-black/10 bg-white px-4 py-2.5 font-mori text-[15px] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
+          className="w-full rounded-xl border border-black/10 bg-white px-4 py-2.5 font-montreal text-[15px] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
         />
         <input
           type="password"
@@ -233,14 +233,14 @@ const TryStash = () => {
           placeholder="Password"
           value={password}
           onChange={e => setPassword(e.target.value)}
-          className="w-full rounded-xl border border-black/10 bg-white px-4 py-2.5 font-mori text-[15px] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
+          className="w-full rounded-xl border border-black/10 bg-white px-4 py-2.5 font-montreal text-[15px] outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
         />
       </div>
-      {convertError && <p className="mt-2 font-mori text-xs text-red-600">{convertError}</p>}
+      {convertError && <p className="mt-2 font-montreal text-xs text-red-600">{convertError}</p>}
       <button
         type="submit"
         disabled={converting}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-foreground py-2.5 font-mori text-[15px] text-background transition-colors hover:bg-foreground/90 disabled:opacity-60"
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-foreground py-2.5 font-montreal text-[15px] text-background transition-colors hover:bg-foreground/90 disabled:opacity-60"
       >
         {converting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create my account'}
       </button>
@@ -248,7 +248,7 @@ const TryStash = () => {
         <button
           type="button"
           onClick={() => setShowAccountForm(false)}
-          className="mt-2 w-full py-1 text-center font-mori text-xs text-muted-foreground hover:text-foreground"
+          className="mt-2 w-full py-1 text-center font-montreal text-xs text-muted-foreground hover:text-foreground"
         >
           Not yet — keep stashing
         </button>
@@ -263,7 +263,7 @@ const TryStash = () => {
         accountForm
       ) : (
         <>
-          <p className="mb-3 text-center font-mori text-[15px] text-foreground/80">
+          <p className="mb-3 text-center font-montreal text-[15px] text-foreground/80">
             Stash a link, an image, a doc — whatever — right now:
           </p>
           <div
@@ -280,7 +280,7 @@ const TryStash = () => {
               onKeyDown={e => { if (e.key === 'Enter') void handleSubmit(); }}
               placeholder="Paste a link, or just type a thought…"
               aria-label="Stash a link or note"
-              className="min-w-0 flex-1 bg-transparent py-2 font-mori text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
+              className="min-w-0 flex-1 bg-transparent py-2 font-montreal text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
             />
             <input
               ref={fileInputRef}
@@ -300,12 +300,12 @@ const TryStash = () => {
             <button
               onClick={() => void handleSubmit()}
               disabled={busy || !input.trim()}
-              className="flex h-10 flex-none items-center gap-1.5 rounded-xl bg-foreground px-4 font-mori text-sm text-background transition-colors hover:bg-foreground/90 disabled:opacity-40"
+              className="flex h-10 flex-none items-center gap-1.5 rounded-xl bg-foreground px-4 font-montreal text-sm text-background transition-colors hover:bg-foreground/90 disabled:opacity-40"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Stash it'}
             </button>
           </div>
-          <p className="mt-2.5 text-center font-mori text-[13px] text-muted-foreground">
+          <p className="mt-2.5 text-center font-montreal text-[13px] text-muted-foreground">
             {helperLine()}
           </p>
         </>
@@ -328,7 +328,7 @@ const TryStash = () => {
               >
                 <div className="relative h-20 w-full overflow-hidden bg-gray-50">
                   <img src={coverSrcFor(item)} alt="" className="h-full w-full object-cover" loading="lazy" />
-                  <span className="absolute left-1.5 top-1.5 rounded bg-black/40 px-1.5 py-px font-mori text-[9px] uppercase tracking-wider text-white">
+                  <span className="absolute left-1.5 top-1.5 rounded bg-black/40 px-1.5 py-px font-montreal text-[9px] uppercase tracking-wider text-white">
                     {item.type}
                   </span>
                 </div>
@@ -336,7 +336,7 @@ const TryStash = () => {
                   <h4 className="line-clamp-1 font-tobias text-[13.5px] leading-snug text-foreground">
                     {item.title || 'Reading it now…'}
                   </h4>
-                  <p className="line-clamp-2 mt-0.5 font-mori text-[11px] leading-snug text-muted-foreground">
+                  <p className="line-clamp-2 mt-0.5 font-montreal text-[11px] leading-snug text-muted-foreground">
                     {item.description || ' '}
                   </p>
                 </div>
@@ -349,12 +349,12 @@ const TryStash = () => {
       {/* Soft nudge once the stash is real; the box stays usable until the limit */}
       {count >= NUDGE_AT && !atLimit && !showAccountForm && (
         <div className="mx-auto mt-6 flex max-w-md items-center justify-between gap-3 rounded-xl border border-violet-200/60 bg-violet-50/60 px-4 py-2.5">
-          <p className="font-mori text-[13px] text-violet-900/80">
+          <p className="font-montreal text-[13px] text-violet-900/80">
             Like it so far? A free account keeps this stash forever.
           </p>
           <button
             onClick={() => setShowAccountForm(true)}
-            className="flex-none rounded-lg bg-violet-600 px-3 py-1.5 font-mori text-xs text-white transition-colors hover:bg-violet-700"
+            className="flex-none rounded-lg bg-violet-600 px-3 py-1.5 font-montreal text-xs text-white transition-colors hover:bg-violet-700"
           >
             Keep my stash
           </button>

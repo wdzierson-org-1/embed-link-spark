@@ -8,6 +8,155 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-30 · DESIGN.md introduced; app typeface is now PP Neue Montreal everywhere; login redesigned (all platforms take note)
+
+- **`DESIGN.md` now exists at the repo root** and is the single source of truth
+  for look-and-feel across web, homepage, iOS app, iOS share sheet, Chrome
+  extension, and macOS. It's linked from `CLAUDE.md`'s read-first list. All
+  three 2026-08-30 entries below implement it. Token or rule changes must edit
+  `DESIGN.md` in the same branch.
+- **Typeface contract — for the iOS/mobile agent especially:** the product
+  typeface on every surface is **PP Neue Montreal** (weights: 400 UI/body,
+  500 object titles, 600 display; 400 italic for user annotations). PP Mori is
+  retired everywhere; upright PP Editorial New is retired from product
+  surfaces (serif titles are gone — titles are now NM 500 with negative
+  tracking). Marketing pages keep exactly two display exceptions: Tobias and
+  PP Editorial Ultralight Italic accent words. **iOS must bundle
+  `PPNeueMontreal-{Book,Medium,Semibold,BookItalic}` in both the app and
+  share-extension targets** (appex can't read host-bundle fonts — same pattern
+  as the icon catalogs) and update `StashDesign.swift` to match DESIGN.md's
+  type table; SF Pro is fallback only. Web files live in `src/assets/fonts/`;
+  web plumbing: `font-montreal` in `tailwind.config.ts`, faces + body default
+  in `src/index.css`.
+- **Login (`/auth`) redesigned** to the design language (grey wash, centered
+  400px card, wordmark in ink, pill tabs, violet-600 CTAs, quiet inputs).
+  Contracts unchanged: all handlers, redirects, and the 2026-08-29
+  anonymous-session rule are byte-identical; `Auth.test.tsx` still covers the
+  lockout regression.
+- **Consistency directive:** web app, homepage, iOS app, iOS share sheet, and
+  the (upcoming) Chrome-extension restyle must all reference `DESIGN.md`
+  rather than copying each other's CSS. Stylistic drift between surfaces is a
+  bug; when a surface can't express a token exactly, note the deviation in
+  `DESIGN.md`'s per-surface section in the same change.
+
+## 2026-08-30 · Web detail panel: one surface, Details drawer, in-panel player (DESIGN.md pass 3)
+
+Spec: `DESIGN.md` ("Detail panel", "Sharing row states", "Player") + reference
+implementation `docs/superpowers/prototypes/2026-08-30-detail-panel-surface-neue-montreal.html`.
+Web edit sheet only; iOS/macOS mirror from DESIGN.md. All data flows, autosave,
+and props contracts are unchanged — this is structure + skin.
+
+- **Section grammar** (`src/components/edit/EditPanelSection.tsx`): the boxed
+  `sectionCard` treatment is deleted everywhere. Every section is an uppercase
+  11px/600/+0.11em micro-label over a `rgba(0,0,0,.07)` hairline on one
+  continuous surface (sheet bg `#fff → #f8f8fa`; the pink tint is gone).
+- **Header zone**: tinted type-chip eyebrow (Lucide icon + subtype label —
+  reads `attributes.media.kind` via the cards' `audioSubtype`/
+  `isScreenshotItem` helpers) + source hint (domain, or `uploaded/saved ·
+  date`), then the title (Neue Montreal 500 / 28px / −0.02em) and description
+  as chrome-less inline editables: violet wash on hover, wash + 2px violet-300
+  ring on focus. Same blur-to-save handlers as before.
+- **Details drawer** (`src/components/edit/EditItemDetailsDrawer.tsx`): new
+  collapsible section, closed by default; the header shows an inline
+  `format · size · duration` summary. Open, it's dotted-leader key/value rows:
+  Original file (from `attributes.media.file_name` or the `file_path`
+  basename, mono), Format, Duration, Source URL (links), Saved (with time),
+  and Location — the existing location editor moved into this row unchanged
+  in behavior (manual label, clear-to-remove).
+- **Media plays in the panel** (`src/components/edit/EditItemPlayerStrip.tsx`):
+  audio/video items get the DESIGN.md player strip above the content tabs —
+  flat type-tint field, solid accent play/pause with real `<audio>` playback,
+  deterministic waveform (same `waveformHeights(id)` identity as the card),
+  click-to-seek, times, and a 1×→1.5×→2× speed pill; quiet "Download
+  original" below. Links get a hairline favicon/url/open row.
+- **Sharing row**: private = grey 34px lock tile + "Private / Only you can
+  see this item"; public = violet globe tile + violet switch + feed-link chip
+  (`gostash.it/feed/{username}`, copy-with-check) + inline un-share hint. The
+  unshare-confirm dialog (sticky-note deletion) and public sticky-note editor
+  are unchanged in behavior.
+- **Footer**: delete is `#c93a3a` + `trash-2`; autosave indicator unchanged.
+  All motion ≤200ms with `prefers-reduced-motion` guards; Lucide only.
+
+## 2026-08-30 · Web library cards: Neue Montreal card system (DESIGN.md pass 3)
+
+Spec: `DESIGN.md` (tokens, per-type hero table, chips grammar) + reference
+implementation `docs/superpowers/prototypes/2026-08-30-card-type-gallery-neue-montreal.html`.
+Web library cards only; iOS/macOS should mirror from DESIGN.md. Subtype data
+contract (`attributes.media.kind`) is documented in the enrichment entry below;
+cards read it with client fallbacks: audio `duration_s ≥ 600s` renders as
+`recording` (else voice note), and an image renders as a screenshot when
+`kind === 'screenshot'` **or** its title starts with `"Screenshot of"`.
+
+- **Audio cards** (`PlayerHero`, `src/components/cards/CardHero.tsx`): the
+  grey `MediaPlayer` bar is gone from cards (component kept — composer
+  surfaces still use it). The hero is a functional player on the flat
+  type-tint field — 116px voice / 96px recording, solid accent play circle
+  (`#544eba` voice / `#8b4a9e` recording), deterministic waveform bars
+  hashed from the item id (played 1.0, unplayed .26), tabular-numeral time.
+- **Document cards** (`DocumentHero`): flat document field + white CSS
+  page-glyph (grid variant for spreadsheets) + format badge (PDF `#a33d52`,
+  sheets `#1d6f42`, decks `#c43e1c`, docs `#2b579a`). A real first-page
+  thumbnail can slot into the glyph later without layout change.
+- **Screenshot cards** (`ScreenshotHero`): screenshot field + white
+  window-frame (title bar, three dots) around the real capture, top-aligned.
+  Non-screenshot images unchanged.
+- **Video cards** (`VideoPosterHero`): resting state is a poster frame
+  (`preload="metadata"`, no native chrome) + centered play badge + duration
+  pill on a bottom scrim; native controls appear only once playback starts.
+  Expand-to-lightbox unchanged. Hero height joins the two-height scale (h-40).
+- **Chips grammar** (in order, nothing else): always-visible type chip first
+  — tinted with an 11px Lucide icon for voice note (mic) / recording
+  (audio-lines) / screenshot (scan-line) / document (file or table-2),
+  neutral for photo / note / video / link flavors — then `FORMAT · size`
+  (mono), then one salient fact (duration / read-time). Filename chips are
+  gone from cards; the hover-only footer type badge is gone. Footer keeps
+  date + location pin + overflow (`more-horizontal`, 24px round target).
+- **Tags UI removed from cards**: `ContentItem` no longer renders
+  `ItemTagsManager` (component untouched); grouping moves to themes.
+- **Tokens**: hero-bottom → body-top gap is **18px for every hero type**;
+  no-hero cards take 22px top; body side padding stays 24px. Card titles are
+  PP Neue Montreal 500, 20/1.24, −0.014em (`font-editorial` retired from
+  cards). Card shadows go neutral grey
+  (`0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08)`, hover
+  deepens + 2px lift) — purple-tinted shadows are gone from cards. Spectrum
+  fields are flat tints + grain via the shared `SpectrumField`
+  (`src/components/cards/CardBits.tsx`).
+
+## 2026-08-30 · Media/document AI titles + `attributes.media.kind` subtype (backend + web; iOS/macOS render against the new contract)
+
+Uploaded media and documents now get real AI titles instead of filenames, and
+audio/video items carry a renderable subtype.
+
+- **Shared title policy** — `supabase/functions/_shared/titlePolicy.ts`
+  (vitest-tested web mirror: `src/utils/titlePolicy.ts`; keep in sync).
+  `isPlaceholderTitle(title, filePath)`: empty, equal to the file basename,
+  extension-suffixed (`Recording.m4a`, `deck.pptx`), storage-timestamp
+  (`1724900000000.webm`), or UUID-shaped (`72322570-….m4a`) titles are
+  placeholders enrichment may replace; **anything else is the user's and is
+  never touched**. Guards always re-fetch the current title first (renames
+  during enrichment win); fetch failure ⇒ skip the title write. Titles capped
+  at 90 chars (`capTitle`). `analyze-image` keeps its own earlier copy of the
+  same policy (unchanged).
+- **Audio/video (`add-file`)**: after transcription, a placeholder title is
+  replaced with a 3–9-word gpt-4o-mini title from the transcript. Privacy
+  rule: for deeply personal content (health, relationships, grief, finances,
+  private confessions) the model returns `KEEP_FILENAME` and the filename
+  title stays. Web upload path mirrors this via `generate-title` with
+  `{ kind: 'transcript' }` (same shared prompt; callers must treat a
+  `KEEP_FILENAME` response as "keep the current title").
+- **`attributes.media.kind`** (whole-blob read-merge-write, unknown keys
+  preserved): `'voice_note'` (audio < 600 s or unknown duration),
+  `'recording'` (audio ≥ 600 s, from `attributes.media.duration_s`),
+  `'video'` (video files — **new `MediaKind` value**, added to
+  `src/types/itemAttributes.ts`). Meaningful original filenames land in
+  `attributes.media.file_name`; storage-timestamp/UUID names never do.
+- **Documents**: `quick-pdf-summary` now writes its AI title over
+  placeholder (filename) titles too, not just empty ones (page_body-null
+  condition kept). `extract-office-text` gains a guarded gpt-4o-mini title
+  from the first ~1500 extracted chars.
+- **Deploy needed** (not yet deployed): `add-file`, `quick-pdf-summary`,
+  `extract-office-text`, `generate-title`.
+
 ## 2026-08-30 · Ask retrieval reliability + WhatsApp/SMS intent gate (backend; no client changes required)
 
 Spec: `docs/superpowers/specs/2026-08-29-ask-retrieval-reliability-and-intent-gate-spec.md`.

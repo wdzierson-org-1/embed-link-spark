@@ -21,6 +21,8 @@ export default {
     extend: {
       fontFamily: {
         'inter': ['Inter', 'sans-serif'],
+        // The app typeface (DESIGN.md): one family, weights do the serif/sans work
+        'montreal': ['PP Neue Montreal', 'Inter', '-apple-system', 'sans-serif'],
         'editorial': ['PPEditorialNew-Regular', 'serif'],
         'editorial-italic': ['PPEditorialNew-Italic', 'serif'],
         'mori': ['PPMori-Regular', 'sans-serif'],

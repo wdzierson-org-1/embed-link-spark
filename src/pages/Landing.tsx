@@ -82,18 +82,18 @@ const StashedCard = ({
       </div>
     )}
     <div className="mb-1.5 flex items-center justify-between gap-2">
-      <span className="flex items-center gap-1 font-mori text-[10px] uppercase tracking-wider text-muted-foreground/80">
+      <span className="flex items-center gap-1 font-montreal text-[10px] uppercase tracking-wider text-muted-foreground/80">
         <KindIcon className="h-3 w-3" aria-hidden />
         {kind}
       </span>
-      {meta && <span className="font-mori text-[10px] text-muted-foreground/60">{meta}</span>}
+      {meta && <span className="font-montreal text-[10px] text-muted-foreground/60">{meta}</span>}
     </div>
     <h4 className="font-tobias text-[15px] mb-1 leading-snug line-clamp-2">{title}</h4>
-    <p className="text-xs text-muted-foreground font-mori leading-snug line-clamp-2">{note}</p>
+    <p className="text-xs text-muted-foreground font-montreal leading-snug line-clamp-2">{note}</p>
     {tags && (
       <div className="mt-2 flex flex-wrap gap-1">
         {tags.map(tag => (
-          <span key={tag} className="rounded-full border border-border/40 bg-secondary/70 px-2 py-0.5 font-mori text-[10px] text-muted-foreground">
+          <span key={tag} className="rounded-full border border-border/40 bg-secondary/70 px-2 py-0.5 font-montreal text-[10px] text-muted-foreground">
             {tag}
           </span>
         ))}
@@ -233,7 +233,7 @@ const FLOATING_CARDS: FloatingCardSpec[] = [
 
 // Numbered kickers that give the page's sections a visible spine
 const SectionEyebrow = ({ index, label }: { index: string; label: string }) => (
-  <div className="mb-5 flex items-center justify-center gap-3 font-mori text-[11px] uppercase tracking-[0.28em] text-muted-foreground/70">
+  <div className="mb-5 flex items-center justify-center gap-3 font-montreal text-[11px] uppercase tracking-[0.28em] text-muted-foreground/70">
     <span className="h-px w-10 bg-border" aria-hidden />
     <span>{index} — {label}</span>
     <span className="h-px w-10 bg-border" aria-hidden />
@@ -302,7 +302,7 @@ const Landing = () => {
   const cardsTranslate = Math.min(scrollY * 0.5, 400);
 
   return (
-    <div className="min-h-screen bg-background font-inter relative overflow-hidden paper-texture">
+    <div className="min-h-screen bg-background font-montreal relative overflow-hidden paper-texture">
       {/* Animated Hero Gradient */}
       <div
         className="fixed inset-0 hero-gradient pointer-events-none z-[700] transition-opacity duration-300"
@@ -428,12 +428,12 @@ const Landing = () => {
 
           <div className="flex items-center space-x-3">
             <Link to="/auth">
-              <Button variant="ghost" className="text-muted-foreground hover:text-foreground text-sm font-mori">
+              <Button variant="ghost" className="text-muted-foreground hover:text-foreground text-sm font-montreal">
                 Sign In
               </Button>
             </Link>
             <Link to="/pricing">
-              <Button className="bg-foreground text-background hover:bg-foreground/90 text-sm px-4 py-2 rounded-full font-mori">
+              <Button className="bg-foreground text-background hover:bg-foreground/90 text-sm px-4 py-2 rounded-full font-montreal">
                 Get Started
               </Button>
             </Link>
@@ -448,17 +448,17 @@ const Landing = () => {
               <span className="text-muted-foreground">Find everything <span className="font-editorial-italic">effortlessly</span>.</span>
             </h1>
 
-            <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl font-montreal text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
               Links, PDFs, screenshots, voice notes — toss them into Stash. Stash understands each one, describes it, stores it for later, and makes it easy to find.
             </p>
 
             <div className="slide-up">
               <Link to="/pricing">
-                <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
+                <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-montreal">
                   Start stashing — free for 14 days
                 </Button>
               </Link>
-              <p className="text-sm font-mori text-muted-foreground mt-4">
+              <p className="text-sm font-montreal text-muted-foreground mt-4">
                 Then $4.99/month. No credit card to start.
               </p>
             </div>
@@ -470,7 +470,7 @@ const Landing = () => {
           <div className="text-center">
             <SectionEyebrow index="01" label="One place" />
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4">Your every <span className="font-editorial-italic">thing</span> app.</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Notes, links, files, photos, voice memos — everything you'd normally scatter across five apps, in one place that remembers all of it.
             </p>
           </div>
@@ -493,7 +493,7 @@ const Landing = () => {
                   <Icon className={`h-5 w-5 ${iconColor}`} />
                 </div>
                 <h3 className="text-lg font-tobias leading-snug text-foreground mb-2">{title}</h3>
-                <p className="text-sm text-muted-foreground font-mori leading-relaxed">{body}</p>
+                <p className="text-sm text-muted-foreground font-montreal leading-relaxed">{body}</p>
               </div>
             ))}
           </div>
@@ -504,7 +504,7 @@ const Landing = () => {
           <div className="text-center mb-14">
             <SectionEyebrow index="03" label="Watch it work" />
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4 max-w-3xl mx-auto">Just paste the link and Stash does the describing <span className="font-editorial-italic">automagically</span>.</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Stash collects everything it can about a link the moment you paste it — title, preview, full text — and makes it searchable. No description to write, nothing to categorize.
             </p>
           </div>
@@ -528,7 +528,7 @@ const Landing = () => {
           <div className="text-center mb-14">
             <SectionEyebrow index="04" label="Your library" />
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4">Capture everything, search anything</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Voice, video, text, links, and images. We transcribe the contents and make everything searchable and conversational.
             </p>
           </div>
@@ -602,7 +602,7 @@ const Landing = () => {
             <p className="text-xl md:text-2xl font-tobias text-muted-foreground mb-5 max-w-2xl mx-auto">
               Chat with your notes, insights, memories, and photos
             </p>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Ask questions about anything you've saved. Our AI understands the context and connections across all your content.
             </p>
           </div>
@@ -616,16 +616,16 @@ const Landing = () => {
             Your future self will ask.<br />
             <span className="text-muted-foreground">Stash will have the <span className="font-editorial-italic">answer</span>.</span>
           </h2>
-          <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-xl font-montreal text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
             Try it free for two weeks — save a handful of things, then ask for them back. That's the whole pitch.
           </p>
           <Link to="/pricing">
-            <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
+            <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-montreal">
               Start your free two week trial
               <ArrowRight className="ml-3 h-5 w-5" />
             </Button>
           </Link>
-          <p className="text-sm font-mori text-muted-foreground mt-4">
+          <p className="text-sm font-montreal text-muted-foreground mt-4">
             14 days free, then $4.99/month.
           </p>
         </section>
@@ -635,10 +635,10 @@ const Landing = () => {
           <div className="flex items-center justify-center mb-6">
             <StashWordmark className="h-5 text-foreground" />
           </div>
-          <p className="text-sm font-mori text-muted-foreground mb-8">
+          <p className="text-sm font-montreal text-muted-foreground mb-8">
             Forget about forgetting.
           </p>
-          <div className="flex justify-center space-x-6 text-sm font-mori text-muted-foreground">
+          <div className="flex justify-center space-x-6 text-sm font-montreal text-muted-foreground">
             <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <a href="mailto:will@dzierson.com" className="hover:text-foreground transition-colors">Contact</a>

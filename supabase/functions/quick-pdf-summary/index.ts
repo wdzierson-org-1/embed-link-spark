@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { capTitle, isPlaceholderTitle } from '../_shared/titlePolicy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -93,13 +94,15 @@ serve(async (req) => {
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseKey);
 
-      // Never clobber an existing title (including a user-edited one) — only fill
-      // it in when the item doesn't have one yet. Fetch the current title first;
-      // if the fetch itself fails, be conservative and skip the title write
-      // rather than risk overwriting something better.
+      // Title policy (_shared/titlePolicy.ts): clients always pre-write the
+      // filename as the title, so "any title exists" is the wrong guard — a
+      // filename-shaped (or empty) title is a placeholder we replace with the
+      // AI title; a real user title is never touched. Fetch the current state
+      // first; if the fetch itself fails, be conservative and skip the title
+      // write rather than risk overwriting something better.
       const { data: existingItem, error: fetchError } = await supabase
         .from('items')
-        .select('title')
+        .select('title, file_path')
         .eq('id', itemId)
         .single();
 
@@ -107,12 +110,12 @@ serve(async (req) => {
         console.error('Error fetching item before quick summary update (skipping title write):', fetchError);
       }
 
-      const currentTitle = existingItem?.title;
-      const shouldWriteTitle = !fetchError && !(currentTitle && currentTitle.trim().length > 0);
+      const shouldWriteTitle =
+        !fetchError && isPlaceholderTitle(existingItem?.title, existingItem?.file_path);
 
       const updates: Record<string, string> = { description };
       if (shouldWriteTitle) {
-        updates.title = title;
+        updates.title = capTitle(title);
       }
 
       // Only apply the filename-based guess while full extraction hasn't landed yet

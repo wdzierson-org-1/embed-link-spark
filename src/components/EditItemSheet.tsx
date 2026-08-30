@@ -100,11 +100,11 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   };
 
   const footer = (
-    <div className="flex flex-shrink-0 items-center justify-between border-t border-black/5 px-4 py-2.5">
+    <div className="flex flex-shrink-0 items-center justify-between border-t border-black/[0.07] bg-white/65 px-6 py-2.5 sm:px-10">
       {onDelete ? (
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <button className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-red-500/80 transition-colors hover:bg-red-50 hover:text-red-600">
+            <button className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] text-[#c93a3a] transition-opacity hover:opacity-75">
               <Trash2 className="h-3.5 w-3.5" />
               Delete item
             </button>
@@ -156,7 +156,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     return (
       <TooltipProvider>
         <Sheet open={open} onOpenChange={onOpenChange}>
-          <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col bg-gradient-to-b from-white to-[#fdf8fd]">
+          <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col bg-gradient-to-b from-white to-[#f8f8fa] shadow-[0_2px_6px_rgba(20,22,30,0.05),0_24px_70px_rgba(30,33,44,0.16)]">
             <SheetTitle className="sr-only">Edit item</SheetTitle>
             <div className="flex-1 overflow-y-auto pt-12">
               <EditItemDetailsTab
@@ -176,7 +176,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col bg-gradient-to-b from-white to-[#fdf8fd]">
+        <SheetContent className="w-full h-full sm:w-[800px] sm:max-w-[800px] sm:h-auto p-0 flex flex-col bg-gradient-to-b from-white to-[#f8f8fa] shadow-[0_2px_6px_rgba(20,22,30,0.05),0_24px_70px_rgba(30,33,44,0.16)]">
           <SheetTitle className="sr-only">Edit item</SheetTitle>
           <div className="flex-1 overflow-y-auto">
             {hasImage ? (
