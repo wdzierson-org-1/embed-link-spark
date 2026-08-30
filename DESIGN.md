@@ -178,9 +178,14 @@ rest; violet wash on hover; wash + ring on focus.
 - Card hover: shadow + 2px lift, 200ms. Drawer/chevron: 180ms. Feed-link chip:
   180ms fade/slide-in.
 - Playing state: unplayed waveform bars pulse opacity (1.4s loop).
-- Every animation has a `prefers-reduced-motion` guard. No perpetual ambient
-  animation on product surfaces (the homepage hero is the one sanctioned
-  exception).
+- Every animation has a `prefers-reduced-motion` guard (including
+  `.animated-gradient`, guarded in `src/index.css`). Perpetual ambient
+  animation is sanctioned on exactly three surfaces: the homepage hero, the
+  library page wash, and the sign-in page wash — nowhere else.
+- The loading interstitial is the stitched-S mark with a drifting gradient
+  fill and cycling playful copy (`LoadingInterstitial.tsx`) — never a plain
+  spinner. A richer Lottie/Spline asset may replace the mark later; the copy
+  cycle stays.
 
 ## Voice & copy
 

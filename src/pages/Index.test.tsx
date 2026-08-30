@@ -87,12 +87,14 @@ describe("Index", () => {
     });
   });
 
-  it("shows an items loading state while initial items load is in progress", async () => {
+  it("shows the loading interstitial while initial items load is in progress", async () => {
     itemsLoadingState.current = true;
 
-    const { findByText } = render(<Index />);
+    const { findByLabelText } = render(<Index />);
 
-    expect(await findByText("Loading your items...")).toBeInTheDocument();
+    // The interstitial's stitched-S mark carries aria-label "Loading"; its
+    // message copy cycles randomly, so assert on the stable mark instead
+    expect(await findByLabelText("Loading")).toBeInTheDocument();
   });
 
   it("sweeps staging orphans once for the signed-in user", async () => {

@@ -8,6 +8,32 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-30 · Sign-in polish, playful loading interstitial, brand favicon, tag filtering hidden (web; iOS/extension mirror notes inline)
+
+- **Sign-in**: "Welcome to Stash" heading removed (wordmark + "Sign in or
+  create your account." carry the page); background is now the app's ambient
+  `.animated-gradient` wash at 30% (same as the library), faded toward the
+  card. `.animated-gradient` gained a global `prefers-reduced-motion` guard.
+- **Post-login loading interstitial** (`src/components/LoadingInterstitial.tsx`):
+  replaces the grey spinner + "Loading..." on `/home`. The wordmark's stitched
+  second-S with a rotating splash-gradient fill and a gentle breathe, over
+  playful cycling copy ("Unpacking your stash…", "Rehanging the gallery…", …).
+  Reduced-motion: static mark, single message. iOS: the launch/loading moment
+  should adopt the same mark + copy tone (copy list in the component).
+- **Favicon/site icons**: the stitched second-S over the splash gradient
+  (same glyph + slice as the iOS app icon) now ships locally —
+  `favicon.svg/ico`, `favicon-32/16.png`, `apple-touch-icon.png`,
+  `icon-192/512.png`, webmanifest updated. The Supabase-hosted icon set and
+  any Lovable-era hearts are retired. **Chrome extension icons** updated to
+  the same mark (`extension/icons/*`) — note `public/stash-it-extension.zip`
+  is now stale and needs rebuilding at the next extension release.
+- **Tag filtering hidden**: the "Filter by tag" control and selected-tag chips
+  are gone from the library toolbar (`LibraryToolbar.tsx`; props kept so the
+  Index contract is unchanged). With the card/panel tag editors already
+  removed, there is now NO tag UI anywhere — tags data remains in place;
+  **themes** will replace tags as the grouping model. Other platforms: hide
+  any tag affordances the same way, don't delete data.
+
 ## 2026-08-30 · Design-system revisions after live review (amends the three entries below; DESIGN.md updated to match)
 
 - **Card titles are serif again**: upright PP Editorial New returns for the

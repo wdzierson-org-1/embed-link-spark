@@ -188,19 +188,12 @@ const Auth = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#f7f7f9] font-montreal">
-      {/* Page wash (DESIGN.md): grey paper base with a faint, static
-          brand-spectrum tint — same product feel as the app pages, no
-          ambient animation on this surface */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            'linear-gradient(115deg, #667eea 0%, #764ba2 30%, #f093fb 55%, #f5576c 72%, #4facfe 100%)',
-          opacity: 0.14,
-        }}
-      />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#f7f7f9]/40 via-[#f7f7f9]/80 to-[#f7f7f9]" />
+    <div className="relative min-h-screen overflow-hidden bg-[#f7f7f9] font-montreal">
+      {/* Page wash: the app's ambient animated gradient (same class the
+          library uses; sanctioned exception in DESIGN.md, reduced-motion
+          guarded in index.css), faded down toward the card */}
+      <div className="animated-gradient pointer-events-none absolute inset-0 opacity-30" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#f7f7f9]/60 to-[#f7f7f9]" />
 
       <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
         {/* One centered surface: white card, radius 20, neutral sheet shadow */}
@@ -208,14 +201,9 @@ const Auth = () => {
           <div className="flex justify-center">
             <StashWordmark className="h-6 text-[#22262f]" />
           </div>
-          <div className="mt-6 text-center">
-            <h1 className="text-2xl font-semibold tracking-[-0.02em] text-[#22262f]">
-              Welcome to Stash
-            </h1>
-            <p className="mt-1.5 text-sm text-[#646b76]">
-              Sign in or create your account.
-            </p>
-          </div>
+          <p className="mt-4 text-center text-sm text-[#646b76]">
+            Sign in or create your account.
+          </p>
 
           <div className="mt-6">
             <Tabs defaultValue={mode} className="w-full">

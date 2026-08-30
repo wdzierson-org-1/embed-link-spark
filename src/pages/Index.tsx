@@ -15,6 +15,7 @@ import ContentGrid from '@/components/ContentGrid';
 import EditItemSheet from '@/components/EditItemSheet';
 import ChatMole from '@/components/ChatMole';
 import ConversationsView from '@/components/ConversationsView';
+import LoadingInterstitial from '@/components/LoadingInterstitial';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 import { sweepStagingOrphans } from '@/utils/stagedUploader';
 
@@ -121,15 +122,7 @@ const Index = () => {
   };
 
   if (loading || (user && isInitialLoadInProgress)) {
-    const loadingLabel = loading ? 'Loading...' : 'Loading your items...';
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">{loadingLabel}</p>
-        </div>
-      </div>
-    );
+    return <LoadingInterstitial />;
   }
 
   if (!user) {
