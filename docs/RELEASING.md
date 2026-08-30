@@ -11,10 +11,11 @@ Xcode session) is called out explicitly below.
   "The auth split" below. If this session expires, see Troubleshooting.
 - **`xcodegen`** installed (regenerates `Stash.xcodeproj` from `project.yml`).
 - **App Store Connect API key** at `ios/.asc/` — only needed for (a) the REST
-  calls in this doc (processing polls, TestFlight group/tester management) and
-  (b) the `--key-auth` fallback mode of `release.sh`, never for a normal
-  release. See `ios/.asc/README.md` to generate one (role **App Manager**)
-  and drop it; everything in that folder except the README is gitignored.
+  calls in this doc, made via `ios/scripts/asc-api.sh` (processing polls,
+  TestFlight group/tester management) and (b) the `--key-auth` fallback mode
+  of `release.sh`, never for a normal release. See `ios/.asc/README.md` to
+  generate one (role **App Manager**) and drop it; everything in that folder
+  except the README is gitignored.
 - Run all commands from `ios/`.
 
 Key facts, none of them secret: team ID `3CH3K9NTT2`; bundle IDs
@@ -75,11 +76,11 @@ either, before archiving.
 ## Processing & beta-review expectations
 
 - **Processing** (upload accepted → build usable): Apple typically quotes
-  5–15 minutes; observed 2026-08-30 end to end: about **1 minute**. Poll
-  `GET /v1/builds?filter[app]=<id>&sort=-uploadedDate` (ASC API key JWT) and
-  watch `processingState` go `PROCESSING` → `VALID` (or `INVALID`/`FAILED`,
-  which arrives with an explanatory email from Apple — nothing to script
-  around there).
+  5–15 minutes; observed 2026-08-30 end to end: about **1 minute**. Poll with
+  `./scripts/asc-api.sh GET "/v1/builds?filter[app]=<id>&sort=-uploadedDate"`
+  and watch `processingState` go `PROCESSING` → `VALID` (or `INVALID`/
+  `FAILED`, which arrives with an explanatory email from Apple — nothing to
+  script around there).
 - **Export compliance**: both Info.plists ship `ITSAppUsesNonExemptEncryption:
   false`. App Store Connect picks this up automatically — the build
   resource's `usesNonExemptEncryption` attribute resolves to `false` with no
@@ -92,27 +93,34 @@ either, before archiving.
 
 ## TestFlight group/tester management (all via REST, same API key)
 
-The JWT recipe is in
-`.superpowers/sdd/2026-08-24-ios-plan-6-testflight/asc-auth-probe.sh`. The
-calls that matter:
+`ios/scripts/asc-api.sh` is a small, committed, portable wrapper: it reads
+the key via the exact same discovery contract as `release.sh`
+(`ios/.asc/config.env` + `ios/.asc/AuthKey_<KEYID>.p8`), builds the ES256
+JWT, and curls whatever method+path you give it — `./scripts/asc-api.sh
+METHOD PATH [extra curl args...]`, printing the response body on stdout and
+`HTTP <code>` on stderr. (It passes `curl -g` so ASC's `filter[app]=...`
+bracket syntax isn't misread as curl's own URL-globbing.) The calls that
+matter for TestFlight:
 
-- `GET /v1/apps/<id>/betaGroups` — check what groups already exist before
-  creating one (avoid duplicate "Internal" groups).
-- `POST /v1/betaGroups` with `attributes.isInternalGroup: true` and an `app`
-  relationship — creates an internal group.
-- `POST /v1/betaTesters` with `email`/`firstName`/`lastName` and a
-  `betaGroups` relationship — adds a tester to that group. **For internal
-  groups this only works for people who are already App Store Connect
-  Users on the team** (Users and Access); the API rejects arbitrary
-  external emails for an internal group (that's what external groups are
-  for). Will (`willdzierson@gmail.com`, ACCOUNT_HOLDER/ADMIN) qualifies, and
-  this call succeeded on the first try with no role error.
-- `POST /v1/betaGroups/<id>/relationships/builds` — attaches an uploaded,
-  `VALID` build to a group so its testers can see it.
+- `./scripts/asc-api.sh GET "/v1/apps/<id>/betaGroups"` — check what groups
+  already exist before creating one (avoid duplicate "Internal" groups).
+- `./scripts/asc-api.sh POST /v1/betaGroups -H "Content-Type: application/json" -d '{"data":{"type":"betaGroups","attributes":{"name":"Internal","isInternalGroup":true},"relationships":{"app":{"data":{"type":"apps","id":"<id>"}}}}}'`
+  — creates an internal group.
+- `./scripts/asc-api.sh POST /v1/betaTesters -H "Content-Type: application/json" -d '{"data":{"type":"betaTesters","attributes":{"email":"...","firstName":"...","lastName":"..."},"relationships":{"betaGroups":{"data":[{"type":"betaGroups","id":"<groupId>"}]}}}}'`
+  — adds a tester to that group. **For internal groups this only works for
+  people who are already App Store Connect Users on the team** (Users and
+  Access); the API rejects arbitrary external emails for an internal group
+  (that's what external groups are for). Will (`willdzierson@gmail.com`,
+  ACCOUNT_HOLDER/ADMIN) qualifies, and this call succeeded on the first try
+  with no role error.
+- `./scripts/asc-api.sh POST "/v1/betaGroups/<groupId>/relationships/builds" -H "Content-Type: application/json" -d '{"data":[{"type":"builds","id":"<buildId>"}]}'`
+  — attaches an uploaded, `VALID` build to a group so its testers can see it.
 
-No Will-checkpoints remain for future releases: with Xcode signed in, the
-entire archive → export → upload → TestFlight-group/tester pipeline is
-agent-runnable end to end.
+No Will-checkpoints remain for future releases: with Xcode signed in and the
+key dropped in `ios/.asc/`, the entire archive → export → upload →
+TestFlight-group/tester pipeline is agent-runnable end to end using only
+committed scripts (`release.sh` + `asc-api.sh`) — nothing it depends on lives
+outside this repo or outside `ios/.asc/`.
 
 ## Troubleshooting
 
@@ -136,10 +144,12 @@ archive itself is fine (T3 review-ledger note). `release.sh` passes it on
 all three subcommands; if you're ever running `xcodebuild -exportArchive` by
 hand, keep it.
 
-**`error: no App Store Connect API key found...`** from `release.sh` — only
-fires when key auth was explicitly requested (`--key-auth` /
-`STASH_RELEASE_AUTH=key`) and `ios/.asc/config.env` or the `.p8` is missing.
-Follow `ios/.asc/README.md`. Default session mode never triggers this.
+**`error: no App Store Connect API key found...`** — from `release.sh`, this
+only fires when key auth was explicitly requested (`--key-auth` /
+`STASH_RELEASE_AUTH=key`) and `ios/.asc/config.env` or the `.p8` is missing;
+default session mode never triggers it. From `asc-api.sh` it fires
+unconditionally on a missing key/config, since every REST call needs one.
+Either way, follow `ios/.asc/README.md`.
 
 **A freshly-added internal tester still shows `NOT_INVITED` several minutes
 after being added** — observed 2026-08-30: tester creation and group/build

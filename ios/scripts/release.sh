@@ -63,15 +63,11 @@ require_key() {
 }
 
 # AUTH_MODE: "session" (default) or "key". A flag (--session-auth/--key-auth)
-# wins over STASH_RELEASE_AUTH, which wins over the session default.
+# wins over STASH_RELEASE_AUTH, which wins over the session default. Validity
+# is checked AFTER flag parsing below (not here) so that a valid flag always
+# wins even if STASH_RELEASE_AUTH happens to hold garbage — an eager check
+# here would reject the env var before the flag ever got a chance to override it.
 AUTH_MODE="${STASH_RELEASE_AUTH:-session}"
-case "$AUTH_MODE" in
-  session|key) ;;
-  *)
-    echo "error: STASH_RELEASE_AUTH must be 'session' or 'key' (got '$AUTH_MODE')." >&2
-    exit 1
-    ;;
-esac
 
 # Populates the global AUTH_FLAGS array for the current AUTH_MODE: empty for
 # session auth (xcodebuild then signs with the logged-in Xcode account), or
@@ -146,6 +142,15 @@ if [[ $# -eq 2 ]]; then
     *) usage ;;
   esac
 fi
+
+# Validate the FINAL resolved AUTH_MODE (flag, if given, has already won).
+case "$AUTH_MODE" in
+  session|key) ;;
+  *)
+    echo "error: STASH_RELEASE_AUTH must be 'session' or 'key' (got '$AUTH_MODE')." >&2
+    exit 1
+    ;;
+esac
 
 case "$COMMAND" in
   generate) cmd_generate ;;
