@@ -29,6 +29,11 @@ screenshots/
 # Claude worktrees (full repo copies — never build/test/commit them)
 .claude/worktrees/
 
+# iOS release pipeline: ASC API key drop-box (secrets) + build output
+ios/.asc/*
+!ios/.asc/README.md
+ios/build/
+
 # Brainstorm companion sessions
 .superpowers/
 
