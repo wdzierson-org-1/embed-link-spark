@@ -8,6 +8,19 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-01 · Favicon corrected to the full flat second-S; interstitial simplified (amends the entry below)
+
+- **Favicon redrawn**: the first cut used only two of the second-S's five
+  glyph paths and a gradient tile — it didn't read as the wordmark's S. Now:
+  all five paths, flat ink `#22262f` on white, no gradient. Same set of files
+  (`favicon.svg/ico`, pngs, apple-touch, manifest icons, extension icons).
+- **New standing rule (DESIGN.md · Iconography): brand elements are flat** —
+  no gradients in buttons, icons, favicons, or marks; the splash gradient is
+  for page washes (and the iOS app icon, standing exception) only.
+- **Loading interstitial simplified**: it shows for a split second, so the
+  animated mark + cycling copy never landed. Now a quiet arc spinner
+  (hairline track, violet-600 rounded-cap arc, 0.9s) on the grey wash.
+
 ## 2026-08-30 · Sign-in polish, playful loading interstitial, brand favicon, tag filtering hidden (web; iOS/extension mirror notes inline)
 
 - **Sign-in**: "Welcome to Stash" heading removed (wordmark + "Sign in or

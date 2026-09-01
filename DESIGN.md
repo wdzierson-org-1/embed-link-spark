@@ -127,6 +127,11 @@ Photos, videos, and link covers use real imagery — no field, no tint.
 1:1 analog exists (lock, globe, play); otherwise ship the Lucide asset. Never
 emoji, never mixed icon sets on one surface.
 
+**Brand elements are flat.** No gradients in buttons, icons, favicons, or
+marks — flat iconography on flat color (the favicon is the stitched second-S
+in ink `#22262f` on white, all five glyph paths). The splash gradient lives
+only in page washes and the iOS app icon (standing exception).
+
 ## Components
 
 **Card anatomy** (top to bottom): hero → kicker (links: domain or author
@@ -182,10 +187,10 @@ rest; violet wash on hover; wash + ring on focus.
   `.animated-gradient`, guarded in `src/index.css`). Perpetual ambient
   animation is sanctioned on exactly three surfaces: the homepage hero, the
   library page wash, and the sign-in page wash — nowhere else.
-- The loading interstitial is the stitched-S mark with a drifting gradient
-  fill and cycling playful copy (`LoadingInterstitial.tsx`) — never a plain
-  spinner. A richer Lottie/Spline asset may replace the mark later; the copy
-  cycle stays.
+- The loading interstitial (`LoadingInterstitial.tsx`) is a quiet arc
+  spinner: hairline grey track, violet-600 rounded-cap arc, 0.9s spin, on the
+  plain grey wash. It shows for a split second — nothing on it should demand
+  attention (no copy, no gradients, no mark animation).
 
 ## Voice & copy
 
