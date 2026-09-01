@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Button } from '@/components/ui/button';
-import { Maximize, FileText, Loader2, Sparkles } from 'lucide-react';
+import { Maximize, Loader2, Sparkles } from 'lucide-react';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
+import { SectionHead } from '@/components/edit/EditPanelSection';
 import { useItemSourceContent } from '@/hooks/useItemSourceContent';
 import { getContentTabsConfig, needsSourceContent, type ContentTabKey } from '@/utils/editPanelTabs';
 
@@ -23,15 +24,12 @@ interface EditItemContentSectionProps {
   mobileEditorReady: boolean;
 }
 
-const sectionCard =
-  'rounded-2xl border border-black/5 bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05),0_6px_18px_rgba(160,120,200,0.08)]';
-const sectionLabel = 'flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground';
-
 const looksLikeMarkdown = (text: string): boolean =>
   /(^|\n)#{1,6}\s|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|(^|\n)\s*[-*]\s/.test(text);
 
+// Source material sits directly on the panel surface — no nested box
 const ReadOnlyText = ({ text, capped = true }: { text: string; capped?: boolean }) => (
-  <div className={`rounded-xl border border-black/5 bg-gray-50/60 px-4 py-3 ${capped ? 'max-h-[420px] overflow-y-auto' : ''}`}>
+  <div className={capped ? 'max-h-[420px] overflow-y-auto pr-1' : ''}>
     {looksLikeMarkdown(text) ? (
       <div className="prose prose-sm max-w-none text-foreground/90">
         <ReactMarkdown>{text}</ReactMarkdown>
@@ -43,14 +41,14 @@ const ReadOnlyText = ({ text, capped = true }: { text: string; capped?: boolean 
 );
 
 const TabEmptyState = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-black/10 bg-gray-50/40 px-6 py-8 text-center text-sm text-muted-foreground">
+  <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 px-6 py-8 text-center text-sm text-[#959ba6]">
     {children}
   </div>
 );
 
 const LoadingState = () => (
-  <div className="flex min-h-[140px] items-center justify-center rounded-xl border border-black/5 bg-gray-50/40 text-sm text-muted-foreground">
-    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+  <div className="flex min-h-[120px] items-center justify-center text-sm text-[#959ba6]">
+    <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
     Loading...
   </div>
 );
@@ -87,13 +85,13 @@ const EditItemContentSection = ({
   const notesEditor = (
     <div className="relative">
       {isContentLoading ? (
-        <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
+        <div className="flex min-h-[300px] items-center justify-center text-sm text-[#959ba6]">
           Loading editor...
         </div>
       ) : !mobileEditorReady && isMobile ? (
-        <div className="border rounded-md p-4 min-h-[300px] flex items-center justify-center text-muted-foreground">
+        <div className="flex min-h-[300px] items-center justify-center text-sm text-[#959ba6]">
           <div className="text-center">
-            <div className="animate-pulse">Initializing editor...</div>
+            <div className="animate-pulse motion-reduce:animate-none">Initializing editor...</div>
           </div>
         </div>
       ) : (
@@ -107,7 +105,7 @@ const EditItemContentSection = ({
           />
         </div>
       )}
-      <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm px-2 py-1 rounded">
+      <div className="absolute bottom-3 right-3 rounded bg-background/80 px-2 py-1 text-xs text-[#959ba6] backdrop-blur-sm">
         Press / for formatting options
       </div>
     </div>
@@ -116,7 +114,7 @@ const EditItemContentSection = ({
   const summaryView = isSourceLoading ? (
     <LoadingState />
   ) : summary ? (
-    <div className="prose prose-sm max-w-none px-1 text-foreground/90">
+    <div className="prose prose-sm max-w-none text-foreground/90">
       <ReactMarkdown>{summary}</ReactMarkdown>
     </div>
   ) : pageBody ? (
@@ -126,11 +124,11 @@ const EditItemContentSection = ({
         size="sm"
         onClick={() => void generateSummary()}
         disabled={isGenerating}
-        className="rounded-xl bg-gradient-to-b from-violet-500 to-violet-600 text-white shadow-sm hover:from-violet-600 hover:to-violet-700"
+        className="rounded-xl bg-[#6d5bd0] text-white shadow-sm hover:bg-[#5f4ec2]"
       >
         {isGenerating ? (
           <>
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
             Summarizing...
           </>
         ) : (
@@ -140,7 +138,7 @@ const EditItemContentSection = ({
           </>
         )}
       </Button>
-      {generateError && <span className="text-xs text-red-500">{generateError}</span>}
+      {generateError && <span className="text-xs text-[#c93a3a]">{generateError}</span>}
     </TabEmptyState>
   ) : (
     <TabEmptyState>
@@ -178,45 +176,43 @@ const EditItemContentSection = ({
   };
 
   return (
-    <div className={`${sectionCard} space-y-2`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <label className={sectionLabel}>
-          <FileText className="h-3.5 w-3.5" />
-          {config.title}
-        </label>
-        <div className="flex items-center gap-1.5">
-          {config.tabs.length > 1 && (
-            <div className="inline-flex rounded-xl border border-black/5 bg-gray-100/80 p-0.5">
-              {config.tabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`rounded-[10px] px-2.5 py-1 text-[12px] font-medium transition-colors ${
-                    activeTab === tab.key
-                      ? 'bg-white text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {activeTab === 'notes' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onMaximize}
-              className="h-8 w-8 rounded-lg border border-black/5 bg-white p-0 shadow-sm"
-              title="Maximize editor"
-            >
-              <Maximize className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      </div>
+    <div className="mt-[30px]">
+      <SectionHead
+        label={config.title}
+        aside={
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {config.tabs.length > 1 && (
+              <div className="flex gap-0.5">
+                {config.tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`rounded-full px-2.5 py-[3px] text-[12.5px] font-medium transition-colors ${
+                      activeTab === tab.key
+                        ? 'bg-[rgba(20,22,30,0.06)] text-[#22262f]'
+                        : 'text-[#959ba6] hover:text-[#646b76]'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {activeTab === 'notes' && (
+              <button
+                onClick={onMaximize}
+                title="Maximize editor"
+                aria-label="Maximize editor"
+                className="grid h-6 w-6 place-items-center rounded-md text-[#959ba6] transition-colors hover:bg-black/[0.04] hover:text-[#22262f]"
+              >
+                <Maximize className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        }
+      />
 
-      {tabViews[activeTab]}
+      <div className="mt-3.5">{tabViews[activeTab]}</div>
     </div>
   );
 };

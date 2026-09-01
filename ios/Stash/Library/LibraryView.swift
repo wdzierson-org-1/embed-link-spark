@@ -2,17 +2,27 @@ import SwiftUI
 import StashKit
 
 /// The View tab: paginated card grid over the signed-in user's stash, with local search,
-/// server-side type/tag filters, pull-to-refresh, and infinite scroll.
+/// pull-to-refresh, and infinite scroll. Presentation follows the web's library (`Index.tsx` +
+/// `LibraryToolbar.tsx`): wordmark header with the item count, one compact pill search, cards
+/// over the page-level animated gradient. No type chips and no tag filter — the chips never
+/// earned their space on a phone, and tags are being deprecated product-wide.
 struct LibraryView: View {
     let userId: UUID
     var onSelect: (Item) -> Void = { _ in }
 
     @State private var store: ItemStore
     @State private var query = ""
-    @State private var showTagFilter = false
     @State private var selectedItem: Item?
+    @FocusState private var searchFocused: Bool
 
-    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    // Single column on phones (compact width); two-up only where there's real room (iPad).
+    private var columns: [GridItem] {
+        horizontalSizeClass == .regular
+            ? [GridItem(.flexible()), GridItem(.flexible())]
+            : [GridItem(.flexible())]
+    }
 
     init(userId: UUID, onSelect: @escaping (Item) -> Void = { _ in }) {
         self.userId = userId
@@ -32,35 +42,63 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TypeChipRow(store: store)
+        ZStack(alignment: .top) {
+            Color(.systemBackground).ignoresSafeArea()
+            // Page-level ambience, exactly like the web: the gradient lives behind the whole
+            // tab (not inside any one component) and washes out before mid-screen.
+            GradientBackdrop()
+                .frame(height: 380)
+                .ignoresSafeArea(edges: .top)
+
+            VStack(spacing: 10) {
+                StashHeader {
+                    Text(store.items.count == 1 ? "1 item" : "\(store.items.count) items")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("library.itemCount")
+                }
+                searchPill
+                    .padding(.horizontal, 16)
                 stateBody
             }
-            .navigationTitle("Stash")
-            .toolbar { LibraryToolbarContent(store: store, showTagFilter: $showTagFilter) }
-            .searchable(text: $query, prompt: "Search")
-            .searchSuggestions {
-                // Only while the field is empty — once the user types, this must get out of
-                // the way so filteredItems (live local narrowing) is what's on screen.
-                if query.isEmpty {
-                    Text("Ask Stash searches inside pages too")
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("library.searchHint")
+        }
+        .refreshable { await store.refresh() }
+        .task { await store.refresh() }
+        .task { await RealtimeObserver().observeItems(userId: userId) { await store.refresh() } }
+        .sheet(item: $selectedItem) { item in
+            ItemDetailView(item: item, store: store)
+        }
+    }
+
+    // MARK: - Search (web LibraryToolbar's rounded-full pill, violet-tinted while focused)
+
+    private var searchPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15))
+                .foregroundStyle(searchFocused ? StashColor.violet : StashColor.gray400)
+            TextField("Search your stash", text: $query)
+                .focused($searchFocused)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+                .accessibilityIdentifier("library.search")
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(StashColor.gray400)
                 }
-            }
-            .refreshable { await store.refresh() }
-            .task { await store.refresh() }
-            .task { await RealtimeObserver().observeItems(userId: userId) { await store.refresh() } }
-            .onChange(of: store.typeFilter) { _, _ in Task { await store.refresh() } }
-            .onChange(of: store.selectedTagIds) { _, _ in Task { await store.refresh() } }
-            .sheet(isPresented: $showTagFilter) {
-                TagFilterSheet(userId: userId, store: store)
-            }
-            .sheet(item: $selectedItem) { item in
-                ItemDetailView(item: item, store: store)
+                .accessibilityIdentifier("library.search.clear")
             }
         }
+        .padding(.horizontal, 16)
+        .frame(height: 42)
+        .background(Color(.systemBackground), in: Capsule())
+        .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.gray300,
+                                        lineWidth: 1))
+        .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
     }
 
     @ViewBuilder private var stateBody: some View {
@@ -92,7 +130,7 @@ struct LibraryView: View {
 
     private var grid: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 12) {
+            LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                     Button { selectedItem = item; onSelect(item) } label: { ItemCardView(item: item) }
                         .buttonStyle(.plain)
@@ -100,8 +138,11 @@ struct LibraryView: View {
                         .onAppear { Task { await store.loadMoreIfNeeded(current: item) } }
                 }
             }
-            .padding(12)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 12)
         }
         .accessibilityIdentifier("library.grid")
+        .scrollDismissesKeyboard(.immediately)
     }
 }

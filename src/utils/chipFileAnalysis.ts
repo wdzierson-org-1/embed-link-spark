@@ -50,7 +50,11 @@ const analyzeUploadedFile = async (
       data.detected_text.trim().toLowerCase() !== 'none'
         ? data.detected_text.trim()
         : undefined;
-    return { description: data.description, detectedText: detected, tags: data.tags };
+    // Vision titles ("Screenshot of X" / "Image of X") replace filename
+    // titles; the filename itself rides in attributes.media.file_name
+    const title =
+      typeof data.title === 'string' && data.title.trim() ? data.title.trim() : undefined;
+    return { title, description: data.description, detectedText: detected, tags: data.tags };
   }
 
   if (kind === 'audio') {

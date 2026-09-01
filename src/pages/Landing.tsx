@@ -2,46 +2,103 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Brain, MessageSquare, FileText, Globe, BookOpen, Mic, type LucideIcon } from 'lucide-react';
+import {
+  ArrowRight,
+  Brain,
+  MessageSquare,
+  FileText,
+  Globe,
+  BookOpen,
+  Mic,
+  MapPin,
+  Link2,
+  UtensilsCrossed,
+  ImageIcon,
+  StickyNote,
+  Play,
+  type LucideIcon,
+} from 'lucide-react';
 
 import StashWordmark from '@/components/StashWordmark';
 import LandingChatDemo from '@/components/LandingChatDemo';
 import Cloth, { supportsHtmlInCanvas } from '@/components/landing/Cloth';
 import LightRays from '@/components/landing/LightRays';
 import demoAddLink from '@/assets/demo_add_link.mp4';
+// Cover photos are real photographs via Unsplash (unsplash.com/license) —
+// never AI renders or mocked-up interfaces; the cards must read as items a
+// real person saved. IDs/credits in the commit that introduced each file.
 import coverRecipe from '@/assets/landing/cover-recipe.jpg';
 import coverArticle from '@/assets/landing/cover-article.jpg';
 import coverRestaurant from '@/assets/landing/cover-restaurant.jpg';
-import coverApp from '@/assets/landing/cover-app.jpg';
-import coverConversation from '@/assets/landing/cover-conversation.jpg';
-import coverTutorial from '@/assets/landing/cover-tutorial.jpg';
+import coverInspiration from '@/assets/landing/cover-inspiration.jpg';
 
-// The floating hero cards stand in for real stashed items — the "you know
-// that thing you saved" examples, with photographic covers.
+// Static waveform for the voice-note card — heights are fixed so the Cloth
+// canvas capture and reduced-motion renders are deterministic.
+const VOICE_WAVE = [6, 11, 16, 9, 18, 13, 20, 8, 15, 19, 11, 17, 7, 13, 20, 12, 16, 9, 18, 12, 8, 14, 10, 6];
+
+// The floating hero cards stand in for real stashed items — one believable
+// object per capture type, each with the anatomy that type actually has in
+// the library: covers for photos and places, a waveform for voice, tag chips
+// on plain notes. No type gets a stock photo standing in for an interface.
 const StashedCard = ({
   kind,
+  icon: KindIcon,
+  meta,
   title,
   note,
   coverSrc,
   coverClass = 'h-28',
+  wave = false,
+  tags,
   className,
 }: {
   kind: string;
+  icon: LucideIcon;
+  meta?: string;
   title: string;
   note: string;
-  coverSrc: string;
+  coverSrc?: string;
   coverClass?: string;
+  wave?: boolean;
+  tags?: string[];
   className?: string;
 }) => (
   <div className={`flex flex-col bg-card border border-border/20 rounded-lg p-3 ${className ?? ''}`}>
-    <div className={`relative ${coverClass} flex-none overflow-hidden rounded-md mb-2`}>
-      <img src={coverSrc} alt="" className="absolute inset-0 h-full w-full object-cover" />
-      <span className="absolute left-1.5 top-1.5 rounded bg-black/35 px-1.5 py-px text-[10px] font-mori uppercase tracking-wider text-white">
+    {coverSrc && (
+      <div className={`relative ${coverClass} flex-none overflow-hidden rounded-md mb-2`}>
+        <img src={coverSrc} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      </div>
+    )}
+    {wave && (
+      <div className="mb-2 flex h-11 flex-none items-center gap-2 rounded-md bg-violet-50/80 px-2.5">
+        <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-violet-500 text-white">
+          <Play className="h-3 w-3 fill-current" aria-hidden />
+        </span>
+        <span className="flex h-full flex-1 items-center gap-[3px]" aria-hidden>
+          {VOICE_WAVE.map((h, i) => (
+            <span key={i} className="w-[3px] flex-none rounded-full bg-violet-400/80" style={{ height: h }} />
+          ))}
+        </span>
+      </div>
+    )}
+    <div className="mb-1.5 flex items-center justify-between gap-2">
+      <span className="flex items-center gap-1 font-montreal text-[10px] uppercase tracking-wider text-muted-foreground/80">
+        <KindIcon className="h-3 w-3" aria-hidden />
         {kind}
       </span>
+      {meta && <span className="font-montreal text-[10px] text-muted-foreground/60">{meta}</span>}
     </div>
     <h4 className="font-tobias text-[15px] mb-1 leading-snug line-clamp-2">{title}</h4>
-    <p className="text-xs text-muted-foreground font-mori leading-snug line-clamp-2">{note}</p>
+    <p className="text-xs text-muted-foreground font-montreal leading-snug line-clamp-2">{note}</p>
+    {tags && (
+      <div className="mt-2 flex flex-wrap gap-1">
+        {tags.map(tag => (
+          <span key={tag} className="rounded-full border border-border/40 bg-secondary/70 px-2 py-0.5 font-montreal text-[10px] text-muted-foreground">
+            {tag}
+          </span>
+        ))}
+      </div>
+    )}
   </div>
 );
 
@@ -53,69 +110,74 @@ interface FloatingCardSpec {
   side: 'left' | 'right';
   pos: string;          // absolute top/inset classes
   size: { w: number; h: number };
-  coverClass?: string;
   tilt: number;         // resting rotation, deg
   entrance: { x: number; y: number; rotate: number };
   delay: number;        // entrance delay, s (deliberately out of visual order)
   float: { dur: number; y: number; rot: number };
   scrollRot: number;    // scroll-linked rotation factor
-  card: { kind: string; title: string; note: string; coverSrc: string };
+  card: React.ComponentProps<typeof StashedCard>;
 }
 
 const FLOATING_CARDS: FloatingCardSpec[] = [
   {
     side: 'left',
-    pos: 'top-14 left-4',
-    size: { w: 224, h: 222 },
+    pos: 'top-16 left-5',
+    size: { w: 224, h: 244 },
     tilt: 2.5,
     entrance: { x: -170, y: -50, rotate: -12 },
     delay: 0.5,
     float: { dur: 6.4, y: 7, rot: 1.2 },
     scrollRot: 0.03,
     card: {
-      kind: 'Image',
-      title: 'That recipe you want to try',
-      note: 'Roasted tomato pasta — saved with the full recipe.',
+      kind: 'Recipe',
+      icon: UtensilsCrossed,
+      meta: '40 min',
+      title: 'Tomato & mozzarella penne',
+      note: 'For Sunday — full recipe captured.',
       coverSrc: coverRecipe,
     },
   },
   {
     side: 'left',
-    pos: 'top-[20rem] left-14',
-    size: { w: 240, h: 226 },
+    pos: 'top-[21.5rem] left-12',
+    size: { w: 240, h: 158 },
     tilt: -4,
     entrance: { x: -200, y: 40, rotate: 10 },
     delay: 0.15,
     float: { dur: 7.8, y: 9, rot: 1.5 },
     scrollRot: -0.02,
     card: {
-      kind: 'Sound',
-      title: 'The conversation you need to save for later',
-      note: 'Voice memo — transcribed, 2:41.',
-      coverSrc: coverConversation,
+      kind: 'Voice note',
+      icon: Mic,
+      meta: '2:41',
+      title: 'Ideas from the drive home',
+      note: '“…and don’t forget — book the cabin for the long weekend…”',
+      wave: true,
     },
   },
   {
     side: 'left',
-    pos: 'top-[35.5rem] left-7',
-    size: { w: 208, h: 218 },
+    pos: 'top-[33.5rem] left-7',
+    size: { w: 216, h: 252 },
     tilt: 5.5,
     entrance: { x: -150, y: 70, rotate: 18 },
     delay: 0.85,
     float: { dur: 5.6, y: 6, rot: 1 },
     scrollRot: 0.025,
     card: {
-      kind: 'Screenshot',
-      title: 'That app you heard about',
-      note: 'App screenshot — Stash read every pixel.',
-      coverSrc: coverApp,
+      kind: 'Image',
+      icon: ImageIcon,
+      meta: 'inspiration',
+      title: 'Ceramics for the open shelves',
+      note: 'Ask for “those cream vases” — Stash will know.',
+      coverSrc: coverInspiration,
+      coverClass: 'h-32',
     },
   },
   {
     side: 'right',
-    pos: 'top-20 right-10',
-    size: { w: 240, h: 242 },
-    coverClass: 'h-32',
+    pos: 'top-20 right-8',
+    size: { w: 240, h: 248 },
     tilt: -2.5,
     entrance: { x: 180, y: -60, rotate: 11 },
     delay: 0.05,
@@ -123,48 +185,55 @@ const FLOATING_CARDS: FloatingCardSpec[] = [
     scrollRot: -0.03,
     card: {
       kind: 'Place',
-      title: 'The restaurant you want to try',
-      note: '1 Central Park West — book for October.',
+      icon: MapPin,
+      meta: 'West Village',
+      title: 'Chez Colette',
+      note: 'Anniversary dinner? Ask for the corner table.',
       coverSrc: coverRestaurant,
     },
   },
   {
     side: 'right',
-    pos: 'top-[23rem] right-5',
-    size: { w: 224, h: 204 },
+    pos: 'top-[23rem] right-4',
+    size: { w: 232, h: 240 },
     tilt: 3.5,
     entrance: { x: 160, y: 30, rotate: -14 },
     delay: 0.65,
     float: { dur: 6.9, y: 7, rot: 1.4 },
     scrollRot: 0.02,
     card: {
-      kind: 'Video',
-      title: 'That tutorial',
-      note: '12 minutes — watch this weekend.',
-      coverSrc: coverTutorial,
+      kind: 'Link',
+      icon: Link2,
+      meta: '9 min read',
+      title: 'Why you remember so little of what you read',
+      note: 'Full text saved — ask for it anytime.',
+      coverSrc: coverArticle,
+      coverClass: 'h-24',
     },
   },
   {
     side: 'right',
-    pos: 'top-[38rem] right-16',
-    size: { w: 208, h: 218 },
+    pos: 'top-[39rem] right-14',
+    size: { w: 224, h: 168 },
     tilt: -5,
     entrance: { x: 190, y: 80, rotate: -20 },
     delay: 0.35,
     float: { dur: 8.4, y: 9, rot: 1.1 },
     scrollRot: 0.02,
     card: {
-      kind: 'Link',
-      title: 'The article about that thing',
-      note: 'Saved with full text — findable forever.',
-      coverSrc: coverArticle,
+      kind: 'Note',
+      icon: StickyNote,
+      meta: 'auto-tagged',
+      title: 'Gift idea for Sam',
+      note: 'The ceramic pour-over from the market — birthday is Oct 12.',
+      tags: ['gifts', 'sam'],
     },
   },
 ];
 
 // Numbered kickers that give the page's sections a visible spine
 const SectionEyebrow = ({ index, label }: { index: string; label: string }) => (
-  <div className="mb-5 flex items-center justify-center gap-3 font-mori text-[11px] uppercase tracking-[0.28em] text-muted-foreground/70">
+  <div className="mb-5 flex items-center justify-center gap-3 font-montreal text-[11px] uppercase tracking-[0.28em] text-muted-foreground/70">
     <span className="h-px w-10 bg-border" aria-hidden />
     <span>{index} — {label}</span>
     <span className="h-px w-10 bg-border" aria-hidden />
@@ -233,7 +302,7 @@ const Landing = () => {
   const cardsTranslate = Math.min(scrollY * 0.5, 400);
 
   return (
-    <div className="min-h-screen bg-background font-inter relative overflow-hidden paper-texture">
+    <div className="min-h-screen bg-background font-montreal relative overflow-hidden paper-texture">
       {/* Animated Hero Gradient */}
       <div
         className="fixed inset-0 hero-gradient pointer-events-none z-[700] transition-opacity duration-300"
@@ -274,7 +343,7 @@ const Landing = () => {
           distortion={0.04}
         />
       </div>
-      
+
       {/* Floating stashed cards, scattered like cards on a table. Only from lg
           up, where there are margins for them to sit in; below that they crowd
           the hero copy. Each card springs in from its screen edge on its own
@@ -340,14 +409,7 @@ const Landing = () => {
                     cornerRadius={12}
                     perspective={1000}
                   >
-                    <StashedCard
-                      className="h-full w-full"
-                      kind={c.card.kind}
-                      title={c.card.title}
-                      note={c.card.note}
-                      coverSrc={c.card.coverSrc}
-                      coverClass={c.coverClass}
-                    />
+                    <StashedCard className="h-full w-full" {...c.card} />
                   </Cloth>
                 </motion.div>
               </motion.div>
@@ -363,15 +425,15 @@ const Landing = () => {
           <div className="flex items-center">
             <StashWordmark className="h-5 text-[#666666]" />
           </div>
-          
+
           <div className="flex items-center space-x-3">
             <Link to="/auth">
-              <Button variant="ghost" className="text-muted-foreground hover:text-foreground text-sm font-mori">
+              <Button variant="ghost" className="text-muted-foreground hover:text-foreground text-sm font-montreal">
                 Sign In
               </Button>
             </Link>
             <Link to="/pricing">
-              <Button className="bg-foreground text-background hover:bg-foreground/90 text-sm px-4 py-2 rounded-full font-mori">
+              <Button className="bg-foreground text-background hover:bg-foreground/90 text-sm px-4 py-2 rounded-full font-montreal">
                 Get Started
               </Button>
             </Link>
@@ -386,17 +448,17 @@ const Landing = () => {
               <span className="text-muted-foreground">Find everything <span className="font-editorial-italic">effortlessly</span>.</span>
             </h1>
 
-            <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl font-montreal text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
               Links, PDFs, screenshots, voice notes — toss them into Stash. Stash understands each one, describes it, stores it for later, and makes it easy to find.
             </p>
 
             <div className="slide-up">
               <Link to="/pricing">
-                <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
+                <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-montreal">
                   Start stashing — free for 14 days
                 </Button>
               </Link>
-              <p className="text-sm font-mori text-muted-foreground mt-4">
+              <p className="text-sm font-montreal text-muted-foreground mt-4">
                 Then $4.99/month. No credit card to start.
               </p>
             </div>
@@ -408,7 +470,7 @@ const Landing = () => {
           <div className="text-center">
             <SectionEyebrow index="01" label="One place" />
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4">Your every <span className="font-editorial-italic">thing</span> app.</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Notes, links, files, photos, voice memos — everything you'd normally scatter across five apps, in one place that remembers all of it.
             </p>
           </div>
@@ -431,7 +493,7 @@ const Landing = () => {
                   <Icon className={`h-5 w-5 ${iconColor}`} />
                 </div>
                 <h3 className="text-lg font-tobias leading-snug text-foreground mb-2">{title}</h3>
-                <p className="text-sm text-muted-foreground font-mori leading-relaxed">{body}</p>
+                <p className="text-sm text-muted-foreground font-montreal leading-relaxed">{body}</p>
               </div>
             ))}
           </div>
@@ -442,13 +504,13 @@ const Landing = () => {
           <div className="text-center mb-14">
             <SectionEyebrow index="03" label="Watch it work" />
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4 max-w-3xl mx-auto">Just paste the link and Stash does the describing <span className="font-editorial-italic">automagically</span>.</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Stash collects everything it can about a link the moment you paste it — title, preview, full text — and makes it searchable. No description to write, nothing to categorize.
             </p>
           </div>
 
           <div className="max-w-3xl mx-auto">
-            <video 
+            <video
               src={demoAddLink}
               autoPlay
               loop
@@ -466,7 +528,7 @@ const Landing = () => {
           <div className="text-center mb-14">
             <SectionEyebrow index="04" label="Your library" />
             <h2 className="text-3xl md:text-4xl font-tobias tracking-tight leading-[1.15] text-foreground mb-4">Capture everything, search anything</h2>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Voice, video, text, links, and images. We transcribe the contents and make everything searchable and conversational.
             </p>
           </div>
@@ -540,7 +602,7 @@ const Landing = () => {
             <p className="text-xl md:text-2xl font-tobias text-muted-foreground mb-5 max-w-2xl mx-auto">
               Chat with your notes, insights, memories, and photos
             </p>
-            <p className="text-lg font-mori text-muted-foreground max-w-2xl mx-auto">
+            <p className="text-lg font-montreal text-muted-foreground max-w-2xl mx-auto">
               Ask questions about anything you've saved. Our AI understands the context and connections across all your content.
             </p>
           </div>
@@ -554,16 +616,16 @@ const Landing = () => {
             Your future self will ask.<br />
             <span className="text-muted-foreground">Stash will have the <span className="font-editorial-italic">answer</span>.</span>
           </h2>
-          <p className="text-xl font-mori text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
+          <p className="text-xl font-montreal text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
             Try it free for two weeks — save a handful of things, then ask for them back. That's the whole pitch.
           </p>
           <Link to="/pricing">
-            <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-mori">
+            <Button size="lg" className="bg-foreground text-background hover:bg-foreground/90 text-lg px-10 py-4 rounded-full shadow-lg font-montreal">
               Start your free two week trial
               <ArrowRight className="ml-3 h-5 w-5" />
             </Button>
           </Link>
-          <p className="text-sm font-mori text-muted-foreground mt-4">
+          <p className="text-sm font-montreal text-muted-foreground mt-4">
             14 days free, then $4.99/month.
           </p>
         </section>
@@ -573,17 +635,17 @@ const Landing = () => {
           <div className="flex items-center justify-center mb-6">
             <StashWordmark className="h-5 text-foreground" />
           </div>
-          <p className="text-sm font-mori text-muted-foreground mb-8">
+          <p className="text-sm font-montreal text-muted-foreground mb-8">
             Forget about forgetting.
           </p>
-          <div className="flex justify-center space-x-6 text-sm font-mori text-muted-foreground">
+          <div className="flex justify-center space-x-6 text-sm font-montreal text-muted-foreground">
             <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
             <a href="mailto:will@dzierson.com" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </footer>
       </div>
-      
+
       {/* Bottom Gradient */}
       <div className="absolute bottom-0 inset-x-0 hero-gradient pointer-events-none z-[700] rotate-180" style={{ height: '60vh' }} />
     </div>

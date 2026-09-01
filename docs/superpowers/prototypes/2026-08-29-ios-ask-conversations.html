@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stash iOS — Ask conversations prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --violet-50:#f5f3ff; --violet-100:#ede9fe; --violet-200:#ddd6fe; --violet-300:#c4b5fd;
+    --violet-500:#8b5cf6; --violet-600:#7c3aed; --violet-700:#6d28d9;
+    --gray-50:#f9fafb; --gray-100:#f3f4f6; --gray-200:#e5e7eb; --gray-300:#d1d5db;
+    --gray-400:#9ca3af; --gray-500:#6b7280; --gray-600:#4b5563; --gray-900:#111827;
+    --muted:#f1f5f9;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--gray-100); color:var(--gray-900); min-height:100vh; display:flex; align-items:flex-start; justify-content:center; gap:36px; padding:28px; }
+  button { font:inherit; border:none; background:none; cursor:pointer; color:inherit; padding:0; }
+
+  /* ───────────────────────── phone frame ───────────────────────── */
+  .phone { width:393px; height:852px; flex:none; background:#fff; border-radius:54px; border:10px solid #1c1c1e; box-shadow:0 24px 60px rgba(30,15,60,.25); overflow:hidden; position:relative; }
+  .statusbar { height:54px; display:flex; align-items:flex-end; justify-content:space-between; padding:0 30px 6px; font-size:15px; font-weight:600; position:relative; z-index:30; }
+  .statusbar .island { position:absolute; top:11px; left:50%; transform:translateX(-50%); width:120px; height:34px; background:#000; border-radius:20px; }
+
+  .screens { position:absolute; inset:54px 0 0 0; overflow:hidden; }
+  .screen { position:absolute; inset:0; background:#fff; display:flex; flex-direction:column; transition:transform .32s cubic-bezier(.32,.72,.36,1); }
+  /* thread is the nav root; conversations pushes over it */
+  #screen-thread { transform:translateX(0); }
+  #screen-thread.under { transform:translateX(-30%); }
+  #screen-convos { transform:translateX(100%); box-shadow:-12px 0 30px rgba(0,0,0,.10); }
+  #screen-convos.shown { transform:translateX(0); }
+  /* other tabs: plain placeholder that swaps in with no push animation */
+  #screen-othertab { transition:none; z-index:5; display:none; }
+  #screen-othertab.shown { display:flex; }
+
+  /* ── shared wordmark header (all four tabs) ── */
+  .stash-header { display:flex; align-items:center; justify-content:space-between; padding:10px 16px 6px; }
+  .wordmark { height:20px; color:var(--gray-900); }
+  .header-actions { display:flex; gap:8px; }
+
+  /* ── web-convention round icon buttons ── */
+  .circle-btn { width:36px; height:36px; border-radius:50%; background:#fff; border:1px solid var(--gray-300); box-shadow:0 1px 2px rgba(0,0,0,.06); display:grid; place-items:center; color:var(--gray-500); }
+  .circle-btn:active { background:var(--gray-50); }
+  .circle-btn svg { width:17px; height:17px; }
+  .circle-btn.lg { width:40px; height:40px; }
+  .circle-btn.hot { background:var(--violet-500); border-color:var(--violet-500); color:#fff; }
+
+  /* ── thread screen ── */
+  .session-pill-row { padding:0 16px 6px; }
+  .session-pill { display:none; align-items:center; gap:6px; max-width:100%; background:var(--violet-50); border:1px solid var(--violet-200); color:var(--violet-700); font-size:12px; border-radius:999px; padding:4px 12px; }
+  .session-pill.shown { display:inline-flex; }
+  .session-pill .t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .thread { flex:1; overflow-y:auto; padding:10px 16px 8px; display:flex; flex-direction:column; gap:12px; }
+  .restore-banner { display:none; align-items:center; gap:8px; background:var(--gray-50); border:1px dashed var(--gray-300); border-radius:14px; padding:11px 14px; font-size:13px; color:var(--gray-600); text-align:left; }
+  .restore-banner.shown { display:flex; }
+  .restore-banner b { color:var(--violet-700); font-weight:500; }
+  .empty-hint { font-size:13.5px; color:var(--gray-500); background:var(--muted); border-radius:14px; padding:14px; line-height:1.5; }
+  .msg-user { margin-left:auto; max-width:84%; background:var(--violet-500); color:#fff; border-radius:18px 18px 4px 18px; padding:9px 14px; font-size:14px; line-height:1.45; }
+  .msg-ai { max-width:92%; background:var(--muted); border-radius:18px 18px 18px 4px; padding:10px 14px; font-size:14px; line-height:1.5; }
+  .cite { display:inline-grid; place-items:center; min-width:17px; height:17px; padding:0 4px; border-radius:6px; background:#fff; border:1px solid var(--violet-200); color:var(--violet-700); font-size:10.5px; font-weight:600; vertical-align:2px; margin-left:3px; }
+
+  .composer-area { flex:none; border-top:1px solid var(--gray-200); padding:10px 12px; display:flex; align-items:flex-end; gap:8px; background:#fff; }
+  .composer-field { flex:1; border:1px solid var(--gray-300); border-radius:20px; padding:10px 14px; font-size:14px; outline:none; font-family:inherit; }
+  .composer-field:focus { border-color:var(--violet-300); }
+
+  /* ── conversations screen ── */
+  .backbar { display:flex; align-items:center; height:44px; padding:0 8px; flex:none; }
+  .backbar .back { display:flex; align-items:center; gap:2px; color:var(--violet-600); font-size:16px; padding:6px 8px; }
+  .backbar .back svg { width:12px; height:20px; }
+  .backbar .bartitle { position:absolute; left:0; right:0; text-align:center; font-size:16px; font-weight:600; pointer-events:none; }
+  .search-wrap { padding:2px 16px 10px; flex:none; }
+  .search-pill { display:flex; align-items:center; gap:8px; border:1px solid var(--gray-300); border-radius:999px; padding:0 16px; height:40px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .search-pill svg { width:15px; height:15px; color:var(--gray-400); flex:none; }
+  .search-pill input { border:none; outline:none; font-size:14px; flex:1; font-family:inherit; background:none; }
+  .convo-scroll { flex:1; overflow-y:auto; padding:0 16px 16px; }
+  .bucket-label { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--gray-400); padding:14px 2px 6px; }
+  .convo-row { width:100%; text-align:left; background:#fff; border:1px solid rgba(0,0,0,.06); border-radius:14px; padding:11px 14px; margin-bottom:8px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+  .convo-row:active { background:var(--violet-50); }
+  .convo-row .rowtitle { font-size:14px; font-weight:600; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .convo-row .rowtitle.untitled { color:var(--gray-400); font-weight:500; font-style:italic; }
+  .convo-row .preview { font-size:12.5px; color:var(--gray-500); line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .convo-row .meta { font-size:11px; color:var(--gray-400); margin-top:5px; }
+  .load-more { text-align:center; font-size:12px; color:var(--gray-400); padding:10px 0 4px; }
+
+  /* ── other-tab placeholder ── */
+  .other-body { flex:1; display:grid; place-items:center; color:var(--gray-400); font-size:14px; text-align:center; line-height:1.6; }
+
+  /* ── tab bar ── */
+  .tabbar { flex:none; border-top:1px solid var(--gray-200); background:rgba(249,250,251,.94); display:flex; padding:6px 8px 22px; position:relative; z-index:20; }
+  .tab { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10.5px; color:var(--gray-500); padding-top:4px; }
+  .tab svg { width:24px; height:24px; }
+  .tab.on { color:var(--violet-600); }
+  .homebar { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:135px; height:5px; border-radius:3px; background:#1c1c1e; z-index:25; }
+
+  /* ───────────────────────── notes panel ───────────────────────── */
+  .notes { width:430px; max-width:44vw; }
+  .notes h1 { font-size:19px; margin-bottom:4px; }
+  .notes .sub { font-size:13px; color:var(--gray-500); margin-bottom:18px; }
+  .notes h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--gray-400); margin:20px 0 8px; }
+  .notes ol { padding-left:20px; font-size:13.5px; line-height:1.65; }
+  .notes ol li { margin-bottom:9px; }
+  .notes b { font-weight:600; }
+  .chipref { display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%; background:#fff; border:1px solid var(--gray-300); vertical-align:-5px; margin:0 1px; }
+  .chipref svg { width:11px; height:11px; color:var(--gray-500); }
+  .sim { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .sim button { font-size:12.5px; border:1px solid var(--gray-300); background:#fff; border-radius:999px; padding:6px 14px; color:var(--gray-600); box-shadow:0 1px 2px rgba(0,0,0,.05); }
+  .sim button:hover { border-color:var(--violet-300); color:var(--violet-700); }
+  .staterow { font-size:12px; font-family:ui-monospace,Menlo,monospace; background:#fff; border:1px solid var(--gray-200); border-radius:10px; padding:10px 12px; margin-top:10px; line-height:1.7; color:var(--gray-600); }
+  .staterow .k { color:var(--gray-400); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ PHONE ═══════════════════ -->
+<div class="phone">
+  <div class="statusbar"><span id="clock">9:41</span><span class="island"></span><span>&#9679;&#9679;&#9679;</span></div>
+  <div class="screens">
+
+    <!-- Ask tab root: the thread -->
+    <div class="screen" id="screen-thread">
+      <div class="stash-header">
+        <svg class="wordmark" viewBox="150 419 724 186" fill="currentColor" style="aspect-ratio:724/186"><use href="#wm"/></svg>
+        <div class="header-actions">
+          <button class="circle-btn" id="btn-new" title="Start new chat" onclick="startNewChat()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+          <button class="circle-btn" id="btn-history" title="Earlier conversations" onclick="pushConvos()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="session-pill-row"><span class="session-pill" id="session-pill">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span class="t" id="session-pill-title"></span>
+      </span></div>
+      <div class="thread" id="thread">
+        <button class="restore-banner" id="restore" onclick="restorePrevious()"></button>
+      </div>
+      <div class="composer-area">
+        <input class="composer-field" id="composer" placeholder="Ask, or paste a link / 'remember:' to save"
+               onkeydown="if(event.key==='Enter')sendMessage()">
+        <button class="circle-btn lg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4"/></svg></button>
+        <button class="circle-btn lg" id="btn-send" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></svg>
+        </button>
+      </div>
+      <div class="tabbar" id="tabbar-thread"></div>
+    </div>
+
+    <!-- pushed: conversations list -->
+    <div class="screen" id="screen-convos">
+      <div class="backbar">
+        <button class="back" onclick="popConvos()">
+          <svg viewBox="0 0 12 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2 3 10l7 8"/></svg>
+          Ask
+        </button>
+        <span class="bartitle">Conversations</span>
+      </div>
+      <div class="search-wrap"><div class="search-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input placeholder="Search conversations" id="convo-search" oninput="renderConvos()">
+      </div></div>
+      <div class="convo-scroll" id="convo-scroll"></div>
+      <div class="tabbar" id="tabbar-convos"></div>
+    </div>
+
+    <!-- any other tab (placeholder) -->
+    <div class="screen" id="screen-othertab">
+      <div class="stash-header">
+        <svg class="wordmark" viewBox="150 419 724 186" fill="currentColor" style="aspect-ratio:724/186"><use href="#wm"/></svg>
+      </div>
+      <div class="other-body" id="other-body"></div>
+      <div class="tabbar" id="tabbar-other"></div>
+    </div>
+
+  </div>
+  <div class="homebar"></div>
+</div>
+
+<!-- ═══════════════════ NOTES ═══════════════════ -->
+<div class="notes">
+  <h1>Ask tab — conversations &amp; sessions</h1>
+  <div class="sub">Interactive prototype of the iOS port of the web's 2026-08-27/28 chat-sessions model. Everything here maps 1:1 to already-deployed backend (3h gap convention, <code>list_conversations</code> RPC, lazy row creation, auto-titling).</div>
+
+  <h2>Try the flows</h2>
+  <ol>
+    <li><b>Send a message</b> in the fresh thread — a session row is created lazily and auto-titled from your first question (watch it appear under <i>Today</i> in Conversations).</li>
+    <li><b>History</b> <span class="chipref"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span> pushes the Conversations list — native back bar, search pill, Today/Yesterday/This-week/month buckets, infinite scroll.</li>
+    <li><b>Open an old conversation</b> — pops back with it loaded (violet title pill above the thread; gap-exempt, so replies continue that session).</li>
+    <li><b>Let go:</b> switch to another tab while an old conversation is open, then return to Ask — the thread has cleared, and a <b>restore banner</b> offers one-tap reload.</li>
+    <li><b>New chat</b> <span class="chipref"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span> clears the thread and forces the next send into a brand-new session (old thread stays in Conversations).</li>
+    <li><b>3-hour gap:</b> use the simulator button below, then send — the stale thread clears and a new session begins, exactly like the web.</li>
+  </ol>
+
+  <h2>Simulate</h2>
+  <div class="sim">
+    <button onclick="advanceClock()">Advance clock +3.5h</button>
+    <button onclick="location.reload()">Reset prototype</button>
+  </div>
+
+  <h2>Live session state</h2>
+  <div class="staterow" id="state-readout"></div>
+</div>
+
+<!-- Stash wordmark path (real asset, abridged usage) -->
+<svg width="0" height="0" style="position:absolute"><defs><g id="wm">
+  <path fill-rule="evenodd" d="M511.861 428.676C499.935 428.775 487.611 428.878 476.595 428.51C455.268 483.274 434.853 540.161 414.305 595.364L464.562 595.405C467.467 586.947 471.549 575.815 473.846 567.361L529.551 567.341C531.631 568.878 538.346 591.182 539.905 595.431L590.525 595.431L554.243 498.131C545.894 475.66 537.148 450.688 528.268 428.587C523.006 428.583 517.477 428.629 511.861 428.676ZM529.984 504.65C529.197 489.392 516.153 477.684 500.899 478.543C485.747 479.397 474.134 492.335 474.916 507.491C475.697 522.646 488.58 534.321 503.739 533.611C519.001 532.896 530.771 519.908 529.984 504.65Z"/>
+  <path d="M270.457 440.685C256.892 428.013 235.801 423.715 217.784 425.206C207.242 426.169 203.224 427.18 193.088 430.861C158.578 443.398 149.029 491.062 176.345 515.31C190.038 527.464 212.572 529.308 229.42 534.981C248.463 541.088 242.622 559.926 224.873 560.873C212.41 561.538 205.384 555.52 203.555 543.126C188.021 543.001 172.485 542.984 156.95 543.076C157.347 582.866 186.602 599.347 223.42 598.915C243.263 598.19 260.485 594.152 274.705 579.299C292.147 561.081 292.739 525.991 273.515 508.876C260.668 497.438 242.638 494.285 226.561 489.931C222.126 488.717 214.821 486.703 210.994 484.127C208.322 482.309 206.612 479.384 206.34 476.164C205.04 458.901 237.184 455.81 239.843 477.881L284.551 477.916C284.245 464.474 280.599 450.159 270.457 440.685Z"/>
+  <path d="M438.298 428.535L294.923 428.577C294.83 441.654 294.828 454.731 294.917 467.808C310.939 467.906 326.961 467.889 342.983 467.755L342.985 549.163C335.48 549.182 327.976 549.258 320.472 549.392L320.369 565.327L327.836 565.36L327.874 575.696L320.506 575.63L320.434 595.368L390.13 595.437C390.122 593.582 390.108 591.72 390.095 589.854C390.063 585.315 390.031 580.758 390.066 576.25L390.15 467.889L438.356 467.88C438.311 462.379 438.339 456.783 438.367 451.183C438.405 443.566 438.443 435.941 438.298 428.535Z"/>
+  <path d="M867.082 428.512L820.777 428.551C820.473 437.459 820.523 446.78 820.573 456.007C820.6 460.885 820.626 465.737 820.6 470.488C833.072 478.517 840.749 487.222 843.926 502.257C846.46 514.655 843.952 527.552 836.955 538.097C832.503 544.786 827.411 548.86 820.685 553.065C820.68 557.032 820.637 561.244 820.593 565.549C820.491 575.636 820.383 586.233 820.739 595.376L843.125 595.414L867.074 595.449L867.082 428.512Z"/>
+  <path d="M662.882 436.064C660.343 432.928 652.745 424.888 648.723 425.218C631.503 426.662 614.854 432.253 603.262 445.753C587.108 464.564 587.541 499.498 607.725 515.435C615.558 521.669 623.683 525.093 633.184 527.935L634.778 523.356C639.443 510.591 644.431 500.28 652.078 488.924C644.276 486.269 634.138 482.096 638.038 471.185C641.257 462.176 655.336 460.522 662.77 464.389C666.655 466.247 668.705 468.967 670.798 472.548C672.22 459.272 671.626 446.857 662.882 436.064Z"/>
+  <path d="M701.56 506.142C694.717 501.845 686.051 496.885 678.015 495.281C673.407 508.547 667.021 522.648 659.27 534.412C664.95 536.676 667.754 537.589 671.562 542.6C675.651 562.928 651.251 565.37 638.727 554.86C638.034 568.698 639.823 579.499 649.517 590.156C652.59 593.542 656.178 596.422 660.149 598.688C664.733 598.313 669.741 597.863 674.224 596.763C705.395 589.088 725.754 563.456 717.527 530.886C716.39 526.275 714.58 521.857 712.154 517.775C703.796 517.693 695.437 517.714 687.079 517.837L687.093 506.374C691.914 506.247 696.737 506.17 701.56 506.142Z"/>
+  <path d="M745.022 517.828C739.854 517.794 734.594 517.759 729.646 517.879L729.67 595.433C734.342 595.432 739.153 595.464 744.013 595.496C754.846 595.568 765.923 595.641 776.253 595.353C776.263 589.983 776.241 584.657 776.218 579.339C776.182 570.653 776.146 561.991 776.25 553.203C761.594 543.731 756.126 535.487 752.474 518.472L752.345 517.86C749.955 517.861 747.499 517.845 745.022 517.828Z"/>
+  <path d="M761.364 428.508C750.768 428.477 740.104 428.446 729.658 428.609C729.561 440.033 729.603 451.522 729.645 463.013C729.698 477.392 729.751 491.773 729.531 506.028L752.266 506.044C753.391 498.806 754.938 494.105 758.456 487.749C764.147 479.076 767.487 476.201 776.315 470.586C776.087 463.744 776.167 456.758 776.245 449.804C776.327 442.615 776.408 435.46 776.149 428.532C771.255 428.537 766.317 428.523 761.364 428.508Z"/>
+  <path d="M832.206 504.313C828.364 487.586 814.916 477.872 798.159 477.201C787.491 478.011 779.255 481.062 772.12 489.464C765.99 496.635 763.059 506.001 764.008 515.387C765.611 531.971 777.138 542.983 792.978 546.434L792.96 524.057C789.128 521.507 786.764 519.043 785.91 514.251C785.294 510.823 786.076 507.292 788.082 504.446C790.747 500.723 794.454 499.377 798.846 498.974C813.067 501.473 815.071 515.424 803.865 524.147L803.831 546.412C814.29 544.125 821.557 540.036 827.497 530.765C832.566 522.942 834.263 513.404 832.206 504.313Z"/>
+  <path d="M628.769 543.112L588.243 543.022C588.414 557.656 591.566 570.552 602.516 581.451C612.06 590.951 625.245 596.47 638.715 598.022C638.888 598.042 639.484 597.986 639.808 597.956C639.858 597.951 639.902 597.947 639.937 597.944L640.233 597.562C628.187 581.492 625.166 567.991 628.011 547.91C628.242 546.307 628.495 544.708 628.769 543.112Z"/>
+  <path d="M714.734 466.665C711.179 443.064 693.24 430.046 670.275 426.354C682.455 442.656 684.321 457.169 681.496 477.28L681.406 477.898L715.346 477.83C716.012 474.525 715.529 471.575 715.016 468.439C714.921 467.855 714.824 467.265 714.734 466.665Z"/>
+  <path d="M666.79 493.036C665.719 492.082 665.19 492.111 663.779 491.769C658.701 499.095 643.4 522.413 644.212 530.405C645.32 531.227 646.065 531.28 647.401 531.585C652.576 523.86 666.33 502.329 666.79 493.036Z"/>
+</g></defs></svg>
+
+<script>
+// ───────── clock (simulated; +3h button drives the gap rule) ─────────
+const HOUR = 3600_000;
+const SESSION_GAP_MS = 3 * HOUR;
+let clockOffset = 0;
+const now = () => Date.now() + clockOffset;
+
+// ───────── fixture conversations (newest-first) ─────────
+const mk = (id, title, hoursAgo, msgs) => ({ id, title, lastMessageAt: Date.now() - hoursAgo * HOUR, messages: msgs });
+let conversations = [
+  mk('c1', 'LangChain agent harness', 5, [
+    ['user', 'did I save anything about langchain open sourcing an agent harness?'],
+    ['ai', 'Yes — you saved a few items about LangChain open-sourcing an agent harness, including the Deep Agents feature overview and the launch post.<span class="cite">1</span><span class="cite">2</span>'],
+  ]),
+  mk('c2', 'Dinner spots near the Mission', 26, [
+    ['user', 'what restaurants have I stashed near the Mission?'],
+    ['ai', 'You have four: Lazy Bear (tasting menu), Foreign Cinema, True Laurel, and a note about the new Burmese place on Valencia.<span class="cite">1</span>'],
+  ]),
+  mk('c3', 'Embedding model comparison', 29, [
+    ['user', 'summarize the embedding benchmark links I saved'],
+    ['ai', 'Across the three benchmark posts you saved, late-interaction models lead on recall while matryoshka embeddings win on cost at truncated dims.<span class="cite">1</span><span class="cite">3</span>'],
+  ]),
+  mk('c4', 'Trip planning — Kyoto', 4 * 24, [
+    ['user', 'pull together the Kyoto links'],
+    ['ai', 'Your Kyoto stash: ryokan shortlist (3 saved), the autumn foliage timing guide, and two temple walking routes.<span class="cite">2</span>'],
+  ]),
+  mk('c5', 'Retention loop ideas', 6 * 24, [
+    ['user', 'what were my notes on the retention loop?'],
+    ['ai', 'Your notes sketch a weekly digest anchored on resurfacing stale-but-relevant saves, plus a "you saved this a year ago" hook.<span class="cite">1</span>'],
+  ]),
+  mk('c6', 'Interest graph reading list', 21 * 24, [
+    ['user', 'show my interest-graph reading list'],
+    ['ai', 'Six papers saved under that thread — the two core ones are the taste-graph survey and the PinSage follow-up.<span class="cite">1</span><span class="cite">4</span>'],
+  ]),
+  mk('c7', 'Home espresso tuning', 40 * 24, [
+    ['user', 'what grind settings did I note for the Niche?'],
+    ['ai', 'Your note says 13–15 for light roasts on the Niche Zero, 18s ramp, 1:2.2 out.<span class="cite">1</span>'],
+  ]),
+];
+
+// ───────── session state (mirrors ChatMole's sessionRef) ─────────
+let session = { id: null, title: null, explicit: false, lastMessageAt: 0 };
+let lastLoaded = null;         // let-go memory
+let messages = [];             // current thread
+let currentTab = 'ask';
+let nextId = 100;
+
+// On open: latest conversation continues iff < 3h old (c1 is 5h old → fresh thread).
+(function resolveOnOpen() {
+  const latest = conversations[0];
+  if (latest && now() - latest.lastMessageAt < SESSION_GAP_MS) {
+    session = { id: latest.id, title: latest.title, explicit: false, lastMessageAt: latest.lastMessageAt };
+    messages = [...latest.messages];
+  }
+})();
+
+// ───────── rendering ─────────
+const $ = id => document.getElementById(id);
+
+function renderThread() {
+  const t = $('thread');
+  t.querySelectorAll('.msg-user,.msg-ai,.empty-hint').forEach(n => n.remove());
+  const restore = $('restore');
+  if (messages.length === 0 && lastLoaded) {
+    restore.classList.add('shown');
+    restore.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      <span>Load previous conversation — <b>${lastLoaded.title ?? 'Untitled'}</b></span>`;
+  } else restore.classList.remove('shown');
+  if (messages.length === 0) {
+    const hint = document.createElement('div');
+    hint.className = 'empty-hint';
+    hint.textContent = "Ask anything about what you've saved — or paste a link here and I'll stash it. Start a message with “remember:” to save a quick note.";
+    t.appendChild(hint);
+  }
+  for (const [role, html] of messages) {
+    const d = document.createElement('div');
+    d.className = role === 'user' ? 'msg-user' : 'msg-ai';
+    d.innerHTML = html;
+    t.appendChild(d);
+  }
+  const pill = $('session-pill');
+  if (session.explicit && session.id) {
+    pill.classList.add('shown');
+    $('session-pill-title').textContent = session.title ?? 'Untitled';
+  } else pill.classList.remove('shown');
+  t.scrollTop = t.scrollHeight;
+  renderState();
+}
+
+function bucketLabel(ts) {
+  const d = new Date(ts), n = new Date(now());
+  const days = Math.floor((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return 'This week';
+  const month = d.toLocaleString('en', { month: 'long' });
+  return d.getFullYear() === n.getFullYear() ? month : `${month} ${d.getFullYear()}`;
+}
+
+function renderConvos() {
+  const q = $('convo-search').value.trim().toLowerCase();
+  const list = conversations.filter(c =>
+    !q || (c.title ?? '').toLowerCase().includes(q) ||
+    c.messages.some(([, html]) => html.toLowerCase().includes(q)));
+  const el = $('convo-scroll');
+  el.innerHTML = '';
+  let lastBucket = null;
+  for (const c of list) {
+    const b = bucketLabel(c.lastMessageAt);
+    if (b !== lastBucket) {
+      lastBucket = b;
+      const lbl = document.createElement('div');
+      lbl.className = 'bucket-label'; lbl.textContent = b;
+      el.appendChild(lbl);
+    }
+    const lastAi = [...c.messages].reverse().find(([r]) => r === 'ai');
+    const row = document.createElement('button');
+    row.className = 'convo-row';
+    const when = new Date(c.lastMessageAt).toLocaleString('en', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    row.innerHTML = `<div class="rowtitle ${c.title ? '' : 'untitled'}">${c.title ?? 'Untitled'}</div>
+      <div class="preview">${lastAi ? lastAi[1].replace(/<span class="cite">\d+<\/span>/g, '').replace(/<[^>]+>/g, '') : ''}</div>
+      <div class="meta">${when} · ${c.messages.length} messages</div>`;
+    row.onclick = () => openConversation(c);
+    el.appendChild(row);
+  }
+  const more = document.createElement('div');
+  more.className = 'load-more';
+  more.textContent = list.length ? 'Older conversations load as you scroll' : 'No matches';
+  el.appendChild(more);
+}
+
+function renderTabbars() {
+  const tabs = [
+    ['add', 'Add', '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>'],
+    ['ask', 'Ask', '<path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5Z"/>'],
+    ['view', 'View', '<rect x="3.5" y="3.5" width="7" height="7" rx="1.4"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.4"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.4"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.4"/>'],
+    ['settings', 'Settings', '<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.4 2.6a7 7 0 0 0-2 1.2l-2.5-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.4-2.6a7 7 0 0 0 2-1.2l2.5 1 2-3.4-2-1.6c.07-.4.1-.8.1-1.2Z"/>'],
+  ];
+  for (const barId of ['tabbar-thread', 'tabbar-convos', 'tabbar-other']) {
+    const bar = $(barId);
+    bar.innerHTML = '';
+    for (const [key, label, path] of tabs) {
+      const b = document.createElement('button');
+      b.className = 'tab' + (key === currentTab ? ' on' : '');
+      b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">${path}</svg>${label}`;
+      b.onclick = () => switchTab(key);
+      bar.appendChild(b);
+    }
+  }
+}
+
+function renderState() {
+  $('state-readout').innerHTML =
+    `<span class="k">session.id:</span> ${session.id ?? 'null (created lazily on send)'}<br>` +
+    `<span class="k">session.title:</span> ${session.title ?? 'null'}<br>` +
+    `<span class="k">explicit (gap-exempt):</span> ${session.explicit}<br>` +
+    `<span class="k">lastLoaded (restorable):</span> ${lastLoaded ? (lastLoaded.title ?? 'Untitled') : 'null'}<br>` +
+    `<span class="k">clock offset:</span> +${(clockOffset / HOUR).toFixed(1)}h`;
+}
+
+// ───────── navigation ─────────
+function pushConvos() {
+  renderConvos();
+  $('screen-thread').classList.add('under');
+  $('screen-convos').classList.add('shown');
+}
+function popConvos() {
+  $('screen-thread').classList.remove('under');
+  $('screen-convos').classList.remove('shown');
+}
+function switchTab(key) {
+  if (key === currentTab) return;
+  // iOS analog of "collapsing the mole": leaving Ask lets go of an explicitly
+  // loaded old conversation (thread clears; restorable via the banner).
+  if (currentTab === 'ask' && key !== 'ask' && session.explicit && session.id) {
+    lastLoaded = { id: session.id, title: session.title };
+    messages = [];
+    session = { id: null, title: null, explicit: false, lastMessageAt: 0 };
+  }
+  currentTab = key;
+  popConvos();
+  const other = $('screen-othertab');
+  if (key === 'ask') other.classList.remove('shown');
+  else {
+    $('other-body').innerHTML = `The <b style="text-transform:capitalize">&nbsp;${key}&nbsp;</b> tab (unchanged —<br>stands in for "leaving Ask")`;
+    other.classList.add('shown');
+  }
+  renderTabbars();
+  renderThread();
+}
+
+// ───────── session actions ─────────
+function openConversation(c) {
+  lastLoaded = null;                       // a fresh explicit load supersedes the remembered one
+  session = { id: c.id, title: c.title, explicit: true, lastMessageAt: now() };
+  messages = [...c.messages];
+  popConvos();
+  renderThread();
+}
+
+function startNewChat() {
+  if (session.explicit && session.id) lastLoaded = { id: session.id, title: session.title };
+  messages = [];
+  session = { id: null, title: null, explicit: false, lastMessageAt: 0 };
+  renderThread();
+}
+
+function restorePrevious() {
+  const prev = lastLoaded;
+  if (!prev) return;
+  lastLoaded = null;
+  const c = conversations.find(x => x.id === prev.id);
+  session = { id: prev.id, title: prev.title, explicit: true, lastMessageAt: now() };
+  messages = c ? [...c.messages] : [];
+  renderThread();
+}
+
+function ensureSessionForSend() {
+  if (session.id && (session.explicit || now() - session.lastMessageAt < SESSION_GAP_MS)) return;
+  if (session.id) messages = [];           // stale session on screen — new session starts fresh
+  const c = { id: 'c' + nextId++, title: null, lastMessageAt: now(), messages: [] };
+  conversations.unshift(c);
+  session = { id: c.id, title: null, explicit: false, lastMessageAt: now() };
+}
+
+function sendMessage() {
+  const input = $('composer');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  ensureSessionForSend();
+  const c = conversations.find(x => x.id === session.id);
+  messages.push(['user', text]);
+  c.messages.push(['user', text]);
+  c.lastMessageAt = now();
+  session.lastMessageAt = now();
+  renderThread();
+  setTimeout(() => {
+    const reply = 'Here’s what your stash has on that — two saved links and a note look most relevant.<span class="cite">1</span><span class="cite">2</span>';
+    messages.push(['ai', reply]);
+    c.messages.push(['ai', reply]);
+    c.lastMessageAt = now();
+    session.lastMessageAt = now();
+    // auto-title a brand-new session from its first question (generate-title analog)
+    if (!c.title) { c.title = text.length > 34 ? text.slice(0, 34) + '…' : text; session.title = c.title; }
+    renderThread();
+  }, 650);
+}
+
+function advanceClock() {
+  clockOffset += 3.5 * HOUR;
+  renderState();
+}
+
+renderTabbars();
+renderThread();
+</script>
+</body>
+</html>

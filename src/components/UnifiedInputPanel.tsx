@@ -904,10 +904,8 @@ const UnifiedInputPanel = ({
 
   return (
     <div className="w-full relative">
-      {/* Extended animated gradient background */}
-      <div className="pointer-events-none absolute inset-0 h-[200vh] animated-gradient opacity-30" />
-      <div className="pointer-events-none absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
-
+      {/* Gradient backdrop lives at the page level (Index) so it persists
+          when this panel is hidden in retrieval states */}
       <div className="relative pt-5 pb-8">
         <div className="container mx-auto px-4">
           {/* The shell lifts, glows, and takes a violet border while capturing */}

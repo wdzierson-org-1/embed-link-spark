@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stash — chat sessions prototype (simplified)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --violet-50:#f5f3ff; --violet-100:#ede9fe; --violet-200:#ddd6fe; --violet-300:#c4b5fd;
+    --violet-500:#8b5cf6; --violet-600:#7c3aed; --violet-700:#6d28d9;
+    --gray-50:#f9fafb; --gray-100:#f3f4f6; --gray-200:#e5e7eb; --gray-300:#d1d5db;
+    --gray-400:#9ca3af; --gray-500:#6b7280; --gray-600:#4b5563; --gray-900:#111827;
+    --muted:#f1f5f9;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#fff; color:var(--gray-900); height:100vh; overflow:hidden; }
+  button { font:inherit; border:none; background:none; cursor:pointer; color:inherit; }
+
+  .topbar { height:56px; border-bottom:1px solid var(--gray-200); display:flex; align-items:center; gap:16px; padding:0 20px; }
+  .brand { font-family:Georgia,serif; font-size:20px; letter-spacing:-0.02em; }
+  .topbar .spacer { flex:1; }
+  .mode-switch { display:flex; gap:4px; background:var(--gray-100); border-radius:10px; padding:3px; font-size:12.5px; }
+  .mode-switch button { padding:5px 12px; border-radius:8px; color:var(--gray-500); }
+  .mode-switch button.on { background:#fff; color:var(--gray-900); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .avatar { width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,var(--violet-500),#ec4899); }
+
+  .stage { display:flex; height:calc(100vh - 56px); }
+
+  /* ── mole dock (unchanged size from today) ─── */
+  .dock { width:384px; flex:none; border-right:1px solid var(--gray-200); background:#fff; display:flex; flex-direction:column; transition:width .25s ease; overflow:hidden; }
+  body[data-mode="floating"] .dock { width:0; border:none; }
+  .chat-head { height:46px; flex:none; display:flex; align-items:center; gap:8px; padding:0 14px; border-bottom:1px solid var(--gray-200); }
+  .mole-glyph { width:20px; height:20px; color:var(--violet-600); flex:none; }
+  .chat-head .title { font-size:13px; font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .iconbtn { width:26px; height:26px; display:grid; place-items:center; border-radius:7px; color:var(--gray-400); }
+  .iconbtn:hover { background:var(--gray-100); color:var(--gray-600); }
+  .thread { flex:1; overflow-y:auto; padding:16px 14px; display:flex; flex-direction:column; gap:12px; }
+  .day-divider { text-align:center; font-size:10.5px; color:var(--gray-400); margin:2px 0; }
+  .msg-user { margin-left:auto; max-width:86%; background:var(--gray-900); color:#fff; border-radius:16px 16px 4px 16px; padding:9px 14px; font-size:13.5px; }
+  .msg-ai { max-width:92%; background:var(--muted); border-radius:16px 16px 16px 4px; padding:10px 14px; font-size:13.5px; line-height:1.5; }
+  .msg-ai p + p, .msg-ai p + ul { margin-top:6px; } .msg-ai ul { padding-left:18px; } .msg-ai li { margin:3px 0; }
+  .cite { color:var(--violet-700); font-weight:500; text-decoration:underline; text-decoration-color:var(--violet-300); text-underline-offset:2px; cursor:pointer; }
+  .cite:hover { text-decoration-color:var(--violet-700); }
+  .msg-tools { display:flex; align-items:center; gap:6px; margin-top:8px; }
+  .focus-chip { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--violet-700); background:#fff; border:1px solid var(--violet-200); border-radius:999px; padding:3px 10px; }
+  .focus-chip:hover { background:var(--violet-50); }
+  .focus-chip.on { background:var(--violet-600); color:#fff; border-color:var(--violet-600); }
+  .composer { flex:none; padding:10px 12px 6px; border-top:1px solid var(--gray-200); display:flex; gap:8px; }
+  .composer input { flex:1; border:1px solid var(--gray-300); border-radius:12px; padding:9px 13px; font-size:13.5px; outline:none; }
+  .composer input:focus { border-color:var(--violet-300); box-shadow:0 0 0 3px var(--violet-50); }
+  .send { width:36px; height:36px; border-radius:10px; background:var(--gray-900); color:#fff; display:grid; place-items:center; flex:none; }
+  /* the new footer link — replaces the "answers come with sources…" hint */
+  .mole-foot { flex:none; padding:4px 14px 10px; }
+  .mole-foot button { font-size:11.5px; color:var(--gray-400); }
+  .mole-foot button:hover { color:var(--violet-700); text-decoration:underline; text-underline-offset:2px; }
+  .mole-foot button.on { color:var(--violet-700); font-weight:500; }
+
+  /* ── main pane ──────────────────────────────── */
+  .pane { flex:1; min-width:0; background:var(--gray-50); overflow-y:auto; padding:18px 22px; }
+  .pane-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .pane-head .count { font-size:12.5px; color:var(--gray-500); }
+  .focus-pill { display:none; align-items:center; gap:8px; font-size:12px; background:var(--violet-100); color:var(--violet-700); border-radius:999px; padding:4px 6px 4px 12px; }
+  .focus-pill.show { display:inline-flex; }
+  .focus-pill b { font-weight:600; }
+  .focus-pill button { background:#fff; border-radius:999px; padding:2px 9px; font-size:11.5px; color:var(--violet-700); }
+  .backlink { display:none; align-items:center; gap:6px; font-size:12.5px; color:var(--gray-500); }
+  .backlink:hover { color:var(--gray-900); }
+  body[data-view="chats"] .backlink { display:inline-flex; }
+  body[data-view="chats"] .count { display:none; }
+
+  /* card grid */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px; }
+  body[data-view="chats"] .grid { display:none; }
+  .card { background:#fff; border:1px solid var(--gray-200); border-radius:14px; overflow:hidden; text-align:left; transition:opacity .2s, box-shadow .15s; }
+  .card:hover { box-shadow:0 3px 10px rgba(0,0,0,.07); }
+  .card .img { height:110px; background:var(--gray-200); background-size:cover; background-position:center; }
+  .card .body { padding:10px 12px 12px; }
+  .card h3 { font-size:13.5px; line-height:1.3; }
+  .card .desc { font-size:12px; color:var(--gray-500); margin-top:4px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .card .meta { font-size:10.5px; color:var(--gray-400); margin-top:8px; }
+  .card.dim { display:none; }
+  .card.hit { border-color:var(--violet-300); box-shadow:0 0 0 3px var(--violet-50); }
+
+  /* conversations table */
+  .convos { display:none; max-width:760px; }
+  body[data-view="chats"] .convos { display:block; }
+  .convos h1 { font-size:17px; font-weight:600; margin-bottom:4px; }
+  .convos .sub { font-size:12.5px; color:var(--gray-500); margin-bottom:18px; }
+  .bucket { font-size:10.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--gray-400); font-weight:600; padding:16px 2px 7px; }
+  .convo { display:flex; align-items:center; gap:14px; width:100%; text-align:left; background:#fff; border:1px solid var(--gray-200); border-radius:12px; padding:12px 16px; margin-bottom:7px; transition:box-shadow .15s, transform .12s; }
+  .convo:hover { box-shadow:0 3px 10px rgba(0,0,0,.07); transform:translateY(-1px); }
+  .convo.on { border-color:var(--violet-300); box-shadow:0 0 0 3px var(--violet-50); }
+  .convo .dot { width:8px; height:8px; border-radius:50%; background:var(--violet-300); flex:none; }
+  .convo .tx { flex:1; min-width:0; }
+  .convo h3 { font-size:13.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .convo .preview { font-size:12px; color:var(--gray-500); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .convo .when { flex:none; font-size:11.5px; color:var(--gray-400); text-align:right; line-height:1.4; }
+
+  /* floating pill */
+  .pill { position:fixed; right:22px; bottom:22px; display:none; align-items:center; gap:9px; background:var(--gray-900); color:#fff; border-radius:999px; padding:10px 18px 10px 14px; font-size:13.5px; box-shadow:0 8px 24px rgba(0,0,0,.25); }
+  body[data-mode="floating"] .pill { display:inline-flex; }
+  .pill .mole-glyph { color:var(--violet-300); }
+
+  .hint { position:fixed; left:calc(50% + 190px); transform:translateX(-50%); bottom:16px; z-index:5; pointer-events:none; font-size:11.5px; color:var(--gray-400); background:#fff; border:1px solid var(--gray-200); border-radius:999px; padding:4px 14px; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+  body[data-mode="floating"] .hint { left:50%; }
+</style>
+</head>
+<body data-mode="pinned" data-view="cards">
+
+<div class="topbar">
+  <span class="brand">stash</span>
+  <span class="spacer"></span>
+  <div class="mode-switch">
+    <button data-set="floating">Floating mole</button>
+    <button data-set="pinned" class="on">Pinned dock</button>
+  </div>
+  <div class="avatar"></div>
+</div>
+
+<div class="stage">
+  <!-- the mole, same footprint as today -->
+  <div class="dock">
+    <div class="chat-head">
+      <svg class="mole-glyph" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="9"/></svg>
+      <span class="title" id="chatTitle">Best ways to use Claude automation</span>
+      <button class="iconbtn" title="Minimize" onclick="setMode('floating')">—</button>
+    </div>
+
+    <div class="thread" id="thread">
+      <div class="day-divider">Today · 2:06 PM</div>
+      <div class="msg-user">do i have any recent items related to best way to use claude automation</div>
+      <div class="msg-ai">
+        <p>Yes — you have several recent items about Claude automation:</p>
+        <ul>
+          <li><span class="cite">Beyond the basics with Claude Code</span> — CLAUDE.md, MCP tool integration, reusable skills.</li>
+          <li><span class="cite">Screenshot of chat-management tips</span> — clearing context, effort levels, token-saving commands.</li>
+          <li><span class="cite">Claude Cowork: The complete guide</span> — walkthrough of Anthropic's desktop agent.</li>
+        </ul>
+        <div class="msg-tools">
+          <button class="focus-chip" data-focus="claude" onclick="toggleFocus(this)">⌖ Focus sources (3)</button>
+        </div>
+      </div>
+      <div class="msg-user">which one covers skills specifically?</div>
+      <div class="msg-ai">
+        <p><span class="cite">Beyond the basics with Claude Code</span> is the one — it has a whole section on turning repeated prompts into named, reusable skills.</p>
+        <div class="msg-tools">
+          <button class="focus-chip" data-focus="claude-one" onclick="toggleFocus(this)">⌖ Focus sources (1)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <input placeholder="Ask your stash…">
+      <button class="send">↑</button>
+    </div>
+    <!-- replaces the "answers come with sources…" hint -->
+    <div class="mole-foot">
+      <button id="earlierLink" onclick="toggleView()">Earlier conversations</button>
+    </div>
+  </div>
+
+  <!-- main pane: cards, or the conversations list -->
+  <main class="pane">
+    <div class="pane-head">
+      <span class="count" id="count">563 items</span>
+      <button class="backlink" onclick="setView('cards')">← Back to your stash</button>
+      <span class="focus-pill" id="focusPill"><span>Showing <b id="focusN">3</b> cards from this answer</span><button onclick="clearFocus()">Clear</button></span>
+    </div>
+
+    <!-- conversations list (main pane view) -->
+    <section class="convos">
+      <h1>Conversations</h1>
+      <p class="sub">Chats start fresh after a few hours away — nothing to name or file.</p>
+      <div class="bucket">Today</div>
+      <button class="convo on" data-sess="claude"><span class="dot"></span><span class="tx"><h3>Best ways to use Claude automation</h3><p class="preview">…Beyond the basics with Claude Code is the one — it has a whole section on skills…</p></span><span class="when">2:06 PM<br>6 messages</span></button>
+      <button class="convo" data-sess="bread"><span class="dot"></span><span class="tx"><h3>Bread things I've saved</h3><p class="preview">You have two bread-related saves: Sourdough Starter Feeding Schedule…</p></span><span class="when">10:14 AM<br>2 messages</span></button>
+      <div class="bucket">This week</div>
+      <button class="convo" data-sess="other"><span class="dot"></span><span class="tx"><h3>Rachel Hinman's career</h3><p class="preview">Rachel Hinman is a seasoned product design leader with roles at Adaptive Path…</p></span><span class="when">Mon<br>2 messages</span></button>
+      <div class="bucket">August</div>
+      <button class="convo" data-sess="other"><span class="dot"></span><span class="tx"><h3>Vint Cerf papers</h3><p class="preview">Yes, you have a draft proposal by Robert E. Kahn and Vinton G. Cerf…</p></span><span class="when">Aug 11<br>4 messages</span></button>
+      <button class="convo" data-sess="other"><span class="dot"></span><span class="tx"><h3>Knowledge preservation resources</h3><p class="preview">Your saved items do not include anything about far-future knowledge preservation.</p></span><span class="when">Aug 11<br>2 messages</span></button>
+      <div class="bucket">Earlier</div>
+      <button class="convo" data-sess="other"><span class="dot"></span><span class="tx"><h3>Ask Stash</h3><p class="preview">Everything before sessions existed, in one thread.</p></span><span class="when">Jun – Aug<br>214 messages</span></button>
+    </section>
+
+    <!-- the familiar card grid -->
+    <div class="grid" id="grid">
+      <button class="card" data-set="claude claude-one"><div class="img" style="background:linear-gradient(135deg,#c7d2fe,#ddd6fe)"></div><div class="body"><h3>Beyond the basics with Claude Code</h3><p class="desc">CLAUDE.md, MCP tool integration, and packaging team knowledge into reusable skills.</p><p class="meta">link · Aug 24</p></div></button>
+      <button class="card" data-set="claude"><div class="img" style="background:linear-gradient(135deg,#fde68a,#fca5a5)"></div><div class="body"><h3>Screenshot of chat-management tips</h3><p class="desc">Clearing context, effort levels, token-saving commands.</p><p class="meta">image · Aug 21</p></div></button>
+      <button class="card" data-set="claude"><div class="img" style="background:linear-gradient(135deg,#bae6fd,#c7d2fe)"></div><div class="body"><h3>Claude Cowork: The complete guide</h3><p class="desc">Walkthrough of Anthropic's AI desktop agent.</p><p class="meta">link · Mar 6</p></div></button>
+      <button class="card" data-set="bread"><div class="img" style="background:linear-gradient(135deg,#fbcfe8,#fda4af)"></div><div class="body"><h3>Sourdough Starter Feeding Schedule</h3><p class="desc">Feed every morning at 8am with 50g flour and 50g water.</p><p class="meta">note · Aug 27</p></div></button>
+      <button class="card"><div class="img" style="background:linear-gradient(135deg,#a7f3d0,#bae6fd)"></div><div class="body"><h3>Voice memo — interest graph ideas</h3><p class="desc">Transcribed voice note about connecting related saves.</p><p class="meta">audio · Aug 25</p></div></button>
+      <button class="card"><div class="img" style="background:linear-gradient(135deg,#e2e8f0,#cbd5e1)"></div><div class="body"><h3>Kahn and Cerf's 1988 Study</h3><p class="desc">Draft proposal for an open Digital Library System architecture.</p><p class="meta">document · Aug 11</p></div></button>
+      <button class="card" data-set="bread"><div class="img" style="background:linear-gradient(135deg,#fef3c7,#fed7aa)"></div><div class="body"><h3>Perfect Pizza Dough Recipe</h3><p class="desc">65% hydration, 48-hour cold ferment, 500°F on a steel.</p><p class="meta">note · Aug 27</p></div></button>
+      <button class="card"><div class="img" style="background:linear-gradient(135deg,#c7d2fe,#a5b4fc)"></div><div class="body"><h3>Jean-Georges dining room</h3><p class="desc">Photo of the dining room interior.</p><p class="meta">image · Aug 24</p></div></button>
+      <button class="card"><div class="img" style="background:linear-gradient(135deg,#bbf7d0,#a7f3d0)"></div><div class="body"><h3>How to use Claude models</h3><p class="desc">A general how-to guide for Claude models.</p><p class="meta">link · Mar 25</p></div></button>
+    </div>
+  </main>
+</div>
+
+<button class="pill" onclick="setMode('pinned')">
+  <svg class="mole-glyph" viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><circle cx="12" cy="12" r="9"/></svg>
+  Ask Stash <span style="opacity:.5;font-size:11px">⌘K</span>
+</button>
+
+<div class="hint">Prototype — “Earlier conversations” under the mole composer · “Focus sources” in an answer · click a conversation to load it</div>
+
+<script>
+  const body = document.body;
+  const focusPill = document.getElementById('focusPill');
+  const focusN = document.getElementById('focusN');
+  const earlierLink = document.getElementById('earlierLink');
+  let activeChip = null;
+
+  function setMode(m) {
+    body.dataset.mode = m;
+    document.querySelectorAll('.mode-switch button').forEach(b => b.classList.toggle('on', b.dataset.set === m));
+  }
+  document.querySelectorAll('.mode-switch button').forEach(b => b.onclick = () => setMode(b.dataset.set));
+
+  function setView(v) {
+    body.dataset.view = v;
+    earlierLink.classList.toggle('on', v === 'chats');
+    earlierLink.textContent = v === 'chats' ? 'Back to your stash' : 'Earlier conversations';
+    if (v === 'chats') clearFocus();
+  }
+  function toggleView() { setView(body.dataset.view === 'chats' ? 'cards' : 'chats'); }
+
+  function toggleFocus(chip) {
+    if (activeChip === chip) { clearFocus(); return; }
+    setView('cards'); // focusing always brings the cards back
+    if (activeChip) activeChip.classList.remove('on');
+    activeChip = chip; chip.classList.add('on');
+    const key = chip.dataset.focus;
+    let n = 0;
+    document.querySelectorAll('.card').forEach(c => {
+      const hit = (c.dataset.set || '').split(' ').includes(key);
+      c.classList.toggle('dim', !hit);
+      c.classList.toggle('hit', hit);
+      if (hit) n++;
+    });
+    focusN.textContent = n;
+    focusPill.classList.add('show');
+    document.getElementById('count').style.display = 'none';
+  }
+  function clearFocus() {
+    if (activeChip) activeChip.classList.remove('on');
+    activeChip = null;
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('dim','hit'));
+    focusPill.classList.remove('show');
+    document.getElementById('count').style.display = '';
+  }
+
+  // conversations → load into the mole
+  const sessions = {
+    claude: null, // default thread below
+    bread: { title: "Bread things I've saved", thread: `
+      <div class="day-divider">Today · 10:14 AM</div>
+      <div class="msg-user">what bread-related things have I saved?</div>
+      <div class="msg-ai"><p>You have two bread-related saves:</p><ul>
+        <li><span class="cite">Sourdough Starter Feeding Schedule</span> — daily feed at 8am, 50g flour + 50g water.</li>
+        <li><span class="cite">Perfect Pizza Dough Recipe</span> — 65% hydration, 48-hour cold ferment, 500°F on a steel.</li></ul>
+        <div class="msg-tools"><button class="focus-chip" data-focus="bread" onclick="toggleFocus(this)">⌖ Focus sources (2)</button></div></div>` },
+    other: { title: "Older conversation", thread: `
+      <div class="day-divider">Earlier</div>
+      <div class="msg-user">…</div>
+      <div class="msg-ai"><p>(An older session, loaded into the mole — typing here resumes it.)</p></div>` }
+  };
+  const defaultThread = document.getElementById('thread').innerHTML;
+  const defaultTitle = document.getElementById('chatTitle').textContent;
+  document.querySelectorAll('.convo').forEach(c => c.onclick = () => {
+    document.querySelectorAll('.convo').forEach(x => x.classList.remove('on'));
+    c.classList.add('on');
+    const sess = sessions[c.dataset.sess];
+    document.getElementById('chatTitle').textContent = sess?.title ?? defaultTitle;
+    document.getElementById('thread').innerHTML = sess?.thread ?? defaultThread;
+    setMode('pinned'); // opening a conversation surfaces the mole if minimized
+  });
+
+  // Deep-linkable states: #view=chats, #focus=claude, #mode=floating
+  const hash = new URLSearchParams(location.hash.slice(1));
+  if (hash.get('mode')) setMode(hash.get('mode'));
+  if (hash.get('view')) setView(hash.get('view'));
+  if (hash.get('focus')) {
+    const chip = document.querySelector(`.focus-chip[data-focus="${hash.get('focus')}"]`);
+    if (chip) toggleFocus(chip);
+  }
+</script>
+</body>
+</html>

@@ -40,7 +40,8 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
   });
 
   return (
-    <div className="w-full bg-white shadow-[0_2px_2px_rgba(0,0,0,0.2)]">
+    // relative: paints above the page-level gradient backdrop (stays pure white)
+    <div className="relative w-full bg-white shadow-[0_2px_2px_rgba(0,0,0,0.2)]">
       <div className="container mx-auto px-4 h-[77px] flex items-center justify-between">
         <div className="flex items-center space-x-4">
           {/* Logo */}

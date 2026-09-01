@@ -87,20 +87,59 @@ Responds with Server-Sent Events:
 
 ```
 data: {"delta":"token"}          ← repeatedly
-data: {"done":true,"sources":[{"id","title","type","url"}]}
+data: {"status":"searching","query":"…"}   ← optional, while a tool runs
+data: {"status":"browsing"}                ← optional (2026-08-30: catalog scan)
+data: {"status":"reading"}                 ← optional
+data: {"done":true,"sources":[{"id","title","type","url","n"}]}
 ```
 
-Retrieval is hybrid (pgvector + full-text, RRF-fused); sources are exactly the
-items used in the answer's context. History is capped server-side at 6 turns.
+Retrieval is **agentic**: the model drives search itself through internal
+tools (`search_stash` — hybrid pgvector + full-text, RRF-fused, with
+type/date/tag filters; `get_item` — full notes/summary/captured text), so it
+rewrites queries from conversation context, searches more than once for
+multi-part questions, and reads items in full before quoting them. `status`
+frames are informational — clients may render a "searching…" indicator or
+ignore unknown keys entirely (every frame is valid JSON). Sources are the
+items the answer cites (fallback: items it read in full). History is capped
+server-side at 10 turns.
 
-## Message routing convention (chat surfaces)
+Citations in the answer text: item titles appear as markdown links targeting
+their citation number (`[Title](#3)`), bare `[3]` markers otherwise. Each
+sources entry carries that number as `n` — at stream end, clients rewrite
+`(#n)` targets into durable item links (`(#item=<uuid>)`), persist the baked
+text, and render those links as open-this-card actions. Show a bottom sources
+row only for entries not already linked inline (reference:
+`src/utils/chatCitations.ts`).
 
-Chat composers double as capture surfaces. Shared client contract
-(`src/utils/moleRouting.ts` is the reference implementation):
+Sessions: conversations are time-gap sessions — a client convention. Pick the
+user's latest conversation by `last_message_at`; continue it if the last
+message is under 3 hours old, otherwise insert a new `conversations` row
+(title null; auto-title it from the first question via `generate-title`).
+Send only the current session's messages as `conversationHistory`. A DB
+trigger maintains `last_message_at`; `list_conversations()` (SECURITY
+INVOKER, RLS-scoped) returns the history list with counts and previews.
 
-- message contains a URL → `add-url` (surrounding text = the note)
-- `remember:` / `save:` / `note:` prefix → `add-note`
-- anything else → `chat-with-all-content`
+### `POST /search-items` — direct search (no LLM answer)
+
+```json
+{ "query": "…", "types": ["link"], "tags": ["…"], "after": "ISO", "before": "ISO", "limit": 20 }
+```
+
+All fields optional. With `query`: hybrid relevance-ranked search (one result
+per item, `snippet` = best matching chunk). Without: newest-first listing
+under the same filters. Returns
+`{ "results": [{ id, title, type, url, created_at, description, snippet, score }] }`.
+This is the canonical search surface — library search boxes, future MCP
+tools, and Siri/Shortcuts should all call it rather than hitting the DB.
+
+## Message routing convention — RETIRED 2026-08-27
+
+Chat composers are retrieval-only on every platform: all input goes to
+`chat-with-all-content`. The old convention (URL → `add-url`,
+`remember:`/`save:`/`note:` → `add-note`) is retired; capture belongs to
+capture surfaces (input panel, share sheets, extension, SMS). Web has removed
+`moleRouting.ts`; iOS should remove `StashKit/MessageRouting.swift` usage from
+its Ask composer to match. Do not build new clients on message routing.
 
 ## Live updates
 

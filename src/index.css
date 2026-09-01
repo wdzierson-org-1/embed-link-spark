@@ -26,6 +26,45 @@
   font-display: swap;
 }
 
+/* PP Neue Montreal — the app typeface (DESIGN.md). One family, weight does the
+   work: 400 Book for UI/body, 500 Medium for object titles, 600 Semibold for
+   display headers. Served locally like the other PP faces. */
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-Book.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-Medium.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-Medium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-Semibold.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-Semibold.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./assets/fonts/PPNeueMontreal-BookItalic.woff2') format('woff2'),
+       url('./assets/fonts/PPNeueMontreal-BookItalic.woff') format('woff');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 @font-face {
   font-family: 'Tobias';
   src: url('https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/fonts/Tobias-TRIAL-Light.woff2') format('woff2');
@@ -174,7 +213,7 @@
   }
 
   body {
-    @apply bg-background text-foreground font-inter;
+    @apply bg-background text-foreground font-montreal;
     background-image: url('/paper-texture.jpg');
     background-size: 400px 400px;
     background-repeat: repeat;
@@ -192,9 +231,16 @@
   }
 
   .animated-gradient {
-    background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f5576c, #4facfe, #00f2fe);
+    /* Purple/blue-biased spectrum — the milky orchid (#f093fb) and salmon
+       (#f5576c) stops read "pepto" through the white overlay; deeper violet
+       and raspberry keep the warmth without the chalk (2026-08-30) */
+    background: linear-gradient(-45deg, #667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8);
     background-size: 400% 400%;
     animation: gradientShift 15s ease infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animated-gradient { animation: none; }
   }
 
   .paper-texture {
@@ -220,6 +266,11 @@
       hsla(300, 85%, 87%, 0.15) 55%,
       transparent 75%
     );
+  }
+
+  @keyframes loading-breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.06); }
   }
 
   @keyframes gradientShift {
@@ -307,5 +358,120 @@
     float: left;
     height: 0;
     pointer-events: none;
+  }
+}
+/* ---- Assembling cards (feed enrichment choreography) ----------------------
+   A fresh capture rises in, breathes gently while server enrichment runs, and
+   each piece (title, description, preview) lands with a short rise + violet
+   wash that echoes the cards' purple-tinted shadows. Transform/opacity only. */
+@layer utilities {
+  @keyframes card-enter {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-card-enter {
+    animation: card-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes assembly-breathe {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 0.65;
+    }
+  }
+  .animate-assembly-breathe {
+    animation: assembly-breathe 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  @keyframes assembly-dot {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .animate-assembly-dot {
+    animation: assembly-dot 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+
+  @keyframes chip-pop {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .animate-chip-pop {
+    animation: chip-pop 0.25s cubic-bezier(0.25, 1, 0.5, 1) both;
+  }
+
+  @keyframes piece-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes piece-wash {
+    0% {
+      opacity: 0;
+    }
+    18% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+  .animate-piece-in {
+    position: relative;
+    animation: piece-in 0.4s cubic-bezier(0.25, 1, 0.5, 1) both;
+  }
+  .animate-piece-in::after {
+    content: '';
+    position: absolute;
+    inset: -4px -6px;
+    border-radius: 8px;
+    background: rgba(160, 120, 200, 0.1);
+    opacity: 0;
+    animation: piece-wash 1.2s cubic-bezier(0.25, 1, 0.5, 1) 0.05s both;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-card-enter,
+    .animate-assembly-breathe,
+    .animate-assembly-dot,
+    .animate-chip-pop,
+    .animate-piece-in {
+      animation: none;
+    }
+    .animate-piece-in::after {
+      animation: none;
+      opacity: 0;
+    }
+    /* Still communicate "assembling" without motion: hold the dimmed state */
+    .animate-assembly-breathe {
+      opacity: 0.5;
+    }
   }
 }

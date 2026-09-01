@@ -10,17 +10,32 @@ struct StashApp: App {
     @State private var subscriptionStore = SubscriptionStore(checker: SupabaseSubscriptionChecker())
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var showSplash = true
+
     var body: some Scene {
         WindowGroup {
-            Group {
-                switch session.state {
-                case .loading: ProgressView()
-                case .signedOut: SignInView()
-                case .signedIn(let userId): MainTabView(userId: userId)
+            ZStack {
+                Group {
+                    switch session.state {
+                    case .loading: ProgressView()
+                    case .signedOut: SignInView()
+                    case .signedIn(let userId): MainTabView(userId: userId)
+                    }
+                }
+                if showSplash {
+                    SplashView()
+                        .transition(.opacity)
+                        .zIndex(1)
                 }
             }
             .environment(session)
             .environment(subscriptionStore)
+            .task {
+                // Long enough for the gradient's motion to register as intentional, short
+                // enough to never feel like a gate — session restore continues underneath.
+                try? await Task.sleep(for: .seconds(1.6))
+                withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
+            }
             .task { await session.start() }
             // "Launch refresh": fires once the session actually resolves to signed-in, whether
             // that's a cold launch restoring a Keychain session or a fresh sign-in from

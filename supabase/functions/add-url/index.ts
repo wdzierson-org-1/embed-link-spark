@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
+import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -274,6 +275,14 @@ Deno.serve(async (req) => {
         metadata = extractMetaFromHtml(html);
         console.log('Extracted metadata:', metadata);
 
+        // A bot wall's page ("Client Challenge", "Just a moment…") is worse
+        // than no metadata: null it so the fallbacks and the deep enrichment
+        // pass (which can rescue the real title) take over
+        if (isBlockedPageTitle(metadata.title)) {
+          console.log('Quick fetch hit a challenge page; discarding its metadata');
+          metadata = { title: null, description: null, image: null, siteName: metadata.siteName };
+        }
+
         // Download and store preview image if available
         if (metadata.image) {
           previewImagePath = await downloadAndStoreImage(metadata.image, targetUserId, supabase);
@@ -292,6 +301,11 @@ Deno.serve(async (req) => {
           const html = proxyData.contents;
           metadata = extractMetaFromHtml(html);
           console.log('Extracted metadata via proxy:', metadata);
+
+          if (isBlockedPageTitle(metadata.title)) {
+            console.log('Proxy fetch hit a challenge page; discarding its metadata');
+            metadata = { title: null, description: null, image: null, siteName: metadata.siteName };
+          }
 
           if (metadata.image) {
             previewImagePath = await downloadAndStoreImage(metadata.image, targetUserId, supabase);
@@ -396,13 +410,18 @@ Deno.serve(async (req) => {
         });
         if (deepMeta) {
           const updates: Record<string, string> = {};
-          if (!customTitle && !metadata.title && deepMeta.title) {
+          if (!customTitle && !metadata.title && deepMeta.title && !isBlockedPageTitle(deepMeta.title)) {
             updates.title = deepMeta.title;
           }
           if (!metadata.description && deepMeta.description) {
             updates.description = deepMeta.description;
           }
-          const bestImage = deepMeta.previewImagePath || deepMeta.previewImagePublicUrl || deepMeta.image;
+          // Prefer the copy we stored in our own bucket; a raw external URL is
+          // last resort and only when it verifiably serves an image right now
+          let bestImage = deepMeta.previewImagePath || deepMeta.previewImagePublicUrl || null;
+          if (!bestImage && deepMeta.image && await verifyRemoteImage(deepMeta.image)) {
+            bestImage = deepMeta.image;
+          }
           if (!previewImagePath && bestImage) {
             updates.file_path = bestImage;
           }

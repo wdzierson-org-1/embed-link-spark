@@ -49,16 +49,50 @@ struct AskView: View {
         _citationStore = State(initialValue: ItemStore(userId: userId, fetcher: SupabaseItemsFetcher()))
     }
 
+    @State private var showConversations = false
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                StashHeader {
+                    HStack(spacing: 8) {
+                        Button {
+                            store.startNewChat()
+                        } label: {
+                            CircleIcon(systemImage: "square.and.pencil", size: 36)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Start new chat")
+                        .accessibilityIdentifier("ask.newChat")
+
+                        Button {
+                            showConversations = true
+                        } label: {
+                            CircleIcon(systemImage: "clock", size: 36)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Earlier conversations")
+                        .accessibilityIdentifier("ask.history")
+                    }
+                }
+                sessionTitlePill
                 thread
                 Divider()
                 composerArea
             }
-            .navigationTitle("Ask Stash")
-            .navigationBarTitleDisplayMode(.inline)
+            .background(Color(.systemBackground))
+            // Registered-but-hidden: the wordmark header is this tab's real header, but the
+            // title still feeds the pushed Conversations screen's back button ("‹ Ask").
+            .navigationTitle("Ask")
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $showConversations) {
+                ConversationsListView(store: store)
+            }
         }
+        // Fires on tab switch only (pushing Conversations keeps this NavigationStack on
+        // screen): the iOS analog of collapsing the web mole — an explicitly loaded old
+        // conversation is let go, restorable via the banner.
+        .onDisappear { store.letGoIfExplicit() }
         .task { await store.loadHistoryOnce() }
         .onChange(of: store.errorRestoredInput) { _, restored in
             if let restored { input = restored }
@@ -79,12 +113,66 @@ struct AskView: View {
         }
     }
 
+    // MARK: - Session chrome (title pill + restore banner)
+
+    /// Shown while an explicitly opened old conversation is on screen — the one visual cue
+    /// that replies will continue that session (gap-exempt) rather than today's thread.
+    @ViewBuilder private var sessionTitlePill: some View {
+        if store.isExplicitSession, let title = store.sessionTitle {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock").font(.system(size: 11))
+                    Text(title).lineLimit(1).truncationMode(.tail)
+                }
+                .font(.caption)
+                .foregroundStyle(StashColor.violet600)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(StashColor.violet50, in: Capsule())
+                .overlay(Capsule().strokeBorder(StashColor.violet300.opacity(0.6), lineWidth: 1))
+                .accessibilityIdentifier("ask.sessionPill")
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 2)
+        }
+    }
+
+    /// Web's "Load previous conversation — <title>" banner: appears only on an empty thread
+    /// after an explicitly loaded conversation was let go (tab switch or Start new chat).
+    @ViewBuilder private var restoreBanner: some View {
+        if store.messages.isEmpty, let previous = store.lastLoaded {
+            Button {
+                Task { await store.restorePrevious() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    (Text("Load previous conversation — ")
+                        + Text(previous.title ?? "Untitled").foregroundStyle(StashColor.violet600))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(StashColor.gray300, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ask.restoreBanner")
+        }
+    }
+
     // MARK: - Thread
 
     private var thread: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
+                    restoreBanner
                     if store.messages.isEmpty {
                         emptyState
                     }

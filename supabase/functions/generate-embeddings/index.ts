@@ -34,50 +34,59 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Clean and prepare text content
-    const cleanedText = textContent.trim().replace(/\s+/g, ' ');
+    // Normalize whitespace but KEEP newlines — the paragraph splitter below
+    // depends on blank lines, so collapsing \s+ here would disable it and send
+    // every long text through the blind sliding window.
+    const cleanedText = textContent
+      .trim()
+      .replace(/[^\S\n]+/g, ' ')
+      .replace(/ ?\n ?/g, '\n')
+      .replace(/\n{3,}/g, '\n\n');
     console.log('Cleaned text length:', cleanedText.length);
 
     // Optimized chunking strategy for personal notes and discrete information
-    const chunks = [];
-    
-    if (cleanedText.length <= 1200) {
-      // For shorter content (most personal notes), use as single chunk
+    const SINGLE_CHUNK_MAX = 1200; // most personal notes fit in one chunk
+    const chunkSize = 600; // smaller chunks for better granularity
+    const overlap = 150; // overlap preserves relationships across window cuts
+
+    const slidingWindow = (text: string): string[] => {
+      const out: string[] = [];
+      for (let i = 0; i < text.length; i += chunkSize - overlap) {
+        const chunk = text.slice(i, i + chunkSize).trim();
+        if (chunk.length > 100) out.push(chunk); // only meaningful chunks
+      }
+      return out;
+    };
+
+    const chunks: string[] = [];
+
+    if (cleanedText.length <= SINGLE_CHUNK_MAX) {
       chunks.push(cleanedText);
     } else {
-      // For longer content, use smaller chunks with more overlap to preserve context
-      const chunkSize = 600; // Smaller chunks for better granularity
-      const overlap = 150; // More overlap to preserve relationships
-      
-      // Try to split on natural boundaries first (paragraphs, sentences)
+      // Split on natural boundaries, packing small paragraphs together; a
+      // wall-of-text paragraph gets windowed instead of becoming one giant chunk.
       const paragraphs = cleanedText.split(/\n\s*\n/).filter((p: string) => p.trim().length > 0);
-      
-      if (paragraphs.length > 1) {
-        // Process paragraph by paragraph, combining small ones
-        let currentChunk = '';
-        
-        for (const paragraph of paragraphs) {
-          if (currentChunk.length + paragraph.length + 2 <= chunkSize) {
-            currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
-          } else {
-            if (currentChunk.trim()) {
-              chunks.push(currentChunk.trim());
-            }
-            currentChunk = paragraph;
-          }
+      let currentChunk = '';
+      const flush = () => {
+        if (currentChunk.trim()) chunks.push(currentChunk.trim());
+        currentChunk = '';
+      };
+
+      for (const paragraph of paragraphs) {
+        if (paragraph.length > SINGLE_CHUNK_MAX) {
+          flush();
+          chunks.push(...slidingWindow(paragraph));
+        } else if (currentChunk.length + paragraph.length + 2 <= chunkSize) {
+          currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
+        } else {
+          flush();
+          currentChunk = paragraph;
         }
-        
-        if (currentChunk.trim()) {
-          chunks.push(currentChunk.trim());
-        }
-      } else {
-        // Fall back to sliding window for very long single paragraphs
-        for (let i = 0; i < cleanedText.length; i += chunkSize - overlap) {
-          const chunk = cleanedText.slice(i, i + chunkSize);
-          if (chunk.trim().length > 100) { // Only add meaningful chunks
-            chunks.push(chunk.trim());
-          }
-        }
+      }
+      flush();
+
+      if (chunks.length === 0) {
+        chunks.push(...slidingWindow(cleanedText));
       }
     }
 

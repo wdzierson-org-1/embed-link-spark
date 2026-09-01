@@ -20,18 +20,24 @@ struct TallContainedImage: View {
     let image: Image
 
     var body: some View {
-        ZStack {
-            image.resizable().aspectRatio(contentMode: .fill)
-                .scaleEffect(1.25)
-                .blur(radius: 18)
-                .opacity(0.4)
-            image.resizable().aspectRatio(contentMode: .fit)
-        }
-        .frame(maxWidth: .infinity, minHeight: CardHeroHeight.tall, maxHeight: CardHeroHeight.tall)
-        .background(Color.black)
-        .clipped()
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("card.hero.tall")
+        // The imagery lives in an `.overlay` of a fixed-height clear base rather than as the
+        // zone's own content: an overlay never participates in layout negotiation, so a
+        // `.fill`-scaled image can't inflate the zone (and with it the whole card) past the
+        // grid column's width — the exact blowout the two-up grid shipped with.
+        Color.black
+            .frame(maxWidth: .infinity, minHeight: CardHeroHeight.tall, maxHeight: CardHeroHeight.tall)
+            .overlay {
+                ZStack {
+                    image.resizable().aspectRatio(contentMode: .fill)
+                        .scaleEffect(1.25)
+                        .blur(radius: 18)
+                        .opacity(0.4)
+                    image.resizable().aspectRatio(contentMode: .fit)
+                }
+            }
+            .clipped()
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("card.hero.tall")
     }
 }
 
@@ -40,8 +46,11 @@ struct StandardCoverImage: View {
     let image: Image
 
     var body: some View {
-        image.resizable().aspectRatio(contentMode: .fill)
+        // Same overlay-over-fixed-base shape as `TallContainedImage` (and for the same reason):
+        // the cover image must never be able to widen the card beyond its grid column.
+        Color(.tertiarySystemFill)
             .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, maxHeight: CardHeroHeight.standard)
+            .overlay { image.resizable().aspectRatio(contentMode: .fill) }
             .clipped()
     }
 }

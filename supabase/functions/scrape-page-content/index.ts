@@ -7,9 +7,10 @@ import {
   fetchViaJinaReader,
   fetchViaWayback,
   htmlToText,
+  isBlockedPageTitle,
   looksBlocked,
 } from '../_shared/blockedContentFallbacks.ts';
-import { generateSummary } from '../_shared/summarize.ts';
+import { deriveTitleFromContent, generateSummary } from '../_shared/summarize.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -55,6 +56,23 @@ const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const usable = (text: string | null): text is string =>
   Boolean(text && text.length >= MIN_CONTENT_LENGTH && !looksBlocked(text));
+
+// A title that never got past the wall: challenge-page boilerplate, the bare
+// hostname, or the raw URL. A user-written title never matches these, so
+// replacing one is always an upgrade.
+const isRescuableTitle = (title: string | null | undefined, url: string): boolean => {
+  const t = (title ?? '').trim();
+  if (!t) return true;
+  if (isBlockedPageTitle(t)) return true;
+  if (t === url) return true;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    const normalized = t.toLowerCase();
+    return normalized === hostname || normalized === hostname.replace(/^www\./, '');
+  } catch {
+    return false;
+  }
+};
 
 // Escalating extraction: direct fetch → crawler UA → Jina Reader → Wayback.
 // Sites like Medium block the first two; the reader proxy or the archive
@@ -136,15 +154,37 @@ serve(async (req) => {
       .select('title, description, content, supplemental_note, url')
       .single();
 
+    // Final review: the scrape got real content, so a title still wearing
+    // challenge-page boilerplate ("Client Challenge"), the hostname, or the
+    // raw URL can now be replaced with the headline the content itself carries
+    let rescuedTitle: string | null = null;
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (openAIApiKey && !updateError && isRescuableTitle(updatedItem?.title, url)) {
+      rescuedTitle = await deriveTitleFromContent(openAIApiKey, trimmedContent, url);
+      if (rescuedTitle && !isBlockedPageTitle(rescuedTitle)) {
+        const { error: titleError } = await supabase
+          .from('items')
+          .update({ title: rescuedTitle })
+          .eq('id', itemId);
+        if (titleError) {
+          console.error('Error saving rescued title:', titleError);
+          rescuedTitle = null;
+        } else {
+          console.log('Rescued junk title', JSON.stringify(updatedItem?.title), '->', rescuedTitle);
+        }
+      } else {
+        rescuedTitle = null;
+      }
+    }
+
     // Summarize the scraped page for the edit panel's Summary tab (non-fatal)
     let summary: string | null = null;
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     if (openAIApiKey && !updateError) {
       try {
         summary = await generateSummary(openAIApiKey, {
           sourceText: trimmedContent,
           kind: 'link',
-          title: updatedItem?.title,
+          title: rescuedTitle ?? updatedItem?.title,
           url: updatedItem?.url,
         });
         if (summary) {
@@ -171,7 +211,7 @@ serve(async (req) => {
     // the body — generate-embeddings replaces prior chunks, so the embedding
     // must carry everything searchable
     const textForEmbedding = [
-      updatedItem?.title,
+      rescuedTitle ?? updatedItem?.title,
       updatedItem?.description,
       summary,
       updatedItem?.content,

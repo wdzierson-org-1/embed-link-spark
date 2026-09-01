@@ -6,6 +6,7 @@ import { uploadFile } from '@/utils/fileUploader';
 import { generateTitle } from '@/utils/titleGenerator';
 import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
 import { plainTitleFromContent, sanitizeItemTitle } from '@/utils/itemTitle';
+import { KEEP_FILENAME_TOKEN, capTitle, isPlaceholderTitle } from '@/utils/titlePolicy';
 import type { Database } from '@/integrations/supabase/types';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
@@ -469,6 +470,26 @@ export const processAndInsertContent = async (
         console.error('Media transcription error:', error);
       }
 
+      // Title policy (titlePolicy.ts): media uploads arrive titled with their
+      // filename. When the title is still placeholder-shaped, derive a real
+      // one from the transcript before insert (this path already waits on
+      // Whisper, so the title lands with the item and rides into the
+      // embeddings text below). generate-title's transcript mode returns
+      // KEEP_FILENAME for deeply personal content — the filename title stays.
+      if (transcription.trim() && isPlaceholderTitle(title, filePath || data.uploadedFilePath)) {
+        try {
+          const { data: titleResult, error: titleError } = await supabase.functions.invoke('generate-title', {
+            body: { content: transcription.slice(0, 6000), kind: 'transcript' },
+          });
+          const candidate = !titleError && typeof titleResult?.title === 'string' ? titleResult.title.trim() : '';
+          if (candidate && candidate !== KEEP_FILENAME_TOKEN && candidate !== 'Untitled Note') {
+            title = capTitle(candidate);
+          }
+        } catch (titleGenError) {
+          console.error('Media title generation failed (non-fatal):', titleGenError);
+        }
+      }
+
       if (!aiDescription) {
         aiDescription = await generateDescription(type, { content: data.file?.name, url: data.url })
           || `${type === 'video' ? 'Video' : 'Audio'} uploaded — transcription unavailable`;
@@ -560,8 +581,15 @@ export const processAndInsertContent = async (
     const { data: imgUrlData } = supabase.storage.from('stash-media').getPublicUrl(imagePath);
     // Chip-time vision results ride along so the function writes page_body +
     // embeddings without paying for a second vision pass
+    // Precomputed carries chip-time *vision* results. The saved title only
+    // rides along when it's a real title — a filename fallback isn't vision
+    // output (the server guards against this too).
+    const titleIsFilename = /\.(png|jpe?g|jfif|gif|webp|avif|svg|bmp|ico|tiff?|heic|heif)$/i.test(
+      (data.title ?? '').trim()
+    );
     const precomputed = data.description
       ? {
+          ...(data.title && !titleIsFilename ? { title: data.title } : {}),
           description: data.description,
           detected_text: data.detectedText ?? 'none',
           tags: data.tags ?? [],

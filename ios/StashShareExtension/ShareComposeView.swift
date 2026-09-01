@@ -48,27 +48,40 @@ struct ShareComposeView: View {
     @State private var canAddContent = true
 
     var body: some View {
-        NavigationStack {
-            Group {
-                switch phase {
-                case .loading:
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .noSession:
-                    noSessionView
-                case .ready, .saving:
-                    composeBody
-                case .done(let message):
-                    doneView(message)
+        ZStack(alignment: .top) {
+            Color(.systemBackground).ignoresSafeArea()
+            // Same page-level gradient ambience as the app's own composer (CaptureComposerView) —
+            // the share card is a pocket edition of that surface, not an OS-default form. Replaces
+            // the previous NavigationStack + inline "Stash" title; the wordmark header below is
+            // the titling convention every app surface already uses.
+            GradientBackdrop(opacity: 0.25)
+                .frame(height: 240)
+                .ignoresSafeArea(edges: .top)
+
+            VStack(alignment: .leading, spacing: 0) {
+                StashHeader {
+                    if showsCancel {
+                        // Still one tappable button under the SAME "share.cancel" identifier the
+                        // UI tests drive — only the visual changed (round icon vs. bar text).
+                        Button(action: cancel) {
+                            CircleIcon(systemImage: "xmark", size: 36)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Cancel")
+                        .accessibilityIdentifier("share.cancel")
+                    }
                 }
-            }
-            .navigationTitle("Stash")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if showsCancel {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel", action: cancel)
-                            .accessibilityIdentifier("share.cancel")
+                Group {
+                    switch phase {
+                    case .loading:
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    case .noSession:
+                        noSessionView
+                    case .ready, .saving:
+                        composeBody
+                    case .done(let message):
+                        doneView(message)
                     }
                 }
             }
@@ -126,10 +139,14 @@ struct ShareComposeView: View {
     /// write is EVER attempted for a share with no resolvable session. `ProviderLoader` never even
     /// runs in this branch (see `load()` above), so no file is staged that would need cleanup.
     private var noSessionView: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(StashColor.gray500)
+                .frame(width: 64, height: 64)
+                .background(Color(.systemBackground), in: Circle())
+                .overlay(Circle().strokeBorder(StashColor.gray300, lineWidth: 1))
+                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
             // Identifier lives on this LEAF `Text`, not the container (see `doneView`'s doc
             // comment for why): confirmed LIVE that `.accessibilityElement(children: .ignore)` on
             // a multi-child container, while it's the pattern `CaptureComposerView.pinPreview`
@@ -160,9 +177,14 @@ struct ShareComposeView: View {
             if !canAddContent {
                 gateMessage
             }
+            // Still a vertical-axis TextField (bridges to a UITextView — the UI tests reach it as
+            // `textViews["share.note"]`); only `.roundedBorder` swapped for the hairline card.
             TextField("Add a note…", text: $note, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .lineLimit(1...4)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .hairlineCard()
                 .accessibilityIdentifier("share.note")
             if case .ready(let location) = locationCapture.state {
                 pinPreview(location.label)
@@ -173,7 +195,8 @@ struct ShareComposeView: View {
                 saveButton
             }
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
@@ -224,13 +247,18 @@ struct ShareComposeView: View {
 
     /// "favicon+URL line" (brief): a link glyph standing in for a real per-site favicon — fetching
     /// one live would add a network dependency (and a visible delay) to a card whose whole point is
-    /// an instant, offline-safe preview; disclosed simplification, not an oversight.
+    /// an instant, offline-safe preview; disclosed simplification, not an oversight. The glyph
+    /// wears the app's violet toggled-circle treatment (`CircleIcon`'s active state) instead of
+    /// the stock blue SF Symbol.
     private func urlPreview(_ url: String, extraCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Image(systemName: "link.circle.fill")
-                    .foregroundStyle(.blue)
-                    .imageScale(.large)
+            HStack(spacing: 10) {
+                Image(systemName: "link")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(StashColor.violet600)
+                    .frame(width: 34, height: 34)
+                    .background(StashColor.violet50, in: Circle())
+                    .overlay(Circle().strokeBorder(StashColor.violet300, lineWidth: 1))
                 // Leaf-level identifier — see `doneView`'s doc comment for why this container
                 // doesn't use `.accessibilityElement(children: .ignore)`.
                 Text(url)
@@ -243,17 +271,21 @@ struct ShareComposeView: View {
                 Text("+ \(extraCount) more item\(extraCount == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.leading, 44)
             }
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hairlineCard()
     }
 
     private func textPreview(_ text: String) -> some View {
         Text(text)
             .font(.subheadline)
             .lineLimit(5)
-            .padding(10)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+            .hairlineCard()
             .accessibilityIdentifier("share.preview.text")
     }
 
@@ -275,7 +307,11 @@ struct ShareComposeView: View {
                     .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityIdentifier("share.preview.overflow")
             }
+            Spacer(minLength: 0)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hairlineCard()
         .accessibilityIdentifier("share.preview.files")
     }
 
@@ -327,20 +363,20 @@ struct ShareComposeView: View {
         Button {
             locationCapture.toggle()
         } label: {
-            if locationCapture.state == .resolving {
-                ProgressView()
-            } else {
-                Image(systemName: pinIconName).imageScale(.large)
-            }
+            // The app composer's round icon control, verbatim — active violet when a location is
+            // pinned, spinner while resolving (CircleIcon's own `busy` slot replaces the bare
+            // ProgressView this used to swap in).
+            CircleIcon(systemImage: "mappin",
+                       active: pinActive,
+                       busy: locationCapture.state == .resolving)
         }
+        .buttonStyle(.plain)
         .accessibilityIdentifier("share.pin")
     }
 
-    private var pinIconName: String {
-        switch locationCapture.state {
-        case .ready: "mappin.circle.fill"
-        case .off, .resolving, .failed: "mappin"
-        }
+    private var pinActive: Bool {
+        if case .ready = locationCapture.state { return true }
+        return false
     }
 
     private func pinPreview(_ label: String) -> some View {
@@ -366,15 +402,32 @@ struct ShareComposeView: View {
         Button {
             Task { await save() }
         } label: {
-            if phase == .saving {
-                ProgressView()
-            } else {
-                Text("Save").fontWeight(.semibold)
+            ZStack {
+                if phase == .saving {
+                    ProgressView().tint(.white)
+                } else {
+                    Text("Save").font(.subheadline.weight(.semibold))
+                }
             }
+            .frame(minWidth: 64)
+            .frame(height: 44)
+            .padding(.horizontal, 14)
+            .foregroundStyle(saveIsHot ? .white : StashColor.gray400)
+            .background(saveIsHot ? StashColor.violet : Color(.systemBackground), in: Capsule())
+            .overlay(Capsule().strokeBorder(saveIsHot ? StashColor.violet : StashColor.gray300, lineWidth: 1))
+            .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.plain)
         .disabled(phase == .saving || !canAddContent || objects.isEmpty)
         .accessibilityIdentifier("share.save")
+    }
+
+    /// `CircleSubmitIcon`'s weighted/resting split, stretched into a capsule (a share card wants
+    /// the word "Save", not a paperplane): violet-filled while a tap would actually save — and
+    /// while the save runs, so the spinner sits on violet — the resting white/gray capsule
+    /// otherwise, never dimmed (web: `disabled:opacity-100`).
+    private var saveIsHot: Bool {
+        phase == .saving || (canAddContent && !objects.isEmpty)
     }
 
     /// Global Constraints "submit() waits ≤2.5s on .resolving" budget — same number
@@ -429,10 +482,13 @@ struct ShareComposeView: View {
     }
 
     private func doneView(_ message: String) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: message == "Saved to Stash" ? "checkmark.circle.fill" : "clock.arrow.circlepath")
-                .font(.largeTitle)
-                .foregroundStyle(message == "Saved to Stash" ? .green : .orange)
+        VStack(spacing: 12) {
+            Image(systemName: message == "Saved to Stash" ? "checkmark" : "clock.arrow.circlepath")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 64, height: 64)
+                .background(message == "Saved to Stash" ? AnyShapeStyle(StashColor.violet) : AnyShapeStyle(.orange), in: Circle())
+                .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
             // Identifier lives on this LEAF `Text`, not the container. First attempt put
             // `.accessibilityElement(children: .ignore)` + an explicit label on the VStack instead
             // (the exact pattern `CaptureComposerView.pinPreview` uses successfully in the full
@@ -474,5 +530,19 @@ struct ShareComposeView: View {
     private func cancel() {
         abandonTracker.discardIfAbandoned()
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    }
+}
+
+// MARK: - Hairline card (the design system's rectangular sibling of CircleIcon's circle)
+
+private extension View {
+    /// Solid background on a gray hairline with a soft shadow — the same treatment `CircleIcon`
+    /// gives its circles, applied to every rectangular surface on this card (previews, note
+    /// field) so the whole card reads as one family instead of stock `.roundedBorder` chrome.
+    func hairlineCard() -> some View {
+        self
+            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(StashColor.gray300, lineWidth: 1))
+            .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
     }
 }

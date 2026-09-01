@@ -44,11 +44,19 @@ export type LinkAttributes = {
   read_time_min?: number;
 };
 
+/**
+ * Media subtype — written by enrichment when it can tell (DESIGN.md's
+ * per-type hero rules key off this). Cards fall back to heuristics
+ * (duration for audio, title prefix for screenshots) when absent.
+ */
+export type MediaKind = 'voice_note' | 'recording' | 'music' | 'screenshot' | 'video';
+
 export type MediaAttributes = {
   /** From chip-time local analysis (HTMLMediaElement metadata) */
   duration_s?: number;
   /** Original filename — titles are AI-derived; the filename is metadata */
   file_name?: string;
+  kind?: MediaKind;
 };
 
 export type ItemAttributes = {

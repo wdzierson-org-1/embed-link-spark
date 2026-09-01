@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stash — card type gallery (refinement pass 2)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Fonts: same faces the app loads (src/index.css). Relative paths work when this
+     file is opened from the repo; system serif/sans stand in otherwise. */
+  @font-face { font-family:'PP Editorial New'; src:url('../../../src/assets/fonts/PPEditorialNew-Regular.woff2') format('woff2'); font-weight:400; font-display:swap; }
+  @font-face { font-family:'PP Mori'; src:url('../../../src/assets/fonts/PPMori-Regular.woff2') format('woff2'); font-weight:400; font-display:swap; }
+
+  :root {
+    --ink:#22262f; --muted:#646b76; --faint:#959ba6;
+    --violet-600:#6d5bd0; --violet-300:#b6a8ef;
+    /* chrome is grey; color only where it means something */
+    --card-shadow:0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08);
+    --card-shadow-hover:0 2px 4px rgba(20,22,30,.06), 0 14px 36px rgba(30,33,44,.13);
+    /* type spectrum — deepened from the splash gradient, mineral not milky */
+    --dp-indigo:#4c5fd7; --dp-plum:#6d3e95; --dp-orchid:#b95bc9; --dp-coral:#dd4b63; --dp-blue:#2f8fe8; --dp-cyan:#00b8d4;
+    --card-gap:18px; /* THE token: hero bottom → body top, identical for every hero type */
+    --serif:'PP Editorial New', Georgia, 'Times New Roman', serif;
+    --sans:'PP Mori', Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html { -webkit-font-smoothing:antialiased; }
+  body {
+    font-family:var(--sans); color:var(--ink); line-height:1.5;
+    background:
+      linear-gradient(to bottom, rgba(246,246,248,.7), rgba(248,248,250,.94) 55%, #f7f7f9),
+      linear-gradient(120deg, #4c5fd714, #6d3e9514 25%, #b95bc916 50%, #dd4b6310 72%, #2f8fe814);
+    min-height:100vh; padding:56px 48px 96px;
+  }
+  button { font:inherit; border:none; background:none; cursor:pointer; color:inherit; padding:0; }
+  svg.ic { width:12px; height:12px; flex:none; }
+
+  .wrap { max-width:1240px; margin:0 auto; }
+
+  /* ── intro ─────────────────────────────────────────── */
+  .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--violet-600); font-weight:600; margin-bottom:10px; }
+  h1 { font-family:var(--serif); font-weight:400; font-size:40px; line-height:1.12; max-width:640px; margin-bottom:14px; }
+  .lede { font-size:15px; color:var(--muted); max-width:640px; margin-bottom:26px; }
+  .lede b { color:var(--ink); font-weight:600; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; margin-bottom:52px; }
+  .legend .sw { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+  .legend .chipdot { width:26px; height:16px; border-radius:5px; box-shadow:inset 0 0 0 1px rgba(0,0,0,.06); }
+
+  /* ── section headers ───────────────────────────────── */
+  .rowlabel { display:flex; align-items:baseline; gap:14px; margin:54px 0 18px; }
+  .rowlabel h2 { font-family:var(--serif); font-weight:400; font-size:22px; }
+  .rowlabel .rule { flex:1; border-top:1px solid rgba(0,0,0,.08); transform:translateY(-4px); }
+  .rowlabel .note { font-size:12px; color:var(--faint); }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:22px; align-items:start; }
+
+  .slot { display:flex; flex-direction:column; gap:9px; }
+  .slot-tag { font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); font-weight:600; }
+  .slot-tag b { color:var(--violet-600); font-weight:600; }
+  .slot-note { font-size:12px; color:var(--muted); line-height:1.55; padding:0 2px; }
+  .slot-note b { font-weight:600; color:var(--ink); }
+  .slot-note code { font-family:ui-monospace, Menlo, monospace; font-size:11px; background:rgba(0,0,0,.05); border-radius:4px; padding:0 4px; }
+
+  /* ── card shell (mirrors ContentItem.tsx:271) ──────── */
+  .card {
+    display:flex; flex-direction:column; background:#fff; border-radius:16px;
+    box-shadow:var(--card-shadow); transition:box-shadow .2s, transform .2s; position:relative;
+  }
+  .card:hover { box-shadow:var(--card-shadow-hover); transform:translateY(-2px); }
+  /* one body, one top gap — no per-hero special cases */
+  .card-body { padding:var(--card-gap) 24px 20px; display:flex; flex-direction:column; gap:10px; flex:1; }
+  .card-body.no-hero { padding-top:22px; }
+
+  .kicker { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); font-weight:600; display:flex; align-items:center; gap:6px; }
+  .title { font-family:var(--serif); font-weight:400; font-size:21px; line-height:1.22; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .desc { font-size:13.5px; color:var(--muted); line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .annot { border-left:2px solid var(--violet-300); padding-left:12px; font-size:13.5px; color:var(--ink); opacity:.85; font-style:italic; }
+
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { border-radius:999px; background:rgba(20,22,30,.05); padding:3px 9px; font-size:11px; font-weight:500; color:rgba(34,38,47,.64); display:inline-flex; align-items:center; gap:5px; }
+  .chip.mono { font-family:ui-monospace, Menlo, monospace; font-size:10px; }
+  .chip svg.ic { width:11px; height:11px; }
+  /* type chip carries the same spectrum slice as its hero — the color IS the type */
+  .chip.t-voice { background:rgba(84,88,178,.12); color:#45408c; }
+  .chip.t-audio { background:rgba(139,74,158,.12); color:#7d3d84; }
+  .chip.t-doc   { background:rgba(205,90,105,.12); color:#a33d52; }
+  .chip.t-shot  { background:rgba(52,132,201,.12); color:#22689c; }
+
+  .footer { display:flex; align-items:center; justify-content:space-between; margin-top:auto; padding-top:4px; }
+  .footer .date { font-size:12px; color:var(--faint); }
+  .footer .more { color:var(--faint); display:grid; place-items:center; width:24px; height:24px; border-radius:50%; }
+  .footer .more:hover { background:rgba(0,0,0,.05); color:var(--ink); }
+  .footer .more svg { width:15px; height:15px; }
+
+  /* ── heroes ────────────────────────────────────────── */
+  .hero { height:160px; border-radius:16px 16px 0 0; overflow:hidden; position:relative; flex:none; }
+  .hero.tall { height:224px; }
+  .hero img.cover { width:100%; height:100%; object-fit:cover; object-position:center; display:block; }
+  .hero .backdrop { position:absolute; inset:-12%; background-size:cover; background-position:center; filter:blur(24px) saturate(1.1); opacity:.4; transform:scale(1.25); }
+  .hero img.contain { position:relative; width:100%; height:100%; object-fit:contain; object-position:center; }
+  .hero .scrim { position:absolute; inset:auto 0 0 0; height:56%; background:linear-gradient(to top, rgba(12,13,18,.55), transparent); }
+  .hero .pill-overlay { position:absolute; bottom:10px; right:10px; background:rgba(12,13,18,.68); color:#fff; font-size:11px; font-weight:600; border-radius:999px; padding:3px 9px; display:flex; align-items:center; gap:5px; }
+  .hero .domain-pill { position:absolute; bottom:10px; left:10px; background:rgba(255,255,255,.9); color:var(--ink); font-size:10.5px; font-weight:600; border-radius:999px; padding:3px 9px; letter-spacing:.04em; }
+  .play-badge { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:52px; height:52px; border-radius:50%; background:rgba(255,255,255,.92); display:grid; place-items:center; box-shadow:0 4px 16px rgba(0,0,0,.25); }
+  .play-badge svg { width:18px; height:18px; margin-left:2px; color:var(--ink); }
+
+  /* ══ spectrum fields for imageless media — FLAT tints, one per type ══ */
+  .field { border-radius:16px 16px 0 0; position:relative; overflow:hidden; flex:none; box-shadow:inset 0 -1px 0 rgba(0,0,0,.04); }
+  .field::after { /* mineral grain (texture, not gradient) */
+    content:''; position:absolute; inset:0; opacity:.35; pointer-events:none; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>");
+  }
+  .field.voice { background:rgba(84,88,178,.12); }
+  .field.audio { background:rgba(126,74,158,.11); }
+  .field.doc   { background:rgba(205,90,105,.11); }
+  .field.shot  { background:rgba(52,132,201,.11); }
+  .field.social{ background:rgba(70,100,180,.07); }
+
+  /* voice-note player hero */
+  .player-hero { height:116px; display:flex; align-items:center; gap:14px; padding:0 20px; }
+  .player-hero .play {
+    width:46px; height:46px; border-radius:50%; flex:none; display:grid; place-items:center;
+    background:#544eba; color:#fff;
+    box-shadow:0 2px 10px rgba(84,78,186,.35); position:relative; z-index:1;
+  }
+  .player-hero .play svg { width:16px; height:16px; margin-left:2px; }
+  .player-hero .wave { flex:1; display:flex; align-items:center; gap:3px; height:44px; position:relative; z-index:1; }
+  .player-hero .wave i { flex:1; border-radius:2px; background:rgba(84,78,186,.72); min-width:2px; }
+  .player-hero .wave i.rest { opacity:.26; }
+  .player-hero .t { font-size:11px; font-weight:600; color:#45408c; position:relative; z-index:1; font-variant-numeric:tabular-nums; }
+  .player-hero.long { height:96px; }
+  .player-hero.long .play { width:40px; height:40px; }
+  .player-hero.long .play.warm { background:#8b4a9e; box-shadow:0 2px 10px rgba(139,74,158,.3); }
+  .player-hero.long .wave i { background:rgba(139,74,158,.65); }
+  .player-hero.long .t { color:#703c77; }
+
+  /* document hero */
+  .doc-hero { height:160px; display:grid; place-items:center; }
+  .page-thumb {
+    width:104px; height:132px; background:#fff; border-radius:6px; position:relative; z-index:1;
+    box-shadow:0 10px 26px rgba(163,61,82,.2), 0 1px 2px rgba(0,0,0,.08); padding:14px 12px;
+    display:flex; flex-direction:column; gap:5px;
+  }
+  .page-thumb i { height:3px; border-radius:2px; background:rgba(34,38,47,.14); }
+  .page-thumb i.h { height:6px; width:70%; background:rgba(34,38,47,.3); margin-bottom:3px; }
+  .page-thumb i.short { width:55%; }
+  .page-thumb .fold { position:absolute; top:0; right:0; width:18px; height:18px; background:linear-gradient(225deg, transparent 50%, rgba(163,61,82,.14) 50%); border-radius:0 6px 0 6px; }
+  .doc-hero .ext-badge { position:absolute; z-index:2; bottom:14px; right:16px; background:#fff; border-radius:7px; font-size:10px; font-weight:700; letter-spacing:.06em; color:#a33d52; padding:3px 7px; box-shadow:0 2px 8px rgba(163,61,82,.18); }
+
+  /* screenshot hero */
+  .shot-hero { height:160px; display:grid; place-items:center; padding:18px 26px 0; }
+  .shot-frame {
+    width:100%; height:100%; background:#fff; border-radius:10px 10px 0 0; position:relative; z-index:1;
+    box-shadow:0 10px 30px rgba(34,104,156,.2); overflow:hidden;
+    border:1px solid rgba(34,104,156,.15); border-bottom:none;
+  }
+  .shot-frame .bar { height:16px; background:#f2f5f8; display:flex; align-items:center; gap:3px; padding:0 7px; border-bottom:1px solid rgba(34,104,156,.1); }
+  .shot-frame .bar i { width:5px; height:5px; border-radius:50%; background:rgba(34,104,156,.25); }
+  .shot-frame .ui { padding:9px 10px; display:flex; flex-direction:column; gap:5px; }
+  .shot-frame .ui i { height:5px; border-radius:3px; background:rgba(34,38,47,.09); }
+  .shot-frame .ui i.hh { height:8px; width:45%; background:rgba(34,38,47,.2); }
+  .shot-frame .ui .btnrow { display:flex; gap:4px; margin-top:2px; }
+  .shot-frame .ui .btnrow b { width:44px; height:12px; border-radius:6px; background:rgba(47,143,232,.35); }
+  .shot-frame .ui .btnrow b + b { background:rgba(34,38,47,.08); }
+
+  /* repo plate */
+  .repo-hero { height:160px; background:#0d1117; border-radius:16px 16px 0 0; display:flex; flex-direction:column; justify-content:center; gap:8px; padding:0 22px; flex:none; }
+  .repo-hero .path { font-family:ui-monospace, Menlo, monospace; font-size:14px; color:#e6edf3; }
+  .repo-hero .path b { color:#8b7bd8; font-weight:600; }
+  .repo-hero .stats { display:flex; gap:14px; font-size:11px; color:#8b949e; align-items:center; }
+  .repo-hero .stats span { display:inline-flex; align-items:center; gap:4px; }
+
+  /* social quote hero */
+  .social-hero { height:160px; display:flex; flex-direction:column; justify-content:center; gap:10px; padding:0 24px; }
+  .social-hero .q { font-family:var(--serif); font-size:16.5px; line-height:1.35; position:relative; z-index:1; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .social-hero .who { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); position:relative; z-index:1; }
+  .social-hero .who img { width:22px; height:22px; border-radius:50%; }
+
+  .price-pill { position:absolute; bottom:10px; left:10px; background:rgba(255,255,255,.94); border-radius:999px; padding:3px 10px; font-size:12px; font-weight:700; color:var(--ink); box-shadow:0 2px 8px rgba(0,0,0,.12); }
+
+  /* before strip */
+  .before { border:1px dashed rgba(0,0,0,.16); border-radius:16px; padding:14px 16px; background:rgba(255,255,255,.6); }
+  .before .b-title { font-family:var(--serif); font-size:16px; word-break:break-all; margin-bottom:8px; }
+  .before .b-player { background:#f5f6f7; border-radius:10px; padding:9px 12px; display:flex; align-items:center; gap:9px; font-size:11px; color:var(--muted); }
+  .before .b-player svg { width:13px; height:13px; flex:none; }
+  .before .b-player .line { flex:1; height:4px; border-radius:2px; background:#e3e5e8; position:relative; }
+  .before .b-player .line i { position:absolute; left:0; top:-4px; width:12px; height:12px; border-radius:50%; background:#fff; border:1px solid #d0d3d8; }
+  .before .cap { font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); font-weight:600; margin-bottom:9px; }
+
+  /* notes block */
+  .impl { margin-top:64px; background:rgba(255,255,255,.8); border:1px solid rgba(0,0,0,.06); border-radius:16px; padding:28px 32px; }
+  .impl h2 { font-family:var(--serif); font-weight:400; font-size:22px; margin-bottom:14px; }
+  .impl ol { padding-left:20px; font-size:13.5px; line-height:1.7; color:var(--ink); max-width:880px; }
+  .impl li { margin-bottom:9px; }
+  .impl code { font-family:ui-monospace, Menlo, monospace; font-size:12px; background:rgba(0,0,0,.05); border-radius:5px; padding:1px 5px; }
+  .impl b { font-weight:600; }
+
+  @media (prefers-reduced-motion: reduce) { .card, .card:hover { transition:none; transform:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Stash · design refinement · Aug 30 2026 · pass 3</div>
+  <h1>Grey chrome. Color only where it means something.</h1>
+  <p class="lede">The card anatomy stays what shipped — hero, serif title, description, violet annotation bar, meta chips, quiet footer. Pass 3 tightens the system further: <b>every surface that isn’t information goes grey</b> (shadows, chips, page wash), and the spectrum fields go <b>flat</b> — one quiet tint per type, no gradients. Saturation lives only in the functional accents (play button, waveform) so the fields can stay calm without reading pastel. One spacing token governs the hero-to-title gap on every card. All iconography is Lucide-style vector; no emoji anywhere. Tag controls are gone from cards — grouping moves to themes.</p>
+
+  <div class="legend">
+    <span class="sw"><i class="chipdot" style="background:rgba(84,88,178,.5)"></i>voice note</span>
+    <span class="sw"><i class="chipdot" style="background:rgba(139,74,158,.45)"></i>recording / audio file</span>
+    <span class="sw"><i class="chipdot" style="background:rgba(205,90,105,.45)"></i>document</span>
+    <span class="sw"><i class="chipdot" style="background:rgba(52,132,201,.45)"></i>screenshot</span>
+    <span class="sw"><i class="chipdot" style="background:#0d1117"></i>repo (ships today)</span>
+    <span class="sw" style="color:var(--faint)">photos, videos &amp; link covers keep real imagery — no field needed</span>
+  </div>
+
+  <!-- ═══════════ things you record ═══════════ -->
+  <div class="rowlabel"><h2>Things you record</h2><span class="rule"></span><span class="note">audio · video uploads</span></div>
+  <div class="grid">
+
+    <div class="slot">
+      <div class="slot-tag">audio › voice note — <b>the fix</b></div>
+      <div class="card">
+        <div class="field voice player-hero">
+          <button class="play" aria-label="Play"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg></button>
+          <div class="wave" aria-hidden="true">
+            <i style="height:30%"></i><i style="height:55%"></i><i style="height:80%"></i><i style="height:65%"></i><i style="height:90%"></i><i style="height:45%"></i><i style="height:70%"></i><i style="height:100%"></i><i style="height:60%"></i><i style="height:35%"></i><i class="rest" style="height:75%"></i><i class="rest" style="height:50%"></i><i class="rest" style="height:85%"></i><i class="rest" style="height:40%"></i><i class="rest" style="height:65%"></i><i class="rest" style="height:30%"></i><i class="rest" style="height:55%"></i><i class="rest" style="height:45%"></i><i class="rest" style="height:70%"></i><i class="rest" style="height:35%"></i>
+          </div>
+          <span class="t">0:08</span>
+        </div>
+        <div class="card-body">
+          <div class="title">Leslie Kean’s case for consciousness surviving death</div>
+          <div class="desc">Notes on the book’s themes — reincarnation research, case studies on memories that persist, and what they suggest about awareness beyond physical death.</div>
+          <div class="chips">
+            <span class="chip t-voice"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>voice note</span>
+            <span class="chip mono">M4A · 75.2 KB</span><span class="chip">0:08</span>
+          </div>
+          <div class="footer"><span class="date">Aug 29, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Title is the AI’s reading of the transcript, serif like every other object. The player is the hero, on the voice slice. Filename demoted to <code>attributes.media.file_name</code>.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">today, for contrast</div>
+      <div class="before">
+        <div class="cap">Before</div>
+        <div class="b-title">72322570-a4bc-4515-935c-ff384090f068.m4a</div>
+        <div class="b-player">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+          <span>0:00</span><span class="line"><i></i></span><span>0:08</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+        </div>
+        <div style="font-size:12.5px; color:var(--muted); margin-top:10px;">Leslie Keen’s book explores themes of reincarnation, the nature of consciousness…</div>
+      </div>
+      <div class="slot-note">The three failures: UUID filename as the object’s name, the grey utility player breaking the card language (dead more-button included — <b>MediaPlayer.tsx:135</b>), and no type identity at a glance.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">audio › long recording</div>
+      <div class="card">
+        <div class="field audio player-hero long">
+          <button class="play warm" aria-label="Play"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg></button>
+          <div class="wave" aria-hidden="true">
+            <i class="rest" style="height:40%"></i><i class="rest" style="height:70%"></i><i class="rest" style="height:55%"></i><i class="rest" style="height:85%"></i><i class="rest" style="height:45%"></i><i class="rest" style="height:65%"></i><i class="rest" style="height:95%"></i><i class="rest" style="height:50%"></i><i class="rest" style="height:75%"></i><i class="rest" style="height:35%"></i><i class="rest" style="height:60%"></i><i class="rest" style="height:80%"></i><i class="rest" style="height:45%"></i><i class="rest" style="height:70%"></i><i class="rest" style="height:55%"></i><i class="rest" style="height:40%"></i><i class="rest" style="height:65%"></i><i class="rest" style="height:85%"></i><i class="rest" style="height:50%"></i><i class="rest" style="height:30%"></i>
+          </div>
+          <span class="t">47:12</span>
+        </div>
+        <div class="card-body">
+          <div class="title">Q3 roadmap sync — RAG overhaul owns the quarter</div>
+          <div class="desc">Team alignment on shipping the retrieval rewrite before interest graphs; Maya to own eval harness, launch gated on the reliability bar.</div>
+          <div class="annot">decision recorded at 31:40</div>
+          <div class="chips">
+            <span class="chip t-audio"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></svg>recording</span>
+            <span class="chip mono">MP3 · 43.1 MB</span><span class="chip">47:12</span>
+          </div>
+          <div class="footer"><span class="date">Aug 27, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Same anatomy, warmer slice, compressed player — a 47-minute artifact reads different from an 8-second thought. Subtype comes from the new <code>attributes.media.kind</code>.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">video upload</div>
+      <div class="card">
+        <div class="hero">
+          <img class="cover" src="https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=800&q=70" alt="">
+          <div class="scrim"></div>
+          <button class="play-badge" aria-label="Play"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg></button>
+          <span class="pill-overlay">2:47</span>
+        </div>
+        <div class="card-body">
+          <div class="title">Golden hour test footage from the roof</div>
+          <div class="desc">Handheld pan across the skyline at sunset — checking how the new stabilization holds up in low light.</div>
+          <div class="chips"><span class="chip">video</span><span class="chip mono">MOV · 212 MB</span></div>
+          <div class="footer"><span class="date">Aug 26, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Poster frame replaces the raw <code>&lt;video controls&gt;</code> strip: one play affordance, duration on the scrim, no browser chrome. Tap to play in place.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ things you see ═══════════ -->
+  <div class="rowlabel"><h2>Things you see</h2><span class="rule"></span><span class="note">image › photo / screenshot</span></div>
+  <div class="grid">
+
+    <div class="slot">
+      <div class="slot-tag">image › photo</div>
+      <div class="card">
+        <div class="hero">
+          <img class="cover" src="https://images.unsplash.com/photo-1552053831-71594a27632d?w=800&q=70" alt="">
+        </div>
+        <div class="card-body">
+          <div class="title">Image of a golden retriever mid-shake at the beach</div>
+          <div class="desc">A wet golden retriever shaking off water on wet sand, late-afternoon light, leash trailing.</div>
+          <div class="annot">Barley’s first ocean day</div>
+          <div class="chips"><span class="chip">photo</span><span class="chip mono">HEIC · 3.4 MB</span></div>
+          <div class="footer"><span class="date">Aug 24, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Unchanged on purpose — photographic heroes already carry their own identity. AI title + vision description ship today (<code>analyze-image</code>).</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">image › screenshot — <b>new subtype</b></div>
+      <div class="card">
+        <div class="field shot shot-hero">
+          <div class="shot-frame">
+            <div class="bar"><i></i><i></i><i></i></div>
+            <div class="ui"><i class="hh"></i><i></i><i style="width:85%"></i><i style="width:60%"></i><div class="btnrow"><b></b><b></b></div></div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="title">Screenshot of a flight-booking checkout form</div>
+          <div class="desc">United checkout page: two travelers, seat upgrade offer at $84, trip protection pre-selected — captured before confirming.</div>
+          <div class="chips">
+            <span class="chip t-shot"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" x2="17" y1="12" y2="12"/></svg>screenshot</span>
+            <span class="chip">text captured</span>
+          </div>
+          <div class="footer"><span class="date">Aug 23, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Screenshots are mostly white — full-bleed they bleed into the card. The cool plate frames the capture like a window; “text captured” says the OCR is already searchable.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">note (text)</div>
+      <div class="card">
+        <div class="card-body no-hero">
+          <div class="title">Stop optimizing capture. Optimize return.</div>
+          <div class="desc" style="-webkit-line-clamp:4; color:var(--ink); opacity:.78">The retention loop only works if the thing you get back is better than the thing you put in. Enrichment is the product; capture is just the door. Every surface should answer “why did I save this?” before the user asks it.</div>
+          <div class="chips"><span class="chip">note</span></div>
+          <div class="footer"><span class="date">Aug 28, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Notes stay text-first — the user’s own words are the hero, so no field, no imagery. Already correct today; shown so the set is complete.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ things you save from the web ═══════════ -->
+  <div class="rowlabel"><h2>Things you save from the web</h2><span class="rule"></span><span class="note">link flavors — where enrichment earns its keep</span></div>
+  <div class="grid">
+
+    <div class="slot">
+      <div class="slot-tag">link › article</div>
+      <div class="card">
+        <div class="hero">
+          <img class="cover" src="https://images.unsplash.com/photo-1457369804613-52c61a468e7d?w=800&q=70" alt="">
+        </div>
+        <div class="card-body">
+          <div class="kicker">theatlantic.com</div>
+          <div class="title">Why we remember the books we argue with</div>
+          <div class="desc">Annotation as an act of memory: readers who push back against a text retain it far longer than those who simply agree.</div>
+          <div class="chips"><span class="chip">article</span><span class="chip">7 min read</span><span class="chip">full text saved</span></div>
+          <div class="footer"><span class="date">Aug 27, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Ships today. Added: <b>read-time chip</b> (from <code>attributes.link.read_time_min</code>) and “full text saved” promoted from the panel — they answer “is it worth opening?”</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">link › video (tiktok / shorts)</div>
+      <div class="card">
+        <div class="hero tall">
+          <div class="backdrop" style="background-image:url('https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=200&q=40')"></div>
+          <img class="contain" src="https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=600&q=70" alt="">
+          <button class="play-badge" aria-label="Play"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg></button>
+          <span class="domain-pill">tiktok.com</span>
+          <span class="pill-overlay">0:58</span>
+        </div>
+        <div class="card-body">
+          <div class="kicker">@simpsonstreet</div>
+          <div class="title">The art of the reframe, with Keke Palmer</div>
+          <div class="desc">Interview clip on turning career setbacks into pivots — “the room you’re locked out of is just a room.”</div>
+          <div class="chips"><span class="chip">video</span><span class="chip">0:58</span></div>
+          <div class="footer"><span class="date">Aug 29, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">The tall/backdrop treatment ships. The fix is upstream: title should be the <b>video’s</b> title + author, never “TikTok - Make Your Day”. Kicker becomes the author handle (<code>attributes.link.author</code>).</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">link › product — <b>new flavor</b></div>
+      <div class="card">
+        <div class="hero">
+          <img class="cover" src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800&q=70" alt="">
+          <span class="price-pill">$249.00</span>
+        </div>
+        <div class="card-body">
+          <div class="kicker">braun-clocks.com</div>
+          <div class="title">Braun BN0032 classic analogue watch, black</div>
+          <div class="desc">38&nbsp;mm matte case, Dieter Rams-era dial, leather strap — the reissue of the 1978 original.</div>
+          <div class="annot">this is the one I keep coming back to</div>
+          <div class="chips"><span class="chip">product</span><span class="chip">in stock Aug 29</span></div>
+          <div class="footer"><span class="date">Aug 29, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note"><b>Proposed flavor.</b> Price on the image, availability as a chip — extracted at save time so the card answers the only two product questions that matter.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">link › recipe — <b>new flavor</b></div>
+      <div class="card">
+        <div class="hero">
+          <img class="cover" src="https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&q=70" alt="">
+        </div>
+        <div class="card-body">
+          <div class="kicker">seriouseats.com</div>
+          <div class="title">Cacio e pepe with toasted whole peppercorns</div>
+          <div class="desc">The starchy-water emulsion method — pasta finished in the pan, pecorino added off heat so it never clumps.</div>
+          <div class="chips"><span class="chip">recipe</span><span class="chip">25 min</span><span class="chip">serves 4</span><span class="chip">6 ingredients</span></div>
+          <div class="footer"><span class="date">Aug 26, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note"><b>Proposed flavor.</b> Most recipe pages carry <code>schema.org/Recipe</code> — cook time, servings, ingredient count are free at scrape time. The card becomes usable at the stove without opening the link.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">link › place — <b>new flavor</b></div>
+      <div class="card">
+        <div class="hero">
+          <img class="cover" src="https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=800&q=70" alt="">
+        </div>
+        <div class="card-body">
+          <div class="kicker">maps.google.com</div>
+          <div class="title">Sightglass Coffee, SoMa</div>
+          <div class="desc">Roastery café on 7th St — pour-over bar in the atrium, roaster running most mornings.</div>
+          <div class="annot">meet Dana here Thursday</div>
+          <div class="chips"><span class="chip">place</span><span class="chip">open until 7 pm</span><span class="chip">SoMa · 0.8 mi</span></div>
+          <div class="footer"><span class="date">Aug 25, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note"><b>Proposed flavor.</b> A shared map link becomes a place object: name, neighborhood, hours, distance — the annotation bar carries why it was saved. Pairs with the location lane in <code>attributes</code>.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">link › social post</div>
+      <div class="card">
+        <div class="field social social-hero">
+          <div class="q">“Every note-taking app dies the same death: capture gets easier while retrieval stays hard. The graveyard is full of perfect inboxes.”</div>
+          <div class="who"><img src="https://i.pravatar.cc/44?img=12" alt=""><span><b style="color:var(--ink)">@andy_matuschak</b> · x.com</span></div>
+        </div>
+        <div class="card-body">
+          <div class="title">On why note apps die at retrieval, not capture</div>
+          <div class="desc">Thread arguing tools should be judged by what they resurface, with examples from spaced repetition systems.</div>
+          <div class="chips"><span class="chip">post</span><span class="chip">thread · 9</span></div>
+          <div class="footer"><span class="date">Aug 25, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Social links classify today (<code>flavor:'social'</code>) but render generic. The post’s own words become the hero — serif pull-quote — because with posts, the words <b>are</b> the imagery.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">link › repo (ships today)</div>
+      <div class="card">
+        <div class="repo-hero">
+          <div class="path"><b>anthropics</b>/claude-agent-sdk</div>
+          <div class="stats">
+            <span><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>14.2k</span>
+            <span>TypeScript</span><span>updated 2d ago</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="title">Claude Agent SDK</div>
+          <div class="desc">Framework for building agents on the Claude API — sessions, tools, MCP, permissions.</div>
+          <div class="chips"><span class="chip">repo</span></div>
+          <div class="footer"><span class="date">Aug 22, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">The dark plate ships (<code>RepoPlate</code>). Add the stat row — stars, language, freshness — from the enrichment scrape; it’s the glanceable part of a repo.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ documents ═══════════ -->
+  <div class="rowlabel"><h2>Documents</h2><span class="rule"></span><span class="note">pdf · office</span></div>
+  <div class="grid">
+
+    <div class="slot">
+      <div class="slot-tag">document › pdf</div>
+      <div class="card">
+        <div class="field doc doc-hero">
+          <div class="page-thumb"><span class="fold"></span><i class="h"></i><i></i><i></i><i class="short"></i><i></i><i></i><i class="short"></i></div>
+          <span class="ext-badge">PDF</span>
+        </div>
+        <div class="card-body">
+          <div class="title">Northwind lease renewal — terms redlined</div>
+          <div class="desc">2027 renewal at $4,120/mo (+6.1%), new sublease clause in §14, landlord takes HVAC maintenance.</div>
+          <div class="chips">
+            <span class="chip t-doc"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>pdf</span>
+            <span class="chip">12 pages</span>
+          </div>
+          <div class="footer"><span class="date">Aug 21, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Replaces the flat grey <code>FilePlate</code>: real first page (already rendered for the panel via <code>renderPdfFirstPage</code>) floating on the document slice, page count as a chip. Title from content.</div>
+    </div>
+
+    <div class="slot">
+      <div class="slot-tag">document › office</div>
+      <div class="card">
+        <div class="field doc doc-hero">
+          <div class="page-thumb"><span class="fold"></span><i class="h"></i><div style="display:flex; gap:4px; margin:2px 0"><i style="flex:1"></i><i style="flex:1"></i><i style="flex:1"></i></div><div style="display:flex; gap:4px"><i style="flex:1"></i><i style="flex:1"></i><i style="flex:1"></i></div><div style="display:flex; gap:4px"><i style="flex:1"></i><i style="flex:1"></i><i style="flex:1"></i></div></div>
+          <span class="ext-badge" style="color:#1d6f42">XLSX</span>
+        </div>
+        <div class="card-body">
+          <div class="title">Household budget model, 2027 draft</div>
+          <div class="desc">Monthly projections with the new mortgage rate; savings target sheet still shows the old 12% assumption.</div>
+          <div class="chips">
+            <span class="chip t-doc"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>spreadsheet</span>
+            <span class="chip mono">XLSX · 84 KB</span>
+          </div>
+          <div class="footer"><span class="date">Aug 20, 2026</span><button class="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button></div>
+        </div>
+      </div>
+      <div class="slot-note">Same field, format badge tinted by kind (doc blue / sheet green / deck orange). Extraction ships (<code>extract-office-text</code>); the AI title doesn’t — that’s the enrichment fix.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════ implementation notes ═══════════ -->
+  <div class="impl">
+    <h2>What this asks of the code</h2>
+    <ol>
+      <li><b>One spacing token.</b> <code>--card-gap</code> (18px) between hero bottom and body top for <b>every</b> hero type — the production grid drifts today because each hero variant pads itself. Body side padding stays 24px; no-hero cards take 22px top.</li>
+      <li><b>Voice-note hero.</b> New <code>PlayerHero</code> in <code>CardHero.tsx</code> (promote the violet-waveform card from <code>DesignCardPreview.tsx:231</code>); rendered from <code>ContentItemHeader.renderHero()</code> for <code>audio</code> instead of no-hero + grey <code>MediaPlayer</code>. Waveform can be deterministic bars from a hash of the item id until real amplitudes are sampled.</li>
+      <li><b>Spectrum fields, flat.</b> One <code>SpectrumField</code> wrapper (flat tint + grain, no gradient), tints keyed by subtype at ~11% alpha; the saturated color lives in the accents (solid <code>#544eba</code> play button, waveform bars). All other chrome — shadows, chips, page wash — is neutral grey: color appears only where it encodes type, state, or action.</li>
+      <li><b>Lucide everywhere, emoji nowhere.</b> Cards, panel, toasts. The always-visible tinted type chip replaces the hover-only footer <code>Badge</code>.</li>
+      <li><b>No tag UI on cards.</b> <code>ItemTagsManager</code> comes off the card (tags are being retired for <b>themes</b> as the grouping model). The card keeps exactly: type chip, format facts, duration/pages/read-time.</li>
+      <li><b>Subtype lives in data.</b> Enrichment writes <code>attributes.media.kind</code> (<code>voice_note | recording | music | screenshot | …</code>); whole-blob attribute writes preserved as always.</li>
+      <li><b>Titles are enrichment’s job for every type.</b> Audio/video from transcript after <code>transcribe-audio</code>; documents by letting <code>quick-pdf-summary</code>’s title land; shared placeholder-title guard from <code>analyze-image/index.ts:94</code>. Deeply personal audio falls back to the filename per policy.</li>
+      <li><b>Structured link enrichment grows.</b> <code>product</code> (price, availability), <code>recipe</code> (cook time, servings, ingredients — <code>schema.org/Recipe</code>), <code>place</code> (name, hours, neighborhood), <code>social</code> (post text pull-quote) join <code>linkFlavor.ts</code>, each writing typed facts into <code>attributes.link.*</code> and degrading to today’s generic cover when extraction comes back empty.</li>
+      <li><b>Video poster frames.</b> Capture a poster at enrichment and drop the inline <code>&lt;video controls&gt;</code> chrome from the card.</li>
+    </ol>
+  </div>
+
+</div>
+</body>
+</html>

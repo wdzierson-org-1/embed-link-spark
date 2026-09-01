@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 
 // Scheduled worker (pg_cron, every 2 hours): re-attempts content extraction
 // for link items that still have no page_body — blocked sites often become
@@ -23,6 +24,7 @@ const isPlaceholderMetadata = (title: string | null, description: string | null,
     const hostname = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
     const normalizedTitle = (title || '').trim().toLowerCase();
     if (!normalizedTitle || normalizedTitle === hostname || normalizedTitle === `www.${hostname}`) return true;
+    if (isBlockedPageTitle(normalizedTitle)) return true;
   } catch {
     return true;
   }
@@ -90,7 +92,10 @@ serve(async (req) => {
             updates.title = meta.title;
             if (meta.description) updates.description = meta.description;
           }
-          const bestImage = meta?.previewImagePath || meta?.previewImagePublicUrl || meta?.image;
+          let bestImage = meta?.previewImagePath || meta?.previewImagePublicUrl || null;
+          if (!bestImage && meta?.image && await verifyRemoteImage(meta.image)) {
+            bestImage = meta.image;
+          }
           if (bestImage && !item.file_path) {
             updates.file_path = bestImage;
           }

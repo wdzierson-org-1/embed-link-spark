@@ -5,26 +5,30 @@ import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/integrations/supabase/client';
-import { classifyMoleMessage } from '@/utils/moleRouting';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import ReactMarkdown from 'react-markdown';
 import ChatMessageSources from './ChatMessageSources';
 import ChatMessageFeedback from './ChatMessageFeedback';
+import { bakeCitationLinks, extractLinkedItemIds, itemIdFromHref } from '@/utils/chatCitations';
+import { resolveSessionTarget, SESSION_GAP_MS } from '@/utils/chatSessions';
 
 interface MoleSource {
   id: string;
   title: string;
   type: string;
   url?: string;
+  // Citation number in the answer text ([n] / (#n)) — used once at stream end
+  // to bake item links into the markdown; absent on history reloads
+  n?: number;
 }
 
 interface MoleMessage {
   id: string;
-  role: 'user' | 'assistant' | 'saved';
+  role: 'user' | 'assistant';
   content: string;
   question?: string;
   sources?: MoleSource[];
-  savedItem?: { title: string; kind: string };
+  sourceItemIds?: string[];
 }
 
 interface ChatMoleProps {
@@ -32,6 +36,11 @@ interface ChatMoleProps {
   onPinnedChange: (pinned: boolean) => void;
   onSourceClick?: (sourceId: string) => void;
   itemCount: number;
+  openConversationRequest?: { id: string; title: string | null; token: number } | null;
+  conversationsOpen?: boolean;
+  onToggleConversations?: () => void;
+  focusedSourceIds?: string[] | null;
+  onFocusSources?: (ids: string[] | null) => void;
 }
 
 const MoleGlyph = ({ className }: { className?: string }) => (
@@ -45,9 +54,24 @@ const MoleGlyph = ({ className }: { className?: string }) => (
 );
 
 const stripForSpeech = (markdown: string): string =>
-  markdown.replace(/\[(\d+)\]/g, '').replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim();
+  markdown
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // flatten links to their text
+    .replace(/\[(\d+)\]/g, '')
+    .replace(/[*_#`>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMoleProps) => {
+const ChatMole = ({
+  pinned,
+  onPinnedChange,
+  onSourceClick,
+  itemCount,
+  openConversationRequest,
+  conversationsOpen = false,
+  onToggleConversations,
+  focusedSourceIds,
+  onFocusSources,
+}: ChatMoleProps) => {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<MoleMessage[]>([]);
   const [input, setInput] = useState('');
@@ -58,55 +82,73 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
   const messagesRef = useRef<MoleMessage[]>([]);
   messagesRef.current = messages;
   const { toast } = useToast();
-  const { canUseAI, canAddContent } = useSubscription();
+  const { canUseAI } = useSubscription();
   const { user } = useAuth();
-  const conversationIdRef = useRef<string | null>(null);
+  const sessionRef = useRef<{ id: string | null; lastMessageAt: number; explicit: boolean }>(
+    { id: null, lastMessageAt: 0, explicit: false }
+  );
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  const sessionTitleRef = useRef<string | null>(null);
+  sessionTitleRef.current = sessionTitle;
+  // A loaded-then-let-go conversation, restorable with one click
+  const [lastLoaded, setLastLoaded] = useState<{ id: string; title: string | null } | null>(null);
   const historyLoadedRef = useRef(false);
 
   const isExpanded = pinned || open;
 
+  const loadConversationMessages = async (conversationId: string) => {
+    // Newest 200 (descending), reversed to chronological — ascending+limit
+    // would return the OLDEST 200 of a long conversation
+    const { data: history } = await supabase
+      .from('messages')
+      .select('id, role, content, source_items, created_at')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    const restored: MoleMessage[] = (history ?? [])
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        sourceItemIds: m.source_items ?? undefined,
+      }))
+      .reverse();
+    setMessages(restored);
+  };
+
   // First-class memory: the thread lives in the conversations/messages tables
-  // and survives sessions. Loaded once, on first expand.
+  // and survives sessions. Loaded once, on first expand. Targets the latest
+  // session and applies the 3h gap rule; never creates a row here (rows are
+  // created lazily on first send).
   useEffect(() => {
     if (!isExpanded || !user?.id || historyLoadedRef.current) return;
     historyLoadedRef.current = true;
 
     const loadHistory = async () => {
       try {
-        let { data: conversation } = await supabase
+        const { data: latest } = await supabase
           .from('conversations')
-          .select('id')
+          .select('id, title, last_message_at')
           .eq('user_id', user.id)
-          .order('created_at', { ascending: true })
+          .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(1)
           .maybeSingle();
 
-        if (!conversation) {
-          const { data: created, error: createError } = await supabase
-            .from('conversations')
-            .insert({ user_id: user.id, title: 'Ask Stash' })
-            .select('id')
-            .single();
-          if (createError) throw createError;
-          conversation = created;
+        const target = resolveSessionTarget(latest ?? null, new Date());
+        if (target.kind === 'new') {
+          // Fresh thread; the conversation row is created on first send
+          sessionRef.current = { id: null, lastMessageAt: 0, explicit: false };
+          return;
         }
 
-        conversationIdRef.current = conversation.id;
-
-        const { data: history } = await supabase
-          .from('messages')
-          .select('id, role, content, created_at')
-          .eq('conversation_id', conversation.id)
-          .order('created_at', { ascending: false })
-          .limit(60);
-
-        if (history && history.length > 0) {
-          const restored: MoleMessage[] = history
-            .reverse()
-            .filter(m => m.role === 'user' || m.role === 'assistant')
-            .map(m => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content }));
-          setMessages(prev => (prev.length === 0 ? restored : prev));
-        }
+        sessionRef.current = {
+          id: target.id,
+          lastMessageAt: new Date(latest!.last_message_at!).getTime(),
+          explicit: false,
+        };
+        setSessionTitle(target.title);
+        await loadConversationMessages(target.id);
       } catch (error) {
         console.error('Failed to load chat history (non-fatal):', error);
       }
@@ -115,8 +157,20 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
     void loadHistory();
   }, [isExpanded, user?.id]);
 
+  // Open a specific conversation from the Conversations view. The token
+  // forces re-fire even when re-opening the same id.
+  useEffect(() => {
+    const req = openConversationRequest;
+    if (!req) return;
+    setLastLoaded(null); // a fresh explicit load supersedes any remembered one
+    sessionRef.current = { id: req.id, lastMessageAt: Date.now(), explicit: true };
+    setSessionTitle(req.title);
+    void loadConversationMessages(req.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openConversationRequest?.token]);
+
   const persistMessage = (role: 'user' | 'assistant', content: string, sourceItemIds?: string[]) => {
-    const conversationId = conversationIdRef.current;
+    const conversationId = sessionRef.current.id;
     if (!conversationId || !content.trim()) return;
     void supabase
       .from('messages')
@@ -128,7 +182,73 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
       })
       .then(({ error }) => {
         if (error) console.error('Failed to persist chat message (non-fatal):', error);
+        else sessionRef.current.lastMessageAt = Date.now();
       });
+  };
+
+  const createConversation = async (): Promise<string | null> => {
+    if (!user?.id) return null;
+    const { data, error } = await supabase
+      .from('conversations')
+      .insert({ user_id: user.id, title: null })
+      .select('id')
+      .single();
+    if (error) {
+      console.error('Failed to create conversation (non-fatal):', error);
+      return null;
+    }
+    return data.id;
+  };
+
+  // Collapsing the mole "lets go" of an explicitly loaded old conversation:
+  // the thread clears so reopening shows a mostly clean mole, and the loaded
+  // conversation is remembered so it can be restored with one click.
+  useEffect(() => {
+    if (isExpanded) return;
+    if (sessionRef.current.explicit && sessionRef.current.id) {
+      setLastLoaded({ id: sessionRef.current.id, title: sessionTitleRef.current });
+      setMessages([]);
+      sessionRef.current = { id: null, lastMessageAt: 0, explicit: false };
+      setSessionTitle(null);
+    } else {
+      sessionRef.current.explicit = false;
+    }
+  }, [isExpanded]);
+
+  // Fresh context on demand — the old thread stays reachable in Earlier
+  // conversations (and via the restore link if it was an explicit load)
+  const startNewChat = () => {
+    if (sessionRef.current.explicit && sessionRef.current.id) {
+      setLastLoaded({ id: sessionRef.current.id, title: sessionTitleRef.current });
+    }
+    setMessages([]);
+    sessionRef.current = { id: null, lastMessageAt: 0, explicit: false };
+    setSessionTitle(null);
+  };
+
+  const restorePreviousConversation = () => {
+    const prev = lastLoaded;
+    if (!prev) return;
+    setLastLoaded(null);
+    sessionRef.current = { id: prev.id, lastMessageAt: Date.now(), explicit: true };
+    setSessionTitle(prev.title);
+    void loadConversationMessages(prev.id);
+  };
+
+  // Returns the conversation id to persist into, creating a new session when
+  // the 3h gap elapsed (isNew: true). Explicitly resumed sessions are exempt
+  // from the gap.
+  const ensureSessionForSend = async (): Promise<{ id: string | null; isNew: boolean }> => {
+    const s = sessionRef.current;
+    const now = Date.now();
+    if (s.id && (s.explicit || now - s.lastMessageAt < SESSION_GAP_MS)) {
+      return { id: s.id, isNew: false };
+    }
+    if (s.id) setMessages([]); // stale session on screen — new session starts a fresh thread
+    const id = await createConversation();
+    sessionRef.current = { id, lastMessageAt: now, explicit: false };
+    setSessionTitle(null);
+    return { id, isNew: true };
   };
 
   const sendTranscript = useCallback((text: string) => {
@@ -170,65 +290,13 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
     setMessages(prev => [...prev, message]);
   };
 
-  const saveUrl = async (url: string, note: string) => {
-    if (!canAddContent) {
-      toast({ title: 'Subscription needed', description: 'Subscribe to add new items.', variant: 'destructive' });
-      return;
-    }
-    const pendingId = `saved-${Date.now()}`;
-    pushMessage({
-      id: pendingId,
-      role: 'saved',
-      content: url,
-      savedItem: { title: 'Saving…', kind: 'link' },
-    });
-    const { data, error } = await supabase.functions.invoke('add-url', {
-      body: { url, content: note || undefined },
-    });
-    if (error || !data?.success) {
-      setMessages(prev => prev.filter(m => m.id !== pendingId));
-      toast({ title: 'Could not save link', description: 'Please try again.', variant: 'destructive' });
-      return;
-    }
-    setMessages(prev => prev.map(m =>
-      m.id === pendingId
-        ? { ...m, savedItem: { title: data.item?.title || url, kind: 'link' } }
-        : m
-    ));
-  };
-
-  const saveNote = async (note: string) => {
-    if (!canAddContent) {
-      toast({ title: 'Subscription needed', description: 'Subscribe to add new items.', variant: 'destructive' });
-      return;
-    }
-    const pendingId = `saved-${Date.now()}`;
-    pushMessage({
-      id: pendingId,
-      role: 'saved',
-      content: note,
-      savedItem: { title: 'Saving…', kind: 'note' },
-    });
-    const { data, error } = await supabase.functions.invoke('add-note', {
-      body: { content: note },
-    });
-    if (error || !data?.success) {
-      setMessages(prev => prev.filter(m => m.id !== pendingId));
-      toast({ title: 'Could not save note', description: 'Please try again.', variant: 'destructive' });
-      return;
-    }
-    setMessages(prev => prev.map(m =>
-      m.id === pendingId
-        ? { ...m, savedItem: { title: data.note?.title || note.slice(0, 60), kind: 'note' } }
-        : m
-    ));
-  };
-
   const ask = async (question: string) => {
     if (!canUseAI) {
       toast({ title: 'Subscription needed', description: 'AI chat needs an active trial or subscription.', variant: 'destructive' });
       return;
     }
+
+    const { isNew } = await ensureSessionForSend();
 
     const userMessage: MoleMessage = { id: `u-${Date.now()}`, role: 'user', content: question };
     pushMessage(userMessage);
@@ -240,9 +308,14 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not signed in');
 
-      const history = messagesRef.current
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({ role: m.role, content: m.content }));
+      // A brand-new session has no prior turns; messagesRef can still hold the
+      // stale thread here (setMessages([]) may not have flushed yet), so don't
+      // read it — the old session's messages must not leak into the request
+      const history = isNew
+        ? []
+        : messagesRef.current
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .map(m => ({ role: m.role, content: m.content }));
 
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-with-all-content`, {
         method: 'POST',
@@ -277,9 +350,26 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
             streamed += payload.delta;
             setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: streamed } : m)));
           } else if (payload.done) {
-            const sources = payload.sources || [];
-            setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, sources } : m)));
-            persistMessage('assistant', streamed, sources.map((s: MoleSource) => s.id));
+            const sources: MoleSource[] = payload.sources || [];
+            // Bake (#n) citation targets into stable item links so titles are
+            // clickable now AND after a history reload (which restores only
+            // the message text)
+            const baked = bakeCitationLinks(streamed, sources);
+            setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content: baked, sources } : m)));
+            persistMessage('assistant', baked, sources.map((s: MoleSource) => s.id));
+
+            // Auto-title the conversation after the first exchange
+            if (!sessionTitleRef.current && sessionRef.current.id) {
+              const conversationId = sessionRef.current.id;
+              void supabase.functions
+                .invoke('generate-title', { body: { content: question } })
+                .then(async ({ data }) => {
+                  const title = (data?.title || question).trim().slice(0, 80);
+                  setSessionTitle(title);
+                  await supabase.from('conversations').update({ title }).eq('id', conversationId);
+                })
+                .catch((e: unknown) => console.error('Title generation failed (non-fatal):', e));
+            }
           } else if (payload.error) {
             throw new Error(payload.error);
           }
@@ -301,14 +391,7 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
     setInput('');
     setIsBusy(true);
     try {
-      const route = classifyMoleMessage(text);
-      if (route.kind === 'save-url') {
-        await saveUrl(route.url, route.note);
-      } else if (route.kind === 'save-note') {
-        await saveNote(route.note);
-      } else {
-        await ask(text);
-      }
+      await ask(text);
     } finally {
       setIsBusy(false);
     }
@@ -356,16 +439,16 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
     <div
       className={
         pinned
-          ? 'fixed left-0 top-16 bottom-0 z-40 flex w-full sm:w-[384px] flex-col border-r border-black/5 bg-gradient-to-b from-white to-[#fdf8fd] shadow-[8px_0_24px_rgba(40,20,60,0.10)]'
+          ? 'fixed left-0 top-0 bottom-0 z-40 flex w-full sm:w-[384px] flex-col border-r border-black/5 bg-gradient-to-b from-white to-[#fdf8fd] shadow-[8px_0_24px_rgba(40,20,60,0.10)]'
           : 'fixed left-0 right-0 bottom-0 sm:left-5 sm:right-auto sm:bottom-5 z-50 flex h-[72vh] sm:h-[560px] w-full sm:w-[384px] max-h-[calc(100vh-96px)] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-gradient-to-b from-white to-[#fdf8fd] shadow-[0_24px_60px_rgba(40,20,60,0.28),0_2px_8px_rgba(0,0,0,0.10)] ring-1 ring-black/5'
       }
     >
       <div className="flex items-center gap-2.5 border-b border-black/5 px-4 py-3">
         <MoleGlyph className="h-5 w-5 text-gray-900" />
         <div className="min-w-0">
-          <div className="text-sm font-semibold leading-tight">Ask Stash</div>
+          <div className="text-sm font-semibold leading-tight">{sessionTitle ?? 'Ask Stash'}</div>
           <div className="truncate text-xs text-muted-foreground">
-            Answers from your {itemCount} items · paste links here to save them
+            Answers from your {itemCount} items
           </div>
         </div>
         <div className="ml-auto flex gap-1.5">
@@ -397,24 +480,21 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
       </div>
 
       <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
+        {messages.length === 0 && lastLoaded && (
+          <button
+            onClick={restorePreviousConversation}
+            className="block w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-left text-[13px] text-violet-700 hover:bg-violet-100"
+          >
+            Load previous conversation
+            {lastLoaded.title ? <span className="text-violet-500"> — {lastLoaded.title}</span> : null}
+          </button>
+        )}
         {messages.length === 0 && (
           <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
-            Ask anything about what you've saved — or paste a link here and I'll stash it.
-            Start a message with <b>remember:</b> to save a quick note.
+            Ask anything about what you've saved — answers cite the cards they came from.
           </div>
         )}
         {messages.map(message => {
-          if (message.role === 'saved') {
-            return (
-              <div key={message.id} className="flex w-[92%] items-center gap-3 rounded-xl border border-border bg-white px-3 py-2.5">
-                <div className={`h-9 w-9 flex-none rounded-lg ${message.savedItem?.kind === 'link' ? 'bg-blue-500' : 'bg-violet-500'}`} />
-                <div className="min-w-0">
-                  <div className="truncate text-[13px] font-semibold leading-tight">{message.savedItem?.title}</div>
-                  <div className="text-[11.5px] text-green-600">✓ Saved to your stash · describing it now…</div>
-                </div>
-              </div>
-            );
-          }
           if (message.role === 'user') {
             return (
               <div key={message.id} className="ml-auto max-w-[86%] rounded-2xl rounded-br-sm bg-gray-900 px-3.5 py-2.5 text-sm text-white">
@@ -422,10 +502,42 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
               </div>
             );
           }
+          // Cited cards are linked inline (baked `#item=` hrefs); the bottom
+          // sources row only lists whatever wasn't already linked in the text
+          const inlineItemIds = extractLinkedItemIds(message.content);
+          const extraSources = (message.sources ?? []).filter(s => !inlineItemIds.has(s.id));
+          const focusIds = message.sources?.map(s => s.id) ?? message.sourceItemIds ?? [];
           return (
             <div key={message.id} className="max-w-[92%] rounded-2xl rounded-bl-sm bg-muted/70 px-3.5 py-2.5 text-sm">
               <div className="prose prose-sm max-w-none [&_p]:my-1">
-                <ReactMarkdown>{message.content}</ReactMarkdown>
+                <ReactMarkdown
+                  components={{
+                    a: ({ href, children }) => {
+                      const itemId = itemIdFromHref(href);
+                      if (itemId) {
+                        return (
+                          <button
+                            onClick={() => onSourceClick?.(itemId)}
+                            className="inline p-0 font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:decoration-violet-700"
+                          >
+                            {children}
+                          </button>
+                        );
+                      }
+                      // Mid-stream (#n) targets aren't resolvable yet — show as text
+                      if (href?.startsWith('#')) {
+                        return <span>{children}</span>;
+                      }
+                      return (
+                        <a href={href} target="_blank" rel="noreferrer" className="underline">
+                          {children}
+                        </a>
+                      );
+                    },
+                  }}
+                >
+                  {message.content}
+                </ReactMarkdown>
               </div>
               {message.content && (
                 <button
@@ -436,9 +548,26 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
                   {speakingId === message.id ? <Square className="h-3 w-3" /> : <Volume2 className="h-3.5 w-3.5" />}
                 </button>
               )}
-              {message.sources && message.sources.length > 0 && (
+              {focusIds.length > 0 && onFocusSources && (
+                <button
+                  onClick={() => {
+                    const isActive =
+                      focusedSourceIds?.length === focusIds.length &&
+                      focusIds.every(id => focusedSourceIds.includes(id));
+                    onFocusSources(isActive ? null : focusIds);
+                  }}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11.5px] ${
+                    focusedSourceIds && focusIds.every(id => focusedSourceIds.includes(id)) && focusedSourceIds.length === focusIds.length
+                      ? 'border-violet-600 bg-violet-600 text-white'
+                      : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-50'
+                  }`}
+                >
+                  ⌖ Focus sources ({focusIds.length})
+                </button>
+              )}
+              {extraSources.length > 0 && (
                 <ChatMessageSources
-                  sources={message.sources}
+                  sources={extraSources}
                   onSourceClick={(id) => onSourceClick?.(id)}
                   onViewAllSources={() => {}}
                 />
@@ -499,7 +628,7 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleSend(); }}
-                placeholder="Ask, or paste something to save…"
+                placeholder="Ask your stash…"
                 className="h-10 flex-1 rounded-xl border border-border bg-gray-50 px-3 text-sm outline-none focus:border-violet-300"
               />
               {voice.isSupported && (
@@ -523,8 +652,24 @@ const ChatMole = ({ pinned, onPinnedChange, onSourceClick, itemCount }: ChatMole
                 <Send className="h-4 w-4" />
               </Button>
             </div>
-            <div className="mt-2 text-[11.5px] text-muted-foreground">
-              Answers come with sources · <b>links pasted here are saved</b> · <b>remember:</b> saves a note
+            <div className="mt-2 flex items-center gap-2 text-[11.5px]">
+              <button
+                onClick={startNewChat}
+                className="text-muted-foreground hover:text-violet-700 hover:underline underline-offset-2"
+              >
+                Start new chat
+              </button>
+              <span className="text-muted-foreground/40">·</span>
+              <button
+                onClick={onToggleConversations}
+                className={
+                  conversationsOpen
+                    ? 'font-medium text-violet-700 hover:underline underline-offset-2'
+                    : 'text-muted-foreground hover:text-violet-700 hover:underline underline-offset-2'
+                }
+              >
+                {conversationsOpen ? 'Back to your stash' : 'Earlier conversations'}
+              </button>
             </div>
           </>
         )}

@@ -33,3 +33,9 @@ screenshots/
 ios/.asc/*
 !ios/.asc/README.md
 ios/build/
+
+# Brainstorm companion sessions
+.superpowers/
+
+# Vendored design-inspiration template (reactbits pro) — not part of the app
+new_site/

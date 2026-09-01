@@ -8,6 +8,742 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-08-30 · Sign-in polish, playful loading interstitial, brand favicon, tag filtering hidden (web; iOS/extension mirror notes inline)
+
+- **Sign-in**: "Welcome to Stash" heading removed (wordmark + "Sign in or
+  create your account." carry the page); background is now the app's ambient
+  `.animated-gradient` wash at 30% (same as the library), faded toward the
+  card. `.animated-gradient` gained a global `prefers-reduced-motion` guard.
+- **Post-login loading interstitial** (`src/components/LoadingInterstitial.tsx`):
+  replaces the grey spinner + "Loading..." on `/home`. The wordmark's stitched
+  second-S with a rotating splash-gradient fill and a gentle breathe, over
+  playful cycling copy ("Unpacking your stash…", "Rehanging the gallery…", …).
+  Reduced-motion: static mark, single message. iOS: the launch/loading moment
+  should adopt the same mark + copy tone (copy list in the component).
+- **Favicon/site icons**: the stitched second-S over the splash gradient
+  (same glyph + slice as the iOS app icon) now ships locally —
+  `favicon.svg/ico`, `favicon-32/16.png`, `apple-touch-icon.png`,
+  `icon-192/512.png`, webmanifest updated. The Supabase-hosted icon set and
+  any Lovable-era hearts are retired. **Chrome extension icons** updated to
+  the same mark (`extension/icons/*`) — note `public/stash-it-extension.zip`
+  is now stale and needs rebuilding at the next extension release.
+- **Tag filtering hidden**: the "Filter by tag" control and selected-tag chips
+  are gone from the library toolbar (`LibraryToolbar.tsx`; props kept so the
+  Index contract is unchanged). With the card/panel tag editors already
+  removed, there is now NO tag UI anywhere — tags data remains in place;
+  **themes** will replace tags as the grouping model. Other platforms: hide
+  any tag affordances the same way, don't delete data.
+
+## 2026-08-30 · Design-system revisions after live review (amends the three entries below; DESIGN.md updated to match)
+
+- **Card titles are serif again**: upright PP Editorial New returns for the
+  library-card title *only* — the one serif role in the product ("this is a
+  saved object"). Panel titles and everything else stay Neue Montreal. iOS:
+  mirror exactly this split.
+- **Screenshots render full-bleed** like any image; the framed-window hero was
+  reverted. The screenshot identity lives in the tinted type chip.
+- **Document tint moved from coral to violet** (`rgba(150,70,190)` @ ~.10,
+  text `#7d3f9e`) — the coral read peach. Spectrum table in DESIGN.md updated.
+- **Page gradient rebalanced toward purple/blue** (`.animated-gradient` stops:
+  milky orchid/salmon → `#9d5fd8`/`#c2418f`, cyan tail deepened) — kills the
+  "pepto" cast at the 30%-opacity wash.
+- **"Chat with item" removed from the card overflow menu** (behavior change —
+  other platforms drop the same affordance; chat with a single item remains
+  reachable through Ask). `onChatWithItem` prop still accepted, now unused.
+- **og.jpg regenerated** (1200×630) to match the current periphery-cards
+  homepage: new card anatomy (icon+kind row, Tobias titles, violet voice
+  waveform, tag chips, real photography) on the deeper purple wash.
+
+## 2026-08-30 · DESIGN.md introduced; app typeface is now PP Neue Montreal everywhere; login redesigned (all platforms take note)
+
+- **`DESIGN.md` now exists at the repo root** and is the single source of truth
+  for look-and-feel across web, homepage, iOS app, iOS share sheet, Chrome
+  extension, and macOS. It's linked from `CLAUDE.md`'s read-first list. All
+  three 2026-08-30 entries below implement it. Token or rule changes must edit
+  `DESIGN.md` in the same branch.
+- **Typeface contract — for the iOS/mobile agent especially:** the product
+  typeface on every surface is **PP Neue Montreal** (weights: 400 UI/body,
+  500 object titles, 600 display; 400 italic for user annotations). PP Mori is
+  retired everywhere; upright PP Editorial New is retired from product
+  surfaces (serif titles are gone — titles are now NM 500 with negative
+  tracking). Marketing pages keep exactly two display exceptions: Tobias and
+  PP Editorial Ultralight Italic accent words. **iOS must bundle
+  `PPNeueMontreal-{Book,Medium,Semibold,BookItalic}` in both the app and
+  share-extension targets** (appex can't read host-bundle fonts — same pattern
+  as the icon catalogs) and update `StashDesign.swift` to match DESIGN.md's
+  type table; SF Pro is fallback only. Web files live in `src/assets/fonts/`;
+  web plumbing: `font-montreal` in `tailwind.config.ts`, faces + body default
+  in `src/index.css`.
+- **Login (`/auth`) redesigned** to the design language (grey wash, centered
+  400px card, wordmark in ink, pill tabs, violet-600 CTAs, quiet inputs).
+  Contracts unchanged: all handlers, redirects, and the 2026-08-29
+  anonymous-session rule are byte-identical; `Auth.test.tsx` still covers the
+  lockout regression.
+- **Consistency directive:** web app, homepage, iOS app, iOS share sheet, and
+  the (upcoming) Chrome-extension restyle must all reference `DESIGN.md`
+  rather than copying each other's CSS. Stylistic drift between surfaces is a
+  bug; when a surface can't express a token exactly, note the deviation in
+  `DESIGN.md`'s per-surface section in the same change.
+
+## 2026-08-30 · Web detail panel: one surface, Details drawer, in-panel player (DESIGN.md pass 3)
+
+Spec: `DESIGN.md` ("Detail panel", "Sharing row states", "Player") + reference
+implementation `docs/superpowers/prototypes/2026-08-30-detail-panel-surface-neue-montreal.html`.
+Web edit sheet only; iOS/macOS mirror from DESIGN.md. All data flows, autosave,
+and props contracts are unchanged — this is structure + skin.
+
+- **Section grammar** (`src/components/edit/EditPanelSection.tsx`): the boxed
+  `sectionCard` treatment is deleted everywhere. Every section is an uppercase
+  11px/600/+0.11em micro-label over a `rgba(0,0,0,.07)` hairline on one
+  continuous surface (sheet bg `#fff → #f8f8fa`; the pink tint is gone).
+- **Header zone**: tinted type-chip eyebrow (Lucide icon + subtype label —
+  reads `attributes.media.kind` via the cards' `audioSubtype`/
+  `isScreenshotItem` helpers) + source hint (domain, or `uploaded/saved ·
+  date`), then the title (Neue Montreal 500 / 28px / −0.02em) and description
+  as chrome-less inline editables: violet wash on hover, wash + 2px violet-300
+  ring on focus. Same blur-to-save handlers as before.
+- **Details drawer** (`src/components/edit/EditItemDetailsDrawer.tsx`): new
+  collapsible section, closed by default; the header shows an inline
+  `format · size · duration` summary. Open, it's dotted-leader key/value rows:
+  Original file (from `attributes.media.file_name` or the `file_path`
+  basename, mono), Format, Duration, Source URL (links), Saved (with time),
+  and Location — the existing location editor moved into this row unchanged
+  in behavior (manual label, clear-to-remove).
+- **Media plays in the panel** (`src/components/edit/EditItemPlayerStrip.tsx`):
+  audio/video items get the DESIGN.md player strip above the content tabs —
+  flat type-tint field, solid accent play/pause with real `<audio>` playback,
+  deterministic waveform (same `waveformHeights(id)` identity as the card),
+  click-to-seek, times, and a 1×→1.5×→2× speed pill; quiet "Download
+  original" below. Links get a hairline favicon/url/open row.
+- **Sharing row**: private = grey 34px lock tile + "Private / Only you can
+  see this item"; public = violet globe tile + violet switch + feed-link chip
+  (`gostash.it/feed/{username}`, copy-with-check) + inline un-share hint. The
+  unshare-confirm dialog (sticky-note deletion) and public sticky-note editor
+  are unchanged in behavior.
+- **Footer**: delete is `#c93a3a` + `trash-2`; autosave indicator unchanged.
+  All motion ≤200ms with `prefers-reduced-motion` guards; Lucide only.
+
+## 2026-08-30 · Web library cards: Neue Montreal card system (DESIGN.md pass 3)
+
+Spec: `DESIGN.md` (tokens, per-type hero table, chips grammar) + reference
+implementation `docs/superpowers/prototypes/2026-08-30-card-type-gallery-neue-montreal.html`.
+Web library cards only; iOS/macOS should mirror from DESIGN.md. Subtype data
+contract (`attributes.media.kind`) is documented in the enrichment entry below;
+cards read it with client fallbacks: audio `duration_s ≥ 600s` renders as
+`recording` (else voice note), and an image renders as a screenshot when
+`kind === 'screenshot'` **or** its title starts with `"Screenshot of"`.
+
+- **Audio cards** (`PlayerHero`, `src/components/cards/CardHero.tsx`): the
+  grey `MediaPlayer` bar is gone from cards (component kept — composer
+  surfaces still use it). The hero is a functional player on the flat
+  type-tint field — 116px voice / 96px recording, solid accent play circle
+  (`#544eba` voice / `#8b4a9e` recording), deterministic waveform bars
+  hashed from the item id (played 1.0, unplayed .26), tabular-numeral time.
+- **Document cards** (`DocumentHero`): flat document field + white CSS
+  page-glyph (grid variant for spreadsheets) + format badge (PDF `#a33d52`,
+  sheets `#1d6f42`, decks `#c43e1c`, docs `#2b579a`). A real first-page
+  thumbnail can slot into the glyph later without layout change.
+- **Screenshot cards** (`ScreenshotHero`): screenshot field + white
+  window-frame (title bar, three dots) around the real capture, top-aligned.
+  Non-screenshot images unchanged.
+- **Video cards** (`VideoPosterHero`): resting state is a poster frame
+  (`preload="metadata"`, no native chrome) + centered play badge + duration
+  pill on a bottom scrim; native controls appear only once playback starts.
+  Expand-to-lightbox unchanged. Hero height joins the two-height scale (h-40).
+- **Chips grammar** (in order, nothing else): always-visible type chip first
+  — tinted with an 11px Lucide icon for voice note (mic) / recording
+  (audio-lines) / screenshot (scan-line) / document (file or table-2),
+  neutral for photo / note / video / link flavors — then `FORMAT · size`
+  (mono), then one salient fact (duration / read-time). Filename chips are
+  gone from cards; the hover-only footer type badge is gone. Footer keeps
+  date + location pin + overflow (`more-horizontal`, 24px round target).
+- **Tags UI removed from cards**: `ContentItem` no longer renders
+  `ItemTagsManager` (component untouched); grouping moves to themes.
+- **Tokens**: hero-bottom → body-top gap is **18px for every hero type**;
+  no-hero cards take 22px top; body side padding stays 24px. Card titles are
+  PP Neue Montreal 500, 20/1.24, −0.014em (`font-editorial` retired from
+  cards). Card shadows go neutral grey
+  (`0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08)`, hover
+  deepens + 2px lift) — purple-tinted shadows are gone from cards. Spectrum
+  fields are flat tints + grain via the shared `SpectrumField`
+  (`src/components/cards/CardBits.tsx`).
+
+## 2026-08-30 · Media/document AI titles + `attributes.media.kind` subtype (backend + web; iOS/macOS render against the new contract)
+
+Uploaded media and documents now get real AI titles instead of filenames, and
+audio/video items carry a renderable subtype.
+
+- **Shared title policy** — `supabase/functions/_shared/titlePolicy.ts`
+  (vitest-tested web mirror: `src/utils/titlePolicy.ts`; keep in sync).
+  `isPlaceholderTitle(title, filePath)`: empty, equal to the file basename,
+  extension-suffixed (`Recording.m4a`, `deck.pptx`), storage-timestamp
+  (`1724900000000.webm`), or UUID-shaped (`72322570-….m4a`) titles are
+  placeholders enrichment may replace; **anything else is the user's and is
+  never touched**. Guards always re-fetch the current title first (renames
+  during enrichment win); fetch failure ⇒ skip the title write. Titles capped
+  at 90 chars (`capTitle`). `analyze-image` keeps its own earlier copy of the
+  same policy (unchanged).
+- **Audio/video (`add-file`)**: after transcription, a placeholder title is
+  replaced with a 3–9-word gpt-4o-mini title from the transcript. Privacy
+  rule: for deeply personal content (health, relationships, grief, finances,
+  private confessions) the model returns `KEEP_FILENAME` and the filename
+  title stays. Web upload path mirrors this via `generate-title` with
+  `{ kind: 'transcript' }` (same shared prompt; callers must treat a
+  `KEEP_FILENAME` response as "keep the current title").
+- **`attributes.media.kind`** (whole-blob read-merge-write, unknown keys
+  preserved): `'voice_note'` (audio < 600 s or unknown duration),
+  `'recording'` (audio ≥ 600 s, from `attributes.media.duration_s`),
+  `'video'` (video files — **new `MediaKind` value**, added to
+  `src/types/itemAttributes.ts`). Meaningful original filenames land in
+  `attributes.media.file_name`; storage-timestamp/UUID names never do.
+- **Documents**: `quick-pdf-summary` now writes its AI title over
+  placeholder (filename) titles too, not just empty ones (page_body-null
+  condition kept). `extract-office-text` gains a guarded gpt-4o-mini title
+  from the first ~1500 extracted chars.
+- **Deploy needed** (not yet deployed): `add-file`, `quick-pdf-summary`,
+  `extract-office-text`, `generate-title`.
+
+## 2026-08-30 · Ask retrieval reliability + WhatsApp/SMS intent gate (backend; no client changes required)
+
+Spec: `docs/superpowers/specs/2026-08-29-ask-retrieval-reliability-and-intent-gate-spec.md`.
+Root cause + reproduction of the 2026-08-30 retrieval misses are in the spec.
+
+- **Ask (`chat-with-all-content`), all platforms:** `search_stash` type/tag
+  filters are now **soft** — an unfiltered backstop search always runs, and
+  strong hits the filter excluded are surfaced ranked by score, labeled
+  "outside your filters". "Video" also matches links whose
+  `attributes.link.flavor` is `video` (YouTube etc.). New internal
+  `browse_catalog` tool lists the user's whole library for bare-word/fuzzy
+  queries. **SSE contract:** unchanged except a new optional status value —
+  `data:{"status":"browsing"}` — verified no current client parses status
+  frames (web and iOS both ignore them), so nothing to mirror; any future
+  status UI should treat unknown values as "working".
+  Sources/citations behavior unchanged. Every retrieval is logged to the new
+  service-role `retrieval_log` table; golden regression set at
+  `supabase/evals/golden-retrieval.json` (`node scripts/eval-retrieval.mjs`),
+  5/5 passing post-deploy, including both real 2026-08-30 failures at rank 1.
+- **WhatsApp/SMS (`twilio-webhook`):** inbound messages now pass an intent
+  gate (`_shared/intentGate.ts`) instead of a forced note/question guess.
+  Rules first: bare URLs and media saves — and a texted URL now becomes a
+  real **link item** (scrape + embeddings via `scrape-page-content`), not a
+  text note. Ambiguous text gets one confirm question ("Reply 1 to save it,
+  or 2 for an answer"), held in the new `pending_intents` table (15-min TTL,
+  one per user+channel). After an auto-save the reply offers `undo` / `ask`
+  one-word flips; classifier failure now defaults to answering (recoverable)
+  instead of silently saving. `sms_conversations.intent` gains values
+  `clarify` (confirm question sent) alongside note/question/command.
+- **DB:** `hybrid_search_content` v3 adds `item_flavor` output column
+  (appended last; existing callers unaffected). New tables `retrieval_log`,
+  `pending_intents` (both service-role only, RLS on/no policies).
+- Not shipped yet (follow-ups in spec): doc2query enrichment + audio titles
+  (R5), web/iOS save-suggestion chip via `data:{suggest:'save'}` frame (G4),
+  WhatsApp quick-reply buttons (needs a Twilio Content template).
+
+## 2026-08-29 · Web: landing page back to periphery-cards hero; cards rebuilt as authentic library items (web only)
+
+- **Reverted the TryStash progressive-capture landing** (2026-08-28's anonymous
+  capture hero + ledger section — it was a concept) to the periphery-cards
+  layout from `1e582d7`: six floating stashed-item cards down the left/right
+  edges (Cloth fabric physics, light rays, scroll parallax), hero CTA to
+  /pricing, capabilities grid, paste demo, screenshots, chat demo. `TryStash.tsx`
+  and the anon-profile plumbing stay in the tree, just unmounted.
+- **Cards rebuilt as believable saved objects**, one per capture type, each
+  with the anatomy that type really has instead of one photo+badge template:
+  recipe (pasta photo, cook-time meta), **voice note with waveform + play
+  chip + duration + transcript snippet (no cover)**, ceramics inspiration
+  image, place (café photo, name + neighborhood meta + user's own note),
+  article link (read-time meta, "full text saved"), and a **plain note with
+  auto-tag chips**. Shared anatomy: optional cover → icon+kind meta row
+  (replaces the black badge-on-photo) → tobias title → mori note. No
+  contract changes — marketing page only; nothing for iOS/macOS to mirror.
+- **All cover photos are now real photographs** (Unsplash-licensed, credits
+  in the commit); the AI-generated mockups (gibberish handwriting, fake app
+  UIs) are deleted. Standing rule, commented in `Landing.tsx`: card covers
+  must be real photography, never AI renders or mocked-up interfaces.
+- Source: `src/pages/Landing.tsx` (`StashedCard`, `FLOATING_CARDS`).
+- **Sign-in lockout fixed** (latent since the TryStash landing): `/auth`'s
+  already-signed-in redirect fired for **anonymous** try-stash sessions too,
+  and `/home` bounces anonymous users to `/`, so visitors with a lingering
+  `signInAnonymously()` session flashed the sign-in form then landed on the
+  homepage — locked out. `/auth` now redirects only real (non-anonymous)
+  accounts; an anonymous session stays on the form and is replaced on
+  sign-in. Contract for other platforms: treat `is_anonymous` sessions as
+  signed-out everywhere except the try-stash surface itself.
+
+## 2026-08-29 · iOS: app icon (wordmark's second S over splash gradient); share card redesigned in the design language (iOS)
+
+- **App icon shipped** (was empty — TestFlight upload hard-fails without one):
+  the wordmark's stitched second-S glyph, white, centered at ~55% height over
+  the splash gradient's pink-hued slice (`#667eea → #764ba2 → #f093fb →
+  #f5576c`, 135°). Single 1024 universal PNG in
+  `ios/Stash/Assets.xcassets/AppIcon.appiconset`. The **share extension
+  carries the same icon** in its own catalog
+  (`ios/StashShareExtension/Assets.xcassets` — an appex bundle can't see the
+  host app's catalog), so the share sheet shows the branded S too;
+  `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` set on both targets in
+  `project.yml`. Source of truth for regenerating: the icon is rendered from
+  the wordmark SVG's second-S paths (x≈587–726 in the viewBox) — no separate
+  design file.
+- **Share compose card redesigned** to the app design language
+  (`StashDesign.swift` now compiled into the extension target, same
+  shared-glue pattern as `LocationCapture.swift`): gradient backdrop +
+  wordmark header replace the `NavigationStack` inline "Stash" title; Cancel
+  is a round `xmark` `CircleIcon`; previews + note field sit on hairline
+  cards (solid bg, gray hairline, soft shadow — no stock `.roundedBorder`);
+  URL glyph wears the violet toggled-circle treatment; pin is the composer's
+  `CircleIcon` mappin (violet when pinned, spinner in-circle while
+  resolving); Save is the weighted violet capsule (CircleSubmitIcon's
+  hot/resting split, never dimmed). **Contracts unchanged:** every
+  `share.*` accessibility identifier, element type (note stays a
+  vertical-axis TextField → bridges as TextView), and all
+  save/gate/abandon-tracker behavior byte-identical.
+  `testShareExtensionURLSmoke` re-verified green against production.
+
+## 2026-08-29 · iOS: chat sessions + Conversations screen (iOS ports web 2026-08-27/28)
+
+Prototype (reviewed & approved): `docs/superpowers/prototypes/2026-08-29-ios-ask-conversations.html`.
+Client-only — the trigger, gap convention, and `list_conversations` RPC were
+already deployed by the web migrations.
+
+- **`ChatSessions` (StashKit):** port of `chatSessions.ts` — 3h gap
+  (`resolveTarget`), bucket labels (Today/Yesterday/This week [Mon start]/
+  month), timestamptz parsing. Unit-tested (gap boundaries, buckets).
+- **`ChatHistoryStoring` reshaped:** `latestConversation` (by
+  `last_message_at`), `createConversation` (title null, lazy),
+  `generateTitle` + `setTitle` (auto-title, non-fatal), `listConversations`
+  (RPC pass-through). The old eager `loadOrCreateConversation` (earliest-ever
+  row titled "Ask Stash") is gone.
+- **`ChatStore` session machine:** open-time resolution (continue < 3h, else
+  fresh; row created lazily on first send), `ensureSessionForSend` (explicit
+  resumes gap-exempt; stale thread clears first; brand-new session sends NO
+  prior turns), auto-title after the first exchange (optimistic
+  question-fallback title, generated title replaces it), `openConversation` /
+  `startNewChat` / `letGoIfExplicit` / `restorePrevious` + `lastLoaded`.
+  All unit-tested with an injected clock.
+- **Ask tab UI:** NavigationStack (the one pushed screen in the app — back
+  reads "‹ Ask" under the hidden wordmark header, per the titling
+  convention); header gains new-chat + history circle buttons; violet title
+  pill while an explicit old conversation is open; "Load previous
+  conversation — <title>" restore banner on an empty thread.
+  **Let-go trigger on iOS = leaving the Ask tab** (the analog of collapsing
+  the web mole), via the NavigationStack's `onDisappear`.
+- **`ConversationsListView`:** server-paged (25/page, infinite scroll instead
+  of web's Prev/Next), debounced search (300ms, titles + message contents),
+  bucket labels, untitled rows italic. Row tap loads explicit + pops.
+- Card **focus mode intentionally not ported** (Will's call, 2026-08-29).
+- New `testConversationsSmoke` (ungated — listing needs no subscription):
+  passes green against production.
+
+## 2026-08-29 · iOS polish: Add-tab tab-bar hairline; search submit key (iOS)
+
+- Add tab forces `.toolbarBackground(.visible, for: .tabBar)` — the other tabs
+  get the bar's material + hairline for free from content scrolling beneath
+  it; Add has no scroll view, so the bar rendered transparent there (no
+  separator line).
+- Library search pill: `.submitLabel(.search)` — return dismisses the
+  keyboard (the custom pill spawns no system Cancel button, unlike
+  `.searchable`). UI tests updated accordingly; `testTagFilterSheetOpens`
+  deleted with the tag filter. `testLibrarySmoke` + `testDetailSheets`
+  verified green against production after the redesign.
+
+## 2026-08-28 · iOS: web design language adopted — round buttons, wordmark headers, gradient, splash; chips/tags removed from View (iOS)
+
+Second pass the same day (below entry is the first): the iOS app now mirrors
+the web's visual conventions instead of stock-iOS chrome.
+
+- **Design system** (`ios/Stash/Design/StashDesign.swift`): the web's exact
+  values ported — Tailwind violet/gray hexes, `UnifiedInputPanel.tsx`'s round
+  iconographic buttons (white circle, hairline gray border, soft shadow;
+  violet-tinted active state; the one weighted control is the violet-filled
+  #8B5CF6 paperplane submit, never dimmed when disabled — white/gray instead),
+  and `index.css`'s six-stop `.animated-gradient` (15s ease shift) as a
+  page-level backdrop fading to background.
+- **One titling convention across all four tabs:** no per-screen titles (the
+  tab bar already says where you are; no tab goes deeper than one level).
+  Every tab carries the same compact header — Stash wordmark leading (ported
+  as a template-rendered SVG asset), per-tab accessory trailing (View: item
+  count; Add: outbox badge). If push navigation ever arrives, the system
+  inline back bar slots underneath without clashing.
+- **View tab decluttered:** type chips (All/Links/Notes/…) removed entirely;
+  tag filter removed (tags are being deprecated product-wide — they remain
+  visible only in Settings for now); large title + `.searchable` bar replaced
+  by the header row + one pill search field (web `LibraryToolbar`'s
+  rounded-full pill, violet ring while focused). Cards are white surfaces
+  with hairline border + soft shadow over the gradient backdrop.
+- **Ask composer** restyled to the same circles (mic resting = white circle;
+  live dictation keeps its red state signal; send = weighted violet circle).
+- **Splash screen** (`SplashView`): wordmark centered over the animated
+  gradient at 0.35 opacity, ~1.6s on cold launch, cross-fades out while
+  session restore continues underneath. Sign-in screen intentionally plain.
+- UI tests updated: chip/tag steps dropped; search now targets the custom
+  pill field (`library.search` text field, not `searchFields`), which spawns
+  no system Cancel button.
+
+## 2026-08-28 · iOS: single-column card grid on phones; full-screen Add composer (iOS)
+
+- **Library grid is single-column on compact width** (phones); two-up only on
+  regular width (iPad). `LibraryView.columns` switches on
+  `horizontalSizeClass`. Motivation: the two-up grid shipped with a card-width
+  blowout — `.fill`-scaled hero images inflated cards past their grid column.
+  Structural fix in `CardHero.swift`: `TallContainedImage` /
+  `StandardCoverImage` now render imagery in an `.overlay` of a fixed-height
+  base (overlays don't participate in layout negotiation), so a hero can never
+  drive card width again, at any column count.
+- **Add composer owns the whole screen.** The editor fills all space between
+  the large title and a bottom stack (no bounded 160–220pt frame, no dead
+  space — there's no card grid under the input on iOS, unlike the web's
+  panel-over-grid). Full-bleed panel (12pt text inset only). Bottom stack
+  order, top→bottom: URL chip → attachments row → subscription gate →
+  location line → controls row. The location preview gets its own line
+  directly above the controls, never inline between buttons.
+- Controls row buttons are `.borderless` (was `.bordered`): seven bordered
+  controls exceeded a phone's width, overflowing the composer off both display
+  edges (Save clipped entirely off-screen).
+- `MainTabView` accepts `--uitest-tab-view` / `--uitest-tab-ask` /
+  `--uitest-tab-settings` launch arguments (same family as
+  `--uitest-reset-auth`) so headless verification can land on a tab directly.
+
+## 2026-08-28 · Capture panel hidden in conversations/focus states; gradient page-level; conversations search + pagination (web)
+
+- The capture input panel is hidden while the Conversations list is open OR
+  focus-sources is active — retrieval states; capture returns with the card
+  grid. The animated gradient backdrop moved from inside the panel to the
+  page level (Index content wrapper), so the ambience persists in every
+  state; conversation rows are positioned (`relative`) solid white above it.
+  Dark mode is not wired on web (`darkMode:["class"]`, no provider) —
+  light-only for now.
+- Focusing sources from a FLOATING mole auto-pins it — the floating panel
+  otherwise overlays the focus pill's Clear button (found via real-browser
+  pixel/click verification).
+- **Conversations list gained search + pagination.**
+  `list_conversations(search_text, page_limit, page_offset)` v2 (migration
+  `20260828100000`, applied): search matches title OR any message content
+  (ILIKE), pages clamp 1–100, rows carry `total_count`. UI: debounced
+  search box, "Showing X–Y of Z", 25/50/100 page-size select, Prev/Next.
+  iOS: same RPC serves a paged history screen directly.
+- iOS: if Ask/history surfaces share a screen with capture affordances,
+  mirror the hide rule — no capture entry points while browsing
+  conversations or a focused source set.
+- **Letting go of loaded conversations (same-day addition):** collapsing the
+  mole while an explicitly loaded old conversation is open clears the thread
+  (reopen = mostly clean mole) and remembers it; an empty mole then shows a
+  "Load previous conversation — <title>" restore banner at the top of the
+  thread. A persistent "Start new chat" link sits beside "Earlier
+  conversations" in the mole footer — it clears the thread and forces the
+  next send into a brand-new session (gap rule bypassed; behavior
+  unit-tested). Nothing is ever lost: old threads always remain in the
+  Conversations list. iOS: mirror all three behaviors on the Ask surface.
+
+## 2026-08-27 · Chat sessions, retrieval-only mole, Conversations view, focus sources (web + contract)
+
+Spec: `docs/superpowers/specs/2026-08-27-chat-sessions-design.md` ·
+Prototype: `docs/superpowers/prototypes/2026-08-27-chat-workspace.html`
+
+- **Sessions (all platforms — client convention):** a conversation is a burst
+  of activity; 3+ hours of silence starts a new one. Resolve on open AND on
+  send: latest conversation by `last_message_at`, continue iff < 3h old, else
+  create a row lazily on first send (`title` null → auto-titled from the
+  first question via `generate-title`). Send only the current session as
+  `conversationHistory`. Explicitly opened old sessions resume (gap exempt).
+  DB: `conversations.last_message_at` (trigger-maintained) + RPC
+  `list_conversations()` → `(id, title, last_message_at, message_count,
+  preview)` (migration `20260827120000_chat_sessions.sql`, applied).
+- **Mole is retrieval-only (product decision, all platforms):** capture
+  routing removed from the web mole (`moleRouting.ts` deleted); composer
+  placeholder "Ask your stash…". iOS: remove `MessageRouting` from the Ask
+  composer to match. Capture belongs to capture surfaces.
+- **"Earlier conversations"** link replaces the footer hint under the mole
+  composer; it swaps the main pane between the card grid and a bucketed
+  Conversations list (Today / Yesterday / This week / month / older). Row
+  click loads that session into the mole (pinning it if minimized).
+- **Focus sources:** answers with sources show "⌖ Focus sources (n)"; click
+  filters the card grid to the cited items in citation order with a
+  "Showing n cards from this answer · Clear" pill. Focus overrides search
+  filtering while active and always switches the main pane back to cards.
+  Works on reloaded history via `messages.source_items`.
+
+## 2026-08-27 · Ask Stash citations: item titles are inline links; sources row only for extras (server deployed + web)
+
+When an answer names a saved item, the title itself is now a clickable link
+that opens the card, and the bottom "Source(s):" row only lists sources NOT
+already linked in the text — usually none, so it disappears.
+
+- **Contract (server, deployed):** the model cites by writing item titles as
+  markdown links targeting the citation number — `[Beyond the Basics](#3)` —
+  and bare `[3]` markers only for claims that don't name the item. Each entry
+  in the `done` frame's `sources` array now carries its citation number `n`:
+  `{id, title, type, url, n}`.
+- **Client baking (web; iOS/mac mirror this):** at stream end, rewrite the
+  markdown using the `n` map — `](#3)` → `](#item=<uuid>)` and bare `[3]` →
+  `[[3]](#item=<uuid>)` — and persist the BAKED text (util:
+  `src/utils/chatCitations.ts`, unit-tested incl. idempotence). History
+  reloads restore only message text, so baked links keep working forever;
+  mid-stream `(#n)` targets render as plain text until baked.
+- **Rendering (web):** ReactMarkdown custom `a` — `#item=` hrefs render as
+  violet underlined buttons calling the same open-card handler as source
+  chips; other hrefs open in a new tab. Bottom row = sources filtered by
+  `extractLinkedItemIds(content)`. Read-aloud flattens links to their text.
+- iOS: parse `[text](#item=<uuid>)` in chat markdown into taps that open the
+  item; hide any source chip whose id already appears inline.
+
+## 2026-08-26 · Ask Stash goes agentic: tool-calling retrieval loop (server, deployed)
+
+Retrieval-overhaul phase 3. `chat-with-all-content` rewritten from one-shot
+RAG (embed message → one search → stuff 7,000 chars) into a **tool-calling
+loop**: the model drives retrieval via `search_stash` (hybrid search with
+type/date/tag filters) and `get_item` (full notes/summary/captured text), up
+to 4 tool rounds per turn. What this changes for users on every platform:
+
+- **Follow-ups finally work** — "what were the two priorities from it
+  again?" gets rewritten into a real query using conversation history before
+  searching (verified live).
+- Time/type-anchored questions ("that PDF from last week") can use real
+  filters; the system prompt knows today's date.
+- The model reads items in full before quoting, instead of seeing only a
+  1,500-char truncation; per-item context is no longer pre-truncated.
+- Honest empty results: it searches before ever claiming something isn't
+  saved, and says so plainly when it isn't. App-usage questions skip search.
+- Model: `gpt-5-mini` (reasoning_effort low) replaces `gpt-4.1-mini`.
+
+**Wire contract unchanged** — same `{delta}` / `{done, sources}` SSE frames;
+no client changes needed anywhere. New optional `{status:"searching"|"reading"}`
+frames stream while tools run (all frames remain valid JSON; parse and ignore
+unknown keys). `sources` is now the items the answer cites (fallback: items
+read in full) rather than everything retrieved. History cap raised 6 → 10
+turns. Clients that want a "searching your stash…" shimmer can render the
+status frames (web doesn't yet). Contract details in `PLATFORM_API.md`.
+
+Shared auth for edge functions moved to `_shared/auth.ts`
+(chat-with-all-content's local copy removed; search-items uses it too).
+
+Known issue found while testing (NOT fixed, needs a product decision):
+deleting an auth user fails with an FK violation once they own items —
+`items_user_id_fkey` references `auth.users` without `ON DELETE CASCADE`.
+Account deletion is effectively broken for active accounts.
+
+## 2026-08-26 · `search-items` endpoint; web library search goes server-side; chat context gains dates (server + web, deployed)
+
+Retrieval-overhaul phase 2. **`search-items` is the canonical search surface**
+— every retrieval consumer (web toolbar today; chat tool-calling, MCP, and
+iOS/Siri next) should build on it rather than on the RPC directly.
+
+- **New edge function `POST /functions/v1/search-items`** (Supabase JWT auth).
+  Request: `{ query?, types?, tags?, after?, before?, limit? }` — `types` is
+  an array of item types, `tags` any-of (lowercased), `after`/`before` ISO
+  timestamps, `limit` 1–50 (default 20). Two modes:
+  - *query mode* (non-empty `query`): hybrid semantic+keyword search
+    (embeds the query, calls `hybrid_search_content` v2), deduped to one
+    result per item, relevance-ordered.
+  - *filter mode* (no query): newest-first listing under the same filters.
+  Response: `{ results: [{ id, title, type, url, created_at, description,
+  snippet, score }] }` (`score` null in filter mode; `snippet` is the best
+  matching chunk in query mode, the description otherwise).
+- **`hybrid_search_content` v2** (migration
+  `20260826110000_search_filters_recency.sql`): optional `filter_types`,
+  `after_ts`/`before_ts`, `filter_tags` (any-of), and a gentle recency boost
+  (`score += recency_weight/(rrf_k + age_days)`, default weight 0.3, pass 0
+  to disable). Result rows gained `item_description`. Existing callers
+  unaffected (new params have defaults). Still service_role-only.
+- **Web library search now upgrades to server results** (`useServerSearch`
+  hook → `search-items`, 300 ms debounce, ≥2 chars, per-query session
+  cache). While pending or on failure the instant client substring filter
+  keeps working; when results land the grid switches to **relevance order**
+  (otherwise chronological). Net new capability on web: keyword search
+  finally reaches `page_body`/`summary`, plus semantic matching. iOS: mirror
+  by calling `search-items` when the library search box is non-empty (keep
+  the local filter as the instant/offline layer).
+- **Ask Stash context blocks now carry saved dates** — headers read
+  `[n] Title (type · saved 2026-08-26)` and the system prompt tells the
+  model to use them for time-anchored questions ("when did I save…").
+  No client changes; SSE contract unchanged.
+
+## 2026-08-26 · Search hygiene: RPC locked to service_role, FTS covers summaries/URLs, fairer ranking (server, deployed)
+
+Retrieval-overhaul phase 1. No client code changes required on any platform,
+but the contracts below matter to anyone building retrieval features.
+
+- **`hybrid_search_content` is no longer callable with the anon or user JWT**
+  (REST probe now returns 42501). It is `SECURITY DEFINER` with a
+  caller-supplied `target_user_id` — tenancy lives in the edge functions —
+  so the default PUBLIC grant let any API-key holder read any user's chunks.
+  Clients must never call it directly; go through `chat-with-all-content`
+  (or future search endpoints). Legacy `search_similar_content` is dropped.
+- **RPC result shape gained `item_created_at`** (timestamptz) so callers can
+  render/reason about recency. Existing callers are unaffected (they select
+  fields by name).
+- **Ranking fixes:** the FTS top-30 is now actually ordered by rank before
+  the cut (was arbitrary), and vector hits are capped at **2 chunks per
+  item** so one long document can't crowd the fused list (parity with the
+  SMS path's dedupe).
+- **`items.fts` rebuilt to include `summary` and `url`** — keyword search
+  now reaches AI summaries and link hosts/slugs. All 563 items repopulated.
+- **`increment_tag_usage` now enforces tenancy** (`user_uuid` must match
+  `auth.uid()` for authenticated callers; service-role passes through; anon
+  grant revoked). Web/iOS callers pass their own id already — no change.
+- **Embedding chunker fixed (`generate-embeddings`, deployed):** whitespace
+  normalization was collapsing newlines before the paragraph splitter ran,
+  so every text >1200 chars went through the blind sliding window.
+  Paragraph-aware chunking now actually fires; giant single paragraphs get
+  windowed with overlap. Applies to new/re-embedded items only (no backfill).
+- Migration: `supabase/migrations/20260826090000_search_hygiene.sql` (applied
+  to prod + recorded). `src/integrations/supabase/types.ts` regenerated from
+  the live schema (was stale: missing `hybrid_search_content`, `fts`,
+  `attributes`, scrape-retry columns).
+
+## 2026-08-26 · Link cover images verified at save; media filename chip everywhere (server + extension)
+
+- **Only verified images land in `file_path` (deployed):** the deep
+  `extract-link-metadata` pass now (a) sanitizes the extracted image URL
+  (first token of srcset-style values, trailing commas stripped, page URLs
+  like YouTube watch links rejected) and (b) drops any external image that
+  doesn't answer a GET with `image/*` bytes ≥100B (`verifyRemoteImage`,
+  `_shared/blockedContentFallbacks.ts`). `add-url` and
+  `retry-pending-scrapes` apply the same check before writing a raw external
+  URL; a stored copy in `previews/` still always wins. Net effect for all
+  clients: `file_path` on a link is either our own storage path or an
+  external URL that served an image at save time — cards degrade to the
+  favicon plate instead of a broken cover. One-time cleanup ran 2026-08-26:
+  9 of 28 stored external URLs were dead/malformed and were nulled.
+- **Media filename chip is now universal (extension):** the web upload path
+  always records `attributes.media.file_name`; the extension previously only
+  did when the source URL ended in a known image extension. It now
+  synthesizes a name for any http(s) source — path basename (or hostname as
+  last resort) plus the resolved format extension ("photo-14556789.avif") —
+  and also records `attributes.media.source_url` for provenance. iOS/mac:
+  mirror this — every media save should carry `media.file_name`; cards show
+  it as a mono chip under the description and the search bar matches it
+  (`src/utils/itemSearch.ts`). Only data:/blob: sources may omit it.
+
+## 2026-08-26 · Assembling copy + dim; AVIF vision; junk-title rescue (web + server)
+
+Three related fixes; the server parts are deployed and benefit every channel
+with zero client changes.
+
+- **Assembling card, new look (web; iOS/mac mirror the rules):** the chip now
+  reads **"Gathering more info…"** (was "Filling in the blanks…"), and while
+  assembling the whole card sits at **50% opacity with a subtle pulse**
+  (0.5 → 0.65, 2.6s loop) instead of the old near-invisible 1.0 → 0.96
+  breathe. Full opacity returns when assembly completes/retires.
+  `prefers-reduced-motion`: static 50%, no pulse. Same state machine as the
+  entry below (`itemAssembly.ts` unchanged).
+- **`analyze-image` accepts every stored image format (deployed):** OpenAI
+  Vision only takes png/jpeg/gif/webp, so avif/heic/tiff/bmp/ico/svg uploads
+  silently produced no title/description (confirmed: extension AVIF saves).
+  The function now routes non-safe extensions through Supabase Storage's
+  `render/image` transcoder (`Accept: image/jpeg`, width 1024) and inlines
+  the result as a base64 data URL for the vision call. Any transcode failure
+  falls back to the original URL (fails honestly, as before). Clients keep
+  uploading originals — do **not** transcode client-side.
+- **Challenge-page titles never stick (deployed):** bot walls that 200 with
+  "Client Challenge" / "Just a moment…" pages were being stored as titles.
+  New shared `isBlockedPageTitle` (`_shared/blockedContentFallbacks.ts`):
+  `add-url` discards challenge-page quick-fetch metadata and lets the deep
+  pass replace junk; `extract-link-metadata` treats a junk title as blocked
+  (triggers the rescue cascade) and never returns one; `retry-pending-scrapes`
+  treats junk titles as placeholders worth upgrading.
+- **Final-review headline rescue (deployed):** after a successful scrape,
+  `scrape-page-content` checks the stored title — if it's still junk, the
+  bare hostname, or the raw URL, it derives the real headline from the
+  scraped content (`deriveTitleFromContent`, gpt-4o-mini, ≤140 chars) and
+  writes it (also folded into the re-embed text). User-typed titles are
+  structurally safe: they never match the junk patterns.
+
+## 2026-08-26 · Feed: "assembling" cards while enrichment lands (web)
+
+Behavior contract first — iOS/mac should mirror the *rules*, with
+platform-native motion.
+
+- **A fresh capture visibly assembles.** While an item is less than
+  `ASSEMBLY_WINDOW_MS` (2.5 min) old **and** the pipeline still owes it
+  pieces, its card breathes gently and carries a small top-left chip:
+  **"Filling in the blanks…"**. Each piece animates in as realtime delivers
+  it (short rise + violet wash echoing the card shadows). When the last
+  expected piece lands, the chip flips to **"Filled in ✓"** for ~2s and
+  everything goes quiet. If enrichment dies, the state retires honestly at
+  the window edge — no eternal pulsing.
+- **Expected pieces per type** (ETHOS: never fake enrichment — only promise
+  what reliably arrives): image → description + AI title (placeholder-title
+  rule from the entry below); audio/video → description; PDF → summary (the
+  existing "summary present = done" contract); links and notes promise
+  nothing, but whatever does land (description, better title, preview image,
+  summary) still gets its reveal moment.
+- **Mechanics** (`src/utils/itemAssembly.ts`, pure + unit-tested): the grid
+  diffs each realtime items snapshot against the previous one
+  (`landedPieces`) — no new realtime wiring, so it works for captures from
+  **any** channel (web box, chrome extension, iOS share sheet, SMS). New
+  cards younger than 15s also get an entrance rise.
+- **Motion discipline:** transform/opacity only; `prefers-reduced-motion`
+  disables all of it (the chip still renders statically — the information
+  survives, the motion doesn't).
+
+## 2026-08-26 · Image titles are AI-derived; filenames become metadata (all channels)
+
+Written for the iOS/mac agents — contracts first.
+
+- **`analyze-image` contract change (deployed):** the vision pass now also
+  returns a `TITLE:` line — ultra-short (3–7 words), "Screenshot of X" when
+  the image is a screenshot of an app/website/chat/code/any UI, "Image of X"
+  otherwise. On its DB-write path the function replaces the item's title
+  **only when the current title is a placeholder**: empty, equal to the
+  storage basename, or any filename-looking string (`*.png`, `*.jpg`, …). A
+  user-typed title is never touched. `precomputed` may now carry `title`;
+  filename-ish precomputed titles are ignored server-side. If neither vision
+  nor precomputed supplies one (older client, older chip result), the title
+  is composed from the description via gpt-4o-mini — so **every channel gets
+  the behavior with zero client changes**.
+- **The filename is metadata, not a title.** When a *real* filename title is
+  replaced ("CleanShot 2026-08-11.png" — not our own `<timestamp>.ext`
+  storage names), it's preserved into `attributes.media.file_name`
+  (whole-blob merge, existing key from the media-attributes design). It now
+  also rides in the re-embed text, and the web search predicate
+  (`src/utils/itemSearch.ts`) matches it — finding an image by its filename
+  works even though the filename no longer appears as the title. Web cards
+  already render `media.file_name` as the mono chip on image/audio/video.
+- **Clients:** web chip analysis captures the vision title, so box-saved
+  images carry the AI title from first paint (no rename flicker). Chrome
+  extension v1.1.0 sends `attributes.media.file_name` derived from the image
+  URL's path. **iOS action item:** keep sending the original filename (as
+  `title` or ideally `attributes.media.file_name`) — the server upgrade path
+  then applies unchanged.
+
+## 2026-08-26 · Chrome extension: "Stash it" capture surface (`extension/`)
+
+Written for the iOS/mac agents — contracts first.
+
+- **New capture client** at `extension/` — Chrome MV3, plain JS, no build
+  step, no dependencies; loads unpacked (not on the Web Store yet). Three
+  gestures, all against existing platform endpoints — **zero server changes**:
+  - Toolbar button → `add-url` with the active tab's URL (http/https only;
+    anything else shows the failure badge).
+  - Right-click selected text → **"Stash it"** → `add-note` with the
+    selection as `content`. Exact text (newlines preserved) is read via a
+    `scripting` injection; where injection is blocked (PDF viewer, chrome://
+    pages) it falls back to Chrome's whitespace-collapsed `selectionText`.
+  - Right-click an image → **"Stash it"** → service worker fetches the image
+    bytes (with that site's cookies), uploads to
+    `stash-media/<userId>/<Date.now()>.<ext>` (same naming as web
+    `fileUploader.ts`), then `add-file` — so it becomes a real image item
+    with vision/OCR enrichment, not a link. 20 MB cap mirroring
+    `MAX_FILE_SIZE_MB`; `blob:` URLs and non-image content-types (CDN error
+    pages) fail visibly rather than saving garbage.
+- **Deliberate scope decision (Will, 2026-08-26): no annotation UI
+  anywhere.** Capture is zero-input; context gets added later in the app.
+  Selection saves as a plain note — no source URL attached in v1.
+- **Feedback contract:** transient badge on the toolbar icon, scoped to the
+  originating tab — `…` while saving, green `✓` ~2.2 s on success, red `!`
+  ~4 s on failure. No page injection for feedback.
+- **Auth:** one-time email/password sign-in (the options page doubles as the
+  sign-in page), raw GoTrue REST (`/auth/v1/token`, the path
+  `PLATFORM_API.md` sanctions), session in `chrome.storage.local`,
+  refresh-on-demand (<60 s token life → refresh, single-flight, one retry on
+  401) — the MV3-safe pattern, since service-worker sleeps kill timers. A
+  signed-out save opens the sign-in page instead of failing silently.
+- **Mac-agent note:** this is the desktop-browser sibling of the iOS share
+  extension, but it does **not** implement iOS's direct-vs-queue Outbox rule
+  — any failure just shows `!` and the user retries. Judged acceptable for a
+  v1 on an effectively always-online desktop; adopt the Outbox pattern if
+  offline capture ever matters here.
+
 ## 2026-08-22 · iOS share extension: system share sheet capture (iOS plan 5)
 
 Written for the web/mac agents — contracts first.

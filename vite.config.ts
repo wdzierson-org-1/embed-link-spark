@@ -24,7 +24,8 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
-    // Git worktrees under .claude/ carry a full duplicate of src/ — never test them
-    exclude: [...configDefaults.exclude, ".claude/**", "ios/**"],
+    // Git worktrees under .claude/ carry a full duplicate of src/ — never test
+    // them. extension/ runs on node:test (`cd extension && npm test`), not vitest.
+    exclude: [...configDefaults.exclude, ".claude/**", "ios/**", "extension/**"],
   },
 }));

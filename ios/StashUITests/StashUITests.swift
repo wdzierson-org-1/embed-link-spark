@@ -204,21 +204,12 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: grid\n".data(using: .utf8)!)
         sleep(3)
 
-        // 2. Type chip narrows server-side; the fixture account has link items.
-        let linksChip = app.buttons["library.chip.links"]
-        XCTAssertTrue(linksChip.waitForExistence(timeout: 5), "Links chip not found")
-        linksChip.tap()
-        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected at least one Links card")
-
-        // Reset to All so search/tag steps below aren't silently scoped to Links —
-        // the tag-filter step selects a tag attached to a *note*, not a link, and
-        // "Links ∩ ios-test" is correctly empty, which would otherwise read as a
-        // false failure of the tag filter rather than a leftover chip selection.
-        app.buttons["library.chip.all"].tap()
-        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards after resetting to All")
-
-        // 3. Local search narrows to nothing for an unmatchable query, then clears back.
-        let searchField = app.searchFields.firstMatch
+        // 2. Local search narrows to nothing for an unmatchable query, then clears back.
+        // (Type chips and the tag filter are gone — the 2026-08-28 UI pass removed the chip
+        // row and hid tags from the View tab entirely, pending product-wide tag deprecation.
+        // Search is the custom pill field now, a plain text field, not `.searchable` — so no
+        // system "Cancel" button appears and no dismissal dance is needed.)
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Search field not found")
         searchField.tap()
         let needle = "zzzunmatchablezzz"
@@ -229,30 +220,9 @@ final class StashUITests: XCTestCase {
         searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: needle.count))
         XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards to return after clearing the search")
 
-        // The search field still holds keyboard focus after being cleared by backspace,
-        // which (standard `.searchable` behavior) replaces the trailing toolbar items
-        // with a system "Cancel" button — confirmed via an accessibility-tree dump.
-        // Dismiss it (text is already empty, so Cancel's clear-text side effect is a
-        // no-op) before the tag button is reachable again.
-        let cancelButton = app.buttons["Cancel"]
-        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5), "Expected a Cancel button while search is focused")
-        cancelButton.tap()
-        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards after dismissing search focus")
-
-        // 4. Tag filter narrows via the item_tags!inner join (fixture: "ios-test" tags
-        // exactly one note), then Clear restores the unfiltered grid.
-        app.buttons["library.tagFilterButton"].tap()
-        let iosTestTagRow = app.buttons["tagfilter.tag.ios-test"]
-        XCTAssertTrue(iosTestTagRow.waitForExistence(timeout: 10), "ios-test tag row not found in the filter sheet")
-        iosTestTagRow.tap()
-        app.buttons["tagfilter.done"].tap()
-        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected at least one card for the ios-test tag filter")
-
-        app.buttons["library.tagFilterButton"].tap()
-        XCTAssertTrue(app.buttons["tagfilter.clear"].waitForExistence(timeout: 5), "Clear button not found in the filter sheet")
-        app.buttons["tagfilter.clear"].tap()
-        app.buttons["tagfilter.done"].tap()
-        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards after clearing the tag filter")
+        // The pill field spawns no system Cancel button (unlike `.searchable`), so the keyboard
+        // would still be covering the tab bar here — return ("Search") dismisses it.
+        searchField.typeText("\n")
 
         // 5. Sign out via the Settings tab (Task 7: relocated from the library toolbar's avatar
         // menu, which no longer exists — `library.menu`/`library.signOut` are gone).
@@ -289,7 +259,7 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
                       "Expected the tab bar to appear after sign-in")
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
 
         func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
@@ -376,7 +346,7 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: anatomy-grid\n".data(using: .utf8)!)
         sleep(3)
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
 
         /// Narrows the grid to one fixture via a unique local-search substring (never grid
@@ -447,19 +417,8 @@ final class StashUITests: XCTestCase {
     /// even when the account has no items. Also the screenshot rig for task-10-report.md's
     /// required tag-filter-sheet capture: sleeps briefly post-presentation so an external
     /// `xcrun simctl io <udid> screenshot` can capture it mid-test.
-    func testTagFilterSheetOpens() throws {
-        let (email, password) = try testCredentials()
-        let app = XCUIApplication()
-        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
-                      "Expected the tab bar to appear after sign-in")
-
-        let tagButton = app.buttons["library.tagFilterButton"]
-        XCTAssertTrue(tagButton.waitForExistence(timeout: 15), "Tag filter button did not appear")
-        tagButton.tap()
-
-        XCTAssertTrue(app.buttons["tagfilter.done"].waitForExistence(timeout: 10), "Tag filter sheet did not present")
-        sleep(3)
-    }
+    // testTagFilterSheetOpens was deleted in the 2026-08-28 UI pass along with the tag filter
+    // itself — tags are hidden from the View tab pending product-wide deprecation.
 
     /// Add is the plan-2 launch tab: the composer is reachable at launch with no tab tap, so
     /// this types a marker note straight in, saves it, and confirms it lands on the View tab
@@ -529,7 +488,7 @@ final class StashUITests: XCTestCase {
         app.tabBars.buttons["View"].tap()
         XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 15), "Library grid did not appear")
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Search field not found")
         searchField.tap()
         searchField.typeText("UITEST-CAPTURE: smoke note")
@@ -601,7 +560,7 @@ final class StashUITests: XCTestCase {
             field.typeText(newValue)
         }
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
         searchField.tap()
         searchField.typeText("note one")
@@ -683,7 +642,7 @@ final class StashUITests: XCTestCase {
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
         func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
         searchField.tap()
         searchField.typeText(marker)
@@ -723,7 +682,7 @@ final class StashUITests: XCTestCase {
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
         func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
         searchField.tap()
         searchField.typeText("note two")
@@ -1262,7 +1221,7 @@ final class StashUITests: XCTestCase {
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
         func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
         searchField.tap()
         searchField.typeText(marker)
@@ -1497,6 +1456,43 @@ final class StashUITests: XCTestCase {
             // Safari — belt confirmation, not the primary assertion (which is the REST check above).
             _ = shareButton.waitForExistence(timeout: 15)
         }
+    }
+
+    /// Conversations navigation (2026-08-29 sessions model): the Ask header's history button
+    /// pushes the Conversations list — UNGATED, unlike sending (listing is a plain RPC read, no
+    /// subscription check), so this passes on the lapsed test account. The account's row count
+    /// depends on what earlier (pre-gate-lapse) runs persisted, so a populated list and the
+    /// empty state are BOTH acceptable outcomes; only the navigation shell (search pill, back
+    /// to the thread) is asserted unconditionally.
+    func testConversationsSmoke() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+        func anyElement(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        app.tabBars.buttons["Ask"].tap()
+        XCTAssertTrue(app.buttons["ask.newChat"].waitForExistence(timeout: 10), "New-chat button missing")
+        let historyButton = app.buttons["ask.history"]
+        XCTAssertTrue(historyButton.exists, "History button missing")
+        historyButton.tap()
+
+        XCTAssertTrue(app.textFields["convos.search"].waitForExistence(timeout: 10),
+                      "Conversations search pill did not appear")
+        let populated = anyElement("convos.list").waitForExistence(timeout: 10)
+        XCTAssertTrue(populated || anyElement("convos.empty").waitForExistence(timeout: 5),
+                      "Expected either conversation rows or the empty state")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: conversations\n".data(using: .utf8)!)
+        sleep(4)
+
+        // Back pops to the thread (the root registers "Ask" as its hidden-bar title, so the
+        // system back button carries it).
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(anyElement("ask.input").waitForExistence(timeout: 10),
+                      "Expected the Ask thread after popping Conversations")
     }
 
     /// Settings tab (Task 7): account email, a non-empty subscription status line, and sign-out —

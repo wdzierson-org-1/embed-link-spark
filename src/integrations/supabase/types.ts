@@ -100,6 +100,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          last_message_at: string | null
           title: string | null
           updated_at: string
           user_id: string
@@ -107,6 +108,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          last_message_at?: string | null
           title?: string | null
           updated_at?: string
           user_id: string
@@ -114,6 +116,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          last_message_at?: string | null
           title?: string | null
           updated_at?: string
           user_id?: string
@@ -238,17 +241,20 @@ export type Database = {
       }
       items: {
         Row: {
+          attributes: Json
           comments_enabled: boolean
           content: string | null
           created_at: string
           description: string | null
           file_path: string | null
           file_size: number | null
+          fts: unknown
           id: string
           is_public: boolean
+          last_scrape_attempt: string | null
           mime_type: string | null
-          attributes: Json
           page_body: string | null
+          scrape_attempts: number
           summary: string | null
           supplemental_note: string | null
           tags: string[] | null
@@ -260,17 +266,20 @@ export type Database = {
           visibility: string
         }
         Insert: {
+          attributes?: Json
           comments_enabled?: boolean
           content?: string | null
           created_at?: string
           description?: string | null
           file_path?: string | null
           file_size?: number | null
+          fts?: unknown
           id?: string
           is_public?: boolean
+          last_scrape_attempt?: string | null
           mime_type?: string | null
-          attributes?: Json
           page_body?: string | null
+          scrape_attempts?: number
           summary?: string | null
           supplemental_note?: string | null
           tags?: string[] | null
@@ -282,17 +291,20 @@ export type Database = {
           visibility?: string
         }
         Update: {
+          attributes?: Json
           comments_enabled?: boolean
           content?: string | null
           created_at?: string
           description?: string | null
           file_path?: string | null
           file_size?: number | null
+          fts?: unknown
           id?: string
           is_public?: boolean
+          last_scrape_attempt?: string | null
           mime_type?: string | null
-          attributes?: Json
           page_body?: string | null
+          scrape_attempts?: number
           summary?: string | null
           supplemental_note?: string | null
           tags?: string[] | null
@@ -406,6 +418,42 @@ export type Database = {
         }
         Relationships: []
       }
+      user_follows: {
+        Row: {
+          created_at: string | null
+          follower_id: string
+          following_id: string
+          id: string
+        }
+        Insert: {
+          created_at?: string | null
+          follower_id: string
+          following_id: string
+          id?: string
+        }
+        Update: {
+          created_at?: string | null
+          follower_id?: string
+          following_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_follows_follower_id_fkey"
+            columns: ["follower_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_follows_following_id_fkey"
+            columns: ["following_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_phone_numbers: {
         Row: {
           created_at: string
@@ -501,46 +549,54 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      follow_user: {
-        Args: { target_id: string }
-        Returns: boolean
-      }
-      get_follower_count: {
-        Args: { user_id: string }
-        Returns: number
-      }
-      get_following_count: {
-        Args: { user_id: string }
-        Returns: number
+      follow_user: { Args: { target_id: string }; Returns: boolean }
+      get_follower_count: { Args: { user_id: string }; Returns: number }
+      get_following_count: { Args: { user_id: string }; Returns: number }
+      hybrid_search_content: {
+        Args: {
+          after_ts?: string
+          before_ts?: string
+          filter_tags?: string[]
+          filter_types?: Database["public"]["Enums"]["item_type"][]
+          match_count?: number
+          query_embedding: string
+          query_text: string
+          recency_weight?: number
+          rrf_k?: number
+          target_user_id: string
+        }
+        Returns: {
+          content_chunk: string
+          item_created_at: string
+          item_description: string
+          item_id: string
+          item_title: string
+          item_type: Database["public"]["Enums"]["item_type"]
+          item_url: string
+          score: number
+        }[]
       }
       increment_tag_usage: {
         Args: { tag_name: string; user_uuid: string }
         Returns: string
       }
-      is_following: {
-        Args: { target_id: string }
-        Returns: boolean
-      }
-      unfollow_user: {
-        Args: { target_id: string }
-        Returns: boolean
-      }
-      search_similar_content: {
+      is_following: { Args: { target_id: string }; Returns: boolean }
+      list_conversations: {
         Args: {
-          match_count?: number
-          match_threshold?: number
-          query_embedding: string
-          target_user_id?: string
+          page_limit?: number
+          page_offset?: number
+          search_text?: string
         }
         Returns: {
-          content_chunk: string
-          item_id: string
-          item_title: string
-          item_type: Database["public"]["Enums"]["item_type"]
-          item_url: string
-          similarity: number
+          id: string
+          last_message_at: string
+          message_count: number
+          preview: string
+          title: string
+          total_count: number
         }[]
       }
+      unfollow_user: { Args: { target_id: string }; Returns: boolean }
     }
     Enums: {
       item_type:

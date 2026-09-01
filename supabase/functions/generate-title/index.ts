@@ -1,6 +1,8 @@
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { NO_PREAMBLE_RULES } from '../_shared/summarize.ts';
+import { transcriptTitleSystemPrompt } from '../_shared/titlePolicy.ts';
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
@@ -15,7 +17,25 @@ serve(async (req) => {
   }
 
   try {
-    const { content } = await req.json();
+    const { content, kind } = await req.json();
+
+    // kind 'transcript': title an audio/video recording from its transcript.
+    // Same prompt as add-file's server-side path (shared via
+    // _shared/titlePolicy.ts), including the KEEP_FILENAME privacy escape for
+    // deeply personal content — the caller checks the returned title for that
+    // token and keeps the filename title when it appears.
+    const messages = kind === 'transcript'
+      ? [
+          { role: 'system', content: transcriptTitleSystemPrompt(NO_PREAMBLE_RULES) },
+          { role: 'user', content: `Transcript:\n\n${String(content ?? '').slice(0, 6000)}` }
+        ]
+      : [
+          {
+            role: 'system',
+            content: 'You are a helpful assistant that generates concise, descriptive titles for notes. The title should be 3-8 words and capture the main topic or theme of the content. Return only the title, nothing else.'
+          },
+          { role: 'user', content: `Generate a short title for this note content: ${content}` }
+        ];
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -25,15 +45,9 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [
-          { 
-            role: 'system', 
-            content: 'You are a helpful assistant that generates concise, descriptive titles for notes. The title should be 3-8 words and capture the main topic or theme of the content. Return only the title, nothing else.' 
-          },
-          { role: 'user', content: `Generate a short title for this note content: ${content}` }
-        ],
+        messages,
         max_tokens: 50,
-        temperature: 0.7,
+        temperature: kind === 'transcript' ? 0.2 : 0.7,
       }),
     });
 

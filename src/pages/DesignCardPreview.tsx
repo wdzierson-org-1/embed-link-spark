@@ -28,7 +28,7 @@ import ContentItem from '@/components/ContentItem';
  */
 
 const cardShell =
-  'group flex flex-col bg-card border-0 shadow-[0_1px_2px_rgba(0,0,0,0.06),0_8px_24px_rgba(160,120,200,0.12)] hover:shadow-[0_2px_4px_rgba(0,0,0,0.08),0_14px_36px_rgba(160,120,200,0.18)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl';
+  'group flex flex-col bg-card border-0 shadow-[0_1px_2px_rgba(20,22,30,0.05),0_8px_24px_rgba(30,33,44,0.08)] hover:shadow-[0_2px_4px_rgba(20,22,30,0.06),0_14px_36px_rgba(30,33,44,0.13)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl';
 
 /** The height scale — the only two hero heights in the system */
 const HERO_STANDARD = 'h-40'; // 10rem — landscape imagery, plates
@@ -111,7 +111,7 @@ const ArticleLinkCard = () => (
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         medium.com · Kenji Ito · 6 min read
       </p>
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">Five days in Tokyo, done right</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">Five days in Tokyo, done right</h3>
       <p className="line-clamp-2 text-sm text-muted-foreground">
         Skip the checklist tourism. A neighborhood-first itinerary that leaves room for the city to surprise you.
       </p>
@@ -135,7 +135,7 @@ const BlockedLinkCard = () => (
       </div>
     </div>
     <div className="flex flex-1 flex-col gap-2.5 p-6">
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">Senior Product Designer — Linear</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">Senior Product Designer — Linear</h3>
       <Annotation>Send to Dana before Friday.</Annotation>
       <CardFooter date="Aug 12, 2026" badge="link" />
     </div>
@@ -150,7 +150,7 @@ const BookLinkCard = () => (
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         bookshop.org · Vintage · 2024
       </p>
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">The Extended Mind</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">The Extended Mind</h3>
       <Annotation>Recommended by the guy at the counter — about thinking outside the brain.</Annotation>
       <CardFooter date="Aug 9, 2026" location="Bleecker St, New York" badge="book" />
     </div>
@@ -169,7 +169,7 @@ const TikTokCard = () => (
       }
     />
     <div className="flex flex-1 flex-col gap-2.5 p-6">
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">7 ramen counters worth the line in Shinjuku</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">7 ramen counters worth the line in Shinjuku</h3>
       <div className="flex flex-wrap gap-1.5">
         <MetaChip icon={<Play className="h-3 w-3" />}>tiktok.com</MetaChip>
         <MetaChip>0:42</MetaChip>
@@ -205,7 +205,7 @@ const GitHubCard = () => (
       </div>
     </div>
     <div className="flex flex-1 flex-col gap-2.5 p-6">
-      <h3 className="font-editorial text-xl leading-tight">zustand — tiny state manager</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight">zustand — tiny state manager</h3>
       <Annotation>Try this instead of Redux for the mole rewrite.</Annotation>
       <CardFooter date="Aug 13, 2026" badge="repo" />
     </div>
@@ -217,7 +217,7 @@ const PhotoCard = () => (
   <div className={cardShell}>
     <ContainedMedia src={REAL_IMAGE} />
     <div className="flex flex-1 flex-col gap-2.5 p-6">
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">Books that shaped my thinking</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">Books that shaped my thinking</h3>
       <div className="flex flex-wrap gap-1.5">
         <MetaChip mono>CleanShot 2026-08-11.png</MetaChip>
         <MetaChip>PNG · 1.0 MB</MetaChip>
@@ -239,7 +239,7 @@ const VoiceNoteCard = () => (
         <Waveform bars={26} className="flex-1" />
         <span className="text-xs font-medium text-violet-600">0:58</span>
       </div>
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">Neighborhood ideas for the trip</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">Neighborhood ideas for the trip</h3>
       <p className="line-clamp-2 text-sm text-muted-foreground">
         "Okay so — Yanaka for the old-town feel, then maybe base ourselves in Shimokitazawa instead of Shibuya…"
       </p>
@@ -265,7 +265,7 @@ const MeetingRecordingCard = () => (
       </span>
     </div>
     <div className="flex flex-1 flex-col gap-2.5 p-6">
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">Q3 partner sync — InsideTracker</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">Q3 partner sync — InsideTracker</h3>
       <p className="line-clamp-2 text-sm text-muted-foreground">
         Decisions: ship the demo revision by Friday; Sam owns the pricing one-pager; revisit SSO next call.
       </p>
@@ -292,7 +292,7 @@ const DocumentCard = () => (
       </div>
     </div>
     <div className="flex flex-1 flex-col gap-2.5 p-6">
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">Wine pairings for the tasting menu</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">Wine pairings for the tasting menu</h3>
       <p className="line-clamp-2 text-sm text-muted-foreground">
         A sommelier's working notes on matching the spring menu — leans natural, heavy on Jura whites.
       </p>
@@ -305,7 +305,7 @@ const DocumentCard = () => (
 const TextNoteCard = () => (
   <div className={cardShell}>
     <div className="flex flex-1 flex-col gap-2.5 p-6">
-      <h3 className="font-editorial text-xl leading-tight line-clamp-2">Morning pages</h3>
+      <h3 className="font-montreal font-medium tracking-[-0.014em] text-xl leading-tight line-clamp-2">Morning pages</h3>
       <p className="line-clamp-4 whitespace-pre-line text-sm leading-relaxed text-foreground/75">
         The best interface is the one that disappears. Stop designing screens; start designing exits.
         {'\n'}Also: call the framer about the two prints.
@@ -431,14 +431,14 @@ const wiredItems = [
 const DesignCardPreview = () => (
   <div className="min-h-screen bg-gradient-to-b from-[#fdf4fb] to-white">
     <div className="container mx-auto px-6 py-10">
-      <h1 className="font-editorial text-3xl">Card system · rev 2</h1>
+      <h1 className="font-montreal font-semibold tracking-[-0.02em] text-3xl">Card system · rev 2</h1>
       <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
         Changes from rev 1: a two-height hero scale (10rem / 14rem for portrait), a designed fallback for
         metadata-poor links, filenames demoted to mono chips (AI titles everywhere), extracted description and your
         annotation coexisting with clear hierarchy, and location only as the pin — no text line.
       </p>
 
-      <h2 className="mt-10 font-editorial text-2xl">Wired — the real components</h2>
+      <h2 className="mt-10 font-montreal font-semibold tracking-[-0.02em] text-2xl">Wired — the real components</h2>
       <p className="mb-5 mt-0.5 text-sm text-muted-foreground">
         Actual ContentItem renders in the app's row-major grid: newest reads left-to-right, each row
         stretches to its tallest card, footers pin to the bottom.
@@ -460,7 +460,7 @@ const DesignCardPreview = () => (
         ))}
       </div>
 
-      <h2 className="mt-10 font-editorial text-2xl">The dashboard, together</h2>
+      <h2 className="mt-10 font-montreal font-semibold tracking-[-0.02em] text-2xl">The dashboard, together</h2>
       <p className="mb-5 mt-0.5 text-sm text-muted-foreground">
         All ten cards flowing in a masonry column layout — how a real mixed feed would read.
       </p>
@@ -470,7 +470,7 @@ const DesignCardPreview = () => (
         ))}
       </div>
 
-      <h2 className="mt-12 font-editorial text-2xl">Rev 2 details, called out</h2>
+      <h2 className="mt-12 font-montreal font-semibold tracking-[-0.02em] text-2xl">Rev 2 details, called out</h2>
       <div className="mt-5 grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
         <Captioned caption="Fallback · blocked site → favicon plate, slug title, honest chip">
           <BlockedLinkCard />

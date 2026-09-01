@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { MapPin, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import type { CapturedLocation, ItemAttributes } from '@/types/itemAttributes';
 
 interface EditItemLocationSectionProps {
@@ -65,28 +65,27 @@ const EditItemLocationSection = ({ itemId, attributes, onSaveAttributes }: EditI
     }
   };
 
+  // Rendered as the value side of the Details drawer's "Location" fact row —
+  // compact, right-aligned, no chrome beyond the states themselves.
   if (isEditing) {
     return (
-      <div className="flex items-center gap-2">
-        <MapPin className="h-3.5 w-3.5 flex-none text-muted-foreground" />
-        <Input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void commit(draft)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              void commit(draft);
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              setIsEditing(false);
-            }
-          }}
-          placeholder="e.g. Brooklyn, New York"
-          className="h-8 rounded-lg border-black/10 bg-gray-50/60 text-sm focus-visible:ring-violet-300"
-        />
-      </div>
+      <Input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit(draft)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            void commit(draft);
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setIsEditing(false);
+          }
+        }}
+        placeholder="e.g. Brooklyn, New York"
+        className="h-7 w-52 max-w-full rounded-lg border-black/10 bg-white px-2 text-[13px] md:text-[13px] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0"
+      />
     );
   }
 
@@ -94,33 +93,32 @@ const EditItemLocationSection = ({ itemId, attributes, onSaveAttributes }: EditI
     return (
       <button
         onClick={startEditing}
-        className="flex items-center gap-1.5 text-[13px] text-muted-foreground/70 transition-colors hover:text-violet-600"
+        className="inline-flex items-center gap-1 text-[12.5px] font-normal text-[#6d5bd0] transition-opacity hover:opacity-75"
       >
-        <MapPin className="h-3.5 w-3.5" />
+        <Plus className="h-3 w-3" />
         Add a location
       </button>
     );
   }
 
   return (
-    <div className="group/location flex items-center gap-1.5 text-[13px] text-muted-foreground">
-      <MapPin className="h-3.5 w-3.5 flex-none text-violet-500" />
+    <span className="group/location inline-flex max-w-full items-center gap-1.5">
       <button
         onClick={startEditing}
         title="Edit location"
-        className="truncate transition-colors hover:text-violet-600"
+        className="truncate font-medium text-[#22262f] transition-colors hover:text-[#6d5bd0]"
       >
-        posted from {location.label}
+        {location.label}
       </button>
       <button
         onClick={() => void commit('')}
         title="Remove location"
         aria-label="Remove location"
-        className="grid h-5 w-5 flex-none place-items-center rounded-md text-muted-foreground/50 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover/location:opacity-100"
+        className="grid h-5 w-5 flex-none place-items-center rounded-md text-[#959ba6] opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover/location:opacity-100"
       >
         <X className="h-3 w-3" />
       </button>
-    </div>
+    </span>
   );
 };
 

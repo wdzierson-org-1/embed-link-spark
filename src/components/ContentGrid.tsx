@@ -1,11 +1,14 @@
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ContentItem from './ContentItem';
 import ContentItemSkeleton from './ContentItemSkeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { itemMatchesSearchQuery } from '@/utils/itemSearch';
+import { landedPieces, REVEAL_TTL_MS, type AssemblyPiece } from '@/utils/itemAssembly';
 import type { Attachment } from '@/components/CollectionAttachments';
+
+type RevealMap = Record<string, Partial<Record<AssemblyPiece, number>>>;
 
 export type ContentTypeFilter = 'all' | 'link' | 'note' | 'doc' | 'media';
 
@@ -23,6 +26,11 @@ interface ContentGridProps {
   onChatWithItem: (item: any) => void;
   tagFilters: string[];
   searchQuery?: string;
+  // Relevance-ordered ids from the server hybrid search; null = unavailable
+  // (pending/failed/short query), fall back to the client substring filter
+  serverResultIds?: string[] | null;
+  // Focused citation ids from a chat answer; overrides search filtering entirely
+  focusItemIds?: string[] | null;
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: any) => void;
@@ -39,6 +47,8 @@ const ContentGrid = ({
   onChatWithItem,
   tagFilters,
   searchQuery = '',
+  serverResultIds = null,
+  focusItemIds = null,
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
@@ -52,6 +62,49 @@ const ContentGrid = ({
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
   const { user } = useAuth();
+
+  // Assembling cards: diff each realtime snapshot against the previous one so
+  // enrichment pieces (title, description, summary, preview) can animate in
+  // as they land. Lives here — the grid sees every refetched items array.
+  const prevItemsRef = useRef<Map<string, any>>(new Map());
+  const [assemblyReveals, setAssemblyReveals] = useState<RevealMap>({});
+
+  useEffect(() => {
+    const prev = prevItemsRef.current;
+    const next = new Map<string, any>();
+    const nowMs = Date.now();
+    const fresh: RevealMap = {};
+
+    for (const item of items) {
+      if (item.isOptimistic || !item.id) continue;
+      next.set(item.id, item);
+      if (isPublicView) continue;
+      const before = prev.get(item.id);
+      if (!before) continue; // brand-new card — the entrance animation owns it
+      const landed = landedPieces(before, item);
+      if (landed.length > 0) {
+        fresh[item.id] = Object.fromEntries(landed.map((piece) => [piece, nowMs]));
+      }
+    }
+
+    prevItemsRef.current = next;
+    if (Object.keys(fresh).length > 0) {
+      setAssemblyReveals((current) => {
+        const merged: RevealMap = {};
+        // Keep only entries that are still animating or belong to this batch
+        for (const [id, pieces] of Object.entries(current)) {
+          const alive = Object.fromEntries(
+            Object.entries(pieces).filter(([, at]) => nowMs - (at as number) < REVEAL_TTL_MS)
+          );
+          if (Object.keys(alive).length > 0) merged[id] = alive;
+        }
+        for (const [id, pieces] of Object.entries(fresh)) {
+          merged[id] = { ...merged[id], ...pieces };
+        }
+        return merged;
+      });
+    }
+  }, [items, isPublicView]);
 
   const realItems = useMemo(() => items.filter(item => !item.isOptimistic), [items]);
   const realItemIds = useMemo(() => realItems.map(item => item.id), [realItems]);
@@ -164,6 +217,13 @@ const ContentGrid = ({
     fetchItemTags(realItemIds);
   };
 
+  // Server search results (when available) beat the client substring filter:
+  // they reach page_body/summary and match semantically, ranked by relevance.
+  // A focus request (from a chat answer's citations) overrides both entirely.
+  const rankIds = focusItemIds ?? serverResultIds;
+  const searchRank = rankIds ? new Map(rankIds.map((id, index) => [id, index])) : null;
+  const focusActive = Boolean(focusItemIds);
+
   // Filter items based on type, tag filters, and search query
   const filteredItems = items.filter(item => {
     // Type filter
@@ -174,36 +234,47 @@ const ContentGrid = ({
     // Tag filter
     if (tagFilters && tagFilters.length > 0) {
       const currentItemTags = itemTags[item.id] || [];
-      const matchesTag = tagFilters.some(filter => 
+      const matchesTag = tagFilters.some(filter =>
         currentItemTags.includes(filter)
       );
       if (!matchesTag) return false;
     }
-    
-    // Search filter (includes supplemental_note)
-    return itemMatchesSearchQuery(item, searchQuery);
+
+    // Search filter — just-saved optimistic items aren't indexed server-side
+    // yet, so they normally go through the client predicate; a focus request
+    // overrides that exemption too, since it's not a search at all.
+    if (searchRank && (focusActive || !item.isOptimistic)) {
+      return searchRank.has(item.id);
+    }
+    return !focusActive && itemMatchesSearchQuery(item, searchQuery);
   });
 
   // Separate optimistic and real items
   const optimisticItems = filteredItems.filter(item => item.isOptimistic);
   const visibleRealItems = filteredItems.filter(item => !item.isOptimistic);
+  if (searchRank) {
+    // Relevance order while a server search is active (grid is otherwise chronological)
+    visibleRealItems.sort((a, b) => searchRank.get(a.id)! - searchRank.get(b.id)!);
+  }
 
   // Empty state: no real items and no search active
-  if (visibleRealItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim()) {
+  if (visibleRealItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim() && !focusActive) {
     return (
       <div className="text-center py-12 relative z-10">
-        <h2 className="text-2xl font-editorial text-gray-900 mb-2">Start building your knowledge base</h2>
+        <h2 className="text-2xl font-montreal font-semibold tracking-[-0.02em] text-gray-900 mb-2">Start building your knowledge base</h2>
         <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
       </div>
     );
   }
 
-  // Show no results message for search
-  if (visibleRealItems.length === 0 && optimisticItems.length === 0 && searchQuery.trim()) {
+  // Show no results message for search (or a focus request whose cited items aren't loaded)
+  if (visibleRealItems.length === 0 && optimisticItems.length === 0 && (searchQuery.trim() || focusActive)) {
     return (
       <div className="text-center py-12">
-        <h2 className="text-xl font-editorial text-gray-900 mb-2">No results found</h2>
-        <p className="text-gray-600">Try adjusting your search terms or filters.</p>
+        <h2 className="text-xl font-montreal font-semibold tracking-[-0.02em] text-gray-900 mb-2">No results found</h2>
+        <p className="text-gray-600">
+          {focusActive ? "The cards cited by this answer aren't in your library anymore." : 'Try adjusting your search terms or filters.'}
+        </p>
       </div>
     );
   }
@@ -248,6 +319,7 @@ const ContentGrid = ({
           onTogglePrivacy={onTogglePrivacy}
           onCommentClick={onCommentClick}
           collectionAttachments={collectionAttachmentsByItem[item.id]}
+          assemblyReveals={assemblyReveals[item.id]}
         />
       ))}
     </div>
