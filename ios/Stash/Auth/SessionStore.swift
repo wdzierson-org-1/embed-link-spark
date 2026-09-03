@@ -53,6 +53,47 @@ final class SessionStore {
         }
     }
 
+    /// Web parity (`src/hooks/useAuth.tsx:42-58` `signUp`, called from `Auth.tsx`'s sign-up
+    /// branch): `auth.signUp` carries `username`/`display_name` as user metadata — there is no
+    /// client-side `user_profiles` insert here, because there isn't one on web either. The
+    /// `handle_new_user` Postgres trigger (`supabase/migrations/20250819082612_...sql`) reads
+    /// `raw_user_meta_data->>'username'` off the new `auth.users` row and creates the
+    /// `user_profiles` row itself; inserting from the client too would race the trigger.
+    /// `authStateChanges` (see `start()`) picks up the resulting sign-in the same way `signIn`
+    /// does — supabase-swift's `signUp` updates the session and emits `.signedIn` internally.
+    func signUp(email: String, password: String, username: String, phone: String?) async {
+        errorMessage = nil
+        do {
+            let metadata: [String: AnyJSON] = [
+                "username": .string(username),
+                "display_name": .string(username),
+            ]
+            let response = try await StashClient.shared.auth.signUp(email: email, password: password, data: metadata)
+
+            // Web parity (`Auth.tsx` `handleSignUp` → `usePhoneNumber.ts` `registerPhoneNumber`):
+            // an optional phone is a best-effort follow-up — its own failure (upsert or the
+            // welcome-message invoke) never fails the sign-up itself, exactly like web's nested
+            // try/catch that only logs.
+            let cleanPhone = (phone ?? "").filter(\.isNumber)
+            if !cleanPhone.isEmpty {
+                let phoneBody: [String: AnyJSON] = [
+                    "user_id": .string(response.user.id.uuidString),
+                    "phone_number": .string(cleanPhone),
+                    "verified": .bool(true),
+                ]
+                try? await StashClient.shared.from("user_phone_numbers")
+                    .upsert(phoneBody, onConflict: "phone_number")
+                    .execute()
+                try? await StashClient.shared.functions.invoke(
+                    "send-welcome-message",
+                    options: FunctionInvokeOptions(body: ["phoneNumber": AnyJSON.string(cleanPhone)])
+                )
+            }
+        } catch {
+            errorMessage = "Sign-up failed. Check your details and try again."
+        }
+    }
+
     func signOut() async {
         // Web parity (plan-4 Task 6b, commit 166b7c6: "local-scope sign-out"): sign out
         // locally without broadcast to other sessions — matches web's LogoutButton behavior.

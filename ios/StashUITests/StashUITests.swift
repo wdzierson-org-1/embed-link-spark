@@ -1567,4 +1567,80 @@ final class StashUITests: XCTestCase {
         XCTAssertEqual(fontStatus.label, "font:neue-montreal",
                        "Expected PP Neue Montreal to load in the app target, not fall back to SF Pro")
     }
+
+    /// Plan 7 Task 3: the sign-in card's pill tabs actually switch content — tapping
+    /// `auth.tab.signUp` reveals the sign-up-only `auth.username` field, tapping back to
+    /// `auth.tab.signIn` hides it again. Doesn't submit anything (no account is created), so it
+    /// needs no test credentials and is safe to run standalone.
+    func testSignUpTabRenders() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        XCTAssertTrue(app.textFields["signin.email"].waitForExistence(timeout: 10),
+                      "Expected the sign-in screen to appear")
+
+        let signUpTab = app.buttons["auth.tab.signUp"]
+        XCTAssertTrue(signUpTab.waitForExistence(timeout: 5), "Expected a Sign up tab")
+        signUpTab.tap()
+
+        let usernameField = app.textFields["auth.username"]
+        XCTAssertTrue(usernameField.waitForExistence(timeout: 5), "Expected the username field on the Sign up tab")
+
+        let signInTab = app.buttons["auth.tab.signIn"]
+        XCTAssertTrue(signInTab.waitForExistence(timeout: 5), "Expected a Sign in tab")
+        signInTab.tap()
+
+        XCTAssertFalse(usernameField.waitForExistence(timeout: 3), "Expected the username field to disappear back on the Sign in tab")
+    }
+
+    /// Plan 7 Task 4: the two former Ask-tab header circle icons (new chat / history) moved to
+    /// text footer links under the composer — Will couldn't find the history affordance up in the
+    /// header. Same accessibility identifiers as before (`ask.newChat`/`ask.history`), so this
+    /// only proves the NEW position/label, not new identifiers; `testConversationsSmoke` already
+    /// covers the tap-through navigation and back-pop, so this keeps that assertion minimal and
+    /// instead focuses on what's new: the link sits below the composer (not above the thread),
+    /// carries the exact footer copy, and still opens Conversations.
+    func testAskFooterLinksRenderAndOpenConversations() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        app.tabBars.buttons["Ask"].tap()
+
+        let input = anyElement("ask.input")
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
+
+        let historyLink = app.buttons["ask.history"]
+        XCTAssertTrue(historyLink.waitForExistence(timeout: 10), "Earlier conversations footer link missing")
+        XCTAssertEqual(historyLink.label, "Earlier conversations")
+
+        let newChatLink = app.buttons["ask.newChat"]
+        XCTAssertTrue(newChatLink.exists, "Start new chat footer link missing")
+        XCTAssertEqual(newChatLink.label, "Start new chat")
+
+        // Below the composer, not above the thread (the old header-icon position) — the whole
+        // point of this move per the brief.
+        XCTAssertGreaterThan(historyLink.frame.minY, input.frame.minY,
+                             "Expected the footer link below the composer, not back up in the header")
+
+        // Header subtitle item count: async and best-effort ("render only when known" — see
+        // `AskView.loadItemCountOnce`'s doc comment), so this is a soft check, not a hard
+        // requirement — absence isn't a failure, but if it's there it must actually say "item(s)".
+        let itemCount = anyElement("ask.itemCount")
+        if itemCount.waitForExistence(timeout: 10) {
+            XCTAssertTrue(itemCount.label.contains("item"), "Expected the item-count subtitle to mention items")
+        }
+
+        historyLink.tap()
+        XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10),
+                      "Expected the Conversations screen title")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(anyElement("ask.input").waitForExistence(timeout: 10),
+                      "Expected the Ask thread after popping Conversations")
+    }
 }
