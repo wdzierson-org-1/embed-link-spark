@@ -661,6 +661,27 @@ with zero client changes.
   writes it (also folded into the re-embed text). User-typed titles are
   structurally safe: they never match the junk patterns.
 
+## 2026-09-03 · Web sign-out is local-scope everywhere (was logging out every device)
+
+- **Root cause of "the chrome extension signs me out every few days":** the
+  header's Sign out (`HeaderSection.tsx`) called `supabase.auth.signOut()`
+  bare, which in supabase-js defaults to **scope `global`** — it deleted
+  every session on the account (extension, iOS, other browsers, and the
+  prod extension even when the sign-out happened on `localhost:3000`, since
+  dev and prod share one Supabase project). Confirmed from the auth audit
+  log: each extension logout matched a `POST /logout` from the web app, and
+  after each one no older `auth.sessions` rows survived. The 2026-08-21
+  scope:'local' fix only covered `useAuth.signOut`; this call site bypassed
+  it (unchanged since the June 2025 scaffold).
+- **Contract (all platforms):** signing out on one surface signs out *that
+  surface only*. Web now routes every sign-out through `useAuth.signOut`
+  (scope `local`); iOS already uses `.local`. A vitest guard
+  (`HeaderSection.test.tsx`) fails the build if any bare
+  `auth.signOut()` reappears in `src/`. The extension's own sign-out never
+  hits the logout endpoint (it only clears its local session) — unchanged.
+- **mac agent:** verify `stash-mac` passes `scope: 'local'` too; a global
+  sign-out from any client still logs the extension out.
+
 ## 2026-08-26 · Feed: "assembling" cards while enrichment lands (web)
 
 Behavior contract first — iOS/mac should mirror the *rules*, with
