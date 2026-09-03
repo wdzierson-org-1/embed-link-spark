@@ -39,8 +39,7 @@ struct PillTabs<Tab: Hashable>: View {
             selection = item.tab
         } label: {
             Text(item.label)
-                .font(StashType.body())
-                .fontWeight(.medium)
+                .font(StashType.bodyMedium())
                 .lineLimit(1)
                 .fixedSize()
                 .foregroundStyle(selected ? StashColor.ink : StashColor.muted)

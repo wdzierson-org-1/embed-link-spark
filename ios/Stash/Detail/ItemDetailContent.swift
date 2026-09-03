@@ -61,9 +61,10 @@ struct ItemDetailContent: View {
 
     private var attachmentsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Attachments")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            Text("Attachments".uppercased())
+                .font(StashType.microLabel())
+                .stashTracking(0.11, size: 11)
+                .foregroundStyle(StashColor.faint)
             CollectionStrip(itemId: item.id)
         }
         .accessibilityIdentifier("detail.attachments")

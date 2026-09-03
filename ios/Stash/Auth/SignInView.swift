@@ -97,38 +97,22 @@ struct SignInView: View {
 
     // MARK: - Pill tabs
 
+    /// `PillTabs` — the shared component this view's own tab style established (see
+    /// `PillTabs.swift`'s doc comment); switching `mode` here also clears any stale sign-in error.
     private var tabPicker: some View {
-        HStack(spacing: 4) {
-            tabButton(title: "Sign in", value: .signIn, identifier: "auth.tab.signIn")
-            tabButton(title: "Sign up", value: .signUp, identifier: "auth.tab.signUp")
-        }
-        .padding(4)
-        .background(StashColor.wash, in: Capsule())
-    }
-
-    private func tabButton(title: String, value: AuthMode, identifier: String) -> some View {
-        let selected = mode == value
-        return Button {
-            mode = value
-            session.errorMessage = nil
-        } label: {
-            Text(title)
-                .font(StashType.body())
-                .fontWeight(.medium)
-                .foregroundStyle(selected ? StashColor.ink : StashColor.muted)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background {
-                    if selected {
-                        Capsule()
-                            .fill(StashColor.paper)
-                            .overlay(Capsule().strokeBorder(StashColor.hairline, lineWidth: 1))
-                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
-                    }
+        PillTabs(
+            items: [
+                PillTabs<AuthMode>.Item(.signIn, label: "Sign in", identifier: "auth.tab.signIn"),
+                PillTabs<AuthMode>.Item(.signUp, label: "Sign up", identifier: "auth.tab.signUp"),
+            ],
+            selection: Binding(
+                get: { mode },
+                set: { newValue in
+                    mode = newValue
+                    session.errorMessage = nil
                 }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(identifier)
+            )
+        )
     }
 
     // MARK: - Fields

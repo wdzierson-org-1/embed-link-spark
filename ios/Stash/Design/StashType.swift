@@ -29,7 +29,8 @@ enum StashType {
     /// Object title (panel): 500 · 28 / 1.2 · −0.02em (tracking applied via `.stashTracking`).
     static func panelTitle() -> Font { custom("PPNeueMontreal-Medium", size: 28, weight: .medium) }
 
-    /// Display header (marketing, empty states): 600 · 32.
+    /// Display header (marketing, empty states): 600 · 32 · −0.022em (DESIGN.md tracking token;
+    /// applied by callers via `.stashTracking(-0.022, size: 32)`, same pattern as `panelTitle()`).
     static func display() -> Font { custom("PPNeueMontreal-Semibold", size: 32, weight: .semibold) }
 
     /// Body / description: 400 · 14.
@@ -64,6 +65,15 @@ enum StashType {
 
     /// Mono chip variant (DESIGN.md: "ui-monospace 10–11.5") — system monospace, no bundled face.
     static func mono(_ size: CGFloat = 11) -> Font { .system(size: size, weight: .regular, design: .monospaced) }
+
+    /// Medium weight (500) at an arbitrary size — for callers that need the Medium face at a size
+    /// none of the fixed-size helpers above cover (e.g. `AskView`'s 22pt panel-style title). Same
+    /// `isNeueMontrealAvailable` gate as every other helper here.
+    static func medium(size: CGFloat) -> Font { custom("PPNeueMontreal-Medium", size: size, weight: .medium) }
+
+    /// Semibold weight (600) at an arbitrary size — the `medium(size:)` counterpart for callers
+    /// that need the Semibold face at a size none of the fixed-size helpers above cover.
+    static func semibold(size: CGFloat) -> Font { custom("PPNeueMontreal-Semibold", size: size, weight: .semibold) }
 }
 
 extension View {

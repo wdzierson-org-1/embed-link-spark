@@ -136,7 +136,7 @@ struct ConversationsListView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(row.title ?? "Untitled")
-                        .font(rowTitleFont)
+                        .font(StashType.bodyMedium())
                         .italic(row.title == nil)
                         .foregroundStyle(row.title == nil ? StashColor.muted : StashColor.ink)
                         .lineLimit(1)
@@ -166,16 +166,6 @@ struct ConversationsListView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("convos.row.\(index)")
-    }
-
-    /// DESIGN.md has no dedicated "body 500" token — `StashType.body()` is fixed at 400 (Book);
-    /// this mirrors it at the same 14pt size but the Medium face, per the brief's "title
-    /// StashType.body 500 ink" (same reasoning as `AskView.askTitleFont`'s 22pt panel-title
-    /// mirror — out of this task's file scope to add a size/weight parameter to the shared token).
-    private var rowTitleFont: Font {
-        StashType.isNeueMontrealAvailable
-            ? .custom("PPNeueMontreal-Medium", size: 14)
-            : .system(size: 14, weight: .medium)
     }
 
     // MARK: - Paging

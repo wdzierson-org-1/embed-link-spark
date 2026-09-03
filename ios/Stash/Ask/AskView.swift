@@ -105,7 +105,7 @@ struct AskView: View {
     private var askHeader: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Ask Stash")
-                .font(askTitleFont)
+                .font(StashType.medium(size: 22))
                 .stashTracking(-0.02, size: 22)
                 .foregroundStyle(StashColor.ink)
             if let itemCount {
@@ -119,16 +119,6 @@ struct AskView: View {
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 8)
-    }
-
-    /// `StashType.panelTitle()` is fixed at DESIGN.md's 28pt "Object title (panel)" size; this
-    /// header wants the same PP Neue Montreal Medium face at the brief's smaller 22pt, so this
-    /// mirrors `panelTitle()`'s availability check at that one different size rather than adding
-    /// a size parameter to the shared token (out of this task's file scope).
-    private var askTitleFont: Font {
-        StashType.isNeueMontrealAvailable
-            ? .custom("PPNeueMontreal-Medium", size: 22)
-            : .system(size: 22, weight: .medium)
     }
 
     /// Cheapest correct source for the header subtitle's item count: a HEAD request with
