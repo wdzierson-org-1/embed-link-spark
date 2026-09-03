@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import {
   CRAWLER_UA,
   deriveDescriptionFromContent,
@@ -198,22 +199,29 @@ const getUserAgent = (url: string): string => {
   return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 }
 
-// Enhanced meta content parsing with better patterns
+// Enhanced meta content parsing with better patterns. The content value runs
+// to the SAME quote that opened it ("..." or '...'), so an apostrophe inside a
+// double-quoted description ("I've ...") no longer truncates it to "I". The
+// value is a negated character class, never `.*?` + backreference: that form
+// scans to end-of-document per meta tag and pinned the worker for minutes on
+// a 700 KB Instagram page (WORKER_RESOURCE_LIMIT, 2026-09-03).
+const QUOTED_CONTENT = `content=(?:"([^"]*)"|'([^']*)')`;
 const parseMetaContent = (html: string, property: string): string | null => {
   const patterns = [
-    new RegExp(`<meta[^>]*property=["']${property}["'][^>]*content=["']([^"']*?)["']`, 'i'),
-    new RegExp(`<meta[^>]*content=["']([^"']*?)["'][^>]*property=["']${property}["']`, 'i'),
-    new RegExp(`<meta[^>]*name=["']${property}["'][^>]*content=["']([^"']*?)["']`, 'i'),
-    new RegExp(`<meta[^>]*content=["']([^"']*?)["'][^>]*name=["']${property}["']`, 'i'),
+    new RegExp(`<meta[^>]*property=["']${property}["'][^>]*${QUOTED_CONTENT}`, 'i'),
+    new RegExp(`<meta[^>]*${QUOTED_CONTENT}[^>]*property=["']${property}["']`, 'i'),
+    new RegExp(`<meta[^>]*name=["']${property}["'][^>]*${QUOTED_CONTENT}`, 'i'),
+    new RegExp(`<meta[^>]*${QUOTED_CONTENT}[^>]*name=["']${property}["']`, 'i'),
     // Handle unquoted attributes
-    new RegExp(`<meta[^>]*property=${property}[^>]*content=["']([^"']*?)["']`, 'i'),
-    new RegExp(`<meta[^>]*name=${property}[^>]*content=["']([^"']*?)["']`, 'i'),
+    new RegExp(`<meta[^>]*property=${property}[^>]*${QUOTED_CONTENT}`, 'i'),
+    new RegExp(`<meta[^>]*name=${property}[^>]*${QUOTED_CONTENT}`, 'i'),
   ];
 
   for (const pattern of patterns) {
     const match = html.match(pattern);
-    if (match && match[1]) {
-      return match[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+    const value = match?.[1] ?? match?.[2];
+    if (value) {
+      return decodeHtmlEntities(value).trim();
     }
   }
   return null;
@@ -558,7 +566,7 @@ const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: 
               parseMetaContent(cleanHtml, 'twitter:title') ||
               jsonLdData.title ||
               parseMetaContent(cleanHtml, 'title') ||
-              (titleMatch ? titleMatch[1].trim() : null);
+              (titleMatch ? decodeHtmlEntities(titleMatch[1]).trim() : null);
   
   // Clean up YouTube titles
   if (originalUrl.includes('youtube.com') && title) {
@@ -1107,10 +1115,13 @@ serve(async (req) => {
       if (isBlockedPageTitle(metadata.title)) metadata.title = undefined;
       if (metadata.description && isJunkDescription(metadata.description)) metadata.description = undefined;
 
-      // Create result with all available metadata
+      // Create result with all available metadata. Every strategy (meta
+      // tags, JSON-LD, oEmbed, Jina, Wayback, URL inference) funnels through
+      // here, so this is where entity decoding / emphasis stripping is
+      // guaranteed for whatever the clients store.
       const result: MetadataResult = {
-        title: metadata.title || validUrl.hostname,
-        description: metadata.description,
+        title: cleanOptionalMetaText(metadata.title) || validUrl.hostname,
+        description: cleanOptionalMetaText(metadata.description),
         image: validImage,
         previewImagePath,
         previewImagePublicUrl,

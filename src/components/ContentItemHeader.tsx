@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
 import { domainOfUrl } from '@/utils/linkFlavor';
+import { decodeHtmlEntities } from '@/utils/textHygiene';
 import {
   AspectAwareImage,
   DocumentHero,
@@ -249,13 +250,13 @@ const ContentItemHeader = ({
                     className={`text-left w-full group/title ${isProcessing ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
                     <h3 className={`font-editorial text-xl leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
-                      {item.title}
+                      {decodeHtmlEntities(item.title)}
                     </h3>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p className="max-w-xs break-words">
-                    {isProcessing ? 'Please wait while content is being extracted' : `Click to edit: ${item.title}`}
+                    {isProcessing ? 'Please wait while content is being extracted' : `Click to edit: ${decodeHtmlEntities(item.title)}`}
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -270,7 +271,7 @@ const ContentItemHeader = ({
                 <h3 className={`font-editorial text-xl leading-tight line-clamp-2 ${
                   item.type === 'link' && item.url ? 'group-hover/title:underline transition-all duration-200 text-blue-600' : ''
                 }`}>
-                  {item.title}
+                  {decodeHtmlEntities(item.title)}
                 </h3>
               </button>
             )}

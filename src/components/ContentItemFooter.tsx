@@ -1,11 +1,12 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin } from 'lucide-react';
+import { MoreHorizontal, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin, Flag } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
+import CardFeedbackDialog from '@/components/CardFeedbackDialog';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
@@ -13,6 +14,7 @@ interface ContentItem {
   id: string;
   type: 'text' | 'link' | 'image' | 'audio' | 'video' | 'document' | 'collection';
   title?: string;
+  description?: string;
   content?: string;
   url?: string;
   file_path?: string;
@@ -47,6 +49,7 @@ const ContentItemFooter = ({
   onCommentClick
 }: ContentItemFooterProps) => {
   const isProcessing = isDocumentProcessing(item);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
@@ -160,6 +163,10 @@ const ContentItemFooter = ({
                   <Edit className="h-4 w-4 mr-2" />
                   {isProcessing ? 'Processing...' : 'Edit'}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setReportOpen(true)}>
+                  <Flag className="h-4 w-4 mr-2" />
+                  Report a problem
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete
@@ -169,6 +176,8 @@ const ContentItemFooter = ({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {!isPublicView && <CardFeedbackDialog item={item} open={reportOpen} onOpenChange={setReportOpen} />}
     </div>
   );
 };

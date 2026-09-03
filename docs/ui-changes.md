@@ -8,6 +8,89 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-03 · Subject-aware hero crops + "Report a problem" on cards
+
+Two things from Will's Farfetch example: a portrait product shot (glasses in
+the bottom third of a white 3:4 image) rendered as a blank white hero because
+the card `cover`-crops around the centre; and there was no way for a beta
+tester to flag a card that looks wrong.
+
+- **Hero crop rule (DESIGN.md, Components)**: cover-cropped heroes centre on
+  the detected subject. Web does it client-side, no model, no server work:
+  after the `<img>` loads (`crossOrigin="anonymous"` — the storage bucket and
+  `image-proxy` both send `Access-Control-Allow-Origin: *`), sample it to a
+  ≤64px thumbnail, take the border ring's median colour as background, bound
+  every pixel whose |ΔR|+|ΔG|+|ΔB| from it exceeds 60, and set
+  `object-position` so that box's centre sits at the centre of the crop
+  window (exact formula in `src/utils/heroFocal.ts: coverObjectPosition`).
+  Applies to `LinkCover` (standard, non-tall) and `AspectAwareImage`
+  (landscape branch); portrait uploads keep contained-on-blur. Busy photos
+  degrade to the plain centre (their "subject" is the whole frame). Result is
+  cached per image URL for the session; nothing is persisted yet — if iOS
+  needs the numbers without recomputing, the next step is writing
+  `attributes.media.focal {x,y}` from the client on first analysis.
+  **iOS**: mirror the three steps with CoreGraphics on the card hero
+  (`heroFocal.ts` header comment is the contract; thresholds 30 / 60 / 0.8).
+- **Card feedback (all platforms)**: new table `card_feedback`
+  (`supabase/migrations/20260903120000_card_feedback.sql`, applied to
+  production 2026-09-03). Columns: `user_id`, `item_id` (FK, null on delete),
+  `issues text[]` (codes below, ≥1), `note`, `client` ('web' | 'ios' |
+  'extension' | 'macos'), `snapshot jsonb` (`type,title,description,url,
+  file_path,flavor,has_summary` as the card showed them), `created_at`. RLS:
+  users insert/select their own. Codes (`src/utils/cardFeedback.ts`):
+  `image_crop`, `image_wrong`, `title`, `description`, `summary`, `type`,
+  `other`. Insert directly with supabase-js; no edge function.
+- **Web UI**: card overflow menu (own library only) gets **Report a
+  problem** (flag icon) above Delete → `CardFeedbackDialog`: checkbox list
+  of the seven codes, optional note, violet **Send report**; toast on
+  success. **iOS**: same entry point in the card's context menu / detail
+  sheet overflow, same list and codes, `client: 'ios'`.
+- **Reviewing**: `node scripts/card-feedback-report.ts [--days N]` prints the
+  newest reports with the item's current title/url beside the snapshot.
+
+---
+
+## 2026-09-03 · Metadata text hygiene (entities/markdown) + full-width panel title/description
+
+Link titles and descriptions were being stored with HTML entities still
+encoded (`&amp;`, `&quot;`, `&#x2019;`, `&#039;`, and LinkedIn's
+double-encoded `&amp;#39;`) and with markdown emphasis markers from social
+captions (`**1. Terms**`), so every surface rendered them literally. Root
+cause was the two metadata parsers: `add-url` never decoded, and
+`extract-link-metadata` decoded only four named entities in a single pass.
+Both also cut a meta `content` value at the first quote of *either* kind, so a
+double-quoted description containing an apostrophe truncated to `"I"`.
+
+- **Contract (platform)**: `title` and `description` returned by
+  `extract-link-metadata` and written by `add-url` are now clean text — HTML
+  entities decoded (named, decimal, hex; repeated until stable for
+  double-encoded sources), markdown emphasis (`**`, `__`, `*x*`, `_x_`,
+  `` `x` ``) unwrapped, whitespace collapsed. Caller-supplied titles (the
+  user's own words) are stored verbatim. Shared helper:
+  `supabase/functions/_shared/textHygiene.ts`, paired with the vitest-tested
+  `src/utils/textHygiene.ts` (`decodeHtmlEntities`, `cleanMetaText`,
+  `cleanOptionalMetaText`). Meta-tag `content` is now matched to its own
+  opening quote.
+- **Backfill**: `scripts/backfill-text-hygiene.ts` ran 2026-09-03 against
+  production — 51 `type='link'` rows rewritten (24 titles, 38 descriptions);
+  zero remain. **iOS / extension / macOS need no change**: stored data is
+  clean and new saves arrive clean. Rendering a decode as a safety net is
+  optional.
+- **Web safety net**: cards decode the title (`ContentItemHeader`) and clean
+  the description (`ContentItemContent`) at render; the edit panel decodes
+  entities into its initial title/description state (`useEditItemState`) so a
+  blur-save writes real text.
+- **Panel title shows in full**: `EditItemTitleSection` is now an
+  auto-growing single-value textarea (Enter blurs/saves, newlines flattened)
+  instead of a one-line `<Input>` that clipped long titles at the panel edge.
+  Same DESIGN.md inline-editable styling. iOS: the detail-sheet title should
+  likewise wrap, not truncate.
+- **Panel description spans the panel**: dropped the `max-w-[64ch]` cap on the
+  description textarea; its right edge now matches the title and the rest of
+  the panel.
+
+---
+
 ## 2026-09-03 · iOS design consolidation (plan 7)
 
 iOS now runs on the current `DESIGN.md` token set (it had drifted onto a
