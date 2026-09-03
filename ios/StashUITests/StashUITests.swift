@@ -1635,9 +1635,17 @@ final class StashUITests: XCTestCase {
             XCTAssertTrue(itemCount.label.contains("item"), "Expected the item-count subtitle to mention items")
         }
 
+        // Screenshot rig (same checkpoint technique as testAskSmoke/testConversationsSmoke): holds
+        // here with the Ask panel's header/footer on screen before tapping through.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-header-footer\n".data(using: .utf8)!)
+        sleep(4)
+
         historyLink.tap()
         XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10),
                       "Expected the Conversations screen title")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: conversations-rows\n".data(using: .utf8)!)
+        sleep(4)
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(anyElement("ask.input").waitForExistence(timeout: 10),

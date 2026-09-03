@@ -92,8 +92,8 @@ struct ConversationsListView: View {
                         let label = ChatSessions.bucketLabel(for: row.lastMessageAt, now: Date())
                         if index == 0 || label != ChatSessions.bucketLabel(for: rows[index - 1].lastMessageAt, now: Date()) {
                             Text(label.uppercased())
-                                .font(.system(size: 11, weight: .semibold))
-                                .kerning(0.6)
+                                .font(StashType.microLabel())
+                                .stashTracking(0.11, size: 11)
                                 .foregroundStyle(StashColor.faint)
                                 .padding(.top, index == 0 ? 2 : 10)
                         }
@@ -126,35 +126,56 @@ struct ConversationsListView: View {
                 dismiss()
             }
         } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(row.title ?? "Untitled")
-                    .font(.subheadline.weight(row.title == nil ? .regular : .semibold))
-                    .italic(row.title == nil)
-                    .foregroundStyle(row.title == nil ? StashColor.muted : StashColor.ink)
-                    .lineLimit(1)
-                if let preview = row.preview, !preview.isEmpty {
-                    Text(preview)
-                        .font(.footnote)
-                        .foregroundStyle(StashColor.muted)
-                        .lineLimit(2)
+            HStack(alignment: .top, spacing: 10) {
+                // Web's `ConversationsView.tsx` violet-300 dot (`h-2 w-2 rounded-full
+                // bg-violet-300`) — purely decorative, so it's excluded from the row's a11y tree.
+                Circle()
+                    .fill(StashColor.violet300)
+                    .frame(width: 8, height: 8)
+                    .padding(.top, 5)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(row.title ?? "Untitled")
+                        .font(rowTitleFont)
+                        .italic(row.title == nil)
+                        .foregroundStyle(row.title == nil ? StashColor.muted : StashColor.ink)
+                        .lineLimit(1)
+                    if let preview = row.preview, !preview.isEmpty {
+                        Text(preview)
+                            .font(.footnote)
+                            .foregroundStyle(StashColor.muted)
+                            .lineLimit(1)
+                    }
                 }
-                Text("\(Self.rowDateFormatter.string(from: row.lastMessageAt)) · \(row.messageCount) message\(row.messageCount == 1 ? "" : "s")")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 2)
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(Self.rowDateFormatter.string(from: row.lastMessageAt))
+                    Text("\(row.messageCount) message\(row.messageCount == 1 ? "" : "s")")
+                }
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.faint)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.black.opacity(0.06), lineWidth: 1))
-            .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: StashRadius.card))
+            .overlay(RoundedRectangle(cornerRadius: StashRadius.card).strokeBorder(StashColor.hairline, lineWidth: 1))
+            .stashCardShadow()
             .overlay {
                 if openingId == row.id { ProgressView() }
             }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("convos.row.\(index)")
+    }
+
+    /// DESIGN.md has no dedicated "body 500" token — `StashType.body()` is fixed at 400 (Book);
+    /// this mirrors it at the same 14pt size but the Medium face, per the brief's "title
+    /// StashType.body 500 ink" (same reasoning as `AskView.askTitleFont`'s 22pt panel-title
+    /// mirror — out of this task's file scope to add a size/weight parameter to the shared token).
+    private var rowTitleFont: Font {
+        StashType.isNeueMontrealAvailable
+            ? .custom("PPNeueMontreal-Medium", size: 14)
+            : .system(size: 14, weight: .medium)
     }
 
     // MARK: - Paging
