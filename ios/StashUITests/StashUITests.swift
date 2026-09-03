@@ -1412,6 +1412,14 @@ final class StashUITests: XCTestCase {
         let saveButton = safari.buttons["share.save"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: 10), "Compose card's Save button did not render")
 
+        // Plan 7 Task 2: the extension-side font proof — an appex has its own bundle (separate
+        // from the host app's), so this is the only way to confirm PP Neue Montreal actually
+        // registered INSIDE the running share-extension process, not just the app's.
+        let fontStatus = safari.descendants(matching: .any)["share.fontStatus"]
+        XCTAssertTrue(fontStatus.waitForExistence(timeout: 5), "share.fontStatus label not found in the compose card")
+        XCTAssertEqual(fontStatus.label, "font:neue-montreal",
+                       "Expected PP Neue Montreal to load in the share-extension target, not fall back to SF Pro")
+
         let marker = "UITEST-SHARE: \(Int(Date().timeIntervalSince1970))"
         noteField.tap()
         noteField.typeText(marker)
@@ -1537,5 +1545,26 @@ final class StashUITests: XCTestCase {
         confirmButton.tap()
 
         XCTAssertTrue(app.textFields["signin.email"].waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
+    }
+
+    /// Plan 7 Task 2: proves PP Neue Montreal is bundled + actually loads in the APP target (the
+    /// share extension gets its own proof — a DEBUG print of `UIFont.familyNames` captured live,
+    /// since an appex has no UI surface this smoke rig can reach). `design.fontStatus` is a
+    /// DEBUG-only a11y label in the Settings footer (`StashType.isNeueMontrealAvailable` reads
+    /// `"font:neue-montreal"` when `Font.custom` resolves, `"font:sf-fallback"` otherwise) — if the
+    /// font ever fails to register (bad `UIAppFonts` entry, missing bundle resource), this catches
+    /// it at UI-test time instead of silently degrading to SF Pro on device.
+    func testDesignSystemFontsLoad() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        app.tabBars.buttons["Settings"].tap()
+
+        let fontStatus = app.descendants(matching: .any)["design.fontStatus"]
+        XCTAssertTrue(fontStatus.waitForExistence(timeout: 10), "design.fontStatus label not found in Settings footer")
+        XCTAssertEqual(fontStatus.label, "font:neue-montreal",
+                       "Expected PP Neue Montreal to load in the app target, not fall back to SF Pro")
     }
 }

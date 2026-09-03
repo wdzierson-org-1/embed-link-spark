@@ -61,7 +61,7 @@ struct PublicToggleSection: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Sticky note")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             TextField("Add a quick note…", text: $supplementalNote, axis: .vertical)
                 .textFieldStyle(.plain)
                 .padding(10)

@@ -61,7 +61,7 @@ struct FaviconPlate: View {
                     .lineLimit(1)
                 Text("preview limited · saved anyway")
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
             }
             Spacer(minLength: 0)
         }
@@ -100,7 +100,7 @@ struct FilePlate: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let factsLine, !factsLine.isEmpty {
-                    Text(factsLine).font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(factsLine).font(.system(size: 11)).foregroundStyle(StashColor.muted)
                 }
             }
             Spacer(minLength: 0)

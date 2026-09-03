@@ -58,7 +58,7 @@ struct LocationRow: View {
             }
             .font(.caption)
         }
-        .foregroundStyle(Color.secondary.opacity(0.7))
+        .foregroundStyle(StashColor.muted.opacity(0.7))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Add a location")
         .accessibilityIdentifier("detail.location.add")
@@ -73,7 +73,7 @@ struct LocationRow: View {
                 }
                 .font(.caption)
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StashColor.muted)
             // Same shape as Task 6's `pinPreview` fix (`LocationCapture`/`CaptureComposerView`):
             // an icon+text `HStack` sharing one identifier can expose BOTH children as separate
             // "Multiple matching elements found" hits instead of one combined element — collapse
@@ -88,7 +88,7 @@ struct LocationRow: View {
             } label: {
                 Image(systemName: "xmark.circle.fill").font(.caption)
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StashColor.muted)
             .accessibilityLabel("Remove location")
             .accessibilityIdentifier("detail.location.remove")
         }
@@ -98,7 +98,7 @@ struct LocationRow: View {
         HStack(spacing: 6) {
             Image(systemName: "mappin.and.ellipse")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .accessibilityHidden(true)
             TextField("e.g. Brooklyn, New York", text: $draft)
                 .font(.caption)

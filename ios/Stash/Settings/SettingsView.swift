@@ -54,8 +54,18 @@ struct SettingsView: View {
                 .font(.footnote)
                 Text("Stash \(appVersionString)")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
                     .accessibilityIdentifier("settings.footer.version")
+                #if DEBUG
+                // Plan 7 Task 2: proves PP Neue Montreal actually registered in the app target
+                // (vs. silently degrading to the SF Pro fallback) — read by
+                // `testDesignSystemFontsLoad`. DEBUG-only: never ships to TestFlight/App Store.
+                Text(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+                    .font(.caption2)
+                    .foregroundStyle(StashColor.faint)
+                    .accessibilityIdentifier("design.fontStatus")
+                    .accessibilityLabel(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+                #endif
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)

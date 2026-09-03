@@ -21,7 +21,7 @@ struct NotesAppendComposer: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Add to Notes")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             HStack(alignment: .top, spacing: 8) {
                 TextField("Add a note…", text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)

@@ -27,7 +27,7 @@ struct AccountSection: View {
     var body: some View {
         Section("Account") {
             HStack {
-                Text("Email").foregroundStyle(.secondary)
+                Text("Email").foregroundStyle(StashColor.muted)
                 Spacer()
                 Text(email)
                     .lineLimit(1)
@@ -38,7 +38,7 @@ struct AccountSection: View {
                 ProgressView()
             } else {
                 HStack {
-                    Text("Username").foregroundStyle(.secondary)
+                    Text("Username").foregroundStyle(StashColor.muted)
                     Spacer()
                     Text(username ?? "—")
                         .accessibilityIdentifier("settings.account.username")
@@ -57,7 +57,7 @@ struct AccountSection: View {
 
     private var feedURLRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Public Feed URL").foregroundStyle(.secondary)
+            Text("Public Feed URL").foregroundStyle(StashColor.muted)
             HStack(spacing: 10) {
                 Text(feedURL)
                     .font(.footnote)

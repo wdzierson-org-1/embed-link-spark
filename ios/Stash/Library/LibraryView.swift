@@ -54,7 +54,7 @@ struct LibraryView: View {
                 StashHeader {
                     Text(store.items.count == 1 ? "1 item" : "\(store.items.count) items")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StashColor.muted)
                         .accessibilityIdentifier("library.itemCount")
                 }
                 searchPill
@@ -76,7 +76,7 @@ struct LibraryView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 15))
-                .foregroundStyle(searchFocused ? StashColor.violet : StashColor.gray400)
+                .foregroundStyle(searchFocused ? StashColor.violet600 : StashColor.faint)
             TextField("Search your stash", text: $query)
                 .focused($searchFocused)
                 .autocorrectionDisabled()
@@ -88,7 +88,7 @@ struct LibraryView: View {
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(StashColor.gray400)
+                        .foregroundStyle(StashColor.faint)
                 }
                 .accessibilityIdentifier("library.search.clear")
             }
@@ -96,7 +96,7 @@ struct LibraryView: View {
         .padding(.horizontal, 16)
         .frame(height: 42)
         .background(Color(.systemBackground), in: Capsule())
-        .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.gray300,
+        .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.hairline,
                                         lineWidth: 1))
         .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
     }

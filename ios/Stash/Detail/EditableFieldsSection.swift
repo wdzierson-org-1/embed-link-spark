@@ -32,7 +32,7 @@ struct EditableFieldsSection: View {
             statusCaption
             TextField("Add a description…", text: $description, axis: .vertical)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .textFieldStyle(.plain)
                 .accessibilityIdentifier("detail.description")
             LocationRow(attributes: $attributes)
@@ -46,7 +46,7 @@ struct EditableFieldsSection: View {
         case .saving:
             Text("Saving…")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .accessibilityIdentifier("detail.saveStatus")
         case .saved:
             Text("Saved")

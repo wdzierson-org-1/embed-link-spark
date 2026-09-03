@@ -10,7 +10,7 @@ struct SignInView: View {
         VStack(spacing: 16) {
             Text("Stash").font(.largeTitle.bold())
             Text("Sign in with your gostash.it account")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             TextField("Email", text: $email)
                 .textContentType(.username)
                 .keyboardType(.emailAddress)
@@ -34,7 +34,7 @@ struct SignInView: View {
             .disabled(busy || email.isEmpty || password.isEmpty)
             .accessibilityIdentifier("signin.submit")
             Text("New here? Create your account at gostash.it")
-                .font(.footnote).foregroundStyle(.secondary)
+                .font(.footnote).foregroundStyle(StashColor.muted)
         }
         .textFieldStyle(.roundedBorder)
         .padding(24)

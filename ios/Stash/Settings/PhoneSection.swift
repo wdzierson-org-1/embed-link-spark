@@ -72,7 +72,7 @@ struct PhoneSection: View {
             if number.verified {
                 Text("Verified")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
             }
             Spacer()
             Button {

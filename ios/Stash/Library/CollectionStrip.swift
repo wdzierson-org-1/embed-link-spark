@@ -81,12 +81,12 @@ private struct AttachmentTile: View {
 
     private var iconTile: some View {
         VStack(spacing: 4) {
-            Image(systemName: iconName).foregroundStyle(.secondary)
+            Image(systemName: iconName).foregroundStyle(StashColor.muted)
             Text(attachment.title ?? attachment.type)
                 .font(.system(size: 9))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
         }
         .padding(4)
     }
@@ -107,7 +107,7 @@ private struct OverflowTile: View {
     var body: some View {
         Text("+\(count)")
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StashColor.muted)
             .frame(width: 56, height: 72)
             .background(Color(.tertiarySystemFill))
             .clipShape(RoundedRectangle(cornerRadius: 10))

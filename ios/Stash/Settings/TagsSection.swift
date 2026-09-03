@@ -20,7 +20,7 @@ struct TagsSection: View {
             } else if tags.isEmpty {
                 Text("You haven't created any tags yet.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
             } else {
                 ForEach(tags) { tag in
                     row(tag)
@@ -59,7 +59,7 @@ struct TagsSection: View {
             Spacer()
             Text("\(tag.usageCount)")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
         }
         .accessibilityIdentifier("settings.tags.row.\(tag.name)")
         .swipeActions {

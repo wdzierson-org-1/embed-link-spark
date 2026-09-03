@@ -42,7 +42,7 @@ struct ItemDetailContent: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Attachments")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             CollectionStrip(itemId: item.id)
         }
         .accessibilityIdentifier("detail.attachments")
@@ -73,7 +73,7 @@ struct ItemDetailContent: View {
             if let text, !text.isEmpty {
                 Text(text)
             } else {
-                Text(empty).foregroundStyle(.secondary)
+                Text(empty).foregroundStyle(StashColor.muted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -93,7 +93,7 @@ struct ItemDetailContent: View {
                 .frame(maxHeight: 320)
             } else {
                 Text("Nothing captured yet")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -105,7 +105,7 @@ struct ItemDetailContent: View {
             if let content = item.content, !content.isEmpty {
                 Text(renderTipTap(content))
             } else {
-                Text("No notes yet").foregroundStyle(.secondary)
+                Text("No notes yet").foregroundStyle(StashColor.muted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

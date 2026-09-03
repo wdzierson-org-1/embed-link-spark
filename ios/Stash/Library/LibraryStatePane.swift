@@ -16,7 +16,7 @@ struct LibraryStatePane: View {
                 .font(.headline)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
         }
         .padding(40)

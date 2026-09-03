@@ -92,7 +92,7 @@ struct ItemCardView: View {
                 Text(domain.uppercased())
                     .font(.system(size: 11, weight: .semibold))
                     .kerning(0.6)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
                     .highPriorityGesture(TapGesture().onEnded { openURL(url) })
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { openURL(url) }
@@ -116,14 +116,14 @@ struct ItemCardView: View {
         if !contentPlain.isEmpty {
             Text(contentPlain).font(.subheadline).foregroundStyle(.primary.opacity(0.85)).lineLimit(4)
         } else if !descriptionPlain.isEmpty {
-            Text(descriptionPlain).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+            Text(descriptionPlain).font(.subheadline).foregroundStyle(StashColor.muted).lineLimit(3)
         }
     }
 
     private var standardBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !descriptionPlain.isEmpty {
-                Text(descriptionPlain).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                Text(descriptionPlain).font(.subheadline).foregroundStyle(StashColor.muted).lineLimit(3)
             }
             if !contentPlain.isEmpty {
                 CardAnnotation(text: contentPlain)
@@ -140,7 +140,7 @@ struct ItemCardView: View {
             if !contentPlain.isEmpty {
                 Text(renderTipTap(item.content)).font(.subheadline).lineLimit(6)
             } else if !descriptionPlain.isEmpty {
-                Text(descriptionPlain).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                Text(descriptionPlain).font(.subheadline).foregroundStyle(StashColor.muted).lineLimit(2)
             }
             CollectionStrip(itemId: item.id) { collectionCount = $0 }
         }
@@ -222,7 +222,7 @@ struct ItemCardView: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(Color(.tertiarySystemFill), in: Capsule())
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StashColor.muted)
     }
 
     /// "N items" for collections (once the strip's own fetch reports a count — "items" bare

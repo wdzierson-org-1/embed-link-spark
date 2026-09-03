@@ -40,7 +40,7 @@ struct MetaChip: View {
                        : .system(size: 11, weight: .medium))
             .lineLimit(1)
             .truncationMode(.middle)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StashColor.muted)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(Color.primary.opacity(0.04), in: Capsule())

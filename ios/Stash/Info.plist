@@ -30,6 +30,13 @@
 	<string>Stash uses the microphone for voice notes and dictation.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Stash transcribes your speech on-device to fill the composer.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>PPNeueMontreal-Book.ttf</string>
+		<string>PPNeueMontreal-BookItalic.ttf</string>
+		<string>PPNeueMontreal-Medium.ttf</string>
+		<string>PPNeueMontreal-Semibold.ttf</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

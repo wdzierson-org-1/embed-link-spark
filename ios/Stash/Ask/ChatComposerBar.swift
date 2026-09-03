@@ -21,7 +21,7 @@ struct ChatComposerBar: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(StashColor.gray300, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(StashColor.hairline, lineWidth: 1))
                 .accessibilityIdentifier("ask.input")
 
             if dictation.isSupported, dictation.authorizationState != .denied {

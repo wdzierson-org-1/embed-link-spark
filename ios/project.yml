@@ -48,6 +48,15 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
+        # Plan 7 Task 2: registers the bundled PP Neue Montreal TTFs so UIFont(name:) /
+        # Font.custom can resolve them — DESIGN.md §Typography, StashType.swift. Flat filenames:
+        # Xcode's Copy Bundle Resources phase drops group-referenced files at the bundle root
+        # regardless of their on-disk subdirectory (verified against the built .app/.appex).
+        UIAppFonts:
+          - PPNeueMontreal-Book.ttf
+          - PPNeueMontreal-BookItalic.ttf
+          - PPNeueMontreal-Medium.ttf
+          - PPNeueMontreal-Semibold.ttf
         NSCameraUsageDescription: "Stash uses the camera to capture photos straight into your stash."
         NSMicrophoneUsageDescription: "Stash uses the microphone for voice notes and dictation."
         NSSpeechRecognitionUsageDescription: "Stash transcribes your speech on-device to fill the composer."
@@ -71,6 +80,10 @@ targets:
       # AppIcon it needs live in this target's own Assets.xcassets (an extension's bundle is
       # separate from its host app's, so the app's catalog isn't visible here).
       - path: Stash/Design/StashDesign.swift
+      - path: Stash/Design/StashType.swift
+      # Plan 7 Task 2: PP Neue Montreal TTFs — an appex has its own bundle (can't read the host
+      # app's), so the four font files must physically ship inside StashShareExtension.appex too.
+      - path: Stash/Design/Fonts
     dependencies:
       - package: StashKit
     settings:
@@ -93,6 +106,13 @@ targets:
         # the app's); pin both to the single-sourced project settings.
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Plan 7 Task 2: an appex has its own bundle (can't read the host app's), so it needs its
+        # own UIAppFonts entry + its own copy of the four TTFs (see `sources` above).
+        UIAppFonts:
+          - PPNeueMontreal-Book.ttf
+          - PPNeueMontreal-BookItalic.ttf
+          - PPNeueMontreal-Medium.ttf
+          - PPNeueMontreal-Semibold.ttf
         # Fix round 1 (Important review finding): the app target declares this; the extension
         # needs its OWN copy (an extension's Info.plist is entirely separate from its host app's,
         # regardless of any TCC-inheritance question the pin-visibility live check settles

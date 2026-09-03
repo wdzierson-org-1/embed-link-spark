@@ -27,7 +27,7 @@ struct SubscriptionSection: View {
                     Spacer()
                     Image(systemName: "arrow.up.right")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StashColor.muted)
                 }
             }
             .accessibilityIdentifier("settings.subscription.manage")
@@ -44,7 +44,7 @@ struct SubscriptionSection: View {
 
     @ViewBuilder private var statusRow: some View {
         HStack {
-            Text("Status").foregroundStyle(.secondary)
+            Text("Status").foregroundStyle(StashColor.muted)
             Spacer()
             if subscription.isLoading {
                 ProgressView()

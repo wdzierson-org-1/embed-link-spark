@@ -46,7 +46,7 @@ struct ConversationsListView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 15))
-                .foregroundStyle(searchFocused ? StashColor.violet : StashColor.gray400)
+                .foregroundStyle(searchFocused ? StashColor.violet600 : StashColor.faint)
             TextField("Search conversations", text: $searchInput)
                 .focused($searchFocused)
                 .autocorrectionDisabled()
@@ -55,14 +55,14 @@ struct ConversationsListView: View {
                 .accessibilityIdentifier("convos.search")
             if !searchInput.isEmpty {
                 Button { searchInput = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(StashColor.gray400)
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(StashColor.faint)
                 }
             }
         }
         .padding(.horizontal, 16)
         .frame(height: 40)
         .background(Color(.systemBackground), in: Capsule())
-        .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.gray300,
+        .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.hairline,
                                         lineWidth: 1))
         .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
     }
@@ -72,7 +72,7 @@ struct ConversationsListView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let loadError {
             VStack(spacing: 8) {
-                Text(loadError).font(.footnote).foregroundStyle(.secondary)
+                Text(loadError).font(.footnote).foregroundStyle(StashColor.muted)
                 Button("Try again") { Task { await loadFirstPage() } }
                     .font(.footnote.weight(.medium))
             }
@@ -80,7 +80,7 @@ struct ConversationsListView: View {
         } else if rows.isEmpty {
             Text(searchInput.isEmpty ? "No conversations yet — ask something!" : "No matches.")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("convos.empty")
         } else {
@@ -94,7 +94,7 @@ struct ConversationsListView: View {
                             Text(label.uppercased())
                                 .font(.system(size: 11, weight: .semibold))
                                 .kerning(0.6)
-                                .foregroundStyle(StashColor.gray400)
+                                .foregroundStyle(StashColor.faint)
                                 .padding(.top, index == 0 ? 2 : 10)
                         }
                         rowButton(row, index: index)
@@ -130,12 +130,12 @@ struct ConversationsListView: View {
                 Text(row.title ?? "Untitled")
                     .font(.subheadline.weight(row.title == nil ? .regular : .semibold))
                     .italic(row.title == nil)
-                    .foregroundStyle(row.title == nil ? .secondary : .primary)
+                    .foregroundStyle(row.title == nil ? StashColor.muted : StashColor.ink)
                     .lineLimit(1)
                 if let preview = row.preview, !preview.isEmpty {
                     Text(preview)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(StashColor.muted)
                         .lineLimit(2)
                 }
                 Text("\(Self.rowDateFormatter.string(from: row.lastMessageAt)) · \(row.messageCount) message\(row.messageCount == 1 ? "" : "s")")

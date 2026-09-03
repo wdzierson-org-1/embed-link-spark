@@ -77,7 +77,7 @@ struct VoiceRecorderSheet: View {
         VStack(spacing: 20) {
             Text("Tap to start recording")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             Button {
                 recorder.start()
             } label: {
@@ -116,7 +116,7 @@ struct VoiceRecorderSheet: View {
         VStack(spacing: 24) {
             Image(systemName: "waveform")
                 .font(.system(size: 40))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             Text(formattedElapsed)
                 .font(.system(.title, design: .monospaced))
                 .accessibilityIdentifier("capture.voice.duration")
@@ -153,12 +153,12 @@ struct VoiceRecorderSheet: View {
         VStack(spacing: 16) {
             Image(systemName: "mic.slash")
                 .font(.system(size: 40))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             Text("Microphone access needed")
                 .font(.headline)
             Text("Stash needs microphone access to record voice notes. You can enable it in Settings.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {

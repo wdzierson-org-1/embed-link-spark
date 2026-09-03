@@ -105,6 +105,15 @@ struct ShareComposeView: View {
     /// from "a session exists but its access token may need a refresh" (the latter is
     /// `ShareIntake`'s own problem to degrade gracefully from, once Save is tapped).
     private func load() async {
+        #if DEBUG
+        // Plan 7 Task 2: an appex has its own bundle — the app target bundling PP Neue Montreal
+        // proves nothing about the extension. This is the extension-side proof, captured from a
+        // live share (see task-2-report.md): UIFont.familyNames grouping every bundled weight
+        // under its shared name-table-ID-16 typographic family confirms the appex's own
+        // `UIAppFonts` + bundled TTFs actually registered the face in THIS process.
+        let neueMontrealFamilies = UIFont.familyNames.filter { $0.contains("PP Neue Montreal") }
+        print("StashShareExtension font families: \(neueMontrealFamilies)")
+        #endif
         guard let resolvedUserId = StashClient.shared.auth.currentSession?.user.id else {
             phase = .noSession
             return
@@ -142,10 +151,10 @@ struct ShareComposeView: View {
         VStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
                 .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(StashColor.gray500)
+                .foregroundStyle(StashColor.muted)
                 .frame(width: 64, height: 64)
                 .background(Color(.systemBackground), in: Circle())
-                .overlay(Circle().strokeBorder(StashColor.gray300, lineWidth: 1))
+                .overlay(Circle().strokeBorder(StashColor.hairline, lineWidth: 1))
                 .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
             // Identifier lives on this LEAF `Text`, not the container (see `doneView`'s doc
             // comment for why): confirmed LIVE that `.accessibilityElement(children: .ignore)` on
@@ -159,7 +168,7 @@ struct ShareComposeView: View {
             Text("Sign in to the Stash app to share.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .padding(.horizontal, 24)
                 .accessibilityIdentifier("share.noSession")
         }
@@ -170,6 +179,17 @@ struct ShareComposeView: View {
 
     private var composeBody: some View {
         VStack(alignment: .leading, spacing: 14) {
+            #if DEBUG
+            // Plan 7 Task 2: the extension-side font proof — an appex has its own bundle (can't
+            // read the host app's), so bundling PP Neue Montreal in the APP target proves nothing
+            // about THIS process. Read by testShareExtensionURLSmoke. DEBUG-only, zero-height so
+            // it never shifts the compose card's real layout.
+            Text(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+                .font(.system(size: 1))
+                .frame(height: 0)
+                .accessibilityIdentifier("share.fontStatus")
+                .accessibilityLabel(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+            #endif
             preview
             if droppedCount > 0 {
                 droppedMessage
@@ -210,7 +230,7 @@ struct ShareComposeView: View {
                 .accessibilityIdentifier("share.dropped")
         }
         .font(.footnote)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(StashColor.muted)
     }
 
     /// Task 7: "Subscribe on gostash.it to add items" — a cached-false gate, unlike the composer's
@@ -234,7 +254,7 @@ struct ShareComposeView: View {
     private var preview: some View {
         if objects.isEmpty {
             Text("Nothing to share")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
                 .accessibilityIdentifier("share.preview.empty")
         } else if case .url(let url) = objects[0] {
             urlPreview(url, extraCount: objects.count - 1)
@@ -257,7 +277,7 @@ struct ShareComposeView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(StashColor.violet600)
                     .frame(width: 34, height: 34)
-                    .background(StashColor.violet50, in: Circle())
+                    .background(StashColor.violet600.opacity(0.12), in: Circle())
                     .overlay(Circle().strokeBorder(StashColor.violet300, lineWidth: 1))
                 // Leaf-level identifier — see `doneView`'s doc comment for why this container
                 // doesn't use `.accessibilityElement(children: .ignore)`.
@@ -270,7 +290,7 @@ struct ShareComposeView: View {
             if extraCount > 0 {
                 Text("+ \(extraCount) more item\(extraCount == 1 ? "" : "s")")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
                     .padding(.leading, 44)
             }
         }
@@ -393,7 +413,7 @@ struct ShareComposeView: View {
                 .accessibilityIdentifier("share.pin.preview")
         }
         .font(.footnote)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(StashColor.muted)
     }
 
     // MARK: - Save / Cancel
@@ -412,9 +432,9 @@ struct ShareComposeView: View {
             .frame(minWidth: 64)
             .frame(height: 44)
             .padding(.horizontal, 14)
-            .foregroundStyle(saveIsHot ? .white : StashColor.gray400)
-            .background(saveIsHot ? StashColor.violet : Color(.systemBackground), in: Capsule())
-            .overlay(Capsule().strokeBorder(saveIsHot ? StashColor.violet : StashColor.gray300, lineWidth: 1))
+            .foregroundStyle(saveIsHot ? .white : StashColor.faint)
+            .background(saveIsHot ? StashColor.violet600 : Color(.systemBackground), in: Capsule())
+            .overlay(Capsule().strokeBorder(saveIsHot ? StashColor.violet600 : StashColor.hairline, lineWidth: 1))
             .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
         }
         .buttonStyle(.plain)
@@ -487,7 +507,7 @@ struct ShareComposeView: View {
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 64, height: 64)
-                .background(message == "Saved to Stash" ? AnyShapeStyle(StashColor.violet) : AnyShapeStyle(.orange), in: Circle())
+                .background(message == "Saved to Stash" ? AnyShapeStyle(StashColor.violet600) : AnyShapeStyle(.orange), in: Circle())
                 .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
             // Identifier lives on this LEAF `Text`, not the container. First attempt put
             // `.accessibilityElement(children: .ignore)` + an explicit label on the VStack instead
@@ -542,7 +562,7 @@ private extension View {
     func hairlineCard() -> some View {
         self
             .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(StashColor.gray300, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(StashColor.hairline, lineWidth: 1))
             .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
     }
 }

@@ -48,8 +48,7 @@ struct ChatBubble: View {
             Image(systemName: message.savedKind == "link" ? "link" : "note.text")
                 .foregroundStyle(.white)
                 .frame(width: 32, height: 32)
-                .background(message.savedKind == "link" ? Color.blue : Color.purple,
-                            in: RoundedRectangle(cornerRadius: 8))
+                .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text(message.savedItemTitle ?? "Saving…")
                     .font(.subheadline.weight(.semibold))
@@ -78,7 +77,7 @@ struct ChatBubble: View {
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18))
+                .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: 18))
         }
     }
 
@@ -110,7 +109,7 @@ struct ChatBubble: View {
 
     private var streamingCursor: some View {
         Text("▍")
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StashColor.muted)
             .opacity(cursorVisible ? 1 : 0.15)
             .onAppear {
                 withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
@@ -191,7 +190,7 @@ struct ChatBubble: View {
                 }
             }
             .font(.footnote)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(StashColor.muted)
         }
     }
 

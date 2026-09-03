@@ -35,7 +35,7 @@ struct ItemTagsSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Tags")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(StashColor.muted)
             tagChips
             inputRow
             suggestionsSection
@@ -70,8 +70,8 @@ struct ItemTagsSection: View {
             .font(.caption)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color.accentColor.opacity(0.15), in: Capsule())
-            .foregroundStyle(Color.accentColor)
+            .background(StashColor.violet600.opacity(0.15), in: Capsule())
+            .foregroundStyle(StashColor.violet600)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("detail.tags.chip.\(tag.name)")
@@ -98,7 +98,7 @@ struct ItemTagsSection: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Suggested")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
                 FlowLayout(spacing: 6) {
                     ForEach(suggestions, id: \.self) { suggestion in
                         Button(suggestion) { Task { await add(suggestion) } }

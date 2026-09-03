@@ -17,7 +17,7 @@ struct ItemDetailHeader: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: typeIcon)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
                     .imageScale(.large)
                 Spacer(minLength: 8)
                 if item.isPublic { publicBadge }

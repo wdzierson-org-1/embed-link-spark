@@ -173,7 +173,7 @@ struct CaptureComposerView: View {
         ZStack(alignment: .topLeading) {
             if viewModel.text.isEmpty {
                 Text("Save a thought, a link, anything…")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(StashColor.muted)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 9)
                     .allowsHitTesting(false)
@@ -307,7 +307,7 @@ struct CaptureComposerView: View {
                 .truncationMode(.tail)
         }
         .font(.footnote)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(StashColor.muted)
         // Without `.ignore` + an explicit label, the Image and Text below are each independently
         // accessible and BOTH inherit the identifier applied below (confirmed live: an XCUITest
         // query for "capture.pin.preview" matched two elements — the icon AND the text, "Multiple
