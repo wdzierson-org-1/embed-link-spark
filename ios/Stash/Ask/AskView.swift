@@ -222,14 +222,17 @@ struct AskView: View {
                 proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
             }
             // Every assistant bubble's inline citation links (`ChatCitations.link`, baked as
-            // `stash://item/<uuid>`) route through this one handler rather than each `ChatBubble`
-            // wiring its own — set once at the thread level, same as the web's single `onSourceClick`
-            // prop threaded through `ChatMole`'s markdown renderer. Anything else (a real http(s)
-            // link inside an AI answer, however unlikely) falls through to the system.
+            // `#item=<uuid>` — or the legacy `stash://item/<uuid>` form some rows may still carry
+            // from round 1 of this task) route through this one handler rather than each
+            // `ChatBubble` wiring its own — set once at the thread level, same as the web's single
+            // `onSourceClick` prop threaded through `ChatMole`'s markdown renderer.
+            // `ChatCitations.itemID(from:)` is the single source of truth for both forms, so this
+            // handler and what `ChatCitations`/`MarkdownBlocksView` render as a link never drift
+            // apart. Anything else (a real http(s) link inside an AI answer, however unlikely, or
+            // an unresolved `#3` fragment — though `stripUnresolvedMarkers` should mean none of
+            // those reach here as a link at all) falls through to the system.
             .environment(\.openURL, OpenURLAction { url in
-                guard url.scheme == "stash", let id = UUID(uuidString: url.lastPathComponent) else {
-                    return .systemAction
-                }
+                guard let id = ChatCitations.itemID(from: url) else { return .systemAction }
                 openCitation(id)
                 return .handled
             })
@@ -334,21 +337,25 @@ struct AskView: View {
     #if DEBUG
     /// Plan 8 Task 4 proof-of-rendering: the standing test account is subscription-gate-blocked
     /// for real Ask answers, so citation-link rendering (`ChatCitations.link` → tappable
-    /// `stash://item/<uuid>` links in `ChatBubble`) has no live-answer path to screenshot.
-    /// Launching with `--uitest-seed-citation-bubble` (paired with `--uitest-tab-ask`) seeds a
-    /// fixture exchange through the exact same `ChatBubble`/`MarkdownBlocksView` rendering path a
-    /// real answer would use — a linked title (`[Feeding Log](#1)`) and a bare marker (`[1]`)
-    /// both citing the same source, so the chip row's "hide once something's linked" fallback is
-    /// exercised too. Never reachable without this exact launch argument; compiled out of Release.
+    /// `#item=<uuid>` links in `ChatBubble`) has no live-answer path to screenshot. Launching with
+    /// `--uitest-seed-citation-bubble` (paired with `--uitest-tab-ask`) seeds a fixture exchange
+    /// through the exact same `ChatBubble`/`MarkdownBlocksView` rendering path a real answer would
+    /// use — a linked title (`[Feeding Log](#1)`) and a bare marker (`[1]`) both citing the same
+    /// source, PLUS a second source that's never cited by number (the `fetchedInFull` fallback
+    /// case from `chat-with-all-content/index.ts`), so fix round 1's per-source chip filter
+    /// renders too: one inline link plus exactly one leftover chip, not all-or-nothing. Never
+    /// reachable without this exact launch argument; compiled out of Release.
     private func seedCitationScreenshotFixtureIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains("--uitest-seed-citation-bubble") else { return }
-        let source = ChatSource(id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
-                                title: "Persimmon Feeding Notes", type: "text", url: nil, n: 1)
+        let linkedSource = ChatSource(id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+                                      title: "Persimmon Feeding Notes", type: "text", url: nil, n: 1)
+        let extraSource = ChatSource(id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+                                     title: "Fruit Tree Almanac", type: "text", url: nil, n: nil)
         let question = ChatMessage(id: "fixture-u", role: .user,
                                    content: "What do my saved items say about persimmons?")
         let answer = ChatMessage(id: "fixture-a", role: .assistant,
                                  content: "Per [Feeding Log](#1), persimmons should be introduced gradually [1] to avoid stomach upset.",
-                                 sources: [source])
+                                 sources: [linkedSource, extraSource])
         store.seedForScreenshot([question, answer])
     }
     #endif
