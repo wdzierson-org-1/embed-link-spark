@@ -781,3 +781,15 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ## Out of scope (unchanged from spec/plan-5)
 
 Widgets + App Intents (plan 7) · link-metadata client hydration (composer chips show hostname only, no fake enrichment) · dark mode · in-app payments/Stripe · `ProviderLoader` generic-file branch · macOS/iPad · masonry or 3-col layouts.
+
+---
+
+**Status (2026-09-03): superseded — not executed as written.** What actually
+shipped was commit `c4e9a5b` (`StashDesign.swift` restyled onto the
+*pre-`DESIGN.md`* palette — web design language adopted app-wide, chat
+sessions, app icon, share-card redesign — see `ios-app-plan.md` memory for
+the full commit summary). The remaining scope (tokens re-derived to match the
+now-current `DESIGN.md` verbatim, login/detail/conversations parity, real
+brand icon) was consolidated into
+`docs/superpowers/plans/2026-09-03-ios-plan-7-design-consolidation.md`, which
+executed and shipped it.

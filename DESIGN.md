@@ -166,7 +166,8 @@ accent play/pause circle, waveform bars in accent at .72 (unplayed .26),
 tabular-numeral times, speed pill (1× → 1.5× → 2×).
 
 **Detail panel**: one surface, flow layout (no rail). Order: eyebrow (type
-chip + source) → title → description → annotation → media → content tabs
+chip + source) → title → description → annotation → media → URL bar (both
+platforms render it after media, before the content tabs) → content tabs
 (Notes/Transcript/Summary/Original per type) → **Details drawer** (collapsed by
 default; summary shows format · size · duration inline; expands to dotted
 key-value rows incl. original filename and location) → Sharing → footer
@@ -214,7 +215,10 @@ titles/descriptions — enrichment prompts enforce this (`NO_PREAMBLE_RULES`).
   when it disagrees with this file, this file wins and both get fixed in the
   same change. Bundle PP Neue Montreal in both targets. SF Symbols per the
   iconography rule. The share sheet is the same design language, not a
-  simplified one.
+  simplified one. *2026-09-03: `StashDesign`/`StashType` re-derived so token
+  values and the typography scale now match this file verbatim (plan 7); the
+  share extension renders Neue Montreal too (SF Pro fallback only on load
+  failure, both targets).*
 - **Chrome extension** (restyle upcoming): plain-CSS the tokens above; no
   build step means copying values, so cite this file's section in a comment
   next to each token block.

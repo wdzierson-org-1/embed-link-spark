@@ -8,6 +8,91 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-03 · iOS design consolidation (plan 7)
+
+iOS now runs on the current `DESIGN.md` token set (it had drifted onto a
+pre-`DESIGN.md` palette shipped 2026-08-30 as `c4e9a5b`) and closes five
+web-parity gaps Will flagged from screenshots: login, item detail sheet,
+Ask-tab access to conversations, conversations list, and the app icon. Full
+plan: `docs/superpowers/plans/2026-09-03-ios-plan-7-design-consolidation.md`.
+
+- **Tokens/typography**: `ios/Stash/Design/StashDesign.swift`/`StashType.swift`
+  re-derived so every value (ink `#22262f`, muted `#646b76`, faint `#959ba6`,
+  violet-600 `#6d5bd0` accent, violet-300 `#b6a8ef`, destructive `#c93a3a`,
+  radii 16/20, card+sheet shadows) matches `DESIGN.md` verbatim — ~75 call
+  sites across 19 files migrated off system fonts/hardcoded colors. PP Neue
+  Montreal (Book/BookItalic/Medium/Semibold, converted losslessly from the
+  web's woff2 via fontTools) is now bundled in **both** the app and the share
+  extension targets (the appex can't read the host bundle), SF Pro fallback
+  only on load failure — the share sheet renders Neue Montreal too, no longer
+  simplified. Global accent is violet-600 (`AccentColor` asset + root `.tint`)
+  — was the default iOS blue.
+- **App icon = the favicon**: flat ink `#22262f` stitched second-S on white,
+  identical glyph to `public/favicon.svg`, no gradient — same PNG in both the
+  app and extension asset catalogs. This **revokes** `DESIGN.md`'s "iOS app
+  icon (standing exception)" clause (edited in the same change; the older
+  gradient icon shipped 2026-08-29 is gone). *`docs/ui-changes.md` amendment:
+  the 2026-09-01 entry below still said "and the iOS app icon, standing
+  exception" — corrected in place.*
+- **Sign-in card parity + sign-up added**: wordmark, "Sign in or create your
+  account.", pill Sign in/Sign up tabs (equal-width), quiet violet-tinted
+  inputs, violet-600 CTA — matches `src/pages/Auth.tsx`. Sign-up is new on
+  iOS: mirrors web's `signUp` exactly (auth.signUp → `user_profiles`
+  username/display_name insert → optional `send-welcome-message` invoke when
+  a phone is given), with a live username/phone availability probe against
+  the same tables/columns/threshold as web. **Product note for web/mac**:
+  since iOS can now create accounts, Apple 5.1.1(v) requires in-app account
+  deletion before the app can go out on the *public* App Store (TestFlight is
+  unaffected) — carried forward as a named requirement for the next iOS
+  plan.
+- **Ask tab**: header is now "Ask Stash" / "Answers from your N items"
+  (live count); the two header icon buttons are retired — "Start new chat ·
+  Earlier conversations" text links now live under the composer instead
+  (same `ask.newChat`/`ask.history` identifiers, just relocated + relabeled).
+  Welcome bubble copy matches web verbatim. Conversations rows: 8pt
+  violet-300 dot, 1-line muted excerpt, stacked date + message count,
+  month-bucket micro-labels. (iOS still diverges from web on pagination —
+  infinite scroll vs. web's Prev/Next — that divergence note lower in this
+  file stands unchanged.)
+- **Item detail sheet rebuilt to `DESIGN.md`'s panel order**: eyebrow pill
+  (type + domain) → editable title (invisible chrome at rest, violet wash on
+  focus) → description → media → **URL bar** (favicon + mono URL + open
+  affordance, new — no iOS favicon-image helper existed before this, added
+  to StashKit's `CardMetadata`) → micro-label ("NOTES & SUMMARY" etc., per
+  type) + pill tabs → tab content rendered through a new pure Markdown block
+  parser (`StashKit`'s `MarkdownBlocks.parse`/`looksLikeMarkdown`, tested,
+  ported byte-for-byte from `EditItemContentSection.tsx`'s heuristic) so AI
+  summaries/notes render real headings/bullets/bold instead of raw
+  `**`/`-` characters → **Details drawer** (collapsed by default, matching
+  web's `useState(false)` — header is a one-line summary + chevron; expands
+  to dotted key/value rows: Saved/Type/Size/Duration/Source/**Location**,
+  the last absorbing the old standalone location editor, which no longer
+  renders twice) → **Sharing** tile (lock/globe, violet switch, feed-link
+  copy chip gated on the user's own username actually having loaded — never
+  renders/copies a bare `gostash.it/feed/`) → footer (Delete left, autosave
+  status right, always visible — not scrolled-under).
+  `DESIGN.md`'s panel-order sentence now names the URL bar explicitly (both
+  platforms render it right after media).
+- **Tags UI retired on iOS** — matches web (`DESIGN.md` §Components: "no tag
+  UI on cards or panel"). Removed from the detail sheet and from Settings
+  (`TagsSection` deleted). Tag *data* (StashKit `TagsAPI`, `items.tags`) is
+  untouched — this is a UI-only removal, same as web's.
+- **Status colors**: iOS uses the system `.orange`/`.green` at a few sites
+  (outbox/gate badges, a saved-chip) because `DESIGN.md` has no
+  warning/success token yet — flagged here so web/mac can add one if/when
+  it's worth standardizing; iOS's own `.red` sites were already converted to
+  the `destructive` token.
+
+Suite state at this commit: StashKit 293→312 (new: `MarkdownBlocksTests`,
+19 tests); iOS UI suite grew from 15 to include seven new smokes
+(`testDesignSystemFontsLoad`, `testSignUpTabRenders`,
+`testAskFooterLinksRenderAndOpenConversations`, `testDetailSheetAnatomy`,
+`testPublicSmoke` [renamed from `testTagsAndPublicSmoke`, tag steps already
+removed], `testLocationEditSmoke`, `testShareExtensionURLSmoke`); both app
+targets build warning-free.
+
+---
+
 ## 2026-09-01 · Favicon corrected to the full flat second-S; interstitial simplified (amends the entry below)
 
 - **Favicon redrawn**: the first cut used only two of the second-S's five
@@ -16,7 +101,8 @@ first, visuals second, with pointers to specs and source.
   (`favicon.svg/ico`, pngs, apple-touch, manifest icons, extension icons).
 - **New standing rule (DESIGN.md · Iconography): brand elements are flat** —
   no gradients in buttons, icons, favicons, or marks; the splash gradient is
-  for page washes (and the iOS app icon, standing exception) only.
+  for page washes only. (Amended 2026-09-03: the iOS app icon was a standing
+  exception here — it no longer is; see the entry above.)
 - **Loading interstitial simplified**: it shows for a split second, so the
   animated mark + cycling copy never landed. Now a quiet arc spinner
   (hairline track, violet-600 rounded-cap arc, 0.9s) on the grey wash.

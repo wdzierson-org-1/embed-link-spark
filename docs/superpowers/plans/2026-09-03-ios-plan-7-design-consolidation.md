@@ -230,3 +230,105 @@ public enum MarkdownBlocks {
 - **Type consistency:** `StashColor`/`StashType`/`StashRadius`/`StashShadow` names identical across T2–T7; `MarkdownBlocks.parse`/`looksLikeMarkdown`/`MarkdownBlocksView(text:)` identical in T5/T6; identifiers listed once per task and reused by T8's suite run.
 - **Known risks, accepted:** Neue Montreal on iOS is a license question in principle, but `DESIGN.md` (accepted design record) already mandates bundling it — proceed, flag in the outcome; T3 sign-up introduces the account-deletion obligation for public App Store (flagged, not blocking TestFlight); the other thread may still push to main — T8 Step 1 audits before merge.
 - **Ethos check:** no new capture-time decisions; enrichment stays behind endpoints; tags retirement matches web; single-object model untouched.
+
+---
+
+## Outcome (2026-09-03)
+
+**Commit range:** `9c1f8de..HEAD` (base = origin/main at plan authoring time).
+
+| Commit | Task | Message |
+|---|---|---|
+| `3b1a295` | — | docs(ios): plan 7 — design consolidation + web parity round 2 |
+| `87cdc7b` | T1 | feat(ios): app icon is the flat ink second-S on white (matches favicon); DESIGN.md exception revoked |
+| `ad2d36f` | T2 | feat(ios): StashDesign re-derived from DESIGN.md — ink/violet tokens, Neue Montreal bundled in app + appex, SF fallback |
+| `a3bc432` | — (foreign) | fix(auth): header Sign out is local-scope — was logging out every device (merged from origin/main at T8) |
+| `ebcdd15` | T3 | feat(ios): sign-in card matches web — wordmark, pill Sign in/Sign up tabs, quiet inputs, violet CTA, sign-up flow |
+| `dde98f8` | T4 | feat(ios): Ask header/footer + Conversations rows match web (footer links, violet dot, tokens) |
+| `02c75de` | T5 | feat(ios): markdown block parser (StashKit, tested) + renderer for AI text |
+| `c077e72` | T3 fix round 1 | fix(ios): center sign-in card, live username/phone availability checks, real signUp error text |
+| `68463f3` | T6 | feat(ios): item detail sheet rebuilt to DESIGN.md — eyebrow, URL bar, pill tabs, rendered markdown, footer; tags UI retired |
+| `203a7ab` | T7 | feat(ios): details drawer + sharing section on the detail sheet (DESIGN.md parity) |
+| `c7f3e9d` | cleanup | fix(ios): token/font-helper cleanup from plan-7 reviews (PillTabs reuse, StashType.medium/semibold, literal purge) |
+| `82d3599` | cleanup | fix(ios): PillTabs fillWidth mode — sign-in tabs split the card evenly like web |
+| `fd86e8d` | T7 fix round 1 | fix(ios): relocate location editor into Details drawer, gate feed-link chip on loaded username |
+| `736f3e8` | final wave | fix(ios): plan-7 final wave — footer inset, violet accent, full Neue Montreal sweep incl. share card, tags out of Settings, minors |
+| `1a2803d` | T8 | Merge remote-tracking branch 'origin/main' (foreign commit audit, step 1) |
+
+### Verification
+
+- **StashKit:** `swift test` → **312/312 passing, 0 failures** (floor carried from the final
+  wave; unchanged by the T8 merge — no StashKit files touched by `a3bc432`). Growth over the
+  plan: 293 → 312 (Task 5's `MarkdownBlocksTests`, 19 tests).
+- **App + extension build:** `xcodegen generate` → `xcodebuild build` (sim
+  `28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB`, `derivedDataPath=DerivedData`) → **BUILD SUCCEEDED**,
+  zero compiler warnings (only the pre-existing `appintentsmetadataprocessor`
+  no-AppIntents-framework tooling notice, not a diagnostic).
+- **Web:** `npm test` (worktree root, after `npm install`) → **29 test files, 179 tests, all
+  passed.**
+- **UI suite ×2:** full `StashUITests` (19 tests: the pre-plan-7 15 minus one rename plus the
+  seven new/renamed smokes) run twice against production, `STASH_DELETE_MARKER` freshly reseeded
+  via the `add-note` REST endpoint before each run. Run 1 hit a 4th, non-standing failure —
+  `testEditSmoke` — investigated before proceeding (not a regression: the file's own doc comments
+  and prior memory both document this as a pre-existing ~1-in-6 caret-positioning flake in the
+  test itself, untouched by any plan-7 commit; this occurrence also broke the fixture's
+  prefix-based self-heal in a way not seen before, requiring one manual REST repair of the
+  `UITEST-FIXTURE: note one` title — see `task-8-report.md` for the full trace). Re-ran standalone
+  twice: first retry surfaced the exact corruption via REST, second retry passed clean (50s, full
+  flow). Run 2: exactly the standing 3 gate-blocked failures (`testAskSmoke`, `testCaptureSmoke`,
+  `testLocationPinSmoke` — Stripe comp decision still pending, unchanged since plan 4) and every
+  other test green including `testEditSmoke` and all seven new-this-plan smokes
+  (`testDesignSystemFontsLoad`, `testSignUpTabRenders`,
+  `testAskFooterLinksRenderAndOpenConversations`, `testDetailSheetAnatomy`, `testPublicSmoke`,
+  `testLocationEditSmoke`, `testShareExtensionURLSmoke`).
+
+### Decisions of record
+
+1. **App icon = the favicon** — flat ink `#22262f` stitched second-S on white, no gradient;
+   revokes `DESIGN.md`'s standing iOS-icon exception (T1).
+2. **Sign-up shipped on iOS** — mirrors web's `auth.signUp` (metadata-driven `handle_new_user`
+   trigger, no client-side `user_profiles` insert) + optional phone upsert + welcome-message
+   invoke, with live username/phone availability probes. **This is now a named requirement for
+   the next iOS plan**: Apple 5.1.1(v) requires in-app account deletion before the app can leave
+   TestFlight for the public App Store (TestFlight itself is unaffected — ship build 2 as
+   planned).
+3. **Location editor lives inside the Details drawer** — not a standalone top-of-sheet row (T7
+   fix round 1; matches web, which never rendered it twice either).
+4. **Details drawer collapsed by default** — matches web's `useState(false)`.
+5. **Footer is a `VStack` sibling below the `ScrollView`**, not a `.safeAreaInset` — the only
+   construction that makes the scroll view's own laid-out frame stop where the footer begins,
+   which is what XCUITest's hittability check actually consults (final wave; see
+   `final-wave-report.md` §A for the debug-instrumented proof).
+6. **Typography sweep is complete**, including the share extension's compose card — no screen
+   ships system fonts where a `StashType` token applies; ~75 sites across 19 files migrated
+   (final wave).
+7. **Tags UI is retired everywhere on iOS** — detail sheet (T6) and Settings (final wave,
+   `TagsSection.swift` deleted); tag data (`TagsAPI`, `items.tags`) is untouched.
+
+### Carried items (not blocking, flagged for follow-up)
+
+1. **`MarkdownBlocks.looksLikeMarkdown` doesn't trigger on "N)" numbered lists** — it's a
+   byte-for-byte port of web's own detection regex, which only recognizes "1." not "1)"; this is
+   intentional parity with web's existing gap, not an iOS-only miss (Task 5).
+2. **`.orange`/`.green` have no `DESIGN.md` token** — several iOS sites (outbox/gate badges, a
+   saved-chip) still use the system colors for warning/success states because no token exists to
+   migrate them to; `.red` sites were already converted to `destructive`. Worth a web/mac
+   decision on whether to standardize one (final wave).
+3. **iOS `signUp` assumes `mailer_autoconfirm=true`** on the Supabase project (the same
+   assumption web's TryStash anonymous-upgrade flow relies on) — the session activates
+   immediately after `auth.signUp` with no "check your email" state. If that project setting is
+   ever turned off, sign-up on iOS needs a confirmation-pending UI it doesn't have today (T3).
+4. **`PillTabs` gained a `fillWidth` mode** — the sign-in screen's Sign in/Sign up tabs now split
+   the card evenly (matching web's `grid-cols-2`); the default content-sized mode is still used
+   elsewhere (e.g. detail-sheet content tabs) (cleanup wave).
+5. **`PublicFeedURL.make(username:)` returns `String?`**, not a string that can be empty/bare —
+   `nil` when the username hasn't loaded yet, so no call site can render or copy a bare
+   `gostash.it/feed/` (final wave; shared by `SharingSection` and `AccountSection`).
+
+### Build 2
+
+_Filled after Step 5 (release):_
+- Version: `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 2`.
+- Entitlements verified on the exported `.ipa`: TBD.
+- Upload + processing: TBD.
+- Attached to Internal group (`d19f78c1-7af3-4461-9af6-1566200c251b`): TBD.
