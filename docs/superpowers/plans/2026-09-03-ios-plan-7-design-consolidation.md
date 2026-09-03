@@ -327,8 +327,17 @@ public enum MarkdownBlocks {
 
 ### Build 2
 
-_Filled after Step 5 (release):_
-- Version: `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 2`.
-- Entitlements verified on the exported `.ipa`: TBD.
-- Upload + processing: TBD.
-- Attached to Internal group (`d19f78c1-7af3-4461-9af6-1566200c251b`): TBD.
+- Version: `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 2` — confirmed via `PlistBuddy`
+  on both built products (`Stash.app`, `StashShareExtension.appex`).
+- `./ios/scripts/release.sh all`: **archive succeeded** (`ios/build/Stash.xcarchive` on disk,
+  built from commit `5fd8eb8`); **export failed** — the Xcode session for
+  `willdzierson@gmail.com` has expired (`missing Xcode-Token` in the keychain; confirmed via
+  `security find-generic-password`). This is the documented failure mode in
+  `docs/RELEASING.md`'s Troubleshooting section.
+- **BLOCKED — needs Will:** Xcode → Settings → Accounts → sign out/back in for
+  `willdzierson@gmail.com` (team `3CH3K9NTT2`), then `./ios/scripts/release.sh export` (the
+  existing archive should still be exportable) → `upload` → poll → attach to group
+  `d19f78c1-7af3-4461-9af6-1566200c251b`. Full resume instructions in
+  `.superpowers/sdd/2026-09-03-ios-plan-7-design-consolidation/task-8-report.md` ("Step 5").
+- Entitlements verification, upload, processing, and group attachment: not yet done — pending
+  the above.
