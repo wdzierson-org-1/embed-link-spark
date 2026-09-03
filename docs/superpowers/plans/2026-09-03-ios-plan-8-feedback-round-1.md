@@ -133,9 +133,9 @@ public enum ChatCitations {
 
 **Files:** `docs/ui-changes.md` (new top entry "2026-09-03 · iOS feedback round 1": Ask buttons decision REVERSED (header circle buttons are the iOS affordance; footer text links retired — note for web: no change), gradient tokens now in DESIGN.md (web should reference the token block), no wordmark/title on View/Ask/Settings, composer keyboard-minimize + lock removed (sharing only on detail), attachment × fix, inline citation links (`stash://item/` on iOS ≙ `#item=` on web), notes editor semantics (plain editable / rich append)), this plan (outcome), `DESIGN.md` already edited in T1.
 
-- [ ] **Step 1:** foreign-commit audit + merge `origin/main` into the branch; resolve; re-run.
-- [ ] **Step 2:** `swift test` (≥319), builds warning-free, `npm test`, UI suite ×2 (standing 3 failures only).
-- [ ] **Step 3:** docs + outcome (incl. the Add-tab-wordmark assumption for Will to confirm) → commit `docs(ios): plan-8 outcome; ui-changes entry`.
+- [x] **Step 1:** foreign-commit audit + merge `origin/main` into the branch; resolve; re-run.
+- [x] **Step 2:** `swift test` (≥341), builds warning-free, `npm test`, UI suite ×2 (21 tests, standing 3 failures only).
+- [x] **Step 3:** docs + outcome (incl. the Add-tab-wordmark assumption for Will to confirm) → commit `docs(ios): plan-8 outcome; ui-changes entry`.
 - [ ] **Step 4:** TestFlight: `cd ios && ./scripts/release.sh all && ./scripts/release.sh upload` (session auth). If "login details… rejected"/`missing Xcode-Token` → STOP and report (Will must re-sign into Xcode; build stays 0.1.0 (2)). Else poll VALID and attach to group `d19f78c1-7af3-4461-9af6-1566200c251b`.
 
 ---
@@ -146,3 +146,132 @@ public enum ChatCitations {
 - **Placeholders:** none — every task names files, identifiers, and verification.
 - **Type consistency:** `ChatCitations.link` return shape used identically in T4 Steps 1–3; `capture.dismissKeyboard` reused; `StashColor.gradientStops` name unchanged for existing consumers.
 - **Risks accepted:** real chat answers are gate-blocked on the test account (T4 proves rendering via fixture/preview); TipTap round-trip avoided by design in T5; parallel tasks share `StashUITests.swift` (append-only + single test-name ownership).
+
+---
+
+## Outcome (2026-09-03)
+
+**Commit range:** `8ebc14f..HEAD` (base = `main` at plan authoring time).
+
+| Commit | Task | Message |
+|---|---|---|
+| `9147377` | — | docs(ios): plan 8 — feedback round 1 (Ask buttons, gradient tokens, chrome, composer, citations, notes) |
+| `cbf1a15` | T1 | feat(design): page-wash gradient tokens in DESIGN.md; iOS backdrop matches the web palette, smooth, reduced-motion aware |
+| `70f3470` | T2 | feat(ios): no wordmark/title on View, Ask, Settings; Ask new-chat/history buttons restored (Will's call) |
+| `3a5ad95` | T3 | fix(ios): composer keyboard accessory is a minimize control (no Done), lock toggle removed, attachment × no longer clipped |
+| `9d20b2c` | T4 | feat(ios): inline citation links in chat (chatCitations port, stash://item/<id> → detail sheet); chips only as fallback |
+| `a67198f` | T5 | feat(ios): inline autosaving notes editor on the detail sheet (plain notes editable; rich notes append-safe) |
+| `1f28704` | T4 fix round 1 | fix(ios): bake citation links before persist (cross-platform #item= convention), per-source chip filter, dead-link guard |
+| `55cfd3c` | T5 fix round 1 | fix(ios): notes editor — flush on dismiss (both modes) + cross-field save generation guard |
+| `2412cda` | — (foreign) | fix(cards): clean scraped titles/descriptions, subject-aware hero crops, report-a-problem (merged from origin/main at T6) |
+| `55595f7` | final wave | fix(ios): plan-8 final wave — lowercase citation ids, detail keyboard focus, rich-note append on blur only, save-failure state, minors |
+| `3b31f62` | T6 | Merge remote-tracking branch 'origin/main' into worktree-ios-plan-8 (foreign commit audit, step 1) |
+
+### Verification
+
+- **StashKit:** `swift test` → **341/341 passing, 0 failures.** Growth over the plan: 312 → 341
+  (T1 untouched it; T4 added `ChatCitationsTests` twice — port + fix-round-1 lowering; T5 added
+  `SaveGenerationTests`, `ItemMergeTests` content-flag cases, a `Debouncer.cancel` test; final wave
+  added `tipTapLastParagraphText` coverage).
+- **App + extension build:** `xcodegen generate` → `xcodebuild build` (sim
+  `28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB`, `-derivedDataPath DerivedData`) → **BUILD SUCCEEDED**,
+  zero compiler warnings (`StashShareExtension` embeds into the same build; grepped the full log
+  for `warning:` — none from any project file).
+- **Web:** `npm install` + `npm test` (worktree root) → **32 test files, 197 tests, all passed**
+  (includes the merged-in `2412cda` hero-crop/card-feedback/text-hygiene suites).
+- **UI suite ×2:** full `StashUITests` (21 tests — the plan-7 19 plus `testComposerKeyboardAccessory`
+  new in T3 and `testAskFooterLinksRenderAndOpenConversations` renamed to
+  `testAskHeaderButtonsOpenConversations` in T2, both counted; `testDetailSheetAnatomy` extended
+  in place by the final wave, not a new test) run twice against production. `STASH_DELETE_MARKER`
+  freshly reseeded via the `add-note` REST endpoint before each run (a disposable item titled
+  `UITEST-DELETE-<run>-<epoch>`, deleted by the test itself). Both runs: exactly the standing 3
+  gate-blocked failures (`testAskSmoke`, `testCaptureSmoke`, `testLocationPinSmoke` — Stripe comp
+  decision still pending, unchanged since plan 4) and every other test green, including
+  `testDeleteSmoke` and both notes-editor/detail-focus tests. No investigation needed — no
+  unexpected failures either run.
+
+### Decisions of record
+
+1. **Ask affordance reversed** — the plan-7 call ("footer text links, header icons retired") was
+   wrong on a real phone; the header `CircleIcon` pair (`ask.newChat`/`ask.history`) is the
+   permanent iOS affordance, footer links retired instead (T2). Plan-7's own bullets amended in
+   place with dated notes rather than rewritten.
+2. **Page-wash gradient stops are DESIGN.md tokens** — `#667eea, #764ba2, #9d5fd8, #c2418f,
+   #4facfe, #38bdf8`, `-45deg`, shared by web's `.animated-gradient` and iOS's
+   `StashColor.gradientStops` (T1); iOS draws it over a 2× canvas with a 40pt blur, plus
+   `.drawingGroup()` after the blur (final wave, perf) so the 15s drift animation translates a
+   cached bitmap instead of re-blurring every frame.
+3. **No wordmark/title on View, Ask, or Settings** — `StashHeader` is Add-tab + share-sheet only
+   now (T2). **Assumption, unconfirmed — Will to weigh in**: the Add tab keeps the wordmark as the
+   brand/launch moment. One-line reversal if wrong (drop the `StashHeader(...)` call site in
+   `CaptureComposerView.swift`).
+4. **Composer**: minimize-keyboard icon replaces the "Done" text button (`capture.dismissKeyboard`,
+   shared with the notes editor's own keyboard accessory); the public/lock toggle is gone from the
+   composer — sharing is detail-sheet-only (T3).
+5. **`#item=<uuid>` is the cross-platform citation-link convention**, baked into `messages.content`
+   at persist time on both platforms (not just at render) — **uuid must be lowercase** (web's
+   extraction regex is case-sensitive `[0-9a-f-]+`; this was wrong for one intermediate commit
+   within this plan — `9d20b2c` briefly used `stash://item/` and uppercase `UUID.uuidString` — and
+   corrected in `1f28704`/`55595f7` before merge). iOS keeps read-only recognition of the old
+   `stash://item/<uuid>` form so nothing already baked that way goes dead (T4, fix round 1, final
+   wave item A).
+6. **Notes editor semantics**: plain-text notes are now fully editable with whole-field autosave
+   (600ms debounce, flush on blur/Done/dismiss); rich (TipTap JSON) notes stay read-only-render +
+   append-only, and — after the whole-branch review caught mid-keystroke paragraph-splitting — the
+   append now fires on blur/Done only, never on the debounce tick (T5, final wave item C).
+7. **`SaveGeneration`** (new StashKit type, mirrors `ItemStore`/`SubscriptionStore`'s plain-Int-on-
+   `@MainActor` pattern) guards `saveChangedFields`/`saveAttributes`/`flushNotes` against an
+   out-of-order network response clobbering newer local state — added because T5's second
+   debouncer (the notes field) made a pre-existing cross-field race actually reachable (T5, fix
+   round 1).
+8. **A failed autosave now surfaces to the user** — `SaveStatus.failed(String)`, rendered as
+   "Couldn't save — try again." in the destructive color under `detail.autosave.error`, distinct
+   from the resting `detail.autosave` identifier; applies to both the notes flush and the
+   title/description field save. Nothing typed is discarded on a failed save (final wave item D).
+
+### Carried items (not blocking, flagged for follow-up)
+
+1. **Inline citation links render violet with no underline on iOS; web underlines them**
+   (`underline decoration-violet-300`) — a real, disclosed visual divergence, not reconciled this
+   round (T4 / final wave; flagged in `docs/ui-changes.md` for a decision).
+2. **`MarkdownBlocksView` styles every markdown link it renders violet/no-underline, not just
+   citation links** — disclosed in the view's own doc comment (T4). It can't currently distinguish
+   a `ChatCitations`-baked item link from any other markdown link that might appear in AI-generated
+   text (Summary/Original/Transcript tabs also route through this view), so the blanket styling is
+   a known simplification, not a bug.
+3. **`Debouncer.cancel()` can't stop an already-started action** — `onDisappear` now cancels the
+   pending field debounce *before* its own explicit save (final wave item E/7), which closes the
+   common case, but if the 600ms timer had already fired and the save was already in flight at the
+   moment `cancel()` runs, that save still completes — a rare, harmless duplicate PATCH (T5
+   re-review; not re-attempted this plan).
+4. **A dropped `SaveGeneration` response can still duplicate a rich-note's appended paragraph, once,
+   in a narrow window** — `flushNotes()` now checks the trailing paragraph against the draft before
+   appending and skips if they already match (final wave item C, minor 6), but only if a
+   realtime/adopt refresh has already folded the dropped save into local `item.content` by the time
+   the *next* flush runs; explicitly disclosed as not a complete fix (closing it fully would need
+   re-fetching the row before every append — judged not worth the round trip for this rare race).
+5. **`MarkdownBlocks.looksLikeMarkdown` doesn't trigger on "N)" numbered lists** — unchanged from
+   plan 7; intentional parity with web's own detection gap, not an iOS-only miss.
+6. **`.orange`/`.green` still have no `DESIGN.md` token** — unchanged from plan 7; iOS keeps using
+   the system colors at a few warning/success sites pending a web/mac decision on whether to
+   standardize one.
+7. **Apple 5.1.1(v) in-app account-deletion requirement is still pending** — unchanged from plan 7
+   (iOS can create accounts via sign-up, so deletion must ship before the app leaves TestFlight for
+   the public App Store; TestFlight itself is unaffected). Not addressed by this plan — still a
+   named requirement for whichever plan takes it on.
+8. **The `ios-plan6-visual` worktree (`worktree-ios-plan6-visual`) is still unmerged** — a parallel
+   visual-overhaul branch predating plan 7's own consolidation, still sitting in
+   `.claude/worktrees/ios-plan6-visual`. Whatever it has that plan 7/8 didn't already absorb is a
+   plan-9 harvest candidate, not touched by this plan.
+
+### Process note
+
+T2's commit (`70f3470`) swept an in-progress stub of T3's `testComposerKeyboardAccessory` out of
+`StashUITests.swift` mid-edit — two parallel writers touching the same file in the same round. The
+whole-branch review adjudicated this as a git-hygiene-only issue (the shipped test is functionally
+correct and the header-button affordance is byte-identical to the pre-plan-7 UI); rewriting four
+commits of history mid-plan to fix attribution was judged not worth the risk. **Rule going
+forward** (already true for T4/T5 in this same plan): single writer per file per parallel round —
+don't let two tasks edit `StashUITests.swift` in the same wave.
+
+### Build 2 (TestFlight)

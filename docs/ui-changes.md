@@ -8,6 +8,87 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-03 · iOS feedback round 1 (plan 8)
+
+Will's device review of the plan-7 build. One plan-7 decision is reversed;
+five more issues fixed. Full plan:
+`docs/superpowers/plans/2026-09-03-ios-plan-8-feedback-round-1.md`.
+
+- **Ask affordance REVERSED — header circle buttons, not footer links.** The
+  plan-7 entry below said the two header icon buttons were retired in favor
+  of "Start new chat · Earlier conversations" text links under the composer.
+  Will's review called that a regression on a phone screen — plan 8 restores
+  the header `CircleIcon` pair (`ask.newChat`/`ask.history`) as the sole
+  affordance and removes the footer links entirely. **No web change** — this
+  is iOS-only. The plan-7 bullet is amended in place (below) rather than left
+  standing in contradiction.
+- **Page-wash gradient stops are now DESIGN.md tokens** (§Color, "Page wash
+  gradient"): the six-stop `-45deg` sweep web already ships (`src/index.css:
+  237`, `.animated-gradient`) is now the one recipe both platforms read from
+  — `#667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8`. Web's own
+  implementation is unchanged by this; if web ever revisits this gradient,
+  point at the DESIGN.md block instead of re-deriving the stops. iOS draws it
+  bottom-leading → top-trailing over a 2× canvas with a 40pt blur (no stop
+  banding) — `StashColor.gradientStops` in `StashDesign.swift`, animated on
+  sign-in, Add, View, launch splash, and the share-sheet compose screen;
+  static under reduced motion.
+- **No wordmark/title on View, Ask, or Settings.** `StashHeader` (the
+  wordmark) is now Add-tab + share-sheet only. **Assumption, Will to
+  confirm**: Add keeps the wordmark as the brand/launch moment — reversible
+  in one line if wrong. Ask's title block ("Ask Stash" / live item count) is
+  gone too; the intro bubble ("Ask anything about what you've saved —
+  answers cite the cards they came from.") is the only per-conversation copy
+  now.
+- **Composer**: the keyboard accessory is now an icon-only minimize-keyboard
+  button (`capture.dismissKeyboard`) — was a text "Done", which read as a
+  second active primary action alongside the violet send button. The
+  public/lock toggle is removed from the composer entirely — sharing is
+  detail-sheet-only now (`CaptureViewModel.isPublic` stays `false` by
+  default). The attachment row's remove-× (`xmark.circle.fill`) is no longer
+  clipped by the scroll view's edge.
+- **Inline citation links in chat — shared `messages.content` convention.**
+  Both platforms now bake citation links into the persisted assistant
+  message text *before* saving (not just at render time), so a reloaded
+  conversation's citations stay clickable without needing the `sources`
+  array again. Format: `[Title](#item=<uuid>)` (web: `src/utils/
+  chatCitations.ts`, baked in `ChatMole.tsx:357-361`; iOS: `StashKit`'s new
+  `ChatCitations.swift`, baked in `ChatStore`). **The uuid must be
+  lowercase** — web's extraction regex is `/[0-9a-f-]+/`, case-sensitive; an
+  uppercase-baked id is silently dead on web. iOS also recognizes
+  (read-only, never writes) a legacy `stash://item/<uuid>` form left over
+  from an early plan-8 fix round — harmless, nothing produces it anymore.
+  Per-source chip fallback (the old default rendering) now shows **only**
+  when an answer has zero resolved inline links; iOS strips any unresolved
+  `[Title](#N)` marker down to plain text rather than rendering a
+  dead-looking violet link. **Divergence, flagged for a decision, not
+  reconciled this round**: iOS renders these links violet with no
+  underline; web underlines them (`underline decoration-violet-300`).
+- **Notes editor semantics changed** (detail sheet). Plain-text notes are
+  now a fully editable, whole-field autosaving editor — 600ms debounce,
+  flushed immediately on blur/Done/dismiss — where they used to be
+  append-only like rich notes. Rich (TipTap JSON) notes stay
+  read-only-render + append-only, but the append now fires only on
+  blur/Done, never on the debounce tick (appending mid-keystroke was
+  splitting paragraphs and emptying the field while the user was still
+  typing). Identifiers changed: `detail.notesComposer.*` →
+  `detail.notes.editor` / `detail.notes.hint` / `detail.dismissKeyboard`
+  (the same minimize-keyboard control the composer uses). A save failure
+  now surfaces "Couldn't save — try again." in the destructive color under
+  `detail.autosave.error`, distinct from the resting `detail.autosave`
+  identifier — applies to both the notes flush and the title/description
+  field save; nothing typed is discarded on a failed save, and the next
+  successful save on any field clears the error state.
+
+Suite state at this commit: StashKit 312→341 (`ChatCitations`,
+`tipTapLastParagraphText`, `SaveGeneration`, `Debouncer.cancel`, notes
+merge-flag tests); iOS UI suite 19→21
+(`testAskFooterLinksRenderAndOpenConversations` renamed to
+`testAskHeaderButtonsOpenConversations`, `testComposerKeyboardAccessory`
+new, `testDetailSheetAnatomy` extended with a focus assertion); both app
+targets build warning-free.
+
+---
+
 ## 2026-09-03 · Subject-aware hero crops + "Report a problem" on cards
 
 Two things from Will's Farfetch example: a portrait product shot (glasses in
@@ -137,6 +218,12 @@ plan: `docs/superpowers/plans/2026-09-03-ios-plan-7-design-consolidation.md`.
   month-bucket micro-labels. (iOS still diverges from web on pagination —
   infinite scroll vs. web's Prev/Next — that divergence note lower in this
   file stands unchanged.)
+  **2026-09-03 (plan 8) — REVERSED**: Will's device review called the footer
+  text links a regression on a phone screen. The header icon buttons are
+  back as the sole affordance (still `ask.newChat`/`ask.history`); the
+  footer links and the title/item-count header block are both gone. See
+  "2026-09-03 · iOS feedback round 1 (plan 8)" above — no title/wordmark on
+  this tab at all now, not just no footer links.
 - **Item detail sheet rebuilt to `DESIGN.md`'s panel order**: eyebrow pill
   (type + domain) → editable title (invisible chrome at rest, violet wash on
   focus) → description → media → **URL bar** (favicon + mono URL + open

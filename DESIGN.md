@@ -202,8 +202,13 @@ rest; violet wash on hover; wash + ring on focus.
 - Playing state: unplayed waveform bars pulse opacity (1.4s loop).
 - Every animation has a `prefers-reduced-motion` guard (including
   `.animated-gradient`, guarded in `src/index.css`). Perpetual ambient
-  animation is sanctioned on exactly three surfaces: the homepage hero, the
-  library page wash, and the sign-in page wash — nowhere else.
+  animation is sanctioned on exactly three web surfaces: the homepage hero,
+  the library page wash, and the sign-in page wash — nowhere else on web.
+  *2026-09-03 (plan 8): reconciled with iOS — the animated page wash also
+  plays on iOS's sign-in, Add-tab composer, View-tab library, launch splash,
+  and share-sheet compose screens (`AnimatedGradient`/`GradientBackdrop` in
+  `StashDesign.swift`), static under `accessibilityReduceMotion` the same
+  way web's version is static under `prefers-reduced-motion`.*
 - The loading interstitial (`LoadingInterstitial.tsx`) is a quiet arc
   spinner: hairline grey track, violet-600 rounded-cap arc, 0.9s spin, on the
   plain grey wash. It shows for a split second — nothing on it should demand
