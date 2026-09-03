@@ -707,7 +707,7 @@ final class StashUITests: XCTestCase {
         // Let the sticky note's own debounced autosave land (same 400ms path as title/
         // description) before toggling off, so the un-share confirm's "a note is present" check
         // — and the un-share patch's own read of the note — see the saved value rather than
-        // racing the pending debounce (see PublicToggleSection.swift's header doc comment).
+        // racing the pending debounce (see SharingSection.swift's header doc comment).
         sleep(2)
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: public\n".data(using: .utf8)!)
         sleep(3)
@@ -1681,6 +1681,25 @@ final class StashUITests: XCTestCase {
         XCTAssertFalse(anyElement("detail.tags.input").exists, "Expected the retired tags UI to be gone")
 
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: detail-anatomy-link\n".data(using: .utf8)!)
+        sleep(3)
+
+        // --- Task 7: Details drawer + Sharing section ---
+        let detailsRow = anyElement("detail.details")
+        XCTAssertTrue(detailsRow.waitForExistence(timeout: 10), "Details drawer row not found")
+        XCTAssertTrue(detailsRow.label.contains("example.com"),
+                      "Expected the collapsed Details row to show the fixture's domain, got '\(detailsRow.label)'")
+        detailsRow.tap()
+
+        let savedRow = anyElement("detail.details.row.saved")
+        XCTAssertTrue(savedRow.waitForExistence(timeout: 10),
+                      "Expected a 'Saved' row once the Details drawer expands")
+
+        let sharing = anyElement("detail.sharing")
+        XCTAssertTrue(sharing.waitForExistence(timeout: 10), "Sharing section not found")
+        XCTAssertTrue(sharing.label.contains("Private"),
+                      "Expected the Sharing section to read Private for this fixture, got '\(sharing.label)'")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: detail-drawer-sharing\n".data(using: .utf8)!)
         sleep(3)
 
         app.buttons["detail.done"].tap()

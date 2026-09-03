@@ -12,10 +12,10 @@ enum SaveStatus {
 /// Detail sheet presented from a Library card tap, rebuilt to DESIGN.md's detail-panel anatomy
 /// (`§Components`, "Detail panel"): one scrolling flow surface — eyebrow (`DetailEyebrow`) →
 /// inline-editable title/description → location row → contained media → URL bar (`DetailURLBar`,
-/// link items) → content tabs (`ItemDetailContent`) → *(Task 7: Details drawer)* → *(Task 7:
-/// Sharing — currently `PublicToggleSection`, restyled in place next task)* → a pinned footer bar
-/// (delete left, autosave right). Tags UI is retired (`DESIGN.md` — "No tag UI on cards or
-/// panel"); `tags` data itself is untouched, just no longer surfaced here. On appear, fetches the
+/// link items) → content tabs (`ItemDetailContent`) → Details drawer (`DetailsDrawer`) → Sharing
+/// (`SharingSection`) → a pinned footer bar (delete left, autosave right). Tags UI is retired
+/// (`DESIGN.md` — "No tag UI on cards or panel"); `tags` data itself is untouched, just no longer
+/// surfaced here. On appear, fetches the
 /// full row (adding `page_body`, which the grid's list query omits) for types whose tabs need it,
 /// then merges it back into `store` so the list stays current too.
 struct ItemDetailView: View {
@@ -83,13 +83,10 @@ struct ItemDetailView: View {
 
                     hairline
 
-                    // Task 7 insertion point: Details drawer (`DetailsDrawer.swift`) goes here —
-                    // collapsed summary row + dotted key/value facts.
+                    DetailsDrawer(item: item)
 
-                    // Task 7 insertion point: Sharing section restyle (`SharingSection.swift`)
-                    // replaces this call in place — same `PublicToggleSection` data/actions.
-                    PublicToggleSection(item: item, editor: editor,
-                                         supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
+                    SharingSection(item: item, editor: editor,
+                                    supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 44)
@@ -262,7 +259,7 @@ struct ItemDetailView: View {
         })
     }
 
-    /// Sticky-note text (Task 9's `PublicToggleSection`) rides the same debounced field-autosave
+    /// Sticky-note text (Task 9's `SharingSection`) rides the same debounced field-autosave
     /// path as title/description — `saveChangedFields` already diffs `supplementalNote` against
     /// `snapshot` (wired in Task 8, unused until now since nothing mutated it before this task).
     private var supplementalNoteBinding: Binding<String> {

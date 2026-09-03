@@ -15,6 +15,8 @@ enum StashColor {
     static let paper = Color.white
     /// Pill-tab track / quiet fills — DESIGN.md "chip bg" `rgba(20,22,30,.05)`.
     static let wash = Color(hex: 0x14161E).opacity(0.05)
+    /// DESIGN.md "dotted rule" — facts-row separators only (Task 7's Details drawer).
+    static let dottedRule = Color.black.opacity(0.18)
 
     // DESIGN.md §Color — intent colors.
     static let violet600 = Color(hex: 0x6D5BD0)
