@@ -22,6 +22,16 @@ struct SignInView: View {
     @State private var busy = false
     @FocusState private var focusedField: Field?
 
+    // Web parity (Auth.tsx checkUsernameUniqueness/checkPhoneUniqueness): live availability
+    // probes, debounced ~300ms (the web fires on every keystroke with no debounce — deliberately
+    // tightened here to cut mobile network chatter, per plan-7 task-3 fix-round-1 review).
+    @State private var usernameError: String?
+    @State private var phoneError: String?
+    @State private var usernameChecking = false
+    @State private var phoneChecking = false
+    @State private var usernameCheckTask: Task<Void, Never>?
+    @State private var phoneCheckTask: Task<Void, Never>?
+
     enum AuthMode { case signIn, signUp }
     enum Field: Hashable { case email, password, username, phone }
 
@@ -30,13 +40,18 @@ struct SignInView: View {
             StashColor.paper.ignoresSafeArea()
             GradientBackdrop(opacity: 0.3).ignoresSafeArea()
 
-            ScrollView {
-                card
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 48)
-                    .frame(maxWidth: .infinity)
+            // Vertically centers the card when it fits the screen (web: `flex min-h-screen
+            // items-center justify-center`); only scrolls once the keyboard shrinks the
+            // available height below the card's natural size.
+            GeometryReader { geo in
+                ScrollView {
+                    card
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 48)
+                        .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                }
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
         }
     }
 
@@ -147,24 +162,106 @@ struct SignInView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($focusedField, equals: .username)
-                        .modifier(QuietFieldStyle(focused: focusedField == .username, leadingPadding: 28))
+                        .modifier(QuietFieldStyle(focused: focusedField == .username, error: usernameError != nil, leadingPadding: 28))
                         .accessibilityIdentifier("auth.username")
+                        .onChange(of: username) { _, newValue in scheduleUsernameCheck(newValue) }
                 }
-                Text("Your username becomes your @handle and your public feed address.")
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.muted)
+                usernameHelper
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 TextField("Phone number (optional)", text: $phone)
                     .keyboardType(.phonePad)
                     .focused($focusedField, equals: .phone)
-                    .modifier(QuietFieldStyle(focused: focusedField == .phone))
+                    .modifier(QuietFieldStyle(focused: focusedField == .phone, error: phoneError != nil))
                     .accessibilityIdentifier("auth.phone")
-                Text("Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.")
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.muted)
+                    .onChange(of: phone) { _, newValue in schedulePhoneCheck(newValue) }
+                phoneHelper
             }
+        }
+    }
+
+    /// Web parity (`Auth.tsx`): error text when taken, else — once `username.count >= 3` — the
+    /// dynamic "You'll be @username…" confirmation (shown optimistically, same as web, without
+    /// waiting for the debounced probe to resolve), else the generic helper copy.
+    @ViewBuilder
+    private var usernameHelper: some View {
+        if let usernameError {
+            Text(usernameError)
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.destructive)
+                .accessibilityIdentifier("auth.username.error")
+        } else if username.count >= 3 {
+            (
+                Text("You'll be ").foregroundStyle(StashColor.muted)
+                + Text("@\(username)").foregroundStyle(StashColor.ink).fontWeight(.medium)
+                + Text(" on Stash — your public feed lives at gostash.it/feed/\(username)").foregroundStyle(StashColor.muted)
+            )
+            .font(StashType.meta())
+        } else {
+            Text("Your username becomes your @handle and your public feed address.")
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.muted)
+        }
+    }
+
+    @ViewBuilder
+    private var phoneHelper: some View {
+        if let phoneError {
+            Text(phoneError)
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.destructive)
+                .accessibilityIdentifier("auth.phone.error")
+        } else {
+            Text("Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.")
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.muted)
+        }
+    }
+
+    // MARK: - Availability probes
+
+    /// Debounced ~300ms (see field-declaration doc comment); cancels any prior in-flight probe
+    /// for this field so only the latest keystroke's value is ever checked.
+    private func scheduleUsernameCheck(_ value: String) {
+        usernameCheckTask?.cancel()
+        guard value.count >= 3 else {
+            usernameError = nil
+            usernameChecking = false
+            return
+        }
+        usernameChecking = true
+        usernameCheckTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            let taken = await session.isUsernameTaken(value)
+            guard !Task.isCancelled else { return }
+            usernameError = taken ? "This username is already taken. Please choose another." : nil
+            usernameChecking = false
+        }
+    }
+
+    private func schedulePhoneCheck(_ value: String) {
+        phoneCheckTask?.cancel()
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            phoneError = nil
+            phoneChecking = false
+            return
+        }
+        phoneChecking = true
+        phoneCheckTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            let cleanPhone = trimmed.filter(\.isNumber)
+            guard !cleanPhone.isEmpty else {
+                phoneChecking = false
+                return
+            }
+            let taken = await session.isPhoneTaken(cleanPhone)
+            guard !Task.isCancelled else { return }
+            phoneError = taken ? "This phone number is already registered. Please use a different number." : nil
+            phoneChecking = false
         }
     }
 
@@ -207,6 +304,8 @@ struct SignInView: View {
             return !email.isEmpty && !password.isEmpty
         case .signUp:
             return !email.isEmpty && !password.isEmpty && username.count >= 3
+                && usernameError == nil && phoneError == nil
+                && !usernameChecking && !phoneChecking
         }
     }
 
@@ -228,6 +327,7 @@ struct SignInView: View {
 /// a lavender `violet300` fill, and a 2pt `violet300` focus ring in place of the hairline.
 private struct QuietFieldStyle: ViewModifier {
     var focused: Bool
+    var error: Bool = false
     var leadingPadding: CGFloat = 14
 
     func body(content: Content) -> some View {
@@ -240,7 +340,10 @@ private struct QuietFieldStyle: ViewModifier {
             .background(StashColor.violet300.opacity(0.12), in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                    .strokeBorder(focused ? StashColor.violet300 : StashColor.hairline, lineWidth: focused ? 2 : 1)
+                    .strokeBorder(
+                        error ? StashColor.destructive : (focused ? StashColor.violet300 : StashColor.hairline),
+                        lineWidth: focused ? 2 : 1
+                    )
             )
     }
 }

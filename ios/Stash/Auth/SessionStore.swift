@@ -90,7 +90,48 @@ final class SessionStore {
                 )
             }
         } catch {
-            errorMessage = "Sign-up failed. Check your details and try again."
+            // Web parity (`Auth.tsx handleSignUp`'s toast uses `error.message` verbatim):
+            // surface the real Supabase message (e.g. "User already registered") when there is
+            // one; the generic string is only a fallback for an empty/unlocalized error.
+            let message = error.localizedDescription
+            errorMessage = message.isEmpty ? "Sign-up failed. Check your details and try again." : message
+        }
+    }
+
+    /// Web parity (`Auth.tsx` `checkUsernameUniqueness`): `true` if a `user_profiles` row
+    /// already has this (lowercased) username. A query failure is treated as "not taken" —
+    /// same fail-open the web's own `error.code !== 'PGRST116'` branch effectively is (it only
+    /// logs), since a network hiccup here must never block typing or the submit button.
+    func isUsernameTaken(_ username: String) async -> Bool {
+        struct Row: Decodable { let username: String }
+        do {
+            let rows: [Row] = try await StashClient.shared.from("user_profiles")
+                .select("username")
+                .eq("username", value: username.lowercased())
+                .limit(1)
+                .execute().value
+            return !rows.isEmpty
+        } catch {
+            return false
+        }
+    }
+
+    /// Web parity (`Auth.tsx` `checkPhoneUniqueness`): `true` if a `user_phone_numbers` row
+    /// already has this cleaned (digits-only) phone number. Same fail-open as
+    /// `isUsernameTaken` on a query error.
+    func isPhoneTaken(_ cleanPhone: String) async -> Bool {
+        struct Row: Decodable { let phoneNumber: String
+            enum CodingKeys: String, CodingKey { case phoneNumber = "phone_number" }
+        }
+        do {
+            let rows: [Row] = try await StashClient.shared.from("user_phone_numbers")
+                .select("phone_number")
+                .eq("phone_number", value: cleanPhone)
+                .limit(1)
+                .execute().value
+            return !rows.isEmpty
+        } catch {
+            return false
         }
     }
 
