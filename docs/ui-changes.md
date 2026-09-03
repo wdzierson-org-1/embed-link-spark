@@ -80,11 +80,16 @@ double-quoted description containing an apostrophe truncated to `"I"`.
   the description (`ContentItemContent`) at render; the edit panel decodes
   entities into its initial title/description state (`useEditItemState`) so a
   blur-save writes real text.
-- **Panel title shows in full**: `EditItemTitleSection` is now an
-  auto-growing single-value textarea (Enter blurs/saves, newlines flattened)
-  instead of a one-line `<Input>` that clipped long titles at the panel edge.
-  Same DESIGN.md inline-editable styling. iOS: the detail-sheet title should
-  likewise wrap, not truncate.
+- **Panel title: clamp at rest, full when editing** (revised same day,
+  Will): `EditItemTitleSection` has two states. At rest it is a two-line
+  clamped block with an ellipsis (`line-clamp-2`; full text in the tooltip),
+  replacing the one-line `<Input>` that clipped long titles at the panel edge
+  with no ellipsis. Clicking it swaps in an auto-growing textarea showing
+  every line, focused with the caret at the end; blur saves the trimmed
+  title and returns to the clamped view; Enter is "done"; pasted newlines
+  flatten to spaces. Same DESIGN.md inline-editable styling (wash on hover,
+  wash + violet-300 ring while editing). iOS: detail-sheet title `lineLimit(2)`
+  with truncation at rest, full multi-line `TextField` when active.
 - **Panel description spans the panel**: dropped the `max-w-[64ch]` cap on the
   description textarea; its right edge now matches the title and the rest of
   the panel.
