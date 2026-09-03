@@ -136,7 +136,7 @@ public enum ChatCitations {
 - [x] **Step 1:** foreign-commit audit + merge `origin/main` into the branch; resolve; re-run.
 - [x] **Step 2:** `swift test` (≥341), builds warning-free, `npm test`, UI suite ×2 (21 tests, standing 3 failures only).
 - [x] **Step 3:** docs + outcome (incl. the Add-tab-wordmark assumption for Will to confirm) → commit `docs(ios): plan-8 outcome; ui-changes entry`.
-- [ ] **Step 4:** TestFlight: `cd ios && ./scripts/release.sh all && ./scripts/release.sh upload` (session auth). If "login details… rejected"/`missing Xcode-Token` → STOP and report (Will must re-sign into Xcode; build stays 0.1.0 (2)). Else poll VALID and attach to group `d19f78c1-7af3-4461-9af6-1566200c251b`.
+- [x] **Step 4:** TestFlight: `cd ios && ./scripts/release.sh all && ./scripts/release.sh upload` (session auth). If "login details… rejected"/`missing Xcode-Token` → STOP and report (Will must re-sign into Xcode; build stays 0.1.0 (2)). Else poll VALID and attach to group `d19f78c1-7af3-4461-9af6-1566200c251b`. **Done** — session auth worked, build 2 uploaded/VALID/attached (see Outcome → Build 2).
 
 ---
 
@@ -275,3 +275,23 @@ forward** (already true for T4/T5 in this same plan): single writer per file per
 don't let two tasks edit `StashUITests.swift` in the same wave.
 
 ### Build 2 (TestFlight)
+
+- Version: `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 2` (`ios/project.yml`, unchanged
+  by this plan — verified before upload: ASC had only build 1 on record).
+- Xcode session was live (unlike plan 7's outcome) — the full pipeline ran unattended:
+  `./scripts/release.sh all` (generate → archive → export) → **ARCHIVE SUCCEEDED** / **EXPORT
+  SUCCEEDED**, then `./scripts/release.sh upload` → **Upload succeeded** (session auth throughout,
+  no `--key-auth` needed).
+- Polled `./scripts/asc-api.sh GET "/v1/builds?filter[app]=6806459949&sort=-uploadedDate&limit=3"`
+  every 20s: build 2 (`1e082eda-ec36-467e-a139-bf4e2c59b7ed`, uploaded 2026-09-03T09:39:43-07:00)
+  reached `processingState: VALID` in under 3 minutes (faster than Apple's typical 5–15 minute
+  quote, in line with the ~1 minute observed 2026-08-30). `usesNonExemptEncryption: false`
+  resolved automatically — no manual export-compliance step needed.
+- Attached to the `Internal` beta group (`d19f78c1-7af3-4461-9af6-1566200c251b`) via
+  `POST /v1/betaGroups/<id>/relationships/builds` → **HTTP 204**; confirmed via
+  `GET /v1/betaGroups/<id>/builds` — group now lists both build 1 (`517e1f68…`) and build 2
+  (`1e082eda…`). Internal testers get no beta-review gate; the build is installable the moment
+  this attachment lands.
+- **Not yet done, out of scope for this task**: bumping `CURRENT_PROJECT_VERSION` for a build 3 —
+  the next release should bump it before archiving, per `docs/RELEASING.md`'s rule (ASC rejects a
+  byte-identical re-upload of a version+build pair it has already seen).
