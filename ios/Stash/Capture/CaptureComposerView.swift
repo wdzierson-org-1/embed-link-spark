@@ -71,10 +71,11 @@ struct CaptureComposerView: View {
                 StashHeader {
                     if viewModel.pendingOutboxCount > 0 {
                         Text("\(viewModel.pendingOutboxCount)")
-                            .font(.caption2.weight(.bold))
+                            .font(StashType.semibold(size: 11))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
+                            // .orange has no DESIGN.md token yet.
                             .background(Color.orange, in: Capsule())
                             .accessibilityIdentifier("capture.outboxBadge")
                     }
@@ -201,7 +202,8 @@ struct CaptureComposerView: View {
             Image(systemName: "lock.fill").imageScale(.small)
             Text("Subscribe to add new items.")
         }
-        .font(.footnote.weight(.medium))
+        .font(StashType.bodyMedium(12))
+        // .orange has no DESIGN.md token yet.
         .foregroundStyle(.orange)
         .accessibilityIdentifier("capture.subscriptionGate")
     }
@@ -213,7 +215,7 @@ struct CaptureComposerView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .font(.footnote)
+        .font(StashType.meta())
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Color(.tertiarySystemFill), in: Capsule())
@@ -306,7 +308,7 @@ struct CaptureComposerView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .font(.footnote)
+        .font(StashType.meta())
         .foregroundStyle(StashColor.muted)
         // Without `.ignore` + an explicit label, the Image and Text below are each independently
         // accessible and BOTH inherit the identifier applied below (confirmed live: an XCUITest
@@ -454,7 +456,7 @@ struct CaptureComposerView: View {
     private var toastView: some View {
         if let toast {
             Text(toast.message)
-                .font(.subheadline.weight(.semibold))
+                .font(StashType.bodySemibold())
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
@@ -486,6 +488,7 @@ private enum CaptureToast: Equatable {
     // Amber whenever something didn't make it (dropped attachments, offline queueing, or an
     // outright rejection) — green is reserved for a fully clean save (fix round: a partially
     // dropped save must not read as an unqualified success).
+    // .orange/.green have no DESIGN.md token yet.
     var color: Color {
         switch self {
         case .saved(_, let hadDrops): hadDrops ? .orange : .green

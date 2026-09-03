@@ -21,12 +21,14 @@ struct RepoPlate: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.left.forwardslash.chevron.right")
-                Text(pathLabel).font(.system(.subheadline, design: .monospaced)).lineLimit(1)
+                // Tabular mono for the repo path itself — DESIGN.md "repo | plate ... mono
+                // #e6edf3", the same sanctioned system-monospace exception as elsewhere.
+                Text(pathLabel).font(StashType.mono(15)).lineLimit(1)
             }
             .foregroundStyle(.white.opacity(0.9))
             if let description, !description.isEmpty {
                 Text(description)
-                    .font(.system(size: 13))
+                    .font(StashType.body())
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(2)
             }
@@ -51,16 +53,16 @@ struct FaviconPlate: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(letter)
-                .font(.system(size: 17, weight: .bold))
+                .font(StashType.semibold(size: 17))
                 .foregroundStyle(Color.cardVioletAccent)
                 .frame(width: 48, height: 48)
                 .background(Color.cardVioletTint, in: RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 2) {
                 Text(domain.isEmpty ? "link" : domain)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(StashType.bodyMedium(13))
                     .lineLimit(1)
                 Text("preview limited · saved anyway")
-                    .font(.system(size: 11))
+                    .font(StashType.regular(size: 11))
                     .foregroundStyle(StashColor.muted)
             }
             Spacer(minLength: 0)
@@ -95,12 +97,11 @@ struct FilePlate: View {
                 .background(tintBg, in: RoundedRectangle(cornerRadius: 12))
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(fileName != nil ? .system(size: 12, design: .monospaced)
-                                           : .system(size: 13, weight: .medium))
+                    .font(fileName != nil ? StashType.mono(12) : StashType.bodyMedium(13))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let factsLine, !factsLine.isEmpty {
-                    Text(factsLine).font(.system(size: 11)).foregroundStyle(StashColor.muted)
+                    Text(factsLine).font(StashType.regular(size: 11)).foregroundStyle(StashColor.muted)
                 }
             }
             Spacer(minLength: 0)

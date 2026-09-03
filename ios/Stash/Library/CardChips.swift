@@ -36,8 +36,7 @@ struct MetaChip: View {
 
     var body: some View {
         Text(text)
-            .font(mono ? .system(size: 10, weight: .medium, design: .monospaced)
-                       : .system(size: 11, weight: .medium))
+            .font(mono ? StashType.mono(10) : StashType.chip())
             .lineLimit(1)
             .truncationMode(.middle)
             .foregroundStyle(StashColor.muted)
@@ -60,7 +59,7 @@ struct CardAnnotation: View {
         // Task 6b's row-major note), stretching the bar far past the 1-2 lines of text beside
         // it. `.overlay` proposes the bar the base `Text`'s OWN already-resolved frame instead.
         Text(text)
-            .font(.system(size: 13.5))
+            .font(StashType.body())
             .foregroundStyle(.primary.opacity(0.75))
             .lineLimit(lineLimit)
             .padding(.leading, 11)

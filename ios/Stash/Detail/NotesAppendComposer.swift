@@ -20,7 +20,7 @@ struct NotesAppendComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Add to Notes")
-                .font(.caption.weight(.semibold))
+                .font(StashType.bodySemibold(12))
                 .foregroundStyle(StashColor.muted)
             HStack(alignment: .top, spacing: 8) {
                 TextField("Add a note…", text: $draft, axis: .vertical)
@@ -41,8 +41,8 @@ struct NotesAppendComposer: View {
             }
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(StashType.meta())
+                    .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("detail.notesComposer.error")
             }
         }

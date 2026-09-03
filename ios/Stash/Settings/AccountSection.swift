@@ -22,7 +22,9 @@ struct AccountSection: View {
     @State private var didCopy = false
 
     private var email: String { StashClient.shared.auth.currentUser?.email ?? "" }
-    private var feedURL: String { PublicFeedURL.make(username: username) }
+    /// `nil` while `username` hasn't loaded (or loaded empty) — `feedURLRow` gates on this so the
+    /// row/copy button never renders a bare `gostash.it/feed/` (final wave, item D2).
+    private var feedURL: String? { PublicFeedURL.make(username: username) }
 
     var body: some View {
         Section("Account") {
@@ -46,8 +48,8 @@ struct AccountSection: View {
                 feedURLRow
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(StashType.meta())
+                        .foregroundStyle(StashColor.destructive)
                         .accessibilityIdentifier("settings.account.error")
                 }
             }
@@ -55,28 +57,33 @@ struct AccountSection: View {
         .task { await loadUsername() }
     }
 
+    /// Gated on `feedURL` (item D2) — `PublicFeedURL.make` returns `nil` for a `nil`/empty
+    /// username, so this row (and its copy button) never renders a bare `gostash.it/feed/`.
+    @ViewBuilder
     private var feedURLRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Public Feed URL").foregroundStyle(StashColor.muted)
-            HStack(spacing: 10) {
-                Text(feedURL)
-                    .font(.footnote)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityIdentifier("settings.feedurl")
-                Spacer(minLength: 8)
-                Button {
-                    copyFeedURL()
-                } label: {
-                    Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+        if let feedURL {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Public Feed URL").foregroundStyle(StashColor.muted)
+                HStack(spacing: 10) {
+                    Text(feedURL)
+                        .font(StashType.meta())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .accessibilityIdentifier("settings.feedurl")
+                    Spacer(minLength: 8)
+                    Button {
+                        copyFeedURL(feedURL)
+                    } label: {
+                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("settings.feedurl.copy")
                 }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("settings.feedurl.copy")
             }
         }
     }
 
-    private func copyFeedURL() {
+    private func copyFeedURL(_ feedURL: String) {
         UIPasteboard.general.string = feedURL
         didCopy = true
         Task {

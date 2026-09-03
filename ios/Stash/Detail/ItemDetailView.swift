@@ -62,42 +62,52 @@ struct ItemDetailView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            StashColor.paper.ignoresSafeArea()
+            // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
+            // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
+            // ScrollView's own laid-out frame — it only nudges the CONTENT's scroll offset limits
+            // — so the ScrollView's outer frame (what XCUITest and any other hit-testing consults
+            // to decide "is this element already on screen") still nominally extends the full
+            // sheet height, footer included; short content (e.g. Details/Sharing on an item with
+            // little else) then rests visually under the pinned footer even though its element is
+            // reported "within bounds". A true sibling makes the ScrollView's frame stop exactly
+            // where the footer begins, so nothing can ever land behind it.
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        DetailEyebrow(item: item)
+                        titleField
+                        descriptionField
+                        if item.type == .image, let url = item.thumbnailURL {
+                            heroImage(url)
+                        }
+                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
+                            DetailURLBar(urlString: urlString)
+                        }
+                        ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail)
+                        // Gated to the Notes tab (rather than always-visible below every tab) so it
+                        // reads as "here's how you add to what you're looking at" instead of a
+                        // floating control under unrelated Summary/Original/Transcript content.
+                        if selectedTab == .notes {
+                            NotesAppendComposer(item: item, editor: editor, onSaved: handleSaved)
+                        }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    DetailEyebrow(item: item)
-                    titleField
-                    descriptionField
-                    if item.type == .image, let url = item.thumbnailURL {
-                        heroImage(url)
+                        hairline
+
+                        DetailsDrawer(item: item, attributes: attributesBinding)
+
+                        SharingSection(item: item, editor: editor,
+                                        supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
                     }
-                    if item.type == .link, let urlString = item.url, !urlString.isEmpty {
-                        DetailURLBar(urlString: urlString)
-                    }
-                    ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail)
-                    // Gated to the Notes tab (rather than always-visible below every tab) so it
-                    // reads as "here's how you add to what you're looking at" instead of a
-                    // floating control under unrelated Summary/Original/Transcript content.
-                    if selectedTab == .notes {
-                        NotesAppendComposer(item: item, editor: editor, onSaved: handleSaved)
-                    }
-
-                    hairline
-
-                    DetailsDrawer(item: item, attributes: attributesBinding)
-
-                    SharingSection(item: item, editor: editor,
-                                    supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 44)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 44)
-                .padding(.bottom, 24)
+                footerBar
             }
+            .background(StashColor.paper.ignoresSafeArea())
 
             closeButton
         }
-        .safeAreaInset(edge: .bottom) { footerBar }
         .presentationCornerRadius(StashRadius.sheet)
         .task { await loadDetailIfNeeded() }
         .onChange(of: store.items) { _, items in

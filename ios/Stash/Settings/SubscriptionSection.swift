@@ -54,7 +54,7 @@ struct SubscriptionSection: View {
                     .accessibilityIdentifier("settings.subscription.status")
             } else {
                 Text(subscription.lastError ?? "Couldn't check your subscription status.")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("settings.subscription.status")
             }
         }

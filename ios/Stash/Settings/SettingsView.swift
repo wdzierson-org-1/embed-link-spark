@@ -1,10 +1,13 @@
 import SwiftUI
 import StashKit
 
-/// The Settings tab (Task 7): account info, phone numbers, tags, and subscription status, each
+/// The Settings tab (Task 7): account info, phone numbers, and subscription status, each
 /// a thin `Section`-returning subview (own network reads — "gate logic tested in Task 3; sections
 /// are thin reads" per the brief, so none of these need new StashKit tests), plus Sign Out
-/// (relocated here from the library toolbar's avatar menu) and a legal/version footer.
+/// (relocated here from the library toolbar's avatar menu) and a legal/version footer. Tags are
+/// retired everywhere (final wave, item E — DESIGN.md: "No tag UI on cards or panel"); the
+/// `TagsSection` row this tab used to render was removed, along with its now-orphaned file.
+/// `TagsAPI`/the underlying data are untouched in StashKit.
 struct SettingsView: View {
     let userId: UUID
 
@@ -17,7 +20,6 @@ struct SettingsView: View {
             List {
                 AccountSection(userId: userId)
                 PhoneSection(userId: userId)
-                TagsSection(userId: userId)
                 SubscriptionSection()
                 signOutSection
                 footerSection
@@ -51,9 +53,9 @@ struct SettingsView: View {
                     Link("Terms of Service", destination: URL(string: "https://gostash.it/terms")!)
                         .accessibilityIdentifier("settings.footer.terms")
                 }
-                .font(.footnote)
+                .font(StashType.meta())
                 Text("Stash \(appVersionString)")
-                    .font(.caption2)
+                    .font(StashType.meta())
                     .foregroundStyle(StashColor.muted)
                     .accessibilityIdentifier("settings.footer.version")
                 #if DEBUG
@@ -61,7 +63,7 @@ struct SettingsView: View {
                 // (vs. silently degrading to the SF Pro fallback) — read by
                 // `testDesignSystemFontsLoad`. DEBUG-only: never ships to TestFlight/App Store.
                 Text(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
-                    .font(.caption2)
+                    .font(StashType.meta())
                     .foregroundStyle(StashColor.faint)
                     .accessibilityIdentifier("design.fontStatus")
                     .accessibilityLabel(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")

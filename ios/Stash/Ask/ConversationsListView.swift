@@ -72,14 +72,14 @@ struct ConversationsListView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let loadError {
             VStack(spacing: 8) {
-                Text(loadError).font(.footnote).foregroundStyle(StashColor.muted)
+                Text(loadError).font(StashType.meta()).foregroundStyle(StashColor.muted)
                 Button("Try again") { Task { await loadFirstPage() } }
-                    .font(.footnote.weight(.medium))
+                    .font(StashType.bodyMedium(12))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if rows.isEmpty {
             Text(searchInput.isEmpty ? "No conversations yet — ask something!" : "No matches.")
-                .font(.footnote)
+                .font(StashType.meta())
                 .foregroundStyle(StashColor.muted)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("convos.empty")
@@ -142,7 +142,7 @@ struct ConversationsListView: View {
                         .lineLimit(1)
                     if let preview = row.preview, !preview.isEmpty {
                         Text(preview)
-                            .font(.footnote)
+                            .font(StashType.meta())
                             .foregroundStyle(StashColor.muted)
                             .lineLimit(1)
                     }

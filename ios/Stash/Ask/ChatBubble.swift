@@ -51,11 +51,12 @@ struct ChatBubble: View {
                 .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
                 Text(message.savedItemTitle ?? "Saving…")
-                    .font(.subheadline.weight(.semibold))
+                    .font(StashType.bodySemibold())
                     .lineLimit(1)
                     .accessibilityIdentifier("ask.bubble.\(index)")
                 if !isSaving {
-                    Text("Saved to your stash").font(.caption2).foregroundStyle(.green)
+                    // .green has no DESIGN.md token yet.
+                    Text("Saved to your stash").font(StashType.meta()).foregroundStyle(.green)
                 }
             }
             Spacer(minLength: 0)
@@ -144,7 +145,7 @@ struct ChatBubble: View {
                 }
                 Text(displayTitle(source, chipIndex: chipIndex)).lineLimit(1)
             }
-            .font(.caption)
+            .font(StashType.chip())
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(Color(.tertiarySystemFill), in: Capsule())
@@ -189,7 +190,7 @@ struct ChatBubble: View {
                     thumbsRow
                 }
             }
-            .font(.footnote)
+            .font(StashType.meta())
             .foregroundStyle(StashColor.muted)
         }
     }

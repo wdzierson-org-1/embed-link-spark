@@ -179,7 +179,7 @@ struct SignInView: View {
         } else if username.count >= 3 {
             (
                 Text("You'll be ").foregroundStyle(StashColor.muted)
-                + Text("@\(username)").foregroundStyle(StashColor.ink).fontWeight(.medium)
+                + Text("@\(username)").foregroundStyle(StashColor.ink).font(StashType.bodyMedium(12))
                 + Text(" on Stash — your public feed lives at gostash.it/feed/\(username)").foregroundStyle(StashColor.muted)
             )
             .font(StashType.meta())
@@ -271,8 +271,7 @@ struct SignInView: View {
                     ProgressView().tint(.white)
                 } else {
                     Text(mode == .signIn ? "Sign in" : "Create account")
-                        .font(StashType.body())
-                        .fontWeight(.medium)
+                        .font(StashType.bodyMedium())
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 44)

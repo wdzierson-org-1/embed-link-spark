@@ -81,7 +81,10 @@ final class SessionStore {
                     "phone_number": .string(cleanPhone),
                     "verified": .bool(true),
                 ]
-                try? await StashClient.shared.from("user_phone_numbers")
+                // Fire-and-forget, matching web's own nested try/catch (see doc comment above) —
+                // `_ =` silences "result of 'try?' is unused" (`.execute()` returns a
+                // non-Void `PostgrestResponse`); the response itself is intentionally discarded.
+                _ = try? await StashClient.shared.from("user_phone_numbers")
                     .upsert(phoneBody, onConflict: "phone_number")
                     .execute()
                 try? await StashClient.shared.functions.invoke(

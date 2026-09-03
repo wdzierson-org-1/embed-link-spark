@@ -5,7 +5,7 @@ import UIKit
 /// Sharing (DESIGN.md "Sharing row states"): a restyle, in place, of `PublicToggleSection` — same
 /// data and actions (public/private toggle, un-share confirmation, sticky-note lifecycle), now
 /// drawn per spec as an icon tile + two-line copy + violet switch, with a feed-link copy chip when
-/// public. Every identifier `testTagsAndPublicSmoke` depends on (`detail.public.toggle`,
+/// public. Every identifier `testPublicSmoke` depends on (`detail.public.toggle`,
 /// `detail.public.sticky`, `detail.public.error`) is unchanged from `PublicToggleSection` — only
 /// the visual treatment moved; see that type's now-superseded doc comment for the full behavioral
 /// rationale (immediate save on share, confirm-first on un-share when a note is present).
@@ -31,12 +31,10 @@ struct SharingSection: View {
     /// `nil` until `username` has actually loaded (Fix round 1, review finding #2: the chip used
     /// to render — and be copyable — the instant `isPublic` flipped true, while `username` was
     /// still its initial `nil`, producing a bare `gostash.it/feed/` with nothing after the
-    /// trailing slash). `PublicFeedURL.make` is only ever called once `username` is confirmed
-    /// non-empty, so every value this property can produce is already a complete, correct URL.
-    private var feedURL: String? {
-        guard let username, !username.isEmpty else { return nil }
-        return PublicFeedURL.make(username: username)
-    }
+    /// trailing slash). `PublicFeedURL.make` itself now returns `nil` for a `nil`/empty username
+    /// (final wave, item D2), so every value this property can produce is already a complete,
+    /// correct URL.
+    private var feedURL: String? { PublicFeedURL.make(username: username) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

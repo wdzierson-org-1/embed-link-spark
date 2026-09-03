@@ -13,9 +13,9 @@ struct LibraryStatePane: View {
                 .font(.largeTitle)
                 .foregroundStyle(.tertiary)
             Text(title)
-                .font(.headline)
+                .font(StashType.bodySemibold())
             Text(message)
-                .font(.subheadline)
+                .font(StashType.body())
                 .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
         }

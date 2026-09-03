@@ -161,7 +161,7 @@ struct VideoHeroZone: View {
         .overlay(alignment: .bottomTrailing) {
             if let duration = formatDurationChip(item.attributes.media?.durationS) {
                 Text(duration)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(StashType.chip())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -188,7 +188,7 @@ private struct DomainPill: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(StashType.chip())
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

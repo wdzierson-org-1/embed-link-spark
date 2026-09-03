@@ -41,5 +41,11 @@ struct MainTabView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(MainTab.settings)
         }
+        // AccentColor is filled with DESIGN.md violet600, but SwiftUI controls (tab bar
+        // selection, back chevrons, cursors) read `.tint` at the view hierarchy's root before
+        // they fall back to the asset catalog's global accent in some contexts — set both so
+        // there's no gap between plain SwiftUI chrome and UIKit-bridged chrome (e.g. the
+        // navigation bar's back button).
+        .tint(StashColor.violet600)
     }
 }

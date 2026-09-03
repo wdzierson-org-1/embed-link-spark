@@ -674,8 +674,10 @@ final class StashUITests: XCTestCase {
     /// Plan 7 Task 6 retired the tags manager UI (`DESIGN.md` — "No tag UI on cards or panel");
     /// this test's own tag-add/remove steps (`detail.tags.*`) were removed with it — `tags` data
     /// itself is untouched server-side, just no longer surfaced in this sheet (see
-    /// `testDetailSheetAnatomy`'s own assertion that `detail.tags.input` is gone).
-    func testTagsAndPublicSmoke() throws {
+    /// `testDetailSheetAnatomy`'s own assertion that `detail.tags.input` is gone). Renamed from
+    /// `testTagsAndPublicSmoke` (final wave, item E) now that no tag steps remain here — the
+    /// Settings tab's own `TagsSection` row was removed in the same change.
+    func testPublicSmoke() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
@@ -877,7 +879,7 @@ final class StashUITests: XCTestCase {
                 "Expected at least one source chip for the persimmons question — sourceless on both the initial attempt and the RAG-variance retry")
         }
 
-        // Screenshot rig (same checkpoint technique as testDetailSheets/testTagsAndPublicSmoke):
+        // Screenshot rig (same checkpoint technique as testDetailSheets/testPublicSmoke):
         // holds here so an external `xcrun simctl io <udid> screenshot` can capture the streamed
         // answer with its source chip(s) visible before this test moves on to tapping one.
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask\n".data(using: .utf8)!)
@@ -1220,10 +1222,6 @@ final class StashUITests: XCTestCase {
         // sheet, so it must be expanded first.
         let detailsRow = anyElement("detail.details")
         XCTAssertTrue(detailsRow.waitForExistence(timeout: 10), "Details drawer row not found")
-        // A short (single-tab, no AI summary) text note's Details row can rest exactly under the
-        // pinned footer's safe-area-inset zone at scroll offset 0 (see the identical comment on
-        // `testDetailSheetAnatomy`) — force the scroll before tapping.
-        app.swipeUp()
         detailsRow.tap()
 
         let locationLabel = anyElement("detail.location.label")
@@ -1526,8 +1524,9 @@ final class StashUITests: XCTestCase {
 
         // Screenshot rig (same checkpoint technique as testDetailSheets/testAskSmoke/
         // testVoiceNoteSmoke): holds here, with the full Settings list on screen (account,
-        // phone, tags, subscription all loaded), so an external `xcrun simctl io <udid>
-        // screenshot` can capture it before this test moves on to signing out.
+        // phone, subscription all loaded — Tags was retired from this tab, final wave item E),
+        // so an external `xcrun simctl io <udid> screenshot` can capture it before this test
+        // moves on to signing out.
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: settings\n".data(using: .utf8)!)
         sleep(4)
 
@@ -1702,14 +1701,6 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(detailsRow.waitForExistence(timeout: 10), "Details drawer row not found")
         XCTAssertTrue(detailsRow.label.contains("example.com"),
                       "Expected the collapsed Details row to show the fixture's domain, got '\(detailsRow.label)'")
-        // Fix round 1: with the top-of-sheet LocationRow removed (review finding #1), a
-        // short-content item's Details/Sharing rows can rest exactly under the pinned footer's
-        // safe-area-inset zone at scroll offset 0 — present in the accessibility tree (frame
-        // nominally within the window's bounds) but visually clipped by the footer, so XCUITest's
-        // own "is this already hittable" check skips its usual auto-scroll-before-tap and the tap
-        // lands on nothing. A deliberate swipe first (same fix in `testLocationEditSmoke`) forces
-        // the scroll a real user would also need before this row is reachable.
-        app.swipeUp()
         detailsRow.tap()
 
         let savedRow = anyElement("detail.details.row.saved")

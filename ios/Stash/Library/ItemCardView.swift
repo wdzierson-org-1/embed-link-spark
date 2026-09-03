@@ -31,7 +31,11 @@ struct ItemCardView: View {
             heroZone
             VStack(alignment: .leading, spacing: 8) {
                 kicker
-                Text(title).font(.headline).fontDesign(.serif).lineLimit(2)
+                // iOS card-title role (no bundled Editorial/serif face here — DESIGN.md's
+                // "Object title (card) … 20 / tight" scaled down to `medium(size: 18)`, the
+                // closest Neue Montreal weight/size pairing that still reads as a title at grid
+                // density; final wave typography sweep, item C).
+                Text(title).font(StashType.medium(size: 18)).lineLimit(2)
                 contentSection
                 footer
             }
@@ -90,7 +94,7 @@ struct ItemCardView: View {
                 // `.highPriorityGesture` closure not at all, since that's a touch gesture, not
                 // an accessibility action.
                 Text(domain.uppercased())
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(StashType.microLabel())
                     .kerning(0.6)
                     .foregroundStyle(StashColor.muted)
                     .highPriorityGesture(TapGesture().onEnded { openURL(url) })
@@ -114,16 +118,16 @@ struct ItemCardView: View {
     /// treatment); `description` (the AI summary) shows only when there's no user content.
     @ViewBuilder private var textBody: some View {
         if !contentPlain.isEmpty {
-            Text(contentPlain).font(.subheadline).foregroundStyle(.primary.opacity(0.85)).lineLimit(4)
+            Text(contentPlain).font(StashType.body()).foregroundStyle(.primary.opacity(0.85)).lineLimit(4)
         } else if !descriptionPlain.isEmpty {
-            Text(descriptionPlain).font(.subheadline).foregroundStyle(StashColor.muted).lineLimit(3)
+            Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
         }
     }
 
     private var standardBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !descriptionPlain.isEmpty {
-                Text(descriptionPlain).font(.subheadline).foregroundStyle(StashColor.muted).lineLimit(3)
+                Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
             }
             if !contentPlain.isEmpty {
                 CardAnnotation(text: contentPlain)
@@ -138,9 +142,9 @@ struct ItemCardView: View {
     private var collectionBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !contentPlain.isEmpty {
-                Text(renderTipTap(item.content)).font(.subheadline).lineLimit(6)
+                Text(renderTipTap(item.content)).font(StashType.body()).lineLimit(6)
             } else if !descriptionPlain.isEmpty {
-                Text(descriptionPlain).font(.subheadline).foregroundStyle(StashColor.muted).lineLimit(2)
+                Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(2)
             }
             CollectionStrip(itemId: item.id) { collectionCount = $0 }
         }
@@ -175,7 +179,7 @@ struct ItemCardView: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Text(Self.footerDateFormatter.string(from: item.createdAt))
-                .font(.caption2)
+                .font(StashType.meta())
                 .foregroundStyle(.tertiary)
             if let label = item.attributes.location?.label, !label.isEmpty {
                 locationBadge(label)
@@ -190,7 +194,7 @@ struct ItemCardView: View {
             Image(systemName: "mappin.and.ellipse").font(.system(size: 9))
             Text(label).lineLimit(1).truncationMode(.tail)
         }
-        .font(.caption2)
+        .font(StashType.meta())
         .foregroundStyle(.tertiary)
         .frame(maxWidth: 140, alignment: .leading)
         // Same HStack-identifier-collision fix as `CaptureComposerView.pinPreview` (Task 6
@@ -204,7 +208,7 @@ struct ItemCardView: View {
 
     private var typeBadge: some View {
         Label(typeBadgeLabel, systemImage: typeIcon)
-            .font(.caption2.weight(.medium))
+            .font(StashType.chip())
             .labelStyle(.titleAndIcon)
             // Bug found live via Task 9's located-note fixture (first permanent fixture pairing
             // a long `card.location` label with this badge in the same footer row): with neither

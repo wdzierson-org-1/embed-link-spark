@@ -166,7 +166,7 @@ struct ShareComposeView: View {
             // that established pattern. A `Text` is inherently one leaf element with nothing to
             // collapse, which sidesteps the question entirely rather than fighting it.
             Text("Sign in to the Stash app to share.")
-                .font(.subheadline)
+                .font(StashType.body())
                 .multilineTextAlignment(.center)
                 .foregroundStyle(StashColor.muted)
                 .padding(.horizontal, 24)
@@ -185,7 +185,7 @@ struct ShareComposeView: View {
             // about THIS process. Read by testShareExtensionURLSmoke. DEBUG-only, zero-height so
             // it never shifts the compose card's real layout.
             Text(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
-                .font(.system(size: 1))
+                .font(StashType.regular(size: 1))
                 .frame(height: 0)
                 .accessibilityIdentifier("share.fontStatus")
                 .accessibilityLabel(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
@@ -229,7 +229,7 @@ struct ShareComposeView: View {
             Text(droppedCount == 1 ? "1 item couldn't be read" : "\(droppedCount) items couldn't be read")
                 .accessibilityIdentifier("share.dropped")
         }
-        .font(.footnote)
+        .font(StashType.meta())
         .foregroundStyle(StashColor.muted)
     }
 
@@ -246,7 +246,8 @@ struct ShareComposeView: View {
             Text("Subscribe on gostash.it to add items")
                 .accessibilityIdentifier("share.gate")
         }
-        .font(.footnote.weight(.medium))
+        .font(StashType.bodyMedium(12))
+        // .orange has no DESIGN.md token yet.
         .foregroundStyle(.orange)
     }
 
@@ -282,14 +283,14 @@ struct ShareComposeView: View {
                 // Leaf-level identifier — see `doneView`'s doc comment for why this container
                 // doesn't use `.accessibilityElement(children: .ignore)`.
                 Text(url)
-                    .font(.subheadline)
+                    .font(StashType.body())
                     .lineLimit(2)
                     .truncationMode(.middle)
                     .accessibilityIdentifier("share.preview.url")
             }
             if extraCount > 0 {
                 Text("+ \(extraCount) more item\(extraCount == 1 ? "" : "s")")
-                    .font(.caption)
+                    .font(StashType.meta())
                     .foregroundStyle(StashColor.muted)
                     .padding(.leading, 44)
             }
@@ -301,7 +302,7 @@ struct ShareComposeView: View {
 
     private func textPreview(_ text: String) -> some View {
         Text(text)
-            .font(.subheadline)
+            .font(StashType.body())
             .lineLimit(5)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -322,7 +323,7 @@ struct ShareComposeView: View {
             }
             if overflow > 0 {
                 Text("+\(overflow)")
-                    .font(.caption.weight(.semibold))
+                    .font(StashType.bodySemibold(12))
                     .frame(width: 44, height: 44)
                     .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityIdentifier("share.preview.overflow")
@@ -347,7 +348,7 @@ struct ShareComposeView: View {
             VStack(spacing: 2) {
                 Image(systemName: iconName(for: mimeType)).imageScale(.large)
                 if let fileName {
-                    Text(fileName).font(.system(size: 8)).lineLimit(1)
+                    Text(fileName).font(StashType.regular(size: 8)).lineLimit(1)
                 }
             }
             .frame(width: 44, height: 44)
@@ -412,7 +413,7 @@ struct ShareComposeView: View {
                 .truncationMode(.tail)
                 .accessibilityIdentifier("share.pin.preview")
         }
-        .font(.footnote)
+        .font(StashType.meta())
         .foregroundStyle(StashColor.muted)
     }
 
@@ -426,7 +427,7 @@ struct ShareComposeView: View {
                 if phase == .saving {
                     ProgressView().tint(.white)
                 } else {
-                    Text("Save").font(.subheadline.weight(.semibold))
+                    Text("Save").font(StashType.bodySemibold())
                 }
             }
             .frame(minWidth: 64)
@@ -507,6 +508,7 @@ struct ShareComposeView: View {
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 64, height: 64)
+                // .orange has no DESIGN.md token yet.
                 .background(message == "Saved to Stash" ? AnyShapeStyle(StashColor.violet600) : AnyShapeStyle(.orange), in: Circle())
                 .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
             // Identifier lives on this LEAF `Text`, not the container. First attempt put
@@ -521,7 +523,7 @@ struct ShareComposeView: View {
             // context than the full app pinPreview runs in), a leaf `Text` has no children to
             // collapse in the first place, which sidesteps the question entirely.
             Text(message)
-                .font(.headline)
+                .font(StashType.bodySemibold())
                 .accessibilityIdentifier("share.outcome")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

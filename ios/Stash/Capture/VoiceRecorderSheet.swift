@@ -76,7 +76,7 @@ struct VoiceRecorderSheet: View {
     private var idleView: some View {
         VStack(spacing: 20) {
             Text("Tap to start recording")
-                .font(.headline)
+                .font(StashType.bodySemibold())
                 .foregroundStyle(StashColor.muted)
             Button {
                 recorder.start()
@@ -97,8 +97,11 @@ struct VoiceRecorderSheet: View {
 
     private var recordingView: some View {
         VStack(spacing: 24) {
+            // Tabular monospaced digits for a running timer — DESIGN.md's sanctioned
+            // system-monospace exception (`StashType.mono`, "ui-monospace" chip variant), not a
+            // Neue Montreal migration candidate.
             Text(formattedElapsed)
-                .font(.system(.largeTitle, design: .monospaced))
+                .font(StashType.mono(34))
                 .accessibilityIdentifier("capture.voice.timer")
             levelMeter
             HStack(spacing: 16) {
@@ -117,8 +120,9 @@ struct VoiceRecorderSheet: View {
             Image(systemName: "waveform")
                 .font(.system(size: 40))
                 .foregroundStyle(StashColor.muted)
+            // Same monospace exception as the recording timer above.
             Text(formattedElapsed)
-                .font(.system(.title, design: .monospaced))
+                .font(StashType.mono(28))
                 .accessibilityIdentifier("capture.voice.duration")
             HStack(spacing: 16) {
                 Button("Re-record") { reRecord() }
@@ -155,9 +159,9 @@ struct VoiceRecorderSheet: View {
                 .font(.system(size: 40))
                 .foregroundStyle(StashColor.muted)
             Text("Microphone access needed")
-                .font(.headline)
+                .font(StashType.bodySemibold())
             Text("Stash needs microphone access to record voice notes. You can enable it in Settings.")
-                .font(.subheadline)
+                .font(StashType.body())
                 .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
             Button("Open Settings") {

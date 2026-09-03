@@ -74,6 +74,12 @@ enum StashType {
     /// Semibold weight (600) at an arbitrary size — the `medium(size:)` counterpart for callers
     /// that need the Semibold face at a size none of the fixed-size helpers above cover.
     static func semibold(size: CGFloat) -> Font { custom("PPNeueMontreal-Semibold", size: size, weight: .semibold) }
+
+    /// Book weight (400) at an arbitrary size — the `medium(size:)`/`semibold(size:)` counterpart
+    /// for callers that need the plain Book face at a size none of the fixed-size helpers above
+    /// (`body()`, `meta()`, `chip()`) cover exactly (final wave's typography sweep: card-plate
+    /// micro-copy, chip labels, etc. that were previously bare `.system(size:)`).
+    static func regular(size: CGFloat) -> Font { custom("PPNeueMontreal-Book", size: size, weight: .regular) }
 }
 
 extension View {

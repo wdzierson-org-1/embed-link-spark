@@ -53,7 +53,7 @@ struct LibraryView: View {
             VStack(spacing: 10) {
                 StashHeader {
                     Text(store.items.count == 1 ? "1 item" : "\(store.items.count) items")
-                        .font(.footnote)
+                        .font(StashType.meta())
                         .foregroundStyle(StashColor.muted)
                         .accessibilityIdentifier("library.itemCount")
                 }

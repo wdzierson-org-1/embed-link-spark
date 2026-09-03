@@ -150,7 +150,7 @@ struct AskView: View {
                     Image(systemName: "clock").font(.system(size: 11))
                     Text(title).lineLimit(1).truncationMode(.tail)
                 }
-                .font(.caption)
+                .font(StashType.meta())
                 .foregroundStyle(StashColor.violet600)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
@@ -177,7 +177,7 @@ struct AskView: View {
                         .foregroundStyle(StashColor.muted)
                     (Text("Load previous conversation — ")
                         + Text(previous.title ?? "Untitled").foregroundStyle(StashColor.violet600))
-                        .font(.footnote)
+                        .font(StashType.meta())
                         .foregroundStyle(StashColor.muted)
                     Spacer(minLength: 0)
                 }
@@ -237,7 +237,7 @@ struct AskView: View {
     /// this bubble no longer duplicates it.
     private var emptyState: some View {
         Text("Ask anything about what you've saved — answers cite the cards they came from.")
-            .font(.subheadline)
+            .font(StashType.body())
             .foregroundStyle(StashColor.muted)
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -283,8 +283,8 @@ struct AskView: View {
             }
             if dictation.isListening {
                 Text("Listening…")
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(StashType.meta())
+                    .foregroundStyle(StashColor.destructive)
             }
             ChatComposerBar(text: $input, isSending: store.isStreaming, dictation: dictation, onSend: sendTapped)
             footerLinks
@@ -313,7 +313,7 @@ struct AskView: View {
     private func banner(_ text: String, identifier: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
-            Text(text).font(.footnote).lineLimit(2)
+            Text(text).font(StashType.meta()).lineLimit(2)
             Spacer(minLength: 0)
         }
         .foregroundStyle(.white)

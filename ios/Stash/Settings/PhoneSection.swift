@@ -38,8 +38,8 @@ struct PhoneSection: View {
             }
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(StashType.meta())
+                    .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("settings.phone.error")
             }
         } header: {
@@ -67,18 +67,20 @@ struct PhoneSection: View {
 
     private func row(_ number: PhoneNumberRow) -> some View {
         HStack {
+            // Tabular mono for the formatted digits — same sanctioned system-monospace
+            // exception as the capture-recorder timer.
             Text(formatStoredPhoneNumber(number.phoneNumber))
-                .font(.system(.body, design: .monospaced))
+                .font(StashType.mono(15))
             if number.verified {
                 Text("Verified")
-                    .font(.caption2)
+                    .font(StashType.meta())
                     .foregroundStyle(StashColor.muted)
             }
             Spacer()
             Button {
                 deleteTarget = number
             } label: {
-                Image(systemName: "trash").foregroundStyle(.red)
+                Image(systemName: "trash").foregroundStyle(StashColor.destructive)
             }
             .buttonStyle(.borderless)
             .accessibilityIdentifier("settings.phone.delete.\(number.id)")
