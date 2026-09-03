@@ -265,9 +265,17 @@ public final class ChatStore {
                     streamed += text
                     setAssistantContent(id: assistantId, content: streamed)
                 case .done(let sources):
-                    setAssistantDone(id: assistantId, sources: sources)
+                    // Bake citation markers into stable item links BEFORE persisting — web parity
+                    // (ChatMole.tsx:357-361: `persistMessage('assistant', baked, …)`), so a
+                    // reloaded answer's citations stay clickable without needing `sources` around
+                    // (fix round 1: `loadHistory` can't reconstruct `n`, only bare ids — see
+                    // `ChatHistoryAPI.swift`). Both platforms now write the same
+                    // `messages.content` convention (`ChatCitations.itemLinkPrefix`, matching the
+                    // web's `#item=`), so a message baked by one renders identically on the other.
+                    let baked = ChatCitations.link(answer: streamed, sources: sources).text
+                    setAssistantDone(id: assistantId, content: baked, sources: sources)
                     let sourceIds = sources.isEmpty ? nil : sources.map(\.id)
-                    persistIfPossible(role: "assistant", content: streamed, sourceItemIds: sourceIds)
+                    persistIfPossible(role: "assistant", content: baked, sourceItemIds: sourceIds)
                     session.lastMessageAt = now()
                     autoTitleIfNeeded(question: question, conversationId: conversationId)
                 case .serverError(let message):
@@ -309,8 +317,13 @@ public final class ChatStore {
         messages[idx].content = content
     }
 
-    private func setAssistantDone(id: String, sources: [ChatSource]) {
+    /// `content` here is the BAKED text (see the `.done` case above), not the raw `streamed`
+    /// accumulator — matching ChatMole.tsx:358's `{...m, content: baked, sources}`, so the
+    /// in-memory message, what gets persisted, and what a fresh reload sees are all the same
+    /// string from this point on.
+    private func setAssistantDone(id: String, content: String, sources: [ChatSource]) {
         guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[idx].content = content
         messages[idx].sources = sources
         messages[idx].isStreaming = false
     }
@@ -324,4 +337,16 @@ public final class ChatStore {
             await history.persist(conversationId: conversationId, role: role, content: content, sourceItemIds: sourceItemIds)
         }
     }
+
+    #if DEBUG
+    /// Proof-of-rendering hook only (Plan 8 Task 4) — replaces the thread with fixture messages
+    /// directly, bypassing `ask()`'s real session/network machinery entirely. Exists because the
+    /// standing test account is subscription-gate-blocked for real Ask answers (see
+    /// `testAskSmoke`'s own doc comment), so citation-link rendering has no live-answer path to
+    /// screenshot; `AskView`'s `--uitest-seed-citation-bubble` launch argument is the only caller.
+    /// Compiled out of Release entirely.
+    public func seedForScreenshot(_ messages: [ChatMessage]) {
+        self.messages = messages
+    }
+    #endif
 }

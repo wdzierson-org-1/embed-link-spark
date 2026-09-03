@@ -103,15 +103,21 @@ struct CaptureComposerView: View {
                 .padding(.bottom, 8)
             }
         }
-        // Standard keyboard-accessory dismiss: the composer has no reliable "empty"
-        // area to tap once the keyboard pushes the attachments row/bottom bar up
-        // against it, so a Done button (always present whenever the keyboard is up,
-        // regardless of how little free space remains) is the robust choice here.
+        // Keyboard-accessory dismiss: the composer has no reliable "empty" area to tap once the
+        // keyboard pushes the attachments row/bottom bar up against it. Device-review fix: a
+        // text "Done" button read as a second primary action competing with the violet send
+        // button while typing — an icon-only minimize control (present only while the editor is
+        // focused, via `.keyboard` placement) reads as a secondary, non-competing affordance.
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button("Done") { editorFocused = false }
-                    .accessibilityIdentifier("capture.dismissKeyboard")
+                Button {
+                    editorFocused = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                }
+                .accessibilityIdentifier("capture.dismissKeyboard")
+                .accessibilityLabel("Hide keyboard")
             }
         }
         .overlay(alignment: .bottom) { toastView }
@@ -274,13 +280,6 @@ struct CaptureComposerView: View {
             }
 
             Spacer(minLength: 8)
-
-            Button {
-                viewModel.isPublic.toggle()
-            } label: {
-                CircleIcon(systemImage: viewModel.isPublic ? "globe" : "lock", active: viewModel.isPublic)
-            }
-            .accessibilityIdentifier("capture.toggle.public")
 
             pinButton
             saveButton

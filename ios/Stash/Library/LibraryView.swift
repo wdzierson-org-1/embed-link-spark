@@ -3,9 +3,9 @@ import StashKit
 
 /// The View tab: paginated card grid over the signed-in user's stash, with local search,
 /// pull-to-refresh, and infinite scroll. Presentation follows the web's library (`Index.tsx` +
-/// `LibraryToolbar.tsx`): wordmark header with the item count, one compact pill search, cards
-/// over the page-level animated gradient. No type chips and no tag filter — the chips never
-/// earned their space on a phone, and tags are being deprecated product-wide.
+/// `LibraryToolbar.tsx`): item count row (no wordmark/title — Will's call, plan 8), one compact
+/// pill search, cards over the page-level animated gradient. No type chips and no tag filter —
+/// the chips never earned their space on a phone, and tags are being deprecated product-wide.
 struct LibraryView: View {
     let userId: UUID
     var onSelect: (Item) -> Void = { _ in }
@@ -51,12 +51,7 @@ struct LibraryView: View {
                 .ignoresSafeArea(edges: .top)
 
             VStack(spacing: 10) {
-                StashHeader {
-                    Text(store.items.count == 1 ? "1 item" : "\(store.items.count) items")
-                        .font(StashType.meta())
-                        .foregroundStyle(StashColor.muted)
-                        .accessibilityIdentifier("library.itemCount")
-                }
+                itemCountRow
                 searchPill
                     .padding(.horizontal, 16)
                 stateBody
@@ -68,6 +63,25 @@ struct LibraryView: View {
         .sheet(item: $selectedItem) { item in
             ItemDetailView(item: item, store: store)
         }
+    }
+
+    // MARK: - Item count (was `StashHeader`'s trailing accessory)
+
+    /// No wordmark above this anymore (Will's call, plan 8: "remove the stash logo from the view
+    /// screen"; View/Ask/Settings all drop it) — just this plain right-aligned row, kept at
+    /// `StashHeader`'s own top inset (`.padding(.top, 8)`) so content still starts at the same
+    /// vertical position the Add tab's composer uses under its (still-wordmarked) header.
+    private var itemCountRow: some View {
+        HStack {
+            Spacer()
+            Text(store.items.count == 1 ? "1 item" : "\(store.items.count) items")
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.muted)
+                .accessibilityIdentifier("library.itemCount")
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Search (web LibraryToolbar's rounded-full pill, violet-tinted while focused)

@@ -98,4 +98,55 @@ final class ItemMergeTests: XCTestCase {
         XCTAssertEqual(merged.attributes, freshIncomingAttrs,
                        "with no unsaved location edit in flight, a fresher incoming attributes blob wins")
     }
+
+    // MARK: - hasUnsavedContent (Plan 8, fix round 1, review finding #2)
+    //
+    // Same shape as the four flags above, for `content` — an unrelated incoming row (a realtime
+    // broadcast, or a detail re-fetch) must never clobber a notes edit that's genuinely still in
+    // flight locally.
+
+    private func contentFixture(content: String?) -> Item {
+        Item(id: UUID(), type: .link, title: "t", content: content, url: "https://example.com",
+             filePath: nil, description: "d", summary: "s", pageBody: nil,
+             supplementalNote: nil, mimeType: nil, isPublic: false, createdAt: .now,
+             fileSize: nil, attributes: ItemAttributes())
+    }
+
+    func testHasUnsavedContentDefersToLocal() {
+        let local = contentFixture(content: "draft note in progress")
+        let incoming = contentFixture(content: "stale server content")
+
+        let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: false,
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: false, hasUnsavedContent: true)
+
+        XCTAssertEqual(merged.content, "draft note in progress",
+                       "an in-flight unsaved content edit must never be overwritten by a stale incoming row")
+    }
+
+    func testNoUnsavedContentTakesIncoming() {
+        let local = contentFixture(content: "old content")
+        let incoming = contentFixture(content: "fresh content")
+
+        let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: false,
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: false, hasUnsavedContent: false)
+
+        XCTAssertEqual(merged.content, "fresh content",
+                       "with no unsaved content edit in flight, a fresher incoming content wins")
+    }
+
+    func testHasUnsavedContentDefaultsToFalseForExistingCallSites() {
+        // Every OTHER call in this file omits `hasUnsavedContent` entirely — the default (`false`)
+        // must behave exactly like passing it explicitly, so those calls don't silently change
+        // behavior just because this parameter exists now.
+        let local = contentFixture(content: "old content")
+        let incoming = contentFixture(content: "fresh content")
+
+        let merged = mergePreservingDetail(local: local, incoming: incoming, hasUnsavedTitle: false,
+                                            hasUnsavedDescription: false, hasUnsavedSupplementalNote: false,
+                                            hasUnsavedLocation: false)
+
+        XCTAssertEqual(merged.content, "fresh content", "omitting hasUnsavedContent must default to false")
+    }
 }

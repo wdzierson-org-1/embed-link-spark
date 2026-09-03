@@ -139,6 +139,17 @@ extension View { func stashTracking(_ em: CGFloat, size: CGFloat) -> some View }
 - [ ] **Step 3: GREEN**: new smoke + `testAskSmoke` (expected gate-blocked adjudication unchanged — the pre-gate assertions must still pass) + `testCardAnatomySmoke` untouched. Screenshots vs web.
 - [ ] **Step 4: Commit.** `git commit -m "feat(ios): Ask header/footer + Conversations rows match web (footer links, violet dot, tokens)"`
 
+> **2026-09-03 (plan 8): superseded.** Will's device review called the footer
+> text links a regression on a phone screen — plan 8 restores the header
+> circle-icon pair as the sole Ask-tab affordance and removes the header
+> title block too (not just the footer links). This task's footer-links
+> design (and the `testAskFooterLinksRenderAndOpenConversations` smoke it
+> added) no longer reflects the shipped app. See
+> `docs/superpowers/plans/2026-09-03-ios-plan-8-feedback-round-1.md` (Task 2)
+> and the "2026-09-03 · iOS feedback round 1 (plan 8)" entry in
+> `docs/ui-changes.md`. Left as-written below rather than rewritten, per this
+> plan's own record-of-what-happened convention.
+
 ---
 
 ### Task 5: Markdown blocks — StashKit parser (tested) + app renderer
@@ -226,6 +237,8 @@ public enum MarkdownBlocks {
 ## Self-review notes (authoring time)
 
 - **Coverage of Will's brief:** icon ✓ T1; login ✓ T3; conversations list ✓ T4; Ask-tab access ✓ T4 (footer links — the existing clock icon wasn't discoverable; identifiers preserved); detail sheet ✓ T5–T7 (incl. the raw-bullets problem in his screenshot = T5/T6 markdown); "visual assets to match favicon" ✓ T1 + wordmark already ink; commit+deploy ✓ T8.
+  *2026-09-03 (plan 8): the T4 "footer links" call turned out wrong on a real
+  device — superseded, see the note at Task 4 above.*
 - **Placeholder scan:** all steps carry concrete files, tokens, identifiers; web references are file:line from the survey.
 - **Type consistency:** `StashColor`/`StashType`/`StashRadius`/`StashShadow` names identical across T2–T7; `MarkdownBlocks.parse`/`looksLikeMarkdown`/`MarkdownBlocksView(text:)` identical in T5/T6; identifiers listed once per task and reused by T8's suite run.
 - **Known risks, accepted:** Neue Montreal on iOS is a license question in principle, but `DESIGN.md` (accepted design record) already mandates bundling it — proceed, flag in the outcome; T3 sign-up introduces the account-deletion obligation for public App Store (flagged, not blocking TestFlight); the other thread may still push to main — T8 Step 1 audits before merge.
@@ -254,6 +267,11 @@ public enum MarkdownBlocks {
 | `fd86e8d` | T7 fix round 1 | fix(ios): relocate location editor into Details drawer, gate feed-link chip on loaded username |
 | `736f3e8` | final wave | fix(ios): plan-7 final wave — footer inset, violet accent, full Neue Montreal sweep incl. share card, tags out of Settings, minors |
 | `1a2803d` | T8 | Merge remote-tracking branch 'origin/main' (foreign commit audit, step 1) |
+
+*2026-09-03 (plan 8): `dde98f8`'s footer-links Ask affordance (row above) was
+reversed by Will's device review — the header circle buttons are the current
+iOS affordance. See `docs/superpowers/plans/2026-09-03-ios-plan-8-feedback-round-1.md`
+Task 2 and its Outcome.*
 
 ### Verification
 

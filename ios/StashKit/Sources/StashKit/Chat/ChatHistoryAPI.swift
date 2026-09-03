@@ -89,17 +89,30 @@ public struct SupabaseChatHistory: ChatHistoryStoring {
     /// ChatMole.tsx:96-107 — last `limit` messages newest-first off the wire, reversed to
     /// oldest-first for display, keeping only user/assistant turns (a `saved` chip never
     /// round-trips through this table on the web either).
+    ///
+    /// Fix round 1: also selects `source_items` (`messages.source_items UUID[]`, migration
+    /// 20250622205827) and reconstructs bare-id `ChatSource` stand-ins from it — same shape the
+    /// web restores (`m.source_items` → `sourceItemIds`, ChatMole.tsx:114), just adapted into this
+    /// type's single `sources` array since iOS has no separate `sourceItemIds` field. These carry
+    /// no `title`/`type`/`n` (the column only stores ids), so `ChatCitations.link` can't use them
+    /// to bake anything new — but `ChatBubble`'s per-source chip filter still uses them correctly:
+    /// a reloaded answer's content is already baked (see `ChatStore`'s `.done` handling), so
+    /// whichever of these ids ISN'T found inline-linked in that baked text is a genuine
+    /// never-cited-by-number fallback source and surfaces as a chip (title falls back to "Item N",
+    /// `ChatBubble.displayTitle`), matching the web's own `extraSources` behavior on reload.
     public func loadHistory(conversationId: UUID, limit: Int) async throws -> [ChatMessage] {
-        struct MessageRow: Decodable { let id: String; let role: String; let content: String }
+        struct MessageRow: Decodable { let id: String; let role: String; let content: String; let source_items: [String]? }
         let rows: [MessageRow] = try await StashClient.shared.from("messages")
-            .select("id, role, content, created_at")
+            .select("id, role, content, source_items, created_at")
             .eq("conversation_id", value: conversationId.uuidString)
             .order("created_at", ascending: false)
             .limit(limit)
             .execute().value
         return rows.reversed().compactMap { row in
             guard let role = ChatMessage.Role(rawValue: row.role), role == .user || role == .assistant else { return nil }
-            return ChatMessage(id: row.id, role: role, content: row.content)
+            let sources = (row.source_items ?? []).compactMap(UUID.init(uuidString:))
+                .map { ChatSource(id: $0, title: nil, type: nil, url: nil, n: nil) }
+            return ChatMessage(id: row.id, role: role, content: row.content, sources: sources)
         }
     }
 

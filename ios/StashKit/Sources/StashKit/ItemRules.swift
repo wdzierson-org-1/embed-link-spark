@@ -77,6 +77,14 @@ public func needsSourceContent(_ type: ItemType) -> Bool {
 /// value, one that predates this edit, so without this guard it would clobber the just-committed
 /// edit until the PATCH's own response arrives a moment later and corrects it again.
 ///
+/// `hasUnsavedContent` (Plan 8, fix round 1, review finding #2) mirrors the same four flags above
+/// for `content` — added for parity/defense-in-depth alongside `ItemDetailView`'s own
+/// `SaveGeneration` guard (which handles the more common case: two of this same sheet's OWN save
+/// responses landing out of order). This flag instead guards against an UNRELATED incoming row
+/// (a realtime broadcast, or `loadDetailIfNeeded`'s own detail fetch) landing while a content save
+/// is genuinely still in flight. Defaulted to `false` so the many existing call sites that don't
+/// pass it (this function predates `content`-level editing) keep compiling unchanged.
+///
 /// `pageBody` gets one addition, independent of the unsaved-edit flags: `Item.listColumns` (what
 /// every realtime-triggered `store.refresh()` re-queries with) never selects `page_body`, so a
 /// list-row `incoming` always carries `pageBody == nil` — not because the server cleared it, but
@@ -92,12 +100,13 @@ public func needsSourceContent(_ type: ItemType) -> Bool {
 /// every incoming row — list or detail — carries a real value for it.
 public func mergePreservingDetail(local: Item, incoming: Item, hasUnsavedTitle: Bool,
                                    hasUnsavedDescription: Bool, hasUnsavedSupplementalNote: Bool,
-                                   hasUnsavedLocation: Bool) -> Item {
+                                   hasUnsavedLocation: Bool, hasUnsavedContent: Bool = false) -> Item {
     var result = incoming
     if hasUnsavedTitle { result.title = local.title }
     if hasUnsavedDescription { result.description = local.description }
     if hasUnsavedSupplementalNote { result.supplementalNote = local.supplementalNote }
     if hasUnsavedLocation { result.attributes = local.attributes }
+    if hasUnsavedContent { result.content = local.content }
     if incoming.pageBody == nil { result.pageBody = local.pageBody }
     return result
 }

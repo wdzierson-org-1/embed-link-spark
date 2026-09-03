@@ -4,8 +4,11 @@ import Supabase
 
 /// One row in the Ask thread: a `.saved` capture chip, a right-aligned/tinted user bubble, or a
 /// left-aligned assistant bubble (streaming cursor, source chips, read-aloud, thumbs). Assistant
-/// content renders via plain `Text` — no markdown yet; that's deferred to plan 6, which owns the
-/// Ask tab's broader visual pass.
+/// content renders through `MarkdownBlocksView`, with citation markers (`[3]` / `[Title](#3)`)
+/// baked by `ChatCitations.link` into tappable `#item=<uuid>` links (Plan 8 Task 4 — Will:
+/// "replicate the web model where the user clicks hyperlinks from the chat itself to open the
+/// detail sheet"); the `.environment(\.openURL, …)` handler that routes those taps to
+/// `onCitationTap` lives at the thread level in `AskView`, not per-bubble.
 struct ChatBubble: View {
     let message: ChatMessage
     let index: Int
@@ -84,21 +87,69 @@ struct ChatBubble: View {
 
     // MARK: - Assistant bubble
 
+    /// Citation markers in `message.content` baked into item links against `message.sources` —
+    /// see `ChatCitations.link`. Recomputed per render rather than cached on `ChatMessage`: cheap
+    /// (a couple of linear scans), and it must track `message.content` as it grows token-by-token
+    /// while streaming. `displayText` additionally runs `stripUnresolvedMarkers` (fix round 1):
+    /// once baked, `message.content` itself already IS the baked text (`ChatStore` bakes before
+    /// ever setting it — see that type's `.done` handling), so this is normally a no-op re-bake,
+    /// but it's what keeps a leftover, never-resolved `[Title](#N)` — an older row reloaded from
+    /// before this fix, or a genuinely unknown citation number — from rendering as a dead violet
+    /// link: `AttributedString(markdown:)` accepts any `#`-fragment href as a real, tappable link,
+    /// so the raw marker has to be stripped down to plain text rather than left for
+    /// `MarkdownBlocksView` to style.
+    private var linkedAnswer: (displayText: String, linkedSourceIDs: Set<UUID>) {
+        let baked = ChatCitations.link(answer: message.content, sources: message.sources)
+        return (ChatCitations.stripUnresolvedMarkers(baked.text), baked.linkedSourceIDs)
+    }
+
+    /// Web parity (`ChatMole.tsx`'s `extraSources`): only sources that ISN'T already reachable via
+    /// an inline link render as a fallback chip — not all-or-nothing. `linkedSourceIDs` already
+    /// accounts for links baked just now AND links that arrived pre-baked (reloaded history), so
+    /// this filter is correct in both cases without needing to know which.
+    private func extraSources(linkedSourceIDs: Set<UUID>) -> [ChatSource] {
+        message.sources.filter { !linkedSourceIDs.contains($0.id) }
+    }
+
     private var assistantBubble: some View {
-        HStack(alignment: .top) {
+        let linked = linkedAnswer
+        let extras = extraSources(linkedSourceIDs: linked.linkedSourceIDs)
+        return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    // A wholly-blank Text (the instant between the placeholder's append and the
+                    // A wholly-blank answer (the instant between the placeholder's append and the
                     // first delta) would otherwise have no meaningful accessibility presence to
-                    // find/poll — a single space keeps the identifier reliably resolvable.
-                    Text(message.content.isEmpty ? " " : message.content)
-                        .accessibilityIdentifier("ask.bubble.\(index)")
+                    // find/poll — a single space keeps the identifier reliably resolvable, same as
+                    // the plain-Text era this replaced.
+                    Group {
+                        if linked.displayText.isEmpty {
+                            Text(" ")
+                        } else {
+                            // `compact: true` (final wave, item E/8): the bubble hugs its own
+                            // text width instead of stretching to `.padding(12)`'s full available
+                            // width, with tighter line/paragraph spacing appropriate to a chat
+                            // bubble rather than the detail sheet's reading column.
+                            MarkdownBlocksView(text: linked.displayText, compact: true)
+                        }
+                    }
+                    .accessibilityIdentifier("ask.bubble.\(index)")
                     if message.isStreaming {
                         streamingCursor
                     }
                 }
-                if !message.sources.isEmpty {
-                    sourcesRow
+                // Links can't carry their own per-run accessibility identifiers inside `Text` —
+                // this marker exists solely so a future UI test can confirm a bubble rendered
+                // inline links without parsing rendered text. A REAL (non-zero) frame: a 0×0 view
+                // doesn't reliably participate in the accessibility tree at all, so `exists` would
+                // silently and permanently return false regardless of whether links are present.
+                if !linked.linkedSourceIDs.isEmpty {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .accessibilityIdentifier("ask.bubble.\(index).hasLinks")
+                        .accessibilityHidden(false)
+                }
+                if !extras.isEmpty {
+                    sourcesRow(extras)
                 }
                 actionsRow
             }
@@ -121,10 +172,10 @@ struct ChatBubble: View {
 
     // MARK: - Sources
 
-    private var sourcesRow: some View {
+    private func sourcesRow(_ sources: [ChatSource]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(Array(message.sources.enumerated()), id: \.element.id) { chipIndex, source in
+                ForEach(Array(sources.enumerated()), id: \.element.id) { chipIndex, source in
                     sourceChip(source, chipIndex: chipIndex)
                 }
             }
@@ -281,4 +332,29 @@ private struct ChatFeedbackInsert: Encodable {
         case sourceItemIds = "source_item_ids"
         case rating
     }
+}
+
+/// Plan 8 Task 4 proof-of-rendering (fix round 1): a linked title (`[Title](#1)`) plus a bare
+/// marker (`[1]`) citing the same source, PLUS a second, never-cited-by-number source — so both
+/// `ChatCitations.link` forms render inline AND the per-source chip row fallback (exactly the
+/// leftover source, not all-or-nothing) render at once. See
+/// `AskView.seedCitationScreenshotFixtureIfRequested` for the equivalent seeded through the real
+/// running app (used for `task-4-links.png`, since the standing test account is gate-blocked for
+/// a live answer).
+#Preview {
+    ChatBubble(
+        message: ChatMessage(
+            id: "preview-a", role: .assistant,
+            content: "Per [Feeding Log](#1), persimmons should be introduced gradually [1] to avoid stomach upset.",
+            sources: [ChatSource(id: UUID(), title: "Persimmon Feeding Notes", type: "text", url: nil, n: 1),
+                      ChatSource(id: UUID(), title: "Fruit Tree Almanac", type: "text", url: nil, n: nil)]),
+        index: 0,
+        question: "What do my saved items say about persimmons?",
+        userId: UUID(),
+        loadingSourceId: nil,
+        speech: SpeechReader(),
+        isDictating: false,
+        onCitationTap: { _ in }
+    )
+    .padding()
 }

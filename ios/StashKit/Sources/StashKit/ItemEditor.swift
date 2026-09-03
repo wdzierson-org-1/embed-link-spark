@@ -83,8 +83,9 @@ public struct ItemPatch: Equatable, Sendable {
 /// Changed-fields-only diff against `snapshot`, matching the web's `flushAndFinalSave`
 /// (useEditItemSave.ts:95-118): compare the live draft to the value the item had when editing
 /// began, treat a nil snapshot field as `""` for comparison purposes, and only put a field on the
-/// patch when it actually differs. `content` isn't part of this diff — the iOS editor updates it
-/// through the separate TipTap-append path, never as a whole-field autosave.
+/// patch when it actually differs. `content` isn't part of THIS diff — notes autosave (both
+/// plain-text whole-field edits and rich-note TipTap paragraph appends) through their own separate
+/// save call (`ItemDetailView.flushNotes`), on their own debounce, never through this field diff.
 public func changedFields(from snapshot: Item, title: String, description: String,
                            supplementalNote: String) -> ItemPatch {
     var patch = ItemPatch()

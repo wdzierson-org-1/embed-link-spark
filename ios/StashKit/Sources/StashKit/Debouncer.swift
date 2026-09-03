@@ -14,4 +14,13 @@ public actor Debouncer {
             await action()
         }
     }
+
+    /// Cancels any pending debounced call without scheduling a new one (Plan 8, fix round 1) — for
+    /// a caller that's about to run its own EXPLICIT, immediate save and wants to make sure a
+    /// stale debounced one can't also fire afterward (e.g. `NotesEditorModel.flushNow`, the detail
+    /// sheet's Done button / `onDisappear` path).
+    public func cancel() {
+        pending?.cancel()
+        pending = nil
+    }
 }

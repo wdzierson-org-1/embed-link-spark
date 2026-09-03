@@ -178,6 +178,33 @@ final class StashUITests: XCTestCase {
         }
     }
 
+    /// REST fetch of "UITEST-FIXTURE: note one*"'s current `content` — same LIKE-prefix title
+    /// match as `restoreNoteOneFixtureToCanonical` above (robust to a still-mutated title from a
+    /// prior crash). Used by `testEditSmoke`'s notes step to verify the inline editor's autosave
+    /// actually landed server-side, not just in the UI.
+    private func fetchNoteOneContent(email: String, password: String) async throws -> String {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [
+                    URLQueryItem(name: "title", value: "like.UITEST-FIXTURE: note one*"),
+                    URLQueryItem(name: "select", value: "content"),
+                ]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "note-one content fetch failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let row = rows.first, let content = row["content"] as? String
+        else {
+            throw FixtureRepairError("note-one content fetch returned no rows")
+        }
+        return content
+    }
+
     /// Signs into the real View tab and exercises the grid, type chip, search, and sign-out
     /// against production data. Element types for custom-identifier views (grid/cards) are
     /// looked up type-agnostically since SwiftUI doesn't guarantee a stable XCUIElementType
@@ -599,26 +626,87 @@ final class StashUITests: XCTestCase {
         XCTAssertEqual(reopenedTitleField.value as? String, editedTitle,
                        "Expected the edited title to have persisted across dismiss/reopen")
 
-        // Notes append.
+        // Notes autosave (Plan 8 Task 5: inline editor replaces the old append composer).
+        // "note one"'s fixture content is plain text (not TipTap JSON), so the editor shows it in
+        // full, directly editable. `app.textViews[...]` (not the file's usual `anyElement` helper)
+        // — same reasoning `capture.dismissKeyboard` documents above: this view's own
+        // `.toolbar(placement: .keyboard)` accessory renders an extra non-interactive "other"
+        // container that inherits the same identifier, so `descendants(matching: .any)` can match
+        // that instead of the real, focusable `UITextView`.
+        //
+        // Typing directly after `.tap()` reliably SPLIT the marker across two positions when
+        // typed straight into this non-empty multi-line `TextEditor` — confirmed live, and
+        // independent of every one of this view's own modifiers (reproduced with autosave,
+        // `.focused`, and the keyboard toolbar each individually disabled in turn): the first
+        // couple characters landed at the tap point, then the rest jumped to the very end, as if
+        // the field's selection settled mid-type. A short throwaway keystroke right after the tap,
+        // followed by a brief pause, reliably absorbs whatever that settle is before the real
+        // marker types — same shape as `clearField`'s own multi-round tap warm-up above (which
+        // masked the same underlying issue without ever actually managing to delete anything).
+        // Since this test only needs the marker to land SOMEWHERE in the saved content (the REST
+        // check below), not at a specific position, an extra throwaway character ahead of it is
+        // harmless.
         let noteMarker = "appended-\(epoch)"
-        let notesField = anyElement("detail.notesComposer.field")
-        XCTAssertTrue(notesField.waitForExistence(timeout: 10), "Notes composer field not found")
+        let notesField = app.textViews["detail.notes.editor"]
+        XCTAssertTrue(notesField.waitForExistence(timeout: 10), "Notes editor field not found")
         notesField.tap()
+        XCTAssertTrue(app.buttons["detail.dismissKeyboard"].waitForExistence(timeout: 5),
+                      "Expected the keyboard-minimize accessory once the notes editor is focused")
+        notesField.typeText("x")
+        sleep(1)
         notesField.typeText(noteMarker)
-        app.buttons["detail.notesComposer.add"].tap()
 
-        let notesText = anyElement("detail.notesText")
-        XCTAssertTrue(notesText.waitForExistence(timeout: 10), "Notes text not found")
-        let notesAppeared = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label CONTAINS %@", noteMarker), object: notesText)
-        XCTAssertEqual(XCTWaiter().wait(for: [notesAppeared], timeout: 10), .completed,
-                       "Expected the appended note to render in Notes")
+        // Debounce is 600ms; give the save round trip margin, then wait for the footer to settle
+        // back on its resting caption (same "Changes saved automatically" the title edit above
+        // relies on) before REST-verifying the save actually landed server-side.
+        sleep(2)
+        let autosave = anyElement("detail.autosave")
+        let savedCaption = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Changes saved automatically"), object: autosave)
+        XCTAssertEqual(XCTWaiter().wait(for: [savedCaption], timeout: 10), .completed,
+                       "Expected the autosave footer to settle after the notes edit")
+
+        // Screenshot rig (same checkpoint technique as testDetailSheets/the "edit" checkpoint
+        // above): holds here, notes editor populated and autosave settled, for an external
+        // `xcrun simctl io <udid> screenshot`.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: notes\n".data(using: .utf8)!)
+        sleep(3)
+
+        let savedContent = try await fetchNoteOneContent(email: email, password: password)
+        XCTAssertTrue(savedContent.contains(noteMarker),
+                      "Expected 'note one's saved content to contain '\(noteMarker)', got '\(savedContent)'")
+
+        // Fix round 1, review finding #1: a note typed then dismissed WITHIN the 600ms debounce
+        // window (no wait at all here, unlike the marker above) must still persist — `detail.done`
+        // now flushes the pending notes draft before actually dismissing, rather than relying on
+        // the debounce alone. Already focused from the step above, so this types straight in.
+        let immediateMarker = "immediate-\(epoch)"
+        notesField.typeText(immediateMarker)
+        app.buttons["detail.done"].tap()
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10),
+                      "Expected the library after the immediate-dismiss tap (Done should await the flush)")
+
+        XCTAssertTrue(card0().waitForExistence(timeout: 15),
+                      "Expected the card to still be findable after the immediate-dismiss round trip")
+        card0().tap()
+
+        let reopenedNotesField = app.textViews["detail.notes.editor"]
+        XCTAssertTrue(reopenedNotesField.waitForExistence(timeout: 10),
+                      "Notes editor not found after the immediate-dismiss reopen")
+        let reopenedNotesValue = (reopenedNotesField.value as? String) ?? ""
+        XCTAssertTrue(reopenedNotesValue.contains(immediateMarker),
+                      "Expected the immediately-dismissed note edit to have persisted, got '\(reopenedNotesValue)'")
+
+        let contentAfterImmediateDismiss = try await fetchNoteOneContent(email: email, password: password)
+        XCTAssertTrue(contentAfterImmediateDismiss.contains(immediateMarker),
+                      "Expected REST content to contain the immediate-dismiss marker '\(immediateMarker)', " +
+                      "got '\(contentAfterImmediateDismiss)'")
 
         // Restore: back to exactly the canonical fixture title. Content stays mutated after this
-        // test (the notes-append step above can only ever ADD a paragraph — no in-app undo) —
-        // cleaned up either by an explicit REST PATCH in the shell right after this run, or
-        // automatically by the NEXT run's own restore-first pre-flight (top of this test) if
-        // that shell step is ever skipped, or this run crashes before reaching it.
+        // test (the notes step above can only ever grow the note — no in-app undo) — cleaned up
+        // either by an explicit REST PATCH in the shell right after this run, or automatically by
+        // the NEXT run's own restore-first pre-flight (top of this test) if that shell step is
+        // ever skipped, or this run crashes before reaching it.
         replaceText(reopenedTitleField, placeholder: "Untitled", with: originalTitle)
         XCTAssertEqual(reopenedTitleField.value as? String, originalTitle,
                        "Expected the title to be restored to exactly the original fixture title")
@@ -1589,14 +1677,15 @@ final class StashUITests: XCTestCase {
         XCTAssertFalse(usernameField.waitForExistence(timeout: 3), "Expected the username field to disappear back on the Sign in tab")
     }
 
-    /// Plan 7 Task 4: the two former Ask-tab header circle icons (new chat / history) moved to
-    /// text footer links under the composer — Will couldn't find the history affordance up in the
-    /// header. Same accessibility identifiers as before (`ask.newChat`/`ask.history`), so this
-    /// only proves the NEW position/label, not new identifiers; `testConversationsSmoke` already
-    /// covers the tap-through navigation and back-pop, so this keeps that assertion minimal and
-    /// instead focuses on what's new: the link sits below the composer (not above the thread),
-    /// carries the exact footer copy, and still opens Conversations.
-    func testAskFooterLinksRenderAndOpenConversations() throws {
+    /// Plan 8 Task 2 (feedback round 1): Will's reversal — the plan-7 footer text links didn't
+    /// work well on a phone ("the previous implementation… buttons in a mobile friendly way was
+    /// the better approach — go back to this"), so this restores the pre-plan-7 header affordance:
+    /// two round icon buttons, right-aligned above the thread, with no wordmark/title above them.
+    /// Same accessibility identifiers as before (`ask.newChat`/`ask.history`), so
+    /// `testConversationsSmoke`'s navigation keeps working unchanged; this test proves the NEW
+    /// position (above the intro bubble, not below the composer) and that the "Ask Stash" title
+    /// block's item-count subtitle (`ask.itemCount`) is gone.
+    func testAskHeaderButtonsOpenConversations() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
@@ -1609,33 +1698,29 @@ final class StashUITests: XCTestCase {
         let input = anyElement("ask.input")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
 
-        let historyLink = app.buttons["ask.history"]
-        XCTAssertTrue(historyLink.waitForExistence(timeout: 10), "Earlier conversations footer link missing")
-        XCTAssertEqual(historyLink.label, "Earlier conversations")
+        let newChatButton = app.buttons["ask.newChat"]
+        XCTAssertTrue(newChatButton.waitForExistence(timeout: 10), "New-chat header button missing")
+        let historyButton = app.buttons["ask.history"]
+        XCTAssertTrue(historyButton.exists, "History header button missing")
 
-        let newChatLink = app.buttons["ask.newChat"]
-        XCTAssertTrue(newChatLink.exists, "Start new chat footer link missing")
-        XCTAssertEqual(newChatLink.label, "Start new chat")
+        // Above the intro bubble (the restored pre-plan-7 position), not below the composer (the
+        // plan-7 footer-link position this reverses).
+        let bubble = anyElement("ask.emptyState")
+        XCTAssertTrue(bubble.waitForExistence(timeout: 10), "Intro bubble did not appear")
+        XCTAssertLessThan(newChatButton.frame.maxY, bubble.frame.minY,
+                          "Expected the new-chat button above the intro bubble")
+        XCTAssertLessThan(historyButton.frame.maxY, bubble.frame.minY,
+                          "Expected the history button above the intro bubble")
 
-        // Below the composer, not above the thread (the old header-icon position) — the whole
-        // point of this move per the brief.
-        XCTAssertGreaterThan(historyLink.frame.minY, input.frame.minY,
-                             "Expected the footer link below the composer, not back up in the header")
-
-        // Header subtitle item count: async and best-effort ("render only when known" — see
-        // `AskView.loadItemCountOnce`'s doc comment), so this is a soft check, not a hard
-        // requirement — absence isn't a failure, but if it's there it must actually say "item(s)".
-        let itemCount = anyElement("ask.itemCount")
-        if itemCount.waitForExistence(timeout: 10) {
-            XCTAssertTrue(itemCount.label.contains("item"), "Expected the item-count subtitle to mention items")
-        }
+        // The "Ask Stash" title block (and its item-count subtitle) is gone — no wordmark, no title.
+        XCTAssertFalse(anyElement("ask.itemCount").exists, "Expected ask.itemCount to be removed")
 
         // Screenshot rig (same checkpoint technique as testAskSmoke/testConversationsSmoke): holds
-        // here with the Ask panel's header/footer on screen before tapping through.
-        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-header-footer\n".data(using: .utf8)!)
+        // here with the header buttons and intro bubble on screen before tapping through.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-header-buttons\n".data(using: .utf8)!)
         sleep(4)
 
-        historyLink.tap()
+        historyButton.tap()
         XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10),
                       "Expected the Conversations screen title")
 
@@ -1696,6 +1781,29 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: detail-anatomy-link\n".data(using: .utf8)!)
         sleep(3)
 
+        // --- Final wave, item B: the keyboard accessory clears WHICHEVER field has focus, not
+        // just notes'. Previously hardcoded to only clear notes' own focus, so tapping it while
+        // title/description was focused was a dead tap (confirmed live: the keyboard stayed up).
+        let titleField = anyElement("detail.title")
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
+        titleField.tap()
+
+        let dismissKeyboard = app.buttons["detail.dismissKeyboard"]
+        XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
+                      "Expected the keyboard-minimize accessory once the title field is focused")
+
+        // Screenshot rig (same checkpoint technique as every other test in this file): holds here,
+        // title focused with the keyboard + accessory both visible.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: final-wave-focus\n".data(using: .utf8)!)
+        sleep(3)
+
+        dismissKeyboard.tap()
+        let accessoryGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                        object: dismissKeyboard)
+        XCTAssertEqual(XCTWaiter().wait(for: [accessoryGone], timeout: 10), .completed,
+                       "Expected the keyboard accessory to disappear once the title field's focus " +
+                       "is cleared (final wave, item B)")
+
         // --- Task 7: Details drawer + Sharing section ---
         let detailsRow = anyElement("detail.details")
         XCTAssertTrue(detailsRow.waitForExistence(timeout: 10), "Details drawer row not found")
@@ -1717,5 +1825,100 @@ final class StashUITests: XCTestCase {
 
         app.buttons["detail.done"].tap()
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
+    }
+
+    // MARK: - Composer keyboard accessory (Plan 8 fix round 1, Task 3)
+
+    /// Device-review fix: while typing, the keyboard toolbar's text "Done" button used to read as
+    /// a second primary action competing with the violet send button. Replaced with an icon-only
+    /// minimize-keyboard control (`keyboard.chevron.compact.down`) — this proves the "Done" text
+    /// button is gone, the icon control appears (with an accessible label) once the editor is
+    /// focused, and tapping it actually dismisses the keyboard (the accessory itself disappears,
+    /// since it's only shown via the `.keyboard` toolbar placement). Also proves the composer's
+    /// old public/lock toggle (`capture.toggle.public`) is gone entirely — sharing now lives only
+    /// on the detail sheet's `detail.public.toggle` (see `testDetailSheets`), and captures default
+    /// private (`CaptureViewModel.isPublic == false`, unchanged in StashKit by this fix). Also
+    /// screenshots CaptureAttachmentsRow's clipped-× fix: picks a photo via the real PhotosPicker
+    /// (the simulator's own default Photos library) and holds with the chip visible.
+    func testComposerKeyboardAccessory() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        // Add is the launch tab — the editor must appear without tapping any tab.
+        let editor = anyElement("capture.editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 15),
+                      "Expected the capture editor to appear on launch (Add is the launch tab)")
+
+        // The composer's own lock/public toggle is gone entirely — sharing lives on the detail
+        // sheet only now.
+        XCTAssertFalse(anyElement("capture.toggle.public").exists,
+                       "Expected the composer's public/lock toggle to be removed")
+
+        editor.tap()
+        editor.typeText("x")
+
+        // `.buttons[...]` (not the file's usual `anyElement` helper) — the `.keyboard` toolbar
+        // placement renders an extra non-button "other" accessibility container that inherits the
+        // same identifier/label (confirmed live: `descendants(matching: .any)` matched two
+        // elements), so this scopes the query to the actual button, same convention already used
+        // for `capture.save`/`signin.submit` elsewhere in this file.
+        let dismissKeyboard = app.buttons["capture.dismissKeyboard"]
+        XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
+                      "Expected the minimize-keyboard accessory control to appear while the editor is focused")
+        XCTAssertEqual(dismissKeyboard.label, "Hide keyboard",
+                       "Expected the accessory control's a11y label to read 'Hide keyboard', got '\(dismissKeyboard.label)'")
+        XCTAssertFalse(app.buttons["Done"].exists,
+                       "Expected the keyboard toolbar's text 'Done' button to be gone")
+
+        // Screenshot rig (same checkpoint technique as testCaptureSmoke/testLocationPinSmoke):
+        // holds here, keyboard up with "x" typed, so an external `xcrun simctl io <udid>
+        // screenshot` can capture the violet send button (primary) alongside the icon-only
+        // minimize accessory (secondary) — no competing "Done" text button.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: composer-keyboard\n".data(using: .utf8)!)
+        sleep(3)
+
+        dismissKeyboard.tap()
+
+        let accessoryGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                        object: dismissKeyboard)
+        XCTAssertEqual(XCTWaiter().wait(for: [accessoryGone], timeout: 10), .completed,
+                       "Expected the keyboard accessory to disappear once the keyboard is dismissed")
+
+        // Attachment × clipping fix (CaptureAttachmentsRow): drives the real PhotosPicker against
+        // the simulator's own default Photos library (seeded content every sim ships with, no
+        // fixture needed) rather than screenshotting manually — PHPickerViewController runs
+        // out-of-process, so no photo-library permission prompt is even in the way here.
+        app.buttons["capture.photosPicker"].tap()
+
+        let firstPhoto = app.images.matching(NSPredicate(format: "label CONTAINS 'Photo'")).firstMatch
+        let photoCell = firstPhoto.exists ? firstPhoto : app.scrollViews.firstMatch.images.firstMatch
+        XCTAssertTrue(photoCell.waitForExistence(timeout: 10), "Expected the system photo picker to show at least one photo")
+        photoCell.tap()
+
+        let addButton = app.navigationBars.buttons["Add"]
+        if addButton.waitForExistence(timeout: 5) { addButton.tap() }
+
+        let attachmentRemove = anyElement("capture.attachment.remove")
+        XCTAssertTrue(attachmentRemove.waitForExistence(timeout: 10),
+                      "Expected an attachment chip with a remove control after picking a photo")
+
+        // Holds with the attachment chip visible so an external screenshot can confirm the
+        // remove × (offset off the chip's top-trailing corner) is no longer clipped by the
+        // attachments row's own top edge.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: composer-attachment\n".data(using: .utf8)!)
+        sleep(3)
     }
 }

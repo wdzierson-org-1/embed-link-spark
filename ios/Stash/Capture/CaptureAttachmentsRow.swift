@@ -13,8 +13,14 @@ struct CaptureAttachmentsRow: View {
                     chip(for: attachment)
                 }
             }
-            .padding(.vertical, 2)
+            // The remove ×, offset (6, -6) off each chip's top-trailing corner, used to clip
+            // against the row's own top edge — `.scrollClipDisabled()` below lets it draw past
+            // the ScrollView's implicit content-bounds clip; this padding gives it the room to do
+            // so without visually shifting the chips themselves.
+            .padding(.top, 10)
+            .padding(.trailing, 8)
         }
+        .scrollClipDisabled()
     }
 
     @ViewBuilder

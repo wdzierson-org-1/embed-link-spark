@@ -4,9 +4,32 @@ import StashKit
 /// Mirrors the web's `saveStatus` (`idle | saving | saved`, `useEditItemSave.ts`), driving
 /// `detail.autosave`'s caption. Per this task's brief, only `.saving` gets its own copy
 /// ("Saving…") — `.idle`/`.saved` both render the web's resting-state copy, "Changes saved
-/// automatically" (`EditItemAutoSaveIndicator.tsx`'s own `default:` case).
-enum SaveStatus {
+/// automatically".
+///
+/// `.failed(String)` (final wave, item D — DISCLOSED extension beyond web parity: the web has no
+/// equivalent inline error state here either): every save catch site used to fall back to `.idle`,
+/// which rendered the exact same resting "Changes saved automatically" caption a genuine success
+/// does — a failed save was silently indistinguishable from one that worked. `.failed` renders
+/// `detail.autosave.error` in `StashColor.destructive` instead; the unsaved draft (title/
+/// description/notes text — whichever field failed) is always left exactly as typed either way, so
+/// nothing is lost, and the NEXT successful save on any field clears it back to `.saved`. Applied
+/// to every save site here (field autosave, notes, attributes-on-success) for consistency, not just
+/// the notes path this fix round's brief called out by line number.
+enum SaveStatus: Equatable {
     case idle, saving, saved
+    case failed(String)
+}
+
+/// The sheet's three focusable text inputs (final wave, item B) — one shared `@FocusState` rather
+/// than three independent `Bool`s, specifically so the keyboard accessory's "hide keyboard" button
+/// can defocus WHICHEVER of the three is currently active. Previously that button hardcoded
+/// `notesFocused = false`, so it was a dead tap unless notes specifically had focus (confirmed
+/// live: tapping it while title/description was focused left the keyboard up). `NotesEditor`
+/// itself binds into this same enum via `equals: .notes`, not a private `Bool` of its own — see
+/// its own doc comment for why a `FocusState<DetailField?>.Binding` has to be threaded all the way
+/// down for that to work.
+enum DetailField: Hashable {
+    case title, description, notes
 }
 
 /// Detail sheet presented from a Library card tap, rebuilt to DESIGN.md's detail-panel anatomy
@@ -44,85 +67,150 @@ struct ItemDetailView: View {
     @State private var editor = ItemEditor(patcher: SupabaseItemPatcher(),
                                             refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
     @State private var fieldDebouncer = Debouncer(interval: .milliseconds(400))
+    /// Notes' own draft/debounce state (Plan 8 Task 5, hoisted out in fix round 1 — see
+    /// `NotesEditorModel`'s own doc comment) — same one-per-sheet lifetime as `editor` above, built
+    /// once in `init` from the item's initial content.
+    @State private var notesModel: NotesEditorModel
+    /// Guards the field-autosave (400ms) vs. notes-autosave (600ms) race (fix round 1, review
+    /// finding #2): two independent debounced save paths can have their responses land out of
+    /// dispatch order, and without this, an older response landing last could revert whatever a
+    /// newer one already committed — see `SaveGeneration`'s own doc comment (StashKit) for the
+    /// full rationale and the established codebase precedent it mirrors.
+    @State private var saveGeneration = SaveGeneration()
 
     let store: ItemStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: ContentTabKey
     @State private var isLoadingDetail = false
-    @FocusState private var titleFocused: Bool
-    @FocusState private var descriptionFocused: Bool
+    /// One shared enum-keyed `@FocusState` for all three text inputs (final wave, item B — was
+    /// three independent `Bool`s, `titleFocused`/`descriptionFocused`/`notesFocused`; see
+    /// `DetailField`'s own doc comment for why unifying them was the fix). Declared here, not
+    /// inside `NotesEditor` itself, and threaded down through `ItemDetailContent` as a
+    /// `FocusState<DetailField?>.Binding`: a `.toolbar(placement: .keyboard)` attached several
+    /// levels deep inside this sheet's `ScrollView`/`ItemDetailContent`'s tab-switch
+    /// `@ViewBuilder` never actually registered its accessory (confirmed live —
+    /// `detail.dismissKeyboard` never appeared, even right after focusing). Hoisting both the
+    /// `@FocusState` and the `.toolbar` itself up to this view's own top level — see `body`'s own
+    /// `NavigationStack` wrap below — fixed it.
+    @FocusState private var focusedField: DetailField?
 
     init(item: Item, store: ItemStore) {
         _item = State(initialValue: item)
         _snapshot = State(initialValue: item)
         self.store = store
         _selectedTab = State(initialValue: contentTabsConfig(for: item.type).defaultTab)
+        _notesModel = State(initialValue: NotesEditorModel(item: item))
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
-            // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
-            // ScrollView's own laid-out frame — it only nudges the CONTENT's scroll offset limits
-            // — so the ScrollView's outer frame (what XCUITest and any other hit-testing consults
-            // to decide "is this element already on screen") still nominally extends the full
-            // sheet height, footer included; short content (e.g. Details/Sharing on an item with
-            // little else) then rests visually under the pinned footer even though its element is
-            // reported "within bounds". A true sibling makes the ScrollView's frame stop exactly
-            // where the footer begins, so nothing can ever land behind it.
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        DetailEyebrow(item: item)
-                        titleField
-                        descriptionField
-                        if item.type == .image, let url = item.thumbnailURL {
-                            heroImage(url)
-                        }
-                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
-                            DetailURLBar(urlString: urlString)
-                        }
-                        ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail)
-                        // Gated to the Notes tab (rather than always-visible below every tab) so it
-                        // reads as "here's how you add to what you're looking at" instead of a
-                        // floating control under unrelated Summary/Original/Transcript content.
-                        if selectedTab == .notes {
-                            NotesAppendComposer(item: item, editor: editor, onSaved: handleSaved)
-                        }
+        // `NavigationStack` wrap (Plan 8 Task 5, no navigation chrome of its own — hidden via
+        // `.toolbar(.hidden, for: .navigationBar)` below, since this sheet already has its own
+        // custom `closeButton`, not a system back/close bar item): required for
+        // `.toolbar(placement: .keyboard)` to actually register an accessory at all inside a
+        // `.sheet(item:)` presentation — confirmed live, moving the toolbar to this view's own
+        // top level (this file's prior state, no `NavigationStack`) was NOT sufficient on its own;
+        // `CaptureComposerView`'s identical-looking `.toolbar(placement: .keyboard)` works without
+        // one only because it's a plain `TabView` tab, never presented modally.
+        NavigationStack {
+            ZStack(alignment: .topTrailing) {
+                // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
+                // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
+                // ScrollView's own laid-out frame — it only nudges the CONTENT's scroll offset
+                // limits — so the ScrollView's outer frame (what XCUITest and any other hit-testing
+                // consults to decide "is this element already on screen") still nominally extends
+                // the full sheet height, footer included; short content (e.g. Details/Sharing on an
+                // item with little else) then rests visually under the pinned footer even though
+                // its element is reported "within bounds". A true sibling makes the ScrollView's
+                // frame stop exactly where the footer begins, so nothing can ever land behind it.
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            DetailEyebrow(item: item)
+                            titleField
+                            descriptionField
+                            if item.type == .image, let url = item.thumbnailURL {
+                                heroImage(url)
+                            }
+                            if item.type == .link, let urlString = item.url, !urlString.isEmpty {
+                                DetailURLBar(urlString: urlString)
+                            }
+                            ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
+                                              notesModel: notesModel, notesFocused: $focusedField,
+                                              scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow)
 
-                        hairline
+                            hairline
 
-                        DetailsDrawer(item: item, attributes: attributesBinding)
+                            DetailsDrawer(item: item, attributes: attributesBinding)
 
-                        SharingSection(item: item, editor: editor,
-                                        supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
+                            SharingSection(item: item, editor: editor,
+                                            supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 44)
+                        .padding(.bottom, 24)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 44)
-                    .padding(.bottom, 24)
+                    footerBar
                 }
-                footerBar
-            }
-            .background(StashColor.paper.ignoresSafeArea())
+                .background(StashColor.paper.ignoresSafeArea())
 
-            closeButton
-        }
-        .presentationCornerRadius(StashRadius.sheet)
-        .task { await loadDetailIfNeeded() }
-        .onChange(of: store.items) { _, items in
-            guard let updated = items.first(where: { $0.id == item.id }) else { return }
-            adopt(updated)
-        }
-        .onDisappear {
-            // Deleting already dismisses (and there's nothing left server-side to PATCH).
-            guard !isDeleted else { return }
-            Task { await saveChangedFields() }
-        }
-        .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
-                             titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await performDelete() } }
-            Button("Cancel", role: .cancel) {}
+                closeButton
+            }
+            .presentationCornerRadius(StashRadius.sheet)
+            // Keyboard-minimize accessory (same control Task 3 gave the capture composer) — see
+            // `focusedField`'s doc comment above for why this lives here, at the top level, rather
+            // than on any one field's own view. `focusedField = nil` (final wave, item B — was
+            // hardcoded to only clear notes' own focus) defocuses whichever of title/description/
+            // notes is currently active, so this button actually works no matter which field the
+            // keyboard is up for.
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button {
+                        focusedField = nil
+                    } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                    }
+                    .accessibilityIdentifier("detail.dismissKeyboard")
+                    .accessibilityLabel("Hide keyboard")
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .task { await loadDetailIfNeeded() }
+            .onChange(of: store.items) { _, items in
+                guard let updated = items.first(where: { $0.id == item.id }) else { return }
+                adopt(updated)
+            }
+            .onDisappear {
+                // Deleting already dismisses (and there's nothing left server-side to PATCH).
+                guard !isDeleted else { return }
+                // Belt-and-braces (fix round 1, review finding #1): `closeButton` already flushes
+                // notes before calling `dismiss()`, but `onDisappear` fires on ANY path out of this
+                // sheet (a system swipe-to-dismiss, not just the Done button), so notes gets the
+                // same explicit flush here too — same reasoning `saveChangedFields()` already
+                // covers fields with. `flushNotesNow` first: it's the one path that's new/hasn't
+                // already run once via `closeButton` in the tap-Done case (redundant-but-safe there
+                // — `NotesEditorModel`'s own guard makes a second flush with nothing new to save a
+                // no-op).
+                //
+                // `fieldDebouncer.cancel()` before the explicit `saveChangedFields()` (final wave,
+                // item E/7): without this, a still-pending 400ms field debounce from a keystroke
+                // typed just before dismiss could fire its OWN `saveChangedFields()` call after
+                // this one already ran — harmless in outcome (both diff against `snapshot`, so a
+                // second call with nothing left unsaved is a no-op), but it's a redundant network
+                // round trip and an unnecessary `saveGeneration` bump for no reason once this
+                // explicit call is about to cover the same save anyway.
+                Task {
+                    await flushNotesNow()
+                    await fieldDebouncer.cancel()
+                    await saveChangedFields()
+                }
+            }
+            .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
+                                 titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { Task { await performDelete() } }
+                Button("Cancel", role: .cancel) {}
+            }
         }
     }
 
@@ -130,7 +218,7 @@ struct ItemDetailView: View {
 
     /// Object title (panel) per DESIGN.md: 500 · 28 / 1.2 · −0.02em, inline-editable — "no input
     /// chrome at rest; violet wash on hover; wash + ring on focus." Touch has no hover, so the
-    /// wash/ring both key off `titleFocused` here.
+    /// wash/ring both key off `focusedField == .title` here.
     private var titleField: some View {
         // Deliberately single-line (no `axis: .vertical`) — a vertical-axis `TextField` renders
         // as a `UITextView` under the hood, which `testEditSmoke`'s tap-then-`typeText` helper
@@ -144,14 +232,14 @@ struct ItemDetailView: View {
             .stashTracking(-0.02, size: 28)
             .foregroundStyle(StashColor.ink)
             .textFieldStyle(.plain)
-            .focused($titleFocused)
+            .focused($focusedField, equals: .title)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(titleFocused ? StashColor.violet300.opacity(0.12) : Color.clear,
+            .background(focusedField == .title ? StashColor.violet300.opacity(0.12) : Color.clear,
                         in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                    .strokeBorder(titleFocused ? StashColor.violet300 : Color.clear, lineWidth: 2)
+                    .strokeBorder(focusedField == .title ? StashColor.violet300 : Color.clear, lineWidth: 2)
             )
             .accessibilityIdentifier("detail.title")
     }
@@ -161,14 +249,14 @@ struct ItemDetailView: View {
             .font(StashType.body())
             .foregroundStyle(StashColor.muted)
             .textFieldStyle(.plain)
-            .focused($descriptionFocused)
+            .focused($focusedField, equals: .description)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(descriptionFocused ? StashColor.violet300.opacity(0.08) : Color.clear,
+            .background(focusedField == .description ? StashColor.violet300.opacity(0.08) : Color.clear,
                         in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                    .strokeBorder(descriptionFocused ? StashColor.violet300 : Color.clear, lineWidth: 2)
+                    .strokeBorder(focusedField == .description ? StashColor.violet300 : Color.clear, lineWidth: 2)
             )
             .accessibilityIdentifier("detail.description")
     }
@@ -195,9 +283,17 @@ struct ItemDetailView: View {
     }
 
     /// The iOS close affordance — a hairline circle × top-trailing, matching the web sheet's own
-    /// close button, in place of the former toolbar "Done".
+    /// close button, in place of the former toolbar "Done". Flushes any pending notes edit BEFORE
+    /// dismissing (fix round 1, review finding #1) — the 600ms debounce alone can't be trusted to
+    /// have fired yet on a fast "type then tap Done" sequence, so this awaits the flush first
+    /// rather than relying solely on `onDisappear`'s own belt-and-braces call.
     private var closeButton: some View {
-        Button { dismiss() } label: {
+        Button {
+            Task {
+                await flushNotesNow()
+                dismiss()
+            }
+        } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(StashColor.muted)
@@ -248,11 +344,22 @@ struct ItemDetailView: View {
         .accessibilityIdentifier("detail.delete")
     }
 
+    /// `.failed` (final wave, item D) renders as its own `detail.autosave.error` identifier in
+    /// `StashColor.destructive`, distinct from the resting `detail.autosave` identifier every
+    /// other state shares — so a UI test (or VoiceOver user) can tell "saved" and "failed, please
+    /// retry" apart without parsing label text.
     @ViewBuilder private var autosaveLabel: some View {
-        Text(saveStatus == .saving ? "Saving…" : "Changes saved automatically")
-            .font(StashType.meta())
-            .foregroundStyle(StashColor.faint)
-            .accessibilityIdentifier("detail.autosave")
+        if case .failed(let message) = saveStatus {
+            Text(message)
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.destructive)
+                .accessibilityIdentifier("detail.autosave.error")
+        } else {
+            Text(saveStatus == .saving ? "Saving…" : "Changes saved automatically")
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.faint)
+                .accessibilityIdentifier("detail.autosave")
+        }
     }
 
     // MARK: - Field bindings (title/description autosave)
@@ -284,10 +391,10 @@ struct ItemDetailView: View {
     /// Backs `LocationRow` (Task 8). Unlike title/description/supplementalNote, a location commit
     /// is already a discrete, deliberate action (Enter/blur/remove-X — never per-keystroke), so
     /// this saves immediately rather than routing through `fieldDebouncer`: there's no
-    /// "in-progress draft" worth debouncing here, same reasoning `NotesAppendComposer`'s own doc
-    /// comment gives for its own atomic save. The optimistic `item.attributes = newValue` write
-    /// (before the save's own await resolves) is exactly what `adopt(_:)`'s `hasUnsavedLocation`
-    /// flag protects from a racing realtime refresh — see `mergePreservingDetail`'s doc comment.
+    /// "in-progress draft" worth debouncing here. The optimistic `item.attributes = newValue`
+    /// write (before the save's own await resolves) is exactly what `adopt(_:)`'s
+    /// `hasUnsavedLocation` flag protects from a racing realtime refresh — see
+    /// `mergePreservingDetail`'s doc comment.
     private var attributesBinding: Binding<ItemAttributes> {
         Binding(get: { item.attributes }, set: { newValue in
             item.attributes = newValue
@@ -311,9 +418,15 @@ struct ItemDetailView: View {
     /// one call path reached through `Debouncer`, which is its own (non-Main) actor — its
     /// internal `Task` inherits *that* actor's isolation, not whatever actor originally scheduled
     /// the call. Without this annotation, the @State mutations below could run off the main
-    /// thread. Every other async entry point here (`performDelete`, `NotesAppendComposer.append`)
-    /// is reached directly from a SwiftUI event closure (Button action / onDisappear), which is
-    /// already MainActor-isolated with no intervening actor hop.
+    /// thread. Every other async entry point here (`performDelete`, `flushNotes`) is reached
+    /// directly from a SwiftUI event closure (Button action / onDisappear) or another already-
+    /// `@MainActor` method, so it's already MainActor-isolated with no intervening actor hop.
+    ///
+    /// `saveGeneration`-guarded (fix round 1, review finding #2): captures its own generation
+    /// before dispatching, and only applies the response — `handleSaved`/`saveStatus` alike — if
+    /// no NEWER save (this same field debounce firing again, OR a notes autosave) has started in
+    /// the meantime. See `SaveGeneration`'s own doc comment (StashKit) for the full race this
+    /// guards against.
     @MainActor
     private func saveChangedFields() async {
         let titleNow = item.title ?? ""
@@ -321,13 +434,21 @@ struct ItemDetailView: View {
         let patch = changedFields(from: snapshot, title: titleNow, description: descriptionNow,
                                    supplementalNote: item.supplementalNote ?? "")
         guard !patch.isEmpty else { return }
+        let gen = saveGeneration.next()
         saveStatus = .saving
         do {
             let merged = try await editor.save(itemId: item.id, patch: patch)
+            guard saveGeneration.isLatest(gen) else { return }
             handleSaved(merged)
             saveStatus = .saved
         } catch {
-            saveStatus = .idle
+            guard saveGeneration.isLatest(gen) else { return }
+            // Final wave, item D: was `.idle`, which rendered the same resting "Changes saved
+            // automatically" caption a real success does — a failed field save was silently
+            // indistinguishable from one that worked. `item.title`/`item.description` are left
+            // exactly as typed (nothing here reverts them), so the draft itself is never lost;
+            // the next successful save on any field clears this back to `.saved`.
+            saveStatus = .failed("Couldn't save — try again.")
         }
     }
 
@@ -337,19 +458,105 @@ struct ItemDetailView: View {
     /// web parity, `itemOperations.ts:100-101`). No dedicated error UI on failure, matching the
     /// web's own fire-and-forget `catch { console.error(...) }` in `EditItemLocationSection.tsx`:
     /// a failed save just means the next realtime/detail refresh's `adopt` shows whatever the
-    /// server actually has, rather than the optimistic local edit silently drifting from it.
+    /// server actually has, rather than the optimistic local edit silently drifting from it — that
+    /// reasoning is unchanged by final wave item D/minor 5 below, so the catch here deliberately
+    /// stays silent rather than also switching to `.failed`.
+    /// `saveGeneration`-guarded on success same as every other save site here (fix round 1).
     @MainActor
     private func saveAttributes(_ attributes: ItemAttributes) async {
+        let gen = saveGeneration.next()
         do {
             let merged = try await editor.save(itemId: item.id, patch: ItemPatch(attributes: attributes))
+            guard saveGeneration.isLatest(gen) else { return }
             handleSaved(merged)
+            // Final wave, item E/minor 5: this path never set `saveStatus` at all before, so a
+            // location edit right after a `.failed` field/notes save left the destructive caption
+            // on screen even though the location save that just ran succeeded. Every other save
+            // site here already sets `.saved` on success; this just brings location in line.
+            saveStatus = .saved
         } catch {
             print("Location save failed (non-fatal): \(error)")
         }
     }
 
-    /// Shared by every successful `editor.save` call site (field autosave, notes append): folds
-    /// the merged server row into local state and keeps the background grid in sync so it
+    /// Debounced (per-keystroke) notes flush trigger, handed to `NotesEditor` via
+    /// `ItemDetailContent` — see `NotesEditorModel.scheduleSave`'s own doc comment.
+    private func scheduleNotesFlush() {
+        notesModel.scheduleSave { await self.flushNotes() }
+    }
+
+    /// Explicit, immediate notes flush (fix round 1, review finding #1) — the Done button /
+    /// `onDisappear` path, and the blur handler `NotesEditor` itself installs for both modes now.
+    /// See `NotesEditorModel.flushNow`'s own doc comment for why this exists at all.
+    private func flushNotesNow() async {
+        await notesModel.flushNow { await self.flushNotes() }
+    }
+
+    /// The actual notes save (Plan 8 Task 5, split out of `NotesEditor` in fix round 1 so
+    /// `ItemDetailView` can trigger it directly — see `NotesEditorModel`'s own doc comment for
+    /// why): plain notes save the whole draft as-is; rich notes wrap the draft as a new paragraph
+    /// via `appendNoteParagraph` onto the CURRENT `item.content` (read live here, not a value
+    /// `NotesEditorModel` itself would otherwise have to keep re-synced — this is exactly why the
+    /// model doesn't own this method). `saveGeneration`-guarded like every other save site here.
+    ///
+    /// Idempotence guard (final wave, item C / minor 6) right before the rich-mode append: with
+    /// rich appends now firing only on blur/Done/`onDisappear` (never per-keystroke — see
+    /// `NotesEditor`'s own doc comment), the only way a save response here can still get dropped
+    /// by `saveGeneration` is a genuinely-overlapping field/attributes save winning the race. On a
+    /// drop, this method returns before ever clearing `notesModel.draft` (draft is cleared ONLY on
+    /// confirmed — i.e. still-latest — success, unchanged from before this fix round), so the draft
+    /// is still sitting there ready to be re-appended on the NEXT flush. But that dropped save DID
+    /// reach the server; if a realtime/`adopt` refresh has folded it into `item.content` by the
+    /// time that next flush runs, blindly re-appending the same draft again would duplicate the
+    /// paragraph server-side. `tipTapLastParagraphText` (StashKit) checks for exactly that: if the
+    /// trimmed draft is already the document's trailing paragraph, this treats it as already saved
+    /// — clears the draft and returns without another network call — rather than trusting the
+    /// draft's local "still pending" state alone. DISCLOSED: not a complete fix — if that refresh
+    /// hasn't landed yet, `item.content` is still stale and the duplicate can still happen once;
+    /// closing that fully would need re-fetching the row before every append, which is more
+    /// round-trip cost than this rare double-save race justifies.
+    @MainActor
+    private func flushNotes() async {
+        guard notesModel.draft != notesModel.savedDraft else { return }
+        let typed = notesModel.draft
+        let newContent: String
+        if notesModel.isRich {
+            let note = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !note.isEmpty else { return }
+            if tipTapLastParagraphText(item.content) == note {
+                notesModel.draft = ""
+                notesModel.savedDraft = ""
+                return
+            }
+            newContent = appendNoteParagraph(to: item.content, note: note)
+        } else {
+            newContent = typed
+        }
+        let gen = saveGeneration.next()
+        saveStatus = .saving
+        do {
+            let merged = try await editor.save(itemId: item.id, patch: ItemPatch(content: newContent))
+            guard saveGeneration.isLatest(gen) else { return }
+            if notesModel.isRich {
+                notesModel.draft = ""
+                notesModel.savedDraft = ""
+            } else {
+                notesModel.savedDraft = typed
+            }
+            handleSaved(merged)
+            saveStatus = .saved
+        } catch {
+            guard saveGeneration.isLatest(gen) else { return }
+            // Final wave, item D: was `.idle` — see `saveChangedFields`'s matching catch above for
+            // the full rationale; applied here too since this was the exact case the brief called
+            // out ("failed notes save reads 'Changes saved automatically'"). The draft is never
+            // touched on this path, so nothing typed is lost.
+            saveStatus = .failed("Couldn't save — try again.")
+        }
+    }
+
+    /// Shared by every successful `editor.save` call site (field autosave, location, notes):
+    /// folds the merged server row into local state and keeps the background grid in sync so it
     /// doesn't wait on the next realtime broadcast to reflect the edit.
     private func handleSaved(_ merged: Item) {
         adopt(merged)
@@ -361,12 +568,13 @@ struct ItemDetailView: View {
     /// device's edit, or our own PATCH echoing back. The actual merge is StashKit's
     /// `mergePreservingDetail` (finding #2, final review — see its doc comment for the full
     /// rationale, including why `pageBody` needs its own guard against list-row refreshes
-    /// nulling an already-loaded value): `title`/`description`/`supplementalNote`/`attributes`
-    /// (the last added by Task 8's `LocationRow`, alongside Task 9's sticky-note field) are the
-    /// fields under active local editing in this build, so we compute "is there an unsaved edit
-    /// in flight" for each — has it already diverged from `snapshot`, our last confirmed-saved
-    /// baseline? — and hand those four flags in. `snapshot` itself always advances to `incoming`
-    /// here, since its only job is being the next diff baseline for `changedFields`.
+    /// nulling an already-loaded value): `title`/`description`/`supplementalNote`/`attributes`/
+    /// `content` (the last added fix round 1, review finding #2, alongside `SaveGeneration` — see
+    /// that type's own doc comment for how the two guards divide the work) are the fields under
+    /// active local editing in this build, so we compute "is there an unsaved edit in flight" for
+    /// each — has it already diverged from `snapshot`, our last confirmed-saved baseline? — and
+    /// hand those five flags in. `snapshot` itself always advances to `incoming` here, since its
+    /// only job is being the next diff baseline for `changedFields`.
     private func adopt(_ incoming: Item) {
         let next = mergePreservingDetail(
             local: item,
@@ -374,7 +582,8 @@ struct ItemDetailView: View {
             hasUnsavedTitle: (item.title ?? "") != (snapshot.title ?? ""),
             hasUnsavedDescription: (item.description ?? "") != (snapshot.description ?? ""),
             hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? ""),
-            hasUnsavedLocation: item.attributes != snapshot.attributes
+            hasUnsavedLocation: item.attributes != snapshot.attributes,
+            hasUnsavedContent: (item.content ?? "") != (snapshot.content ?? "")
         )
         snapshot = incoming
         item = next

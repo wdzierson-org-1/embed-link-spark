@@ -15,21 +15,23 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            StashHeader()
-            List {
-                AccountSection(userId: userId)
-                PhoneSection(userId: userId)
-                SubscriptionSection()
-                signOutSection
-                footerSection
-            }
-            .listStyle(.insetGrouped)
-            .confirmationDialog("Sign out of Stash?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
-                Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
-                    .accessibilityIdentifier("settings.signout.confirm")
-                Button("Cancel", role: .cancel) {}
-            }
+        // No wordmark/title above this (Will's call, plan 8 — View/Ask/Settings all drop it). The
+        // extra `.padding(.top, 8)` this used to carry (meant to match `StashHeader`'s own top
+        // inset) is gone (final wave, item E/11 — device review: it left a bare, contentless band
+        // above the first section instead); `List`'s own default inset already puts the first
+        // section at a normal starting position under the safe area with nothing above it.
+        List {
+            AccountSection(userId: userId)
+            PhoneSection(userId: userId)
+            SubscriptionSection()
+            signOutSection
+            footerSection
+        }
+        .listStyle(.insetGrouped)
+        .confirmationDialog("Sign out of Stash?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
+                .accessibilityIdentifier("settings.signout.confirm")
+            Button("Cancel", role: .cancel) {}
         }
     }
 
