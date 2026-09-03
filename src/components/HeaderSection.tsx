@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Settings, LogOut, ExternalLink, Compass } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import StashWordmark from '@/components/StashWordmark';
 
@@ -23,13 +23,17 @@ interface HeaderSectionProps {
 const HeaderSection = ({ user }: HeaderSectionProps) => {
   const navigate = useNavigate();
   const { profile } = useProfile();
+  // useAuth.signOut is scope:'local'. Calling the client's signOut with no
+  // scope defaults to 'global' and deletes every session on the account — it
+  // was logging the chrome extension (and any other device) out on each click.
+  const { signOut } = useAuth();
 
   const getUserInitials = (email: string) => {
     return email?.charAt(0).toUpperCase() || 'U';
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    await signOut();
     navigate('/');
   };
 
