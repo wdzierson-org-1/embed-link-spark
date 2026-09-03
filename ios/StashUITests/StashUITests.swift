@@ -1589,14 +1589,15 @@ final class StashUITests: XCTestCase {
         XCTAssertFalse(usernameField.waitForExistence(timeout: 3), "Expected the username field to disappear back on the Sign in tab")
     }
 
-    /// Plan 7 Task 4: the two former Ask-tab header circle icons (new chat / history) moved to
-    /// text footer links under the composer — Will couldn't find the history affordance up in the
-    /// header. Same accessibility identifiers as before (`ask.newChat`/`ask.history`), so this
-    /// only proves the NEW position/label, not new identifiers; `testConversationsSmoke` already
-    /// covers the tap-through navigation and back-pop, so this keeps that assertion minimal and
-    /// instead focuses on what's new: the link sits below the composer (not above the thread),
-    /// carries the exact footer copy, and still opens Conversations.
-    func testAskFooterLinksRenderAndOpenConversations() throws {
+    /// Plan 8 Task 2 (feedback round 1): Will's reversal — the plan-7 footer text links didn't
+    /// work well on a phone ("the previous implementation… buttons in a mobile friendly way was
+    /// the better approach — go back to this"), so this restores the pre-plan-7 header affordance:
+    /// two round icon buttons, right-aligned above the thread, with no wordmark/title above them.
+    /// Same accessibility identifiers as before (`ask.newChat`/`ask.history`), so
+    /// `testConversationsSmoke`'s navigation keeps working unchanged; this test proves the NEW
+    /// position (above the intro bubble, not below the composer) and that the "Ask Stash" title
+    /// block's item-count subtitle (`ask.itemCount`) is gone.
+    func testAskHeaderButtonsOpenConversations() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
@@ -1609,33 +1610,29 @@ final class StashUITests: XCTestCase {
         let input = anyElement("ask.input")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
 
-        let historyLink = app.buttons["ask.history"]
-        XCTAssertTrue(historyLink.waitForExistence(timeout: 10), "Earlier conversations footer link missing")
-        XCTAssertEqual(historyLink.label, "Earlier conversations")
+        let newChatButton = app.buttons["ask.newChat"]
+        XCTAssertTrue(newChatButton.waitForExistence(timeout: 10), "New-chat header button missing")
+        let historyButton = app.buttons["ask.history"]
+        XCTAssertTrue(historyButton.exists, "History header button missing")
 
-        let newChatLink = app.buttons["ask.newChat"]
-        XCTAssertTrue(newChatLink.exists, "Start new chat footer link missing")
-        XCTAssertEqual(newChatLink.label, "Start new chat")
+        // Above the intro bubble (the restored pre-plan-7 position), not below the composer (the
+        // plan-7 footer-link position this reverses).
+        let bubble = anyElement("ask.emptyState")
+        XCTAssertTrue(bubble.waitForExistence(timeout: 10), "Intro bubble did not appear")
+        XCTAssertLessThan(newChatButton.frame.maxY, bubble.frame.minY,
+                          "Expected the new-chat button above the intro bubble")
+        XCTAssertLessThan(historyButton.frame.maxY, bubble.frame.minY,
+                          "Expected the history button above the intro bubble")
 
-        // Below the composer, not above the thread (the old header-icon position) — the whole
-        // point of this move per the brief.
-        XCTAssertGreaterThan(historyLink.frame.minY, input.frame.minY,
-                             "Expected the footer link below the composer, not back up in the header")
-
-        // Header subtitle item count: async and best-effort ("render only when known" — see
-        // `AskView.loadItemCountOnce`'s doc comment), so this is a soft check, not a hard
-        // requirement — absence isn't a failure, but if it's there it must actually say "item(s)".
-        let itemCount = anyElement("ask.itemCount")
-        if itemCount.waitForExistence(timeout: 10) {
-            XCTAssertTrue(itemCount.label.contains("item"), "Expected the item-count subtitle to mention items")
-        }
+        // The "Ask Stash" title block (and its item-count subtitle) is gone — no wordmark, no title.
+        XCTAssertFalse(anyElement("ask.itemCount").exists, "Expected ask.itemCount to be removed")
 
         // Screenshot rig (same checkpoint technique as testAskSmoke/testConversationsSmoke): holds
-        // here with the Ask panel's header/footer on screen before tapping through.
-        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-header-footer\n".data(using: .utf8)!)
+        // here with the header buttons and intro bubble on screen before tapping through.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-header-buttons\n".data(using: .utf8)!)
         sleep(4)
 
-        historyLink.tap()
+        historyButton.tap()
         XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 10),
                       "Expected the Conversations screen title")
 
@@ -1717,5 +1714,67 @@ final class StashUITests: XCTestCase {
 
         app.buttons["detail.done"].tap()
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
+    }
+
+    // MARK: - Composer keyboard accessory (Plan 8 fix round 1, Task 3)
+
+    /// Device-review fix: while typing, the keyboard toolbar's text "Done" button used to read as
+    /// a second primary action competing with the violet send button. Replaced with an icon-only
+    /// minimize-keyboard control (`keyboard.chevron.compact.down`) — this proves the "Done" text
+    /// button is gone, the icon control appears (with an accessible label) once the editor is
+    /// focused, and tapping it actually dismisses the keyboard (the accessory itself disappears,
+    /// since it's only shown via the `.keyboard` toolbar placement). Also proves the composer's
+    /// old public/lock toggle (`capture.toggle.public`) is gone entirely — sharing now lives only
+    /// on the detail sheet's `detail.public.toggle` (see `testDetailSheets`), and captures default
+    /// private (`CaptureViewModel.isPublic == false`, unchanged in StashKit by this fix).
+    func testComposerKeyboardAccessory() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        // Add is the launch tab — the editor must appear without tapping any tab.
+        let editor = anyElement("capture.editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 15),
+                      "Expected the capture editor to appear on launch (Add is the launch tab)")
+
+        // The composer's own lock/public toggle is gone entirely — sharing lives on the detail
+        // sheet only now.
+        XCTAssertFalse(anyElement("capture.toggle.public").exists,
+                       "Expected the composer's public/lock toggle to be removed")
+
+        editor.tap()
+        editor.typeText("x")
+
+        // `.buttons[...]` (not the file's usual `anyElement` helper) — the `.keyboard` toolbar
+        // placement renders an extra non-button "other" accessibility container that inherits the
+        // same identifier/label (confirmed live: `descendants(matching: .any)` matched two
+        // elements), so this scopes the query to the actual button, same convention already used
+        // for `capture.save`/`signin.submit` elsewhere in this file.
+        let dismissKeyboard = app.buttons["capture.dismissKeyboard"]
+        XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
+                      "Expected the minimize-keyboard accessory control to appear while the editor is focused")
+        XCTAssertEqual(dismissKeyboard.label, "Hide keyboard",
+                       "Expected the accessory control's a11y label to read 'Hide keyboard', got '\(dismissKeyboard.label)'")
+        XCTAssertFalse(app.buttons["Done"].exists,
+                       "Expected the keyboard toolbar's text 'Done' button to be gone")
+
+        dismissKeyboard.tap()
+
+        let accessoryGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                        object: dismissKeyboard)
+        XCTAssertEqual(XCTWaiter().wait(for: [accessoryGone], timeout: 10), .completed,
+                       "Expected the keyboard accessory to disappear once the keyboard is dismissed")
     }
 }

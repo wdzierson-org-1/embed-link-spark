@@ -15,21 +15,22 @@ struct SettingsView: View {
     @State private var showSignOutConfirm = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            StashHeader()
-            List {
-                AccountSection(userId: userId)
-                PhoneSection(userId: userId)
-                SubscriptionSection()
-                signOutSection
-                footerSection
-            }
-            .listStyle(.insetGrouped)
-            .confirmationDialog("Sign out of Stash?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
-                Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
-                    .accessibilityIdentifier("settings.signout.confirm")
-                Button("Cancel", role: .cancel) {}
-            }
+        // No wordmark/title above this (Will's call, plan 8 — View/Ask/Settings all drop it);
+        // `.padding(.top, 8)` matches `StashHeader`'s own top inset so this still starts at the
+        // same vertical position under the safe area as the Add tab's (still-wordmarked) header.
+        List {
+            AccountSection(userId: userId)
+            PhoneSection(userId: userId)
+            SubscriptionSection()
+            signOutSection
+            footerSection
+        }
+        .listStyle(.insetGrouped)
+        .padding(.top, 8)
+        .confirmationDialog("Sign out of Stash?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
+                .accessibilityIdentifier("settings.signout.confirm")
+            Button("Cancel", role: .cancel) {}
         }
     }
 

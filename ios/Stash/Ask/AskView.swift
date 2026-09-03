@@ -1,7 +1,6 @@
 import SwiftUI
 import Observation
 import StashKit
-import Supabase
 import AVFoundation
 
 /// The Ask tab: streaming Q&A over the user's stash (`ChatStore`, Task 2), with citation chips
@@ -50,7 +49,6 @@ struct AskView: View {
     }
 
     @State private var showConversations = false
-    @State private var itemCount: Int?
 
     var body: some View {
         NavigationStack {
@@ -62,9 +60,9 @@ struct AskView: View {
                 composerArea
             }
             .background(Color(.systemBackground))
-            // Registered-but-hidden: `askHeader` is this tab's real header (per DESIGN.md parity
-            // with ChatMole.tsx it carries its own "Ask Stash" title, not the shared wordmark),
-            // but the nav title still feeds the pushed Conversations screen's back button ("‹ Ask").
+            // Registered-but-hidden: no visible title anywhere on this tab (Will's call — no
+            // wordmark on View/Ask/Settings), but the nav title still feeds the pushed
+            // Conversations screen's back button ("‹ Ask").
             .navigationTitle("Ask")
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(isPresented: $showConversations) {
@@ -76,7 +74,6 @@ struct AskView: View {
         // conversation is let go, restorable via the banner.
         .onDisappear { store.letGoIfExplicit() }
         .task { await store.loadHistoryOnce() }
-        .task { await loadItemCountOnce() }
         .onChange(of: store.errorRestoredInput) { _, restored in
             if let restored { input = restored }
         }
@@ -98,45 +95,35 @@ struct AskView: View {
 
     // MARK: - Header
 
-    /// Web's Ask panel header (`ChatMole.tsx`'s "Ask Stash" / "Answers from your N items") — this
-    /// tab drops the shared wordmark (`StashHeader`) for its own panel title, matching that
-    /// layout. The two former header circle-icon actions (new chat / history) now live in
-    /// `footerLinks`, under the composer — Will couldn't find the history affordance up here.
+    /// The pre-plan-7 header affordance, restored (Will's reversal, 2026-09-03: "the previous
+    /// implementation of 'start a new chat' and 'earlier conversations' … was the better
+    /// approach — go back to this"). No title/wordmark above it — just the two round icon
+    /// buttons, right-aligned, same accessibility identifiers as before (`ask.newChat`/
+    /// `ask.history`) so `testConversationsSmoke`'s navigation keeps working unchanged.
     private var askHeader: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Ask Stash")
-                .font(StashType.medium(size: 22))
-                .stashTracking(-0.02, size: 22)
-                .foregroundStyle(StashColor.ink)
-            if let itemCount {
-                Text("Answers from your \(itemCount) item\(itemCount == 1 ? "" : "s")")
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.muted)
-                    .accessibilityIdentifier("ask.itemCount")
+        HStack(spacing: 8) {
+            Spacer()
+            Button {
+                store.startNewChat()
+            } label: {
+                CircleIcon(systemImage: "square.and.pencil", size: 36)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
-    }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Start new chat")
+            .accessibilityIdentifier("ask.newChat")
 
-    /// Cheapest correct source for the header subtitle's item count: a HEAD request with
-    /// `count: .exact` on `items` (no rows fetched, just the count) — cached for this view's
-    /// lifetime (kept alive for the whole app session by `MainTabView`'s `TabView`, so this only
-    /// ever runs once per launch). Left `nil` (subtitle omitted) on any failure — this is
-    /// decoration, never worth surfacing an error banner over.
-    private func loadItemCountOnce() async {
-        guard itemCount == nil else { return }
-        do {
-            let response = try await StashClient.shared.from("items")
-                .select("id", head: true, count: .exact)
-                .eq("user_id", value: userId.uuidString)
-                .execute()
-            itemCount = response.count
-        } catch {
-            // Left nil — see doc comment.
+            Button {
+                showConversations = true
+            } label: {
+                CircleIcon(systemImage: "clock", size: 36)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Earlier conversations")
+            .accessibilityIdentifier("ask.history")
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Session chrome (title pill + restore banner)
@@ -234,7 +221,8 @@ struct AskView: View {
 
     /// Web's welcome bubble copy, verbatim (`ChatMole.tsx:494`). The iOS-only capture hint
     /// ("paste a link… / 'remember:' to save") lives solely on the composer's placeholder now —
-    /// this bubble no longer duplicates it.
+    /// this bubble no longer duplicates it. Shown for every new conversation (Will's call — kept
+    /// even with the header chrome removed).
     private var emptyState: some View {
         Text("Ask anything about what you've saved — answers cite the cards they came from.")
             .font(StashType.body())
@@ -242,6 +230,7 @@ struct AskView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .accessibilityIdentifier("ask.emptyState")
     }
 
     /// Always scrolls on a message-COUNT change (a new bubble appended — user turn, assistant
@@ -287,27 +276,8 @@ struct AskView: View {
                     .foregroundStyle(StashColor.destructive)
             }
             ChatComposerBar(text: $input, isSending: store.isStreaming, dictation: dictation, onSend: sendTapped)
-            footerLinks
         }
         .padding(12)
-    }
-
-    /// Web's footer links (`ChatMole.tsx:655-673`, "Start new chat · Earlier conversations") —
-    /// replaces the two header circle icons (Will couldn't find the history affordance up there).
-    /// Same accessibility identifiers as before (`ask.newChat`/`ask.history`), so
-    /// `testConversationsSmoke`'s navigation keeps working unchanged.
-    private var footerLinks: some View {
-        HStack(spacing: 6) {
-            Button("Start new chat") { store.startNewChat() }
-                .accessibilityIdentifier("ask.newChat")
-            Text("·")
-            Button("Earlier conversations") { showConversations = true }
-                .accessibilityIdentifier("ask.history")
-        }
-        .buttonStyle(.plain)
-        .font(StashType.meta())
-        .foregroundStyle(StashColor.muted)
-        .padding(.top, 2)
     }
 
     private func banner(_ text: String, identifier: String) -> some View {
