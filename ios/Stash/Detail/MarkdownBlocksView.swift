@@ -74,13 +74,28 @@ struct MarkdownBlocksView: View {
     /// Body line-height per DESIGN.md (~1.55 at 14pt): `.lineSpacing` adds the delta on top of
     /// the font's own single-line spacing, so `14 * 0.55`.
     private func inlineText(_ raw: String) -> some View {
-        let attributed = (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+        var attributed = (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(raw)
+        styleLinks(&attributed)
         return Text(attributed)
             .font(StashType.body())
             .foregroundStyle(StashColor.ink)
             .lineSpacing(14 * 0.55)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// DISCLOSED tweak (Plan 8 Task 4): any markdown link rendered through this view — including
+    /// `ChatCitations`' `stash://item/<uuid>` citation links in Ask answers — uses DESIGN.md's
+    /// violet600 token with no underline, rather than `Text`'s default (system tint, which the Ask
+    /// tab happens to already set to violet600 via `MainTabView`'s `.tint`, but this view is also
+    /// used standalone in `#Preview` and elsewhere outside that hierarchy) plus an underline that
+    /// default markdown-link styling can add.
+    private func styleLinks(_ attributed: inout AttributedString) {
+        let linkRanges = attributed.runs.filter { $0.link != nil }.map(\.range)
+        for range in linkRanges {
+            attributed[range].foregroundColor = StashColor.violet600
+            attributed[range].underlineStyle = nil
+        }
     }
 }
 

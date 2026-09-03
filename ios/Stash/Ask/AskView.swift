@@ -73,7 +73,12 @@ struct AskView: View {
         // screen): the iOS analog of collapsing the web mole — an explicitly loaded old
         // conversation is let go, restorable via the banner.
         .onDisappear { store.letGoIfExplicit() }
-        .task { await store.loadHistoryOnce() }
+        .task {
+            await store.loadHistoryOnce()
+            #if DEBUG
+            seedCitationScreenshotFixtureIfRequested()
+            #endif
+        }
         .onChange(of: store.errorRestoredInput) { _, restored in
             if let restored { input = restored }
         }
@@ -216,6 +221,18 @@ struct AskView: View {
                 try? await Task.sleep(for: .milliseconds(50))
                 proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
             }
+            // Every assistant bubble's inline citation links (`ChatCitations.link`, baked as
+            // `stash://item/<uuid>`) route through this one handler rather than each `ChatBubble`
+            // wiring its own — set once at the thread level, same as the web's single `onSourceClick`
+            // prop threaded through `ChatMole`'s markdown renderer. Anything else (a real http(s)
+            // link inside an AI answer, however unlikely) falls through to the system.
+            .environment(\.openURL, OpenURLAction { url in
+                guard url.scheme == "stash", let id = UUID(uuidString: url.lastPathComponent) else {
+                    return .systemAction
+                }
+                openCitation(id)
+                return .handled
+            })
         }
     }
 
@@ -313,6 +330,28 @@ struct AskView: View {
         input = ""
         Task { await store.send(text) }
     }
+
+    #if DEBUG
+    /// Plan 8 Task 4 proof-of-rendering: the standing test account is subscription-gate-blocked
+    /// for real Ask answers, so citation-link rendering (`ChatCitations.link` → tappable
+    /// `stash://item/<uuid>` links in `ChatBubble`) has no live-answer path to screenshot.
+    /// Launching with `--uitest-seed-citation-bubble` (paired with `--uitest-tab-ask`) seeds a
+    /// fixture exchange through the exact same `ChatBubble`/`MarkdownBlocksView` rendering path a
+    /// real answer would use — a linked title (`[Feeding Log](#1)`) and a bare marker (`[1]`)
+    /// both citing the same source, so the chip row's "hide once something's linked" fallback is
+    /// exercised too. Never reachable without this exact launch argument; compiled out of Release.
+    private func seedCitationScreenshotFixtureIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("--uitest-seed-citation-bubble") else { return }
+        let source = ChatSource(id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+                                title: "Persimmon Feeding Notes", type: "text", url: nil, n: 1)
+        let question = ChatMessage(id: "fixture-u", role: .user,
+                                   content: "What do my saved items say about persimmons?")
+        let answer = ChatMessage(id: "fixture-a", role: .assistant,
+                                 content: "Per [Feeding Log](#1), persimmons should be introduced gradually [1] to avoid stomach upset.",
+                                 sources: [source])
+        store.seedForScreenshot([question, answer])
+    }
+    #endif
 
     // MARK: - Citations
 

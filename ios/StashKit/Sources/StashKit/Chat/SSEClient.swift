@@ -5,6 +5,20 @@ public struct ChatSource: Codable, Equatable, Sendable, Identifiable {
     public let title: String?
     public let type: String?
     public let url: String?
+    /// The 1-based citation number the model used inline (`[3]` / `[Title](#3)`) — wire field
+    /// `n` from chat-with-all-content's `sourceEntries.map(...)` (index.ts:529), the same value
+    /// the web keys its `bakeCitationLinks` map by. `ChatCitations.link` uses this, never array
+    /// order, to stay correct when a cited answer skips numbers (e.g. cites [2] and [5] but not
+    /// [1]/[3]/[4] — `sources` then has 2 entries whose `n` are 2 and 5, not 1 and 2).
+    public let n: Int?
+
+    public init(id: UUID, title: String?, type: String?, url: String?, n: Int? = nil) {
+        self.id = id
+        self.title = title
+        self.type = type
+        self.url = url
+        self.n = n
+    }
 }
 
 public enum SSEEvent: Equatable, Sendable {

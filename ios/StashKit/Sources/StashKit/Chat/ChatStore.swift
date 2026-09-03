@@ -324,4 +324,16 @@ public final class ChatStore {
             await history.persist(conversationId: conversationId, role: role, content: content, sourceItemIds: sourceItemIds)
         }
     }
+
+    #if DEBUG
+    /// Proof-of-rendering hook only (Plan 8 Task 4) — replaces the thread with fixture messages
+    /// directly, bypassing `ask()`'s real session/network machinery entirely. Exists because the
+    /// standing test account is subscription-gate-blocked for real Ask answers (see
+    /// `testAskSmoke`'s own doc comment), so citation-link rendering has no live-answer path to
+    /// screenshot; `AskView`'s `--uitest-seed-citation-bubble` launch argument is the only caller.
+    /// Compiled out of Release entirely.
+    public func seedForScreenshot(_ messages: [ChatMessage]) {
+        self.messages = messages
+    }
+    #endif
 }
