@@ -128,9 +128,12 @@ Photos, videos, and link covers use real imagery — no field, no tint.
 emoji, never mixed icon sets on one surface.
 
 **Brand elements are flat.** No gradients in buttons, icons, favicons, or
-marks — flat iconography on flat color (the favicon is the stitched second-S
-in ink `#22262f` on white, all five glyph paths). The splash gradient lives
-only in page washes and the iOS app icon (standing exception).
+marks — flat iconography on flat color (the favicon and the iOS app icon are
+the stitched second-S in ink `#22262f` on white, all five glyph paths). The
+splash gradient lives only in page washes.
+
+*2026-09-03: iOS app icon exception revoked (Will) — icon now matches the
+favicon.*
 
 ## Components
 
