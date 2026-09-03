@@ -11,11 +11,14 @@ enum SaveStatus {
 
 /// Detail sheet presented from a Library card tap, rebuilt to DESIGN.md's detail-panel anatomy
 /// (`§Components`, "Detail panel"): one scrolling flow surface — eyebrow (`DetailEyebrow`) →
-/// inline-editable title/description → location row → contained media → URL bar (`DetailURLBar`,
-/// link items) → content tabs (`ItemDetailContent`) → Details drawer (`DetailsDrawer`) → Sharing
-/// (`SharingSection`) → a pinned footer bar (delete left, autosave right). Tags UI is retired
-/// (`DESIGN.md` — "No tag UI on cards or panel"); `tags` data itself is untouched, just no longer
-/// surfaced here. On appear, fetches the
+/// inline-editable title/description → contained media → URL bar (`DetailURLBar`, link items) →
+/// content tabs (`ItemDetailContent`) → Details drawer (`DetailsDrawer`, which also owns the
+/// editable location row as its own "Location" fact — Fix round 1, review finding #1: the web
+/// only ever mounts the location editor inside this drawer, never a second time near the top, so
+/// the standalone `LocationRow` call that used to live here was removed rather than duplicating
+/// the fact) → Sharing (`SharingSection`) → a pinned footer bar (delete left, autosave right).
+/// Tags UI is retired (`DESIGN.md` — "No tag UI on cards or panel"); `tags` data itself is
+/// untouched, just no longer surfaced here. On appear, fetches the
 /// full row (adding `page_body`, which the grid's list query omits) for types whose tabs need it,
 /// then merges it back into `store` so the list stays current too.
 struct ItemDetailView: View {
@@ -66,7 +69,6 @@ struct ItemDetailView: View {
                     DetailEyebrow(item: item)
                     titleField
                     descriptionField
-                    LocationRow(attributes: attributesBinding)
                     if item.type == .image, let url = item.thumbnailURL {
                         heroImage(url)
                     }
@@ -83,7 +85,7 @@ struct ItemDetailView: View {
 
                     hairline
 
-                    DetailsDrawer(item: item)
+                    DetailsDrawer(item: item, attributes: attributesBinding)
 
                     SharingSection(item: item, editor: editor,
                                     supplementalNote: supplementalNoteBinding, onSaved: handleSaved)

@@ -1175,11 +1175,13 @@ final class StashUITests: XCTestCase {
         }
     }
 
-    /// Edit-sheet location row (Task 8): a DISPOSABLE item seeded directly via the `add-note` edge
-    /// function (`seedNoteWithLocationAndLink` above) with a device-geolocation location blob AND
-    /// a `link` attribute, so this test can prove the row's read-modify-write survives a sibling
-    /// key it doesn't touch. Opens the row (asserts the seeded device location renders), edits it
-    /// to "Test City" (asserts `source: "manual"`, coordinates dropped, `link` still present via
+    /// Edit-sheet location row (Task 8; relocated into the Details drawer in Task 7's Fix round
+    /// 1 — this test now taps `detail.details` open first, matching where the row actually lives
+    /// today): a DISPOSABLE item seeded directly via the `add-note` edge function
+    /// (`seedNoteWithLocationAndLink` above) with a device-geolocation location blob AND a `link`
+    /// attribute, so this test can prove the row's read-modify-write survives a sibling key it
+    /// doesn't touch. Opens the row (asserts the seeded device location renders), edits it to
+    /// "Test City" (asserts `source: "manual"`, coordinates dropped, `link` still present via
     /// REST), clears it via the row's own remove button (asserts the `location` key is gone
     /// entirely while `link` still survives), then deletes the disposable row — same REST
     /// seed/poll/delete shape `testLocationPinSmoke` already established.
@@ -1211,6 +1213,18 @@ final class StashUITests: XCTestCase {
         card0().tap()
 
         XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
+
+        // Fix round 1 (review finding #1): the location editor now lives inside the Details
+        // drawer (collapsed by default, matching the web's own `EditItemDetailsDrawer` — see
+        // `DetailsDrawer.swift`'s doc comment) rather than always-visible near the top of the
+        // sheet, so it must be expanded first.
+        let detailsRow = anyElement("detail.details")
+        XCTAssertTrue(detailsRow.waitForExistence(timeout: 10), "Details drawer row not found")
+        // A short (single-tab, no AI summary) text note's Details row can rest exactly under the
+        // pinned footer's safe-area-inset zone at scroll offset 0 (see the identical comment on
+        // `testDetailSheetAnatomy`) — force the scroll before tapping.
+        app.swipeUp()
+        detailsRow.tap()
 
         let locationLabel = anyElement("detail.location.label")
         XCTAssertTrue(locationLabel.waitForExistence(timeout: 10), "Expected the row to show the seeded device location")
@@ -1688,6 +1702,14 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(detailsRow.waitForExistence(timeout: 10), "Details drawer row not found")
         XCTAssertTrue(detailsRow.label.contains("example.com"),
                       "Expected the collapsed Details row to show the fixture's domain, got '\(detailsRow.label)'")
+        // Fix round 1: with the top-of-sheet LocationRow removed (review finding #1), a
+        // short-content item's Details/Sharing rows can rest exactly under the pinned footer's
+        // safe-area-inset zone at scroll offset 0 — present in the accessibility tree (frame
+        // nominally within the window's bounds) but visually clipped by the footer, so XCUITest's
+        // own "is this already hittable" check skips its usual auto-scroll-before-tap and the tap
+        // lands on nothing. A deliberate swipe first (same fix in `testLocationEditSmoke`) forces
+        // the scroll a real user would also need before this row is reachable.
+        app.swipeUp()
         detailsRow.tap()
 
         let savedRow = anyElement("detail.details.row.saved")

@@ -9,6 +9,12 @@ import UIKit
 /// `detail.public.sticky`, `detail.public.error`) is unchanged from `PublicToggleSection` — only
 /// the visual treatment moved; see that type's now-superseded doc comment for the full behavioral
 /// rationale (immediate save on share, confirm-first on un-share when a note is present).
+///
+/// Fix round 1 (review): the feed-link chip is now gated on a fully-loaded, non-empty `username`
+/// (see `feedURL`/`feedLinkSection`) instead of rendering — and being copyable — the instant
+/// `isPublic` flips true, which previously raced `username`'s async load and could copy a bare
+/// `gostash.it/feed/`. The URL formula itself moved to `PublicFeedURL.make(username:)`, shared
+/// with `AccountSection`'s identical Settings-tab row rather than kept as two copies.
 struct SharingSection: View {
     let item: Item
     let editor: ItemEditor
@@ -19,18 +25,25 @@ struct SharingSection: View {
     @State private var showUnshareConfirm = false
     @State private var errorMessage: String?
     @State private var username: String?
+    @State private var isLoadingUsername = false
     @State private var didCopyFeedLink = false
 
-    /// Same `gostash.it/feed/{username}` shape `AccountSection`'s Settings-tab feed-URL row
-    /// already builds — the app's one existing public-URL formula, not a new one invented here.
-    private var feedURL: String { "https://gostash.it/feed/\(username ?? "")" }
+    /// `nil` until `username` has actually loaded (Fix round 1, review finding #2: the chip used
+    /// to render — and be copyable — the instant `isPublic` flipped true, while `username` was
+    /// still its initial `nil`, producing a bare `gostash.it/feed/` with nothing after the
+    /// trailing slash). `PublicFeedURL.make` is only ever called once `username` is confirmed
+    /// non-empty, so every value this property can produce is already a complete, correct URL.
+    private var feedURL: String? {
+        guard let username, !username.isEmpty else { return nil }
+        return PublicFeedURL.make(username: username)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             microLabel
             statusRow
             if item.isPublic {
-                feedLinkChip
+                feedLinkSection
                 stickyNoteField
             }
             if let errorMessage {
@@ -42,7 +55,9 @@ struct SharingSection: View {
         }
         .task(id: item.isPublic) {
             guard item.isPublic, username == nil else { return }
+            isLoadingUsername = true
             await loadUsername()
+            isLoadingUsername = false
         }
         .confirmationDialog("Make private? The sticky note will be removed.",
                              isPresented: $showUnshareConfirm, titleVisibility: .visible) {
@@ -73,7 +88,7 @@ struct SharingSection: View {
                 .tint(StashColor.violet600)
                 .disabled(isToggling)
                 .accessibilityIdentifier("detail.public.toggle")
-                .accessibilityLabel(item.isPublic ? "Public Feed" : "Private")
+                .accessibilityLabel(item.isPublic ? "On your public feed" : "Private")
         }
     }
 
@@ -109,10 +124,28 @@ struct SharingSection: View {
             .background(item.isPublic ? StashColor.violet600.opacity(0.12) : StashColor.wash, in: Circle())
     }
 
+    /// Gates the feed-link chip on a loaded, non-empty `username` (Fix round 1, review finding
+    /// #2): a muted "Loading feed link…" placeholder while the fetch is in flight, the real chip
+    /// once `feedURL` resolves, and — on failure or an empty username — nothing at all, rather
+    /// than ever showing (or letting the user copy) an incomplete `gostash.it/feed/` URL.
+    @ViewBuilder
+    private var feedLinkSection: some View {
+        if let feedURL {
+            feedLinkChip(feedURL)
+        } else if isLoadingUsername {
+            Text("Loading feed link…")
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.faint)
+                .padding(.leading, 52)
+        }
+    }
+
     /// Feed-link chip: mono URL (truncated) + copy button — DESIGN.md "feed-link chip
     /// (`gostash.it/feed/{username}`) with copy-confirm". 180ms fade/slide-in per DESIGN.md
-    /// Motion.
-    private var feedLinkChip: some View {
+    /// Motion. Only ever called with a complete, non-empty `feedURL` (see `feedLinkSection`), so
+    /// the copy button needs no separate "is the URL complete yet" disabled state — by the time
+    /// this view exists at all, it always is.
+    private func feedLinkChip(_ feedURL: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text(feedURL.replacingOccurrences(of: "https://", with: ""))
@@ -121,7 +154,7 @@ struct SharingSection: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Button {
-                    copyFeedLink()
+                    copyFeedLink(feedURL)
                 } label: {
                     Image(systemName: didCopyFeedLink ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 11, weight: .medium))
@@ -188,7 +221,7 @@ struct SharingSection: View {
         }
     }
 
-    private func copyFeedLink() {
+    private func copyFeedLink(_ feedURL: String) {
         UIPasteboard.general.string = feedURL
         didCopyFeedLink = true
         Task {
@@ -209,7 +242,8 @@ struct SharingSection: View {
             username = try JSONDecoder().decode(ProfileRow.self, from: data).username
         } catch {
             // Non-fatal, same fire-and-forget precedent as `saveAttributes` in ItemDetailView:
-            // the feed-link chip just shows an empty username segment until the next attempt.
+            // `username` just stays `nil`, so `feedURL` stays `nil` and `feedLinkSection` simply
+            // renders nothing (see its own doc comment) rather than a broken partial URL.
         }
     }
 }

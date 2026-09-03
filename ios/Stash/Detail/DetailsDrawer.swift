@@ -7,12 +7,32 @@ import StashKit
 /// task's brief specifies: Saved / Type / Size / Duration / Source / Location, each shown only
 /// when the item actually carries that fact — never a blank "—" row.
 ///
+/// **Location lives here, not at the top of the sheet** (Fix round 1, review finding #1): the web
+/// mounts `EditItemLocationSection` exclusively inside `EditItemDetailsDrawer`'s own "Location"
+/// `FactRow` (`EditItemDetailsDrawer.tsx:149-157`) — there is no second, always-visible location
+/// affordance elsewhere on the sheet. `ItemDetailView` previously ALSO mounted `LocationRow`
+/// unconditionally near the top, which rendered the fact twice (a static "Location" line in here
+/// plus the real editable row up top) and disagreed with the web. Fixed by making the Location
+/// row here the one and only mount — same `LocationRow` type, same `detail.location.*`
+/// identifiers, just relocated — and deleting the top-of-sheet call.
+///
+/// The drawer's own open/closed state mirrors the web's exactly: `EditItemDetailsDrawer` always
+/// initializes `useState(false)` (collapsed), regardless of whether the item already has a
+/// location — it does not special-case "expand by default when there's something to show". This
+/// view does the same (`isOpen` starts `false` unconditionally); `testLocationEditSmoke` was
+/// updated in this fix round to tap `detail.details` before touching `detail.location.*`, which
+/// is the same one extra step a real user now takes on both platforms.
+///
 /// Collapsed-row summary: a link item shows its domain (`domainOf(item.url)`); a file-backed item
 /// shows `format · size · duration` built from the same chip formatters the card grid uses
 /// (`CardMetadata.formatFileSizeChip`/`formatDurationChip`), so the two surfaces read identically
 /// for the same fact.
 struct DetailsDrawer: View {
     let item: Item
+    /// Live binding into `ItemDetailView.item.attributes` — the exact same binding the
+    /// top-of-sheet `LocationRow` used to receive (`ItemDetailView.attributesBinding`), just
+    /// threaded one level deeper now that `LocationRow` itself lives inside this drawer.
+    @Binding var attributes: ItemAttributes
 
     @State private var isOpen = false
 
@@ -72,6 +92,13 @@ struct DetailsDrawer: View {
 
     // MARK: - Expanded rows
 
+    /// Plain-text fact rows always draw their own bottom divider — safe because the Location row
+    /// below is unconditional (always rendered, per the web's own `{onSaveAttributes && (...)}`
+    /// gate, which is always-true here) and always LAST, and it never draws a divider of its own.
+    /// So a plain fact row is never actually the last row in the stack, and the location row —
+    /// which is — never leaves a trailing dotted line dangling below the final fact (review minor
+    /// (b): "no trailing dotted divider after the last fact row", matching the web's `divide-y`
+    /// CSS, which only paints separators *between* children).
     @ViewBuilder
     private var rows: some View {
         VStack(spacing: 0) {
@@ -90,9 +117,7 @@ struct DetailsDrawer: View {
             if let sourceLabel {
                 factRow(key: "source", label: "Source", value: sourceLabel, mono: item.type == .link)
             }
-            if let locationLabel {
-                factRow(key: "location", label: "Location", value: locationLabel)
-            }
+            locationRow
         }
         .padding(.top, 4)
         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -117,6 +142,28 @@ struct DetailsDrawer: View {
         .accessibilityIdentifier("detail.details.row.\(key)")
     }
 
+    /// Unlike `factRow`, this row gets NO wrapping `.accessibilityIdentifier`/`.accessibilityElement`
+    /// at all — verified empirically (Fix round 1): applying an identifier to a plain `HStack`
+    /// that never becomes its own accessibility element doesn't create a new row-level identifier
+    /// the way it does when paired with `.accessibilityElement(children: .combine)` (as `factRow`
+    /// does) — it CASCADES DOWN and overwrites every descendant accessibility element's own
+    /// identifier with that same string instead. With a `detail.details.row.location` identifier
+    /// here, `LocationRow`'s own `detail.location.label`/`.remove` identifiers were silently
+    /// replaced by it, breaking `testLocationEditSmoke`. Leaving this row bare lets `LocationRow`'s
+    /// identifiers (`detail.location.add/label/field/remove`) surface untouched, exactly as they
+    /// did at its old top-of-sheet mount. No trailing divider — this is always the last row (see
+    /// `rows`'s own doc comment).
+    private var locationRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Location")
+                .font(StashType.meta())
+                .foregroundStyle(StashColor.faint)
+            Spacer(minLength: 12)
+            LocationRow(attributes: $attributes)
+        }
+        .padding(.vertical, 7.5)
+    }
+
     // MARK: - Facts
 
     private var savedLabel: String? {
@@ -134,11 +181,6 @@ struct DetailsDrawer: View {
             return domain.isEmpty ? nil : domain
         }
         return item.attributes.media?.fileName
-    }
-
-    private var locationLabel: String? {
-        let label = item.attributes.location?.label
-        return (label?.isEmpty ?? true) ? nil : label
     }
 
     private static let dayFormatter: DateFormatter = {

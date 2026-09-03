@@ -22,7 +22,7 @@ struct AccountSection: View {
     @State private var didCopy = false
 
     private var email: String { StashClient.shared.auth.currentUser?.email ?? "" }
-    private var feedURL: String { "https://gostash.it/feed/\(username ?? "")" }
+    private var feedURL: String { PublicFeedURL.make(username: username) }
 
     var body: some View {
         Section("Account") {
