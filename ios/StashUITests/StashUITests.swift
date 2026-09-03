@@ -1726,7 +1726,9 @@ final class StashUITests: XCTestCase {
     /// since it's only shown via the `.keyboard` toolbar placement). Also proves the composer's
     /// old public/lock toggle (`capture.toggle.public`) is gone entirely — sharing now lives only
     /// on the detail sheet's `detail.public.toggle` (see `testDetailSheets`), and captures default
-    /// private (`CaptureViewModel.isPublic == false`, unchanged in StashKit by this fix).
+    /// private (`CaptureViewModel.isPublic == false`, unchanged in StashKit by this fix). Also
+    /// screenshots CaptureAttachmentsRow's clipped-× fix: picks a photo via the real PhotosPicker
+    /// (the simulator's own default Photos library) and holds with the chip visible.
     func testComposerKeyboardAccessory() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -1770,11 +1772,42 @@ final class StashUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Done"].exists,
                        "Expected the keyboard toolbar's text 'Done' button to be gone")
 
+        // Screenshot rig (same checkpoint technique as testCaptureSmoke/testLocationPinSmoke):
+        // holds here, keyboard up with "x" typed, so an external `xcrun simctl io <udid>
+        // screenshot` can capture the violet send button (primary) alongside the icon-only
+        // minimize accessory (secondary) — no competing "Done" text button.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: composer-keyboard\n".data(using: .utf8)!)
+        sleep(3)
+
         dismissKeyboard.tap()
 
         let accessoryGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
                                                         object: dismissKeyboard)
         XCTAssertEqual(XCTWaiter().wait(for: [accessoryGone], timeout: 10), .completed,
                        "Expected the keyboard accessory to disappear once the keyboard is dismissed")
+
+        // Attachment × clipping fix (CaptureAttachmentsRow): drives the real PhotosPicker against
+        // the simulator's own default Photos library (seeded content every sim ships with, no
+        // fixture needed) rather than screenshotting manually — PHPickerViewController runs
+        // out-of-process, so no photo-library permission prompt is even in the way here.
+        app.buttons["capture.photosPicker"].tap()
+
+        let firstPhoto = app.images.matching(NSPredicate(format: "label CONTAINS 'Photo'")).firstMatch
+        let photoCell = firstPhoto.exists ? firstPhoto : app.scrollViews.firstMatch.images.firstMatch
+        XCTAssertTrue(photoCell.waitForExistence(timeout: 10), "Expected the system photo picker to show at least one photo")
+        photoCell.tap()
+
+        let addButton = app.navigationBars.buttons["Add"]
+        if addButton.waitForExistence(timeout: 5) { addButton.tap() }
+
+        let attachmentRemove = anyElement("capture.attachment.remove")
+        XCTAssertTrue(attachmentRemove.waitForExistence(timeout: 10),
+                      "Expected an attachment chip with a remove control after picking a photo")
+
+        // Holds with the attachment chip visible so an external screenshot can confirm the
+        // remove × (offset off the chip's top-trailing corner) is no longer clipped by the
+        // attachments row's own top edge.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: composer-attachment\n".data(using: .utf8)!)
+        sleep(3)
     }
 }
