@@ -125,7 +125,11 @@ struct ChatBubble: View {
                         if linked.displayText.isEmpty {
                             Text(" ")
                         } else {
-                            MarkdownBlocksView(text: linked.displayText)
+                            // `compact: true` (final wave, item E/8): the bubble hugs its own
+                            // text width instead of stretching to `.padding(12)`'s full available
+                            // width, with tighter line/paragraph spacing appropriate to a chat
+                            // bubble rather than the detail sheet's reading column.
+                            MarkdownBlocksView(text: linked.displayText, compact: true)
                         }
                     }
                     .accessibilityIdentifier("ask.bubble.\(index)")

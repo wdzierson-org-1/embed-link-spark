@@ -25,4 +25,25 @@ final class TipTapAppendTests: XCTestCase {
     func testNonDocJSONTreatedAsPlainText() {
         XCTAssertEqual(appendNoteParagraph(to: #"{"weird":1}"#, note: "n"), "{\"weird\":1}\n\nn")
     }
+
+    // MARK: - tipTapLastParagraphText (final wave, item C / minor 6 idempotence guard)
+
+    func testLastParagraphTextReadsBackAppendedNote() {
+        let doc = #"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"a"}]}]}"#
+        let appended = appendNoteParagraph(to: doc, note: "b")
+        XCTAssertEqual(tipTapLastParagraphText(appended), "b")
+    }
+
+    func testLastParagraphTextNilForPlainText() {
+        XCTAssertNil(tipTapLastParagraphText("just plain text"))
+    }
+
+    func testLastParagraphTextNilForNilOrEmptyContent() {
+        XCTAssertNil(tipTapLastParagraphText(nil))
+        XCTAssertNil(tipTapLastParagraphText(""))
+    }
+
+    func testLastParagraphTextNilForNonDocJSON() {
+        XCTAssertNil(tipTapLastParagraphText(#"{"weird":1}"#))
+    }
 }

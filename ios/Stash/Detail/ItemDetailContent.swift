@@ -22,7 +22,7 @@ struct ItemDetailContent: View {
     @Binding var selectedTab: ContentTabKey
     let isLoadingDetail: Bool
     let notesModel: NotesEditorModel
-    var notesFocused: FocusState<Bool>.Binding
+    var notesFocused: FocusState<DetailField?>.Binding
     var scheduleNotesFlush: () -> Void
     var flushNotesNow: () async -> Void
 

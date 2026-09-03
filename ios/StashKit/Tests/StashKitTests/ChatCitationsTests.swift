@@ -11,18 +11,45 @@ final class ChatCitationsTests: XCTestCase {
 
     /// `[Title](#3)` → `[Title](#item=<uuid>)` (web: bakeCitationLinks's "rewrites linked titles
     /// to item links") — using the web's own `#item=` convention (fix round 1: cross-platform
-    /// persisted content must render identically on both sides).
+    /// persisted content must render identically on both sides). `.lowercased()` on the expected
+    /// id (final wave, item A): `UUID.uuidString` is uppercase, but the baked href must be
+    /// lowercase to match the web's own `/[0-9a-f-]+/` extraction regex.
     func testLinkedTitleForm() {
         let result = ChatCitations.link(answer: "See [My Note](#3) for details.", sources: [sourceThree])
-        XCTAssertEqual(result.text, "See [My Note](\(ChatCitations.itemLinkPrefix)\(sourceThree.id.uuidString)) for details.")
+        XCTAssertEqual(result.text,
+            "See [My Note](\(ChatCitations.itemLinkPrefix)\(sourceThree.id.uuidString.lowercased())) for details.")
         XCTAssertEqual(result.linkedSourceIDs, [sourceThree.id])
     }
 
     /// Bare `[1]` → `[[1]](#item=<uuid>)` (web: "wraps bare bracket markers as bracketed links").
     func testBareMarkerForm() {
         let result = ChatCitations.link(answer: "Feed at 8am [1].", sources: [sourceOne])
-        XCTAssertEqual(result.text, "Feed at 8am [[1]](\(ChatCitations.itemLinkPrefix)\(sourceOne.id.uuidString)).")
+        XCTAssertEqual(result.text,
+            "Feed at 8am [[1]](\(ChatCitations.itemLinkPrefix)\(sourceOne.id.uuidString.lowercased())).")
         XCTAssertEqual(result.linkedSourceIDs, [sourceOne.id])
+    }
+
+    /// Final wave, item A: the baked href is always lowercase, even though `UUID.uuidString`
+    /// itself is uppercase — this is what keeps a note taken/answered on iOS clickable once
+    /// reloaded on the web (its `extractLinkedItemIds` only matches `/[0-9a-f-]+/`).
+    func testBakedLinkIsLowercase() {
+        let result = ChatCitations.link(answer: "See [My Note](#3) for details.", sources: [sourceThree])
+        XCTAssertTrue(result.text.contains("\(ChatCitations.itemLinkPrefix)\(sourceThree.id.uuidString.lowercased())"))
+        XCTAssertFalse(result.text.contains(sourceThree.id.uuidString), "Expected no uppercase UUID in the baked text")
+    }
+
+    /// A message that arrives already baked in the web's own lowercase form (e.g. authored on web,
+    /// reloaded on iOS) round-trips through both `link` (still reports the linked id, no `sources`
+    /// needed) and `itemID(from:)` (the tap-to-open path) without any case fixup required.
+    func testWebStyleLowercaseItemLinkRoundTrips() {
+        let lowercaseId = sourceThree.id.uuidString.lowercased()
+        let text = "See [My Note](\(ChatCitations.itemLinkPrefix)\(lowercaseId)) for details."
+        let result = ChatCitations.link(answer: text, sources: [])
+        XCTAssertEqual(result.text, text)
+        XCTAssertEqual(result.linkedSourceIDs, [sourceThree.id])
+
+        let url = URL(string: "\(ChatCitations.itemLinkPrefix)\(lowercaseId)")!
+        XCTAssertEqual(ChatCitations.itemID(from: url), sourceThree.id)
     }
 
     /// Running `link` again on already-baked text is a text no-op — the inner `[1]` of
@@ -68,7 +95,8 @@ final class ChatCitationsTests: XCTestCase {
         let input = "[My Note](#3) says X [1], and [7] is unknown."
         let result = ChatCitations.link(answer: input, sources: [sourceOne, sourceThree])
         XCTAssertEqual(result.text,
-            "[My Note](\(ChatCitations.itemLinkPrefix)\(sourceThree.id.uuidString)) says X [[1]](\(ChatCitations.itemLinkPrefix)\(sourceOne.id.uuidString)), and [7] is unknown.")
+            "[My Note](\(ChatCitations.itemLinkPrefix)\(sourceThree.id.uuidString.lowercased())) says X " +
+            "[[1]](\(ChatCitations.itemLinkPrefix)\(sourceOne.id.uuidString.lowercased())), and [7] is unknown.")
         XCTAssertEqual(result.linkedSourceIDs, [sourceOne.id, sourceThree.id])
     }
 

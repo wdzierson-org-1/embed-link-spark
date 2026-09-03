@@ -124,12 +124,13 @@ struct CircleSubmitIcon: View {
     }
 }
 
-// MARK: - Wordmark header (one titling convention across all four tabs)
+// MARK: - Wordmark header (Add tab + share sheet only — final wave, item E/11)
 
-/// Every tab is one level deep, so per-screen large titles are redundant next to the tab bar.
-/// Instead, each tab carries this identical compact header: the Stash wordmark leading (same as
-/// the web's header) and an optional per-tab accessory trailing. Detail flows stay sheets; if a
-/// tab ever grows push navigation, the system inline back bar slots under this without clashing.
+/// Add tab + share sheet only (final wave, item E/11 — doc corrected; Will's call, plan 8: View/
+/// Ask/Settings all dropped this header in favor of no title chrome at all, `SettingsView`'s own
+/// doc comment has the detail). The Stash wordmark leading (same as the web's header) and an
+/// optional per-tab accessory trailing. Detail flows stay sheets; if a tab ever grows push
+/// navigation, the system inline back bar slots under this without clashing.
 struct StashHeader<Accessory: View>: View {
     @ViewBuilder var accessory: Accessory
 
@@ -173,6 +174,12 @@ struct AnimatedGradient: View {
                            startPoint: .bottomLeading, endPoint: .topTrailing)
                 .frame(width: w * 2, height: h * 2)
                 .blur(radius: 40)
+                // `.drawingGroup()` (final wave, item E/10): rasterizes the blurred gradient into
+                // a single flattened layer ONCE, right after the blur — the drift animation below
+                // then just translates that cached bitmap every frame instead of re-running the
+                // (expensive) blur filter over the full 2×-canvas gradient on every frame of a
+                // 15s-long `repeatForever` animation. Visually identical; purely a render-cost fix.
+                .drawingGroup()
                 // The 2× canvas always overhangs the viewport, so this diagonal drift never
                 // exposes a blurred edge — see the offset-bounds note above `drift`'s range.
                 .offset(x: drift ? -w * 0.25 : -w * 0.75,

@@ -34,7 +34,9 @@ final class NotesEditorModel {
     }
 
     /// Debounced trigger — `perform` is `ItemDetailView.flushNotes()`, supplied fresh by
-    /// `NotesEditor`'s `.onChange(of: model.draft)` on every keystroke.
+    /// `NotesEditor`'s `.onChange(of: model.draft)` on every keystroke. Plain-mode notes only
+    /// (final wave, item C): rich mode's `.onChange` deliberately skips calling this at all now —
+    /// see that view's own doc comment.
     func scheduleSave(_ perform: @escaping () async -> Void) {
         Task { await debouncer.call { await perform() } }
     }
@@ -62,33 +64,38 @@ final class NotesEditorModel {
 }
 
 /// Modern inline notes editor for the detail sheet's Notes tab (Plan 8 Task 5). Borderless,
-/// auto-growing, on `wash` fill (radius 12) — no separate Save button; autosaves 600ms after the
-/// last keystroke through the same `SaveStatus` the title/description fields drive, so the footer
-/// reads "Saving…"/"Changes saved automatically" for notes edits too. All the actual save/flush
-/// mechanics live on `ItemDetailView`/`NotesEditorModel` (see their own doc comments) — this view
-/// itself just renders `model.draft` and forwards keystroke/blur events to the closures it's
-/// handed.
+/// auto-growing, on `wash` fill (radius 12) — no separate Save button; saves through the same
+/// `SaveStatus` the title/description fields drive, so the footer reads "Saving…"/"Changes saved
+/// automatically" for notes edits too. All the actual save/flush mechanics live on
+/// `ItemDetailView`/`NotesEditorModel` (see their own doc comments) — this view itself just
+/// renders `model.draft` and forwards keystroke/blur events to the closures it's handed.
 ///
 /// Two modes, chosen by whether `item.content` parses as TipTap JSON (`model.isRich`, frozen at
 /// the model's construction):
 ///
 /// - **Plain-text notes**: the field IS the note — initialized with the full existing `content`,
-///   fully editable, autosaved whole-field on debounce (same "replace the whole column" contract
-///   as title/description, just its own field and its own slower debounce).
+///   fully editable, autosaved whole-field 600ms after the last keystroke (same "replace the whole
+///   column" contract as title/description, just its own field and its own slower debounce).
 /// - **Rich notes (TipTap JSON)**: the existing document renders read-only above via
-///   `renderTipTap`, and the field is a perpetually-empty append draft: on debounce OR blur,
-///   whatever's typed gets wrapped as a new paragraph and folded onto the existing document via
+///   `renderTipTap`, and the field is a perpetually-empty append draft. NOT debounced per-keystroke
+///   (final wave, item C — see the `TextEditor`'s own `.onChange(of: model.draft)` comment below
+///   for why that used to empty the field mid-typing): only on blur, Done, or `onDisappear` does
+///   whatever's typed get wrapped as a new paragraph and folded onto the existing document via
 ///   `appendNoteParagraph`, then the field clears — plan-2 safety preserved, the TipTap JSON
 ///   itself never round-trips through this plain-text field.
 struct NotesEditor: View {
     let item: Item
     @Bindable var model: NotesEditorModel
-    /// Backs the `TextEditor`'s `.focused` — owned by `ItemDetailView` (its `notesFocused`), not
-    /// declared as a local `@FocusState` here: a `.toolbar(placement: .keyboard)` attached at THIS
-    /// view's own depth never actually registered its accessory (confirmed live) — see
+    /// Backs the `TextEditor`'s `.focused` — owned by `ItemDetailView` (its shared `focusedField`),
+    /// not declared as a local `@FocusState` here: a `.toolbar(placement: .keyboard)` attached at
+    /// THIS view's own depth never actually registered its accessory (confirmed live) — see
     /// `ItemDetailView`'s own doc comments for the full story. The toolbar lives there; only the
-    /// focus BINDING is threaded down here.
-    var isFocused: FocusState<Bool>.Binding
+    /// focus BINDING is threaded down here. `FocusState<DetailField?>.Binding` (final wave, item
+    /// B — was `FocusState<Bool>.Binding`, its own private focus flag): unifying title/description/
+    /// notes onto one enum-keyed `@FocusState` up in `ItemDetailView` is what lets that view's
+    /// keyboard accessory defocus whichever of the three actually has focus, rather than only ever
+    /// being able to clear notes'.
+    var isFocused: FocusState<DetailField?>.Binding
     var scheduleFlush: () -> Void
     var flushNow: () async -> Void
 
@@ -104,7 +111,7 @@ struct NotesEditor: View {
 
             field
 
-            Text(model.isRich ? "Adding to a rich note" : "Editing note")
+            Text(model.isRich ? "Adds when you tap Done or leave the field" : "Editing note")
                 .font(StashType.meta())
                 .foregroundStyle(StashColor.faint)
                 .accessibilityIdentifier("detail.notes.hint")
@@ -112,9 +119,13 @@ struct NotesEditor: View {
         // Fix round 1, review finding #1: flush on blur for BOTH modes now (previously rich-only)
         // — plain-mode notes were just as exposed as rich mode to "type then dismiss within the
         // 600ms debounce window" data loss. `ItemDetailView`'s Done button / `onDisappear` are the
-        // other two flush points (`NotesEditorModel.flushNow`'s own doc comment).
-        .onChange(of: isFocused.wrappedValue) { wasFocused, focused in
-            if wasFocused, !focused { Task { await flushNow() } }
+        // other two flush points (`NotesEditorModel.flushNow`'s own doc comment). Compares against
+        // `.notes` specifically (final wave, item B — was a plain before/after `Bool` toggle): the
+        // shared enum-keyed focus can transition notes → title/description directly (never passing
+        // through `nil`), so "was `.notes`, now isn't" is the correct blur condition, not "was
+        // truthy, now falsy".
+        .onChange(of: isFocused.wrappedValue) { was, now in
+            if was == .notes, now != .notes { Task { await flushNow() } }
         }
     }
 
@@ -139,11 +150,25 @@ struct NotesEditor: View {
                 .foregroundStyle(StashColor.ink)
                 .scrollContentBackground(.hidden)
                 .autocorrectionDisabled()
-                .focused(isFocused)
+                .focused(isFocused, equals: .notes)
                 .frame(minHeight: 80, maxHeight: 220)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 6)
-                .onChange(of: model.draft) { _, _ in scheduleFlush() }
+                // Final wave, item C: rich mode no longer schedules ANY debounced flush per
+                // keystroke. Rich mode's draft is a perpetually-empty APPEND buffer — the 600ms
+                // debounce firing mid-type doesn't just autosave, it calls `flushNotes()`, which
+                // wraps whatever's typed so far as a new paragraph, saves it, AND CLEARS THE FIELD
+                // (confirmed live: typing continuously, the field emptied itself out from under the
+                // user's cursor every ~600ms, and continuing to type after that landed as a
+                // SEPARATE paragraph rather than one continuous note). Rich mode now saves only on
+                // blur/Done/`onDisappear` (`isFocused`'s `.onChange` above, and `ItemDetailView`'s
+                // own explicit flush points) — atomic, same shape the retired composer used. Plain
+                // mode is unaffected: the field there IS the note (not an append buffer), so the
+                // debounce mid-type was never destructive, just an autosave cadence.
+                .onChange(of: model.draft) { _, _ in
+                    guard !model.isRich else { return }
+                    scheduleFlush()
+                }
         }
         .background(StashColor.wash, in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
         .accessibilityIdentifier("detail.notes.editor")

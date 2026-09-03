@@ -8,11 +8,17 @@ import SwiftUI
 /// properly instead of showing their raw markdown syntax.
 struct MarkdownBlocksView: View {
     let text: String
+    /// Bubble mode (final wave, item E/8) — `ChatBubble` passes `true` so an assistant answer's
+    /// bubble hugs its own text instead of stretching to the bubble's max width, with tighter
+    /// spacing appropriate to a compact chat bubble rather than the detail sheet's full-width
+    /// reading column. `false` (default) keeps the detail sheet's Summary/Original/Transcript tabs
+    /// exactly as before — nothing there passes this explicitly.
+    var compact: Bool = false
 
     private var blocks: [MarkdownBlock] { MarkdownBlocks.parse(text) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: compact ? 6 : 12) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 view(for: block)
             }
@@ -72,7 +78,9 @@ struct MarkdownBlocksView: View {
     }
 
     /// Body line-height per DESIGN.md (~1.55 at 14pt): `.lineSpacing` adds the delta on top of
-    /// the font's own single-line spacing, so `14 * 0.55`.
+    /// the font's own single-line spacing, so `14 * 0.55` — tightened to `14 * 0.35` (~1.35) in
+    /// `compact` mode (final wave, item E/8), and `maxWidth: .infinity` dropped so the view hugs
+    /// its content rather than stretching to fill a chat bubble's max width.
     private func inlineText(_ raw: String) -> some View {
         var attributed = (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(raw)
@@ -80,8 +88,8 @@ struct MarkdownBlocksView: View {
         return Text(attributed)
             .font(StashType.body())
             .foregroundStyle(StashColor.ink)
-            .lineSpacing(14 * 0.55)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .lineSpacing(compact ? 14 * 0.35 : 14 * 0.55)
+            .frame(maxWidth: compact ? nil : .infinity, alignment: .leading)
     }
 
     /// DISCLOSED tweak (Plan 8 Task 4): any markdown link rendered through this view — including

@@ -100,7 +100,12 @@ public enum ChatCitations {
     }
 
     /// `](#3)` → `](#item=<uuid>)`, i.e. the href half of `[Title](#3)` — the `[Title` text before
-    /// it is untouched.
+    /// it is untouched. `id.uuidString.lowercased()` (final wave, item A): `UUID.uuidString` is
+    /// UPPERCASE, but the web's own `extractLinkedItemIds` matches hrefs with `/[0-9a-f-]+/` — an
+    /// uppercase-baked id simply never matches that regex at all, so a note taken/answered on iOS
+    /// and later reloaded on web rendered as a dead link. `itemID(from:)` below stays
+    /// case-insensitive on READ (`UUID(uuidString:)` already accepts either case), so this is the
+    /// only site that needed to change — bake lowercase, read either.
     private static func linkTitles(in text: String, byN: [Int: UUID]) -> String {
         let chars = Array(text)
         var result = ""
@@ -110,7 +115,7 @@ public enum ChatCitations {
             if chars[i] == "]", i + 2 < chars.count, chars[i + 1] == "(", chars[i + 2] == "#",
                let (n, afterDigits) = readNumber(chars, from: i + 3), afterDigits < chars.count, chars[afterDigits] == ")",
                let id = byN[n] {
-                result += "](\(itemLinkPrefix)\(id.uuidString))"
+                result += "](\(itemLinkPrefix)\(id.uuidString.lowercased()))"
                 i = afterDigits + 1
                 continue
             }
@@ -122,7 +127,8 @@ public enum ChatCitations {
 
     /// Bare `[3]` → `[[3]](#item=<uuid>)`, skipping ones already wrapped in an outer `[`
     /// (`(?<!\[)`, e.g. the inner `[1]` of an already-baked `[[1]](...)`) or already followed by
-    /// `(` (`(?!\()`, i.e. already link text).
+    /// `(` (`(?!\()`, i.e. already link text). Lowercased for the same cross-platform reason
+    /// `linkTitles` above is.
     private static func linkBareMarkers(in text: String, byN: [Int: UUID]) -> String {
         let chars = Array(text)
         var result = ""
@@ -133,7 +139,7 @@ public enum ChatCitations {
                let (n, afterDigits) = readNumber(chars, from: i + 1), afterDigits < chars.count, chars[afterDigits] == "]",
                afterDigits + 1 >= chars.count || chars[afterDigits + 1] != "(",
                let id = byN[n] {
-                result += "[[\(n)]](\(itemLinkPrefix)\(id.uuidString))"
+                result += "[[\(n)]](\(itemLinkPrefix)\(id.uuidString.lowercased()))"
                 i = afterDigits + 1
                 continue
             }

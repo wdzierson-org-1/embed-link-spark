@@ -1781,6 +1781,29 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: detail-anatomy-link\n".data(using: .utf8)!)
         sleep(3)
 
+        // --- Final wave, item B: the keyboard accessory clears WHICHEVER field has focus, not
+        // just notes'. Previously hardcoded to only clear notes' own focus, so tapping it while
+        // title/description was focused was a dead tap (confirmed live: the keyboard stayed up).
+        let titleField = anyElement("detail.title")
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
+        titleField.tap()
+
+        let dismissKeyboard = app.buttons["detail.dismissKeyboard"]
+        XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
+                      "Expected the keyboard-minimize accessory once the title field is focused")
+
+        // Screenshot rig (same checkpoint technique as every other test in this file): holds here,
+        // title focused with the keyboard + accessory both visible.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: final-wave-focus\n".data(using: .utf8)!)
+        sleep(3)
+
+        dismissKeyboard.tap()
+        let accessoryGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                        object: dismissKeyboard)
+        XCTAssertEqual(XCTWaiter().wait(for: [accessoryGone], timeout: 10), .completed,
+                       "Expected the keyboard accessory to disappear once the title field's focus " +
+                       "is cleared (final wave, item B)")
+
         // --- Task 7: Details drawer + Sharing section ---
         let detailsRow = anyElement("detail.details")
         XCTAssertTrue(detailsRow.waitForExistence(timeout: 10), "Details drawer row not found")
