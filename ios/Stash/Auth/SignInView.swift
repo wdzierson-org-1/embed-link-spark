@@ -111,7 +111,8 @@ struct SignInView: View {
                     mode = newValue
                     session.errorMessage = nil
                 }
-            )
+            ),
+            fillWidth: true
         )
     }
 

@@ -22,6 +22,10 @@ struct PillTabs<Tab: Hashable>: View {
 
     let items: [Item]
     @Binding var selection: Tab
+    /// When true, tabs split the track's full width evenly (web parity: shadcn `Tabs`' `grid
+    /// w-full grid-cols-2` on the sign-in card). Default `false` keeps the original content-sized
+    /// behavior the detail sheet's content tabs (Summary / Original Content / Notes) rely on.
+    var fillWidth: Bool = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -41,7 +45,8 @@ struct PillTabs<Tab: Hashable>: View {
             Text(item.label)
                 .font(StashType.bodyMedium())
                 .lineLimit(1)
-                .fixedSize()
+                .fixedSize(horizontal: !fillWidth, vertical: true)
+                .frame(maxWidth: fillWidth ? .infinity : nil)
                 .foregroundStyle(selected ? StashColor.ink : StashColor.muted)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
