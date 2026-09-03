@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 
@@ -7,19 +8,24 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Utility functions for metadata extraction
+// Utility functions for metadata extraction. Content runs to the same quote
+// that opened it (an apostrophe inside a double-quoted value must not end the
+// match) via a negated character class — never `.*?` + backreference, which
+// is quadratic on large pages — and HTML entities are decoded on the way out.
+const QUOTED_CONTENT = `content=(?:"([^"]+)"|'([^']+)')`;
 const parseMetaContent = (html: string, property: string): string | null => {
   const patterns = [
-    new RegExp(`<meta\\s+property=["']${property}["']\\s+content=["']([^"']+)["']`, 'i'),
-    new RegExp(`<meta\\s+content=["']([^"']+)["']\\s+property=["']${property}["']`, 'i'),
-    new RegExp(`<meta\\s+name=["']${property}["']\\s+content=["']([^"']+)["']`, 'i'),
-    new RegExp(`<meta\\s+content=["']([^"']+)["']\\s+name=["']${property}["']`, 'i'),
+    new RegExp(`<meta\\s+property=["']${property}["']\\s+${QUOTED_CONTENT}`, 'i'),
+    new RegExp(`<meta\\s+${QUOTED_CONTENT}\\s+property=["']${property}["']`, 'i'),
+    new RegExp(`<meta\\s+name=["']${property}["']\\s+${QUOTED_CONTENT}`, 'i'),
+    new RegExp(`<meta\\s+${QUOTED_CONTENT}\\s+name=["']${property}["']`, 'i'),
   ];
 
   for (const pattern of patterns) {
     const match = html.match(pattern);
-    if (match && match[1]) {
-      return match[1];
+    const value = match?.[1] ?? match?.[2];
+    if (value) {
+      return decodeHtmlEntities(value);
     }
   }
   return null;
@@ -317,8 +323,10 @@ Deno.serve(async (req) => {
     }
 
     // Use custom title or fallback to extracted title or URL
-    const finalTitle = customTitle || metadata.title || url;
-    const finalDescription = metadata.description || `Link from ${metadata.siteName || new URL(url).hostname}`;
+    // Scraped text gets entity-decoded / emphasis-stripped before it is stored;
+    // a caller-supplied title is the user's own words and is kept verbatim
+    const finalTitle = customTitle || cleanOptionalMetaText(metadata.title) || url;
+    const finalDescription = cleanOptionalMetaText(metadata.description) || `Link from ${metadata.siteName || new URL(url).hostname}`;
 
     // Parse tags from content fields and get cleaned content
     const messageResult = parseTagsFromContent(message);
@@ -411,10 +419,10 @@ Deno.serve(async (req) => {
         if (deepMeta) {
           const updates: Record<string, string> = {};
           if (!customTitle && !metadata.title && deepMeta.title && !isBlockedPageTitle(deepMeta.title)) {
-            updates.title = deepMeta.title;
+            updates.title = cleanMetaText(deepMeta.title);
           }
           if (!metadata.description && deepMeta.description) {
-            updates.description = deepMeta.description;
+            updates.description = cleanMetaText(deepMeta.description);
           }
           // Prefer the copy we stored in our own bucket; a raw external URL is
           // last resort and only when it verifiably serves an image right now

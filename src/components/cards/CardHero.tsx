@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Expand, FileText, Github, Image as ImageIcon, Link2, Pause, Play } from 'lucide-react';
 import { SUPABASE_URL } from '@/integrations/supabase/client';
 import { domainOfUrl } from '@/utils/linkFlavor';
+import { useSubjectCrop } from '@/components/cards/useSubjectCrop';
 import {
   HERO_STANDARD,
   HERO_TALL,
@@ -17,6 +18,12 @@ import {
  * blurred self-backdrop (never center-cropped); landscape imagery covers the
  * standard hero; metadata-poor links get a favicon plate instead of a broken
  * or decorative image.
+ *
+ * Cover crops are subject-aware (useSubjectCrop): the image is sampled once
+ * on load and the crop window slides to keep the detected subject in view, so
+ * a product shot with its object low on a white background no longer renders
+ * as a blank band. Images are loaded `crossOrigin="anonymous"` for that read;
+ * every source we render here (storage bucket, image-proxy) allows it.
  */
 
 /** Chooses cover vs contained-on-blur from the image's real aspect ratio */
@@ -30,10 +37,15 @@ export const AspectAwareImage = ({
   onError?: () => void;
 }) => {
   const [isPortrait, setIsPortrait] = useState(false);
+  const crop = useSubjectCrop();
 
   const handleLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
     const img = event.currentTarget;
-    if (img.naturalHeight > img.naturalWidth * 1.05) setIsPortrait(true);
+    if (img.naturalHeight > img.naturalWidth * 1.05) {
+      setIsPortrait(true);
+      return;
+    }
+    crop.onLoad(event);
   };
 
   if (isPortrait) {
@@ -46,13 +58,15 @@ export const AspectAwareImage = ({
   }
 
   return (
-    <div className={`${HERO_STANDARD} overflow-hidden rounded-t-2xl`}>
+    <div ref={crop.frameRef} className={`${HERO_STANDARD} overflow-hidden rounded-t-2xl`}>
       <img
         src={src}
         alt={alt}
         className="h-full w-full object-cover"
+        style={crop.style}
         loading="lazy"
         decoding="async"
+        crossOrigin="anonymous"
         onLoad={handleLoad}
         onError={onError}
       />
@@ -78,6 +92,7 @@ interface LinkCoverProps {
 export const LinkCover = ({ imageSource, alt, tall, playOverlay, domainPill, onFailed }: LinkCoverProps) => {
   const [src, setSrc] = useState(imageSource);
   const [triedProxy, setTriedProxy] = useState(imageSource.includes('/functions/v1/image-proxy'));
+  const crop = useSubjectCrop();
 
   const handleError = () => {
     if (!triedProxy) {
@@ -122,14 +137,17 @@ export const LinkCover = ({ imageSource, alt, tall, playOverlay, domainPill, onF
   }
 
   return (
-    <div className={`relative ${HERO_STANDARD} overflow-hidden rounded-t-2xl`}>
+    <div ref={crop.frameRef} className={`relative ${HERO_STANDARD} overflow-hidden rounded-t-2xl`}>
       <img
         src={src}
         alt={alt}
         className="h-full w-full object-cover"
+        style={crop.style}
         loading="lazy"
         decoding="async"
+        crossOrigin="anonymous"
         referrerPolicy="no-referrer"
+        onLoad={crop.onLoad}
         onError={handleError}
       />
       {overlays}

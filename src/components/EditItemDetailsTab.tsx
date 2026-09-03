@@ -381,7 +381,7 @@ const EditItemDetailsTab = ({
           onChange={(e) => { onDescriptionChange(e.target.value); resizeDescription(); }}
           onBlur={() => void onDescriptionSave(description)}
           placeholder="Add a description..."
-          className="-mx-2 mt-2 min-h-0 w-[calc(100%+16px)] max-w-[64ch] resize-none overflow-hidden rounded-lg border-0 bg-transparent px-2 py-0.5 text-[14.5px] leading-relaxed text-[#646b76] shadow-none transition-colors hover:bg-[rgba(109,91,208,0.05)] focus-visible:bg-[rgba(109,91,208,0.06)] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0 md:text-[14.5px]"
+          className="-mx-2 mt-2 min-h-0 w-[calc(100%+16px)] resize-none overflow-hidden rounded-lg border-0 bg-transparent px-2 py-0.5 text-[14.5px] leading-relaxed text-[#646b76] shadow-none transition-colors hover:bg-[rgba(109,91,208,0.05)] focus-visible:bg-[rgba(109,91,208,0.06)] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0 md:text-[14.5px]"
         />
       </div>
 

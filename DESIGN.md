@@ -141,6 +141,13 @@ favicon.*
 handle) → title (500) → description (muted, clamp 3) → annotation (violet bar,
 italic) → chips → footer (date left; overflow `more-horizontal` right).
 
+**Cover crops are subject-aware.** A hero that `cover`-crops an image centres
+the crop on the detected subject, not the frame: sample the image (≤64px),
+take the border-ring median as the background, bound everything that differs
+from it, and slide the crop so that box is centred (web `useSubjectCrop`;
+algorithm in `src/utils/heroFocal.ts`). Portrait media keeps the contained
+treatment; nothing changes when the subject fills the frame.
+
 Per-type hero:
 
 | Type | Hero |

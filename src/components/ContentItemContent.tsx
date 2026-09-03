@@ -4,6 +4,7 @@ import CollectionAttachmentStrip from '@/components/CollectionAttachmentStrip';
 import type { Attachment } from '@/components/CollectionAttachments';
 import ReadOnlyNovelRenderer from '@/components/ReadOnlyNovelRenderer';
 import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
+import { cleanMetaText } from '@/utils/textHygiene';
 import { AudioLines, File, Mic, ScanLine, Table2 } from 'lucide-react';
 import {
   audioSubtype,
@@ -122,7 +123,7 @@ const ContentItemContent = ({
           <ReadOnlyNovelRenderer content={note} maxLines={6} />
         ) : item.description ? (
           <p className="text-muted-foreground text-sm line-clamp-2">
-            {extractPlainTextFromNovelContent(item.description)}
+            {cleanMetaText(extractPlainTextFromNovelContent(item.description))}
           </p>
         ) : null}
 
@@ -140,7 +141,7 @@ const ContentItemContent = ({
           <p className="line-clamp-4 whitespace-pre-line text-sm leading-relaxed text-foreground/75">{body}</p>
         ) : item.description ? (
           <p className="text-muted-foreground text-sm line-clamp-3">
-            {extractPlainTextFromNovelContent(item.description)}
+            {cleanMetaText(extractPlainTextFromNovelContent(item.description))}
           </p>
         ) : null}
         <div className="flex flex-wrap gap-1.5">{typeChipFor(item)}</div>
@@ -190,7 +191,7 @@ const ContentItemContent = ({
         // -webkit-box/overflow-hidden would clip the highlight wash
         <div className={revealDescription ? 'animate-piece-in' : undefined}>
           <p className="text-muted-foreground text-sm line-clamp-3">
-            {extractPlainTextFromNovelContent(item.description)}
+            {cleanMetaText(extractPlainTextFromNovelContent(item.description))}
           </p>
         </div>
       )}

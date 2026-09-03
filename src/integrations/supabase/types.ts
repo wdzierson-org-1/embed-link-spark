@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      card_feedback: {
+        Row: {
+          client: string
+          created_at: string
+          id: string
+          issues: string[]
+          item_id: string | null
+          note: string | null
+          snapshot: Json
+          user_id: string
+        }
+        Insert: {
+          client?: string
+          created_at?: string
+          id?: string
+          issues: string[]
+          item_id?: string | null
+          note?: string | null
+          snapshot?: Json
+          user_id: string
+        }
+        Update: {
+          client?: string
+          created_at?: string
+          id?: string
+          issues?: string[]
+          item_id?: string | null
+          note?: string | null
+          snapshot?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       chat_feedback: {
         Row: {
           answer: string

@@ -1,5 +1,6 @@
 
 import { useState, useRef, useEffect } from 'react';
+import { decodeHtmlEntities } from '@/utils/textHygiene';
 
 interface ContentItem {
   id: string;
@@ -73,8 +74,10 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       }
       
       // CRITICAL: Set initial values in both state and refs from DATABASE content
-      const initialTitle = item.title || '';
-      const initialDescription = item.description || '';
+      // Legacy rows may still carry raw HTML entities (fixed at ingest
+      // 2026-09-03); decode so the editor shows — and on blur saves — real text
+      const initialTitle = decodeHtmlEntities(item.title || '');
+      const initialDescription = decodeHtmlEntities(item.description || '');
       const initialContent = item.content || '';
       const initialSupplementalNote = item.supplemental_note || '';
       
