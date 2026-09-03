@@ -676,6 +676,32 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(savedContent.contains(noteMarker),
                       "Expected 'note one's saved content to contain '\(noteMarker)', got '\(savedContent)'")
 
+        // Fix round 1, review finding #1: a note typed then dismissed WITHIN the 600ms debounce
+        // window (no wait at all here, unlike the marker above) must still persist — `detail.done`
+        // now flushes the pending notes draft before actually dismissing, rather than relying on
+        // the debounce alone. Already focused from the step above, so this types straight in.
+        let immediateMarker = "immediate-\(epoch)"
+        notesField.typeText(immediateMarker)
+        app.buttons["detail.done"].tap()
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10),
+                      "Expected the library after the immediate-dismiss tap (Done should await the flush)")
+
+        XCTAssertTrue(card0().waitForExistence(timeout: 15),
+                      "Expected the card to still be findable after the immediate-dismiss round trip")
+        card0().tap()
+
+        let reopenedNotesField = app.textViews["detail.notes.editor"]
+        XCTAssertTrue(reopenedNotesField.waitForExistence(timeout: 10),
+                      "Notes editor not found after the immediate-dismiss reopen")
+        let reopenedNotesValue = (reopenedNotesField.value as? String) ?? ""
+        XCTAssertTrue(reopenedNotesValue.contains(immediateMarker),
+                      "Expected the immediately-dismissed note edit to have persisted, got '\(reopenedNotesValue)'")
+
+        let contentAfterImmediateDismiss = try await fetchNoteOneContent(email: email, password: password)
+        XCTAssertTrue(contentAfterImmediateDismiss.contains(immediateMarker),
+                      "Expected REST content to contain the immediate-dismiss marker '\(immediateMarker)', " +
+                      "got '\(contentAfterImmediateDismiss)'")
+
         // Restore: back to exactly the canonical fixture title. Content stays mutated after this
         // test (the notes step above can only ever grow the note — no in-app undo) — cleaned up
         // either by an explicit REST PATCH in the shell right after this run, or automatically by

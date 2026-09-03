@@ -21,10 +21,10 @@ struct ItemDetailContent: View {
     let item: Item
     @Binding var selectedTab: ContentTabKey
     let isLoadingDetail: Bool
-    let editor: ItemEditor
-    @Binding var saveStatus: SaveStatus
+    let notesModel: NotesEditorModel
     var notesFocused: FocusState<Bool>.Binding
-    var onSaved: (Item) -> Void
+    var scheduleNotesFlush: () -> Void
+    var flushNotesNow: () async -> Void
 
     private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
     private var tabs: [ContentTab] { config.tabs }
@@ -90,8 +90,8 @@ struct ItemDetailContent: View {
             case .transcript:
                 readOnlyBlock(item.pageBody, empty: "Transcription in progress…", id: "detail.transcriptText")
             case .notes:
-                NotesEditor(item: item, editor: editor, saveStatus: $saveStatus, isFocused: notesFocused,
-                            onSaved: onSaved)
+                NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
+                            scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
             }
         }
     }

@@ -44,6 +44,16 @@ struct ItemDetailView: View {
     @State private var editor = ItemEditor(patcher: SupabaseItemPatcher(),
                                             refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
     @State private var fieldDebouncer = Debouncer(interval: .milliseconds(400))
+    /// Notes' own draft/debounce state (Plan 8 Task 5, hoisted out in fix round 1 — see
+    /// `NotesEditorModel`'s own doc comment) — same one-per-sheet lifetime as `editor` above, built
+    /// once in `init` from the item's initial content.
+    @State private var notesModel: NotesEditorModel
+    /// Guards the field-autosave (400ms) vs. notes-autosave (600ms) race (fix round 1, review
+    /// finding #2): two independent debounced save paths can have their responses land out of
+    /// dispatch order, and without this, an older response landing last could revert whatever a
+    /// newer one already committed — see `SaveGeneration`'s own doc comment (StashKit) for the
+    /// full rationale and the established codebase precedent it mirrors.
+    @State private var saveGeneration = SaveGeneration()
 
     let store: ItemStore
 
@@ -67,6 +77,7 @@ struct ItemDetailView: View {
         _snapshot = State(initialValue: item)
         self.store = store
         _selectedTab = State(initialValue: contentTabsConfig(for: item.type).defaultTab)
+        _notesModel = State(initialValue: NotesEditorModel(item: item))
     }
 
     var body: some View {
@@ -102,8 +113,8 @@ struct ItemDetailView: View {
                                 DetailURLBar(urlString: urlString)
                             }
                             ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
-                                              editor: editor, saveStatus: $saveStatus, notesFocused: $notesFocused,
-                                              onSaved: handleSaved)
+                                              notesModel: notesModel, notesFocused: $notesFocused,
+                                              scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow)
 
                             hairline
 
@@ -147,7 +158,18 @@ struct ItemDetailView: View {
             .onDisappear {
                 // Deleting already dismisses (and there's nothing left server-side to PATCH).
                 guard !isDeleted else { return }
-                Task { await saveChangedFields() }
+                // Belt-and-braces (fix round 1, review finding #1): `closeButton` already flushes
+                // notes before calling `dismiss()`, but `onDisappear` fires on ANY path out of this
+                // sheet (a system swipe-to-dismiss, not just the Done button), so notes gets the
+                // same explicit flush here too — same reasoning `saveChangedFields()` already
+                // covers fields with. `flushNotesNow` first: it's the one path that's new/hasn't
+                // already run once via `closeButton` in the tap-Done case (redundant-but-safe there
+                // — `NotesEditorModel`'s own guard makes a second flush with nothing new to save a
+                // no-op).
+                Task {
+                    await flushNotesNow()
+                    await saveChangedFields()
+                }
             }
             .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
                                  titleVisibility: .visible) {
@@ -226,9 +248,17 @@ struct ItemDetailView: View {
     }
 
     /// The iOS close affordance — a hairline circle × top-trailing, matching the web sheet's own
-    /// close button, in place of the former toolbar "Done".
+    /// close button, in place of the former toolbar "Done". Flushes any pending notes edit BEFORE
+    /// dismissing (fix round 1, review finding #1) — the 600ms debounce alone can't be trusted to
+    /// have fired yet on a fast "type then tap Done" sequence, so this awaits the flush first
+    /// rather than relying solely on `onDisappear`'s own belt-and-braces call.
     private var closeButton: some View {
-        Button { dismiss() } label: {
+        Button {
+            Task {
+                await flushNotesNow()
+                dismiss()
+            }
+        } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(StashColor.muted)
@@ -315,10 +345,10 @@ struct ItemDetailView: View {
     /// Backs `LocationRow` (Task 8). Unlike title/description/supplementalNote, a location commit
     /// is already a discrete, deliberate action (Enter/blur/remove-X — never per-keystroke), so
     /// this saves immediately rather than routing through `fieldDebouncer`: there's no
-    /// "in-progress draft" worth debouncing here, same reasoning `NotesAppendComposer`'s own doc
-    /// comment gives for its own atomic save. The optimistic `item.attributes = newValue` write
-    /// (before the save's own await resolves) is exactly what `adopt(_:)`'s `hasUnsavedLocation`
-    /// flag protects from a racing realtime refresh — see `mergePreservingDetail`'s doc comment.
+    /// "in-progress draft" worth debouncing here. The optimistic `item.attributes = newValue`
+    /// write (before the save's own await resolves) is exactly what `adopt(_:)`'s
+    /// `hasUnsavedLocation` flag protects from a racing realtime refresh — see
+    /// `mergePreservingDetail`'s doc comment.
     private var attributesBinding: Binding<ItemAttributes> {
         Binding(get: { item.attributes }, set: { newValue in
             item.attributes = newValue
@@ -342,9 +372,15 @@ struct ItemDetailView: View {
     /// one call path reached through `Debouncer`, which is its own (non-Main) actor — its
     /// internal `Task` inherits *that* actor's isolation, not whatever actor originally scheduled
     /// the call. Without this annotation, the @State mutations below could run off the main
-    /// thread. Every other async entry point here (`performDelete`, `NotesAppendComposer.append`)
-    /// is reached directly from a SwiftUI event closure (Button action / onDisappear), which is
-    /// already MainActor-isolated with no intervening actor hop.
+    /// thread. Every other async entry point here (`performDelete`, `flushNotes`) is reached
+    /// directly from a SwiftUI event closure (Button action / onDisappear) or another already-
+    /// `@MainActor` method, so it's already MainActor-isolated with no intervening actor hop.
+    ///
+    /// `saveGeneration`-guarded (fix round 1, review finding #2): captures its own generation
+    /// before dispatching, and only applies the response — `handleSaved`/`saveStatus` alike — if
+    /// no NEWER save (this same field debounce firing again, OR a notes autosave) has started in
+    /// the meantime. See `SaveGeneration`'s own doc comment (StashKit) for the full race this
+    /// guards against.
     @MainActor
     private func saveChangedFields() async {
         let titleNow = item.title ?? ""
@@ -352,12 +388,15 @@ struct ItemDetailView: View {
         let patch = changedFields(from: snapshot, title: titleNow, description: descriptionNow,
                                    supplementalNote: item.supplementalNote ?? "")
         guard !patch.isEmpty else { return }
+        let gen = saveGeneration.next()
         saveStatus = .saving
         do {
             let merged = try await editor.save(itemId: item.id, patch: patch)
+            guard saveGeneration.isLatest(gen) else { return }
             handleSaved(merged)
             saveStatus = .saved
         } catch {
+            guard saveGeneration.isLatest(gen) else { return }
             saveStatus = .idle
         }
     }
@@ -369,18 +408,71 @@ struct ItemDetailView: View {
     /// web's own fire-and-forget `catch { console.error(...) }` in `EditItemLocationSection.tsx`:
     /// a failed save just means the next realtime/detail refresh's `adopt` shows whatever the
     /// server actually has, rather than the optimistic local edit silently drifting from it.
+    /// `saveGeneration`-guarded on success same as every other save site here (fix round 1).
     @MainActor
     private func saveAttributes(_ attributes: ItemAttributes) async {
+        let gen = saveGeneration.next()
         do {
             let merged = try await editor.save(itemId: item.id, patch: ItemPatch(attributes: attributes))
+            guard saveGeneration.isLatest(gen) else { return }
             handleSaved(merged)
         } catch {
             print("Location save failed (non-fatal): \(error)")
         }
     }
 
-    /// Shared by every successful `editor.save` call site (field autosave, notes append): folds
-    /// the merged server row into local state and keeps the background grid in sync so it
+    /// Debounced (per-keystroke) notes flush trigger, handed to `NotesEditor` via
+    /// `ItemDetailContent` — see `NotesEditorModel.scheduleSave`'s own doc comment.
+    private func scheduleNotesFlush() {
+        notesModel.scheduleSave { await self.flushNotes() }
+    }
+
+    /// Explicit, immediate notes flush (fix round 1, review finding #1) — the Done button /
+    /// `onDisappear` path, and the blur handler `NotesEditor` itself installs for both modes now.
+    /// See `NotesEditorModel.flushNow`'s own doc comment for why this exists at all.
+    private func flushNotesNow() async {
+        await notesModel.flushNow { await self.flushNotes() }
+    }
+
+    /// The actual notes save (Plan 8 Task 5, split out of `NotesEditor` in fix round 1 so
+    /// `ItemDetailView` can trigger it directly — see `NotesEditorModel`'s own doc comment for
+    /// why): plain notes save the whole draft as-is; rich notes wrap the draft as a new paragraph
+    /// via `appendNoteParagraph` onto the CURRENT `item.content` (read live here, not a value
+    /// `NotesEditorModel` itself would otherwise have to keep re-synced — this is exactly why the
+    /// model doesn't own this method). `saveGeneration`-guarded like every other save site here.
+    @MainActor
+    private func flushNotes() async {
+        guard notesModel.draft != notesModel.savedDraft else { return }
+        let typed = notesModel.draft
+        let newContent: String
+        if notesModel.isRich {
+            let note = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !note.isEmpty else { return }
+            newContent = appendNoteParagraph(to: item.content, note: note)
+        } else {
+            newContent = typed
+        }
+        let gen = saveGeneration.next()
+        saveStatus = .saving
+        do {
+            let merged = try await editor.save(itemId: item.id, patch: ItemPatch(content: newContent))
+            guard saveGeneration.isLatest(gen) else { return }
+            if notesModel.isRich {
+                notesModel.draft = ""
+                notesModel.savedDraft = ""
+            } else {
+                notesModel.savedDraft = typed
+            }
+            handleSaved(merged)
+            saveStatus = .saved
+        } catch {
+            guard saveGeneration.isLatest(gen) else { return }
+            saveStatus = .idle
+        }
+    }
+
+    /// Shared by every successful `editor.save` call site (field autosave, location, notes):
+    /// folds the merged server row into local state and keeps the background grid in sync so it
     /// doesn't wait on the next realtime broadcast to reflect the edit.
     private func handleSaved(_ merged: Item) {
         adopt(merged)
@@ -392,12 +484,13 @@ struct ItemDetailView: View {
     /// device's edit, or our own PATCH echoing back. The actual merge is StashKit's
     /// `mergePreservingDetail` (finding #2, final review — see its doc comment for the full
     /// rationale, including why `pageBody` needs its own guard against list-row refreshes
-    /// nulling an already-loaded value): `title`/`description`/`supplementalNote`/`attributes`
-    /// (the last added by Task 8's `LocationRow`, alongside Task 9's sticky-note field) are the
-    /// fields under active local editing in this build, so we compute "is there an unsaved edit
-    /// in flight" for each — has it already diverged from `snapshot`, our last confirmed-saved
-    /// baseline? — and hand those four flags in. `snapshot` itself always advances to `incoming`
-    /// here, since its only job is being the next diff baseline for `changedFields`.
+    /// nulling an already-loaded value): `title`/`description`/`supplementalNote`/`attributes`/
+    /// `content` (the last added fix round 1, review finding #2, alongside `SaveGeneration` — see
+    /// that type's own doc comment for how the two guards divide the work) are the fields under
+    /// active local editing in this build, so we compute "is there an unsaved edit in flight" for
+    /// each — has it already diverged from `snapshot`, our last confirmed-saved baseline? — and
+    /// hand those five flags in. `snapshot` itself always advances to `incoming` here, since its
+    /// only job is being the next diff baseline for `changedFields`.
     private func adopt(_ incoming: Item) {
         let next = mergePreservingDetail(
             local: item,
@@ -405,7 +498,8 @@ struct ItemDetailView: View {
             hasUnsavedTitle: (item.title ?? "") != (snapshot.title ?? ""),
             hasUnsavedDescription: (item.description ?? "") != (snapshot.description ?? ""),
             hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? ""),
-            hasUnsavedLocation: item.attributes != snapshot.attributes
+            hasUnsavedLocation: item.attributes != snapshot.attributes,
+            hasUnsavedContent: (item.content ?? "") != (snapshot.content ?? "")
         )
         snapshot = incoming
         item = next
