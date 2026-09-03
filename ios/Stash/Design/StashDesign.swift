@@ -23,16 +23,16 @@ enum StashColor {
     static let violet300 = Color(hex: 0xB6A8EF)
     static let destructive = Color(hex: 0xC93A3A)
 
-    /// `.animated-gradient`'s six stops, in order (web `src/index.css`). DESIGN.md sanctions the
-    /// splash gradient only in page washes — this palette is intentionally untouched by the
-    /// ink/violet token pass.
+    /// `.animated-gradient`'s six stops, in order (web `src/index.css`; DESIGN.md §Color "Page
+    /// wash gradient"). DESIGN.md sanctions the splash gradient only in page washes — this
+    /// palette is intentionally untouched by the ink/violet token pass.
     static let gradientStops = [
-        Color(red: 102/255, green: 126/255, blue: 234/255),  // #667eea
-        Color(red: 118/255, green: 75/255, blue: 162/255),   // #764ba2
-        Color(red: 240/255, green: 147/255, blue: 251/255),  // #f093fb
-        Color(red: 245/255, green: 87/255, blue: 108/255),   // #f5576c
-        Color(red: 79/255, green: 172/255, blue: 254/255),   // #4facfe
-        Color(red: 0/255, green: 242/255, blue: 254/255),    // #00f2fe
+        Color(hex: 0x667eea),
+        Color(hex: 0x764ba2),
+        Color(hex: 0x9d5fd8),
+        Color(hex: 0xc2418f),
+        Color(hex: 0x4facfe),
+        Color(hex: 0x38bdf8),
     ]
 }
 
@@ -156,20 +156,33 @@ extension StashHeader where Accessory == EmptyView {
 
 // MARK: - Animated gradient backdrop (web: .animated-gradient at opacity-30, faded to background)
 
-/// The web's `gradientShift` reinterpreted for SwiftUI: a triple-width diagonal gradient sliding
-/// back and forth over 15s. Always paired with a fade-to-background overlay by `GradientBackdrop`.
-/// Palette unchanged by the DESIGN.md token pass — the page wash is a sanctioned exception.
+/// The web's `gradientShift` reinterpreted for SwiftUI: a −45°-equivalent sweep (bottom-leading →
+/// top-trailing) over a 2× canvas, blurred 40pt so the six stops read as a smooth wash with no
+/// banding, drifting slowly back and forth over 15s. Always paired with a fade-to-background
+/// overlay by `GradientBackdrop`. Palette unchanged by the DESIGN.md token pass — the page wash
+/// is a sanctioned exception.
 struct AnimatedGradient: View {
-    @State private var slide = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drift = false
 
     var body: some View {
         GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
             LinearGradient(colors: StashColor.gradientStops,
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .frame(width: geo.size.width * 3)
-                .offset(x: slide ? -geo.size.width * 2 : 0)
-                .animation(.easeInOut(duration: 15).repeatForever(autoreverses: true), value: slide)
-                .onAppear { slide = true }
+                           startPoint: .bottomLeading, endPoint: .topTrailing)
+                .frame(width: w * 2, height: h * 2)
+                .blur(radius: 40)
+                // The 2× canvas always overhangs the viewport, so this diagonal drift never
+                // exposes a blurred edge — see the offset-bounds note above `drift`'s range.
+                .offset(x: drift ? -w * 0.25 : -w * 0.75,
+                        y: drift ? -h * 0.75 : -h * 0.25)
+                .onAppear {
+                    guard !reduceMotion else { return }
+                    withAnimation(.easeInOut(duration: 15).repeatForever(autoreverses: true)) {
+                        drift = true
+                    }
+                }
         }
         .clipped()
         .allowsHitTesting(false)
@@ -177,7 +190,7 @@ struct AnimatedGradient: View {
 }
 
 /// Page-level ambience (web Index.tsx:149-150): the animated gradient at low opacity, washed
-/// down to the system background so content lower on the screen sits on a clean surface.
+/// down to `StashColor.paper` so content lower on the screen sits on a clean surface.
 struct GradientBackdrop: View {
     var opacity: Double = 0.3
 
@@ -187,8 +200,8 @@ struct GradientBackdrop: View {
             .overlay(
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: Color(.systemBackground).opacity(0.5), location: 0.55),
-                    .init(color: Color(.systemBackground), location: 1),
+                    .init(color: StashColor.paper.opacity(0.5), location: 0.55),
+                    .init(color: StashColor.paper, location: 1),
                 ], startPoint: .top, endPoint: .bottom)
             )
             .allowsHitTesting(false)

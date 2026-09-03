@@ -84,6 +84,12 @@ Neutrals (chrome):
 | chip bg | `rgba(20,22,30,.05)` | neutral chips, icon tiles |
 | page wash | grey base `#f7f7f9` + faint spectrum tint (see `src/index.css`) | app background |
 
+**Page wash gradient** (the only sanctioned gradient; page backdrops + splash):
+`linear-gradient(-45deg, #667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8)` — web `.animated-gradient`
+(400% canvas, 15s ease drift; static under reduced motion). iOS: `StashColor.gradientStops` in the same
+order, drawn bottom-leading → top-trailing over a 2× canvas with a 40pt blur so no stop banding shows;
+drift optional, palette mandatory.
+
 Intent colors:
 
 | Token | Value | Use |
