@@ -26,8 +26,7 @@ struct MarkdownBlocksView: View {
 
         case .heading(_, let text):
             inlineText(text)
-                .font(StashType.body())
-                .fontWeight(.semibold)
+                .font(StashType.bodySemibold())
 
         case .bullets(let items):
             VStack(alignment: .leading, spacing: 6) {
@@ -37,6 +36,7 @@ struct MarkdownBlocksView: View {
                         inlineText(item)
                     }
                     .padding(.leading, 16)
+                    .accessibilityElement(children: .combine)
                 }
             }
 
@@ -48,6 +48,7 @@ struct MarkdownBlocksView: View {
                         inlineText(item)
                     }
                     .padding(.leading, 16)
+                    .accessibilityElement(children: .combine)
                 }
             }
 

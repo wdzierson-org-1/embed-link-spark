@@ -11,7 +11,9 @@ import StashKit
 /// only owns the transient `isEditing`/`draft` UI state and writes the result through
 /// `attributes`, exactly the same "the binding's setter — owned by `ItemDetailView` — schedules
 /// the actual save; the field itself stays pure chrome" shape `title`/`description` already use
-/// (see `EditableFieldsSection`'s own doc comment). No `ItemEditor`/network awareness lives here.
+/// (see `ItemDetailView.titleBinding`/`descriptionBinding`). No `ItemEditor`/network awareness
+/// lives here. Restyled (Task 6) onto `StashType`/`StashColor` tokens — behavior/identifiers
+/// unchanged.
 ///
 /// Read-modify-write concurrency caveat (matches the web's own "sheet's item prop freezes while
 /// open" comment on `EditItemLocationSection.tsx`): `attributes` is a live `Binding` onto
@@ -56,7 +58,7 @@ struct LocationRow: View {
                 Image(systemName: "mappin.and.ellipse")
                 Text("Add a location")
             }
-            .font(.caption)
+            .font(StashType.meta())
         }
         .foregroundStyle(StashColor.muted.opacity(0.7))
         .accessibilityElement(children: .ignore)
@@ -71,7 +73,7 @@ struct LocationRow: View {
                     Image(systemName: "mappin.and.ellipse")
                     Text("posted from \(location.label)")
                 }
-                .font(.caption)
+                .font(StashType.meta())
             }
             .foregroundStyle(StashColor.muted)
             // Same shape as Task 6's `pinPreview` fix (`LocationCapture`/`CaptureComposerView`):
@@ -86,7 +88,7 @@ struct LocationRow: View {
             Button {
                 commit("")
             } label: {
-                Image(systemName: "xmark.circle.fill").font(.caption)
+                Image(systemName: "xmark.circle.fill").font(StashType.meta())
             }
             .foregroundStyle(StashColor.muted)
             .accessibilityLabel("Remove location")
@@ -97,11 +99,11 @@ struct LocationRow: View {
     private var editingField: some View {
         HStack(spacing: 6) {
             Image(systemName: "mappin.and.ellipse")
-                .font(.caption)
+                .font(StashType.meta())
                 .foregroundStyle(StashColor.muted)
                 .accessibilityHidden(true)
             TextField("e.g. Brooklyn, New York", text: $draft)
-                .font(.caption)
+                .font(StashType.meta())
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .onSubmit {

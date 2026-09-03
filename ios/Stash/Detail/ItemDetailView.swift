@@ -1,12 +1,23 @@
 import SwiftUI
 import StashKit
 
-/// Detail sheet presented from a Library card tap: optional hero image (image items only), an
-/// editable header (title/description autosave — Task 8), an "Open Link" button for link items,
-/// the segmented content section, a notes-append composer, a tags manager and public/private
-/// toggle with its sticky-note lifecycle (Task 9), and delete. On appear, fetches the full row
-/// (adding `page_body`, which the grid's list query omits) for types whose tabs need it, then
-/// merges it back into `store` so the list stays current too.
+/// Mirrors the web's `saveStatus` (`idle | saving | saved`, `useEditItemSave.ts`), driving
+/// `detail.autosave`'s caption. Per this task's brief, only `.saving` gets its own copy
+/// ("Saving…") — `.idle`/`.saved` both render the web's resting-state copy, "Changes saved
+/// automatically" (`EditItemAutoSaveIndicator.tsx`'s own `default:` case).
+enum SaveStatus {
+    case idle, saving, saved
+}
+
+/// Detail sheet presented from a Library card tap, rebuilt to DESIGN.md's detail-panel anatomy
+/// (`§Components`, "Detail panel"): one scrolling flow surface — eyebrow (`DetailEyebrow`) →
+/// inline-editable title/description → location row → contained media → URL bar (`DetailURLBar`,
+/// link items) → content tabs (`ItemDetailContent`) → *(Task 7: Details drawer)* → *(Task 7:
+/// Sharing — currently `PublicToggleSection`, restyled in place next task)* → a pinned footer bar
+/// (delete left, autosave right). Tags UI is retired (`DESIGN.md` — "No tag UI on cards or
+/// panel"); `tags` data itself is untouched, just no longer surfaced here. On appear, fetches the
+/// full row (adding `page_body`, which the grid's list query omits) for types whose tabs need it,
+/// then merges it back into `store` so the list stays current too.
 struct ItemDetailView: View {
     @State private var item: Item
     /// The last row we know is confirmed saved — either from the initial load, our own most
@@ -36,6 +47,8 @@ struct ItemDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab: ContentTabKey
     @State private var isLoadingDetail = false
+    @FocusState private var titleFocused: Bool
+    @FocusState private var descriptionFocused: Bool
 
     init(item: Item, store: ItemStore) {
         _item = State(initialValue: item)
@@ -45,19 +58,20 @@ struct ItemDetailView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        ZStack(alignment: .topTrailing) {
+            StashColor.paper.ignoresSafeArea()
+
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 18) {
+                    DetailEyebrow(item: item)
+                    titleField
+                    descriptionField
+                    LocationRow(attributes: attributesBinding)
                     if item.type == .image, let url = item.thumbnailURL {
                         heroImage(url)
                     }
-                    ItemDetailHeader(item: item, title: titleBinding, description: descriptionBinding,
-                                      attributes: attributesBinding, saveStatus: saveStatus)
-                    if item.type == .link, let urlString = item.url, let url = URL(string: urlString) {
-                        Link(destination: url) {
-                            Label("Open Link", systemImage: "arrow.up.right.square")
-                        }
-                        .accessibilityIdentifier("detail.openLink")
+                    if item.type == .link, let urlString = item.url, !urlString.isEmpty {
+                        DetailURLBar(urlString: urlString)
                     }
                     ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail)
                     // Gated to the Notes tab (rather than always-visible below every tab) so it
@@ -66,22 +80,26 @@ struct ItemDetailView: View {
                     if selectedTab == .notes {
                         NotesAppendComposer(item: item, editor: editor, onSaved: handleSaved)
                     }
-                    Divider()
-                    ItemTagsSection(item: item, editor: editor)
-                    Divider()
+
+                    hairline
+
+                    // Task 7 insertion point: Details drawer (`DetailsDrawer.swift`) goes here —
+                    // collapsed summary row + dotted key/value facts.
+
+                    // Task 7 insertion point: Sharing section restyle (`SharingSection.swift`)
+                    // replaces this call in place — same `PublicToggleSection` data/actions.
                     PublicToggleSection(item: item, editor: editor,
                                          supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
-                    deleteSection
                 }
-                .padding()
+                .padding(.horizontal, 24)
+                .padding(.top, 44)
+                .padding(.bottom, 24)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }.accessibilityIdentifier("detail.done")
-                }
-            }
+
+            closeButton
         }
+        .safeAreaInset(edge: .bottom) { footerBar }
+        .presentationCornerRadius(StashRadius.sheet)
         .task { await loadDetailIfNeeded() }
         .onChange(of: store.items) { _, items in
             guard let updated = items.first(where: { $0.id == item.id }) else { return }
@@ -99,6 +117,55 @@ struct ItemDetailView: View {
         }
     }
 
+    // MARK: - Flow surface pieces
+
+    /// Object title (panel) per DESIGN.md: 500 · 28 / 1.2 · −0.02em, inline-editable — "no input
+    /// chrome at rest; violet wash on hover; wash + ring on focus." Touch has no hover, so the
+    /// wash/ring both key off `titleFocused` here.
+    private var titleField: some View {
+        // Deliberately single-line (no `axis: .vertical`) — a vertical-axis `TextField` renders
+        // as a `UITextView` under the hood, which `testEditSmoke`'s tap-then-`typeText` helper
+        // (`clearField`/`replaceText`) proved live doesn't reliably gain keyboard focus from a
+        // plain `.tap()` the way a single-line `UITextField` does ("Neither element nor any
+        // descendant has keyboard focus" — confirmed against this exact wrapper). A long title
+        // scrolls horizontally rather than wrapping to a second line; acceptable given the test
+        // contract this field must keep working under.
+        TextField("Untitled", text: titleBinding)
+            .font(StashType.panelTitle())
+            .stashTracking(-0.02, size: 28)
+            .foregroundStyle(StashColor.ink)
+            .textFieldStyle(.plain)
+            .focused($titleFocused)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(titleFocused ? StashColor.violet300.opacity(0.12) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
+                    .strokeBorder(titleFocused ? StashColor.violet300 : Color.clear, lineWidth: 2)
+            )
+            .accessibilityIdentifier("detail.title")
+    }
+
+    private var descriptionField: some View {
+        TextField("Add a description…", text: descriptionBinding, axis: .vertical)
+            .font(StashType.body())
+            .foregroundStyle(StashColor.muted)
+            .textFieldStyle(.plain)
+            .focused($descriptionFocused)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(descriptionFocused ? StashColor.violet300.opacity(0.08) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
+                    .strokeBorder(descriptionFocused ? StashColor.violet300 : Color.clear, lineWidth: 2)
+            )
+            .accessibilityIdentifier("detail.description")
+    }
+
+    /// Contained hero, radius 16 + card shadow — image items only (video/audio players are out of
+    /// scope for this task; "as today" per the brief, and today there are none).
     private func heroImage(_ url: URL) -> some View {
         AsyncImage(url: url) { phase in
             if case .success(let image) = phase {
@@ -108,32 +175,75 @@ struct ItemDetailView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .frame(maxHeight: 384)
+        .clipShape(RoundedRectangle(cornerRadius: StashRadius.card, style: .continuous))
+        .stashCardShadow()
         .accessibilityIdentifier("detail.heroImage")
     }
 
-    private var deleteSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(role: .destructive) {
-                showDeleteConfirm = true
-            } label: {
-                if isDeleting {
-                    ProgressView().frame(maxWidth: .infinity)
-                } else {
-                    Label("Delete Item", systemImage: "trash").frame(maxWidth: .infinity)
-                }
+    private var hairline: some View {
+        Rectangle().fill(StashColor.hairline).frame(height: 1)
+    }
+
+    /// The iOS close affordance — a hairline circle × top-trailing, matching the web sheet's own
+    /// close button, in place of the former toolbar "Done".
+    private var closeButton: some View {
+        Button { dismiss() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(StashColor.muted)
+                .frame(width: 28, height: 28)
+                .background(StashColor.paper, in: Circle())
+                .overlay(Circle().strokeBorder(StashColor.hairline, lineWidth: 1))
+        }
+        .padding(14)
+        .accessibilityLabel("Close")
+        .accessibilityIdentifier("detail.done")
+    }
+
+    /// Pinned footer bar (hairline top): "Delete item" left, autosave status right — port of
+    /// `EditItemSheet.tsx`'s footer.
+    private var footerBar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                deleteButton
+                Spacer()
+                autosaveLabel
             }
-            .buttonStyle(.bordered)
-            .tint(.red)
-            .disabled(isDeleting)
-            .accessibilityIdentifier("detail.delete")
             if let deleteErrorMessage {
                 Text(deleteErrorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(StashType.meta())
+                    .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("detail.deleteError")
             }
         }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 10)
+        .background(StashColor.paper)
+        .overlay(alignment: .top) { hairline }
+    }
+
+    private var deleteButton: some View {
+        Button {
+            showDeleteConfirm = true
+        } label: {
+            if isDeleting {
+                ProgressView()
+            } else {
+                Label("Delete item", systemImage: "trash")
+                    .font(StashType.meta())
+            }
+        }
+        .foregroundStyle(StashColor.destructive)
+        .disabled(isDeleting)
+        .accessibilityIdentifier("detail.delete")
+    }
+
+    @ViewBuilder private var autosaveLabel: some View {
+        Text(saveStatus == .saving ? "Saving…" : "Changes saved automatically")
+            .font(StashType.meta())
+            .foregroundStyle(StashColor.faint)
+            .accessibilityIdentifier("detail.autosave")
     }
 
     // MARK: - Field bindings (title/description autosave)

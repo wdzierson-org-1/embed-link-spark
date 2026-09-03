@@ -1,11 +1,14 @@
 import SwiftUI
 import StashKit
 
-/// The content section: a segmented `Picker` over `contentTabsConfig(for:).tabs`, with each
-/// tab's body (or its empty-state copy) driven straight off the current `Item`. `.summary`
-/// and `.notes` read fields the grid already loaded; `.original`/`.transcript` read
-/// `pageBody`, which only arrives after `ItemDetailView`'s on-appear detail fetch — while
-/// that's in flight, those two tabs show a spinner instead of a premature empty state.
+/// The content section: DESIGN.md's panel-section grammar (uppercase micro-label — "NOTES &
+/// SUMMARY" / "NOTES & TRANSCRIPT" / "NOTES" per `contentTabsConfig(for:).title` — over a
+/// hairline rule) with `PillTabs` alongside it when the type has more than one tab, then the
+/// active tab's body. `.summary`/`.original`/`.transcript` render through `MarkdownBlocksView`
+/// when `MarkdownBlocks.looksLikeMarkdown` says the text is worth parsing as markdown, else plain
+/// body text — port of the web's `EditItemContentSection.tsx` `ReadOnlyText`/`looksLikeMarkdown`
+/// split. `.notes` keeps the existing TipTap renderer (`NotesAppendComposer` renders alongside it,
+/// gated in `ItemDetailView`, same as before this task).
 ///
 /// Legacy `Attachments` section (Task 8): `collection`-type items predate the single-object model
 /// (Global Constraints: never created going forward) and carry no `content`/notes of their own
@@ -18,17 +21,12 @@ struct ItemDetailContent: View {
     @Binding var selectedTab: ContentTabKey
     let isLoadingDetail: Bool
 
-    private var tabs: [ContentTab] { contentTabsConfig(for: item.type).tabs }
+    private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
+    private var tabs: [ContentTab] { config.tabs }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Picker("Content", selection: $selectedTab) {
-                ForEach(tabs, id: \.key) { tab in
-                    Text(tab.label).tag(tab.key)
-                }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("detail.tabPicker")
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHead
 
             tabBody(for: selectedTab)
 
@@ -38,11 +36,34 @@ struct ItemDetailContent: View {
         }
     }
 
+    /// Micro-label on its own line, tabs (when there's more than one) on the line below — the
+    /// web packs both onto one row (`SectionHead`'s `aside`), but its pills are a much narrower
+    /// unstyled-track style; this task's brief calls for the sign-in-style wash-track pill
+    /// (`PillTabs`), which needs more room than a phone-width row shared with the label leaves —
+    /// confirmed live (three tabs wrapped mid-word at 393pt when squeezed onto the label's row).
+    private var sectionHead: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(config.title.uppercased())
+                .font(StashType.microLabel())
+                .stashTracking(0.11, size: 11)
+                .foregroundStyle(StashColor.faint)
+            if tabs.count > 1 {
+                let pillItems = tabs.map { PillTabs<ContentTabKey>.Item($0.key, label: $0.label) }
+                PillTabs(items: pillItems, selection: $selectedTab)
+                    .accessibilityIdentifier("detail.tabs")
+            }
+        }
+        .padding(.bottom, 7)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(StashColor.hairline).frame(height: 1)
+        }
+    }
+
     private var attachmentsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Attachments")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(StashColor.muted)
+                .foregroundStyle(.secondary)
             CollectionStrip(itemId: item.id)
         }
         .accessibilityIdentifier("detail.attachments")
@@ -56,56 +77,50 @@ struct ItemDetailContent: View {
         } else {
             switch tab {
             case .summary:
-                textBlock(item.summary, empty: "No summary yet — generate one on the web for now",
-                          id: "detail.summaryText")
+                readOnlyBlock(item.summary, empty: "No summary yet — generate one on the web for now",
+                              id: "detail.summaryText")
             case .original:
-                originalBlock
+                readOnlyBlock(item.pageBody, empty: "Nothing captured yet", id: "detail.originalText")
             case .transcript:
-                textBlock(item.pageBody, empty: "Transcription in progress…", id: "detail.transcriptText")
+                readOnlyBlock(item.pageBody, empty: "Transcription in progress…", id: "detail.transcriptText")
             case .notes:
                 notesBlock
             }
         }
     }
 
-    private func textBlock(_ text: String?, empty: String, id: String) -> some View {
+    /// Shared by Summary/Original/Transcript: renders through `MarkdownBlocksView` when the text
+    /// looks like markdown, else as plain body text — never literal `- `/`**` syntax.
+    private func readOnlyBlock(_ text: String?, empty: String, id: String) -> some View {
         Group {
             if let text, !text.isEmpty {
-                Text(text)
+                if MarkdownBlocks.looksLikeMarkdown(text) {
+                    MarkdownBlocksView(text: text)
+                } else {
+                    Text(text)
+                        .font(StashType.body())
+                        .foregroundStyle(StashColor.ink)
+                        .lineSpacing(14 * 0.55)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
-                Text(empty).foregroundStyle(StashColor.muted)
+                Text(empty)
+                    .font(StashType.body())
+                    .foregroundStyle(StashColor.faint)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier(id)
     }
 
-    /// Scrollable + monospaced-ish, independent of the sheet's own outer scroll — captured
-    /// source pages can run tens of KB, so this tab gets its own bounded, scrolling frame.
-    private var originalBlock: some View {
-        Group {
-            if let body = item.pageBody, !body.isEmpty {
-                ScrollView {
-                    Text(body)
-                        .font(.system(.footnote, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 320)
-            } else {
-                Text("Nothing captured yet")
-                    .foregroundStyle(StashColor.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .accessibilityIdentifier("detail.originalText")
-    }
-
     private var notesBlock: some View {
         Group {
             if let content = item.content, !content.isEmpty {
                 Text(renderTipTap(content))
+                    .font(StashType.body())
+                    .foregroundStyle(StashColor.ink)
             } else {
-                Text("No notes yet").foregroundStyle(StashColor.muted)
+                Text("No notes yet").font(StashType.body()).foregroundStyle(StashColor.faint)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

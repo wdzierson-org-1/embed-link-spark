@@ -301,11 +301,15 @@ final class StashUITests: XCTestCase {
         openAndCheck(search: "link one", expectedTabs: ["Summary", "Original Content", "Notes"],
                      forbiddenTabs: ["Transcript"], checkpoint: "link")
 
-        openAndCheck(search: "note one", expectedTabs: ["Notes"],
-                     forbiddenTabs: ["Summary", "Original Content", "Transcript"], checkpoint: "text")
+        // Plan 7 Task 6: pill tabs only render when a type has more than one
+        // (`ItemDetailContent.sectionHead`, web parity — `EditItemContentSection.tsx`'s own
+        // `config.tabs.length > 1` gate). Single-"Notes"-tab types (text/image) now show the
+        // "NOTES" micro-label with no tab buttons at all, not a lone "Notes" button.
+        openAndCheck(search: "note one", expectedTabs: [],
+                     forbiddenTabs: ["Summary", "Original Content", "Transcript", "Notes"], checkpoint: "text")
 
-        openAndCheck(search: "image one", expectedTabs: ["Notes"],
-                     forbiddenTabs: ["Summary", "Original Content", "Transcript"], checkpoint: "image")
+        openAndCheck(search: "image one", expectedTabs: [],
+                     forbiddenTabs: ["Summary", "Original Content", "Transcript", "Notes"], checkpoint: "image")
 
         openAndCheck(search: "audio one", expectedTabs: ["Notes", "Transcript"],
                      forbiddenTabs: ["Summary", "Original Content"], checkpoint: "audio") {
@@ -661,18 +665,16 @@ final class StashUITests: XCTestCase {
                       "Expected no results for the deleted item's marker search after deletion")
     }
 
-    /// Tags manager + public toggle/sticky-note lifecycle (Task 9), exercised against the
-    /// permanent `UITEST-FIXTURE: note two` fixture — a different fixture than testEditSmoke's
-    /// "note one" so the two tests' mutations never land on the same row. Leaves the fixture
-    /// exactly as found: the "plan2-smoke" tag is added then removed (item_tags row count
-    /// restored to its pre-test baseline, REST-verified in the shell after this test), and
-    /// public/sticky are toggled on then off (`is_public`/`supplemental_note` restored to
-    /// false/nil, also REST-verified). Note one's "ios-test" tag is never touched by this test.
+    /// Public toggle/sticky-note lifecycle (Task 9), exercised against the permanent
+    /// `UITEST-FIXTURE: note two` fixture — a different fixture than testEditSmoke's "note one"
+    /// so the two tests' mutations never land on the same row. Leaves the fixture exactly as
+    /// found: public/sticky are toggled on then off (`is_public`/`supplemental_note` restored to
+    /// false/nil, REST-verified in the shell after this test).
     ///
-    /// This is also the live proof of `increment_tag_usage`'s scalar-UUID RPC decode
-    /// (`SupabaseItemPatcher.addTag`, flagged as untested against a live server in
-    /// task-6-report.md) — the tag-add step below only passes end-to-end if that decode is
-    /// actually correct, since a decode failure would throw before the chip ever renders.
+    /// Plan 7 Task 6 retired the tags manager UI (`DESIGN.md` — "No tag UI on cards or panel");
+    /// this test's own tag-add/remove steps (`detail.tags.*`) were removed with it — `tags` data
+    /// itself is untouched server-side, just no longer surfaced in this sheet (see
+    /// `testDetailSheetAnatomy`'s own assertion that `detail.tags.input` is gone).
     func testTagsAndPublicSmoke() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -690,26 +692,6 @@ final class StashUITests: XCTestCase {
         card0().tap()
 
         XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
-
-        // --- Tags: add "plan2-smoke" (return-to-submit), assert the chip appears, remove it
-        // (tap-to-remove — the whole chip is the remove control, see ItemTagsSection.swift),
-        // assert it's gone. ---
-        let tagInput = anyElement("detail.tags.input")
-        XCTAssertTrue(tagInput.waitForExistence(timeout: 10), "Tag input field not found")
-        tagInput.tap()
-        tagInput.typeText("plan2-smoke\n")
-
-        let tagChip = app.buttons["detail.tags.chip.plan2-smoke"]
-        XCTAssertTrue(tagChip.waitForExistence(timeout: 15),
-                      "Expected the 'plan2-smoke' tag chip to appear after adding")
-
-        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: tags\n".data(using: .utf8)!)
-        sleep(3)
-
-        tagChip.tap()
-        let chipGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: tagChip)
-        XCTAssertEqual(XCTWaiter().wait(for: [chipGone], timeout: 15), .completed,
-                       "Expected the tag chip to disappear after removal")
 
         // --- Public toggle ON, sticky note text, toggle OFF (un-share confirm since a sticky
         // note is now present), assert the sticky field disappears once confirmed. ---
@@ -1650,5 +1632,58 @@ final class StashUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(anyElement("ask.input").waitForExistence(timeout: 10),
                       "Expected the Ask thread after popping Conversations")
+    }
+
+    /// Plan 7 Task 6: the item detail sheet rebuilt to DESIGN.md's detail-panel anatomy — eyebrow
+    /// (type pill + domain), URL bar (replacing the old blue "Open Link" button), pill content
+    /// tabs, and the autosave footer caption. Exercised against the permanent "UITEST-FIXTURE:
+    /// link one" fixture (`example.com`, per `docs/superpowers/plans/2026-08-17-
+    /// ios-plan-4-object-parity.md`'s fixture table) — a link item, so every element under test
+    /// (eyebrow domain, URL bar, the three-tab Summary/Original Content/Notes config) applies.
+    /// Also asserts the retired tags UI is gone: no `detail.tags.input` anywhere in the sheet.
+    func testDetailSheetAnatomy() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        let searchField = app.textFields["library.search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        searchField.tap()
+        searchField.typeText("link one")
+        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'link one'")
+        card0().tap()
+
+        XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
+
+        let eyebrow = anyElement("detail.eyebrow")
+        XCTAssertTrue(eyebrow.waitForExistence(timeout: 10), "Eyebrow not found")
+        XCTAssertTrue(eyebrow.label.contains("LINK"), "Expected the eyebrow to read the type LINK, got '\(eyebrow.label)'")
+        XCTAssertTrue(eyebrow.label.contains("example.com"),
+                      "Expected the eyebrow to include the domain 'example.com', got '\(eyebrow.label)'")
+
+        let urlBar = anyElement("detail.urlBar")
+        XCTAssertTrue(urlBar.waitForExistence(timeout: 10), "URL bar not found")
+
+        for label in ["Summary", "Original Content", "Notes"] {
+            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "Expected a '\(label)' tab")
+        }
+        XCTAssertTrue(anyElement("detail.tabs").exists, "Expected the pill-tabs container")
+
+        let autosave = anyElement("detail.autosave")
+        XCTAssertTrue(autosave.waitForExistence(timeout: 10), "Autosave caption not found")
+        XCTAssertEqual(autosave.label, "Changes saved automatically",
+                       "Expected the resting autosave caption, got '\(autosave.label)'")
+
+        XCTAssertFalse(anyElement("detail.tags.input").exists, "Expected the retired tags UI to be gone")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: detail-anatomy-link\n".data(using: .utf8)!)
+        sleep(3)
+
+        app.buttons["detail.done"].tap()
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
     }
 }

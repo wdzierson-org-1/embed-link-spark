@@ -17,6 +17,18 @@ public func domainOf(_ url: String?) -> String {
     return lowercasedHost.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
 }
 
+/// Google's favicon service — same URL shape the web's `EditItemLinkSection.tsx` hotlinks
+/// (`https://www.google.com/s2/favicons?domain=…&sz=32`). `sz=32` (not 16) so the image still
+/// looks crisp at 2x/3x on the 16pt detail-sheet URL bar. Returns nil for an empty/unparseable
+/// domain — callers fall back to no favicon rather than a broken image.
+public func faviconURL(for url: String?) -> URL? {
+    let domain = domainOf(url)
+    guard !domain.isEmpty else { return nil }
+    var components = URLComponents(string: "https://www.google.com/s2/favicons")!
+    components.queryItems = [URLQueryItem(name: "domain", value: domain), URLQueryItem(name: "sz", value: "32")]
+    return components.url
+}
+
 /// Extracts the owner and repo name from a GitHub or GitLab URL.
 /// Returns nil if the URL is not a valid repo URL (e.g., it's a product page or not a GitHub/GitLab URL).
 public func repoPath(_ url: String?) -> (owner: String, repo: String)? {

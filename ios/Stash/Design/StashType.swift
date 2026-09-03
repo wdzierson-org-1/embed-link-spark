@@ -35,6 +35,15 @@ enum StashType {
     /// Body / description: 400 · 14.
     static func body() -> Font { custom("PPNeueMontreal-Book", size: 14, weight: .regular) }
 
+    /// Body at Medium weight (500) — for callers that need a bolder body-sized face than
+    /// `.fontWeight(.semibold)` over the Book face can reliably synthesize (a fixed-weight custom
+    /// font may not bolden). Default size matches `body()`; callers may override.
+    static func bodyMedium(_ size: CGFloat = 14) -> Font { custom("PPNeueMontreal-Medium", size: size, weight: .medium) }
+
+    /// Body at Semibold weight (600) — same reasoning as `bodyMedium`, for heading-weight body
+    /// text (e.g. `MarkdownBlocksView`'s `##` headings, the panel title's field label).
+    static func bodySemibold(_ size: CGFloat = 14) -> Font { custom("PPNeueMontreal-Semibold", size: size, weight: .semibold) }
+
     /// User annotation: 400 italic · 14.
     static func bodyItalic() -> Font {
         isNeueMontrealAvailable ? .custom("PPNeueMontreal-BookItalic", size: 14) : .system(size: 14, weight: .regular).italic()
