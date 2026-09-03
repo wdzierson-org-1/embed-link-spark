@@ -52,6 +52,15 @@ struct ItemDetailView: View {
     @State private var isLoadingDetail = false
     @FocusState private var titleFocused: Bool
     @FocusState private var descriptionFocused: Bool
+    /// Backs `NotesEditor`'s `TextEditor` (Plan 8 Task 5) — declared here, not inside `NotesEditor`
+    /// itself, and threaded down through `ItemDetailContent` as a `FocusState<Bool>.Binding`: a
+    /// `.toolbar(placement: .keyboard)` attached several levels deep inside this sheet's
+    /// `ScrollView`/`ItemDetailContent`'s tab-switch `@ViewBuilder` never actually registered its
+    /// accessory (confirmed live — `detail.dismissKeyboard` never appeared, even right after
+    /// focusing). Hoisting both the `@FocusState` and the `.toolbar` itself up to this view's own
+    /// top level (same depth `titleFocused`/`descriptionFocused` already live at) — see `body`'s
+    /// own `NavigationStack` wrap below — fixed it.
+    @FocusState private var notesFocused: Bool
 
     init(item: Item, store: ItemStore) {
         _item = State(initialValue: item)
@@ -61,68 +70,90 @@ struct ItemDetailView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
-            // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
-            // ScrollView's own laid-out frame — it only nudges the CONTENT's scroll offset limits
-            // — so the ScrollView's outer frame (what XCUITest and any other hit-testing consults
-            // to decide "is this element already on screen") still nominally extends the full
-            // sheet height, footer included; short content (e.g. Details/Sharing on an item with
-            // little else) then rests visually under the pinned footer even though its element is
-            // reported "within bounds". A true sibling makes the ScrollView's frame stop exactly
-            // where the footer begins, so nothing can ever land behind it.
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        DetailEyebrow(item: item)
-                        titleField
-                        descriptionField
-                        if item.type == .image, let url = item.thumbnailURL {
-                            heroImage(url)
-                        }
-                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
-                            DetailURLBar(urlString: urlString)
-                        }
-                        ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail)
-                        // Gated to the Notes tab (rather than always-visible below every tab) so it
-                        // reads as "here's how you add to what you're looking at" instead of a
-                        // floating control under unrelated Summary/Original/Transcript content.
-                        if selectedTab == .notes {
-                            NotesAppendComposer(item: item, editor: editor, onSaved: handleSaved)
-                        }
+        // `NavigationStack` wrap (Plan 8 Task 5, no navigation chrome of its own — hidden via
+        // `.toolbar(.hidden, for: .navigationBar)` below, since this sheet already has its own
+        // custom `closeButton`, not a system back/close bar item): required for
+        // `.toolbar(placement: .keyboard)` to actually register an accessory at all inside a
+        // `.sheet(item:)` presentation — confirmed live, moving the toolbar to this view's own
+        // top level (this file's prior state, no `NavigationStack`) was NOT sufficient on its own;
+        // `CaptureComposerView`'s identical-looking `.toolbar(placement: .keyboard)` works without
+        // one only because it's a plain `TabView` tab, never presented modally.
+        NavigationStack {
+            ZStack(alignment: .topTrailing) {
+                // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
+                // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
+                // ScrollView's own laid-out frame — it only nudges the CONTENT's scroll offset
+                // limits — so the ScrollView's outer frame (what XCUITest and any other hit-testing
+                // consults to decide "is this element already on screen") still nominally extends
+                // the full sheet height, footer included; short content (e.g. Details/Sharing on an
+                // item with little else) then rests visually under the pinned footer even though
+                // its element is reported "within bounds". A true sibling makes the ScrollView's
+                // frame stop exactly where the footer begins, so nothing can ever land behind it.
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            DetailEyebrow(item: item)
+                            titleField
+                            descriptionField
+                            if item.type == .image, let url = item.thumbnailURL {
+                                heroImage(url)
+                            }
+                            if item.type == .link, let urlString = item.url, !urlString.isEmpty {
+                                DetailURLBar(urlString: urlString)
+                            }
+                            ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
+                                              editor: editor, saveStatus: $saveStatus, notesFocused: $notesFocused,
+                                              onSaved: handleSaved)
 
-                        hairline
+                            hairline
 
-                        DetailsDrawer(item: item, attributes: attributesBinding)
+                            DetailsDrawer(item: item, attributes: attributesBinding)
 
-                        SharingSection(item: item, editor: editor,
-                                        supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
+                            SharingSection(item: item, editor: editor,
+                                            supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 44)
+                        .padding(.bottom, 24)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 44)
-                    .padding(.bottom, 24)
+                    footerBar
                 }
-                footerBar
-            }
-            .background(StashColor.paper.ignoresSafeArea())
+                .background(StashColor.paper.ignoresSafeArea())
 
-            closeButton
-        }
-        .presentationCornerRadius(StashRadius.sheet)
-        .task { await loadDetailIfNeeded() }
-        .onChange(of: store.items) { _, items in
-            guard let updated = items.first(where: { $0.id == item.id }) else { return }
-            adopt(updated)
-        }
-        .onDisappear {
-            // Deleting already dismisses (and there's nothing left server-side to PATCH).
-            guard !isDeleted else { return }
-            Task { await saveChangedFields() }
-        }
-        .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
-                             titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await performDelete() } }
-            Button("Cancel", role: .cancel) {}
+                closeButton
+            }
+            .presentationCornerRadius(StashRadius.sheet)
+            // `NotesEditor`'s keyboard-minimize accessory (same control Task 3 gave the capture
+            // composer) — see `notesFocused`'s doc comment above for why this lives here, at the
+            // top level, rather than on `NotesEditor` itself.
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button {
+                        notesFocused = false
+                    } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                    }
+                    .accessibilityIdentifier("detail.dismissKeyboard")
+                    .accessibilityLabel("Hide keyboard")
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
+            .task { await loadDetailIfNeeded() }
+            .onChange(of: store.items) { _, items in
+                guard let updated = items.first(where: { $0.id == item.id }) else { return }
+                adopt(updated)
+            }
+            .onDisappear {
+                // Deleting already dismisses (and there's nothing left server-side to PATCH).
+                guard !isDeleted else { return }
+                Task { await saveChangedFields() }
+            }
+            .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
+                                 titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { Task { await performDelete() } }
+                Button("Cancel", role: .cancel) {}
+            }
         }
     }
 

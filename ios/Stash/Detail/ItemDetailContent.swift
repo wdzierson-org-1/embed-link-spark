@@ -7,8 +7,9 @@ import StashKit
 /// active tab's body. `.summary`/`.original`/`.transcript` render through `MarkdownBlocksView`
 /// when `MarkdownBlocks.looksLikeMarkdown` says the text is worth parsing as markdown, else plain
 /// body text — port of the web's `EditItemContentSection.tsx` `ReadOnlyText`/`looksLikeMarkdown`
-/// split. `.notes` keeps the existing TipTap renderer (`NotesAppendComposer` renders alongside it,
-/// gated in `ItemDetailView`, same as before this task).
+/// split. `.notes` (Plan 8 Task 5) hands off entirely to `NotesEditor`, which owns both the
+/// read-only TipTap render (rich notes) and the inline autosaving field (plain notes fully, rich
+/// notes as an append draft) — no separate composer alongside it anymore.
 ///
 /// Legacy `Attachments` section (Task 8): `collection`-type items predate the single-object model
 /// (Global Constraints: never created going forward) and carry no `content`/notes of their own
@@ -20,6 +21,10 @@ struct ItemDetailContent: View {
     let item: Item
     @Binding var selectedTab: ContentTabKey
     let isLoadingDetail: Bool
+    let editor: ItemEditor
+    @Binding var saveStatus: SaveStatus
+    var notesFocused: FocusState<Bool>.Binding
+    var onSaved: (Item) -> Void
 
     private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
     private var tabs: [ContentTab] { config.tabs }
@@ -85,7 +90,8 @@ struct ItemDetailContent: View {
             case .transcript:
                 readOnlyBlock(item.pageBody, empty: "Transcription in progress…", id: "detail.transcriptText")
             case .notes:
-                notesBlock
+                NotesEditor(item: item, editor: editor, saveStatus: $saveStatus, isFocused: notesFocused,
+                            onSaved: onSaved)
             }
         }
     }
@@ -112,19 +118,5 @@ struct ItemDetailContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier(id)
-    }
-
-    private var notesBlock: some View {
-        Group {
-            if let content = item.content, !content.isEmpty {
-                Text(renderTipTap(content))
-                    .font(StashType.body())
-                    .foregroundStyle(StashColor.ink)
-            } else {
-                Text("No notes yet").font(StashType.body()).foregroundStyle(StashColor.faint)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("detail.notesText")
     }
 }

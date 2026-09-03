@@ -178,6 +178,33 @@ final class StashUITests: XCTestCase {
         }
     }
 
+    /// REST fetch of "UITEST-FIXTURE: note one*"'s current `content` — same LIKE-prefix title
+    /// match as `restoreNoteOneFixtureToCanonical` above (robust to a still-mutated title from a
+    /// prior crash). Used by `testEditSmoke`'s notes step to verify the inline editor's autosave
+    /// actually landed server-side, not just in the UI.
+    private func fetchNoteOneContent(email: String, password: String) async throws -> String {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [
+                    URLQueryItem(name: "title", value: "like.UITEST-FIXTURE: note one*"),
+                    URLQueryItem(name: "select", value: "content"),
+                ]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "note-one content fetch failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let row = rows.first, let content = row["content"] as? String
+        else {
+            throw FixtureRepairError("note-one content fetch returned no rows")
+        }
+        return content
+    }
+
     /// Signs into the real View tab and exercises the grid, type chip, search, and sign-out
     /// against production data. Element types for custom-identifier views (grid/cards) are
     /// looked up type-agnostically since SwiftUI doesn't guarantee a stable XCUIElementType
@@ -599,26 +626,61 @@ final class StashUITests: XCTestCase {
         XCTAssertEqual(reopenedTitleField.value as? String, editedTitle,
                        "Expected the edited title to have persisted across dismiss/reopen")
 
-        // Notes append.
+        // Notes autosave (Plan 8 Task 5: inline editor replaces the old append composer).
+        // "note one"'s fixture content is plain text (not TipTap JSON), so the editor shows it in
+        // full, directly editable. `app.textViews[...]` (not the file's usual `anyElement` helper)
+        // — same reasoning `capture.dismissKeyboard` documents above: this view's own
+        // `.toolbar(placement: .keyboard)` accessory renders an extra non-interactive "other"
+        // container that inherits the same identifier, so `descendants(matching: .any)` can match
+        // that instead of the real, focusable `UITextView`.
+        //
+        // Typing directly after `.tap()` reliably SPLIT the marker across two positions when
+        // typed straight into this non-empty multi-line `TextEditor` — confirmed live, and
+        // independent of every one of this view's own modifiers (reproduced with autosave,
+        // `.focused`, and the keyboard toolbar each individually disabled in turn): the first
+        // couple characters landed at the tap point, then the rest jumped to the very end, as if
+        // the field's selection settled mid-type. A short throwaway keystroke right after the tap,
+        // followed by a brief pause, reliably absorbs whatever that settle is before the real
+        // marker types — same shape as `clearField`'s own multi-round tap warm-up above (which
+        // masked the same underlying issue without ever actually managing to delete anything).
+        // Since this test only needs the marker to land SOMEWHERE in the saved content (the REST
+        // check below), not at a specific position, an extra throwaway character ahead of it is
+        // harmless.
         let noteMarker = "appended-\(epoch)"
-        let notesField = anyElement("detail.notesComposer.field")
-        XCTAssertTrue(notesField.waitForExistence(timeout: 10), "Notes composer field not found")
+        let notesField = app.textViews["detail.notes.editor"]
+        XCTAssertTrue(notesField.waitForExistence(timeout: 10), "Notes editor field not found")
         notesField.tap()
+        XCTAssertTrue(app.buttons["detail.dismissKeyboard"].waitForExistence(timeout: 5),
+                      "Expected the keyboard-minimize accessory once the notes editor is focused")
+        notesField.typeText("x")
+        sleep(1)
         notesField.typeText(noteMarker)
-        app.buttons["detail.notesComposer.add"].tap()
 
-        let notesText = anyElement("detail.notesText")
-        XCTAssertTrue(notesText.waitForExistence(timeout: 10), "Notes text not found")
-        let notesAppeared = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label CONTAINS %@", noteMarker), object: notesText)
-        XCTAssertEqual(XCTWaiter().wait(for: [notesAppeared], timeout: 10), .completed,
-                       "Expected the appended note to render in Notes")
+        // Debounce is 600ms; give the save round trip margin, then wait for the footer to settle
+        // back on its resting caption (same "Changes saved automatically" the title edit above
+        // relies on) before REST-verifying the save actually landed server-side.
+        sleep(2)
+        let autosave = anyElement("detail.autosave")
+        let savedCaption = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Changes saved automatically"), object: autosave)
+        XCTAssertEqual(XCTWaiter().wait(for: [savedCaption], timeout: 10), .completed,
+                       "Expected the autosave footer to settle after the notes edit")
+
+        // Screenshot rig (same checkpoint technique as testDetailSheets/the "edit" checkpoint
+        // above): holds here, notes editor populated and autosave settled, for an external
+        // `xcrun simctl io <udid> screenshot`.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: notes\n".data(using: .utf8)!)
+        sleep(3)
+
+        let savedContent = try await fetchNoteOneContent(email: email, password: password)
+        XCTAssertTrue(savedContent.contains(noteMarker),
+                      "Expected 'note one's saved content to contain '\(noteMarker)', got '\(savedContent)'")
 
         // Restore: back to exactly the canonical fixture title. Content stays mutated after this
-        // test (the notes-append step above can only ever ADD a paragraph — no in-app undo) —
-        // cleaned up either by an explicit REST PATCH in the shell right after this run, or
-        // automatically by the NEXT run's own restore-first pre-flight (top of this test) if
-        // that shell step is ever skipped, or this run crashes before reaching it.
+        // test (the notes step above can only ever grow the note — no in-app undo) — cleaned up
+        // either by an explicit REST PATCH in the shell right after this run, or automatically by
+        // the NEXT run's own restore-first pre-flight (top of this test) if that shell step is
+        // ever skipped, or this run crashes before reaching it.
         replaceText(reopenedTitleField, placeholder: "Untitled", with: originalTitle)
         XCTAssertEqual(reopenedTitleField.value as? String, originalTitle,
                        "Expected the title to be restored to exactly the original fixture title")
