@@ -64,7 +64,8 @@ struct ShareComposeView: View {
                         // Still one tappable button under the SAME "share.cancel" identifier the
                         // UI tests drive — only the visual changed (round icon vs. bar text).
                         Button(action: cancel) {
-                            CircleIcon(systemImage: "xmark", size: 36)
+                            // Will's note: "remove the gray stroke from the X button."
+                            CircleIcon(systemImage: "xmark", size: 36, bordered: false)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Cancel")
@@ -79,10 +80,24 @@ struct ShareComposeView: View {
                     case .noSession:
                         noSessionView
                     case .ready, .saving:
-                        composeBody
+                        // Plan 11: the larger hero preview + a note field that can grow to 4 lines
+                        // can now exceed the card's visible height — scrolls beneath the pinned
+                        // Save bar below instead of clipping.
+                        ScrollView {
+                            composeBody
+                        }
                     case .done(let message):
                         doneView(message)
                     }
+                }
+            }
+            // Plan 11: "make the 'save' button full size ... and pin it to the bottom of the
+            // screen." A safe-area inset (not an overlay) so `composeBody`'s ScrollView content
+            // never sits underneath it, and so the system's automatic keyboard avoidance pushes it
+            // up along with everything else rather than leaving it stranded behind the keyboard.
+            .safeAreaInset(edge: .bottom) {
+                if showsSaveBar {
+                    pinnedSaveBar
                 }
             }
         }
@@ -93,6 +108,13 @@ struct ShareComposeView: View {
         switch phase {
         case .saving, .done: return false
         case .loading, .noSession, .ready: return true
+        }
+    }
+
+    private var showsSaveBar: Bool {
+        switch phase {
+        case .ready, .saving: return true
+        case .loading, .noSession, .done: return false
         }
     }
 
@@ -199,7 +221,8 @@ struct ShareComposeView: View {
             }
             // Still a vertical-axis TextField (bridges to a UITextView — the UI tests reach it as
             // `textViews["share.note"]`); only `.roundedBorder` swapped for the hairline card.
-            TextField("Add a note…", text: $note, axis: .vertical)
+            // Will's note: "make the 'add a note' text 'optional note...'" — identifier unchanged.
+            TextField("Optional note…", text: $note, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...4)
                 .padding(.horizontal, 14)
@@ -209,15 +232,19 @@ struct ShareComposeView: View {
             if case .ready(let location) = locationCapture.state {
                 pinPreview(location.label)
             }
-            HStack {
-                if !pinHidden { pinButton }
-                Spacer()
-                saveButton
+            // Save moved to the pinned full-width bar (`pinnedSaveBar`, `.safeAreaInset` on the
+            // body) — this row is just the location pin now, and only renders once there's
+            // something in it.
+            if !pinHidden {
+                HStack {
+                    pinButton
+                    Spacer()
+                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 24)
     }
 
     /// Fix round 1 (Important review finding): "user shared N things, we present M < N — say so."
@@ -302,23 +329,35 @@ struct ShareComposeView: View {
     /// one live would add a network dependency (and a visible delay) to a card whose whole point is
     /// an instant, offline-safe preview; disclosed simplification, not an oversight. The glyph
     /// wears the app's violet toggled-circle treatment (`CircleIcon`'s active state) instead of
-    /// the stock blue SF Symbol.
+    /// the stock blue SF Symbol. Plan 11 "preview larger": full-width card, a bigger favicon
+    /// circle, and a title/domain stack — there's no real per-site title in this extension (no
+    /// network round trip for it, same reasoning as the favicon), so "title" is still the shared
+    /// URL text itself; "domain" is a derived second line so the card reads as more than one flat
+    /// string.
     private func urlPreview(_ url: String, extraCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: "link")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(StashColor.violet600)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 32, height: 32)
                     .background(StashColor.violet600.opacity(0.12), in: Circle())
                     .overlay(Circle().strokeBorder(StashColor.violet300, lineWidth: 1))
-                // Leaf-level identifier — see `doneView`'s doc comment for why this container
-                // doesn't use `.accessibilityElement(children: .ignore)`.
-                Text(url)
-                    .font(StashType.body())
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .accessibilityIdentifier("share.preview.url")
+                VStack(alignment: .leading, spacing: 2) {
+                    // Leaf-level identifier — see `doneView`'s doc comment for why this container
+                    // doesn't use `.accessibilityElement(children: .ignore)`.
+                    Text(url)
+                        .font(StashType.body())
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .accessibilityIdentifier("share.preview.url")
+                    if let domain = domain(from: url) {
+                        Text(domain)
+                            .font(StashType.meta())
+                            .foregroundStyle(StashColor.muted)
+                            .lineLimit(1)
+                    }
+                }
             }
             if extraCount > 0 {
                 Text("+ \(extraCount) more item\(extraCount == 1 ? "" : "s")")
@@ -327,9 +366,19 @@ struct ShareComposeView: View {
                     .padding(.leading, 44)
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hairlineCard()
+    }
+
+    /// Best-effort host for the domain line above — `URLComponents` needs a scheme to populate
+    /// `.host`; every real share from Safari/etc. already has one (`https://…`), but a bare
+    /// scheme-less string (e.g. typed straight into a test) is retried once with `https://`
+    /// prepended rather than just showing nothing.
+    private func domain(from urlString: String) -> String? {
+        if let host = URLComponents(string: urlString)?.host, !host.isEmpty { return host }
+        if let host = URLComponents(string: "https://\(urlString)")?.host, !host.isEmpty { return host }
+        return nil
     }
 
     private func textPreview(_ text: String) -> some View {
@@ -342,13 +391,60 @@ struct ShareComposeView: View {
             .accessibilityIdentifier("share.preview.text")
     }
 
+    private typealias StagedFile = (url: URL, mimeType: String, fileName: String?)
+
+    /// Plan 11 "preview larger": if the first staged item is an image, it gets a full-width hero
+    /// (`heroImage`) instead of just another 44pt tile; anything shared alongside it (or a
+    /// non-image first item) keeps the original compact row (`compactFileRow`) — "+N" overflow
+    /// pattern unchanged.
     private var filesPreview: some View {
-        let fileObjects: [(url: URL, mimeType: String, fileName: String?)] = objects.compactMap {
+        let fileObjects: [StagedFile] = objects.compactMap {
             if case .file(let url, let mimeType, let fileName, _) = $0 { return (url, mimeType, fileName) }
             return nil
         }
-        let visible = Array(fileObjects.prefix(4))
-        let overflow = fileObjects.count - visible.count
+        return VStack(alignment: .leading, spacing: 10) {
+            if let first = fileObjects.first, first.mimeType.hasPrefix("image/") {
+                heroImage(url: first.url)
+                let rest = Array(fileObjects.dropFirst())
+                if !rest.isEmpty {
+                    compactFileRow(rest)
+                }
+            } else {
+                compactFileRow(fileObjects)
+            }
+        }
+        .accessibilityIdentifier("share.preview.files")
+    }
+
+    /// The bounded pixel budget for the hero decode below — same `CGImageSourceCreateThumbnailAtIndex`
+    /// primitive as `makeThumbnail`'s 88pt compact tiles, just requested at a bigger target size.
+    /// ImageIO's thumbnail generator downsamples DURING decode, so memory stays bounded to this
+    /// requested size regardless of the source file's own resolution — a 12MP photo costs the same
+    /// as a 1200x1200 one here. 900px covers the widest current device at 3x scale with headroom;
+    /// the extension's ~120MB budget holds even for several of these in a row (900² × 4 bytes ≈
+    /// 3.2MB per decode, released once `UIImage` goes out of scope).
+    private static let heroMaxPixel: CGFloat = 900
+
+    /// Full-content-width, aspect-fit hero for the first staged image — mirrors the detail sheet's
+    /// own hero treatment (`StashRadius.card` + `.stashCardShadow()`, no hairline/fill card behind
+    /// it; the image itself is the whole surface). Never decodes the original file whole — see
+    /// `heroMaxPixel`'s doc comment.
+    @ViewBuilder
+    private func heroImage(url: URL) -> some View {
+        if let thumbnail = makeThumbnail(url: url, maxPixel: Self.heroMaxPixel) {
+            Image(uiImage: thumbnail)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .frame(maxHeight: UIScreen.main.bounds.height * 0.45)
+                .clipShape(RoundedRectangle(cornerRadius: StashRadius.card))
+                .stashCardShadow()
+        }
+    }
+
+    private func compactFileRow(_ files: [StagedFile]) -> some View {
+        let visible = Array(files.prefix(4))
+        let overflow = files.count - visible.count
         return HStack(spacing: 8) {
             ForEach(Array(visible.enumerated()), id: \.offset) { _, file in
                 fileThumb(url: file.url, mimeType: file.mimeType, fileName: file.fileName)
@@ -365,7 +461,6 @@ struct ShareComposeView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hairlineCard()
-        .accessibilityIdentifier("share.preview.files")
     }
 
     @ViewBuilder
@@ -451,7 +546,13 @@ struct ShareComposeView: View {
 
     // MARK: - Save / Cancel
 
-    private var saveButton: some View {
+    /// Will's note: "make the 'save' button full size (standard iOS guidance) and pin it to the
+    /// bottom of the screen." Full-width (screen minus 20pt margins), 52pt tall, `StashRadius.input`,
+    /// always violet — unlike the old capsule's white/gray resting split, standard iOS full-width
+    /// buttons read their disabled state as reduced opacity, not a color swap, so this one dims
+    /// instead: still visible (never hidden) while the gate/empty-share disables it, per Global
+    /// Constraints. `share.save` identifier moved here from the old inline capsule.
+    private var pinnedSaveBar: some View {
         Button {
             Task { await save() }
         } label: {
@@ -459,28 +560,25 @@ struct ShareComposeView: View {
                 if phase == .saving {
                     ProgressView().tint(.white)
                 } else {
-                    Text("Save").font(StashType.bodySemibold())
+                    Text("Save").font(StashType.bodyMedium(17))
                 }
             }
-            .frame(minWidth: 64)
-            .frame(height: 44)
-            .padding(.horizontal, 14)
-            .foregroundStyle(saveIsHot ? .white : StashColor.faint)
-            .background(saveIsHot ? StashColor.violet600 : StashColor.paper, in: Capsule())
-            .overlay(Capsule().strokeBorder(saveIsHot ? StashColor.violet600 : StashColor.hairline, lineWidth: 1))
-            .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .foregroundStyle(.white)
+            .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: StashRadius.input))
+            .opacity(canSubmit || phase == .saving ? 1 : 0.4)
         }
         .buttonStyle(.plain)
-        .disabled(phase == .saving || !canAddContent || objects.isEmpty)
+        .disabled(phase == .saving || !canSubmit)
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .background(StashColor.paper)
         .accessibilityIdentifier("share.save")
     }
 
-    /// `CircleSubmitIcon`'s weighted/resting split, stretched into a capsule (a share card wants
-    /// the word "Save", not a paperplane): violet-filled while a tap would actually save — and
-    /// while the save runs, so the spinner sits on violet — the resting white/gray capsule
-    /// otherwise, never dimmed (web: `disabled:opacity-100`).
-    private var saveIsHot: Bool {
-        phase == .saving || (canAddContent && !objects.isEmpty)
+    private var canSubmit: Bool {
+        canAddContent && !objects.isEmpty
     }
 
     /// Global Constraints "submit() waits ≤2.5s on .resolving" budget — same number
@@ -536,12 +634,15 @@ struct ShareComposeView: View {
 
     private func doneView(_ message: String) -> some View {
         VStack(spacing: 12) {
+            // Will's note: "make the background color of the 'will save' / 'saved' icon
+            // purple / green." Saved (direct send) is `success` (green); queued/will-sync is
+            // `violet-600` — an active/in-progress state, not a distinct intent, so it reuses the
+            // interactive color rather than minting another token.
             Image(systemName: message == "Saved to Stash" ? "checkmark" : "clock.arrow.circlepath")
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 64, height: 64)
-                // .orange has no DESIGN.md token yet.
-                .background(message == "Saved to Stash" ? AnyShapeStyle(StashColor.violet600) : AnyShapeStyle(.orange), in: Circle())
+                .background(message == "Saved to Stash" ? StashColor.success : StashColor.violet600, in: Circle())
                 .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
             // Identifier lives on this LEAF `Text`, not the container. First attempt put
             // `.accessibilityElement(children: .ignore)` + an explicit label on the VStack instead
@@ -590,13 +691,15 @@ struct ShareComposeView: View {
 // MARK: - Hairline card (the design system's rectangular sibling of CircleIcon's circle)
 
 private extension View {
-    /// Solid background on a gray hairline with a soft shadow — the same treatment `CircleIcon`
-    /// gives its circles, applied to every rectangular surface on this card (previews, note
-    /// field) so the whole card reads as one family instead of stock `.roundedBorder` chrome.
+    /// Solid background with a soft shadow, applied to every rectangular surface on this card
+    /// (previews, note field) so the whole card reads as one family instead of stock
+    /// `.roundedBorder` chrome. Will's note: "remove the gray stroke around the cards" — the
+    /// hairline border this used to draw is gone; fill + shadow alone now carry the separation.
+    /// (The amber gate strip's own `gateBorder` stroke is a DIFFERENT, intentionally-unchanged
+    /// element — it doesn't use this helper.)
     func hairlineCard() -> some View {
         self
             .background(StashColor.paper, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(StashColor.hairline, lineWidth: 1))
             .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
     }
 }

@@ -25,6 +25,10 @@ enum StashColor {
     static let violet600 = Color(hex: 0x6D5BD0)
     static let violet300 = Color(hex: 0xB6A8EF)
     static let destructive = Color(hex: 0xC93A3A)
+    /// DESIGN.md §Color "Intent colors" (2026-09-04, plan 11) — first legitimate need for a
+    /// green: confirmation icons/labels (share-sheet "Saved to Stash" outcome, Ask's saved-chip
+    /// caption). Muted, ink-compatible — not a stock system green.
+    static let success = Color(hex: 0x2F9E63)
 
     /// `.animated-gradient`'s six stops, in order (web `src/index.css`; DESIGN.md §Color "Page
     /// wash gradient"). DESIGN.md sanctions the splash gradient only in page washes — this
@@ -192,6 +196,9 @@ struct CircleIcon: View {
     var size: CGFloat = 40
     var active = false
     var busy = false
+    /// Plan 11: "remove the gray stroke from the X button" (share-sheet close only) — every other
+    /// `CircleIcon` call site keeps its hairline/violet border by default; this is the one opt-out.
+    var bordered = true
 
     var body: some View {
         ZStack {
@@ -205,7 +212,11 @@ struct CircleIcon: View {
         .frame(width: size, height: size)
         .foregroundStyle(active ? StashColor.violet600 : StashColor.ink)
         .background(active ? StashColor.violet600.opacity(0.12) : StashColor.paper, in: Circle())
-        .overlay(Circle().strokeBorder(active ? StashColor.violet300 : StashColor.hairline, lineWidth: 1))
+        .overlay {
+            if bordered {
+                Circle().strokeBorder(active ? StashColor.violet300 : StashColor.hairline, lineWidth: 1)
+            }
+        }
         .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
     }
 }

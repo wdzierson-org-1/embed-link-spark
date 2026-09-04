@@ -97,6 +97,13 @@ Intent colors:
 | `violet-600` | `#6d5bd0` | interactive: links, active pills, switches-on, focus |
 | `violet-300` | `#b6a8ef` | focus rings, annotation bar |
 | destructive | `#c93a3a` | delete, irreversible |
+| `success` | `#2f9e63` | confirmation icons/labels (e.g. "Saved to Stash") |
+
+**`success`** — *2026-09-04 (plan 11): new token, first legitimate need for a green —* web should
+adopt for its own confirmation states. iOS `StashColor.success`; used on the share sheet's
+"Saved to Stash" outcome icon and Ask's saved-chip "Saved to your stash" caption (both previously
+a bare `.green`/system color with no token). The "will sync" (queued/offline) outcome icon uses
+`violet-600`, not a new color — it's an active/in-progress state, not a distinct intent.
 
 **Type spectrum** — flat tints at ~11–12% alpha over white for fields/chips,
 with one saturated accent per type for controls. Color encodes the object's

@@ -58,8 +58,7 @@ struct ChatBubble: View {
                     .lineLimit(1)
                     .accessibilityIdentifier("ask.bubble.\(index)")
                 if !isSaving {
-                    // .green has no DESIGN.md token yet.
-                    Text("Saved to your stash").font(StashType.meta()).foregroundStyle(.green)
+                    Text("Saved to your stash").font(StashType.meta()).foregroundStyle(StashColor.success)
                 }
             }
             Spacer(minLength: 0)
