@@ -1,4 +1,7 @@
 import SwiftUI
+import UIKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 /// The iOS side of the cross-surface design system — DESIGN.md (repo root) is the single source
 /// of truth for every token here; when this file and DESIGN.md disagree, DESIGN.md wins and both
@@ -270,38 +273,143 @@ extension StashHeader where Accessory == EmptyView {
 /// banding, drifting slowly back and forth over 15s. Always paired with a fade-to-background
 /// overlay by `GradientBackdrop`. Palette unchanged by the DESIGN.md token pass — the page wash
 /// is a sanctioned exception.
+///
+/// Plan-10 task 1 ("animated white box" bug): this used to be a live `LinearGradient` with
+/// `.blur(radius: 40)` then `.drawingGroup()` to cache the blur's cost across the 15s
+/// `repeatForever` drift. Reproduced on iOS 17.0 and 17.4 simulators (not on 17.2/17.5/18.5/26.5
+/// in the same pass — genuinely environment-dependent): a hard-edged rectangle of raw background
+/// white sat where blurred gradient should be, moving with the drift. Root-cause probe (isolating
+/// each modifier alone) showed NEITHER `.blur` alone NOR `.drawingGroup()` alone reproduced it —
+/// only the combination did. `.drawingGroup()` rasterizes into an offscreen Metal texture sized
+/// from the view's pre-effect layout bounds; `.blur`'s visual bleed extends past those bounds, and
+/// on some simulator GPU/driver paths the offscreen buffer doesn't grow to cover that bleed, so
+/// the un-rasterized remainder reads as transparent → background white. Rather than ship a fix
+/// that depends on which GPU/OS renders it, the blur is now precomputed entirely off SwiftUI's
+/// rasterizer: `UIGraphicsImageRenderer` draws the 2×-canvas linear gradient with `CGGradient`,
+/// `CIGaussianBlur` blurs it once into a plain `UIImage` (rendered at 1x — it's a blur, so pixel
+/// density doesn't matter, and `.resizable().interpolation(.high)` upscales it losslessly-enough
+/// for a soft wash), and the drift animation only ever translates that static bitmap. No live
+/// `.blur`, no `.drawingGroup()` — nothing left in the pipeline whose rasterization bounds could
+/// disagree with its visual bounds.
+///
+/// The image is looked up (and, the first time for a given size, rendered) directly in `body` —
+/// deliberately NOT behind `.onAppear`/`.onChange(of:)`. An early version gated the render behind
+/// those lifecycle hooks and turned out to be its own new source of nondeterminism: on a cold
+/// launch straight into a screen using this view (e.g. the Add tab immediately after sign-in),
+/// `onAppear` sometimes silently never fired for this `GeometryReader`-nested view, leaving
+/// `image` `nil` forever with no error — the same "white box" symptom the drawingGroup/blur bug
+/// produced, from an unrelated cause. `body` is a pure, cheap function of `geo.size` once the
+/// per-size cache is warm (`cachedGradientImage` returns immediately on a hit), so computing it
+/// inline removes that whole class of "did the hook fire" question — every `body` evaluation
+/// (rare: SwiftUI interpolates the `.offset` animation itself, it does not replay `body` per
+/// frame) recomputes the answer from scratch rather than trusting stale `@State`.
 struct AnimatedGradient: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drift = false
+    @State private var startedAnimating = false
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
-            LinearGradient(colors: StashColor.gradientStops,
-                           startPoint: .bottomLeading, endPoint: .topTrailing)
-                .frame(width: w * 2, height: h * 2)
-                .blur(radius: 40)
-                // `.drawingGroup()` (final wave, item E/10): rasterizes the blurred gradient into
-                // a single flattened layer ONCE, right after the blur — the drift animation below
-                // then just translates that cached bitmap every frame instead of re-running the
-                // (expensive) blur filter over the full 2×-canvas gradient on every frame of a
-                // 15s-long `repeatForever` animation. Visually identical; purely a render-cost fix.
-                .drawingGroup()
-                // The 2× canvas always overhangs the viewport, so this diagonal drift never
-                // exposes a blurred edge — see the offset-bounds note above `drift`'s range.
-                .offset(x: drift ? -w * 0.25 : -w * 0.75,
-                        y: drift ? -h * 0.75 : -h * 0.25)
-                .onAppear {
-                    guard !reduceMotion else { return }
-                    withAnimation(.easeInOut(duration: 15).repeatForever(autoreverses: true)) {
-                        drift = true
-                    }
+            Group {
+                if let img = Self.cachedGradientImage(forViewSize: geo.size) {
+                    Image(uiImage: img)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: w * 2, height: h * 2)
+                        // The 2× canvas always overhangs the viewport, so this diagonal drift
+                        // never exposes a blurred edge — see the offset-bounds note above
+                        // `drift`'s range.
+                        .offset(x: drift ? -w * 0.25 : -w * 0.75,
+                                y: drift ? -h * 0.75 : -h * 0.25)
                 }
+            }
+            .onAppear {
+                // Only responsible for starting the drift animation — NOT for rendering (see the
+                // doc comment above on why that used to live here and why it moved into `body`).
+                guard !startedAnimating, !reduceMotion else { return }
+                startedAnimating = true
+                withAnimation(.easeInOut(duration: 15).repeatForever(autoreverses: true)) {
+                    drift = true
+                }
+            }
         }
         .clipped()
         .allowsHitTesting(false)
     }
+
+    /// `CGSize` itself only picks up `Hashable` on iOS 18+, so the cache key is this plain
+    /// width/height pair instead — deployment target here is iOS 17.
+    private struct CacheKey: Hashable {
+        let width: CGFloat
+        let height: CGFloat
+        init(_ size: CGSize) { width = size.width; height = size.height }
+    }
+
+    /// Per-size cache (keyed by the *view's* size, not the 2× canvas) — every `AnimatedGradient`
+    /// call site (SignInView, CaptureComposerView, SplashView, LibraryView, ShareComposeView) at
+    /// the same device size shares one rendered bitmap instead of each paying its own blur cost,
+    /// and repeat `body` evaluations at an already-seen size are a plain dictionary lookup.
+    @MainActor private static var cache: [CacheKey: UIImage] = [:]
+
+    @MainActor
+    private static func cachedGradientImage(forViewSize size: CGSize) -> UIImage? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        let key = CacheKey(size)
+        if let cached = cache[key] { return cached }
+        let canvasSize = CGSize(width: size.width * 2, height: size.height * 2)
+        guard let rendered = renderBlurredGradient(canvasSize: canvasSize) else { return nil }
+        cache[key] = rendered
+        return rendered
+    }
+
+    /// Draws the six-stop sweep (bottom-leading → top-trailing, matching the old `LinearGradient`
+    /// direction) into a plain `CGContext` at 1x scale, then blurs it once with Core Image's
+    /// `CIGaussianBlur` (radius 40, matching the old `.blur(radius: 40)`). The gradient is drawn
+    /// into a canvas padded by `blurRadius * 3` on every side — comfortably more than the ~0.25×
+    /// margin the drift animation already guarantees stays off-screen — and `drawsBeforeStart`/
+    /// `drawsAfterEnd` extend the end-stop colors flat into that padding, so `CIGaussianBlur`
+    /// always has real (non-transparent) content to sample from and the crop back to `canvasSize`
+    /// never exposes a blur-edge seam.
+    private static func renderBlurredGradient(canvasSize: CGSize) -> UIImage? {
+        let blurRadius: CGFloat = 40
+        let pad = blurRadius * 3
+        let paddedSize = CGSize(width: canvasSize.width + pad * 2, height: canvasSize.height + pad * 2)
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: paddedSize, format: format)
+
+        let cgColors = StashColor.gradientStops.map { UIColor($0).cgColor }
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let gradient = CGGradient(colorsSpace: colorSpace, colors: cgColors as CFArray, locations: nil)
+        else { return nil }
+
+        let paddedImage = renderer.image { ctx in
+            let cg = ctx.cgContext
+            UIColor.white.setFill()
+            cg.fill(CGRect(origin: .zero, size: paddedSize))
+            // bottomLeading → topTrailing in the unpadded canvas, offset into the padded canvas.
+            let start = CGPoint(x: pad, y: pad + canvasSize.height)
+            let end = CGPoint(x: pad + canvasSize.width, y: pad)
+            cg.drawLinearGradient(gradient, start: start, end: end,
+                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
+
+        let blur = CIFilter.gaussianBlur()
+        blur.inputImage = CIImage(image: paddedImage)
+        blur.radius = Float(blurRadius)
+        guard let blurred = blur.outputImage else { return nil }
+        let cropRect = CGRect(x: pad, y: pad, width: canvasSize.width, height: canvasSize.height)
+        guard let cgImage = sharedCIContext.createCGImage(blurred, from: cropRect) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    /// One `CIContext` reused across every size render (Metal device setup is the expensive part
+    /// of creating one — not worth repeating per call site/size).
+    private static let sharedCIContext = CIContext()
 }
 
 /// Page-level ambience (web Index.tsx:149-150): the animated gradient at low opacity, washed

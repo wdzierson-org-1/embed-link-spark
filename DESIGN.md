@@ -234,6 +234,8 @@ rest; violet wash on hover; wash + ring on focus.
   and share-sheet compose screens (`AnimatedGradient`/`GradientBackdrop` in
   `StashDesign.swift`), static under `accessibilityReduceMotion` the same
   way web's version is static under `prefers-reduced-motion`.*
+  *2026-09-04 (plan 10, task 1): iOS renders the blurred sweep to a static
+  image once per size (deterministic across GPUs); only the pan animates.*
 - The loading interstitial (`LoadingInterstitial.tsx`) is a quiet arc
   spinner: hairline grey track, violet-600 rounded-cap arc, 0.9s spin, on the
   plain grey wash. It shows for a split second — nothing on it should demand
