@@ -2004,15 +2004,21 @@ final class StashUITests: XCTestCase {
             XCTAssertEqual(chip.label, "pdf", "Expected the document fixture's type chip to read 'pdf', got '\(chip.label)'")
         }
 
-        // (a) Type chip absent: DESIGN.md "Photos, videos, and link covers use real imagery —
-        // no field, no tint" — `typeChip(for:)` returns nil for `.link`/`.video`, which covers
-        // both the repo-link and video-link fixtures (Task 9's own link-flavor fixtures).
+        // (a) Type chip present, NEUTRAL: plan 9 final wave — DESIGN.md "Photos, videos, and
+        // link covers use real imagery — no field, no tint" still holds (no TINTED chip / plate
+        // tint for these), but `typeChip(for:)` now emits a neutral `MetaChip` carrying the
+        // link's flavor label for every `.link`, so the repo-link and video-link fixtures (Task
+        // 9's own link-flavor fixtures) each get a leading `card.typeChip` reading their flavor.
         isolateAndCheck(search: "repo link") {
-            XCTAssertFalse(anyElement("card.typeChip").exists, "Expected no type chip for the repo-link fixture")
+            let chip = anyElement("card.typeChip")
+            XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a neutral type chip for the repo-link fixture")
+            XCTAssertEqual(chip.label, "repo", "Expected the repo-link fixture's type chip to read 'repo', got '\(chip.label)'")
         }
 
         isolateAndCheck(search: "video link") {
-            XCTAssertFalse(anyElement("card.typeChip").exists, "Expected no type chip for the video-link fixture")
+            let chip = anyElement("card.typeChip")
+            XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a neutral type chip for the video-link fixture")
+            XCTAssertEqual(chip.label, "video", "Expected the video-link fixture's type chip to read 'video', got '\(chip.label)'")
         }
 
         // The pill field spawns no system Cancel button (unlike `.searchable`), so the keyboard

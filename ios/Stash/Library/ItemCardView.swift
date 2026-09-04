@@ -6,11 +6,12 @@ import StashKit
 /// "Card anatomy" for the plan-9 token shell below). Anatomy, top to bottom: object zone
 /// (`CardHero.swift`) → kicker (links only) → serif title → description → the user's own
 /// annotation (violet bar, always visually distinct from description) → metadata chips (leading
-/// tinted type chip, `CardChips.swift`) → footer (date · location pin · type badge). Legacy
-/// `collection` items get a rich note + `CollectionStrip` instead of steps 2 (no kicker) through 6
-/// (no chips). Shows a shimmering redacted overlay while a document is still processing, and a
-/// yellow sticky-note corner badge when the item carries a public supplemental note — both
-/// unchanged from the pre-rework card.
+/// type chip — tinted or neutral, always present, `CardChips.swift` — then facts) → footer
+/// (date · location pin; plan 9 final wave dropped the footer's own type badge). Legacy
+/// `collection` items get a rich note + a leading "N items" chip + `CollectionStrip` instead of
+/// steps 2 (no kicker) through 5 (no annotation). Shows a shimmering redacted overlay while a
+/// document is still processing, and a yellow sticky-note corner badge when the item carries a
+/// public supplemental note — both unchanged from the pre-rework card.
 struct ItemCardView: View {
     let item: Item
 
@@ -138,11 +139,18 @@ struct ItemCardView: View {
 
     /// Text-type inversion (step 5): `content` IS the body (4-line clamp, no annotation
     /// treatment); `description` (the AI summary) shows only when there's no user content.
+    /// Plan 9 final wave: gained `chipsRow` too (web parity — `ContentItemContent.tsx`'s text
+    /// branch renders `typeChipFor(item)` unconditionally) now that `.text` earns a neutral
+    /// "note" chip; previously this branch (unlike `standardBody`) never called `chipsRow` at
+    /// all, which is why text cards showed no type identity until this wave.
     @ViewBuilder private var textBody: some View {
-        if !contentPlain.isEmpty {
-            Text(contentPlain).font(StashType.body()).foregroundStyle(.primary.opacity(0.85)).lineLimit(4)
-        } else if !descriptionPlain.isEmpty {
-            Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
+        VStack(alignment: .leading, spacing: 8) {
+            if !contentPlain.isEmpty {
+                Text(contentPlain).font(StashType.body()).foregroundStyle(.primary.opacity(0.85)).lineLimit(4)
+            } else if !descriptionPlain.isEmpty {
+                Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
+            }
+            chipsRow
         }
     }
 
@@ -161,6 +169,10 @@ struct ItemCardView: View {
     /// Legacy `collection`: rich note (`renderTipTap` of `content`, else plain-texted
     /// `description`) + the read-only attachment strip. Frozen design — never created going
     /// forward (Global Constraints); no fixture exercises this in this task's verification pass.
+    /// Plan 9 final wave: gained its own leading neutral chip ("N items") now that the footer's
+    /// `typeBadge` — the count's only home before this — is gone; built inline rather than
+    /// through `typeChip(for:)` since that free function has no access to this view's own
+    /// `collectionCount` state (populated asynchronously by `CollectionStrip`'s fetch below).
     private var collectionBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !contentPlain.isEmpty {
@@ -168,26 +180,39 @@ struct ItemCardView: View {
             } else if !descriptionPlain.isEmpty {
                 Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(2)
             }
+            MetaChip(text: collectionChipText).accessibilityIdentifier("card.typeChip")
             CollectionStrip(itemId: item.id) { collectionCount = $0 }
         }
     }
 
+    /// "N items" once the strip's own fetch reports a count — "items" bare until then. Same
+    /// copy the deleted footer `typeBadge` used to show (`typeBadgeLabel`'s old `.collection`
+    /// branch).
+    private var collectionChipText: String {
+        guard let collectionCount else { return "items" }
+        return "\(collectionCount) item\(collectionCount == 1 ? "" : "s")"
+    }
+
+    /// `FlowLayout` (Design/StashDesign.swift), not a plain `HStack`: a card can carry several
+    /// chips (leading type chip + facts + a salient fact) that must never squeeze the leading
+    /// type chip into truncation — this wraps to a second line under width pressure instead.
     @ViewBuilder private var chipsRow: some View {
         let chips = metadataChips
         if !chips.isEmpty {
-            HStack(spacing: 6) { ForEach(chips.indices, id: \.self) { chips[$0] } }
+            FlowLayout(spacing: 6) { ForEach(chips.indices, id: \.self) { chips[$0] } }
         }
     }
 
     /// Order matches DESIGN.md's chips grammar / web `ContentItemContent.tsx`'s chip build:
-    /// leading tinted type chip, then fileName, then facts, then duration.
+    /// leading type chip (tinted or neutral, always present for the types this row renders for),
+    /// then facts, then duration. The raw-filename mono chip (plan 9 final wave: dropped from
+    /// cards — DESIGN.md §Components "Chips grammar" "nothing else"; web removed it first) no
+    /// longer has a call site here — the filename still lives in the detail sheet's Details
+    /// drawer.
     private var metadataChips: [AnyView] {
         var chips: [AnyView] = []
         if let typeChip = typeChip(for: item) {
             chips.append(typeChip)
-        }
-        if [.image, .audio, .video].contains(item.type), let fileName = item.attributes.media?.fileName {
-            chips.append(AnyView(MetaChip(mono: true, text: fileName)))
         }
         if item.type != .document, item.type != .link,
            let facts = factsLine(mime: item.mimeType, size: item.fileSize) {
@@ -201,6 +226,10 @@ struct ItemCardView: View {
 
     // MARK: - Footer (step 7)
 
+    /// Plan 9 final wave: dropped its own trailing `typeBadge` — the card's type now surfaces up
+    /// in the chips row (`CardChips.swift`'s `typeChip(for:)`, tinted or neutral, on every card)
+    /// instead of down here, so the footer keeps only date + location, matching web's own footer
+    /// contents minus the desktop-only hover overflow control.
     private var footer: some View {
         HStack(spacing: 8) {
             Text(Self.footerDateFormatter.string(from: item.createdAt))
@@ -209,8 +238,6 @@ struct ItemCardView: View {
             if let label = item.attributes.location?.label, !label.isEmpty {
                 locationBadge(label)
             }
-            Spacer(minLength: 4)
-            typeBadge
         }
     }
 
@@ -229,37 +256,6 @@ struct ItemCardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("posted from \(label)")
         .accessibilityIdentifier("card.location")
-    }
-
-    private var typeBadge: some View {
-        Label(typeBadgeLabel, systemImage: typeIcon)
-            .font(StashType.chip())
-            .labelStyle(.titleAndIcon)
-            // Bug found live via Task 9's located-note fixture (first permanent fixture pairing
-            // a long `card.location` label with this badge in the same footer row): with neither
-            // `.lineLimit`/`.fixedSize` here, an HStack width squeeze (date + long location text
-            // + this badge exceeding the card's content width) fell entirely on this Label — the
-            // one sibling with no stated size preference — degrading to one-character-per-line
-            // vertical text ("t/e/x/t") instead of the intended horizontal pill. `locationBadge`
-            // already opts into graceful shrink-by-truncation (`.lineLimit(1)` + `maxWidth: 140`)
-            // for exactly this squeeze; this badge should instead hold its single-line size and
-            // never wrap, matching every other type name ("link"/"image"/"audio"/"video"/
-            // "document"/"collection"/"N items") which are equally short and equally unsuited to
-            // vertical wrapping.
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Color(.tertiarySystemFill), in: Capsule())
-            .foregroundStyle(StashColor.muted)
-    }
-
-    /// "N items" for collections (once the strip's own fetch reports a count — "items" bare
-    /// until then), else the plain type name. Always visible on iOS (no hover state to gate it).
-    private var typeBadgeLabel: String {
-        guard item.type == .collection else { return item.type.rawValue }
-        guard let collectionCount else { return "items" }
-        return "\(collectionCount) item\(collectionCount == 1 ? "" : "s")"
     }
 
     // MARK: - Plain-texted content/description (steps 4-5: never raw TipTap JSON on a card)
@@ -301,19 +297,6 @@ struct ItemCardView: View {
             withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
                 shimmerPhase = 1.6
             }
-        }
-    }
-
-    private var typeIcon: String {
-        switch item.type {
-        case .text: "note.text"
-        case .link: "link"
-        case .image: "photo"
-        case .audio: "waveform"
-        case .video: "video"
-        case .document: "doc.richtext"
-        case .collection: "folder"
-        case .unknown: "questionmark.square"
         }
     }
 }

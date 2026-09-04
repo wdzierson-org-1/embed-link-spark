@@ -21,8 +21,18 @@ final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        // DESIGN.md "Color scheme: light-only" (plan 9): Stash renders in the light palette
+        // only, regardless of the host app's (here, the sharing app's) system appearance. The
+        // main app pins this via `.preferredColorScheme(.light)` on its root SwiftUI scene, but
+        // this extension's SwiftUI content is hosted inside a `UIHostingController` embedded in
+        // another process's window hierarchy — trait propagation there isn't guaranteed the same
+        // way, so both the container view and the hosting controller's own view are locked at
+        // the UIKit trait level as a belt-and-suspenders match to the app's rule.
+        view.overrideUserInterfaceStyle = .light
+
         let compose = ShareComposeView(extensionContext: extensionContext, abandonTracker: abandonTracker)
         let hosting = UIHostingController(rootView: compose)
+        hosting.view.overrideUserInterfaceStyle = .light
         addChild(hosting)
         hosting.view.frame = view.bounds
         hosting.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]

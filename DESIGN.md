@@ -137,7 +137,9 @@ regardless of system appearance; web ships no dark stylesheet to toggle.
   nested card/box. Dotted rules appear *only* between facts rows.
 - **Composer card** (Add tab / homepage capture panel): radius **6px**,
   `white/90` background + backdrop blur. Idle shadow
-  `0 0 0 1px rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3)`. While
+  `0 0 0 1px rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3)`. *iOS:*
+  radius 12 / y 8 / `black@.14` + 1pt `black@.05` hairline — tempered because
+  SwiftUI shadows have no spread; do not "correct" the alpha to `.3`. While
   composing (focused or has content), a three-layer **violet-600**
   (`#6d5bd0`) focus ring — stroke @ .5, 6px halo @ .08, `0 24px 48px -20px`
   drop @ .35 — plus a 2px lift and 1.006 scale, spring transition (stiffness
@@ -166,8 +168,9 @@ favicon.*
 ## Components
 
 **Card anatomy** (top to bottom): hero → kicker (links: domain or author
-handle) → title (500) → description (muted, clamp 3) → annotation (violet bar,
-italic) → chips → footer (date left; overflow `more-horizontal` right).
+handle) → title (PP Editorial New 400 · 20/tight, 2-line clamp) → description
+(muted, clamp 3) → annotation (violet bar, italic) → chips → footer (date
+left; overflow `more-horizontal` right).
 
 **Cover crops are subject-aware.** A hero that `cover`-crops an image centres
 the crop on the detected subject, not the frame: sample the image (≤64px),

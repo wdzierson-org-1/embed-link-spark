@@ -3,10 +3,11 @@ import StashKit
 
 /// Shared pieces of the single-object card system (mirrors web `CardBits.tsx`). Anatomy on
 /// every card: object zone → kicker → title (serif) → description → user's annotation (violet
-/// bar) → metadata chips (leading tinted type chip, then neutral facts) → footer (date ·
-/// location · type badge). The formatter functions (`formatFileSizeChip`/`formatDurationChip`/
-/// `mimeExtensionLabel`) already live in StashKit's `CardMetadata.swift` (Task 4) — this file
-/// holds only the SwiftUI-facing pieces.
+/// bar) → metadata chips (leading type chip — tinted or neutral, always present — then facts) →
+/// footer (date · location; plan 9 final wave dropped the footer's own type badge, now that
+/// every card carries its type up in the chips row instead). The formatter functions
+/// (`formatFileSizeChip`/`formatDurationChip`/`mimeExtensionLabel`) already live in StashKit's
+/// `CardMetadata.swift` (Task 4) — this file holds only the SwiftUI-facing pieces.
 enum CardHeroHeight {
     /// Landscape imagery, plates — every populated hero zone that isn't `.tall`.
     static let standard: CGFloat = 160
@@ -95,8 +96,11 @@ struct TypeChip: View {
         Label(text, systemImage: systemImage)
             .labelStyle(.titleAndIcon)
             .font(StashType.chip())
-            // Same squeeze-proofing as the footer's `typeBadge` (ItemCardView) — a chip row that
-            // exceeds the card's content width must not degrade this into vertical text.
+            // A chip row that exceeds the card's content width must not degrade this into
+            // vertical text (the same squeeze-proofing the now-deleted footer `typeBadge`
+            // (ItemCardView) used to need) — the chips row's own `FlowLayout` (plan 9 final wave)
+            // handles the actual overflow by wrapping instead, but each individual chip still
+            // needs to hold its own single-line size within its row.
             .lineLimit(1)
             .fixedSize()
             .foregroundStyle(StashColor.typeText(tint))
@@ -137,16 +141,42 @@ func isSpreadsheetExt(_ ext: String?) -> Bool {
     ext == "XLSX" || ext == "XLS" || ext == "CSV"
 }
 
-/// The leading type chip for one item, or `nil` when its type doesn't earn one. Mirrors web
-/// `ContentItemContent.tsx`'s `typeChipFor` for the rows DESIGN.md's type-spectrum table tints
-/// (voice/recording, document/spreadsheet, screenshot) — copy kept verbatim, lowercase, matching
-/// web's own JSX literals (`TypeChip`'s `text-[11px] font-medium` carries no uppercase transform).
-/// `.image` (non-screenshot), `.video`, and `.link` get no chip here: DESIGN.md "Photos, videos,
-/// and link covers use real imagery — no field, no tint" — web's own `typeChipFor` renders those
-/// three as an untinted `MetaChip` (or nothing), never a tinted `TypeChip`; same for a `.link`
-/// item whose flavor happens to be `social` — the type-spectrum table's "social post" row has no
-/// live call site on web yet either (`CHIP_TINTS.social` is declared, never read), so this doesn't
-/// invent one.
+/// Web `LINK_FLAVOR_LABELS` (`ContentItemContent.tsx`), transcribed verbatim — `social` reads
+/// "post" (the label, not the raw flavor string), everything else round-trips its own name, and
+/// an unrecognized/missing flavor falls back to "link" (web's own `?? 'link'` default).
+private let linkFlavorLabels: [String: String] = [
+    "article": "article",
+    "video": "video",
+    "repo": "repo",
+    "book": "book",
+    "social": "post",
+    "generic": "link",
+]
+
+private func linkFlavorLabel(for item: Item) -> String {
+    linkFlavorLabels[item.attributes.link?.flavor ?? "generic"] ?? "link"
+}
+
+/// Plan 9 final wave: the untinted types now carry a neutral `MetaChip` in this same slot instead
+/// of `nil` (DESIGN.md/web parity — `typeChipFor`'s `MetaChip` branches for `photo`/`video`/
+/// `note`/link-flavor) — so the identifier that makes a chip queryable as THE card's leading type
+/// chip (`card.typeChip`) is applied HERE, at the one call site that fills that grammar slot, and
+/// NOT on `MetaChip` itself (reused elsewhere in the chips row — facts, duration — where that
+/// identifier must not appear).
+private func neutralTypeChip(_ text: String) -> some View {
+    MetaChip(text: text).accessibilityIdentifier("card.typeChip")
+}
+
+/// The leading type chip for one item. Mirrors web `ContentItemContent.tsx`'s `typeChipFor` for
+/// the rows DESIGN.md's type-spectrum table tints (voice/recording, document/spreadsheet,
+/// screenshot) — copy kept verbatim, lowercase, matching web's own JSX literals (`TypeChip`'s
+/// `text-[11px] font-medium` carries no uppercase transform) — plus, per DESIGN.md's chips
+/// grammar ("always-visible type chip first ... neutral for photo / note / video / link
+/// flavors"), a neutral `MetaChip` for the types that don't earn a tint: `.image` (non-
+/// screenshot) reads "photo", `.video` reads "video", `.text` reads "note", `.link` reads its
+/// flavor label. `.collection` (legacy, frozen design) and `.unknown` still return `nil` — the
+/// collection card builds its own "N items" chip inline (`ItemCardView.collectionBody`, needs
+/// `collectionCount` state this free function has no access to).
 func typeChip(for item: Item) -> AnyView? {
     switch item.type {
     case .audio:
@@ -161,9 +191,17 @@ func typeChip(for item: Item) -> AnyView? {
         }
         return AnyView(TypeChip(tint: .document, systemImage: "doc.fill", text: ext?.lowercased() ?? "document"))
     case .image:
-        guard isScreenshotItem(item) else { return nil }
-        return AnyView(TypeChip(tint: .screenshot, systemImage: "viewfinder", text: "screenshot"))
-    case .text, .link, .video, .collection, .unknown:
+        if isScreenshotItem(item) {
+            return AnyView(TypeChip(tint: .screenshot, systemImage: "viewfinder", text: "screenshot"))
+        }
+        return AnyView(neutralTypeChip("photo"))
+    case .video:
+        return AnyView(neutralTypeChip("video"))
+    case .text:
+        return AnyView(neutralTypeChip("note"))
+    case .link:
+        return AnyView(neutralTypeChip(linkFlavorLabel(for: item)))
+    case .collection, .unknown:
         return nil
     }
 }

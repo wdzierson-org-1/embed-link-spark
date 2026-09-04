@@ -49,7 +49,7 @@ struct ShareComposeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color(.systemBackground).ignoresSafeArea()
+            StashColor.paper.ignoresSafeArea()
             // Same page-level gradient ambience as the app's own composer (CaptureComposerView) —
             // the share card is a pocket edition of that surface, not an OS-default form. Replaces
             // the previous NavigationStack + inline "Stash" title; the wordmark header below is
@@ -153,7 +153,7 @@ struct ShareComposeView: View {
                 .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(StashColor.muted)
                 .frame(width: 64, height: 64)
-                .background(Color(.systemBackground), in: Circle())
+                .background(StashColor.paper, in: Circle())
                 .overlay(Circle().strokeBorder(StashColor.hairline, lineWidth: 1))
                 .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
             // Identifier lives on this LEAF `Text`, not the container (see `doneView`'s doc
@@ -264,6 +264,10 @@ struct ShareComposeView: View {
         .font(StashType.meta())
         .foregroundStyle(StashColor.gateText)
         .padding(.horizontal, 14)
+        // Full-width strip, matching the app's own `subscriptionGateMessage`
+        // (`CaptureComposerView.swift`) — placed BEFORE `.background`/`.overlay` so those size to
+        // this frame, not just the HStack's intrinsic content width.
+        .frame(maxWidth: .infinity, alignment: .leading)
         // Invariant (fix round 1): this -8pt overflow must stay < composeBody's own VStack
         // `spacing: 14` (line 181) — it must not visually reach far enough to overlap the
         // sibling above/below, only fill the breathing room that spacing already reserves.
@@ -353,7 +357,7 @@ struct ShareComposeView: View {
                 Text("+\(overflow)")
                     .font(StashType.bodySemibold(12))
                     .frame(width: 44, height: 44)
-                    .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                    .background(StashColor.wash, in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityIdentifier("share.preview.overflow")
             }
             Spacer(minLength: 0)
@@ -380,7 +384,7 @@ struct ShareComposeView: View {
                 }
             }
             .frame(width: 44, height: 44)
-            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+            .background(StashColor.wash, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
@@ -462,7 +466,7 @@ struct ShareComposeView: View {
             .frame(height: 44)
             .padding(.horizontal, 14)
             .foregroundStyle(saveIsHot ? .white : StashColor.faint)
-            .background(saveIsHot ? StashColor.violet600 : Color(.systemBackground), in: Capsule())
+            .background(saveIsHot ? StashColor.violet600 : StashColor.paper, in: Capsule())
             .overlay(Capsule().strokeBorder(saveIsHot ? StashColor.violet600 : StashColor.hairline, lineWidth: 1))
             .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
         }
@@ -591,7 +595,7 @@ private extension View {
     /// field) so the whole card reads as one family instead of stock `.roundedBorder` chrome.
     func hairlineCard() -> some View {
         self
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .background(StashColor.paper, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(StashColor.hairline, lineWidth: 1))
             .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
     }
