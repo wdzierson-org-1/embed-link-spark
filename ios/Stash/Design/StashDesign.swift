@@ -359,10 +359,7 @@ struct AnimatedGradient: View {
         let key = CacheKey(size)
         if let cached = cache[key] { return cached }
         let canvasSize = CGSize(width: size.width * 2, height: size.height * 2)
-        let __t0 = CFAbsoluteTimeGetCurrent()
         guard let rendered = renderBlurredGradient(canvasSize: canvasSize) else { return nil }
-        let __ms = (CFAbsoluteTimeGetCurrent() - __t0) * 1000
-        NSLog("REVIEW-TIMING AnimatedGradient render size=%@ canvas=%@ ms=%.2f", NSCoder.string(for: size), NSCoder.string(for: canvasSize), __ms)
         cache[key] = rendered
         return rendered
     }
