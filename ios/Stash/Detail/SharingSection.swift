@@ -37,18 +37,25 @@ struct SharingSection: View {
     private var feedURL: String? { PublicFeedURL.make(username: username) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            microLabel
-            statusRow
-            if item.isPublic {
-                feedLinkSection
-                stickyNoteField
-            }
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.destructive)
-                    .accessibilityIdentifier("detail.public.error")
+        // Outer spacing 0 — `SectionHeader` already carries its own top/bottom rhythm
+        // (`DetailLayout.section`/`.gap`); the original `spacing: 10` between the label and
+        // `statusRow` moves onto the inner group below instead, so it isn't double-counted on
+        // top of `SectionHeader`'s own bottom gap.
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(title: "SHARING")
+
+            VStack(alignment: .leading, spacing: 10) {
+                statusRow
+                if item.isPublic {
+                    feedLinkSection
+                    stickyNoteField
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(StashType.meta())
+                        .foregroundStyle(StashColor.destructive)
+                        .accessibilityIdentifier("detail.public.error")
+                }
             }
         }
         .task(id: item.isPublic) {
@@ -65,17 +72,6 @@ struct SharingSection: View {
     }
 
     // MARK: - Rows
-
-    private var microLabel: some View {
-        Text("SHARING")
-            .font(StashType.microLabel())
-            .stashTracking(0.11, size: 11)
-            .foregroundStyle(StashColor.faint)
-            .padding(.bottom, 7)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(StashColor.hairline).frame(height: 1)
-            }
-    }
 
     private var statusRow: some View {
         HStack(spacing: 12) {

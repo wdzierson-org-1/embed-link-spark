@@ -30,42 +30,39 @@ struct ItemDetailContent: View {
     private var tabs: [ContentTab] { config.tabs }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        // Outer spacing 0 — `sectionHead` is a `SectionHeader`, which already carries its own
+        // top/bottom rhythm (`DetailLayout.section`/`.gap`); a nonzero outer spacing here would
+        // double-count on top of that. `DetailLayout.gap` moves down onto the inner group instead,
+        // unchanged in value from this VStack's own spacing before this fix round.
+        VStack(alignment: .leading, spacing: 0) {
             sectionHead
 
-            tabBody(for: selectedTab)
+            VStack(alignment: .leading, spacing: DetailLayout.gap) {
+                tabBody(for: selectedTab)
 
-            if item.type == .collection {
-                attachmentsSection
+                if item.type == .collection {
+                    attachmentsSection
+                }
             }
         }
     }
 
-    /// Micro-label on its own line, tabs (when there's more than one) on the line below — the
-    /// web packs both onto one row (`SectionHead`'s `aside`), but its pills are a much narrower
-    /// unstyled-track style; this task's brief calls for the sign-in-style wash-track pill
-    /// (`PillTabs`), which needs more room than a phone-width row shared with the label leaves —
-    /// confirmed live (three tabs wrapped mid-word at 393pt when squeezed onto the label's row).
+    /// `SectionHeader`'s `accessory` slot (own full-width line below the label, above the rule) —
+    /// not `trailing` (inline with the label) — is what `PillTabs` needs here; see that type's own
+    /// doc comment for why (three tabs wrapped mid-word at 393pt when squeezed onto the label's
+    /// row, confirmed live pre-dating this fix round).
     private var sectionHead: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(config.title.uppercased())
-                .font(StashType.microLabel())
-                .stashTracking(0.11, size: 11)
-                .foregroundStyle(StashColor.faint)
+        SectionHeader(title: config.title, accessory: {
             if tabs.count > 1 {
                 let pillItems = tabs.map { PillTabs<ContentTabKey>.Item($0.key, label: $0.label) }
                 PillTabs(items: pillItems, selection: $selectedTab)
                     .accessibilityIdentifier("detail.tabs")
             }
-        }
-        .padding(.bottom, 7)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(StashColor.hairline).frame(height: 1)
-        }
+        })
     }
 
     private var attachmentsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DetailLayout.tight) {
             Text("Attachments".uppercased())
                 .font(StashType.microLabel())
                 .stashTracking(0.11, size: 11)

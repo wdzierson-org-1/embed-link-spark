@@ -125,28 +125,41 @@ struct ItemDetailView: View {
                 // frame stop exactly where the footer begins, so nothing can ever land behind it.
                 VStack(spacing: 0) {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
+                        // Outer spacing 0 (was 18 — a value that belonged to neither this fix
+                        // round's `DetailLayout.gap`(14)/`.section`(24) tier): every child below
+                        // now carries its own explicit top gap instead, so the sheet's rhythm
+                        // reads as one deliberate 14/24 scale rather than a flat 18 throughout.
+                        // `ItemDetailContent`/`DetailsDrawer`/`SharingSection` need none here —
+                        // each opens with a `SectionHeader`, which already supplies its own
+                        // `DetailLayout.section` gap above itself.
+                        VStack(alignment: .leading, spacing: 0) {
                             DetailEyebrow(item: item)
                             titleField
+                                .padding(.top, DetailLayout.gap)
                             descriptionField
+                                .padding(.top, DetailLayout.gap)
                             if item.type == .image, let url = item.thumbnailURL {
                                 heroImage(url)
+                                    .padding(.top, DetailLayout.gap)
                             }
                             if item.type == .link, let urlString = item.url, !urlString.isEmpty {
                                 DetailURLBar(urlString: urlString)
+                                    .padding(.top, DetailLayout.gap)
                             }
                             ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
                                               notesModel: notesModel, notesFocused: $focusedField,
                                               scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow)
 
-                            hairline
-
+                            // No standalone divider here anymore — `DetailsDrawer`'s own
+                            // `SectionHeader` ("DETAILS") already draws the hairline that used to
+                            // live on this ad-hoc `Rectangle`, right above its own label at the
+                            // same `DetailLayout.section` gap every other section uses.
                             DetailsDrawer(item: item, attributes: attributesBinding)
 
                             SharingSection(item: item, editor: editor,
                                             supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
                         }
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, DetailLayout.inset)
                         .padding(.top, 44)
                         .padding(.bottom, 24)
                     }
@@ -239,7 +252,8 @@ struct ItemDetailView: View {
                         in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                    .strokeBorder(focusedField == .title ? StashColor.violet300 : Color.clear, lineWidth: 2)
+                    // 1pt (was 2pt) — matches every other hairline/focus stroke on the sheet.
+                    .strokeBorder(focusedField == .title ? StashColor.violet300 : Color.clear, lineWidth: 1)
             )
             .accessibilityIdentifier("detail.title")
     }
@@ -248,6 +262,10 @@ struct ItemDetailView: View {
         TextField("Add a description…", text: descriptionBinding, axis: .vertical)
             .font(StashType.body())
             .foregroundStyle(StashColor.muted)
+            // Body line spacing (DESIGN.md "~1.55 at 14pt") — same delta `MarkdownBlocksView`'s
+            // paragraphs and the content tabs' plain-text fallback both already use, so the
+            // description reads at the same rhythm as the rest of the sheet's body text.
+            .lineSpacing(14 * 0.55)
             .textFieldStyle(.plain)
             .focused($focusedField, equals: .description)
             .padding(.horizontal, 6)
@@ -256,7 +274,8 @@ struct ItemDetailView: View {
                         in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                    .strokeBorder(focusedField == .description ? StashColor.violet300 : Color.clear, lineWidth: 2)
+                    // 1pt (was 2pt) — matches every other hairline/focus stroke on the sheet.
+                    .strokeBorder(focusedField == .description ? StashColor.violet300 : Color.clear, lineWidth: 1)
             )
             .accessibilityIdentifier("detail.description")
     }
@@ -322,7 +341,7 @@ struct ItemDetailView: View {
                     .accessibilityIdentifier("detail.deleteError")
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, DetailLayout.inset)
         .padding(.vertical, 10)
         .background(StashColor.paper)
         .overlay(alignment: .top) { hairline }

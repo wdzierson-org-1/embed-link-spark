@@ -51,28 +51,21 @@ struct DetailsDrawer: View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { isOpen.toggle() }
         } label: {
-            HStack(spacing: 8) {
-                Text("DETAILS")
-                    .font(StashType.microLabel())
-                    .stashTracking(0.11, size: 11)
-                    .foregroundStyle(StashColor.faint)
-                Spacer(minLength: 8)
-                if !isOpen, !summary.isEmpty {
-                    Text(summary)
-                        .font(StashType.meta())
+            SectionHeader(title: "DETAILS", trailing: {
+                HStack(spacing: 8) {
+                    if !isOpen, !summary.isEmpty {
+                        Text(summary)
+                            .font(StashType.meta())
+                            .foregroundStyle(StashColor.faint)
+                            .lineLimit(1)
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(StashColor.faint)
-                        .lineLimit(1)
+                        .rotationEffect(.degrees(isOpen ? 180 : 0))
+                        .accessibilityHidden(true)
                 }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(StashColor.faint)
-                    .rotationEffect(.degrees(isOpen ? 180 : 0))
-                    .accessibilityHidden(true)
-            }
-            .padding(.bottom, 7)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(StashColor.hairline).frame(height: 1)
-            }
+            })
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
