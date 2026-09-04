@@ -243,6 +243,11 @@ rest; violet wash on hover; wash + ring on focus.
   way web's version is static under `prefers-reduced-motion`.*
   *2026-09-04 (plan 10, task 1): iOS renders the blurred sweep to a static
   image once per size (deterministic across GPUs); only the pan animates.*
+  *2026-09-04 (plan 10, feedback round 2, task 1 hitch fix): that per-size
+  render is two-tier — an instant plain (unblurred) gradient paints the first
+  frame synchronously, the blurred version renders on a background queue and
+  crossfades in (~0.35s, hard swap under reduced motion) once ready, so the
+  blur's cost never lands on the first frame's main thread.*
 - The loading interstitial (`LoadingInterstitial.tsx`) is a quiet arc
   spinner: hairline grey track, violet-600 rounded-cap arc, 0.9s spin, on the
   plain grey wash. It shows for a split second — nothing on it should demand

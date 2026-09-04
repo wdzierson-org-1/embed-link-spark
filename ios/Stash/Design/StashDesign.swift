@@ -303,26 +303,63 @@ extension StashHeader where Accessory == EmptyView {
 /// inline removes that whole class of "did the hook fire" question — every `body` evaluation
 /// (rare: SwiftUI interpolates the `.offset` animation itself, it does not replay `body` per
 /// frame) recomputes the answer from scratch rather than trusting stale `@State`.
+///
+/// Plan-10 feedback round 2, task 1 hitch fix: the inline compute above was, on a cache miss,
+/// the *blurred* image — `CIGaussianBlur` over a 786×1704 (2× sign-in) canvas measured ~272ms on
+/// the main thread (41ms at composer size), and because it's the very first frame of a cold
+/// launch, that whole cost landed on the user before anything painted. Fixed with a two-tier
+/// render, both memoized per size exactly like before (still `@MainActor`-isolated statics, still
+/// synchronous, still computed directly in `body` — none of the onAppear-race reasoning above
+/// changes): tier one is a plain `CGGradient` draw with no blur, a few ms, so the first frame
+/// always has correct colors, in position, synchronously — no async gap where nothing has been
+/// drawn yet. Tier two is the same blurred render as before, now kicked to a background task
+/// (`Task.detached`) so its cost never touches the main thread; when it lands, `.task(id:)` hops
+/// back (implicitly, since it's the same MainActor-isolated context `.task` was created in) and
+/// swaps it in over the plain tier with a 0.35s opacity crossfade — both tiers share the same
+/// palette and direction, so the swap reads as the wash "settling in," not a jump cut. A cache
+/// hit on the blurred tier (any later `AnimatedGradient` at an already-rendered size) is read
+/// synchronously in `body` right alongside the plain-tier lookup, same as the pre-fix code — no
+/// flash, no re-render, no crossfade (there's no visible prior frame to fade from). Reduced motion
+/// skips the crossfade — the swap is a hard cut — but both tiers, the cache, and the background
+/// hop are otherwise identical.
 struct AnimatedGradient: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drift = false
     @State private var startedAnimating = false
+    /// The blurred tier once it's rendered (or read from cache) for *this* view instance's
+    /// current size — nil until then, at which point the plain tier is showing.
+    @State private var blurredImage: UIImage?
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
-            Group {
-                if let img = Self.cachedGradientImage(forViewSize: geo.size) {
-                    Image(uiImage: img)
+            let key = CacheKey(geo.size)
+            let plainImage = Self.cachedPlainGradientImage(forViewSize: geo.size)
+            // Synchronous cache read, same as the pre-fix code's only tier — if another call site
+            // already rendered this size's blur, this instance's very first frame shows it
+            // directly (no flash, no waiting on `.task`).
+            let blurredDisplay = blurredImage ?? Self.cachedBlurredGradientImage(forKey: key)
+            ZStack {
+                if let plainImage {
+                    Image(uiImage: plainImage)
                         .resizable()
                         .interpolation(.high)
                         .frame(width: w * 2, height: h * 2)
                         // The 2× canvas always overhangs the viewport, so this diagonal drift
-                        // never exposes a blurred edge — see the offset-bounds note above
-                        // `drift`'s range.
+                        // never exposes an edge — see the offset-bounds note above `drift`'s range.
                         .offset(x: drift ? -w * 0.25 : -w * 0.75,
                                 y: drift ? -h * 0.75 : -h * 0.25)
+                        .opacity(blurredDisplay == nil ? 1 : 0)
+                }
+                if let blurredDisplay {
+                    Image(uiImage: blurredDisplay)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: w * 2, height: h * 2)
+                        .offset(x: drift ? -w * 0.25 : -w * 0.75,
+                                y: drift ? -h * 0.75 : -h * 0.25)
+                        .opacity(1)
                 }
             }
             .onAppear {
@@ -334,9 +371,41 @@ struct AnimatedGradient: View {
                     drift = true
                 }
             }
+            .task(id: key) {
+                await loadBlurredImage(forKey: key, viewSize: geo.size)
+            }
         }
         .clipped()
         .allowsHitTesting(false)
+    }
+
+    /// Cache-hit fast path: adopt it into `@State` with no animation (nothing to crossfade from —
+    /// `body` already displayed it synchronously the moment this instance appeared). Cache-miss
+    /// path: render the blur off the main thread, store it, then swap it into `@State` — wrapped
+    /// in `withAnimation` unless reduced motion asks for a hard cut. `.task(id:)` is created
+    /// inside `body`, itself `@MainActor`-isolated (SwiftUI's `View.body` requirement), so this
+    /// whole `async` function runs on the main actor except for the explicit `Task.detached` hop
+    /// below — the only part of the pipeline that ever leaves it.
+    @MainActor
+    private func loadBlurredImage(forKey key: CacheKey, viewSize: CGSize) async {
+        guard viewSize.width > 0, viewSize.height > 0 else { return }
+        if let cached = Self.cachedBlurredGradientImage(forKey: key) {
+            blurredImage = cached
+            return
+        }
+        let canvasSize = CGSize(width: viewSize.width * 2, height: viewSize.height * 2)
+        let rendered = await Task.detached(priority: .userInitiated) {
+            Self.renderBlurredGradient(canvasSize: canvasSize)
+        }.value
+        guard let rendered else { return }
+        Self.storeBlurredGradientImage(rendered, forKey: key)
+        if reduceMotion {
+            blurredImage = rendered
+        } else {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                blurredImage = rendered
+            }
+        }
     }
 
     /// `CGSize` itself only picks up `Hashable` on iOS 18+, so the cache key is this plain
@@ -347,21 +416,65 @@ struct AnimatedGradient: View {
         init(_ size: CGSize) { width = size.width; height = size.height }
     }
 
-    /// Per-size cache (keyed by the *view's* size, not the 2× canvas) — every `AnimatedGradient`
+    /// Per-size caches (keyed by the *view's* size, not the 2× canvas) — every `AnimatedGradient`
     /// call site (SignInView, CaptureComposerView, SplashView, LibraryView, ShareComposeView) at
-    /// the same device size shares one rendered bitmap instead of each paying its own blur cost,
-    /// and repeat `body` evaluations at an already-seen size are a plain dictionary lookup.
-    @MainActor private static var cache: [CacheKey: UIImage] = [:]
+    /// the same device size shares one rendered bitmap per tier instead of each paying its own
+    /// render cost, and repeat lookups at an already-seen size are a plain dictionary read. Both
+    /// are `@MainActor`-isolated statics, touched only from `@MainActor`-isolated functions (never
+    /// from inside `Task.detached`), so actor isolation alone rules out data races — no lock/actor
+    /// type needed on top of it.
+    @MainActor private static var plainCache: [CacheKey: UIImage] = [:]
+    @MainActor private static var blurredCache: [CacheKey: UIImage] = [:]
 
+    /// Tier one: synchronous, cheap (plain `CGGradient`, no blur — a few ms even at sign-in size),
+    /// so `body` always has a correctly colored, correctly positioned first frame with no async
+    /// gap. Same six-stop palette and bottom-leading → top-trailing direction as the blurred tier,
+    /// so the later crossfade reads as a settling wash, not a jump cut.
     @MainActor
-    private static func cachedGradientImage(forViewSize size: CGSize) -> UIImage? {
+    private static func cachedPlainGradientImage(forViewSize size: CGSize) -> UIImage? {
         guard size.width > 0, size.height > 0 else { return nil }
         let key = CacheKey(size)
-        if let cached = cache[key] { return cached }
+        if let cached = plainCache[key] { return cached }
         let canvasSize = CGSize(width: size.width * 2, height: size.height * 2)
-        guard let rendered = renderBlurredGradient(canvasSize: canvasSize) else { return nil }
-        cache[key] = rendered
+        guard let rendered = renderPlainGradient(canvasSize: canvasSize) else { return nil }
+        plainCache[key] = rendered
         return rendered
+    }
+
+    @MainActor
+    private static func cachedBlurredGradientImage(forKey key: CacheKey) -> UIImage? {
+        blurredCache[key]
+    }
+
+    @MainActor
+    private static func storeBlurredGradientImage(_ image: UIImage, forKey key: CacheKey) {
+        blurredCache[key] = image
+    }
+
+    /// The un-blurred first-frame tier: same gradient draw as `renderBlurredGradient` minus the
+    /// padding (nothing to bleed-blur past the edge) and the `CIGaussianBlur` pass itself — that
+    /// filter is the entire ~272ms/41ms cost this fix exists to keep off the main thread's first
+    /// frame, so tier one never touches Core Image at all.
+    private static func renderPlainGradient(canvasSize: CGSize) -> UIImage? {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: canvasSize, format: format)
+
+        let cgColors = StashColor.gradientStops.map { UIColor($0).cgColor }
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let gradient = CGGradient(colorsSpace: colorSpace, colors: cgColors as CFArray, locations: nil)
+        else { return nil }
+
+        return renderer.image { ctx in
+            let cg = ctx.cgContext
+            // bottomLeading → topTrailing, matching `renderBlurredGradient`'s direction exactly so
+            // the two tiers' stops line up pixel-for-pixel during the crossfade.
+            let start = CGPoint(x: 0, y: canvasSize.height)
+            let end = CGPoint(x: canvasSize.width, y: 0)
+            cg.drawLinearGradient(gradient, start: start, end: end,
+                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+        }
     }
 
     /// Draws the six-stop sweep (bottom-leading → top-trailing, matching the old `LinearGradient`
@@ -372,7 +485,11 @@ struct AnimatedGradient: View {
     /// `drawsAfterEnd` extend the end-stop colors flat into that padding, so `CIGaussianBlur`
     /// always has real (non-transparent) content to sample from and the crop back to `canvasSize`
     /// never exposes a blur-edge seam.
-    private static func renderBlurredGradient(canvasSize: CGSize) -> UIImage? {
+    /// `nonisolated` — this is the piece the hitch fix moves off the main actor
+    /// (`Task.detached` in `loadBlurredImage`); it touches no actor-isolated state (`CIContext`,
+    /// `CGGradient`, `UIGraphicsImageRenderer` are all local/immutable), so it's safe to run on
+    /// any thread.
+    nonisolated private static func renderBlurredGradient(canvasSize: CGSize) -> UIImage? {
         let blurRadius: CGFloat = 40
         let pad = blurRadius * 3
         let paddedSize = CGSize(width: canvasSize.width + pad * 2, height: canvasSize.height + pad * 2)
@@ -409,7 +526,7 @@ struct AnimatedGradient: View {
 
     /// One `CIContext` reused across every size render (Metal device setup is the expensive part
     /// of creating one — not worth repeating per call site/size).
-    private static let sharedCIContext = CIContext()
+    nonisolated private static let sharedCIContext = CIContext()
 }
 
 /// Page-level ambience (web Index.tsx:149-150): the animated gradient at low opacity, washed
