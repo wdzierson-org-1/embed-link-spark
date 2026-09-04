@@ -256,6 +256,12 @@ struct ItemDetailView: View {
                     .strokeBorder(focusedField == .title ? StashColor.violet300 : Color.clear, lineWidth: 1)
             )
             .accessibilityIdentifier("detail.title")
+            // Final wave: the 6pt horizontal padding above exists to grow the tap/focus target,
+            // not to push the TEXT off `DetailLayout.inset` — negating it here shifts the whole
+            // padded+background+overlay assembly left by 6pt so the glyph's own left edge lands
+            // exactly on `DetailLayout.inset` (20), flush with the eyebrow/URL bar above it,
+            // while the hit target itself keeps its full width.
+            .padding(.horizontal, -6)
     }
 
     private var descriptionField: some View {
@@ -278,6 +284,9 @@ struct ItemDetailView: View {
                     .strokeBorder(focusedField == .description ? StashColor.violet300 : Color.clear, lineWidth: 1)
             )
             .accessibilityIdentifier("detail.description")
+            // Final wave — same compensation as `titleField` above: negate the 6pt hit-padding
+            // so the text's left edge lands on `DetailLayout.inset`, not `inset + 6`.
+            .padding(.horizontal, -6)
     }
 
     /// Contained hero, radius 16 + card shadow — image items only (video/audio players are out of

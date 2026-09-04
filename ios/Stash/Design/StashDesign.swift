@@ -315,13 +315,16 @@ extension StashHeader where Accessory == EmptyView {
 /// drawn yet. Tier two is the same blurred render as before, now kicked to a background task
 /// (`Task.detached`) so its cost never touches the main thread; when it lands, `.task(id:)` hops
 /// back (implicitly, since it's the same MainActor-isolated context `.task` was created in) and
-/// swaps it in over the plain tier with a 0.35s opacity crossfade — both tiers share the same
-/// palette and direction, so the swap reads as the wash "settling in," not a jump cut. A cache
-/// hit on the blurred tier (any later `AnimatedGradient` at an already-rendered size) is read
-/// synchronously in `body` right alongside the plain-tier lookup, same as the pre-fix code — no
-/// flash, no re-render, no crossfade (there's no visible prior frame to fade from). Reduced motion
-/// skips the crossfade — the swap is a hard cut — but both tiers, the cache, and the background
-/// hop are otherwise identical.
+/// fades it in OVER the plain tier with a 0.35s opacity fade — not a true crossfade (final wave):
+/// the plain tier stays fully opaque underneath the whole time instead of dimming out in lockstep,
+/// which is what a real crossfade's simultaneous 1→0/0→1 opacities used to do and what produced a
+/// visible mid-fade lightening dip (two partially-transparent layers over the background don't sum
+/// back to full opacity). Both tiers share the same palette and direction, so the fade-over still
+/// reads as the wash "settling in," not a jump cut. A cache hit on the blurred tier (any later
+/// `AnimatedGradient` at an already-rendered size) is read synchronously in `body` right alongside
+/// the plain-tier lookup, same as the pre-fix code — no flash, no re-render, no fade (there's no
+/// visible prior frame to fade from). Reduced motion skips the fade — the swap is a hard cut — but
+/// both tiers, the cache, and the background hop are otherwise identical.
 struct AnimatedGradient: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drift = false
@@ -341,6 +344,14 @@ struct AnimatedGradient: View {
             // directly (no flash, no waiting on `.task`).
             let blurredDisplay = blurredImage ?? Self.cachedBlurredGradientImage(forKey: key)
             ZStack {
+                // Final wave: fade-OVER, not a crossfade — the plain tier stays at opacity 1 for
+                // as long as it's in the tree at all (never dims toward the blurred tier's
+                // appearance), and only the blurred tier fades in on top of it via
+                // `.transition(.opacity)`. A true crossfade (plain 1→0 while blurred 0→1
+                // simultaneously) has a visible dip partway through: two partially-transparent
+                // layers over the background don't sum back to full opacity, so the wash briefly
+                // reads lighter mid-fade. Keeping the opaque plain tier solid underneath the whole
+                // time removes that dip — the background is never partially exposed.
                 if let plainImage {
                     Image(uiImage: plainImage)
                         .resizable()
@@ -350,7 +361,6 @@ struct AnimatedGradient: View {
                         // never exposes an edge — see the offset-bounds note above `drift`'s range.
                         .offset(x: drift ? -w * 0.25 : -w * 0.75,
                                 y: drift ? -h * 0.75 : -h * 0.25)
-                        .opacity(blurredDisplay == nil ? 1 : 0)
                 }
                 if let blurredDisplay {
                     Image(uiImage: blurredDisplay)
@@ -359,7 +369,11 @@ struct AnimatedGradient: View {
                         .frame(width: w * 2, height: h * 2)
                         .offset(x: drift ? -w * 0.25 : -w * 0.75,
                                 y: drift ? -h * 0.75 : -h * 0.25)
-                        .opacity(1)
+                        // Fades in from 0 on insertion (wrapped in `withAnimation` by
+                        // `loadBlurredImage` below) — a synchronous cache hit in `body` shows it
+                        // immediately instead, since there's no state transition to attach a
+                        // transition to.
+                        .transition(.opacity)
                 }
             }
             .onAppear {
@@ -379,7 +393,7 @@ struct AnimatedGradient: View {
         .allowsHitTesting(false)
     }
 
-    /// Cache-hit fast path: adopt it into `@State` with no animation (nothing to crossfade from —
+    /// Cache-hit fast path: adopt it into `@State` with no animation (nothing to fade in from —
     /// `body` already displayed it synchronously the moment this instance appeared). Cache-miss
     /// path: render the blur off the main thread, store it, then swap it into `@State` — wrapped
     /// in `withAnimation` unless reduced motion asks for a hard cut. `.task(id:)` is created
@@ -397,6 +411,12 @@ struct AnimatedGradient: View {
         let rendered = await Task.detached(priority: .userInitiated) {
             Self.renderBlurredGradient(canvasSize: canvasSize)
         }.value
+        // Final wave: `.task(id:)` cancels and restarts this `async` function when `key` changes
+        // (e.g. a rotation resizes the view mid-render), but the `Task.detached` above is its own
+        // Task, not automatically torn down by that cancellation — without this guard, a
+        // detached render for a now-stale size can still land here after the view has moved on,
+        // overwriting `blurredImage`/the cache with a bitmap sized for the OLD orientation.
+        guard !Task.isCancelled else { return }
         guard let rendered else { return }
         Self.storeBlurredGradientImage(rendered, forKey: key)
         if reduceMotion {
@@ -429,7 +449,7 @@ struct AnimatedGradient: View {
     /// Tier one: synchronous, cheap (plain `CGGradient`, no blur — a few ms even at sign-in size),
     /// so `body` always has a correctly colored, correctly positioned first frame with no async
     /// gap. Same six-stop palette and bottom-leading → top-trailing direction as the blurred tier,
-    /// so the later crossfade reads as a settling wash, not a jump cut.
+    /// so the later fade-over reads as a settling wash, not a jump cut.
     @MainActor
     private static func cachedPlainGradientImage(forViewSize size: CGSize) -> UIImage? {
         guard size.width > 0, size.height > 0 else { return nil }
@@ -469,7 +489,7 @@ struct AnimatedGradient: View {
         return renderer.image { ctx in
             let cg = ctx.cgContext
             // bottomLeading → topTrailing, matching `renderBlurredGradient`'s direction exactly so
-            // the two tiers' stops line up pixel-for-pixel during the crossfade.
+            // the two tiers' stops line up pixel-for-pixel during the fade-over.
             let start = CGPoint(x: 0, y: canvasSize.height)
             let end = CGPoint(x: canvasSize.width, y: 0)
             cg.drawLinearGradient(gradient, start: start, end: end,

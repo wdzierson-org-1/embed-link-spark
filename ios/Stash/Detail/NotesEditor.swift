@@ -152,7 +152,13 @@ struct NotesEditor: View {
                 .autocorrectionDisabled()
                 .focused(isFocused, equals: .notes)
                 .frame(minHeight: 80, maxHeight: 220)
-                .padding(.horizontal, 7)
+                // Final wave: `TextEditor` wraps a `UITextView`, which carries its own ~5pt
+                // `textContainer.lineFragmentPadding` on top of whatever SwiftUI padding is
+                // declared here — at the old 7pt that put the typed glyph's left edge ~1pt right
+                // of the placeholder `Text` above (11pt, a plain SwiftUI padding with no such
+                // hidden inset). 6pt + UIKit's ~5pt lands the caret/text flush with the
+                // placeholder, which is left untouched.
+                .padding(.horizontal, 6)
                 .padding(.vertical, 6)
                 // Final wave, item C: rich mode no longer schedules ANY debounced flush per
                 // keystroke. Rich mode's draft is a perpetually-empty APPEND buffer — the 600ms

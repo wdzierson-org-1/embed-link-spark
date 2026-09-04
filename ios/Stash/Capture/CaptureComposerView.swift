@@ -63,10 +63,14 @@ struct CaptureComposerView: View {
         ZStack(alignment: .top) {
             Color(.systemBackground).ignoresSafeArea()
             // Same page-level gradient ambience as the web's capture surface — subtler here
-            // so long-form typing stays on a calm background.
+            // so long-form typing stays on a calm background. Final wave: fills the WHOLE tab
+            // (not just a 320pt band up top, like the other tabs' washes) — the composer card is
+            // capped at 2/3 of the tab's height (Task 2), so a fixed-height band would leave the
+            // bottom third of the tab, behind and below the card, as flat white void. Web parity:
+            // `Index.tsx`'s page-level wash persists behind its whole capture panel, not just the
+            // area above it.
             GradientBackdrop(opacity: 0.22)
-                .frame(height: 320)
-                .ignoresSafeArea(edges: .top)
+                .ignoresSafeArea()
 
             // Task 2: a dedicated measuring layer, NOT the content column below — `.ignoresSafeArea
             // (.keyboard)` lives here only, so this reader's `geo.size.height` stays the tab's full,
@@ -227,9 +231,11 @@ struct CaptureComposerView: View {
                 .scrollContentBackground(.hidden)
                 .accessibilityIdentifier("capture.editor")
         }
-        // TextEditor's greedy vertical fill is exactly right here — the composer owns the
-        // whole screen between the title and the bottom stack. Full-bleed panel; the small
-        // horizontal inset just keeps text off the display edge.
+        // TextEditor's greedy vertical fill is exactly right here — it claims whatever room
+        // `ComposerCard`'s column gives it above the URL chip/attachments/gate/pin/bottom-bar
+        // stack. Final wave: that's no longer "the whole screen" — the card itself is capped at
+        // 2/3 of the tab's height (Task 2) — just whatever's left inside the card; the small
+        // horizontal inset keeps text off the card's own edge, not the display's.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 12)
     }
