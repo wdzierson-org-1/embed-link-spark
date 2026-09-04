@@ -30,6 +30,11 @@ struct StashApp: App {
             }
             .environment(session)
             .environment(subscriptionStore)
+            // DESIGN.md "Color scheme: light-only" (plan 9): Stash renders in the light
+            // palette only, regardless of the device's system appearance — pinned here on the
+            // root scene content rather than per-surface, so no future view can drift into a
+            // dark trait variant by omission.
+            .preferredColorScheme(.light)
             .task {
                 // Long enough for the gradient's motion to register as intentional, short
                 // enough to never feel like a gate — session restore continues underneath.

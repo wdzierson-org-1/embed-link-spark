@@ -1925,4 +1925,120 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: composer-attachment\n".data(using: .utf8)!)
         sleep(3)
     }
+
+    /// Plan 9 Task 3: visual sweep — visits all four tabs and attaches a screenshot of each
+    /// (`.keepAlways` so `xcresulttool` can pull them back out after the run), so every suite
+    /// run leaves a reviewable visual record of the themed surfaces. Ported from the
+    /// `worktree-ios-plan6-visual` branch's own `testVisualSweepScreenshots` (never merged to
+    /// main), against this suite's current tab labels/helpers. Deliberately gate-agnostic: the
+    /// only asserts are reachability (tab bar taps), never gate-dependent state (no save
+    /// actions), so this passes with the test account's trial lapsed or active — and is the
+    /// proof rig for DESIGN.md's "Color scheme: light-only" lock: run once with the simulator's
+    /// OS appearance set to Light and once set to Dark (`xcrun simctl ui <udid> appearance
+    /// light|dark`, external to this test), the four screenshots from the Dark-appearance run
+    /// must render identically to the Light-appearance run — `StashApp`'s
+    /// `.preferredColorScheme(.light)` overrides the system trait regardless.
+    func testVisualSweepScreenshots() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        for (tab, name) in [("Add", "add"), ("Ask", "ask"), ("View", "view"), ("Settings", "settings")] {
+            let tabButton = app.tabBars.buttons[tab]
+            XCTAssertTrue(tabButton.waitForExistence(timeout: 10), "Tab \(tab) not found")
+            tabButton.tap()
+            sleep(1)
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "sweep-\(name)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+    }
+
+    /// Plan 9 Task 3: two assertions Tasks 1/2 couldn't add themselves (single-owner-of-this-file
+    /// rule for this round) — (a) the always-visible type chip (`card.typeChip`, `CardChips.swift`
+    /// `TypeChip`) renders for the types Task 1's fixtures/anatomy work covers and stays absent for
+    /// the types DESIGN.md says get "real imagery — no field, no tint" instead; (b) the composer
+    /// card's own idle/composing state (`capture.card`'s `accessibilityValue`, `ComposerCard.swift`)
+    /// actually flips with focus, the way Task 2's `stashComposerRing` styling assumes it does.
+    func testLibraryTypeChipAndComposerCard() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+        let searchField = app.textFields["library.search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+
+        // Same narrow-assert-clear technique `testCardAnatomySmoke`'s `isolateAndCheck` already
+        // established: a unique local-search substring isolates one fixture card so
+        // `card.typeChip` (a shared identifier across every card in the grid) unambiguously
+        // refers to that one card's chip, never a sibling's.
+        func isolateAndCheck(search: String, assert: () -> Void) {
+            searchField.tap()
+            searchField.typeText(search)
+            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
+
+            assert()
+
+            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
+            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the grid back after clearing '\(search)'")
+        }
+
+        // (a) Type chip present, correct label: audio fixture -> "voice note" (under the ten-
+        // minute recording/voice-note threshold, CardChips.swift's `audioSubtype`), document
+        // fixture -> "pdf" (lowercased extension, CardChips.swift's `typeChip(for:)`).
+        isolateAndCheck(search: "audio one") {
+            let chip = anyElement("card.typeChip")
+            XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a type chip for the audio fixture")
+            XCTAssertEqual(chip.label, "voice note", "Expected the audio fixture's type chip to read 'voice note', got '\(chip.label)'")
+        }
+
+        isolateAndCheck(search: "document one") {
+            let chip = anyElement("card.typeChip")
+            XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a type chip for the document fixture")
+            XCTAssertEqual(chip.label, "pdf", "Expected the document fixture's type chip to read 'pdf', got '\(chip.label)'")
+        }
+
+        // (a) Type chip absent: DESIGN.md "Photos, videos, and link covers use real imagery —
+        // no field, no tint" — `typeChip(for:)` returns nil for `.link`/`.video`, which covers
+        // both the repo-link and video-link fixtures (Task 9's own link-flavor fixtures).
+        isolateAndCheck(search: "repo link") {
+            XCTAssertFalse(anyElement("card.typeChip").exists, "Expected no type chip for the repo-link fixture")
+        }
+
+        isolateAndCheck(search: "video link") {
+            XCTAssertFalse(anyElement("card.typeChip").exists, "Expected no type chip for the video-link fixture")
+        }
+
+        // The pill field spawns no system Cancel button (unlike `.searchable`), so the keyboard
+        // would still be covering the tab bar here — same fix `testLibrarySmoke` documents.
+        searchField.typeText("\n")
+
+        // (b) Composer card idle/active state (Add tab) — `ComposerCard`'s `accessibilityValue`
+        // mirrors `isPanelActive` (editor focus OR non-empty draft; CaptureComposerView.swift).
+        app.tabBars.buttons["Add"].tap()
+        let captureCard = anyElement("capture.card")
+        XCTAssertTrue(captureCard.waitForExistence(timeout: 10), "Expected the composer card on the Add tab")
+        XCTAssertEqual(captureCard.value as? String, "idle", "Expected the composer card to start idle")
+
+        let editor = anyElement("capture.editor")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "Expected the capture editor to appear")
+        editor.tap()
+        XCTAssertEqual(captureCard.value as? String, "active", "Expected the composer card to go active once the editor is focused")
+
+        // `.buttons[...]` (not `anyElement`) — same collision `testComposerKeyboardAccessory`
+        // documents: the `.keyboard` toolbar placement renders an extra non-button container
+        // that inherits the same identifier.
+        let dismissKeyboard = app.buttons["capture.dismissKeyboard"]
+        XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10), "Expected the minimize-keyboard accessory while the editor is focused")
+        dismissKeyboard.tap()
+        // Draft is still empty (no text was typed) — the editor losing focus alone must be
+        // enough to drop the card back to idle.
+        XCTAssertEqual(captureCard.value as? String, "idle", "Expected the composer card to return to idle once the (empty) editor is blurred")
+    }
 }
