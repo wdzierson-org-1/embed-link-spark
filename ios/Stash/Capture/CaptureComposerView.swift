@@ -79,10 +79,11 @@ struct CaptureComposerView: View {
                             .accessibilityIdentifier("capture.outboxBadge")
                     }
                 }
-                // `isPanelActive` (web `UnifiedInputPanel.tsx:914`): focused OR a non-empty
-                // draft — attachments alone (no typed text, editor blurred) intentionally do NOT
-                // light the ring, mirroring the web's own boolean shape.
-                ComposerCard(active: editorFocused || !viewModel.text.isEmpty) {
+                // `isPanelActive` (web `UnifiedInputPanel.tsx:898-902`): focused OR
+                // `hasAnyContent` (`!editorIsEmpty || inputItems.length > 0`) — a non-empty draft
+                // OR at least one staged attachment, exactly mirroring the web's boolean shape
+                // (fix round 1: a prior version omitted the attachments half of this OR).
+                ComposerCard(active: editorFocused || !viewModel.text.isEmpty || !viewModel.attachments.isEmpty) {
                     VStack(alignment: .leading, spacing: 0) {
                         editor
                         VStack(alignment: .leading, spacing: 10) {

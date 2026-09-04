@@ -264,6 +264,9 @@ struct ShareComposeView: View {
         .font(StashType.meta())
         .foregroundStyle(StashColor.gateText)
         .padding(.horizontal, 14)
+        // Invariant (fix round 1): this -8pt overflow must stay < composeBody's own VStack
+        // `spacing: 14` (line 181) — it must not visually reach far enough to overlap the
+        // sibling above/below, only fill the breathing room that spacing already reserves.
         .background(
             RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                 .fill(StashColor.gateBackground)
