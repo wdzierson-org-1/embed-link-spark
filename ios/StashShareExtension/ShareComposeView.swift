@@ -237,6 +237,21 @@ struct ShareComposeView: View {
     /// own "Subscribe to add new items." (that one always has a live `SubscriptionStore` to read
     /// from and a Settings tab one tap away; the extension has neither, so the copy points
     /// somewhere actionable instead).
+    ///
+    /// Plan 9 Task 2: tokenized gate strip — `gateBackground` fill, `gateBorder` stroke, `gateText`,
+    /// `StashRadius.input` — but the box's VERTICAL padding is applied to the `.background`/
+    /// `.overlay` shapes only (via negative `.padding`, which expands a shape past its parent's
+    /// reported bounds without growing what the HStack reports upward), NOT to the HStack itself.
+    /// Live-verified regression, same "this hosting context behaves differently from the full app"
+    /// category as `pinPreview`'s/`doneView`'s own doc comments: giving the HStack real
+    /// `.padding(.vertical:)` — which pushes `share.note` a few points further down the card, same
+    /// as the full app's `CaptureComposerView.subscriptionGateMessage` safely does — made
+    /// `testShareExtensionURLSmoke`'s very next step (`noteField.typeText`) fail 4/4 runs with
+    /// "Neither element nor any descendant has keyboard focus", while the exact same box with only
+    /// HORIZONTAL HStack padding (note's own Y unchanged) passed 3/3. Root cause not fully
+    /// isolated (not keyboard-avoidance — `.ignoresSafeArea(.keyboard)` didn't fix it either) but
+    /// the Y-shift correlation was clean and reproducible across 7 bisection runs; this sidesteps
+    /// it entirely rather than shipping a regression.
     private var gateMessage: some View {
         HStack(spacing: 6) {
             Image(systemName: "lock.fill").imageScale(.small)
@@ -246,9 +261,19 @@ struct ShareComposeView: View {
             Text("Subscribe on gostash.it to add items")
                 .accessibilityIdentifier("share.gate")
         }
-        .font(StashType.bodyMedium(12))
-        // .orange has no DESIGN.md token yet.
-        .foregroundStyle(.orange)
+        .font(StashType.meta())
+        .foregroundStyle(StashColor.gateText)
+        .padding(.horizontal, 14)
+        .background(
+            RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
+                .fill(StashColor.gateBackground)
+                .padding(.vertical, -8)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
+                .strokeBorder(StashColor.gateBorder, lineWidth: 1)
+                .padding(.vertical, -8)
+        )
     }
 
     @ViewBuilder

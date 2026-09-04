@@ -63,10 +63,9 @@ struct CaptureComposerView: View {
                 .frame(height: 320)
                 .ignoresSafeArea(edges: .top)
 
-            // Full-height composer: the editor takes every point between the header and the
-            // bottom stack — no dead space (there are no cards beneath the input on this
-            // screen, unlike the web's panel-over-grid layout). Everything contextual (URL
-            // chip, attachments, gate, location) gathers just above the controls row.
+            // The composer is a floating card (plan 9): the wordmark header stays outside/above
+            // it, GradientBackdrop stays behind it, and the editor + attachments/gate/pin +
+            // bottom bar all live INSIDE `ComposerCard`, which owns the idle/composing ring.
             VStack(alignment: .leading, spacing: 0) {
                 StashHeader {
                     if viewModel.pendingOutboxCount > 0 {
@@ -80,27 +79,37 @@ struct CaptureComposerView: View {
                             .accessibilityIdentifier("capture.outboxBadge")
                     }
                 }
-                editor
-                VStack(alignment: .leading, spacing: 10) {
-                    if let url = detectFirstURL(in: viewModel.text) {
-                        urlChip(url)
+                // `isPanelActive` (web `UnifiedInputPanel.tsx:914`): focused OR a non-empty
+                // draft — attachments alone (no typed text, editor blurred) intentionally do NOT
+                // light the ring, mirroring the web's own boolean shape.
+                ComposerCard(active: editorFocused || !viewModel.text.isEmpty) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        editor
+                        VStack(alignment: .leading, spacing: 10) {
+                            if let url = detectFirstURL(in: viewModel.text) {
+                                urlChip(url)
+                            }
+                            if !viewModel.attachments.isEmpty {
+                                CaptureAttachmentsRow(attachments: $viewModel.attachments)
+                            }
+                            if !subscription.canAddContent {
+                                subscriptionGateMessage
+                            }
+                            // Location gets its own line directly above the controls — never
+                            // inline between the buttons, where it had no room to breathe.
+                            if case .ready(let location) = locationCapture.state {
+                                pinPreview(location.label)
+                            }
+                            bottomBar
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 10)
+                        .padding(.bottom, 8)
                     }
-                    if !viewModel.attachments.isEmpty {
-                        CaptureAttachmentsRow(attachments: $viewModel.attachments)
-                    }
-                    if !subscription.canAddContent {
-                        subscriptionGateMessage
-                    }
-                    // Location gets its own line directly above the controls — never inline
-                    // between the buttons, where it had no room to breathe.
-                    if case .ready(let location) = locationCapture.state {
-                        pinPreview(location.label)
-                    }
-                    bottomBar
                 }
-                .padding(.horizontal)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
             }
         }
         // Keyboard-accessory dismiss: the composer has no reliable "empty" area to tap once the
@@ -208,9 +217,16 @@ struct CaptureComposerView: View {
             Image(systemName: "lock.fill").imageScale(.small)
             Text("Subscribe to add new items.")
         }
-        .font(StashType.bodyMedium(12))
-        // .orange has no DESIGN.md token yet.
-        .foregroundStyle(.orange)
+        .font(StashType.meta())
+        .foregroundStyle(StashColor.gateText)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(StashColor.gateBackground, in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
+                .strokeBorder(StashColor.gateBorder, lineWidth: 1)
+        )
         .accessibilityIdentifier("capture.subscriptionGate")
     }
 
