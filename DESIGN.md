@@ -141,7 +141,7 @@ regardless of system appearance; web ships no dark stylesheet to toggle.
   radius 12 / y 8 / `black@.14` + 1pt `black@.05` hairline — tempered because
   SwiftUI shadows have no spread; do not "correct" the alpha to `.3`. While
   composing (focused or has content), a three-layer **violet-600**
-  (`#6d5bd0`) focus ring — stroke @ .5, 6px halo @ .08, `0 24px 48px -20px`
+  (`#6d5bd0`) focus ring — 1px stroke @ .5, 6px halo @ .08, `0 24px 48px -20px`
   drop @ .35 — plus a 2px lift and 1.006 scale, spring transition (stiffness
   320, damping 28, mass 0.7). *2026-09-03 (plan 9): iOS harvest —
   `web src/components/UnifiedInputPanel.tsx`'s shell animation is the source
@@ -149,6 +149,13 @@ regardless of system appearance; web ships no dark stylesheet to toggle.
   legacy pre-token literal (Tailwind violet-500) that predates this file's
   `violet-600` token — read the ring's color as `violet-600` at those three
   alphas, and web should migrate its literal to the token in a follow-up.*
+  *2026-09-04 (plan 10): the ring's stroke layer is 1px, not 1.5px — see the
+  rule below; halo and shadow layers are unchanged.*
+- **Strokes are 1px, always** — buttons, inputs, rings, tiles. Emphasis comes
+  from color, not weight, never from a heavier stroke. (Bars/fills like the
+  library card's annotation bar are fills, not strokes, and are exempt.)
+  *2026-09-04 (plan 10): web should follow — it currently has a 1.5px
+  composer ring stroke and 2px input focus rings that both violate this.*
 
 ## Iconography
 

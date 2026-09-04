@@ -326,7 +326,7 @@ private struct QuietFieldStyle: ViewModifier {
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                     .strokeBorder(
                         error ? StashColor.destructive : (focused ? StashColor.violet300 : StashColor.hairline),
-                        lineWidth: focused ? 2 : 1
+                        lineWidth: 1
                     )
             )
     }

@@ -157,7 +157,7 @@ private struct StashComposerRing: ViewModifier {
                 RoundedRectangle(cornerRadius: StashRadius.composer, style: .continuous)
                     .strokeBorder(
                         active ? StashColor.violet600.opacity(0.5) : Color.black.opacity(0.05),
-                        lineWidth: active ? 1.5 : 1
+                        lineWidth: 1
                     )
             )
             // Halo — DESIGN.md's 6pt violet600@.08 ring (active only; invisible at rest).
@@ -174,7 +174,7 @@ private struct StashComposerRing: ViewModifier {
 }
 
 extension View {
-    /// Idle = neutral card shadow; composing (`active`) = the three-layer violet ring (1.5pt
+    /// Idle = neutral card shadow; composing (`active`) = the three-layer violet ring (1px
     /// stroke, 6pt halo, deep drop) with a 2px lift and 1.006 scale, spring-animated. Nothing else
     /// is exposed — callers can't reach the individual layers.
     func stashComposerRing(active: Bool) -> some View {
@@ -359,7 +359,10 @@ struct AnimatedGradient: View {
         let key = CacheKey(size)
         if let cached = cache[key] { return cached }
         let canvasSize = CGSize(width: size.width * 2, height: size.height * 2)
+        let __t0 = CFAbsoluteTimeGetCurrent()
         guard let rendered = renderBlurredGradient(canvasSize: canvasSize) else { return nil }
+        let __ms = (CFAbsoluteTimeGetCurrent() - __t0) * 1000
+        NSLog("REVIEW-TIMING AnimatedGradient render size=%@ canvas=%@ ms=%.2f", NSCoder.string(for: size), NSCoder.string(for: canvasSize), __ms)
         cache[key] = rendered
         return rendered
     }
