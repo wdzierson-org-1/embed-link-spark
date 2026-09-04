@@ -212,4 +212,21 @@ wrap — empty diff, nothing to merge).
 
 ### Build 4
 
-_Filled in below once the release pipeline completes._
+`CURRENT_PROJECT_VERSION: 3 -> 4` (`ios/project.yml`) -> `xcodegen generate` -> entitlement
+check on the exported `.ipa` (BOTH binaries: `com.apple.security.application-groups:
+[group.it.gostash.stash]` + keychain group `3CH3K9NTT2.it.gostash.stash.shared`; app + appex
+`CFBundleShortVersionString`/`CFBundleVersion` both `0.1.0`/`4`, verified via `codesign -d
+--entitlements -` and `PlistBuddy` on the unzipped `.ipa` before upload) -> `./scripts/release.sh
+all` (archive + export, session auth) -> `./scripts/release.sh upload` -> polled
+`/v1/builds?filter[app]=6806459949&sort=-uploadedDate&limit=1` (8 polls, ~3 minutes) until
+`processingState: VALID` -> attached to the Internal beta group
+(`d19f78c1-7af3-4461-9af6-1566200c251b`) via `POST .../relationships/builds` (HTTP 204) ->
+confirmed via `GET /v1/betaGroups/<id>/builds`, which lists build 4 alongside builds 1-3, all
+`VALID`.
+
+**Build id:** `d49b4ea2-c24b-42c0-9c88-346578308cd0` (version 4, `0.1.0`), attached and VALID.
+
+**Environmental note:** the first UI-suite full-suite attempt during this wrap's own verification
+came back `BUILD INTERRUPTED` — see the Verification section above; unrelated to the release
+pipeline itself, which ran clean end to end with nothing else touching the same simulator
+concurrently.
