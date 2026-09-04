@@ -26,6 +26,11 @@ struct CaptureComposerView: View {
     @State private var showFileImporter = false
     @State private var showVoiceRecorder = false
     @FocusState private var editorFocused: Bool
+    // Task 2 (plan 10 round 2): the tab's own container height, captured from a keyboard-blind
+    // measuring layer below — never the height SwiftUI proposes to the composer's own content,
+    // which shrinks once the keyboard rises. Used only to compute the card's 2/3 cap; left at 0
+    // (cap disabled) for the one frame before the measuring GeometryReader first reports in.
+    @State private var containerHeight: CGFloat = 0
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(SubscriptionStore.self) private var subscription
@@ -62,6 +67,19 @@ struct CaptureComposerView: View {
             GradientBackdrop(opacity: 0.22)
                 .frame(height: 320)
                 .ignoresSafeArea(edges: .top)
+
+            // Task 2: a dedicated measuring layer, NOT the content column below — `.ignoresSafeArea
+            // (.keyboard)` lives here only, so this reader's `geo.size.height` stays the tab's full,
+            // unadjusted container height even while the keyboard is up. The real content column
+            // below does NOT ignore the keyboard safe area, so its own keyboard-avoidance (the card
+            // sliding/shrinking to stay clear of the keyboard) is untouched — only the CAP fed into
+            // it below is frozen.
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { containerHeight = geo.size.height }
+                    .onChange(of: geo.size.height) { _, newValue in containerHeight = newValue }
+            }
+            .ignoresSafeArea(.keyboard)
 
             // The composer is a floating card (plan 9): the wordmark header stays outside/above
             // it, GradientBackdrop stays behind it, and the editor + attachments/gate/pin +
@@ -108,6 +126,15 @@ struct CaptureComposerView: View {
                         .padding(.bottom, 8)
                     }
                 }
+                // Task 2 (plan 10 round 2, Will: "reduce the card size to 2/3 the height of the
+                // screen… people will be using the sharing intent to add things the majority of
+                // the time anyhow, but let's not make things challenging"). `containerHeight` comes
+                // from the keyboard-blind measuring layer above, so this cap never jumps when the
+                // keyboard rises — only an UPPER bound (`maxHeight`, not an exact `height`), so the
+                // card still shrinks normally to clear the keyboard, it just can never exceed 2/3.
+                // `containerHeight == 0` (the one frame before that reader first reports in) leaves
+                // the cap off rather than collapsing the card to zero height.
+                .frame(maxHeight: containerHeight > 0 ? floor(containerHeight * 2 / 3) : nil, alignment: .top)
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 12)
