@@ -138,12 +138,15 @@ regardless of system appearance; web ships no dark stylesheet to toggle.
 - **Composer card** (Add tab / homepage capture panel): radius **6px**,
   `white/90` background + backdrop blur. Idle shadow
   `0 0 0 1px rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3)`. While
-  composing (focused or has content), a three-layer violet focus ring —
-  `0 0 0 1.5px rgba(139,92,246,.5), 0 0 0 6px rgba(139,92,246,.08), 0 24px
-  48px -20px rgba(139,92,246,.35)` — plus a 2px lift and 1.006 scale, spring
-  transition (stiffness 320, damping 28, mass 0.7). *2026-09-03 (plan 9): iOS
-  harvest — `web src/components/UnifiedInputPanel.tsx`'s shell animation is
-  the source of truth for these values.*
+  composing (focused or has content), a three-layer **violet-600**
+  (`#6d5bd0`) focus ring — stroke @ .5, 6px halo @ .08, `0 24px 48px -20px`
+  drop @ .35 — plus a 2px lift and 1.006 scale, spring transition (stiffness
+  320, damping 28, mass 0.7). *2026-09-03 (plan 9): iOS harvest —
+  `web src/components/UnifiedInputPanel.tsx`'s shell animation is the source
+  of truth for the recipe's shape/timing; its `rgba(139,92,246,…)` is a
+  legacy pre-token literal (Tailwind violet-500) that predates this file's
+  `violet-600` token — read the ring's color as `violet-600` at those three
+  alphas, and web should migrate its literal to the token in a follow-up.*
 
 ## Iconography
 

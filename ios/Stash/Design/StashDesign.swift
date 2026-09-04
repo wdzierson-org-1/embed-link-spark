@@ -128,11 +128,23 @@ extension View {
 
 /// DESIGN.md §Space "Composer card" (2026-09-03, plan 9) — the Add-tab capture panel's idle vs.
 /// composing treatment (web parity: `UnifiedInputPanel.tsx`'s `shell` motion.div). SwiftUI has no
-/// spread-only "ring" shadow, so the 1.5pt stroke is a `strokeBorder` overlay and the halo/deep
-/// shadow are two stacked `.shadow` calls; all three layers exist in both states (opacity/size
-/// animate between idle and active values) so the spring below always has something to interpolate
-/// instead of layers popping in/out. `active`'s spring uses the same physical model (mass,
-/// stiffness, damping) as the web's Framer Motion spring, numbers transcribed 1:1.
+/// spread-only "ring" shadow, so the hairline/violet stroke is a `strokeBorder` overlay and the
+/// halo/deep shadow are two stacked `.shadow` calls; both layers exist in both states
+/// (opacity/size animate between idle and active values) so the spring below always has something
+/// to interpolate instead of layers popping in/out. `active`'s spring uses the same physical model
+/// (mass, stiffness, damping) as the web's Framer Motion spring, numbers transcribed 1:1.
+///
+/// Fix round 1 (task-0 review): idle now implements DESIGN.md's own idle recipe — `0 0 0 1px
+/// rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3)` — instead of reusing `StashShadow.card()`.
+/// The 1px hairline maps 1:1 to the stroke overlay. The soft shadow doesn't: CSS's `-18px` spread
+/// pulls the shadow's silhouette in tighter than its 30px blur alone would, so the visible shadow
+/// is a fairly tight, close-in soft edge, not a wide diffuse one — SwiftUI's `.shadow` has no
+/// spread parameter, only blur `radius` and offset. Tempered by eye against the web reference
+/// (`task-0-ring-idle.png` vs. a browser screenshot of the same panel at rest): `radius: 12, y: 8`
+/// reproduces the same close, soft-edged falloff; the alpha is lowered from the CSS value's `.3` to
+/// `.14` because a blur-only shadow (no negative spread pulling it back in) spreads that opacity
+/// over a visibly larger silhouette than the spread-narrowed CSS shadow does — left at `.3` it read
+/// noticeably heavier/darker than the web at matching card sizes.
 private struct StashComposerRing: ViewModifier {
     let active: Bool
 
@@ -140,16 +152,17 @@ private struct StashComposerRing: ViewModifier {
         content
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.composer, style: .continuous)
-                    .strokeBorder(StashColor.violet600.opacity(active ? 0.5 : 0), lineWidth: 1.5)
+                    .strokeBorder(
+                        active ? StashColor.violet600.opacity(0.5) : Color.black.opacity(0.05),
+                        lineWidth: active ? 1.5 : 1
+                    )
             )
-            // Halo — DESIGN.md's 6pt violet600@.08 ring (active only).
+            // Halo — DESIGN.md's 6pt violet600@.08 ring (active only; invisible at rest).
             .shadow(color: StashColor.violet600.opacity(active ? 0.08 : 0), radius: 6)
-            // Neutral card shadow's near layer while idle; quiets to nothing once the halo/deep
-            // shadow above carry the active state's visual weight.
-            .shadow(color: Color(hex: 0x14161E).opacity(active ? 0 : 0.05), radius: 1, y: 1)
-            // Deep shadow: neutral card ambient while idle, violet drop (DESIGN.md's
-            // "0 24 48 violet600@.35") once composing.
-            .shadow(color: active ? StashColor.violet600.opacity(0.35) : Color(hex: 0x1E212C).opacity(0.08),
+            // Deep/soft shadow: idle = the tempered `radius 12, y 8, .14` recipe above; active =
+            // DESIGN.md's "0 24 48 violet600@.35" (both engines just do blur+offset there, no
+            // tempering needed).
+            .shadow(color: active ? StashColor.violet600.opacity(0.35) : Color.black.opacity(0.14),
                     radius: active ? 24 : 12, y: active ? 24 : 8)
             .scaleEffect(active ? 1.006 : 1)
             .offset(y: active ? -2 : 0)
