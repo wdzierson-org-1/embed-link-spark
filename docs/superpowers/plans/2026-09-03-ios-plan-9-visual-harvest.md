@@ -112,3 +112,145 @@ extension StashType { static func editorialTitle() -> Font }           // "PPEdi
 - **Placeholders:** none; token values verbatim from DESIGN.md/web; identifiers named.
 - **Type consistency:** `StashColor.TypeTint`/`typeField`/`typeText`/`gate*`, `StashRadius.composer`, `stashComposerRing`, `StashType.editorialTitle` defined in T0 and consumed by name in T1/T2.
 - **Risks accepted:** XCUITest can't assert colors (dark-appearance proof is screenshot-read); the composer ring's "active" definition mirrors web (`focused || !draft.isEmpty`); Editorial font license — DESIGN.md already mandates the face on iOS (same standing as Neue Montreal).
+
+---
+
+## Outcome (2026-09-03)
+
+**Commit range:** `edc4f56..HEAD` (base = `main` at plan authoring time; `origin/main` audited at
+wrap — empty diff, nothing to merge).
+
+| Commit | Task | Message |
+|---|---|---|
+| `8b70552` | — | docs(ios): plan 9 — visual harvest (composer card, Editorial titles, type tints, light lock) |
+| `da920e5` | T0 | feat(design): plan-9 tokens — type spectrum tints, gate strip, composer card radius/ring, Editorial title face, light-only rule |
+| `6ade435` | T1 | feat(ios): library cards — Editorial titles, DESIGN.md shell tokens, type-spectrum chips and plates |
+| `c70d40e` | T0 fix round 1 | fix(design): plan-9 composer ring — tempered idle shadow, name violet-600 token in DESIGN.md |
+| `89b38fc` | T2 | feat(ios): composer as a floating card with focus ring; tokenized gate strips on Add tab + share sheet |
+| `048b601` | T3 | feat(ios): light-only color scheme lock; visual sweep screenshot test; card type-chip + composer-card assertions |
+| `6f1c8d7` | T2 fix round 1 | fix(ios): composer active-state parity with attachments; gate-strip invariant comment |
+| `0bc19ab` | final wave | fix(ios): plan-9 final wave — share extension light lock + token surfaces, neutral type chips replace footer badge, filename chip dropped, chips wrap, DESIGN.md title/idle-shadow clauses |
+
+### Verification
+
+- **StashKit:** `swift test` → **341/341 passing, 0 failures** (unchanged from plan 8's floor —
+  this plan added no new StashKit-layer logic, only SwiftUI view/token work in the app target).
+- **App + extension build:** `xcodegen generate` → `xcodebuild build` (sim
+  `28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB`, dedicated `-derivedDataPath`) → **BUILD SUCCEEDED**, zero
+  compiler warnings (the only `warning:` lines in the log are the pre-existing, benign
+  `appintentsmetadataprocessor` "Metadata extraction skipped — No AppIntents.framework dependency"
+  notices already disclosed in T3's own report; not compiler warnings, not from any Swift source).
+- **Web:** `npm install` + `npm test` (worktree root) → **33 test files, 202 tests, all passed.**
+- **UI suite ×2:** full `StashUITests` (22 tests — the plan-8 21 plus `testVisualSweepScreenshots`
+  and `testLibraryTypeChipAndComposerCard`, both new in T3, net +1 after `testComposerKeyboardAccessory`
+  was already counted in plan 8's 21) run twice against production with
+  `TEST_RUNNER_STASH_TEST_EMAIL`/`TEST_RUNNER_STASH_TEST_PASSWORD` sourced from
+  `ios/.env.test.local` (never printed). Both runs: exactly the standing 3 gate-blocked failures
+  (`testAskSmoke`, `testCaptureSmoke`, `testLocationPinSmoke` — Stripe comp decision still pending,
+  unchanged since plan 4) and every other test green, including `testVisualSweepScreenshots`,
+  `testLibraryTypeChipAndComposerCard`, and `testDesignSystemFontsLoad` (asserts
+  `editorial:loaded`, confirming the bundled PP Editorial New face resolves on-device, not the
+  `.serif` fallback).
+  - **Investigated:** run 1's first pass also failed `testDeleteSmoke` — its own doc comment
+    requires a `STASH_DELETE_MARKER` env var seeded from a disposable REST-created item before
+    the run, which this task's own runner didn't set the first time (`STASH_DELETE_MARKER was
+    not set` — a precondition guard the test raises deliberately, not a crash). Not a product or
+    test bug: reseeded a fresh disposable item via `POST /add-note`, re-ran `testDeleteSmoke`
+    alone with the marker set, and it passed cleanly (deletes the seeded item, asserts it's gone
+    from the grid). Run 2 seeded the marker before starting and needed no follow-up. No other
+    unexpected failure either run.
+
+### Decisions of record
+
+1. **The composer focus ring reads as `violet-600`, not web's literal.** Web's shipped
+   `UnifiedInputPanel.tsx` ring recipe still hard-codes `rgba(139,92,246,…)` (Tailwind violet-500),
+   a legacy pre-token literal that predates DESIGN.md's `violet-600` (`#6d5bd0`) token pass.
+   Orchestrator adjudication at T0 review: the token wins (DESIGN.md rule 3 — tokens are the source
+   of truth — plus "interactive = violet-600" already governing every other interactive surface).
+   DESIGN.md's composer-card bullet now names `violet-600` explicitly and flags web's literal for a
+   follow-up retokenization; iOS ships the token value. **Web should adopt this in a follow-up.**
+2. **The Add-tab wordmark is kept** — unchanged and un-revisited by this plan; still the plan-8
+   assumption pending Will's confirmation (see plan 8's own decisions of record).
+3. **`typeAccent`/`.social` tokens are intentionally ahead of use.** `StashColor.typeAccent(_:)`
+   and the `.social` case of `TypeTint` were built in T0 per DESIGN.md's full type-spectrum table,
+   but no card in this plan's scope currently renders a social-post type chip with an accent (the
+   chip grammar only calls `typeField`/`typeText`) — a deliberate token/consumer gap, not dead
+   code: the table is DESIGN.md's complete spec and future social-card work reads from tokens that
+   already exist rather than re-deriving them.
+4. **Composer full-bleed height — OPEN QUESTION for Will.** The composer card's editor content
+   claims all available height inside its own card chrome, so in practice the card's rounded edge/
+   shadow reads as a thin frame around a nearly full-screen editor rather than a visually distinct
+   "card" the way web's fixed-height panel does. Not fixed this plan (no product call to cap it
+   was in scope) — Will's call on whether the card should cap its height to something closer to
+   web's proportions, or whether full-bleed-inside-a-card is the intended iOS-native adaptation.
+
+### Carried items
+
+1. **`MetaChip`'s `mono` parameter is now unused.** The final wave dropped the raw-filename chip
+   from cards entirely (moved to the Details drawer), which was `mono`'s only call site. The
+   parameter itself wasn't removed this round — flagged, not a functional issue (dead code, not a
+   behavior bug).
+2. **Share-extension gate-strip negative-padding workaround** (`ShareComposeView.gateMessage`) —
+   the strip's vertical padding is applied to its `.background`/`.overlay` shapes via a negative
+   `.padding(.vertical, -8)` rather than to the containing `HStack` directly, because giving the
+   HStack real vertical padding pushed `share.note` down enough to break
+   `testShareExtensionURLSmoke`'s keyboard-focus step (reproduced 4/4 with real padding, passed
+   3/3 with the negative-padding sidestep across 7 bisection runs). Root cause not fully isolated
+   (ruled out keyboard-avoidance). Invariant documented inline: the −8pt overflow must stay smaller
+   than `composeBody`'s own `VStack spacing: 14`, so it only fills existing breathing room and
+   never visually overlaps a sibling. Not re-attempted this plan.
+3. **The following plan-8 carried items are still carried, unchanged by this plan:**
+   `MarkdownBlocks.looksLikeMarkdown` doesn't trigger on "N)" numbered lists (intentional web
+   parity, not an iOS-only gap); `.orange`/`.green` still have no DESIGN.md token; Apple 5.1.1(v)
+   in-app account-deletion requirement is still pending (must ship before the app leaves TestFlight
+   for the public App Store); inline citation links render violet/no-underline on iOS vs. web's
+   underline; `MarkdownBlocksView` styles every markdown link it renders, not just citation links;
+   `Debouncer.cancel()` can't stop an already-started action; a dropped `SaveGeneration` response
+   can still duplicate a rich-note's appended paragraph in a narrow window.
+
+### `worktree-ios-plan6-visual` — OBSOLETE disposition
+
+The harvest survey (`.superpowers/sdd/2026-09-03-ios-plan-9-visual-harvest/harvest-survey.md`)
+found this branch's live product ideas (composer card, Editorial titles, light lock, sweep test,
+gate-strip treatment, type-spectrum chips) already re-derived into this plan against the *current*
+DESIGN.md — nothing further to harvest. Its remaining pieces are superseded infrastructure, each
+with a specific reason:
+
+- **`Theme.swift`** — OBSOLETE. Superseded by `StashDesign.swift`, which is derived directly from
+  DESIGN.md (plan 7's consolidation); `Theme.swift`'s tokens predate DESIGN.md and were never the
+  source of truth on `main`.
+- **`StashBackground.swift`** (gradient) — OBSOLETE. Plan 8 already implemented DESIGN.md's
+  six-stop page-wash gradient (`StashColor.gradientStops`) as the one recipe both platforms read
+  from; `StashBackground` is a different, earlier gradient implementation with no remaining role.
+- **`TypeChipRow`** (type filter chips in the library toolbar) — OBSOLETE, **Will's decision**
+  (plan 8): no type-filter chips on the phone form factor; `TypeFilter` was removed. Not
+  reconsidered by this plan.
+- **The composer "+" attachment menu and its lock/public toggle** — OBSOLETE. The lock toggle was
+  removed from the composer in plan 8 (sharing is detail-sheet-only now); the "+" menu pattern was
+  superseded by the current composer's inline attachment affordances (four dedicated circles —
+  iOS-first, deliberate, per the harvest survey's own "Add-tab gap vs. web" section).
+- **`make-appicon.swift`** (gradient icon generator script) — OBSOLETE. The flat-ink app icon
+  (matching the favicon, all five glyph paths in `#22262f` on white) is the standing decision;
+  no gradient icon is wanted.
+
+**The branch/worktree deletion itself is Will's decision, not executed by this plan.** If Will
+confirms, the exact commands are:
+
+```bash
+git worktree remove /Users/will/Appdev/embed-link-spark/.claude/worktrees/ios-plan6-visual --force && git branch -D worktree-ios-plan6-visual
+```
+
+### Process note
+
+**Single-writer rule held for the whole plan.** Only T0 (tokens, `testDesignSystemFontsLoad`
+extension) and T3 (light lock + `testVisualSweepScreenshots` + `testLibraryTypeChipAndComposerCard`)
+touched `ios/StashUITests/StashUITests.swift` — T1 and T2 both ran in the same parallel round as
+each other without touching the test file (T1 explicitly reverted its own accidental test edit to
+honor the rule; T2 added no test edits at all), avoiding the exact two-writers-one-file collision
+plan 8 hit and had to adjudicate as git-hygiene-only. No rewrite or attribution cleanup was needed
+this plan.
+
+### Build 3 (TestFlight)
+
+- Version: `MARKETING_VERSION 0.1.0` / `CURRENT_PROJECT_VERSION 3` (`ios/project.yml`, bumped by
+  this task from build 2's `2`) — verified in both built plists via `PlistBuddy` before archiving.

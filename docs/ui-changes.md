@@ -8,6 +8,97 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-03 · iOS visual harvest (plan 9)
+
+Re-derives the still-missing product ideas from the never-merged
+`worktree-ios-plan6-visual` branch against the current `DESIGN.md` (not a
+port of that branch's code). Ships TestFlight build 3. Full plan:
+`docs/superpowers/plans/2026-09-03-ios-plan-9-visual-harvest.md`; outcome
+appended to that file.
+
+- **Composer is now a floating card with a focus ring — web parity.** The Add
+  tab's editor no longer sits full-bleed on the gradient backdrop; it's
+  wrapped in a card (`StashRadius.composer` = 6, `paper@90%` + blur) matching
+  web `UnifiedInputPanel.tsx:914-926`. Idle: a neutral hairline + tempered
+  shadow. Composing (focused or has content — mirrors web's `isPanelActive` /
+  `hasAnyContent`, which iOS extends to count attachments too): a three-layer
+  **violet-600** focus ring (stroke @ .5, 6px halo @ .08, drop shadow @ .35),
+  2px lift, 1.006 scale, spring transition. **NOTE for web:** the ring recipe
+  web ships today still hard-codes `rgba(139,92,246,…)` (Tailwind violet-500)
+  — a legacy pre-token literal that predates DESIGN.md's `violet-600`
+  (`#6d5bd0`) token. This plan retokenized the DESIGN.md bullet to name
+  `violet-600` as the source of truth; web should migrate its literal to the
+  token in a follow-up so the two platforms are reading the same value, not
+  just visually close.
+- **PP Editorial New card titles are now on iOS** (app target only — the
+  share sheet renders no cards, so its target doesn't bundle the face).
+  `StashType.editorialTitle()` (20pt, tight line height, 2-line clamp) is
+  what DESIGN.md has specified for the card-title role since plan 7; iOS was
+  still rendering Neue Montreal Medium 18 with a comment admitting no
+  Editorial face was bundled. That gap is closed — `PPEditorialNew-Regular.ttf`
+  converted from web's own `.woff2` via the same fontTools pipeline plan 7
+  used for Neue Montreal, `UIAppFonts` entry on the `Stash` target only.
+- **A leading type chip now appears on every library card**, replacing the
+  old hover-only footer type badge (DESIGN.md's chips grammar: "tinted type
+  chip — always visible"). Two flavors: **tinted**, reading DESIGN.md's
+  type-spectrum field/text tokens, for voice note / recording / document
+  (label = lowercased extension, e.g. "pdf" or "doc"; spreadsheet extensions
+  — xlsx/xls/csv — read "spreadsheet") / screenshot; **neutral** (plain
+  `MetaChip`, no tint) for photo / video / note / the item's link flavor
+  (article/video/repo/book/"post" for social/"link" default) / collections
+  ("N items"). Photos, videos, and link covers still use real imagery for
+  their hero — no chip tint, matching DESIGN.md's "no field, no tint" rule.
+  Chip copy is byte-identical (lowercase) to web `ContentItemContent.tsx`'s
+  `typeChipFor`/`LINK_FLAVOR_LABELS`. The chips row now wraps (`FlowLayout`)
+  instead of clipping when a card's chips exceed its width.
+- **The raw-filename mono chip is dropped from cards entirely** — matching a
+  web removal already in place. The filename still lives on iOS, just moved
+  to the detail sheet's Details drawer (original filename row) instead of the
+  card face. `MetaChip`'s `mono` parameter is now unused as a result (no
+  remaining call site passes `mono: true`) — flagged as a carried item below,
+  not removed this round.
+- **Tinted plates + repo owner split.** Voice/document/screenshot card plates
+  (where a flat plate exists, i.e. no real imagery) now read the same
+  type-spectrum tokens as their chip. The repo link plate is a dark
+  `#0d1117` slab with `owner/repo` in mono `#e6edf3`, but the owner segment
+  is split into its own `#8b7bd8` (violet) run — mirrors web's two-tone repo
+  treatment, not flattened to one color.
+- **Gate strip is now a DESIGN.md token (NEW — web should adopt).** The
+  lapsed-account capture-lock message (Add tab composer + share-sheet
+  compose) is a tokenized strip: background `#fff7e6`, border `#f3d9a4`
+  (1px), text `#7a4b00`, radius 12, `lock.fill` in the same text color. Web
+  currently renders its own gate messaging ad hoc — DESIGN.md's new "Gate
+  strip" bullet (§Color) is the recipe to point web's own gate UI at, not a
+  new invention to re-derive independently.
+- **Light-only rule is now enforced on the app AND the share extension.**
+  DESIGN.md's light-only rule (added this plan) was initially only true on
+  the main app (`StashApp.swift`'s `.preferredColorScheme(.light)`); the
+  share extension runs as a separate process and wasn't covered by that
+  scene-level pin, so under system Dark appearance its own chrome
+  (`Color(.systemBackground)`/`tertiarySystemFill`) rendered dark under
+  otherwise-light tokens. Fixed with `overrideUserInterfaceStyle = .light`
+  set explicitly on `ShareViewController`'s own view and hosting view —
+  verified with a dark-appearance screenshot proof (both surfaces now render
+  identically regardless of system appearance).
+- **`testVisualSweepScreenshots`** — a new, cheap regression guard (ported
+  intent, not code, from the unmerged branch): launches signed-in, visits
+  Add → Ask → View → Settings, attaches a `.keepAlways` screenshot per tab.
+  Run under both light and dark system appearance as part of this plan's
+  verification; every pair came back pixel-identical apart from the
+  simulator clock, confirming the light lock holds everywhere the sweep
+  looks.
+
+### Outcome, decisions of record, and the old branch's disposition
+
+See `docs/superpowers/plans/2026-09-03-ios-plan-9-visual-harvest.md`
+("Outcome" section, appended by Task 4) for the full commit list, suite
+counts, decisions of record (including the composer's OPEN QUESTION for
+Will — whether the card should cap its full-bleed height), carried items,
+and the OBSOLETE disposition of `worktree-ios-plan6-visual` with the exact
+deletion commands.
+
+---
+
 ## 2026-09-03 · iOS feedback round 1 (plan 8)
 
 Will's device review of the plan-7 build. One plan-7 decision is reversed;
