@@ -8,6 +8,64 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-04 · iOS feedback round 2 (plan 10)
+
+Fixes four pieces of Will's 2026-09-04 feedback against the iOS app. Ships
+TestFlight build 4. Full plan:
+`docs/superpowers/plans/2026-09-04-ios-plan-10-feedback-round-2.md`; outcome
+appended to that file.
+
+- **The "animated white box" gradient bug is fixed with a deterministic
+  two-tier render, not a live SwiftUI effect.** Root cause: `AnimatedGradient`
+  used a live `LinearGradient` + `.blur(radius: 40)` + `.drawingGroup()`
+  (plan 8) — `.drawingGroup()` rasterizes into an offscreen buffer sized from
+  the view's *pre-effect* layout bounds, and `.blur`'s bleed extends past
+  those bounds; on some simulator GPU/driver paths (reproduced on iOS 17.0
+  and 17.4, not 17.2/17.5/18.5/26.5 — genuinely environment-dependent) the
+  un-rasterized remainder read as raw background white. Fixed by rendering
+  the gradient off SwiftUI's rasterizer entirely: `UIGraphicsImageRenderer` +
+  `CGGradient` draws it, `CIGaussianBlur` blurs it once into a plain
+  `UIImage`, cached per view size — no live `.blur`, no `.drawingGroup()`.
+  A follow-up hitch fix split this into two tiers (an instant unblurred
+  first frame, the blur rendered off-main and faded in over ~0.35s) so the
+  ~272ms blur cost never lands on the very first frame of a cold launch.
+  **Web is unaffected** — this is an iOS-only rendering pipeline; nothing
+  about the gradient's palette, direction, or CSS changed.
+- **Composer card is capped at 2/3 of the tab's height, with a full-tab
+  gradient wash behind and below it.** iOS's Add-tab composer used to claim
+  the whole screen inside its card chrome (an open question from plan 9);
+  **decision: the share sheet is the primary capture path on iOS, the in-app
+  composer is secondary** (Will, 2026-09-04) — so the card caps at
+  `⌊2/3 × container height⌋`, the editor scrolls internally past that, and
+  the page-level gradient wash now fills the *entire* tab (not just a
+  fixed-height band up top) so the space behind/below the capped card reads
+  as the same ambient wash instead of flat white void. **Web's own capture
+  panel is unaffected** — it has no height cap and isn't expected to grow
+  one; this is iOS-only, driven by the share-sheet-primary decision above.
+- **Detail sheet: one content inset, one section-header component, unified
+  rhythm.** iOS's detail sheet had accumulated inconsistent horizontal
+  insets and three hand-rolled section headings with different spacing.
+  Normalized to a single `DetailLayout.inset` (20pt) and one `SectionHeader`
+  component (micro-label + hairline, identical rhythm) used by NOTES &
+  SUMMARY/TRANSCRIPT, DETAILS, and SHARING. Title/description fields also
+  had their text sitting 6pt right of that inset (an artifact of their own
+  hit-target padding) — now compensated so the glyphs themselves land flush
+  with the eyebrow/URL bar above. **Web-only cosmetic**, no data-model or
+  contract change.
+- **1px-stroke rule, enforced everywhere on iOS — web should follow.** Per
+  Will's "never use a 2px stroke around a button or element. 1px stroke
+  only," every stroke on iOS (composer ring, sign-in focus ring, detail-sheet
+  focus rings) is now 1px; `DESIGN.md` states the rule explicitly. **Web
+  currently violates it in two places and should follow**: `UnifiedInputPanel`'s
+  composer-ring stroke layer is 1.5px, and its input focus rings are 2px —
+  both should drop to 1px to match.
+- **NEW `ios/README.md`** documents that `ios/Stash.xcodeproj` is
+  XcodeGen-generated and gitignored: run `cd ios && xcodegen generate` after
+  every pull (and after any `project.yml` edit) before building in Xcode —
+  a stale generated project is the #1 cause of "Cannot find 'StashType'"-
+  style errors. `docs/RELEASING.md` gained the same note in its
+  Prerequisites section.
+
 ## 2026-09-03 · iOS visual harvest (plan 9)
 
 Re-derives the still-missing product ideas from the never-merged

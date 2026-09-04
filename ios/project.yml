@@ -13,7 +13,7 @@ packages:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: 3
+    CURRENT_PROJECT_VERSION: 4
     DEVELOPMENT_TEAM: 3CH3K9NTT2
 targets:
   Stash:

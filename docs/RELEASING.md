@@ -10,6 +10,10 @@ Xcode session) is called out explicitly below.
   → Accounts). This is what actually signs the archive/export/upload — see
   "The auth split" below. If this session expires, see Troubleshooting.
 - **`xcodegen`** installed (regenerates `Stash.xcodeproj` from `project.yml`).
+  `Stash.xcodeproj` is generated and gitignored — **run `cd ios && xcodegen
+  generate` after every pull** (and after any `project.yml` edit), before
+  building in Xcode. A stale generated project is the #1 cause of
+  "Cannot find 'StashType'"-style errors (see `ios/README.md`).
 - **App Store Connect API key** at `ios/.asc/` — only needed for (a) the REST
   calls in this doc, made via `ios/scripts/asc-api.sh` (processing polls,
   TestFlight group/tester management) and (b) the `--key-auth` fallback mode

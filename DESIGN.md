@@ -151,6 +151,9 @@ regardless of system appearance; web ships no dark stylesheet to toggle.
   alphas, and web should migrate its literal to the token in a follow-up.*
   *2026-09-04 (plan 10): the ring's stroke layer is 1px, not 1.5px — see the
   rule below; halo and shadow layers are unchanged.*
+  *2026-09-04 (plan 10, feedback round 2): composer card ≤ 2/3 of the
+  container height on iOS (people mostly capture via the share sheet; the
+  in-app composer is the secondary path) — web panel unaffected.*
 - **Strokes are 1px, always** — buttons, inputs, rings, tiles. Emphasis comes
   from color, not weight, never from a heavier stroke. (Bars/fills like the
   library card's annotation bar are fills, not strokes, and are exempt.)
