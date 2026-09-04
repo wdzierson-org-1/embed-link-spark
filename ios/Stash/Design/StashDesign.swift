@@ -34,6 +34,58 @@ enum StashColor {
         Color(hex: 0x4facfe),
         Color(hex: 0x38bdf8),
     ]
+
+    /// DESIGN.md §Color "Type spectrum" (lines ~101-114, plan 9) — the object-type identity used
+    /// on cards, chips, and per-type fields. `.repo` is the odd row out (a dark plate, not an rgba
+    /// tint) — see `typeField`/`typeText` below for how each case reads it.
+    enum TypeTint { case voice, audio, document, screenshot, repo, social }
+
+    /// The type's rgba field tint at its DESIGN.md alpha — the flat wash behind a hero/chip field.
+    /// Table gives each row a range (e.g. voice `.11–.12`); this transcribes the range's midpoint.
+    /// `.repo` has no rgba tint in the table (its field *is* the dark plate) — returns `repoPlate`.
+    static func typeField(_ t: TypeTint) -> Color {
+        switch t {
+        case .voice: return Color(hex: 0x5458B2).opacity(0.115)
+        case .audio: return Color(hex: 0x7E4A9E).opacity(0.105)
+        case .document: return Color(hex: 0x9646BE).opacity(0.105)
+        case .screenshot: return Color(hex: 0x3484C9).opacity(0.10)
+        case .repo: return repoPlate
+        case .social: return Color(hex: 0x4664B4).opacity(0.07)
+        }
+    }
+
+    /// Text color per DESIGN.md's "Type spectrum" table's "Accent / text" column — `.repo` reads
+    /// its mono `#e6edf3` (on the dark plate); `.social` reads "quote in ink" as `ink` itself.
+    static func typeText(_ t: TypeTint) -> Color {
+        switch t {
+        case .voice: return Color(hex: 0x45408C)
+        case .audio: return Color(hex: 0x703C77)
+        case .document: return Color(hex: 0x7D3F9E)
+        case .screenshot: return Color(hex: 0x22689C)
+        case .repo: return Color(hex: 0xE6EDF3)
+        case .social: return ink
+        }
+    }
+
+    /// The saturated control accent where DESIGN.md's table gives one (voice's play/waveform,
+    /// audio's player) — every other row falls back to `typeText`, since the table has no distinct
+    /// accent column for document/screenshot/repo/social.
+    static func typeAccent(_ t: TypeTint) -> Color {
+        switch t {
+        case .voice: return Color(hex: 0x544EBA)
+        case .audio: return Color(hex: 0x8B4A9E)
+        default: return typeText(t)
+        }
+    }
+
+    static let repoPlate = Color(hex: 0x0D1117)
+    static let repoOwner = Color(hex: 0x8B7BD8)
+
+    // DESIGN.md §Color "Gate strip" (2026-09-03, plan 9) — lapsed-account capture lock, Add tab +
+    // share sheet.
+    static let gateBackground = Color(hex: 0xFFF7E6)
+    static let gateBorder = Color(hex: 0xF3D9A4)
+    static let gateText = Color(hex: 0x7A4B00)
 }
 
 extension Color {
@@ -52,6 +104,9 @@ enum StashRadius {
     static let card: CGFloat = 16
     static let sheet: CGFloat = 20
     static let input: CGFloat = 12
+    /// DESIGN.md §Space "Composer card" (2026-09-03, plan 9) — the Add-tab capture panel's own
+    /// (smaller, web-parity) radius; deliberately not `card` (16px).
+    static let composer: CGFloat = 6
 }
 
 /// DESIGN.md card/sheet shadow recipes (each a two-layer shadow; SwiftUI has no multi-shadow
@@ -69,6 +124,46 @@ struct StashShadow: ViewModifier {
 
 extension View {
     func stashCardShadow() -> some View { modifier(StashShadow.card()) }
+}
+
+/// DESIGN.md §Space "Composer card" (2026-09-03, plan 9) — the Add-tab capture panel's idle vs.
+/// composing treatment (web parity: `UnifiedInputPanel.tsx`'s `shell` motion.div). SwiftUI has no
+/// spread-only "ring" shadow, so the 1.5pt stroke is a `strokeBorder` overlay and the halo/deep
+/// shadow are two stacked `.shadow` calls; all three layers exist in both states (opacity/size
+/// animate between idle and active values) so the spring below always has something to interpolate
+/// instead of layers popping in/out. `active`'s spring uses the same physical model (mass,
+/// stiffness, damping) as the web's Framer Motion spring, numbers transcribed 1:1.
+private struct StashComposerRing: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                RoundedRectangle(cornerRadius: StashRadius.composer, style: .continuous)
+                    .strokeBorder(StashColor.violet600.opacity(active ? 0.5 : 0), lineWidth: 1.5)
+            )
+            // Halo — DESIGN.md's 6pt violet600@.08 ring (active only).
+            .shadow(color: StashColor.violet600.opacity(active ? 0.08 : 0), radius: 6)
+            // Neutral card shadow's near layer while idle; quiets to nothing once the halo/deep
+            // shadow above carry the active state's visual weight.
+            .shadow(color: Color(hex: 0x14161E).opacity(active ? 0 : 0.05), radius: 1, y: 1)
+            // Deep shadow: neutral card ambient while idle, violet drop (DESIGN.md's
+            // "0 24 48 violet600@.35") once composing.
+            .shadow(color: active ? StashColor.violet600.opacity(0.35) : Color(hex: 0x1E212C).opacity(0.08),
+                    radius: active ? 24 : 12, y: active ? 24 : 8)
+            .scaleEffect(active ? 1.006 : 1)
+            .offset(y: active ? -2 : 0)
+            .animation(.interpolatingSpring(mass: 0.7, stiffness: 320, damping: 28), value: active)
+    }
+}
+
+extension View {
+    /// Idle = neutral card shadow; composing (`active`) = the three-layer violet ring (1.5pt
+    /// stroke, 6pt halo, deep drop) with a 2px lift and 1.006 scale, spring-animated. Nothing else
+    /// is exposed — callers can't reach the individual layers.
+    func stashComposerRing(active: Bool) -> some View {
+        modifier(StashComposerRing(active: active))
+    }
 }
 
 // MARK: - Round icon buttons (web: h-12 w-12 rounded-full border shadow-sm)

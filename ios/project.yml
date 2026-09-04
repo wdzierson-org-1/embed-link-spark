@@ -52,11 +52,15 @@ targets:
         # Font.custom can resolve them — DESIGN.md §Typography, StashType.swift. Flat filenames:
         # Xcode's Copy Bundle Resources phase drops group-referenced files at the bundle root
         # regardless of their on-disk subdirectory (verified against the built .app/.appex).
+        # Plan 9 Task 0: PP Editorial New (card title serif, `StashType.editorialTitle()`) is
+        # app-target-only — the library grid it serves never renders inside the share extension,
+        # unlike the Neue Montreal family above which both targets need.
         UIAppFonts:
           - PPNeueMontreal-Book.ttf
           - PPNeueMontreal-BookItalic.ttf
           - PPNeueMontreal-Medium.ttf
           - PPNeueMontreal-Semibold.ttf
+          - PPEditorialNew-Regular.ttf
         NSCameraUsageDescription: "Stash uses the camera to capture photos straight into your stash."
         NSMicrophoneUsageDescription: "Stash uses the microphone for voice notes and dictation."
         NSSpeechRecognitionUsageDescription: "Stash transcribes your speech on-device to fill the composer."
@@ -83,7 +87,12 @@ targets:
       - path: Stash/Design/StashType.swift
       # Plan 7 Task 2: PP Neue Montreal TTFs — an appex has its own bundle (can't read the host
       # app's), so the four font files must physically ship inside StashShareExtension.appex too.
+      # Plan 9 Task 0: PP Editorial New excluded — app-target-only face (see project.yml's Stash
+      # target UIAppFonts comment); this keeps it out of the appex bundle entirely, not just out
+      # of its UIAppFonts list.
       - path: Stash/Design/Fonts
+        excludes:
+          - "PPEditorialNew-Regular.ttf"
     dependencies:
       - package: StashKit
     settings:

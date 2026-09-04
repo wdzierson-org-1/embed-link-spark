@@ -113,6 +113,16 @@ type; these are the only decorative-adjacent colors allowed:
 
 Photos, videos, and link covers use real imagery — no field, no tint.
 
+**Gate strip** (lapsed-account capture lock, Add tab + share sheet): background
+`#fff7e6`, border `#f3d9a4` (1px), text `#7a4b00`, `lock.fill`/lock glyph in the
+same text color, radius 12px. *2026-09-03 (plan 9): new token — web should
+adopt for its own gate messaging.*
+
+**Color scheme: light-only.** *2026-09-03 (plan 9):* Stash renders in the
+light palette above only — no dark-mode stylesheet or trait variant on any
+surface. iOS pins `.preferredColorScheme(.light)` on the root scene
+regardless of system appearance; web ships no dark stylesheet to toggle.
+
 ## Space, radius, elevation
 
 - Radius: **16px** cards & fields · **12–14px** inputs, inner tiles, media
@@ -125,6 +135,15 @@ Photos, videos, and link covers use real imagery — no field, no tint.
   2px lift. Sheet shadow: `0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16)`.
 - Panel section grammar: uppercase micro-label over a hairline rule — never a
   nested card/box. Dotted rules appear *only* between facts rows.
+- **Composer card** (Add tab / homepage capture panel): radius **6px**,
+  `white/90` background + backdrop blur. Idle shadow
+  `0 0 0 1px rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3)`. While
+  composing (focused or has content), a three-layer violet focus ring —
+  `0 0 0 1.5px rgba(139,92,246,.5), 0 0 0 6px rgba(139,92,246,.08), 0 24px
+  48px -20px rgba(139,92,246,.35)` — plus a 2px lift and 1.006 scale, spring
+  transition (stiffness 320, damping 28, mass 0.7). *2026-09-03 (plan 9): iOS
+  harvest — `web src/components/UnifiedInputPanel.tsx`'s shell animation is
+  the source of truth for these values.*
 
 ## Iconography
 

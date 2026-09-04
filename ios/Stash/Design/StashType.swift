@@ -14,12 +14,27 @@ import UIKit
 ///   BookItalic  → PPNeueMontreal-BookItalic
 ///   Medium      → PPNeueMontreal-Medium
 ///   Semibold    → PPNeueMontreal-Semibold
+///
+/// Plan 9 adds the one serif role DESIGN.md §Typography sanctions — the card title's "PP Editorial
+/// New" — converted the same way (`/Users/will/.stash-fonttools/bin/python`, fontTools woff2→ttf,
+/// see task-0-report.md):
+///   Regular     → PPEditorialNew-Regular
+/// Bundled in the **app target only** (`UIAppFonts` in `project.yml`'s `Stash` target) — the card
+/// grid this face serves doesn't render inside the share extension, so unlike PP Neue Montreal it
+/// isn't duplicated into `StashShareExtension`'s bundle.
 enum StashType {
     /// True once `PPNeueMontreal-Medium` resolves via `UIFont(name:size:)` — the cheapest single
     /// probe for "did the whole family register", since every weight ships together in the same
     /// `UIAppFonts` entry. Read by the DEBUG-only `design.fontStatus` / `share.fontStatus` labels.
     static var isNeueMontrealAvailable: Bool {
         UIFont(name: "PPNeueMontreal-Medium", size: 12) != nil
+    }
+
+    /// True once `PPEditorialNew-Regular` resolves via `UIFont(name:size:)`. App-target-only (see
+    /// the type doc comment above) — always `false` in the share extension, which is fine since
+    /// nothing there calls `editorialTitle()`. Read by the DEBUG-only `design.fontStatus` label.
+    static var isEditorialAvailable: Bool {
+        UIFont(name: "PPEditorialNew-Regular", size: 12) != nil
     }
 
     private static func custom(_ psName: String, size: CGFloat, weight: Font.Weight) -> Font {
@@ -80,6 +95,17 @@ enum StashType {
     /// (`body()`, `meta()`, `chip()`) cover exactly (final wave's typography sweep: card-plate
     /// micro-copy, chip labels, etc. that were previously bare `.system(size:)`).
     static func regular(size: CGFloat) -> Font { custom("PPNeueMontreal-Book", size: size, weight: .regular) }
+
+    /// Object title (card) — DESIGN.md's single serif role: "PP Editorial New" 400 · 20 / tight ·
+    /// 2-line clamp. Gated on `isEditorialAvailable` (not `isNeueMontrealAvailable` — a separate
+    /// TTF, registered or not independently of the Neue Montreal family), falling back to
+    /// `.system(size: 20, design: .serif)` so a card title never blanks or crashes if the face
+    /// fails to load. Callers apply DESIGN.md's "tight" line spacing themselves, e.g.
+    /// `.lineSpacing(-1)` / a small negative `.kerning` per their own multi-line clamp treatment —
+    /// this helper only returns the `Font`, not layout modifiers.
+    static func editorialTitle() -> Font {
+        isEditorialAvailable ? .custom("PPEditorialNew-Regular", size: 20) : .system(size: 20, design: .serif)
+    }
 }
 
 extension View {

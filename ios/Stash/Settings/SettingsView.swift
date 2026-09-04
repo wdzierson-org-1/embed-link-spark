@@ -63,12 +63,15 @@ struct SettingsView: View {
                 #if DEBUG
                 // Plan 7 Task 2: proves PP Neue Montreal actually registered in the app target
                 // (vs. silently degrading to the SF Pro fallback) — read by
-                // `testDesignSystemFontsLoad`. DEBUG-only: never ships to TestFlight/App Store.
-                Text(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+                // `testDesignSystemFontsLoad`. Plan 9 Task 0 appended the "PP Editorial New" card
+                // title face's own load status (`editorial:loaded|fallback`) to the same label
+                // rather than adding a second identifier — one DEBUG-only probe point for both
+                // bundled font families. DEBUG-only: never ships to TestFlight/App Store.
+                Text(fontStatusText)
                     .font(StashType.meta())
                     .foregroundStyle(StashColor.faint)
                     .accessibilityIdentifier("design.fontStatus")
-                    .accessibilityLabel(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+                    .accessibilityLabel(fontStatusText)
                 #endif
             }
             .frame(maxWidth: .infinity)
@@ -76,6 +79,18 @@ struct SettingsView: View {
         }
         .listRowBackground(Color.clear)
     }
+
+    #if DEBUG
+    /// "font:neue-montreal|sf-fallback editorial:loaded|fallback" — see the `design.fontStatus`
+    /// call site above. Two independent probes concatenated into one label rather than two
+    /// identifiers, since both TTF families' load status is the same kind of fact for the same
+    /// audience (an agent/human confirming a font actually bundled after `xcodegen generate`).
+    private var fontStatusText: String {
+        let neue = StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback"
+        let editorial = StashType.isEditorialAvailable ? "editorial:loaded" : "editorial:fallback"
+        return "\(neue) \(editorial)"
+    }
+    #endif
 
     private var appVersionString: String {
         let info = Bundle.main.infoDictionary

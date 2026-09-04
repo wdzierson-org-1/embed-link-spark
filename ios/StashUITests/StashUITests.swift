@@ -1636,7 +1636,11 @@ final class StashUITests: XCTestCase {
     /// DEBUG-only a11y label in the Settings footer (`StashType.isNeueMontrealAvailable` reads
     /// `"font:neue-montreal"` when `Font.custom` resolves, `"font:sf-fallback"` otherwise) — if the
     /// font ever fails to register (bad `UIAppFonts` entry, missing bundle resource), this catches
-    /// it at UI-test time instead of silently degrading to SF Pro on device.
+    /// it at UI-test time instead of silently degrading to SF Pro on device. Plan 9 Task 0 appended
+    /// a second probe to the same label — `StashType.isEditorialAvailable` reads
+    /// `"editorial:loaded"` once the "PP Editorial New" card-title face registers in the app
+    /// target's own `UIAppFonts` entry (`"editorial:fallback"` otherwise) — asserted together since
+    /// both are read from the same identifier.
     func testDesignSystemFontsLoad() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -1647,8 +1651,8 @@ final class StashUITests: XCTestCase {
 
         let fontStatus = app.descendants(matching: .any)["design.fontStatus"]
         XCTAssertTrue(fontStatus.waitForExistence(timeout: 10), "design.fontStatus label not found in Settings footer")
-        XCTAssertEqual(fontStatus.label, "font:neue-montreal",
-                       "Expected PP Neue Montreal to load in the app target, not fall back to SF Pro")
+        XCTAssertEqual(fontStatus.label, "font:neue-montreal editorial:loaded",
+                       "Expected PP Neue Montreal and PP Editorial New to both load in the app target, not fall back")
     }
 
     /// Plan 7 Task 3: the sign-in card's pill tabs actually switch content — tapping
