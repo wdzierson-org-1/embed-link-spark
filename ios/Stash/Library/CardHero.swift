@@ -121,7 +121,11 @@ struct ImageHeroZone: View {
                     StandardCoverImage(image: Image(uiImage: uiImage))
                 }
             } else if failed || item.thumbnailURL == nil {
-                FilePlate(kind: .image, fileName: item.attributes.media?.fileName, factsLine: facts)
+                // Screenshot identity carries through even on this rare imageless-fallback path
+                // (DESIGN.md's type-spectrum "screenshot" tint) — see `isScreenshotItem`'s doc
+                // comment (`CardChips.swift`) for why this reads the title, not `media.kind`.
+                FilePlate(kind: isScreenshotItem(item) ? .screenshot : .image,
+                          fileName: item.attributes.media?.fileName, factsLine: facts)
             } else {
                 Color(.tertiarySystemFill).frame(height: CardHeroHeight.standard)
             }

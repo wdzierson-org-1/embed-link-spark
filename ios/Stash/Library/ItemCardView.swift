@@ -2,13 +2,15 @@ import SwiftUI
 import StashKit
 
 /// A single object-first card in the library grid (Plan 4 rework — see
-/// `docs/superpowers/specs/2026-08-16-single-object-items-design.md`). Anatomy, top to bottom:
-/// object zone (`CardHero.swift`) → kicker (links only) → serif title → description → the
-/// user's own annotation (violet bar, always visually distinct from description) → metadata
-/// chips → footer (date · location pin · type badge). Legacy `collection` items get a rich note
-/// + `CollectionStrip` instead of steps 2 (no kicker) through 6 (no chips). Shows a shimmering
-/// redacted overlay while a document is still processing, and a yellow sticky-note corner badge
-/// when the item carries a public supplemental note — both unchanged from the pre-rework card.
+/// `docs/superpowers/specs/2026-08-16-single-object-items-design.md`; DESIGN.md §Components
+/// "Card anatomy" for the plan-9 token shell below). Anatomy, top to bottom: object zone
+/// (`CardHero.swift`) → kicker (links only) → serif title → description → the user's own
+/// annotation (violet bar, always visually distinct from description) → metadata chips (leading
+/// tinted type chip, `CardChips.swift`) → footer (date · location pin · type badge). Legacy
+/// `collection` items get a rich note + `CollectionStrip` instead of steps 2 (no kicker) through 6
+/// (no chips). Shows a shimmering redacted overlay while a document is still processing, and a
+/// yellow sticky-note corner badge when the item carries a public supplemental note — both
+/// unchanged from the pre-rework card.
 struct ItemCardView: View {
     let item: Item
 
@@ -31,29 +33,49 @@ struct ItemCardView: View {
             heroZone
             VStack(alignment: .leading, spacing: 8) {
                 kicker
-                // iOS card-title role (no bundled Editorial/serif face here — DESIGN.md's
-                // "Object title (card) … 20 / tight" scaled down to `medium(size: 18)`, the
-                // closest Neue Montreal weight/size pairing that still reads as a title at grid
-                // density; final wave typography sweep, item C).
-                Text(title).font(StashType.medium(size: 18)).lineLimit(2)
+                // DESIGN.md's one serif role: "Object title (card) … PP Editorial New 400 · 20 /
+                // tight · 2-line clamp" (plan 9's `StashType.editorialTitle()`, Task 0). The
+                // negative `.lineSpacing` is the "tight" leading the font helper's own doc comment
+                // asks callers to apply — SwiftUI's default line spacing for a 20pt serif reads
+                // loose across a 2-line clamp otherwise.
+                Text(title).font(StashType.editorialTitle()).lineSpacing(-2).lineLimit(2)
                 contentSection
                 footer
             }
-            .padding(12)
+            // DESIGN.md §Space: body side padding 24px; `--card-gap: 18px` between hero bottom
+            // and body top for every hero type; 22px top padding on hero-less cards (`.text`/
+            // `.audio` — no player hero shipped yet — /`.collection`/`.unknown`).
+            .padding(.horizontal, 24)
+            .padding(.top, hasHero ? 18 : 22)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.systemBackground))
         // One outer clip (rather than porting the web's per-plate `rounded-t-2xl`) crops
         // whatever's in the hero zone to the card's own top corners — the hero sits flush
         // against the top/sides with no gap, so this alone produces the same silhouette.
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: StashRadius.card))
         // Web card treatment: a white surface lifted off the gradient backdrop by a hairline
         // border + soft shadow, instead of the flat gray-fill look.
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.black.opacity(0.06), lineWidth: 1))
-        .shadow(color: .black.opacity(0.07), radius: 10, y: 3)
+        .overlay(RoundedRectangle(cornerRadius: StashRadius.card).strokeBorder(.black.opacity(0.06), lineWidth: 1))
+        // DESIGN.md's two-layer card shadow (Task 0's `.stashCardShadow()`), replacing the ad hoc
+        // single `.shadow`.
+        .stashCardShadow()
         .overlay(alignment: .topTrailing) { stickyBadge }
         .redacted(reason: item.isProcessingDocument ? .placeholder : [])
         .overlay { if item.isProcessingDocument { shimmer } }
+    }
+
+    /// Mirrors `heroZone`'s own switch — true for the four types that currently render a
+    /// non-empty object zone. `.audio` reads `false` today (no player hero yet, `heroZone`'s
+    /// `EmptyView()` branch) even though DESIGN.md's per-type hero table eventually wants one; the
+    /// no-hero 22pt top padding is the visually-correct choice while that gap is still empty, and
+    /// whoever ships the audio player hero should widen this switch alongside it.
+    private var hasHero: Bool {
+        switch item.type {
+        case .link, .image, .video, .document: true
+        case .text, .audio, .collection, .unknown: false
+        }
     }
 
     private var title: String {
@@ -157,10 +179,13 @@ struct ItemCardView: View {
         }
     }
 
-    /// Order matches web `ContentItemContent.tsx`'s chip build: fileName, then facts, then
-    /// duration.
+    /// Order matches DESIGN.md's chips grammar / web `ContentItemContent.tsx`'s chip build:
+    /// leading tinted type chip, then fileName, then facts, then duration.
     private var metadataChips: [AnyView] {
         var chips: [AnyView] = []
+        if let typeChip = typeChip(for: item) {
+            chips.append(typeChip)
+        }
         if [.image, .audio, .video].contains(item.type), let fileName = item.attributes.media?.fileName {
             chips.append(AnyView(MetaChip(mono: true, text: fileName)))
         }
