@@ -547,11 +547,13 @@ struct ShareComposeView: View {
     // MARK: - Save / Cancel
 
     /// Will's note: "make the 'save' button full size (standard iOS guidance) and pin it to the
-    /// bottom of the screen." Full-width (screen minus 20pt margins), 52pt tall, `StashRadius.input`,
-    /// always violet — unlike the old capsule's white/gray resting split, standard iOS full-width
-    /// buttons read their disabled state as reduced opacity, not a color swap, so this one dims
-    /// instead: still visible (never hidden) while the gate/empty-share disables it, per Global
-    /// Constraints. `share.save` identifier moved here from the old inline capsule.
+    /// bottom of the screen." Full-width (screen minus 20pt margins), 52pt tall, `StashRadius.input`.
+    /// Disabled state (Fix round 1, Will's screenshot: whole-button `.opacity(0.4)` dimmed the fill
+    /// AND the label together into a washed lavender pill with an illegible "Save") swaps fill +
+    /// label color instead of dimming opacity — `StashColor.wash` fill + `StashColor.muted` text,
+    /// no opacity modifier on the label — so the button stays legible while still visibly inert
+    /// (never hidden) whenever the gate/empty-share disables it, per Global Constraints. `share.save`
+    /// identifier moved here from the old inline capsule.
     private var pinnedSaveBar: some View {
         Button {
             Task { await save() }
@@ -565,9 +567,11 @@ struct ShareComposeView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .foregroundStyle(.white)
-            .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: StashRadius.input))
-            .opacity(canSubmit || phase == .saving ? 1 : 0.4)
+            .foregroundStyle(canSubmit || phase == .saving ? .white : StashColor.muted)
+            .background(
+                canSubmit || phase == .saving ? StashColor.violet600 : StashColor.wash,
+                in: RoundedRectangle(cornerRadius: StashRadius.input)
+            )
         }
         .buttonStyle(.plain)
         .disabled(phase == .saving || !canSubmit)
