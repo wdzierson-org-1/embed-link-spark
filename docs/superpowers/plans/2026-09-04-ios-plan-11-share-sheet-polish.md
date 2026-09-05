@@ -146,3 +146,55 @@ review.
 - **Build 5** (`a796ea19-1678-40d7-bce1-a94399687bfb`) remains uploaded/VALID but was
   deliberately left unattached to either group and never submitted for review, per Will's
   instruction — build 6 supersedes it entirely.
+
+### Fix round 2 (2026-09-05): gate strip repositioned; build 7 supersedes build 6
+
+Will's direct follow-up request, relayed verbatim: "let's move the 'subscribe...' messaging to
+just above the 'save' button on the share sheet. it seems a little out of place between the
+shared item card and the optional note field." (Note: fix round 1's own doc comment above records
+that an *earlier*, unauthorized attempt at this exact move was self-caught and fully reverted
+before shipping — this round is the real, Will-authorized request.)
+
+`ShareComposeView.swift`: `gateMessage` moved out of `composeBody` (the scrolling content column,
+where it rendered between the shared-item preview and `share.note`) into `pinnedSaveBar` (the
+`.safeAreaInset(edge: .bottom)` bar), now a `VStack(spacing: 10)` of `[gateMessage when the gate is
+closed, 10pt gap, the Save button]`. The strip keeps its `share.gate` identifier, tokens
+(`gateBackground`/`gateBorder`/`gateText`, `StashRadius.input`), and full-width framing.
+
+**Workaround disposition — removed as moot.** Plan 9/fix-round-1 gave the strip's
+`.background`/`.overlay` shapes a `-8pt` negative vertical padding instead of real vertical padding
+on the HStack, because real padding shifted `share.note` down (both lived in the same
+`composeBody` VStack) and broke `share.note`'s keyboard focus in `testShareExtensionURLSmoke`
+(4/4 failures with real padding, 3/3 passes with the negative-padding workaround, isolated across
+7 bisection runs at the time). Now that the strip lives in a separate container from `share.note`
+entirely — the bottom bar, not the content column — that coupling is gone, so the workaround no
+longer applies to anything: swapped for plain `.padding(.vertical, 8)` on the HStack. Re-verified
+live: `testShareExtensionURLSmoke` still types into `share.note` (`noteField.typeText`) and passes
+1/1, confirming the keyboard-focus regression this workaround guarded against does not recur in
+the new container.
+
+**Verification:**
+- `xcodebuild build` (Stash scheme) → **BUILD SUCCEEDED**, zero compiler warnings (only the
+  benign `appintentsmetadataprocessor` notice and xcodebuild's own multiple-destination CLI
+  notice).
+- `testShareExtensionURLSmoke` → **1/1 passing** (47.1s), gate-blocked branch exercised (this
+  account is still lapsed) — asserts `share.gate` visible, Save disabled, `share.note` accepted
+  the typed marker, then Cancels and REST-verifies no item was created.
+- Screenshot `task-gate-move.png`
+  (`.superpowers/sdd/2026-09-04-ios-plan-11-share-sheet-polish/`), captured live off the
+  `SCREENSHOT_CHECKPOINT: share-gate-closed` moment: the amber gate strip sits directly above a
+  legible, wash-filled disabled Save button in the bottom bar; the content column above shows only
+  the URL card, the typed note, and the location-pin button — no strip between the card and the
+  note field.
+- Committed in `2887cc5`: `fix(ios): gate strip moves to the bottom bar, directly above Save
+  (Will's request)`.
+
+**Version bump:** `CURRENT_PROJECT_VERSION: 6 → 7` in `ios/project.yml` → `xcodegen generate` →
+`PlistBuddy`-verified `CFBundleShortVersionString`/`CFBundleVersion` = `0.1.0`/`7` on both
+`Stash.app/Info.plist` and `Stash.app/PlugIns/StashShareExtension.appex/Info.plist`.
+
+**Build 7 supersedes build 6** for the same reason build 6 superseded build 5: build 6 shipped
+without this fix (it was never requested until after build 6 was already submitted for Beta App
+Review), so build 7 carries it forward. Build 6's existing Beta App Review submission
+(`WAITING_FOR_REVIEW`) is left as-is — harmless, and Apple review of an already-submitted build
+doesn't block a newer build's own separate submission.

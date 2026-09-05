@@ -15,6 +15,13 @@ cross-platform color token. Ships TestFlight build 5. Full plan:
 `docs/superpowers/plans/2026-09-04-ios-plan-11-share-sheet-polish.md`; outcome appended to that
 file.
 
+**2026-09-05 amendment (build 7, supersedes build 6):** the `share.gate` strip ("Subscribe on
+gostash.it to add items") moved out of the scrolling content column — where it sat between the
+shared-item card and the note field — into the pinned bottom bar, directly above the Save button,
+per Will's direct follow-up request; the plan 9 negative-vertical-padding workaround on the strip's
+background/overlay (needed only because the strip used to share a VStack with `share.note`) is
+gone now that it doesn't.
+
 - **NEW token — `success` (`#2F9E63`), DESIGN.md §Color.** First legitimate need for a green in
   the design system: confirmation icons/labels (e.g. "Saved to Stash"). **Web should adopt this
   for its own confirmation states** — previously a bare `.green`/system green with no token on
