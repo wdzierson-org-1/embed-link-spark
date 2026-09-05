@@ -8,6 +8,40 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-05 · Chrome extension: minimal permissions + Chrome Web Store prep (v1.2.0)
+
+Chrome extension (`extension/`) only — user-visible behavior unchanged. Full plan:
+`docs/superpowers/plans/2026-09-05-extension-cws-submission.md`.
+
+- **Permissions narrowed**: `host_permissions` dropped from `<all_urls>` to
+  `["http://*/*", "https://*/*"]` — drops `file://`/`ftp://`/other non-web
+  schemes Stash never touched anyway; every real capture flow (toolbar save,
+  selection note, right-click image save on any host) still works exactly as
+  before. `activeTab` was evaluated per the plan but doesn't cover the actual
+  behavior: the image-save flow does a credentialed cross-origin `fetch`
+  straight from the service worker to whatever origin hosts the image (often
+  a different origin than the page — CDN-hosted images), and `activeTab`'s
+  grant only covers the invoking tab's own top-level origin. Verified via curl
+  (real image CDNs send `Access-Control-Allow-Origin: *` with no
+  `Access-Control-Allow-Credentials`, which fails a credentialed fetch per the
+  Fetch spec) and empirically in a live loaded extension (an `activeTab`-only
+  grant still failed the cross-origin image fetch; the host list succeeded,
+  REST-verified, then cleaned up). `manifest.json` version bumped to `1.2.0`.
+- **Store submission package added** (`extension/store/`, all committed):
+  `listing.md` (name, ≤132-char summary, full description),
+  `permissions-justifications.md` (per-permission paragraphs mapped to CWS's
+  dashboard fields, data-use disclosure table, remote-code "No"),
+  `SUBMISSION.md` (Will's click-by-click runbook — dev account, upload,
+  paste-in fields, Unlisted-first recommendation), and 4 screenshots
+  (1280×800): 1 real capture (signed-in options page, with a disclosed
+  cosmetic patch masking the real test account's email), 2 composed and
+  marked illustrative (saved-confirmation badge, native image context menu —
+  both are OS-drawn browser chrome this environment couldn't screen-capture
+  directly), 1 composed promo frame. `extension/scripts/package.sh` builds
+  the submission zip (manifest + runtime sources + icons only).
+- What remains: Will's CWS developer account + the actual dashboard
+  upload/submission — nothing else is blocked.
+
 ## 2026-09-04 · iOS share sheet round 2 (plan 11)
 
 Six of Will's design notes against the share extension's compose screen, plus one new
