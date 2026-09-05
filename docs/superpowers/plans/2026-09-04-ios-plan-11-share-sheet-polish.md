@@ -105,4 +105,21 @@ stash" green-literal migration to that token.
   rebuilt → `PlistBuddy` confirmed `CFBundleShortVersionString`/`CFBundleVersion` = `0.1.0`/`5` on
   **both** `Stash.app/Info.plist` and `Stash.app/PlugIns/StashShareExtension.appex/Info.plist`.
 
-_Build 5 upload/attach/beta-review status appended below once complete._
+### Fix round 1 (2026-09-05): disabled Save legibility
+
+Will caught a real bug from a screenshot before submission: the pinned Save button's disabled
+(gate-blocked) state used a whole-button `.opacity(0.4)`, which dimmed the violet fill AND the
+white label together into a washed lavender pill with an illegible "Save". Fixed in `5a7afeb` by
+swapping fill + label color for the disabled state instead of dimming opacity —
+`StashColor.wash` fill + `StashColor.muted` text, no opacity modifier — same 52pt/full-width/
+pinned geometry, `share.save` identifier unchanged. Screenshot-verified live against the
+gate-blocked account (`testShareExtensionURLSmoke`'s own `share-gate-closed` checkpoint):
+"Save" is clearly legible on the wash pill. `testShareExtensionURLSmoke` re-verified green;
+both targets rebuilt warning-free.
+
+**Build 5 is superseded, not submitted.** It finished uploading (VALID-eligible) before the fix
+landed, but per Will's instruction was never attached to either TestFlight group and never
+submitted for Beta App Review — build 6 (below) carries the fix and is what actually goes to
+review.
+
+_Build 6 upload/attach/beta-review status appended below once complete._

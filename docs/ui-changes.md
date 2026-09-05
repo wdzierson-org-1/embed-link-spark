@@ -33,8 +33,10 @@ file.
   height, full width minus 20pt margins, `violet-600` fill, white 17pt medium label), via
   `.safeAreaInset(edge: .bottom)` so it stays above the keyboard when the note field is focused.
   Previously a smaller capsule button inline with the rest of the content. Disabled (gate-blocked)
-  state renders at reduced opacity, never hidden — the account-gate messaging still needs a visible
-  (if inert) Save target.
+  state swaps fill + label color (`StashColor.wash` fill, `StashColor.muted` text) rather than
+  dimming opacity — a Fix round 1 correction after the initial whole-button `.opacity(0.4)` dimmed
+  fill and label together into an illegible washed-lavender pill; never hidden either way — the
+  account-gate messaging still needs a visible (if inert) Save target.
 - **Save preview is full-width, not a thumbnail.** Image shares now render a full-content-width,
   aspect-fit hero (max ~45% of the sheet height) instead of a small square thumbnail; URL shares
   get a larger favicon (32pt) with a bigger title/domain stack. Multi-item shares keep a
