@@ -122,4 +122,27 @@ landed, but per Will's instruction was never attached to either TestFlight group
 submitted for Beta App Review — build 6 (below) carries the fix and is what actually goes to
 review.
 
-_Build 6 upload/attach/beta-review status appended below once complete._
+### Build 6: upload, attach, Beta App Review submission
+
+- **Entitlement check** on the exported `.ipa` (unzipped, both binaries): app binary and
+  `StashShareExtension.appex` binary both carry `com.apple.security.application-groups:
+  [group.it.gostash.stash]` and `keychain-access-groups: [3CH3K9NTT2.it.gostash.stash.shared]`;
+  both `Info.plist`s report `CFBundleShortVersionString`/`CFBundleVersion` = `0.1.0`/`6`.
+- `./scripts/release.sh all` (archive + export, session auth) → **ARCHIVE SUCCEEDED** /
+  **EXPORT SUCCEEDED** → `./scripts/release.sh upload` → **Upload succeeded**.
+- Polled `/v1/builds?filter[app]=6806459949&sort=-uploadedDate&limit=1` (bounded loop, 60s ×
+  ≤30) — build `b56fb7a3-de9e-42b0-a7c3-642c07e8798f` (version `6`) reached `processingState:
+  VALID` on the 3rd poll (~2 minutes).
+- Attached to **both** TestFlight groups via `POST .../relationships/builds` (HTTP 204 each):
+  Internal (`d19f78c1-7af3-4461-9af6-1566200c251b`) and Trusted Testers
+  (`d0d24fce-73d1-4f0c-864d-a8cfd029461e`). Verified via `GET .../builds` on each group — both
+  list build `6` alongside prior builds.
+- Submitted for Beta App Review: `POST /v1/betaAppReviewSubmissions` with
+  `relationships.build.id = b56fb7a3-de9e-42b0-a7c3-642c07e8798f` → HTTP 201,
+  **`betaReviewState: WAITING_FOR_REVIEW`**. Re-`GET` confirms the state persists with
+  `submittedDate: 2026-09-05T09:57:22-07:00`. The betaAppReviewDetail (contact phone, demo
+  account, review notes) was already complete from plan-11's setup — no changes needed here.
+  Public link `https://testflight.apple.com/join/7xCGKxCT` goes live once Apple approves.
+- **Build 5** (`a796ea19-1678-40d7-bce1-a94399687bfb`) remains uploaded/VALID but was
+  deliberately left unattached to either group and never submitted for review, per Will's
+  instruction — build 6 supersedes it entirely.
