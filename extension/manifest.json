@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stash it",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Save pages, selected text, and images to your Stash with one click.",
   "background": {
     "service_worker": "background.js",
@@ -27,5 +27,5 @@
     "128": "icons/icon128.png"
   },
   "permissions": ["contextMenus", "storage", "scripting"],
-  "host_permissions": ["<all_urls>"]
+  "host_permissions": ["http://*/*", "https://*/*"]
 }
