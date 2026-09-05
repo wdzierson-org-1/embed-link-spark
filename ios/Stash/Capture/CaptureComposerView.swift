@@ -537,10 +537,11 @@ private enum CaptureToast: Equatable {
     // Amber whenever something didn't make it (dropped attachments, offline queueing, or an
     // outright rejection) — green is reserved for a fully clean save (fix round: a partially
     // dropped save must not read as an unqualified success).
-    // .orange/.green have no DESIGN.md token yet.
+    // .orange is a bare literal with no DESIGN.md warn/amber token yet (plan-11 wrap fold:
+    // only added `success`, which covers the green case below).
     var color: Color {
         switch self {
-        case .saved(_, let hadDrops): hadDrops ? .orange : .green
+        case .saved(_, let hadDrops): hadDrops ? .orange : StashColor.success
         case .queued, .rejected: .orange
         }
     }

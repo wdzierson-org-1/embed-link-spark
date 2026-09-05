@@ -8,6 +8,47 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-04 · iOS share sheet round 2 (plan 11)
+
+Six of Will's design notes against the share extension's compose screen, plus one new
+cross-platform color token. Ships TestFlight build 5. Full plan:
+`docs/superpowers/plans/2026-09-04-ios-plan-11-share-sheet-polish.md`; outcome appended to that
+file.
+
+- **NEW token — `success` (`#2F9E63`), DESIGN.md §Color.** First legitimate need for a green in
+  the design system: confirmation icons/labels (e.g. "Saved to Stash"). **Web should adopt this
+  for its own confirmation states** — previously a bare `.green`/system green with no token on
+  iOS (the share sheet's saved-checkmark, Ask's "Saved to your stash" caption), no equivalent on
+  web at all. The adjacent "will sync" (queued/offline) outcome state uses the existing
+  `violet-600` token, not a new color — it's an active/in-progress state, not a distinct
+  confirmation intent.
+- **Cards and the close (X) button lose their gray hairline stroke** — fill + shadow only now
+  (the compose note field, URL/image preview cards, and the circular close button). The amber
+  gate-strip border is unchanged/intentional (a warning affordance, not decoration).
+  1px-stroke-only rule elsewhere in the design system is untouched; this only drops strokes that
+  were purely decorative on these specific surfaces.
+- **Note placeholder copy:** "Add a note…" → "Optional note…" — clarifies the field is
+  optional without a separate label.
+- **Save button is full-width and pinned to the bottom of the screen** (standard iOS sizing: 52pt
+  height, full width minus 20pt margins, `violet-600` fill, white 17pt medium label), via
+  `.safeAreaInset(edge: .bottom)` so it stays above the keyboard when the note field is focused.
+  Previously a smaller capsule button inline with the rest of the content. Disabled (gate-blocked)
+  state renders at reduced opacity, never hidden — the account-gate messaging still needs a visible
+  (if inert) Save target.
+- **Save preview is full-width, not a thumbnail.** Image shares now render a full-content-width,
+  aspect-fit hero (max ~45% of the sheet height) instead of a small square thumbnail; URL shares
+  get a larger favicon (32pt) with a bigger title/domain stack. Multi-item shares keep a
+  full-width hero for the first item plus the existing compact "+N" row for the rest. Still
+  thumbnails from the staged file via ImageIO — never decodes the original whole file into memory.
+- **Outcome icons recolored:** "Saved to Stash" checkmark is now the new `success` green
+  (previously `violet-600`); "Saved — will sync" (queued/offline) clock is now `violet-600`
+  (previously a bare `.orange` literal) — treats "queued to sync" as an active/in-progress state,
+  not a warning.
+- Accessibility identifiers unchanged throughout (`share.outcome`, `share.save`, `share.cancel`,
+  `share.gate`, `share.note`).
+
+---
+
 ## 2026-09-04 · iOS feedback round 2 (plan 10)
 
 Fixes four pieces of Will's 2026-09-04 feedback against the iOS app. Ships

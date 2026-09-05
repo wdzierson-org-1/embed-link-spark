@@ -24,10 +24,85 @@
 
 **Files:** Modify `ios/StashShareExtension/ShareComposeView.swift`, `ios/Stash/Design/StashDesign.swift` (+`success`), `ios/Stash/Ask/ChatBubble.swift` (green literal → token), `DESIGN.md` (token, dated); Test: `ios/StashUITests/StashUITests.swift` only if a placeholder-text assertion exists.
 
-- [ ] **Step 1:** Implement per Global Constraints. Live-verify via a real Safari share on the sim (the T5/T7 recipe in the old task reports; the account is gate-blocked so ALSO verify the gate branch renders with the new save button disabled-but-visible).
-- [ ] **Step 2:** Screenshots: compose card (URL variant + image variant with the big hero), the pinned save button with keyboard up, gate state, and the outcome view in BOTH states (seed or briefly force each; the will-sync state is reachable by sharing while offline — `xcrun simctl status_bar`… simpler: temporarily hit the queued path by sharing a >8MB file) → task-1-share-*.png; READ them (no strokes on cards/X; "Optional note…"; full-width bottom save; big preview; violet clock / green check).
-- [ ] **Step 3:** `testShareExtensionURLSmoke` ×1 green (update in-task only if a text assertion broke — disclose); `swift test` 341; both targets build warning-free. Commit: `feat(ios): share sheet round 2 — strokeless cards, full-width pinned Save, larger preview, Optional note copy, violet/green outcome icons, success token`
+- [x] **Step 1:** Implement per Global Constraints. Live-verify via a real Safari share on the sim (the T5/T7 recipe in the old task reports; the account is gate-blocked so ALSO verify the gate branch renders with the new save button disabled-but-visible).
+- [x] **Step 2:** Screenshots: compose card (URL variant + image variant with the big hero), the pinned save button with keyboard up, gate state, and the outcome view in BOTH states (seed or briefly force each; the will-sync state is reachable by sharing while offline — `xcrun simctl status_bar`… simpler: temporarily hit the queued path by sharing a >8MB file) → task-1-share-*.png; READ them (no strokes on cards/X; "Optional note…"; full-width bottom save; big preview; violet clock / green check).
+- [x] **Step 3:** `testShareExtensionURLSmoke` ×1 green (update in-task only if a text assertion broke — disclose); `swift test` 341; both targets build warning-free. Commit: `feat(ios): share sheet round 2 — strokeless cards, full-width pinned Save, larger preview, Optional note copy, violet/green outcome icons, success token`
 
 ### Task 2: Review (fresh reviewer: verify all six notes against screenshots + code; token/scope/identifier audit; memory rule on the bigger hero — no whole-file decodes)
 
 ### Task 3: Wrap — suites (StashKit, npm, UI ×2), ui-changes entry (share sheet round 2 + success token, web should adopt), outcome, version 5, upload, attach BOTH groups, submit Beta App Review, record state.
+
+---
+
+## Outcome (2026-09-05)
+
+**Commit range:** `2b112b5..HEAD` (base = `main` at plan authoring time). `origin/main` audited at
+wrap — `fa6cd91` (chore(extension): rebuild hosted zip with current icons, unrelated to iOS)
+merged clean via `aa21440`.
+
+| Commit | Task | Message |
+|---|---|---|
+| `220fb21` | — | docs(ios): plan 11 — share-sheet polish + build 5 to beta review |
+| `f214dc7` | T1 | feat(ios): share sheet round 2 — strokeless cards, full-width pinned Save, larger preview, Optional note copy, violet/green outcome icons, success token |
+| `aa21440` | — | Merge remote-tracking branch 'origin/main' into worktree-ios-plan-11 |
+| *(this commit)* | T3 | docs(ios): plan-11 outcome; ui-changes entry; build 5 |
+
+### Six notes → shipped
+
+All six of Will's 2026-09-04 notes shipped in `f214dc7`, reviewed and approved in Task 2:
+
+1. Gray stroke removed from cards (`hairlineCard()` now fill + shadow only).
+2. Gray stroke removed from the X/close button (`CircleIcon(..., bordered: false)`).
+3. "Add a note…" → "Optional note…" placeholder copy.
+4. Save button is full-width, 52pt, pinned to the bottom via `.safeAreaInset(edge: .bottom)`.
+5. Save preview enlarged — full-content-width aspect-fit hero for images (max ~45% sheet
+   height), larger favicon + title/domain stack for URLs.
+6. Outcome icon colors swapped: "Saved to Stash" → new `success` green; "will sync" → `violet-600`.
+
+Plus the new `success` DESIGN.md token (web should adopt) and the ChatBubble "Saved to your
+stash" green-literal migration to that token.
+
+### Carried item (wrap fold)
+
+- **`CaptureComposerView.swift:~543` bare `.orange`/`.green` literals** (pre-dating plan 11,
+  ledgered as a low finding in Task 2 review): the `.green` half was trivial to fold — migrated to
+  `StashColor.success` (the exact "fully clean save" confirmation case the new token exists for).
+  The `.orange` half is carried, not folded: it's used for three distinct states (dropped
+  attachment, queued/offline, rejected) and DESIGN.md has no warn/amber token yet — inventing one
+  under a low-priority wrap fold risked picking the wrong semantic before a real warn-token need
+  presents itself elsewhere. Left as a bare literal with an updated comment disclosing why.
+
+### Verification
+
+- **StashKit:** `swift test` → **341/341 passing, 0 failures** (unchanged floor).
+- **App + extension build:** `xcodegen generate` → `xcodebuild build` for the `Stash` scheme
+  (embeds `StashShareExtension`), sim `28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB`, dedicated
+  `-derivedDataPath` → **BUILD SUCCEEDED**, zero compiler warnings (only the pre-existing, benign
+  `appintentsmetadataprocessor` "Metadata extraction skipped — No AppIntents.framework
+  dependency" notice in either log, not from Swift source). Re-verified after the version-5
+  `xcodegen generate` regeneration.
+- **Web:** `npm test` → **33 test files, 202 tests, all passed.**
+- **UI suite ×2:** full `StashUITests` (22 tests) run twice against production, seeding a fresh
+  `STASH_DELETE_MARKER` item via `POST /functions/v1/add-note` before each run (env-var
+  passthrough note below).
+  - **Run 1:** 19 passed, 3 failed — exactly the standing gate-blocked trio
+    (`testAskSmoke`, `testCaptureSmoke`, `testLocationPinSmoke`; Stripe comp decision still
+    pending). `testDeleteSmoke` passed (marker seeded up front).
+  - **Run 2:** 18 passed, 4 failed — the standing trio plus `testComposerKeyboardAccessory`.
+    **Investigated:** every UI interaction in that run's log was 5–10× slower than normal
+    (`uptime` showed load averages 10/84/116 at the time — heavy contention from other concurrent
+    sessions on the shared machine, 4 simulators booted). Re-ran `testComposerKeyboardAccessory`
+    alone immediately after (load already dropping) — **passed in 25s** with normal sub-second
+    step timings. Environmental flake under host load, not a product regression.
+  - **Tooling note (new this plan):** `TEST_RUNNER_STASH_TEST_EMAIL`/`TEST_RUNNER_..._PASSWORD`
+    passed as trailing `xcodebuild test` command-line arguments (the form prior plans' outcome
+    docs describe) did **not** reach the test process's `ProcessInfo.environment` on this Xcode
+    26.6 setup — confirmed via a build-settings dump showing the override recognized but the
+    runner still reporting the credentials unset. Exporting them as real shell environment
+    variables before invoking `xcodebuild test` (rather than passing `KEY=value` as extra
+    arguments) worked reliably every time after. Worth carrying forward as the working recipe.
+- **Version bump:** `CURRENT_PROJECT_VERSION: 4 → 5` in `ios/project.yml` → `xcodegen generate` →
+  rebuilt → `PlistBuddy` confirmed `CFBundleShortVersionString`/`CFBundleVersion` = `0.1.0`/`5` on
+  **both** `Stash.app/Info.plist` and `Stash.app/PlugIns/StashShareExtension.appex/Info.plist`.
+
+_Build 5 upload/attach/beta-review status appended below once complete._
