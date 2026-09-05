@@ -195,6 +195,36 @@ the new container.
 
 **Build 7 supersedes build 6** for the same reason build 6 superseded build 5: build 6 shipped
 without this fix (it was never requested until after build 6 was already submitted for Beta App
-Review), so build 7 carries it forward. Build 6's existing Beta App Review submission
-(`WAITING_FOR_REVIEW`) is left as-is — harmless, and Apple review of an already-submitted build
-doesn't block a newer build's own separate submission.
+Review), so build 7 carries it forward.
+
+**Build 7: upload, attach, Beta App Review submission BLOCKED (correction to the assumption
+above)**
+
+- `./scripts/release.sh all` (session auth) → **ARCHIVE SUCCEEDED** / **EXPORT SUCCEEDED**.
+- Entitlement check on the exported `.ipa` (unzipped, both binaries): app group
+  `group.it.gostash.stash` and keychain group `3CH3K9NTT2.it.gostash.stash.shared` present on
+  both `Stash` and `StashShareExtension.appex` binaries; both `Info.plist`s report
+  `CFBundleShortVersionString`/`CFBundleVersion` = `0.1.0`/`7`.
+- `./scripts/release.sh upload` → **Upload succeeded**.
+- Polled `/v1/builds?filter[app]=6806459949&sort=-uploadedDate&limit=1` — build
+  `56404baf-c79f-4f93-954d-5de86fc0038a` (version `7`) reached `processingState: VALID`.
+- Attached to **both** TestFlight groups via `POST .../relationships/builds` (HTTP 204 each):
+  Internal (`d19f78c1-7af3-4461-9af6-1566200c251b`) and Trusted Testers
+  (`d0d24fce-73d1-4f0c-864d-a8cfd029461e`). Verified via `GET .../builds` on each group — both
+  list build `7` alongside prior builds.
+- **Submission BLOCKED.** `POST /v1/betaAppReviewSubmissions` for build 7 → **HTTP 422
+  `ENTITY_UNPROCESSABLE.ANOTHER_BUILD_IN_REVIEW`**: *"Another build in the same train is already
+  in beta review. Please submit it again once it gets completed."* Re-`GET` on build 6's own
+  submission confirms it is still `WAITING_FOR_REVIEW` (unchanged since its `09:57:22-07:00`
+  submission). This directly contradicts this plan's own prior assumption above ("doesn't block a
+  newer build's own separate submission") — that assumption was wrong; Apple's Beta App Review
+  queue is one-build-in-flight-per-train, not per-build-independent. Corrected here rather than
+  silently left standing.
+- **No action was taken on build 6's submission** (no cancel/expire) — the explicit instruction
+  for this round was "Build 6's existing submission stays as-is," and cancelling a
+  submission Apple may already be actively reviewing is a real, possibly-irreversible action on a
+  live external system that this round's authorization didn't cover. Build 7 is fully staged
+  (uploaded, VALID, attached to both groups) and ready to submit the moment build 6's review
+  resolves (approved, rejected, or expires) — submitting it is a one-command follow-up
+  (`POST /v1/betaAppReviewSubmissions` with build 7's id) once that's the case, or immediately if
+  someone with authority decides to cancel build 6's pending review first.
