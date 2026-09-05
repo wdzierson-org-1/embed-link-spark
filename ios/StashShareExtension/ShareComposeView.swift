@@ -216,9 +216,6 @@ struct ShareComposeView: View {
             if droppedCount > 0 {
                 droppedMessage
             }
-            if !canAddContent {
-                gateMessage
-            }
             // Still a vertical-axis TextField (bridges to a UITextView — the UI tests reach it as
             // `textViews["share.note"]`); only `.roundedBorder` swapped for the hairline card.
             // Will's note: "make the 'add a note' text 'optional note...'" — identifier unchanged.
@@ -265,20 +262,24 @@ struct ShareComposeView: View {
     /// from and a Settings tab one tap away; the extension has neither, so the copy points
     /// somewhere actionable instead).
     ///
-    /// Plan 9 Task 2: tokenized gate strip — `gateBackground` fill, `gateBorder` stroke, `gateText`,
-    /// `StashRadius.input` — but the box's VERTICAL padding is applied to the `.background`/
-    /// `.overlay` shapes only (via negative `.padding`, which expands a shape past its parent's
-    /// reported bounds without growing what the HStack reports upward), NOT to the HStack itself.
-    /// Live-verified regression, same "this hosting context behaves differently from the full app"
-    /// category as `pinPreview`'s/`doneView`'s own doc comments: giving the HStack real
-    /// `.padding(.vertical:)` — which pushes `share.note` a few points further down the card, same
-    /// as the full app's `CaptureComposerView.subscriptionGateMessage` safely does — made
-    /// `testShareExtensionURLSmoke`'s very next step (`noteField.typeText`) fail 4/4 runs with
-    /// "Neither element nor any descendant has keyboard focus", while the exact same box with only
-    /// HORIZONTAL HStack padding (note's own Y unchanged) passed 3/3. Root cause not fully
-    /// isolated (not keyboard-avoidance — `.ignoresSafeArea(.keyboard)` didn't fix it either) but
-    /// the Y-shift correlation was clean and reproducible across 7 bisection runs; this sidesteps
-    /// it entirely rather than shipping a regression.
+    /// Will's direct request (relayed verbatim): "move the 'subscribe...' messaging to just above
+    /// the 'save' button on the share sheet. it seems a little out of place between the shared
+    /// item card and the optional note field." Moved out of `composeBody` (the scrolling content
+    /// column) into `pinnedSaveBar` (the `.safeAreaInset` bottom bar), directly above the Save
+    /// button — see that property for the container change.
+    ///
+    /// Plan 9 Task 2's tokenized styling is unchanged: `gateBackground` fill, `gateBorder` stroke,
+    /// `gateText`, `StashRadius.input`, full-width strip. The negative-`.padding(.vertical: -8)`
+    /// workaround that plan 9/fix-round-1 applied to the background/overlay shapes ONLY (not the
+    /// HStack itself) is REMOVED here: that workaround existed solely because giving the HStack
+    /// real vertical padding, while the strip lived in `composeBody` above `share.note`, shifted
+    /// `share.note` down and broke its keyboard focus in `testShareExtensionURLSmoke` (see the old
+    /// revision of this comment in history for the full bisection writeup). Now that the strip no
+    /// longer sits in the same VStack as `share.note` at all — it's in the separate bottom bar,
+    /// with the Save button below it instead — that invariant no longer applies, so real
+    /// `.padding(.vertical:)` is used directly and the negative-padding indirection is gone.
+    /// Re-verified live: `share.note` keyboard focus is unaffected by this strip's presence either
+    /// way now (`testShareExtensionURLSmoke` still exercises `noteField.typeText` and passes).
     private var gateMessage: some View {
         HStack(spacing: 6) {
             Image(systemName: "lock.fill").imageScale(.small)
@@ -291,22 +292,18 @@ struct ShareComposeView: View {
         .font(StashType.meta())
         .foregroundStyle(StashColor.gateText)
         .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         // Full-width strip, matching the app's own `subscriptionGateMessage`
         // (`CaptureComposerView.swift`) — placed BEFORE `.background`/`.overlay` so those size to
         // this frame, not just the HStack's intrinsic content width.
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Invariant (fix round 1): this -8pt overflow must stay < composeBody's own VStack
-        // `spacing: 14` (line 181) — it must not visually reach far enough to overlap the
-        // sibling above/below, only fill the breathing room that spacing already reserves.
         .background(
             RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                 .fill(StashColor.gateBackground)
-                .padding(.vertical, -8)
         )
         .overlay(
             RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                 .strokeBorder(StashColor.gateBorder, lineWidth: 1)
-                .padding(.vertical, -8)
         )
     }
 
@@ -554,31 +551,43 @@ struct ShareComposeView: View {
     /// no opacity modifier on the label — so the button stays legible while still visibly inert
     /// (never hidden) whenever the gate/empty-share disables it, per Global Constraints. `share.save`
     /// identifier moved here from the old inline capsule.
+    ///
+    /// Will's direct request (relayed verbatim): "move the 'subscribe...' messaging to just above
+    /// the 'save' button on the share sheet." `gateMessage` now renders here, inside this bar,
+    /// directly above the Save button (10pt spacing) whenever the gate is closed — see that
+    /// property's own doc comment for the container-change/workaround-removal writeup. The bar
+    /// stays one `.safeAreaInset` unit, so the keyboard pushes the gate strip and Save button up
+    /// together, same as Save alone did before.
     private var pinnedSaveBar: some View {
-        Button {
-            Task { await save() }
-        } label: {
-            ZStack {
-                if phase == .saving {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("Save").font(StashType.bodyMedium(17))
-                }
+        VStack(spacing: 10) {
+            if !canAddContent {
+                gateMessage
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .foregroundStyle(canSubmit || phase == .saving ? .white : StashColor.muted)
-            .background(
-                canSubmit || phase == .saving ? StashColor.violet600 : StashColor.wash,
-                in: RoundedRectangle(cornerRadius: StashRadius.input)
-            )
+            Button {
+                Task { await save() }
+            } label: {
+                ZStack {
+                    if phase == .saving {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text("Save").font(StashType.bodyMedium(17))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .foregroundStyle(canSubmit || phase == .saving ? .white : StashColor.muted)
+                .background(
+                    canSubmit || phase == .saving ? StashColor.violet600 : StashColor.wash,
+                    in: RoundedRectangle(cornerRadius: StashRadius.input)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(phase == .saving || !canSubmit)
+            .accessibilityIdentifier("share.save")
         }
-        .buttonStyle(.plain)
-        .disabled(phase == .saving || !canSubmit)
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .background(StashColor.paper)
-        .accessibilityIdentifier("share.save")
     }
 
     private var canSubmit: Bool {
