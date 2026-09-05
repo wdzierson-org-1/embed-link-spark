@@ -24,6 +24,9 @@ dist-ssr
 *.sw?
 supabase/.temp
 screenshots/
+# ...except the Chrome Web Store listing screenshots, which are committed.
+!extension/store/screenshots/
+!extension/store/screenshots/**
 .playwright-mcp/
 
 # Claude worktrees (full repo copies — never build/test/commit them)
@@ -39,3 +42,6 @@ ios/build/
 
 # Vendored design-inspiration template (reactbits pro) — not part of the app
 new_site/
+
+# Chrome Web Store submission package (built by extension/scripts/package.sh)
+extension/*.zip
