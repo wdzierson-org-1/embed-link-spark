@@ -365,6 +365,9 @@ export type Database = {
           last_scrape_attempt: string | null
           mime_type: string | null
           page_body: string | null
+          remind_at: string | null
+          reminder_cleared_at: string | null
+          reminder_notified_at: string | null
           scrape_attempts: number
           summary: string | null
           supplemental_note: string | null
@@ -390,6 +393,9 @@ export type Database = {
           last_scrape_attempt?: string | null
           mime_type?: string | null
           page_body?: string | null
+          remind_at?: string | null
+          reminder_cleared_at?: string | null
+          reminder_notified_at?: string | null
           scrape_attempts?: number
           summary?: string | null
           supplemental_note?: string | null
@@ -415,6 +421,9 @@ export type Database = {
           last_scrape_attempt?: string | null
           mime_type?: string | null
           page_body?: string | null
+          remind_at?: string | null
+          reminder_cleared_at?: string | null
+          reminder_notified_at?: string | null
           scrape_attempts?: number
           summary?: string | null
           supplemental_note?: string | null
@@ -597,6 +606,7 @@ export type Database = {
           created_at: string | null
           hide_add_section: boolean
           id: string
+          reminder_emails: boolean
           updated_at: string | null
           user_id: string
         }
@@ -604,6 +614,7 @@ export type Database = {
           created_at?: string | null
           hide_add_section?: boolean
           id?: string
+          reminder_emails?: boolean
           updated_at?: string | null
           user_id: string
         }
@@ -611,6 +622,7 @@ export type Database = {
           created_at?: string | null
           hide_add_section?: boolean
           id?: string
+          reminder_emails?: boolean
           updated_at?: string | null
           user_id?: string
         }
