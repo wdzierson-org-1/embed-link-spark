@@ -2055,4 +2055,82 @@ final class StashUITests: XCTestCase {
         // enough to drop the card back to idle.
         XCTAssertEqual(captureCard.value as? String, "idle", "Expected the composer card to return to idle once the (empty) editor is blurred")
     }
+
+    /// Plan 12, Task 3 (device notes 6 + 7): the "Search your stash" pill fades/collapses as the
+    /// grid scrolls (and comes back once scrolled to the top), the old item-count row is gone
+    /// outright, and every quiet way of leaving the keyboard up now has a dismissal — a Cancel
+    /// affordance that clears the query and drops the keyboard together.
+    func testLibrarySearchBarFadesAndKeyboardDismisses() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+
+        func anyElement(_ identifier: String) -> XCUIElement {
+            app.descendants(matching: .any)[identifier]
+        }
+
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        // Plan 12 removes the item-count row outright (not just its text) — the identifier
+        // must be gone from the tree entirely.
+        XCTAssertFalse(anyElement("library.itemCount").exists,
+                        "library.itemCount should have been removed (Task 3: hide the item count)")
+
+        let searchField = app.textFields["library.search"]
+        let grid = anyElement("library.grid")
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        XCTAssertTrue(grid.waitForExistence(timeout: 15), "Library grid did not appear")
+        XCTAssertTrue(searchField.isHittable, "Expected the search pill visible/hittable at the top of the list")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: search-fade-top\n".data(using: .utf8)!)
+        sleep(2)
+
+        // 1. Scrolling the grid up (swipe up) fades the pill out and it stops taking taps —
+        // `isHittable` is the one thing XCUITest can observe here (SwiftUI opacity isn't
+        // exposed directly), so the view is also `allowsHitTesting(false)` once nearly
+        // transparent, which is what actually flips this.
+        grid.swipeUp()
+        grid.swipeUp()
+        sleep(1) // let the scroll settle before reading hit-testability
+        XCTAssertTrue(searchField.exists, "Search field should still exist in the tree once faded (identifier isn't removed, just non-hittable)")
+        XCTAssertFalse(searchField.isHittable, "Expected the search pill to stop being hittable once scrolled past the fade distance")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: search-fade-mid-scroll\n".data(using: .utf8)!)
+        sleep(2)
+
+        // 2. Scrolling back down (toward the top) restores it. Four swipes, not two: two
+        // swipe-ups' worth of content can be more than two swipe-downs reliably cancel out
+        // (observed flake), whereas over-swiping down is harmless once already at the top — the
+        // scroll view just clamps/bounces there.
+        grid.swipeDown()
+        grid.swipeDown()
+        grid.swipeDown()
+        grid.swipeDown()
+        sleep(1) // let the scroll settle before reading hit-testability
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Search field should exist after scrolling back to the top")
+        XCTAssertTrue(searchField.isHittable, "Expected the search pill hittable again after returning to the top")
+
+        // 3. Typing into the field brings up the keyboard and a Cancel affordance; tapping
+        // Cancel is the standard-iOS-search way to clear AND dismiss in one tap (device note 7:
+        // "no way to hide the keyboard in a smart way after... the user clears the search box").
+        searchField.tap()
+        let needle = "zzzunmatchablezzz"
+        searchField.typeText(needle)
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "Expected the keyboard up once the search field is focused")
+
+        let cancelButton = app.buttons["library.search.cancel"]
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 5), "Expected a Cancel affordance while the search field is focused")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: search-active-cancel\n".data(using: .utf8)!)
+        sleep(2)
+
+        cancelButton.tap()
+        XCTAssertFalse(app.keyboards.element.exists, "Expected the keyboard dismissed after tapping Cancel")
+        // XCUITest quirk (also relied on nowhere else in this file, so spelled out here): a
+        // plain `TextField`'s `.value` for an EMPTY field reports its placeholder text, not ""
+        // or nil — so "cleared" reads as the placeholder, not emptiness.
+        let clearedValue = (searchField.value as? String) ?? ""
+        XCTAssertEqual(clearedValue, "Search your stash",
+                       "Expected the query cleared after Cancel (placeholder showing), got '\(clearedValue)'")
+    }
 }
