@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stash iOS — post-sign-in share tutorial: swipe vs. columns</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Medium.woff2') format('woff2'); font-weight:500; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Semibold.woff2') format('woff2'); font-weight:600; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-BookItalic.woff2') format('woff2'); font-weight:400; font-style:italic; font-display:swap; }
+
+  :root {
+    --ink:#22262f; --muted:#646b76; --faint:#959ba6;
+    --violet-600:#6d5bd0; --violet-300:#b6a8ef;
+    --hairline:rgba(0,0,0,.07); --dotted:rgba(0,0,0,.18);
+    --sans:'PP Neue Montreal', -apple-system, sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body {
+    font-family:var(--sans); color:var(--ink); line-height:1.5; min-height:100vh;
+    background:#f7f7f9;
+    padding:40px 36px 60px; display:flex; justify-content:center; gap:40px; align-items:flex-start;
+  }
+  button { font:inherit; border:none; background:none; cursor:pointer; color:inherit; padding:0; }
+
+  /* ───── control rail (prototype chrome, not product) ───── */
+  .controls { position:sticky; top:40px; width:320px; flex:none; }
+  .controls .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--violet-600); font-weight:600; margin-bottom:8px; }
+  .controls h1 { font-weight:600; letter-spacing:-.02em; font-size:24px; line-height:1.2; margin-bottom:10px; }
+  .controls .sub { font-size:13px; color:var(--muted); margin-bottom:18px; }
+  .controls h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); margin:18px 0 8px; font-weight:600; }
+
+  .variant-toggle { display:flex; gap:6px; background:rgba(0,0,0,.04); border-radius:12px; padding:4px; }
+  .variant-toggle button { flex:1; font-size:12.5px; font-weight:500; text-align:center; padding:9px 8px; border-radius:9px; color:var(--muted); }
+  .variant-toggle button.on { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+
+  .controls ol { padding-left:18px; font-size:12.5px; line-height:1.65; color:var(--ink); margin-top:6px; }
+  .controls li { margin-bottom:8px; }
+  .controls b { font-weight:600; }
+  .tradeoff { font-size:12.5px; color:var(--muted); line-height:1.6; background:rgba(109,91,208,.06); border:1px solid rgba(109,91,208,.14); border-radius:12px; padding:12px 14px; margin-top:6px; }
+  .tradeoff b { color:var(--ink); }
+
+  /* ───── phone ───── */
+  .phonewrap { flex:none; }
+  .phone {
+    width:393px; height:852px; background:#fff; border-radius:54px; border:10px solid #1c1c1e;
+    box-shadow:0 24px 60px rgba(30,15,60,.18); overflow:hidden; position:relative;
+  }
+  .statusbar { height:54px; display:flex; align-items:flex-end; justify-content:space-between; padding:0 30px 6px; font-size:15px; font-weight:600; position:relative; z-index:30; color:var(--ink); }
+  .statusbar .island { position:absolute; top:11px; left:50%; transform:translateX(-50%); width:120px; height:34px; background:#000; border-radius:20px; }
+  .homebar { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:135px; height:5px; border-radius:3px; background:#1c1c1e; z-index:25; }
+
+  /* screen = HowToStashView's ZStack: paper + faint gradient wash */
+  .screen {
+    position:absolute; inset:54px 0 0 0; overflow:hidden; display:flex; flex-direction:column;
+    background:
+      linear-gradient(160deg, rgba(102,126,234,.10), rgba(118,75,162,.09) 30%, rgba(157,95,216,.08) 55%, rgba(194,65,143,.07) 75%, rgba(56,189,248,.07)),
+      #fff;
+  }
+  .screen-scroll { flex:1; overflow-y:auto; display:flex; align-items:center; padding:24px 20px 40px; }
+
+  /* ── the paper card (shared shape: StashRadius.sheet = 20, stashCardShadow) ── */
+  .ob-card {
+    width:100%; background:#fff; border-radius:20px; border:1px solid var(--hairline);
+    box-shadow:0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08);
+    padding:26px 22px 24px; display:flex; flex-direction:column; gap:20px;
+  }
+  .ob-title { font-family:var(--sans); font-weight:500; font-size:22px; line-height:1.25; text-align:center; color:var(--ink); }
+  .ob-sub { font-size:13.5px; color:var(--muted); text-align:center; margin-top:6px; }
+
+  /* ═══ variant A: swipe carousel ═══ */
+  .ob-carousel-viewport {
+    display:flex; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch;
+    scrollbar-width:none; border-radius:12px; cursor:grab; user-select:none;
+  }
+  .ob-carousel-viewport::-webkit-scrollbar { display:none; }
+  .ob-carousel-viewport.dragging { cursor:grabbing; scroll-snap-type:none; }
+  .ob-panel { flex:0 0 100%; scroll-snap-align:center; display:flex; flex-direction:column; align-items:center; gap:14px; padding:2px 4px; }
+  .ob-panel .step-eyebrow { font-family:var(--sans); font-weight:600; font-size:11px; letter-spacing:.11em; text-transform:uppercase; color:var(--violet-600); }
+  .ob-panel .panel-title { font-weight:600; font-size:18px; color:var(--ink); }
+  .ob-panel .shot { width:172px; height:344px; border-radius:14px; border:1px solid var(--hairline); overflow:hidden; box-shadow:0 6px 20px rgba(30,33,44,.10); flex:none; }
+  .ob-panel .shot img { width:100%; height:100%; object-fit:cover; display:block; pointer-events:none; -webkit-user-drag:none; }
+  .ob-panel .caption { font-size:13.5px; color:var(--muted); text-align:center; line-height:1.5; max-width:240px; }
+
+  .ob-dots { display:flex; justify-content:center; align-items:center; gap:7px; }
+  .ob-dots .dot { width:7px; height:7px; border-radius:4px; background:rgba(0,0,0,.15); transition:width .2s, background .2s; }
+  .ob-dots .dot.on { width:20px; background:var(--violet-600); }
+
+  .ob-actions { display:flex; flex-direction:column; gap:12px; }
+  .ob-next { font-weight:500; font-size:15px; color:#fff; background:var(--violet-600); border-radius:12px; height:50px; display:flex; align-items:center; justify-content:center; transition:opacity .12s; }
+  .ob-next:active { opacity:.85; }
+  .ob-skip { font-size:14px; color:var(--muted); text-align:center; }
+
+  /* ═══ variant B: single card, three columns ═══ */
+  .ob-cols { display:flex; gap:9px; }
+  .ob-col { flex:1; min-width:0; display:flex; flex-direction:column; gap:7px; align-items:flex-start; }
+  .ob-col .step-eyebrow { font-family:var(--sans); font-weight:600; font-size:10px; letter-spacing:.10em; text-transform:uppercase; color:var(--violet-600); }
+  .ob-col .cap { font-size:11px; color:var(--muted); line-height:1.35; min-height:29px; }
+  .ob-col .shot { width:100%; aspect-ratio:1/2; border-radius:10px; border:1px solid var(--hairline); overflow:hidden; }
+  .ob-col .shot img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ob-later { font-size:14px; color:var(--muted); text-align:center; }
+
+  .hidden { display:none !important; }
+
+  @media (max-width:1180px) { body { flex-wrap:wrap; justify-content:flex-start; } .controls { position:static; width:100%; max-width:393px; } }
+</style>
+</head>
+<body>
+
+<!-- ═══════ prototype controls ═══════ -->
+<div class="controls">
+  <div class="eyebrow">Stash iOS · Sep 7 2026 · onboarding</div>
+  <h1>Three-panel share tutorial</h1>
+  <p class="sub">Post-sign-in screen (replaces/extends <code>HowToStashView</code>'s current single panel). Same paper-card shape and real step captures — two layouts to compare before implementing.</p>
+
+  <h2>Variant</h2>
+  <div class="variant-toggle" id="variantToggle">
+    <button data-variant="carousel" class="on">Swipe carousel</button>
+    <button data-variant="columns">Single card · 3 columns</button>
+  </div>
+
+  <h2>Try it</h2>
+  <ol>
+    <li><b>Carousel:</b> drag the panel, use ← → arrow keys, tap a dot, or hit Next. Next becomes <b>Got it</b> on the last panel.</li>
+    <li><b>Columns:</b> the shipped v1 layout — all three steps visible at once, no interaction needed.</li>
+  </ol>
+
+  <h2>Tradeoff</h2>
+  <p class="tradeoff"><b>Carousel</b> gives each step full-size art (easier to actually read the share-sheet row) but costs a swipe most users will blow past. <b>Columns</b> is scannable in one glance but the images are thumbnail-small — legible on a big phone, tight on SE.</p>
+</div>
+
+<!-- ═══════ phone ═══════ -->
+<div class="phonewrap">
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span class="island"></span><span>&#9679;&#9679;&#9679;</span></div>
+
+    <div class="screen">
+      <div class="screen-scroll">
+
+        <!-- variant A -->
+        <div class="ob-card" id="cardCarousel">
+          <div>
+            <div class="ob-title">How to easily stash</div>
+            <div class="ob-sub">Save from any app: tap Share, then Stash.</div>
+          </div>
+
+          <div class="ob-carousel-viewport" id="carouselViewport">
+            <div class="ob-panel">
+              <span class="step-eyebrow">Step 1</span>
+              <span class="panel-title">Tap Share</span>
+              <div class="shot"><img src="../../../ios/Stash/Assets.xcassets/onboarding.step1.imageset/onboarding.step1@3x.png" alt="Safari share button"></div>
+              <p class="caption">In Safari — or any app — tap the Share button.</p>
+            </div>
+            <div class="ob-panel">
+              <span class="step-eyebrow">Step 2</span>
+              <span class="panel-title">Pick Stash</span>
+              <div class="shot"><img src="../../../ios/Stash/Assets.xcassets/onboarding.step2.imageset/onboarding.step2@3x.png" alt="Share sheet with Stash"></div>
+              <p class="caption">Choose Stash in the share sheet.</p>
+            </div>
+            <div class="ob-panel">
+              <span class="step-eyebrow">Step 3</span>
+              <span class="panel-title">Add a note, save</span>
+              <div class="shot"><img src="../../../ios/Stash/Assets.xcassets/onboarding.step3.imageset/onboarding.step3@3x.png" alt="Stash compose card"></div>
+              <p class="caption">Add an optional note, then Save. Stash does the rest.</p>
+            </div>
+          </div>
+
+          <div class="ob-dots" id="carouselDots">
+            <span class="dot on"></span><span class="dot"></span><span class="dot"></span>
+          </div>
+
+          <div class="ob-actions">
+            <button class="ob-next" id="nextBtn">Next</button>
+            <button class="ob-skip" id="skipBtn">Skip</button>
+          </div>
+        </div>
+
+        <!-- variant B -->
+        <div class="ob-card hidden" id="cardColumns">
+          <div>
+            <div class="ob-title">How to easily stash</div>
+            <div class="ob-sub">Save from any app: tap Share, then Stash.</div>
+          </div>
+
+          <div class="ob-cols">
+            <div class="ob-col">
+              <span class="step-eyebrow">Step 1</span>
+              <p class="cap">Tap Share in Safari (or any app)</p>
+              <div class="shot"><img src="../../../ios/Stash/Assets.xcassets/onboarding.step1.imageset/onboarding.step1@3x.png" alt="Safari share button"></div>
+            </div>
+            <div class="ob-col">
+              <span class="step-eyebrow">Step 2</span>
+              <p class="cap">Pick Stash in the share sheet</p>
+              <div class="shot"><img src="../../../ios/Stash/Assets.xcassets/onboarding.step2.imageset/onboarding.step2@3x.png" alt="Share sheet with Stash"></div>
+            </div>
+            <div class="ob-col">
+              <span class="step-eyebrow">Step 3</span>
+              <p class="cap">Add an optional note and Save</p>
+              <div class="shot"><img src="../../../ios/Stash/Assets.xcassets/onboarding.step3.imageset/onboarding.step3@3x.png" alt="Stash compose card"></div>
+            </div>
+          </div>
+
+          <div class="ob-actions">
+            <button class="ob-next">Got it</button>
+            <button class="ob-later">Show me later</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="homebar"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- variant toggle (prototype chrome) ---------- */
+const params = new URLSearchParams(location.search);
+let variant = params.get('variant') === 'columns' ? 'columns' : 'carousel';
+
+function applyVariant() {
+  document.getElementById('cardCarousel').classList.toggle('hidden', variant !== 'carousel');
+  document.getElementById('cardColumns').classList.toggle('hidden', variant !== 'columns');
+  document.querySelectorAll('#variantToggle button').forEach(b => b.classList.toggle('on', b.dataset.variant === variant));
+}
+document.getElementById('variantToggle').addEventListener('click', e => {
+  const b = e.target.closest('button[data-variant]');
+  if (!b) return;
+  variant = b.dataset.variant;
+  applyVariant();
+});
+applyVariant();
+
+/* ---------- carousel: index state, dots, Next/Skip, keyboard, drag ---------- */
+const viewport = document.getElementById('carouselViewport');
+const dots = [...document.querySelectorAll('#carouselDots .dot')];
+const nextBtn = document.getElementById('nextBtn');
+const skipBtn = document.getElementById('skipBtn');
+const PANEL_COUNT = 3;
+let index = 0;
+let programmaticScroll = false;
+
+function goTo(i, smooth = true) {
+  index = Math.max(0, Math.min(PANEL_COUNT - 1, i));
+  programmaticScroll = true;
+  viewport.scrollTo({ left: index * viewport.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
+  updateUI();
+  setTimeout(() => { programmaticScroll = false; }, smooth ? 360 : 0);
+}
+
+function updateUI() {
+  dots.forEach((d, i) => d.classList.toggle('on', i === index));
+  nextBtn.textContent = index === PANEL_COUNT - 1 ? 'Got it' : 'Next';
+}
+
+nextBtn.addEventListener('click', () => {
+  if (index === PANEL_COUNT - 1) {
+    // Prototype stub — the real screen calls OnboardingState.markHowToStashSeen() + dismiss().
+    nextBtn.textContent = 'Nice — you’re set';
+    setTimeout(() => goTo(0, false), 700);
+  } else {
+    goTo(index + 1);
+  }
+});
+skipBtn.addEventListener('click', () => {
+  // Prototype stub — the real screen would dismiss without marking "seen" (reappears next sign-in).
+  skipBtn.textContent = 'Skipped';
+  setTimeout(() => { skipBtn.textContent = 'Skip'; goTo(0, false); }, 700);
+});
+dots.forEach((d, i) => d.addEventListener('click', () => goTo(i)));
+
+document.addEventListener('keydown', e => {
+  if (document.getElementById('cardCarousel').classList.contains('hidden')) return;
+  if (e.key === 'ArrowRight') goTo(index + 1);
+  if (e.key === 'ArrowLeft') goTo(index - 1);
+});
+
+// sync dots/button when the user scrolls/drags rather than clicking Next
+let scrollRAF = null;
+viewport.addEventListener('scroll', () => {
+  if (programmaticScroll) return;
+  cancelAnimationFrame(scrollRAF);
+  scrollRAF = requestAnimationFrame(() => {
+    const i = Math.round(viewport.scrollLeft / viewport.clientWidth);
+    if (i !== index) { index = i; updateUI(); }
+  });
+});
+
+// mouse-drag support (desktop reviewers have no touch surface)
+let dragging = false, dragStartX = 0, dragStartScroll = 0;
+viewport.addEventListener('mousedown', e => {
+  dragging = true;
+  viewport.classList.add('dragging');
+  dragStartX = e.clientX;
+  dragStartScroll = viewport.scrollLeft;
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  viewport.scrollLeft = dragStartScroll - (e.clientX - dragStartX);
+});
+window.addEventListener('mouseup', () => {
+  if (!dragging) return;
+  dragging = false;
+  viewport.classList.remove('dragging');
+  goTo(Math.round(viewport.scrollLeft / viewport.clientWidth));
+});
+
+window.addEventListener('resize', () => goTo(index, false));
+updateUI();
+</script>
+</body>
+</html>
