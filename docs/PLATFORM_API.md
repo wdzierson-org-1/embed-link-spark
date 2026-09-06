@@ -175,6 +175,23 @@ activity = last 50 `agent_access_log` rows, rendered per
 (session JWT) **then** set `agent_grants.revoked_at`. Item deep link:
 `https://www.gostash.it/home#item=<uuid>` opens that card in the web library.
 
+## Delete contract
+
+PostgREST's `DELETE` (the underlying call behind `supabase-swift`'s
+`.delete()`, and equivalent in every `postgrest-js`-based client) matching
+**zero rows** — a stale/already-deleted id, or an id RLS silently excludes —
+still returns a `2xx` status. Under `Prefer: return=representation`
+(supabase-swift's default for `.delete()`), the body is an empty JSON array
+`[]`, not an error. A client that only checks the HTTP status treats this
+identically to a real delete of one row — the failure is invisible. Clients
+**must** inspect the response body: zero elements means nothing was actually
+removed. iOS decodes the returned array and throws
+`ItemEditorError.deleteMatchedNoRows` when it's empty, which the UI surfaces
+as "Couldn't delete this item — it may not exist anymore or you may not have
+permission." (`ios/StashKit/Sources/StashKit/ItemEditor.swift`,
+`ios/Stash/Detail/ItemDetailView.swift`). Any other client implementing
+delete should apply the same check.
+
 ## Message routing convention — RETIRED 2026-08-27
 
 Chat composers are retrieval-only on every platform: all input goes to

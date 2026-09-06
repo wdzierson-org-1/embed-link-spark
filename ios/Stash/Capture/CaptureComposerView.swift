@@ -271,10 +271,12 @@ struct CaptureComposerView: View {
         // placeholder/caret sit ~12pt from the card's top edge and ~16pt from its left edge."
         // BEFORE: `.padding(.horizontal, 12)` only, no explicit top — `TextEditor`'s own built-in
         // `UITextView` insets (textContainerInset top 8, lineFragmentPadding 5) supplied the rest,
-        // landing the caret at ≈(17, 8) from the card's corner. AFTER: leading 11 (+5 intrinsic =
-        // 16) and top 4 (+8 intrinsic = 12); trailing stays 12 (only the top/leading edges were
-        // asked for). Measured against a screenshot post-change to confirm.
-        .padding(.leading, 11)
+        // landing the caret at ≈(17, 8) from the card's corner. First pass landed leading 11
+        // (+5 intrinsic = 16) — the wrong direction (17 → 16, less than before). Will asked for
+        // MORE, not less: leading 15 (+5 intrinsic = ~20) and top 4 (+8 intrinsic = 12); trailing
+        // stays 12 (only the top/leading edges were asked for). Measured against a screenshot
+        // post-change to confirm the caret/placeholder sit ~20pt from the card's left edge.
+        .padding(.leading, 15)
         .padding(.trailing, 12)
         .padding(.top, 4)
     }

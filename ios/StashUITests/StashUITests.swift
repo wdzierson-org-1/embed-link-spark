@@ -322,6 +322,14 @@ final class StashUITests: XCTestCase {
 
             done.tap()
             XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
+            // Plan 12 Task 3 made the grid's card tap explicitly drop search focus
+            // (`searchFocused = false` before presenting the sheet, so the keyboard dismisses
+            // before the detail sheet appears — see task-3-report.md's "Smart keyboard dismissal").
+            // That means the field is no longer focused when we land back here after `done.tap()`,
+            // so typing the clearing delete-keys straight away fails to synthesize ("Neither
+            // element nor any descendant has keyboard focus") — re-tap to regain focus first,
+            // same as every other call site in this helper.
+            searchField.tap()
             searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
         }
 

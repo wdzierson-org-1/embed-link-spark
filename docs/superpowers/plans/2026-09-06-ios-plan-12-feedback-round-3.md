@@ -38,3 +38,61 @@ Capture + bundle the three step images; panel; once-after-sign-in gating; Settin
 
 ### Task 5 — wrap
 Whole-branch review → fix wave → docs (`ui-changes.md` entry: keyboard-control decision (web unaffected), whole-card tap, search-bar behavior, Ask title, onboarding panel + its flag, Add spacing; plan outcome) → suites ×2 → version 8 → upload → attach both groups → review submission per the constraint → merge hand-off.
+
+## Outcome (2026-09-07)
+
+All 10 of Will's device notes shipped. Commits on `worktree-ios-plan-12`
+(base `b04e8ff`), task order: `91a5e92` (T2: composer keyboard control,
+Add-tab spacing, Ask title), `5056164` (T3: View-tab search fade/count/
+keyboard dismissal), `22be3a7` (T1: delete bug, detail images, whole-card
+tap, detail keyboard control), `055b45c` (T4: onboarding panel), then the
+whole-branch-review fix wave — `ced71da`/`90b6341`/`1777b9c`/`b51ee42`/
+`e1e6b71`/`ed52e05` (F1–F8 + Will's markup: Cancel-button composer control,
+onboarding step1/step3 re-crops, deferred-panel semantics, delete-error
+copy + footer keyboard control, gitignore, test updates) — and this wrap's
+own commits: a cosmetic leading-inset fold on the composer editor (17pt →
+16pt in the first pass was the wrong direction; final `.padding(.leading,
+15)` for ~20pt effective), the `origin/main` merge (16 commits, MCP server +
+YouTube-thumbnail work, zero `ios/` overlap — merged clean, no conflicts),
+a `testDetailSheets` test-only timing fix (see `docs/ui-changes.md`'s
+"Tests" subsection under this same date for the root cause), the
+`CURRENT_PROJECT_VERSION` bump to 8, and the docs/build-8 commits below.
+
+**Suites:** StashKit 344/344. `npm test` 250/250 across 39 files. Both Xcode
+targets (`Stash`, `StashShareExtension`) build warning-free against
+`28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB`. UI suite run 4× total during this
+wrap (24 test methods each): the first two runs surfaced an unexpected,
+deterministic (2/2) `testDetailSheets` failure caused by this round's own
+search-focus-drops-on-card-tap change (Task 3) — fixed test-side (see
+above); the final two runs after the fix landed on exactly the 3 standing
+gate-blocked failures (`testCaptureSmoke`/`testLocationPinSmoke`/
+`testAskSmoke`) with all 21 others green. One additional one-off failure
+(`testVoiceNoteSmoke`, run 1 only, "Detail sheet did not present") did not
+reproduce on any other run and coincided with visible simulator distress in
+that run's log (a `Thread Performance Checker` priority-inversion warning
+and an XCTest-runner auto-restart) — treated as environmental flake, not a
+product bug.
+
+**Decisions carried forward, not resolved this round:**
+- **Device-only image blanks** (Will's original note 4): the gate is now
+  proven identical to web's `hasImage` (see `docs/ui-changes.md`), and
+  native `.image` items were never actually broken (screenshotted
+  before/after) — but a device-specific cause for `.link` og-images still
+  can't be fully ruled out from the simulator alone. If build 8 still shows
+  blanks on Will's device, ask him for the id of one failing item to probe
+  directly rather than re-guessing.
+- **Onboarding tutorial redesign**: Will now wants a three-panel *swipeable*
+  experience rather than the single static panel shipped this round. An
+  HTML prototype is up for his review at
+  `docs/superpowers/prototypes/2026-09-07-ios-share-tutorial-swipe.html`
+  before that work starts.
+- **Fixture-count drift**: the permanent `UITEST-FIXTURE` set on
+  `will+uitest@dzierson.com` grew from 5 to 10 items over this round's
+  several test-writing passes — noted for whoever next touches
+  fixture-dependent tests; not itself a regression, just untracked growth
+  worth an eventual cleanup pass.
+
+Build 8's TestFlight outcome (upload id, processing state, beta-group
+attachment, beta-review submission result) is recorded in a follow-up
+amendment to this section once the pipeline finishes — see
+`.superpowers/sdd/plan-12/task-5-report.md` for the full transcript.

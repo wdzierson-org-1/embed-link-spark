@@ -8,6 +8,117 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-07 · iOS feedback round 3 (plan 12)
+
+iOS-only round (Will's first on-device pass); no web changes. Plan:
+`docs/superpowers/plans/2026-09-06-ios-plan-12-feedback-round-3.md`. Full
+outcome (commits, suites, decisions, carried items): plan's own Outcome
+section + `.superpowers/sdd/plan-12/progress.md`.
+
+- **Keyboard-control decision — iOS 26's floating toolbar retired app-wide.**
+  The system's `.toolbar(placement: .keyboard)` floating accessory (used in
+  plan 8/11 for the composer's dismiss-keyboard control) proved unfixable at
+  narrow widths: on iOS 26 it renders as a free-floating capsule whose width
+  is driven by its content, not the card column, so any control wide enough
+  to tap comfortably overflowed the card (and on iPhone SE, the screen).
+  Replaced with two surface-specific controls instead of one shared
+  mechanism: **composer** = a plain-text "Cancel" button in the card's
+  top-right corner, visible only while the editor is focused
+  (`capture.dismissKeyboard`) — semantics are "dismiss the keyboard only,"
+  the draft is kept, not a form-cancel; **detail** = a small round
+  keyboard-dismiss icon in the pinned footer bar (next to the autosave
+  label), not the notes-section header — closer to where a user's thumb
+  already is when editing. Web is unaffected; this is a native-only control
+  because web has no on-screen keyboard to manage.
+- **Whole-card tap regression fixed.** The link kicker's tap gesture used to
+  claim its entire domain-text label as a "open in Safari" hit target; on
+  compact cards the card's visual center landed on that label, so tapping
+  the middle of a link card opened Safari instead of the detail sheet.
+  Narrowed to a small trailing `arrow.up.right` icon only — the rest of the
+  card (including the kicker row outside that icon) now falls through to the
+  card's own tap → detail sheet, matching every other card type.
+- **View tab**: the search pill now fades out on scroll (via a
+  `UIViewRepresentable` KVO observer on the underlying `UIScrollView`'s
+  `contentOffset` — SwiftUI's `PreferenceKey` scroll-offset approach proved
+  dead on iOS 17 for a *live* scroll gesture, only fired on settle) instead
+  of always being visible; the item-count row above the grid is removed
+  entirely. Four ways to dismiss the search keyboard/pill: tapping the ×,
+  tapping system Cancel, pressing return, or tapping any card.
+- **Ask tab title re-added** — see the amended 2026-09-03 (plan 8) bullet
+  above; this is the *second* reversal of that decision. Current state:
+  "Chat with your Stash" (medium weight, 22pt), no live item count, no
+  wordmark. View and Settings still have no title.
+- **Add tab spacing pass** (Will: "increase the padding — things feel
+  cramped"): every composer spacing value that was shared across rows scaled
+  ×1.1 (margin 12→13, wordmark-area whitespace 16→18, inner horizontal
+  16→18, vertical 10→11/8→9). Editor insets separately increased twice this
+  round — first pass under-corrected (17pt → 16pt, the wrong direction);
+  final state is `.padding(.leading, 15)` (+5pt `TextEditor` intrinsic
+  `lineFragmentPadding` = ~20pt from the card's left edge) and
+  `.padding(.top, 4)` (+8pt intrinsic = ~12pt from the top edge) — caret and
+  placeholder now sit noticeably further from the card's corner than the
+  original built-in-only inset.
+- **Post-sign-in "How to easily stash" onboarding panel** (new,
+  `HowToStashView`, real share-sheet step screenshots from an on-device
+  capture, not mockups). Shown once per **install** (not per account) via
+  two `UserDefaults.standard` flags — `onboarding.howToStash.seen` (set
+  only by "Got it," permanent for the install) and
+  `onboarding.howToStash.deferred` (set by "Show me later," suppresses the
+  panel across cold launches but is cleared again on the next *explicit*
+  sign-in — a `.signedOut → .signedIn` transition in `StashApp`, never a
+  cold-launch Keychain restore). Showing rule:
+  `!hasSeenHowToStash && !isHowToStashDeferred`, checked on the transition
+  into `.signedIn`, held behind `SplashView`'s own completion so the splash
+  animation is never interrupted. Re-openable any time from
+  Settings → "How to stash" (`settings.howToStash`) regardless of either
+  flag. DEBUG-only `--uitest-reset-onboarding` launch arg clears both flags
+  for repeatable UI-test runs (`SessionStore.start()`). **Carried, not
+  shipped this round:** Will now wants a three-panel *swipeable* tutorial
+  instead of the current single static panel; an HTML prototype is up for
+  his review at
+  `docs/superpowers/prototypes/2026-09-07-ios-share-tutorial-swipe.html`
+  before that gets built.
+- **Delete-error surfacing.** The detail sheet's delete action now
+  distinguishes a real "this item is already gone" outcome (PostgREST
+  matched 0 rows — see the new Delete-contract note in `PLATFORM_API.md`)
+  from every other failure mode: `ItemEditorError.deleteMatchedNoRows` →
+  "Couldn't delete this item — it may not exist anymore or you may not have
+  permission."; anything else (network failure, an unreadable response body
+  — `.deleteResponseUnreadable` — or any other thrown error) → "Couldn't
+  delete — try again." (plausibly transient, so "try again" is the right
+  steer only for that bucket).
+- **Link items with an og-image now render on the detail hero**, matching
+  web's `hasImage` gate exactly. The hero gate used to be `.image`-type-only,
+  which excluded `.link` items that have a scraped og-image
+  (`thumbnailURL` populated) even though the library card already rendered
+  that same image — widened to `(item.type == .image || item.type == .link)
+  && thumbnailURL != nil`.
+
+### Tests
+
+`StashUITests.swift`: `testDeleteSmoke` now self-seeds its own row (creates
+it, captures the id, deletes it, verifies via search-empty / pull-refresh /
+a REST re-query) instead of depending on a `STASH_DELETE_MARKER` fixture set
+up out-of-band. `testOnboardingPanelShowsOnceAfterSignIn` relaunches with NO
+launch arguments for its main assertion (a real Keychain-restore path, not
+`--uitest-reset-auth`, which would trivially satisfy "seen") plus a
+Show-me-later / sign-out / sign-in branch proving the deferred flag's
+lifecycle. 24 test methods total across the file; the permanent
+`UITEST-FIXTURE` item count on `will+uitest@dzierson.com` grew from 5 to 10
+over this round — noted for the next agent touching fixture-dependent tests,
+not a regression. Wrap-time fix: `testDetailSheets` reproduced a
+deterministic (not flaky — 2/2) failure at its clear-search-field step —
+"Neither element nor any descendant has keyboard focus" — because this
+round's search-pill dismissal work (above) now drops search focus on card
+tap, so the field is no longer focused by the time the sheet is dismissed;
+added a `searchField.tap()` before the clearing `typeText` to re-acquire
+focus, matching every other call site in the same helper. Re-ran the full
+suite twice after the fix: both runs landed on exactly the 3 standing
+gate-blocked failures (`testCaptureSmoke`/`testLocationPinSmoke`/
+`testAskSmoke`).
+
+---
+
 ## 2026-09-05 · YouTube links: real thumbnail + title from the URL alone — all clients
 
 Server-side only (`add-url`, `extract-link-metadata`, new
@@ -341,6 +452,11 @@ five more issues fixed. Full plan:
   gone too; the intro bubble ("Ask anything about what you've saved —
   answers cite the cards they came from.") is the only per-conversation copy
   now.
+  **2026-09-07 (plan 12) — REVERSED AGAIN**: Will asked for the Ask title
+  back. `AskView` now shows "Chat with your Stash" (medium weight, 22pt) —
+  not the original "Ask Stash"/live-count block, just a static title, no
+  item-count. View and Settings remain title-less. See "2026-09-07 · iOS
+  feedback round 3 (plan 12)" below for the fuller writeup.
 - **Composer**: the keyboard accessory is now an icon-only minimize-keyboard
   button (`capture.dismissKeyboard`) — was a text "Done", which read as a
   second active primary action alongside the violet send button. The
