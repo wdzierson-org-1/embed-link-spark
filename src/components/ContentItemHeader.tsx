@@ -64,7 +64,8 @@ const ContentItemHeader = ({
 }: ContentItemHeaderProps) => {
   const [linkCoverFailed, setLinkCoverFailed] = useState(false);
   const isProcessing = isDocumentProcessing(item);
-  const isDue = !isPublicView && reminderState(item, useNow()) === 'due';
+  const now = useNow();
+  const isDue = !isPublicView && reminderState(item, now) === 'due';
 
   const getFileUrl = () => {
     if (item.file_path && !item.file_path.startsWith('http')) {
