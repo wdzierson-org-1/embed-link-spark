@@ -87,12 +87,15 @@ struct ItemDetailView: View {
     /// three independent `Bool`s, `titleFocused`/`descriptionFocused`/`notesFocused`; see
     /// `DetailField`'s own doc comment for why unifying them was the fix). Declared here, not
     /// inside `NotesEditor` itself, and threaded down through `ItemDetailContent` as a
-    /// `FocusState<DetailField?>.Binding`: a `.toolbar(placement: .keyboard)` attached several
-    /// levels deep inside this sheet's `ScrollView`/`ItemDetailContent`'s tab-switch
-    /// `@ViewBuilder` never actually registered its accessory (confirmed live —
-    /// `detail.dismissKeyboard` never appeared, even right after focusing). Hoisting both the
-    /// `@FocusState` and the `.toolbar` itself up to this view's own top level — see `body`'s own
-    /// `NavigationStack` wrap below — fixed it.
+    /// `FocusState<DetailField?>.Binding` — originally so a `.toolbar(placement: .keyboard)`
+    /// accessory hoisted to this view's own top level (rather than several levels deep inside
+    /// `ItemDetailContent`'s tab-switch `@ViewBuilder`, where it never actually registered —
+    /// confirmed live) could defocus whichever field was active. Plan 12 feedback round 3, Task 1
+    /// retired that toolbar accessory entirely (iOS 26 renders it as an unreliable floating bar
+    /// inside a `.sheet(item:)` — sometimes never appearing at all) in favor of an in-content
+    /// control in `ItemDetailContent.sectionHead`'s own `trailing` slot, but the shared
+    /// `FocusState` this type owns is unchanged: that control still needs "is ANY of
+    /// title/description/notes focused" and "clear whichever one is", exactly as before.
     @FocusState private var focusedField: DetailField?
 
     init(item: Item, store: ItemStore) {
@@ -104,126 +107,119 @@ struct ItemDetailView: View {
     }
 
     var body: some View {
-        // `NavigationStack` wrap (Plan 8 Task 5, no navigation chrome of its own — hidden via
-        // `.toolbar(.hidden, for: .navigationBar)` below, since this sheet already has its own
-        // custom `closeButton`, not a system back/close bar item): required for
-        // `.toolbar(placement: .keyboard)` to actually register an accessory at all inside a
-        // `.sheet(item:)` presentation — confirmed live, moving the toolbar to this view's own
-        // top level (this file's prior state, no `NavigationStack`) was NOT sufficient on its own;
-        // `CaptureComposerView`'s identical-looking `.toolbar(placement: .keyboard)` works without
-        // one only because it's a plain `TabView` tab, never presented modally.
-        NavigationStack {
-            ZStack(alignment: .topTrailing) {
-                // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
-                // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
-                // ScrollView's own laid-out frame — it only nudges the CONTENT's scroll offset
-                // limits — so the ScrollView's outer frame (what XCUITest and any other hit-testing
-                // consults to decide "is this element already on screen") still nominally extends
-                // the full sheet height, footer included; short content (e.g. Details/Sharing on an
-                // item with little else) then rests visually under the pinned footer even though
-                // its element is reported "within bounds". A true sibling makes the ScrollView's
-                // frame stop exactly where the footer begins, so nothing can ever land behind it.
-                VStack(spacing: 0) {
-                    ScrollView {
-                        // Outer spacing 0 (was 18 — a value that belonged to neither this fix
-                        // round's `DetailLayout.gap`(14)/`.section`(24) tier): every child below
-                        // now carries its own explicit top gap instead, so the sheet's rhythm
-                        // reads as one deliberate 14/24 scale rather than a flat 18 throughout.
-                        // `ItemDetailContent`/`DetailsDrawer`/`SharingSection` need none here —
-                        // each opens with a `SectionHeader`, which already supplies its own
-                        // `DetailLayout.section` gap above itself.
-                        VStack(alignment: .leading, spacing: 0) {
-                            DetailEyebrow(item: item)
-                            titleField
+        // Plan 12 feedback round 3, Task 1: the `NavigationStack` wrap this used to live inside
+        // (Plan 8 Task 5) existed SOLELY so `.toolbar(placement: .keyboard)` could register an
+        // accessory inside a `.sheet(item:)` presentation — see `focusedField`'s doc comment
+        // above. That toolbar accessory is retired below (iOS 26 renders it as a floating bar
+        // that's unreliable inside a sheet — sometimes never appearing at all, confirmed live),
+        // so nothing here depends on `NavigationStack` any more: dropped along with
+        // `.toolbar(.hidden, for: .navigationBar)`, which only ever existed to hide the nav bar
+        // that wrap would otherwise have contributed.
+        ZStack(alignment: .topTrailing) {
+            // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
+            // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
+            // ScrollView's own laid-out frame — it only nudges the CONTENT's scroll offset
+            // limits — so the ScrollView's outer frame (what XCUITest and any other hit-testing
+            // consults to decide "is this element already on screen") still nominally extends
+            // the full sheet height, footer included; short content (e.g. Details/Sharing on an
+            // item with little else) then rests visually under the pinned footer even though
+            // its element is reported "within bounds". A true sibling makes the ScrollView's
+            // frame stop exactly where the footer begins, so nothing can ever land behind it.
+            VStack(spacing: 0) {
+                ScrollView {
+                    // Outer spacing 0 (was 18 — a value that belonged to neither this fix
+                    // round's `DetailLayout.gap`(14)/`.section`(24) tier): every child below
+                    // now carries its own explicit top gap instead, so the sheet's rhythm
+                    // reads as one deliberate 14/24 scale rather than a flat 18 throughout.
+                    // `ItemDetailContent`/`DetailsDrawer`/`SharingSection` need none here —
+                    // each opens with a `SectionHeader`, which already supplies its own
+                    // `DetailLayout.section` gap above itself.
+                    VStack(alignment: .leading, spacing: 0) {
+                        DetailEyebrow(item: item)
+                        titleField
+                            .padding(.top, DetailLayout.gap)
+                        descriptionField
+                            .padding(.top, DetailLayout.gap)
+                        // Plan 12 feedback round 3, Task 1 root cause (Will, on-device:
+                        // "images are not showing up on the detail sheet on iOS at all"):
+                        // this gate was `item.type == .image` ONLY, so a `.link` item with a
+                        // scraped og-image preview — which the CARD already renders fine via
+                        // `LinkHeroZone`'s own `item.thumbnailURL` read — never got a hero
+                        // here at all, just `DetailURLBar`'s small favicon below. Web parity
+                        // (`EditItemSheet.tsx`'s `hasImage` gate, `useEditItemMedia.ts`'s
+                        // `checkForImage`): `(type === 'image' || type === 'link') &&
+                        // file_path` — `item.thumbnailURL` already IS that same "file_path
+                        // present, http-prefixed external URL or storage path either way"
+                        // check (`ItemRules.swift`), so this now matches it exactly. Native
+                        // `.image` items were never actually broken (confirmed live against
+                        // the sim's "image one" fixture, screenshotted both before and after
+                        // this change) — this fix is additive, widening the gate to `.link`.
+                        if (item.type == .image || item.type == .link), let url = item.thumbnailURL {
+                            heroImage(url)
                                 .padding(.top, DetailLayout.gap)
-                            descriptionField
-                                .padding(.top, DetailLayout.gap)
-                            if item.type == .image, let url = item.thumbnailURL {
-                                heroImage(url)
-                                    .padding(.top, DetailLayout.gap)
-                            }
-                            if item.type == .link, let urlString = item.url, !urlString.isEmpty {
-                                DetailURLBar(urlString: urlString)
-                                    .padding(.top, DetailLayout.gap)
-                            }
-                            ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
-                                              notesModel: notesModel, notesFocused: $focusedField,
-                                              scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow)
-
-                            // No standalone divider here anymore — `DetailsDrawer`'s own
-                            // `SectionHeader` ("DETAILS") already draws the hairline that used to
-                            // live on this ad-hoc `Rectangle`, right above its own label at the
-                            // same `DetailLayout.section` gap every other section uses.
-                            DetailsDrawer(item: item, attributes: attributesBinding)
-
-                            SharingSection(item: item, editor: editor,
-                                            supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
                         }
-                        .padding(.horizontal, DetailLayout.inset)
-                        .padding(.top, 44)
-                        .padding(.bottom, 24)
-                    }
-                    footerBar
-                }
-                .background(StashColor.paper.ignoresSafeArea())
+                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
+                            DetailURLBar(urlString: urlString)
+                                .padding(.top, DetailLayout.gap)
+                        }
+                        ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
+                                          notesModel: notesModel, notesFocused: $focusedField,
+                                          scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow)
 
-                closeButton
-            }
-            .presentationCornerRadius(StashRadius.sheet)
-            // Keyboard-minimize accessory (same control Task 3 gave the capture composer) — see
-            // `focusedField`'s doc comment above for why this lives here, at the top level, rather
-            // than on any one field's own view. `focusedField = nil` (final wave, item B — was
-            // hardcoded to only clear notes' own focus) defocuses whichever of title/description/
-            // notes is currently active, so this button actually works no matter which field the
-            // keyboard is up for.
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button {
-                        focusedField = nil
-                    } label: {
-                        Image(systemName: "keyboard.chevron.compact.down")
+                        // No standalone divider here anymore — `DetailsDrawer`'s own
+                        // `SectionHeader` ("DETAILS") already draws the hairline that used to
+                        // live on this ad-hoc `Rectangle`, right above its own label at the
+                        // same `DetailLayout.section` gap every other section uses.
+                        DetailsDrawer(item: item, attributes: attributesBinding)
+
+                        SharingSection(item: item, editor: editor,
+                                        supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
                     }
-                    .accessibilityIdentifier("detail.dismissKeyboard")
-                    .accessibilityLabel("Hide keyboard")
+                    .padding(.horizontal, DetailLayout.inset)
+                    .padding(.top, 44)
+                    .padding(.bottom, 24)
                 }
+                footerBar
             }
-            .toolbar(.hidden, for: .navigationBar)
-            .task { await loadDetailIfNeeded() }
-            .onChange(of: store.items) { _, items in
-                guard let updated = items.first(where: { $0.id == item.id }) else { return }
-                adopt(updated)
+            .background(StashColor.paper.ignoresSafeArea())
+
+            closeButton
+        }
+        .presentationCornerRadius(StashRadius.sheet)
+        .task { await loadDetailIfNeeded() }
+        .onChange(of: store.items) { _, items in
+            guard let updated = items.first(where: { $0.id == item.id }) else { return }
+            adopt(updated)
+        }
+        .onDisappear {
+            // Deleting already dismisses (and there's nothing left server-side to PATCH).
+            guard !isDeleted else { return }
+            // Belt-and-braces (fix round 1, review finding #1): `closeButton` already flushes
+            // notes before calling `dismiss()`, but `onDisappear` fires on ANY path out of this
+            // sheet (a system swipe-to-dismiss, not just the Done button), so notes gets the
+            // same explicit flush here too — same reasoning `saveChangedFields()` already
+            // covers fields with. `flushNotesNow` first: it's the one path that's new/hasn't
+            // already run once via `closeButton` in the tap-Done case (redundant-but-safe there
+            // — `NotesEditorModel`'s own guard makes a second flush with nothing new to save a
+            // no-op).
+            //
+            // `fieldDebouncer.cancel()` before the explicit `saveChangedFields()` (final wave,
+            // item E/7): without this, a still-pending 400ms field debounce from a keystroke
+            // typed just before dismiss could fire its OWN `saveChangedFields()` call after
+            // this one already ran — harmless in outcome (both diff against `snapshot`, so a
+            // second call with nothing left unsaved is a no-op), but it's a redundant network
+            // round trip and an unnecessary `saveGeneration` bump for no reason once this
+            // explicit call is about to cover the same save anyway.
+            Task {
+                await flushNotesNow()
+                await fieldDebouncer.cancel()
+                await saveChangedFields()
             }
-            .onDisappear {
-                // Deleting already dismisses (and there's nothing left server-side to PATCH).
-                guard !isDeleted else { return }
-                // Belt-and-braces (fix round 1, review finding #1): `closeButton` already flushes
-                // notes before calling `dismiss()`, but `onDisappear` fires on ANY path out of this
-                // sheet (a system swipe-to-dismiss, not just the Done button), so notes gets the
-                // same explicit flush here too — same reasoning `saveChangedFields()` already
-                // covers fields with. `flushNotesNow` first: it's the one path that's new/hasn't
-                // already run once via `closeButton` in the tap-Done case (redundant-but-safe there
-                // — `NotesEditorModel`'s own guard makes a second flush with nothing new to save a
-                // no-op).
-                //
-                // `fieldDebouncer.cancel()` before the explicit `saveChangedFields()` (final wave,
-                // item E/7): without this, a still-pending 400ms field debounce from a keystroke
-                // typed just before dismiss could fire its OWN `saveChangedFields()` call after
-                // this one already ran — harmless in outcome (both diff against `snapshot`, so a
-                // second call with nothing left unsaved is a no-op), but it's a redundant network
-                // round trip and an unnecessary `saveGeneration` bump for no reason once this
-                // explicit call is about to cover the same save anyway.
-                Task {
-                    await flushNotesNow()
-                    await fieldDebouncer.cancel()
-                    await saveChangedFields()
-                }
-            }
-            .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
-                                 titleVisibility: .visible) {
-                Button("Delete", role: .destructive) { Task { await performDelete() } }
-                Button("Cancel", role: .cancel) {}
-            }
+        }
+        .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
+                             titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { Task { await performDelete() } }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -289,8 +285,10 @@ struct ItemDetailView: View {
             .padding(.horizontal, -6)
     }
 
-    /// Contained hero, radius 16 + card shadow — image items only (video/audio players are out of
-    /// scope for this task; "as today" per the brief, and today there are none).
+    /// Contained hero, radius 16 + card shadow — `.image` items, and (plan 12 fix round 3) any
+    /// `.link` item whose `thumbnailURL` resolves (a scraped og-image), matching web's `hasImage`
+    /// gate. Native `.video`/`.audio` players are still out of scope for this task ("as today" per
+    /// the brief, and today there are none) — this call site's own gate above never reaches them.
     private func heroImage(_ url: URL) -> some View {
         AsyncImage(url: url) { phase in
             if case .success(let image) = phase {

@@ -125,6 +125,22 @@ public struct SupabaseItemPatcher: ItemPatching {
     /// embeddings delete is best-effort, not load-bearing — `embeddings.item_id` carries an
     /// `ON DELETE CASCADE` FK to `items`, so the row is removed regardless once the item delete
     /// below succeeds; the manual delete here only saves a moment of dangling rows in between.
+    ///
+    /// Plan 12 feedback round 3, Task 1 root cause — confirmed live against production: a
+    /// PostgREST DELETE whose target row doesn't satisfy the table's RLS policy (or simply
+    /// doesn't exist) still returns an HTTP SUCCESS status with an empty representation body —
+    /// `curl -X DELETE .../items?id=eq.<nonexistent-or-not-mine> -H "Prefer:
+    /// return=representation"` → `200 []`, no error at any layer. supabase-swift's `.delete()`
+    /// already defaults to `Prefer: return=representation` (see `PostgrestQueryBuilder.delete`),
+    /// so that `[]` body was ALWAYS coming back — this method just never read it, so a 0-row
+    /// no-op delete was indistinguishable from a real one and `try await ... .execute()` never
+    /// threw. The caller (`ItemDetailView.performDelete`) then treated that as success:
+    /// `isDeleted = true`, sheet dismissed, and the row — never actually removed server-side —
+    /// was still there on the very next list fetch (Will's on-device report: "deleted it...
+    /// still showing in the list, pull-refresh didn't help"; pull-to-refresh re-fetches the
+    /// TRUE server state, which genuinely still had the row). `.select("id")` narrows the
+    /// representation payload to just the column this check needs; decoding it into a non-empty
+    /// array is now the actual proof of deletion, not just the absence of a thrown error.
     public func deleteItemCascade(itemId: UUID) async throws {
         do {
             try await StashClient.shared.from("embeddings").delete()
@@ -134,8 +150,15 @@ public struct SupabaseItemPatcher: ItemPatching {
             // DB's ON DELETE CASCADE on embeddings.item_id covers it regardless.
             print("Embeddings delete failed (non-fatal): \(error)")
         }
-        try await StashClient.shared.from("items").delete()
-            .eq("id", value: itemId.uuidString).execute()
+        struct DeletedRow: Decodable { let id: UUID }
+        let data = try await StashClient.shared.from("items").delete()
+            .eq("id", value: itemId.uuidString)
+            .select("id")
+            .execute().data
+        let deletedRows = (try? JSONDecoder().decode([DeletedRow].self, from: data)) ?? []
+        guard !deletedRows.isEmpty else {
+            throw ItemEditorError.deleteMatchedNoRows
+        }
     }
 
     public func itemTags(itemId: UUID) async throws -> [StashTag] {
@@ -230,6 +253,12 @@ public enum ItemEditorError: Error, Equatable {
     /// instead — but a Swift `-> Item` return can't produce "nothing happened" without either an
     /// optional return or a thrown signal, so callers that don't care use `try?`.
     case emptyPatch
+    /// Plan 12 feedback round 3, Task 1 (Will, on-device: "deleted [a note] from the detail
+    /// sheet, and the item is still showing in the list. pull-refresh didn't help"): the items
+    /// DELETE request completed with an HTTP success status but matched zero rows server-side —
+    /// see `SupabaseItemPatcher.deleteItemCascade`'s doc comment for the confirmed root cause
+    /// (RLS silently filters the row out of the DELETE's candidate set rather than erroring).
+    case deleteMatchedNoRows
 }
 
 /// Backs the item detail view: save/delete/public-toggle/tag operations, all delegating network

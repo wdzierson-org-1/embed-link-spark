@@ -104,25 +104,39 @@ struct ItemCardView: View {
         if item.type == .link, let urlString = item.url, let url = URL(string: urlString) {
             let domain = domainOf(urlString)
             if !domain.isEmpty {
-                // A `Link`/`Button` here (a nested semantic control) rather than a bare gesture
-                // fought the outer card's own selection `Button` (LibraryView wraps the whole
-                // card in one) for the tap: for a compact-hero card like the `example.com`
-                // fixture, XCUITest's center-tap on `card.0` lands on this kicker, and the
-                // nested control wins the WHOLE gesture — backgrounding the app into Safari
-                // instead of presenting the detail sheet (`testDetailSheets` caught this live).
-                // `.highPriorityGesture` is the documented way to claim taps within just this
-                // view's own bounds without that nested-control ambiguity.
-                // `.accessibilityAddTraits`/`.accessibilityAction` restore what a `Link`/`Button`
-                // would have given for free — VoiceOver's double-tap activation calls a raw
-                // `.highPriorityGesture` closure not at all, since that's a touch gesture, not
-                // an accessibility action.
-                Text(domain.uppercased())
-                    .font(StashType.microLabel())
-                    .kerning(0.6)
-                    .foregroundStyle(StashColor.muted)
-                    .highPriorityGesture(TapGesture().onEnded { openURL(url) })
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { openURL(url) }
+                // Plan 12 feedback round 3 (Will, on-device: "clicking anywhere on the note
+                // should bring up the detail sheet [on iOS] (unlike the web)"): the domain LABEL
+                // itself used to carry the `.highPriorityGesture` below, claiming every tap
+                // across its own (fairly wide) text run — confirmed live in `testDetailSheets`'
+                // own doc comment: a card compact enough that its vertical center lands on this
+                // exact row backgrounds the whole app into Safari instead of presenting the
+                // sheet, for ANY tap in that band, not just one deliberately aimed at the label.
+                // The external-open affordance itself is real product value (web parity —
+                // DESIGN.md's kicker is "domain or author handle", but a quick jump to the
+                // source is a reasonable iOS-only addition) so this doesn't remove it — per this
+                // fix round's own brief, "keep an explicit external-link affordance if one
+                // exists (keep it, smaller)": narrowed to just a small trailing icon (same
+                // "small icon, not the whole label, carries the tap" shape `DetailURLBar` already
+                // uses for its own open-link affordance), so the domain TEXT is now a plain,
+                // non-interactive label that participates in the outer card's whole-card tap
+                // like every other inch of the card.
+                HStack(spacing: 4) {
+                    Text(domain.uppercased())
+                        .font(StashType.microLabel())
+                        .kerning(0.6)
+                        .foregroundStyle(StashColor.muted)
+                    // `.accessibilityAddTraits`/`.accessibilityAction` restore what a `Link`/
+                    // `Button` would have given for free — VoiceOver's double-tap activation
+                    // calls a raw `.highPriorityGesture` closure not at all, since that's a touch
+                    // gesture, not an accessibility action.
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(StashColor.faint)
+                        .highPriorityGesture(TapGesture().onEnded { openURL(url) })
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel("Open link")
+                        .accessibilityAction { openURL(url) }
+                }
             }
         }
     }

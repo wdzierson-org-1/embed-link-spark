@@ -716,17 +716,51 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after final dismiss")
     }
 
-    /// Delete flow: creates a disposable item via the add-note REST endpoint before this test
-    /// runs (never touches the permanent UITEST-FIXTURE rows — see task-8-report.md for the
-    /// exact seed/verify commands), opens it from the grid, deletes it through the in-app
-    /// confirmation dialog, and asserts it's gone from the grid. Absence from the server is
-    /// verified separately via REST in the shell after this test runs.
-    func testDeleteSmoke() throws {
-        guard let marker = ProcessInfo.processInfo.environment["STASH_DELETE_MARKER"], !marker.isEmpty else {
-            XCTFail("STASH_DELETE_MARKER was not set — seed a disposable item via REST before running this test")
-            throw XCTSkip("missing STASH_DELETE_MARKER")
+    /// Seeds `testDeleteSmoke`'s own disposable item directly via the `add-note` edge function —
+    /// same self-contained REST pattern as `seedNoteWithLocationAndLink`/`testLocationPinSmoke`'s
+    /// own generated marker, just without the extra attributes this test doesn't need. Never
+    /// touches the permanent UITEST-FIXTURE rows.
+    private func seedDisposableNote(content: String, email: String, password: String) async throws {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/functions/v1/add-note"))
+        request.httpMethod = "POST"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["content": content, "is_public": false])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "add-note seed failed for testDeleteSmoke's disposable row (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
         }
+    }
+
+    /// Delete flow (plan-12 feedback round 3, Task 1 — Will, on-device: "added a simple note...
+    /// then deleted it from the detail sheet, and the item is still showing in the list.
+    /// pull-refresh didn't help"). Root cause (see `SupabaseItemPatcher.deleteItemCascade`'s own
+    /// doc comment): a PostgREST DELETE that matches zero rows server-side (RLS, or a stale/
+    /// mismatched id) still returns an HTTP SUCCESS with an empty representation body — the fix
+    /// makes `ItemEditor.delete` actually read that body and throw `.deleteMatchedNoRows` on an
+    /// empty result, so a no-op delete now surfaces as a real failure instead of silently
+    /// pretending to have worked. This test proves the row is gone THREE ways, mirroring exactly
+    /// what Will did and what a client-side-only "fix" (e.g. just removing the row locally on tap)
+    /// would NOT actually prove:
+    ///   1. right after confirming, the marker search narrows to no results (the local store
+    ///      dropped it — matches the original version of this test);
+    ///   2. clearing the search back to the full unfiltered grid and pulling to refresh (a genuine
+    ///      REST re-fetch, exactly the gesture Will used) does NOT resurrect it — searching the
+    ///      marker again still finds nothing;
+    ///   3. a direct REST GET confirms the row is actually gone server-side, not merely filtered
+    ///      out of this client's own view of it.
+    /// Self-seeds its own disposable item via `add-note` (no external pre-seed/env var required —
+    /// unlike this test's previous, `STASH_DELETE_MARKER`-gated version) so it never touches the
+    /// permanent UITEST-FIXTURE rows and never needs a human in the loop to run.
+    @MainActor
+    func testDeleteSmoke() async throws {
         let (email, password) = try testCredentials()
+        let marker = "UITEST-DELETE: smoke \(Int(Date().timeIntervalSince1970))"
+        try await seedDisposableNote(content: marker, email: email, password: password)
+
         let app = XCUIApplication()
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
                       "Expected the tab bar to appear after sign-in")
@@ -749,8 +783,37 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Delete confirmation dialog did not appear")
         confirmButton.tap()
 
+        // 1. Local store no longer matches the marker search.
         XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
                       "Expected no results for the deleted item's marker search after deletion")
+
+        // 2. Clear the search back to the full unfiltered grid, then pull-to-refresh it: the
+        // exact gesture from Will's report, and the one a purely-local "remove it from the
+        // array" fix would pass right past — only a genuine server round trip proves the row is
+        // really gone. Re-`tap()` the field first: confirming the delete dismissed the sheet
+        // AND, per this fix round's "a card tap dismisses the keyboard first" change, dropped
+        // the search field's own focus — it's still the frontmost element, just no longer
+        // focused, so a bare action on it fails to synthesize without refocusing first. The
+        // pill's own clear button (atomic, drops the query to exactly "" in one step) rather
+        // than a counted backspace (this fix round's search pill copy/shape is a moving target,
+        // but the clear button's identifier and effect are stable regardless).
+        searchField.tap()
+        app.buttons["library.search.clear"].tap()
+        let grid = anyElement("library.grid")
+        XCTAssertTrue(grid.waitForExistence(timeout: 15), "Expected the unfiltered grid back once the search clears")
+        grid.swipeDown()
+        sleep(3)   // let the pulled-to-refresh fetch resolve before searching again
+
+        searchField.tap()
+        searchField.typeText(marker)
+        XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
+                      "Expected the deleted item to STILL be absent after a real pull-to-refresh " +
+                      "re-fetch — its reappearance here would mean the delete never actually landed server-side")
+
+        // 3. Server-side proof, independent of anything this client believes: the row itself is
+        // gone, not just absent from whatever this one session's store happens to hold.
+        let stillExists = try await rowExists(matchingContent: marker, email: email, password: password)
+        XCTAssertFalse(stillExists, "Expected the deleted item's row to be gone server-side, not just filtered from view")
     }
 
     /// Public toggle/sticky-note lifecycle (Task 9), exercised against the permanent

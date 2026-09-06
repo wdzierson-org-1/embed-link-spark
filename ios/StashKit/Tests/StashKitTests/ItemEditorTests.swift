@@ -4,6 +4,11 @@ import XCTest
 final class RecordingPatcher: ItemPatching, @unchecked Sendable {
     var patches: [(UUID, ItemPatch)] = []
     var deleted: [UUID] = []
+    /// Plan 12 feedback round 3, Task 1: lets `testDeletePropagatesPatcherFailure` simulate the
+    /// real `SupabaseItemPatcher.deleteItemCascade` throwing `.deleteMatchedNoRows` (or any other
+    /// error) without touching the network — proves `ItemEditor.delete` is a pure pass-through
+    /// that never swallows a delete failure.
+    var deleteError: Error?
     var patchResult: Item!
     var tagsResult: [StashTag] = []
     var addedTags: [(name: String, userId: UUID, itemId: UUID)] = []
@@ -11,7 +16,10 @@ final class RecordingPatcher: ItemPatching, @unchecked Sendable {
     var suggestCalls: [(title: String, content: String, description: String, available: [String])] = []
     var suggestResult: [String] = []
     func patch(itemId: UUID, patch: ItemPatch) async throws -> Item { patches.append((itemId, patch)); return patchResult }
-    func deleteItemCascade(itemId: UUID) async throws { deleted.append(itemId) }
+    func deleteItemCascade(itemId: UUID) async throws {
+        if let deleteError { throw deleteError }
+        deleted.append(itemId)
+    }
     func itemTags(itemId: UUID) async throws -> [StashTag] { tagsResult }
     func addTag(named: String, userId: UUID, itemId: UUID) async throws { addedTags.append((named, userId, itemId)) }
     func removeTag(tagId: UUID, itemId: UUID) async throws { removedTags.append((tagId, itemId)) }
@@ -48,6 +56,46 @@ final class ItemEditorTests: XCTestCase {
         let editor = ItemEditor(patcher: patcher, refresher: EmbeddingRefresher(syncer: RecordingSyncer(), idle: .milliseconds(10)))
         _ = try? await editor.save(itemId: UUID(), patch: ItemPatch())
         XCTAssertTrue(patcher.patches.isEmpty)
+    }
+
+    // MARK: - Delete (Plan 12 feedback round 3, Task 1)
+    //
+    // The actual root-cause fix (`SupabaseItemPatcher.deleteItemCascade` now decoding the
+    // items DELETE's own representation payload and throwing `.deleteMatchedNoRows` on an
+    // empty result) is real network behavior with no local seam to unit-test directly — see
+    // that method's doc comment for the confirmed-live evidence. What IS unit-testable, and
+    // what these two lock in, is `ItemEditor.delete`'s own contract: a clean delegation to the
+    // patcher that neither swallows nor alters whatever it reports, in either direction.
+
+    func testDeleteForwardsToPatcher() async throws {
+        let patcher = RecordingPatcher()
+        let editor = ItemEditor(patcher: patcher, refresher: EmbeddingRefresher(syncer: RecordingSyncer()))
+        let itemId = UUID()
+
+        try await editor.delete(itemId: itemId)
+
+        XCTAssertEqual(patcher.deleted, [itemId])
+    }
+
+    /// Was the whole bug, one layer up: before this fix round, nothing in `ItemEditor`/
+    /// `ItemDetailView` distinguished "the patcher reported success" from "the patcher reported
+    /// nothing happened" — a delete that matched zero rows server-side (RLS, or the row was
+    /// already gone) surfaced identically to a real one. This proves the propagation half of
+    /// the fix: whatever error the patcher throws (including the new `.deleteMatchedNoRows`)
+    /// reaches the caller unmodified, so `ItemDetailView.performDelete`'s catch block — and
+    /// hence `deleteErrorMessage` — actually fires instead of the sheet dismissing on a no-op.
+    func testDeletePropagatesPatcherFailure() async {
+        let patcher = RecordingPatcher()
+        patcher.deleteError = ItemEditorError.deleteMatchedNoRows
+        let editor = ItemEditor(patcher: patcher, refresher: EmbeddingRefresher(syncer: RecordingSyncer()))
+
+        do {
+            try await editor.delete(itemId: UUID())
+            XCTFail("Expected the patcher's delete failure to propagate")
+        } catch {
+            XCTAssertEqual(error as? ItemEditorError, .deleteMatchedNoRows)
+        }
+        XCTAssertTrue(patcher.deleted.isEmpty, "A failed delete must never be recorded as having succeeded")
     }
 
     func testUnshareWithNoteClearsSticky() {
