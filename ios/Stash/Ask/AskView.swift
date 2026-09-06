@@ -102,11 +102,16 @@ struct AskView: View {
 
     /// The pre-plan-7 header affordance, restored (Will's reversal, 2026-09-03: "the previous
     /// implementation of 'start a new chat' and 'earlier conversations' … was the better
-    /// approach — go back to this"). No title/wordmark above it — just the two round icon
-    /// buttons, right-aligned, same accessibility identifiers as before (`ask.newChat`/
-    /// `ask.history`) so `testConversationsSmoke`'s navigation keeps working unchanged.
+    /// approach — go back to this"), PLUS plan 12's "Chat with your Stash" title (Will: "add a
+    /// title back to the 'Ask' tab") — left-aligned in the same row, same two round icon buttons
+    /// right-aligned, same accessibility identifiers as before (`ask.newChat`/`ask.history`) so
+    /// `testConversationsSmoke`'s navigation and `testAskHeaderButtonsOpenConversations`'s
+    /// above-the-bubble assertion both keep working unchanged.
     private var askHeader: some View {
         HStack(spacing: 8) {
+            Text("Chat with your Stash")
+                .font(StashType.medium(size: 22))
+                .foregroundStyle(StashColor.ink)
             Spacer()
             Button {
                 store.startNewChat()

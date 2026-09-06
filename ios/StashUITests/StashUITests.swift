@@ -1831,19 +1831,28 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
     }
 
-    // MARK: - Composer keyboard accessory (Plan 8 fix round 1, Task 3)
+    // MARK: - Composer keyboard accessory (Plan 8 fix round 1, Task 3; reworked plan 12 Task 2)
 
     /// Device-review fix: while typing, the keyboard toolbar's text "Done" button used to read as
     /// a second primary action competing with the violet send button. Replaced with an icon-only
     /// minimize-keyboard control (`keyboard.chevron.compact.down`) — this proves the "Done" text
     /// button is gone, the icon control appears (with an accessible label) once the editor is
-    /// focused, and tapping it actually dismisses the keyboard (the accessory itself disappears,
-    /// since it's only shown via the `.keyboard` toolbar placement). Also proves the composer's
-    /// old public/lock toggle (`capture.toggle.public`) is gone entirely — sharing now lives only
-    /// on the detail sheet's `detail.public.toggle` (see `testDetailSheets`), and captures default
-    /// private (`CaptureViewModel.isPublic == false`, unchanged in StashKit by this fix). Also
-    /// screenshots CaptureAttachmentsRow's clipped-× fix: picks a photo via the real PhotosPicker
-    /// (the simulator's own default Photos library) and holds with the chip visible.
+    /// focused, and tapping it actually dismisses the keyboard (the accessory itself disappears
+    /// once focus clears). Also proves the composer's old public/lock toggle
+    /// (`capture.toggle.public`) is gone entirely — sharing now lives only on the detail sheet's
+    /// `detail.public.toggle` (see `testDetailSheets`), and captures default private
+    /// (`CaptureViewModel.isPublic == false`, unchanged in StashKit by this fix). Also screenshots
+    /// CaptureAttachmentsRow's clipped-× fix: picks a photo via the real PhotosPicker (the
+    /// simulator's own default Photos library) and holds with the chip visible.
+    ///
+    /// Plan 12 Task 2 (Will, on-device: "the 'minimize keyboard' button appears to occlude the
+    /// 'submit note' button" on iOS 26): `.toolbar(placement: .keyboard)` is retired — the same
+    /// `capture.dismissKeyboard` identifier/label/behavior now lives as a plain button in the
+    /// composer's own bottom bar (left group, shown only while the editor is focused), so it can
+    /// never float over Save. No assertions below changed — same identifier, same "Hide keyboard"
+    /// label, same appear-while-focused/disappear-after-tap contract — only the comment two lines
+    /// down (the `.buttons[...]` scoping is no longer working around a toolbar-placement
+    /// duplicate; it's just this file's usual convention for an unambiguous button lookup now).
     func testComposerKeyboardAccessory() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -1874,11 +1883,10 @@ final class StashUITests: XCTestCase {
         editor.tap()
         editor.typeText("x")
 
-        // `.buttons[...]` (not the file's usual `anyElement` helper) — the `.keyboard` toolbar
-        // placement renders an extra non-button "other" accessibility container that inherits the
-        // same identifier/label (confirmed live: `descendants(matching: .any)` matched two
-        // elements), so this scopes the query to the actual button, same convention already used
-        // for `capture.save`/`signin.submit` elsewhere in this file.
+        // `.buttons[...]` (not the file's usual `anyElement` helper) — now a plain in-bar button
+        // (plan 12: the `.keyboard` toolbar placement that used to double this identifier onto an
+        // extra non-button "other" container is gone), scoped the same way `capture.save`/
+        // `signin.submit` already are elsewhere in this file.
         let dismissKeyboard = app.buttons["capture.dismissKeyboard"]
         XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
                       "Expected the minimize-keyboard accessory control to appear while the editor is focused")

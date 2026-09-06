@@ -89,6 +89,12 @@ struct CaptureComposerView: View {
             // it, GradientBackdrop stays behind it, and the editor + attachments/gate/pin +
             // bottom bar all live INSIDE `ComposerCard`, which owns the idle/composing ring.
             VStack(alignment: .leading, spacing: 0) {
+                // Add-tab spacing pass (plan 12, Will: "increase the margin on the input panel by
+                // 10% … same with the Stash logo"): `StashHeader`'s own horizontal padding (16, a
+                // shared Add-tab/share-sheet/Settings/Library component) is left untouched so
+                // those other surfaces don't shift — this extra 2pt wrapper is Add-tab-only and
+                // brings the wordmark's effective margin to 16 × 1.1 ≈ 18 here without touching
+                // the shared component.
                 StashHeader {
                     if viewModel.pendingOutboxCount > 0 {
                         Text("\(viewModel.pendingOutboxCount)")
@@ -101,6 +107,7 @@ struct CaptureComposerView: View {
                             .accessibilityIdentifier("capture.outboxBadge")
                     }
                 }
+                .padding(.horizontal, 2)
                 // `isPanelActive` (web `UnifiedInputPanel.tsx:898-902`): focused OR
                 // `hasAnyContent` (`!editorIsEmpty || inputItems.length > 0`) — a non-empty draft
                 // OR at least one staged attachment, exactly mirroring the web's boolean shape
@@ -125,9 +132,15 @@ struct CaptureComposerView: View {
                             }
                             bottomBar
                         }
-                        .padding(.horizontal)
-                        .padding(.top, 10)
-                        .padding(.bottom, 8)
+                        // Add-tab spacing pass (plan 12, Will: "increase the padding inside the
+                        // input panel by a similar amount (incl. the bottom of the button bar and
+                        // left of the button bar)") — this is the one padding shared by every row
+                        // in the card's content column INCLUDING `bottomBar`, so scaling it here
+                        // covers both the button bar's bottom gap and its leading inset in one
+                        // place: horizontal 16 → 18, top 10 → 11, bottom 8 → 9 (×1.1, rounded).
+                        .padding(.horizontal, 18)
+                        .padding(.top, 11)
+                        .padding(.bottom, 9)
                     }
                 }
                 // Task 2 (plan 10 round 2, Will: "reduce the card size to 2/3 the height of the
@@ -139,26 +152,11 @@ struct CaptureComposerView: View {
                 // `containerHeight == 0` (the one frame before that reader first reports in) leaves
                 // the cap off rather than collapsing the card to zero height.
                 .frame(maxHeight: containerHeight > 0 ? floor(containerHeight * 2 / 3) : nil, alignment: .top)
-                .padding(.horizontal, 12)
+                // Add-tab spacing pass (plan 12, Will: "increase the margin on the input panel by
+                // 10%") — the card's own outer horizontal margin: 12 × 1.1 = 13.2, rounded to 13.
+                .padding(.horizontal, 13)
                 .padding(.top, 8)
                 .padding(.bottom, 12)
-            }
-        }
-        // Keyboard-accessory dismiss: the composer has no reliable "empty" area to tap once the
-        // keyboard pushes the attachments row/bottom bar up against it. Device-review fix: a
-        // text "Done" button read as a second primary action competing with the violet send
-        // button while typing — an icon-only minimize control (present only while the editor is
-        // focused, via `.keyboard` placement) reads as a secondary, non-competing affordance.
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button {
-                    editorFocused = false
-                } label: {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                }
-                .accessibilityIdentifier("capture.dismissKeyboard")
-                .accessibilityLabel("Hide keyboard")
             }
         }
         .overlay(alignment: .bottom) { toastView }
@@ -286,6 +284,21 @@ struct CaptureComposerView: View {
     // the 48pt save carrying the visual weight.
     private var bottomBar: some View {
         HStack(spacing: 8) {
+            // iOS 26 device-review fix (plan 12): `.toolbar(placement: .keyboard)` used to render
+            // this same minimize control as a floating accessory bar that, on iOS 26, sometimes
+            // occludes the violet send button (Will: "the 'minimize keyboard' button appears to
+            // occlude the 'submit note' button"). Moved in-content — a plain circle in this bar's
+            // own left group, shown only while the editor is focused, so it never overlaps Save.
+            if editorFocused {
+                Button {
+                    editorFocused = false
+                } label: {
+                    CircleIcon(systemImage: "keyboard.chevron.compact.down")
+                }
+                .accessibilityIdentifier("capture.dismissKeyboard")
+                .accessibilityLabel("Hide keyboard")
+            }
+
             PhotosPicker(selection: $selectedPhotoItems, matching: .images) {
                 CircleIcon(systemImage: "photo.on.rectangle")
             }
