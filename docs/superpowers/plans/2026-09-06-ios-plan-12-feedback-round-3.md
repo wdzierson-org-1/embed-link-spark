@@ -92,7 +92,18 @@ product bug.
   fixture-dependent tests; not itself a regression, just untracked growth
   worth an eventual cleanup pass.
 
-Build 8's TestFlight outcome (upload id, processing state, beta-group
-attachment, beta-review submission result) is recorded in a follow-up
-amendment to this section once the pipeline finishes — see
-`.superpowers/sdd/plan-12/task-5-report.md` for the full transcript.
+**Build 8 — TestFlight outcome:** archive/export/upload all succeeded via
+session auth (`./scripts/release.sh all` then `upload`); entitlements
+checked on both binaries in the exported `.ipa` (`Stash.app` +
+`StashShareExtension.appex`) — correct team id `3CH3K9NTT2`, matching
+`group.it.gostash.stash` app-group and `3CH3K9NTT2.it.gostash.stash.shared`
+keychain-access-group on each, `get-task-allow: false` on both. Build id
+`b3c79486-2cba-46f8-a60e-24d5e8c47662` reached `processingState: VALID`
+within one poll (~60s). Attached to both beta groups (`d19f78c1-…`,
+`d0d24fce-…`, HTTP 204 each). Beta App Review: builds 6 and 7 both had
+`betaAppReviewSubmission: null` (neither WAITING_FOR_REVIEW nor IN_REVIEW,
+contrary to this plan's start-of-round note that build 6 was
+WAITING_FOR_REVIEW — that had evidently resolved/lapsed since), so build 8
+was submitted (`POST /v1/betaAppReviewSubmissions`) and came back
+`betaReviewState: WAITING_FOR_REVIEW`. Full transcript:
+`.superpowers/sdd/plan-12/task-5-report.md`.
