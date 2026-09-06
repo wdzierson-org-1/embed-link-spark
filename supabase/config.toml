@@ -69,3 +69,8 @@ file_size_limit = "50MiB"
 # the RFC 9728 WWW-Authenticate challenge instead of the gateway's opaque 401.
 [functions.mcp]
 verify_jwt = false
+
+# Cron-invoked (pg_cron → pg_net). Auth is the x-cron-secret header checked
+# in-function; there is no user JWT on this path.
+[functions.reminder-digest]
+verify_jwt = false
