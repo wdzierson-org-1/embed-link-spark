@@ -8,6 +8,43 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-05 · YouTube links: real thumbnail + title from the URL alone — all clients
+
+Server-side only (`add-url`, `extract-link-metadata`, new
+`_shared/youtube.ts`); no client code changes, nothing to mirror — every
+platform saves through `add-url` and gets this for free.
+
+- **What was wrong:** YouTube answers Supabase's egress IPs with HTTP 429 on
+  watch pages. The YouTube oEmbed branch lived *inside* the HTML parser,
+  which only ran after a successful page fetch, so from production it never
+  ran. The error path's Jina rescue then returned the watch URL itself in
+  the image slot, `add-url` correctly rejected it, and every YouTube card
+  saved since 2026-08-22 sat on the favicon plate with `file_path = null`.
+- **Now:** for any URL that carries a YouTube video id (`watch?v=`,
+  `youtu.be/`, `/shorts/`, `/embed/`, `/live/`, mobile/music subdomains) the
+  server resolves metadata with **no page fetch**: oEmbed for title/author
+  and a HEAD-probed `i.ytimg.com` thumbnail (`maxresdefault` 1280×720 →
+  `hq720` → `hqdefault` 480×360, the only one guaranteed to exist; a missing
+  variant is a 404 that still carries a placeholder JPEG, so status decides).
+  Both endpoints verified reachable from the cloud. The quick pass in
+  `add-url` uses the same resolver, so the immediate `{ item }` response
+  already carries the real title, `description` (`Watch "<title>" by <channel>
+  on YouTube`), and a stored preview in `<uid>/previews/` — the card is
+  finished on first paint instead of after deep enrichment. If oEmbed is
+  down the thumbnail still lands and the deep pass rescues the title.
+- **Contract:** unchanged. `file_path` is our own storage path (preferred)
+  or, on the rare error path, a raw `i.ytimg.com` URL that verifiably served
+  an image. `attributes.link.flavor = 'video'` as before.
+  `strategyUsed: 'youtube-oembed'` in the enrichment response identifies
+  the new path.
+- **Known limits (next entry covers them):** `description` is still the
+  synthetic "Watch … on YouTube" line, not the video's own description, and
+  `page_body` for YouTube links is still whatever the scrape cascade found
+  (YouTube's nav chrome). Both are addressed by the transcript enrichment
+  spec `docs/superpowers/specs/2026-09-05-youtube-transcript-enrichment-design.md`.
+- Tests: `supabase/functions/_shared/youtube.test.ts` (vitest, injected
+  fetch). Deployed 2026-09-06 UTC.
+
 ## 2026-09-05 · Connect an agent (MCP server) — web
 
 Read-only MCP server at `https://www.gostash.it/mcp` behind Supabase's OAuth
