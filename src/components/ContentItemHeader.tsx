@@ -6,6 +6,8 @@ import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
 import { domainOfUrl } from '@/utils/linkFlavor';
 import { decodeHtmlEntities } from '@/utils/textHygiene';
+import { useNow } from '@/hooks/useNow';
+import { reminderState } from '@/utils/reminders';
 import {
   AspectAwareImage,
   DocumentHero,
@@ -36,6 +38,8 @@ interface ContentItem {
   url?: string;
   summary?: string;
   attributes?: ItemAttributes;
+  remind_at?: string | null;
+  reminder_cleared_at?: string | null;
 }
 
 interface ContentItemHeaderProps {
@@ -60,6 +64,7 @@ const ContentItemHeader = ({
 }: ContentItemHeaderProps) => {
   const [linkCoverFailed, setLinkCoverFailed] = useState(false);
   const isProcessing = isDocumentProcessing(item);
+  const isDue = !isPublicView && reminderState(item, useNow()) === 'due';
 
   const getFileUrl = () => {
     if (item.file_path && !item.file_path.startsWith('http')) {
@@ -173,7 +178,7 @@ const ContentItemHeader = ({
 
   const hero = renderHero();
   const isVideoHero = item.type === 'video' && Boolean(fileUrl);
-  const showInlineBadges = !hero && !isPublicView && (isProcessing || item.is_public);
+  const showInlineBadges = !hero && !isPublicView && (isProcessing || item.is_public || isDue);
   const showKicker = item.type === 'link' && Boolean(domain);
 
   return (
@@ -206,6 +211,11 @@ const ContentItemHeader = ({
                     PUBLICLY SHARED
                   </div>
                 )}
+                {isDue && (
+                  <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-medium text-white shadow-sm" data-testid="due-pill">
+                    Due
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -219,6 +229,11 @@ const ContentItemHeader = ({
             {item.is_public && (
               <span className="inline-block rounded bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
                 PUBLICLY SHARED
+              </span>
+            )}
+            {isDue && (
+              <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-medium text-white shadow-sm" data-testid="due-pill">
+                Due
               </span>
             )}
           </div>
