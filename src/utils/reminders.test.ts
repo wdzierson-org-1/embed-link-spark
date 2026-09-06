@@ -66,7 +66,7 @@ describe('reminderLabel', () => {
     expect(reminderLabel(at('2026-09-06T17:00:00Z'), now)).toBe('in 5h');
     expect(reminderLabel(at('2026-09-06T12:10:00Z'), now)).toBe('in 1h');
     expect(reminderLabel(at('2026-09-09T12:00:00Z'), now)).toBe('in 3d');
-    expect(reminderLabel(at('2026-09-08T18:00:00Z'), now)).toBe('in 3d');
+    expect(reminderLabel(at('2026-09-08T18:00:00Z'), now)).toBe('in 2d');
     expect(reminderLabel(at('2026-09-01T00:00:00Z'), now)).toBeNull();
   });
 });

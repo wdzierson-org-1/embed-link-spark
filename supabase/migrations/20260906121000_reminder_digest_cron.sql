@@ -1,6 +1,13 @@
 -- Daily reminder job. pg_cron 1.6: cron.schedule(name, …) upserts by name.
 -- The shared secret is read from Vault at run time so nothing sensitive is
 -- committed (the older retry-pending-scrapes job embeds its token instead).
+--
+-- pg_cron/pg_net are already enabled in production; these IF NOT EXISTS
+-- guards only matter so `supabase db reset` can replay this migration
+-- locally without failing on a fresh database.
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
 SELECT cron.schedule(
   'reminder-digest',
   '0 13 * * *',

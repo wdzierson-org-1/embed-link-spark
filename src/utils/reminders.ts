@@ -46,7 +46,7 @@ export function reminderLabel(item: ReminderFields, now: Date): string | null {
   if (state !== 'scheduled') return null;
   const ms = Date.parse(item.remind_at!) - now.getTime();
   if (ms < DAY_MS) return `in ${Math.max(1, Math.ceil(ms / HOUR_MS))}h`;
-  return `in ${Math.ceil(ms / DAY_MS)}d`;
+  return `in ${Math.round(ms / DAY_MS)}d`;
 }
 
 export const setReminderPatch = (remindAt: string) => ({
