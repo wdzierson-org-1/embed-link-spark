@@ -73,6 +73,14 @@ Requirements:
 
 ## Workstream B — Post-save intent chips (capture surfaces)
 
+> **2026-09-06:** explicit reminders were specified separately in
+> `2026-09-06-reminders-design.md`. That spec supersedes two points below:
+> storage is three columns on `items` (`remind_at`, `reminder_cleared_at`,
+> `reminder_notified_at`) rather than `attributes.resurface` (B2, and A2's
+> key name), and the iOS share sheet offers presets pre-save, non-gating,
+> rather than post-save (B1). Inferred scheduling (A1) must still never
+> overwrite a user-set `remind_at`.
+
 Constraint from ETHOS: **no decision before or during capture, ever.** The
 chip is offered strictly **after the save commits**, modeled exactly on the
 location pattern: opt-in, one tap, structured-only, zero cost to decline.
