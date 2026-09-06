@@ -4,6 +4,7 @@ import {
   remindAtForPreset,
   reminderLabel,
   reminderState,
+  ReminderFields,
   setReminderPatch,
 } from './reminders';
 
@@ -38,7 +39,7 @@ describe('remindAtForPreset', () => {
 });
 
 describe('orderDueFirst', () => {
-  const items = [
+  const items: (ReminderFields & { id: string })[] = [
     { id: 'newest', ...at('2026-09-10T00:00:00Z') },           // scheduled
     { id: 'plain' },                                            // none
     { id: 'due-later', ...at('2026-09-06T09:00:00Z') },        // due

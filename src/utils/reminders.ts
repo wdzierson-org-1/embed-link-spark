@@ -14,7 +14,6 @@ export type ReminderState = 'none' | 'scheduled' | 'due' | 'cleared';
 export interface ReminderFields {
   remind_at?: string | null;
   reminder_cleared_at?: string | null;
-  [key: string]: any;
 }
 
 export function reminderState(item: ReminderFields, now: Date): ReminderState {
