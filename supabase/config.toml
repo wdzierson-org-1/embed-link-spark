@@ -57,3 +57,8 @@ port = 54322
 [storage]
 enabled = true
 file_size_limit = "50MiB"
+
+# MCP endpoint: auth is checked in-function so unauthenticated requests get
+# the RFC 9728 WWW-Authenticate challenge instead of the gateway's opaque 401.
+[functions.mcp]
+verify_jwt = false
