@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { isAgentToken } from '../_shared/agentToken.ts';
+import { stripReminderColumns } from '../_shared/reminders.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -107,9 +108,11 @@ serve(async (req) => {
       }
     }
 
+    // Reminders are owner-only metadata and must never reach anonymous
+    // discover-feed viewers.
     const processedItems = (items || [])
       .filter(item => profilesById.has(item.user_id))
-      .map(item => ({
+      .map(item => stripReminderColumns({
         ...item,
         comment_count: item.comment_count?.[0]?.count || 0,
         profile: profilesById.get(item.user_id),

@@ -22,3 +22,16 @@ export function parseRemindAt(value: unknown, now: Date = new Date()): string | 
   if (ms < now.getTime() - PAST_TOLERANCE_MS) return null;
   return new Date(ms).toISOString();
 }
+
+/**
+ * Reminders are owner-only metadata — anonymous/public feed responses
+ * (get-public-feed, get-discover-feed) must never carry them. Returns a
+ * shallow copy with the three reminder columns removed.
+ */
+export function stripReminderColumns<T extends Record<string, unknown>>(row: T): Omit<T, 'remind_at' | 'reminder_cleared_at' | 'reminder_notified_at'> {
+  const copy = { ...row };
+  delete (copy as Record<string, unknown>).remind_at;
+  delete (copy as Record<string, unknown>).reminder_cleared_at;
+  delete (copy as Record<string, unknown>).reminder_notified_at;
+  return copy;
+}

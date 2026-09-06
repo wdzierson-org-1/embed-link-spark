@@ -258,7 +258,7 @@ const ContentGrid = ({
   if (searchRank) {
     // Relevance order while a server search is active (grid is otherwise chronological)
     visibleRealItems.sort((a, b) => searchRank.get(a.id)! - searchRank.get(b.id)!);
-  } else {
+  } else if (!isPublicView) {
     // Due reminders surface above the chronological list
     visibleRealItems = orderDueFirst(visibleRealItems, now);
   }

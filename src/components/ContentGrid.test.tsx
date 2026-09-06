@@ -71,12 +71,15 @@ describe('ContentGrid rank precedence', () => {
 });
 
 describe('ContentGrid reminders', () => {
+  // Declared in chronological (created_at desc) order, as real data arrives —
+  // due-first hoisting reorders this for the owner view but a public view
+  // (finding 1) must leave it exactly as given.
   const dueItems = [
     { id: 'n', title: 'Newest plain', type: 'text', created_at: '2026-09-06T10:00:00Z' },
-    { id: 'd', title: 'Due card', type: 'text', created_at: '2026-08-01T00:00:00Z',
-      remind_at: new Date(Date.now() - 60_000).toISOString(), reminder_cleared_at: null },
     { id: 's', title: 'Scheduled card', type: 'text', created_at: '2026-08-02T00:00:00Z',
       remind_at: new Date(Date.now() + 86_400_000).toISOString(), reminder_cleared_at: null },
+    { id: 'd', title: 'Due card', type: 'text', created_at: '2026-08-01T00:00:00Z',
+      remind_at: new Date(Date.now() - 60_000).toISOString(), reminder_cleared_at: null },
   ];
 
   it('lifts due cards above the chronological list', () => {
@@ -89,5 +92,11 @@ describe('ContentGrid reminders', () => {
     render(<ContentGrid {...baseProps} items={dueItems} serverResultIds={['n', 'd']} searchQuery="x" />);
     const titles = screen.getAllByTestId('card').map(el => el.textContent);
     expect(titles).toEqual(['Newest plain', 'Due card']);
+  });
+
+  it('does not lift due cards above the chronological list in a public view', () => {
+    render(<ContentGrid {...baseProps} items={dueItems} isPublicView />);
+    const titles = screen.getAllByTestId('card').map(el => el.textContent);
+    expect(titles).toEqual(['Newest plain', 'Scheduled card', 'Due card']);
   });
 });
