@@ -15,7 +15,10 @@
 - Endpoint users paste: `https://www.gostash.it/mcp` (Task 1 may downgrade to `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp`; then `MCP_RESOURCE_URL` and the copy in Task 8 change together).
 - Authorization server issuer: `https://uqqsgmwkvslaomzxptnp.supabase.co/auth/v1`; metadata at `https://uqqsgmwkvslaomzxptnp.supabase.co/.well-known/oauth-authorization-server/auth/v1`.
 - OAuth scope pinned to `email` everywhere (401 challenge, protected-resource metadata, smoke script). Never request `openid`.
-- Tools v1: `search_stash`, `get_item`. Read-only. No bulk/export tool.
+- Tools v1: `search_stash`, `get_item`, plus ChatGPT's required aliases `search` and `fetch` (exact OpenAI shapes: `search` → `{ results: [{ id, title, url }] }`, `fetch` → `{ id, title, text, url, metadata }`, each returned as `structuredContent` AND as a JSON string in the text content item; `url` always non-empty). Read-only. No bulk/export tool.
+- Every tool has `title` and `annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }` (Claude directory requirement).
+- Protocol versions accepted and echoed: `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`; anything else → `2025-11-25`. Streamable HTTP only (no legacy `/sse`).
+- Discovery documents published at: `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-protected-resource`, `/.well-known/mcp-server-card` (Vercel static, JSON, CORS `*`) and the same three under `/mcp/.well-known/…` from the function; registry entry at `mcp/server.json` (namespace `it.gostash/stash`).
 - Scope vocabulary: `['read']` only; column is `text[]`.
 - Rate limits per grant: 60 tool calls / rolling 60s, 2,000 / rolling 24h.
 - Caps in `get_item`: notes 4,000 chars, captured text 12,000 chars. Search: default limit 20, max 50, snippet 280 chars (unchanged from `search-items`).
@@ -60,7 +63,11 @@ q() { curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applic
 | `supabase/migrations/20260905120000_agent_grants_and_access_log.sql` | Tables, RLS, `is_agent_token()`, restrictive fence policies. |
 | `supabase/config.toml` | `[functions.mcp]`, `[auth.oauth_server]`. |
 | `vercel.json` | `/mcp` rewrites, static metadata headers. |
-| `public/.well-known/oauth-protected-resource/mcp` | Static protected-resource metadata (best effort). |
+| `public/.well-known/oauth-protected-resource/mcp` | Static protected-resource metadata, path-specific probe (best effort). |
+| `public/.well-known/oauth-protected-resource` | Same document, root probe. |
+| `public/.well-known/mcp-server-card` | SEP-2127 server card (static). |
+| `mcp/server.json` | MCP Registry entry (`mcp-publisher publish` runs from `mcp/`). |
+| `docs/mcp/DIRECTORIES.md` | Runbook for Will: registry DNS verification + publish, Claude directory portal, ChatGPT, editor clients, pre-registered OAuth clients. |
 | `src/integrations/supabase/types.ts` | Row types for the two new tables. |
 | `src/utils/oauthConsent.ts` (+ test) | GoTrue OAuth REST calls + pure helpers (redirect detection, loopback detection, return-to URL). |
 | `src/pages/OAuthConsent.tsx` | The consent page at `/oauth/consent`. |
@@ -168,7 +175,7 @@ Decision: if both pass, `MCP_RESOURCE_URL = 'https://www.gostash.it/mcp'`. If th
 
 **Interfaces:**
 - Produces:
-  - `interface McpToolDefinition { name: string; title?: string; description: string; inputSchema: Record<string, unknown> }`
+  - `interface McpToolDefinition { name: string; title?: string; description: string; inputSchema: Record<string, unknown>; annotations?: McpToolAnnotations }` with `interface McpToolAnnotations { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean }`
   - `interface McpToolResult { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, unknown>; isError?: boolean }`
   - `interface McpServerSpec { name: string; version: string; instructions?: string; tools: McpToolDefinition[]; callTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> }`
   - `interface McpHttpResult { status: 200 | 202 | 400; body: unknown | null }`
@@ -197,6 +204,7 @@ const spec = (): McpServerSpec => ({
 describe('negotiateProtocolVersion', () => {
   it('echoes a supported version and falls back to the latest otherwise', () => {
     expect(negotiateProtocolVersion('2025-06-18')).toBe('2025-06-18');
+    expect(negotiateProtocolVersion('2024-11-05')).toBe('2024-11-05');
     expect(negotiateProtocolVersion('1999-01-01')).toBe(LATEST_PROTOCOL_VERSION);
     expect(negotiateProtocolVersion(undefined)).toBe(LATEST_PROTOCOL_VERSION);
   });
@@ -308,14 +316,24 @@ Expected: FAIL — cannot resolve `./mcpProtocol`.
 // and under vitest on the web toolchain. The HTTP shell owns auth, headers and
 // status codes; this module owns JSON-RPC semantics.
 
-export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const;
+// Every version current clients send; echoed back when requested so nothing
+// downgrades unexpectedly. Unknown versions get the newest we know.
+export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const;
 export const LATEST_PROTOCOL_VERSION: string = SUPPORTED_PROTOCOL_VERSIONS[0];
+
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
 
 export interface McpToolDefinition {
   name: string;
   title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
 }
 
 export interface McpToolResult {
@@ -1260,8 +1278,8 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { authenticateAgent, type AgentGrant } from '../_shared/agentAuth.ts';
 import {
-  errorResult, handleMcpMessage, parseJsonRpcBody, textResult,
-  type McpServerSpec, type McpToolDefinition, type McpToolResult,
+  SUPPORTED_PROTOCOL_VERSIONS, errorResult, handleMcpMessage, parseJsonRpcBody, textResult,
+  type McpServerSpec, type McpToolAnnotations, type McpToolDefinition, type McpToolResult,
 } from '../_shared/mcpProtocol.ts';
 import {
   ITEM_TYPES, SEARCH_MAX_LIMIT, normalizeSearchRequest, openAiEmbedder, searchItems,
@@ -1269,6 +1287,10 @@ import {
 
 // Task 1 decision. Must equal the URL users paste into their agent, exactly.
 const MCP_RESOURCE_URL = 'https://www.gostash.it/mcp';
+// Web deep link for items without a URL of their own (notes, photos, memos) —
+// the same `#item=<uuid>` convention the Ask citations use (PLATFORM_API.md).
+// ChatGPT only cites results whose url is a non-empty string.
+const ITEM_LINK_BASE = 'https://www.gostash.it/home#item=';
 const SERVER_VERSION = '1.0.0';
 const RATE_PER_MINUTE = 60;
 const RATE_PER_DAY = 2000;
@@ -1303,6 +1325,28 @@ const protectedResourceMetadata = () => ({
   resource_name: 'Stash',
 });
 
+// SEP-2127 server card (draft, adopted by catalogs): who we are and how to
+// connect, without tools (those are discovered at runtime). A static copy
+// lives at the site root (public/.well-known/mcp-server-card.json).
+const serverCard = () => ({
+  $schema: 'https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json',
+  name: 'it.gostash/stash',
+  title: 'Stash',
+  description: 'Search and read the links, notes, photos, voice memos and documents a Stash user saved, with their consent. Read-only.',
+  version: SERVER_VERSION,
+  websiteUrl: 'https://www.gostash.it',
+  icons: [
+    { src: 'https://www.gostash.it/icon-192.png', sizes: ['192x192'], mimeType: 'image/png' },
+    { src: 'https://www.gostash.it/icon-512.png', sizes: ['512x512'], mimeType: 'image/png' },
+  ],
+  remotes: [{ type: 'streamable-http', url: MCP_RESOURCE_URL, supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS] }],
+});
+
+const discoveryResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+  });
+
 // RFC 6750 §3: a request with no credentials gets the bare challenge (no
 // error code); bad or insufficient credentials name the error.
 const challenge = (status: 401 | 403, error: string, description: string) => {
@@ -1315,6 +1359,10 @@ const challenge = (status: 401 | 403, error: string, description: string) => {
 };
 
 const stripHtml = (text: string): string => text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+// Every tool is read-only; the Claude directory groups tools by these hints
+// and rejects tools without a title or the read-only/destructive hint.
+const READ_ONLY: McpToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 const TOOLS: McpToolDefinition[] = [
   {
@@ -1334,6 +1382,7 @@ const TOOLS: McpToolDefinition[] = [
       },
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: 'get_item',
@@ -1346,6 +1395,35 @@ const TOOLS: McpToolDefinition[] = [
       required: ['id'],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
+  },
+  // ChatGPT connectors / deep research require tools named exactly `search`
+  // and `fetch` with fixed result shapes. Same code paths as the two above.
+  {
+    name: 'search',
+    title: 'Search the stash (ChatGPT-compatible)',
+    description:
+      "Search the user's saved items with a single query string. Same capability as search_stash, returned as { results: [{ id, title, url }] }. Use search_stash when you want filters or snippets; use fetch to read a result in full.",
+    inputSchema: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'What to look for.' } },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
+  },
+  {
+    name: 'fetch',
+    title: 'Read a saved item (ChatGPT-compatible)',
+    description:
+      "Read one saved item in full by id (from search). Same capability as get_item, returned as { id, title, text, url, metadata }.",
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Item id from search.' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
   },
 ];
 
@@ -1424,9 +1502,24 @@ const runSearchStash = async (admin: Admin, userId: string, grant: AgentGrant, a
   return textResult(lines.join('\n\n'), { results, count: results.length });
 };
 
-const runGetItem = async (admin: Admin, userId: string, grant: AgentGrant, args: Record<string, unknown>): Promise<McpToolResult> => {
-  const id = typeof args.id === 'string' ? args.id.trim() : '';
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return errorResult('id must be an item id from search_stash.');
+interface ReadItem {
+  id: string; title: string; type: string; url: string | null; created_at: string;
+  description: string | null; notes: string | null; sticky_note: string | null; summary: string | null;
+  captured_text: string | null; truncated: boolean; flavor: string | null; location: string | null;
+  text: string;
+}
+
+const isToolResult = (v: unknown): v is McpToolResult =>
+  typeof v === 'object' && v !== null && Array.isArray((v as McpToolResult).content);
+
+const itemLink = (id: string) => `${ITEM_LINK_BASE}${id}`;
+
+// Shared by get_item and fetch: one item, scoped to the user, rendered once.
+// Logs under the canonical tool name so the activity log reads the same
+// whichever alias the client used.
+const readItem = async (admin: Admin, userId: string, grant: AgentGrant, rawId: unknown, idSource: string): Promise<ReadItem | McpToolResult> => {
+  const id = typeof rawId === 'string' ? rawId.trim() : '';
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return errorResult(`id must be an item id from ${idSource}.`);
 
   const { data: item, error } = await admin
     .from('items')
@@ -1446,21 +1539,64 @@ const runGetItem = async (admin: Admin, userId: string, grant: AgentGrant, args:
   const flavor: string | null = item.attributes?.link?.flavor ?? null;
   const location: string | null = item.attributes?.location?.label ?? null;
   const notes = item.content ? stripHtml(item.content).slice(0, ITEM_NOTES_CHARS) : null;
-  const body = item.page_body ? String(item.page_body).slice(0, ITEM_BODY_CHARS) : null;
+  const fullBody = item.page_body ? String(item.page_body) : '';
+  const body = fullBody ? fullBody.slice(0, ITEM_BODY_CHARS) : null;
+  const truncated = fullBody.length > ITEM_BODY_CHARS;
+  const title = item.title || 'Untitled';
 
-  const parts: string[] = [`${item.title || 'Untitled'} (${item.type}${flavor ? `/${flavor}` : ''} · saved ${String(item.created_at).slice(0, 10)})`];
+  const parts: string[] = [`${title} (${item.type}${flavor ? `/${flavor}` : ''} · saved ${String(item.created_at).slice(0, 10)})`];
   if (item.url) parts.push(`URL: ${item.url}`);
   if (location) parts.push(`Saved at: ${location}`);
   if (item.description) parts.push(`Description: ${item.description}`);
   if (notes) parts.push(`User's notes: ${notes}`);
   if (item.supplemental_note) parts.push(`Sticky note: ${item.supplemental_note}`);
   if (item.summary) parts.push(`Summary: ${item.summary}`);
-  if (body) parts.push(`Captured text:\n${body}${item.page_body.length > ITEM_BODY_CHARS ? '\n[truncated]' : ''}`);
+  if (body) parts.push(`Captured text:\n${body}${truncated ? '\n[truncated]' : ''}`);
 
-  return textResult(parts.join('\n'), {
-    id: item.id, title: item.title, type: item.type, url: item.url, created_at: item.created_at,
-    description: item.description, notes, sticky_note: item.supplemental_note ?? null, summary: item.summary,
-    captured_text: body, attributes: { link: flavor ? { flavor } : null, location: location ? { label: location } : null },
+  return {
+    id: item.id, title, type: item.type, url: item.url ?? null, created_at: item.created_at,
+    description: item.description ?? null, notes, sticky_note: item.supplemental_note ?? null, summary: item.summary ?? null,
+    captured_text: body, truncated, flavor, location, text: parts.join('\n'),
+  };
+};
+
+const runGetItem = async (admin: Admin, userId: string, grant: AgentGrant, args: Record<string, unknown>): Promise<McpToolResult> => {
+  const r = await readItem(admin, userId, grant, args.id, 'search_stash');
+  if (isToolResult(r)) return r;
+  return textResult(r.text, {
+    id: r.id, title: r.title, type: r.type, url: r.url, created_at: r.created_at,
+    description: r.description, notes: r.notes, sticky_note: r.sticky_note, summary: r.summary,
+    captured_text: r.captured_text, attributes: { link: r.flavor ? { flavor: r.flavor } : null, location: r.location ? { label: r.location } : null },
+  });
+};
+
+// ChatGPT's contract: the structured object AND the same object JSON-encoded
+// in the text item; `url` must be non-empty for a citation to be created.
+const jsonResult = (structured: Record<string, unknown>): McpToolResult =>
+  ({ content: [{ type: 'text', text: JSON.stringify(structured) }], structuredContent: structured });
+
+const runSearch = async (admin: Admin, userId: string, grant: AgentGrant, args: Record<string, unknown>): Promise<McpToolResult> => {
+  const query = typeof args.query === 'string' ? args.query.trim() : '';
+  if (!query) return errorResult('query is required.');
+  const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!openAIApiKey) return errorResult('Search is temporarily unavailable.');
+  const request = normalizeSearchRequest({ query, limit: 10 });
+  const results = await searchItems(request, { supabaseAdmin: admin, userId, embed: openAiEmbedder(openAIApiKey) });
+  await logAccess(admin, userId, grant, { tool: 'search_stash', query, filters: null, result_count: results.length });
+  return jsonResult({
+    results: results.map((r) => ({ id: r.id, title: r.title || 'Untitled', url: r.url || itemLink(r.id) })),
+  });
+};
+
+const runFetch = async (admin: Admin, userId: string, grant: AgentGrant, args: Record<string, unknown>): Promise<McpToolResult> => {
+  const r = await readItem(admin, userId, grant, args.id, 'search');
+  if (isToolResult(r)) return r;
+  return jsonResult({
+    id: r.id, title: r.title, text: r.text, url: r.url || itemLink(r.id),
+    metadata: {
+      type: r.type, created_at: r.created_at, flavor: r.flavor, location: r.location,
+      description: r.description, summary: r.summary, truncated: r.truncated,
+    },
   });
 };
 
@@ -1474,6 +1610,8 @@ const buildSpec = (admin: Admin, userId: string, grant: AgentGrant): McpServerSp
     if (limited) return errorResult(limited);
     if (name === 'search_stash') return runSearchStash(admin, userId, grant, args);
     if (name === 'get_item') return runGetItem(admin, userId, grant, args);
+    if (name === 'search') return runSearch(admin, userId, grant, args);
+    if (name === 'fetch') return runFetch(admin, userId, grant, args);
     return errorResult(`Unknown tool: ${name}`);
   },
 });
@@ -1482,11 +1620,8 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
 
   const path = new URL(req.url).pathname;
-  if (req.method === 'GET' && path.endsWith('/.well-known/oauth-protected-resource')) {
-    return new Response(JSON.stringify(protectedResourceMetadata()), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
-    });
-  }
+  if (req.method === 'GET' && path.endsWith('/.well-known/oauth-protected-resource')) return discoveryResponse(protectedResourceMetadata());
+  if (req.method === 'GET' && path.endsWith('/.well-known/mcp-server-card')) return discoveryResponse(serverCard());
   if (req.method !== 'POST') {
     return json(405, { error: 'method_not_allowed', error_description: 'Send MCP JSON-RPC messages with POST.' }, { 'Allow': 'POST, OPTIONS' });
   }
@@ -1515,10 +1650,11 @@ supabase functions deploy mcp --project-ref uqqsgmwkvslaomzxptnp
 BASE=https://www.gostash.it/mcp   # or the raw function URL per Task 1
 curl -s -i -X POST $BASE -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | sed -n '1,12p'
 curl -s $BASE/.well-known/oauth-protected-resource; echo
+curl -s $BASE/.well-known/mcp-server-card | python3 -c 'import json,sys; c=json.load(sys.stdin); print(c["name"], c["remotes"][0]["url"], c["remotes"][0]["supportedProtocolVersions"])'
 curl -s -i $BASE | sed -n '1,3p'
 curl -s -i -X POST $BASE -H "Authorization: Bearer $JWT" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"ping"}' | sed -n '1,8p'
 ```
-Expected, in order: `401` with `WWW-Authenticate: Bearer resource_metadata="https://www.gostash.it/mcp/.well-known/oauth-protected-resource", scope="email", …`; the metadata JSON with `"resource":"https://www.gostash.it/mcp"`; `405`; and — with a *session* JWT — `401` whose description says only OAuth-issued tokens are accepted (this is the "session tokens refused" rule).
+Expected, in order: `401` with `WWW-Authenticate: Bearer resource_metadata="https://www.gostash.it/mcp/.well-known/oauth-protected-resource", scope="email"`; the metadata JSON with `"resource":"https://www.gostash.it/mcp"`; the server card line `it.gostash/stash https://www.gostash.it/mcp ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']`; `405`; and — with a *session* JWT — `401` whose description says only OAuth-issued tokens are accepted (this is the "session tokens refused" rule).
 
 - [ ] **Step 4: Commit**
 
@@ -2392,22 +2528,57 @@ In `src/pages/Settings.tsx`:
 
 - [ ] **Step 8: Static metadata + headers**
 
-Create `public/.well-known/oauth-protected-resource/mcp` (no extension) with:
+Create `public/.well-known/oauth-protected-resource/mcp` AND `public/.well-known/oauth-protected-resource` (both extensionless, identical content — path-specific and root probes):
 ```json
 {"resource":"https://www.gostash.it/mcp","authorization_servers":["https://uqqsgmwkvslaomzxptnp.supabase.co/auth/v1"],"scopes_supported":["email"],"bearer_methods_supported":["header"],"resource_name":"Stash"}
 ```
-Add a `headers` array to `vercel.json` (keep the rewrites from Task 1):
+(A file and a directory can't share the name `oauth-protected-resource`. Put the root document at `public/.well-known/oauth-protected-resource.json` and the path-specific one at `public/.well-known/oauth-protected-resource-mcp.json`, and add two same-application rewrites so the extensionless paths resolve — see the vercel.json below.)
+
+Create `public/.well-known/mcp-server-card.json` (SEP-2127 server card; no tool list — tools are discovered at runtime):
 ```json
+{"$schema":"https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json","name":"it.gostash/stash","title":"Stash","description":"Search and read the links, notes, photos, voice memos and documents a Stash user saved, with their consent. Read-only.","version":"1.0.0","websiteUrl":"https://www.gostash.it","icons":[{"src":"https://www.gostash.it/icon-192.png","sizes":["192x192"],"mimeType":"image/png"},{"src":"https://www.gostash.it/icon-512.png","sizes":["512x512"],"mimeType":"image/png"}],"remotes":[{"type":"streamable-http","url":"https://www.gostash.it/mcp","supportedProtocolVersions":["2025-11-25","2025-06-18","2025-03-26","2024-11-05"]}]}
+```
+
+Create `mcp/server.json` (MCP Registry entry; description ≤ 100 chars per the registry schema):
+```json
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "it.gostash/stash",
+  "title": "Stash",
+  "description": "Search and read a Stash user's saved links, notes, photos, memos and documents. Read-only, OAuth.",
+  "version": "1.0.0",
+  "websiteUrl": "https://www.gostash.it",
+  "remotes": [
+    { "type": "streamable-http", "url": "https://www.gostash.it/mcp" }
+  ]
+}
+```
+
+Replace `vercel.json` with (the `/mcp` rewrites from Task 1 stay first; the three `.well-known` rewrites map the extensionless discovery paths onto the static JSON files; the SPA catch-all stays last):
+```json
+{
+  "rewrites": [
+    { "source": "/mcp", "destination": "https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp" },
+    { "source": "/mcp/:path*", "destination": "https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp/:path*" },
+    { "source": "/.well-known/oauth-protected-resource/mcp", "destination": "/.well-known/oauth-protected-resource-mcp.json" },
+    { "source": "/.well-known/oauth-protected-resource", "destination": "/.well-known/oauth-protected-resource.json" },
+    { "source": "/.well-known/mcp-server-card", "destination": "/.well-known/mcp-server-card.json" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
-      "source": "/.well-known/oauth-protected-resource/mcp",
+      "source": "/.well-known/(.*)",
       "headers": [
-        { "key": "Content-Type", "value": "application/json; charset=utf-8" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" },
         { "key": "Cache-Control", "value": "public, max-age=3600" }
       ]
     }
   ]
+}
 ```
+Vercel documents `/.well-known` as reserved for rewrites/redirects, so these three rewrites may be ignored; the `.json` files themselves are always served. Step 10 checks both forms and the Outcome section records which resolved. The function serves the same documents under `/mcp/.well-known/…` regardless, and the 401 challenge points there.
 
 - [ ] **Step 9: Typecheck, test, commit, merge to main, push (deploy point)**
 
@@ -2415,15 +2586,23 @@ Add a `headers` array to `vercel.json` (keep the rewrites from Task 1):
 npx tsc --noEmit -p tsconfig.app.json && npm test
 git add src/utils/agentActivity.ts src/utils/agentActivity.test.ts src/hooks/useConnectedAgents.ts \
   src/components/settings/ConnectedAgentsSettings.tsx src/pages/Settings.tsx \
-  public/.well-known/oauth-protected-resource/mcp vercel.json
-git commit -m "feat(mcp): Settings → Connected agents (connect, revoke, activity) + static resource metadata"
+  public/.well-known/oauth-protected-resource-mcp.json public/.well-known/oauth-protected-resource.json \
+  public/.well-known/mcp-server-card.json mcp/server.json vercel.json
+git commit -m "feat(mcp): Settings → Connected agents (connect, revoke, activity) + discovery documents"
 # from the main checkout:
 git merge --ff-only feat/mcp-server && git push origin main
 ```
 
 - [ ] **Step 10: Verify the deployed web surface**
 
-After Vercel finishes: `curl -s -i https://www.gostash.it/.well-known/oauth-protected-resource/mcp | sed -n '1,12p'` → expect `200`, JSON body, `content-type: application/json` (if it serves `index.html`, the static route lost to Vercel's `.well-known` handling — note it and rely on the 401 pointer; nothing else depends on it).
+After Vercel finishes:
+```bash
+for p in /.well-known/oauth-protected-resource/mcp /.well-known/oauth-protected-resource /.well-known/mcp-server-card \
+         /.well-known/oauth-protected-resource-mcp.json /.well-known/oauth-protected-resource.json /.well-known/mcp-server-card.json; do
+  printf "%-55s " "$p"; curl -s -o /tmp/wk -w "%{http_code} %{content_type}\n" "https://www.gostash.it$p"; head -c 60 /tmp/wk; echo
+done
+```
+Expect the three `.json` paths to return `200 application/json` with the documents. If the extensionless paths return `index.html`, Vercel's `.well-known` reservation swallowed the rewrites: record that in the Outcome section (the 401 pointer and the function-served copies cover every client that reads the challenge; only root-probing clients lose a fallback).
 
 With Playwright MCP: `browser_navigate` to `https://www.gostash.it/auth`, sign in as `will+uitest@dzierson.com`, navigate to `/settings`, click "Connected agents" → three cards render; "No agents connected yet." and "No activity yet." empty states show; Copy puts the URL on the clipboard (toast "Copied"). Then navigate to `/oauth/consent` (no id) → "This link is missing its authorization request." card. Take a screenshot of the tab for the ui-changes entry.
 
@@ -2521,6 +2700,7 @@ const SUPABASE = 'https://uqqsgmwkvslaomzxptnp.supabase.co';
 
 const b64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const ok = (label, cond, detail = '') => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`); if (!cond) process.exitCode = 1; };
+const warn = (label, cond, detail = '') => console.log(`${cond ? 'PASS' : 'WARN'}  ${label}${detail ? ` — ${detail}` : ''}`);
 
 async function rpc(token, id, method, params) {
   const res = await fetch(SERVER, {
@@ -2539,6 +2719,11 @@ async function oauth() {
   ok('401 carries resource_metadata', !!prmUrl, www);
   const prm = await (await fetch(prmUrl)).json();
   ok('resource matches server URL', prm.resource === SERVER, `${prm.resource} vs ${SERVER}`);
+  const fnCard = await fetch(`${SERVER}/.well-known/mcp-server-card`);
+  const fnCardBody = await fnCard.json().catch(() => null);
+  ok('server card from the function', fnCard.status === 200 && fnCardBody?.name === 'it.gostash/stash', String(fnCard.status));
+  const siteCard = await fetch(`${new URL(SERVER).origin}/.well-known/mcp-server-card`);
+  warn('server card at site root (Vercel .well-known)', (siteCard.headers.get('content-type') || '').includes('json'), `${siteCard.status} ${siteCard.headers.get('content-type')}`);
   const issuer = new URL(prm.authorization_servers[0]);
   const asMeta = await (await fetch(`${issuer.origin}/.well-known/oauth-authorization-server${issuer.pathname}`)).json();
   ok('authorization server metadata', !!asMeta.registration_endpoint && !!asMeta.token_endpoint, JSON.stringify(Object.keys(asMeta)));
@@ -2592,8 +2777,10 @@ async function tools(token) {
   const note = await rpc(token, undefined, 'notifications/initialized');
   ok('notifications/initialized → 202', note.status === 202, String(note.status));
   const list = await rpc(token, 2, 'tools/list');
-  const names = (list.body?.result?.tools ?? []).map((t) => t.name);
-  ok('tools/list', names.includes('search_stash') && names.includes('get_item'), names.join(','));
+  const toolDefs = list.body?.result?.tools ?? [];
+  const names = toolDefs.map((t) => t.name);
+  ok('tools/list', ['search_stash', 'get_item', 'search', 'fetch'].every((n) => names.includes(n)), names.join(','));
+  ok('every tool has title + read-only annotations', toolDefs.every((t) => t.title && t.annotations?.readOnlyHint === true && t.annotations?.destructiveHint === false));
   const search = await rpc(token, 3, 'tools/call', { name: 'search_stash', arguments: { query: QUERY, limit: 3 } });
   const results = search.body?.result?.structuredContent?.results ?? [];
   ok('search_stash returns results', search.status === 200 && !search.body?.result?.isError && results.length > 0, (search.body?.result?.content?.[0]?.text ?? '').slice(0, 200));
@@ -2605,6 +2792,21 @@ async function tools(token) {
   ok('get_item unknown id → isError', missing.body?.result?.isError === true);
   const listing = await rpc(token, 6, 'tools/call', { name: 'search_stash', arguments: { types: ['link'], limit: 2 } });
   ok('search_stash without query lists', !listing.body?.result?.isError, String(listing.body?.result?.structuredContent?.count));
+
+  // ChatGPT contract: search → { results: [{ id, title, url }] }, fetch → { id, title, text, url, metadata },
+  // each as structuredContent AND as a JSON string in the text content item; url never empty.
+  const s = await rpc(token, 7, 'tools/call', { name: 'search', arguments: { query: QUERY } });
+  const sr = s.body?.result?.structuredContent?.results ?? [];
+  const sText = JSON.parse(s.body?.result?.content?.[0]?.text ?? '{}');
+  ok('ChatGPT search shape', sr.length > 0 && sr.every((r) => typeof r.id === 'string' && typeof r.title === 'string' && typeof r.url === 'string' && r.url.length > 0) && sText.results?.length === sr.length, JSON.stringify(sr[0]));
+  if (sr[0]) {
+    const f = await rpc(token, 8, 'tools/call', { name: 'fetch', arguments: { id: sr[0].id } });
+    const fr = f.body?.result?.structuredContent ?? {};
+    const fText = JSON.parse(f.body?.result?.content?.[0]?.text ?? '{}');
+    ok('ChatGPT fetch shape', ['id', 'title', 'text', 'url'].every((k) => typeof fr[k] === 'string') && fr.url.length > 0 && typeof fr.metadata === 'object' && fText.id === fr.id, JSON.stringify(fr).slice(0, 120));
+  }
+  const oldInit = await rpc(token, 9, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'old', version: '0' } });
+  ok('initialize echoes 2024-11-05', oldInit.body?.result?.protocolVersion === '2024-11-05');
 }
 
 async function fence(token) {
@@ -2685,6 +2887,87 @@ claude mcp list
 ```
 Then in an interactive `claude` session run `/mcp` → authenticate → approve on the consent page → ask "search my stash for design". Expected: tools appear as `mcp__stash__search_stash` / `mcp__stash__get_item` and return results. If the session cannot run the interactive flow, record it as a step for Will in the Outcome section (exact commands above).
 
+- [ ] **Step 1b: Directory & registry runbook**
+
+Create `docs/mcp/DIRECTORIES.md`:
+
+```markdown
+# Listing Stash's MCP server in directories
+
+Endpoint: `https://www.gostash.it/mcp` · transport: Streamable HTTP · auth:
+OAuth 2.1 with dynamic client registration (Supabase Auth) · read-only.
+Discovery documents: `/.well-known/oauth-protected-resource[/mcp]`,
+`/.well-known/mcp-server-card`; registry entry `mcp/server.json`.
+
+## 1. Official MCP Registry (registry.modelcontextprotocol.io)
+
+Namespace `it.gostash/stash` is verified by DNS on `gostash.it`.
+
+```bash
+brew install mcp-publisher            # or: curl -L https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s)_$(uname -m).tar.gz | tar xz
+openssl genpkey -algorithm Ed25519 -out ~/.mcp-publisher-gostash.pem
+mcp-publisher login dns --domain gostash.it --private-key ~/.mcp-publisher-gostash.pem
+# prints a TXT record like:  v=MCPv1; k=ed25519; p=<public key>
+# add it to gostash.it's DNS (host: @ / gostash.it), wait for propagation, re-run login if it timed out
+cd mcp && mcp-publisher publish
+```
+Bump `mcp/server.json` `version` on every republish (the registry rejects duplicates).
+
+## 2. Claude connectors directory
+
+Portal: https://claude.ai/admin-settings/directory/submissions/new (needs a
+Team or Enterprise organization; individual plans can't submit).
+
+Have ready: server URL `https://www.gostash.it/mcp`; transport Streamable
+HTTP; "every user connects to the same URL"; auth mode **OAuth with dynamic
+client registration**; documentation URL `https://www.gostash.it/settings`
+(Connected agents tab) until a public docs page exists; privacy policy
+`https://www.gostash.it/privacy`; support contact; icon `public/icon-512.png`;
+name "Stash"; tagline (≤55 chars) "Search what you saved, from any agent";
+categories: Productivity, Knowledge; use cases: recall saved links/notes/
+photos/memos; **reads data only**; test account: a dedicated fixture account
+with saved items (create one — never Will's account); confirm every tool was
+run via MCP Inspector or a custom connector.
+
+The portal syncs tools from the server and groups them by annotation — every
+tool already carries `title` + `readOnlyHint: true` / `destructiveHint: false`.
+
+If Anthropic asks for held credentials (`oauth_anthropic_creds`) instead of
+DCR, create a confidential client (§5) with redirect
+`https://claude.ai/api/mcp/auth_callback` and email its id/secret to
+`mcp-review@anthropic.com`.
+
+## 3. ChatGPT
+
+Settings → Apps & Connectors → Advanced → Developer mode → Add custom
+connector → URL `https://www.gostash.it/mcp`. ChatGPT requires OAuth + DCR
+(present) and the `search`/`fetch` tools (present). Public listing goes
+through OpenAI's app submission once available for connectors.
+
+## 4. Editor and desktop clients
+
+- Claude Code: `claude mcp add --transport http stash https://www.gostash.it/mcp`
+- Cursor (`~/.cursor/mcp.json`): `{ "mcpServers": { "stash": { "url": "https://www.gostash.it/mcp" } } }`
+- VS Code (`mcp.json`): `{ "servers": { "stash": { "type": "http", "url": "https://www.gostash.it/mcp" } } }`
+- Windsurf / others: remote server URL `https://www.gostash.it/mcp`; OAuth
+  sign-in opens automatically.
+- URL catalogs (Smithery, Glama, PulseMCP, mcp.so): submit the URL; they read
+  `/.well-known/mcp-server-card` and `mcp/server.json` where supported.
+
+## 5. Pre-registered (confidential) OAuth clients
+
+For directories that hold a fixed client id/secret. Uses the service-role key —
+run from a trusted machine only; the secret is shown once.
+
+```bash
+SERVICE_ROLE=<service role key from Supabase dashboard → Project Settings → API>
+curl -s -X POST https://uqqsgmwkvslaomzxptnp.supabase.co/auth/v1/admin/oauth/clients \
+  -H "apikey: $SERVICE_ROLE" -H "Authorization: Bearer $SERVICE_ROLE" -H "Content-Type: application/json" \
+  -d '{"client_name":"Claude (Anthropic-held)","client_uri":"https://claude.ai","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"grant_types":["authorization_code","refresh_token"],"response_types":["code"],"token_endpoint_auth_method":"client_secret_basic"}'
+```
+List/revoke: `GET`/`DELETE …/admin/oauth/clients[/<id>]` with the same headers.
+```
+
 - [ ] **Step 2: PLATFORM_API.md — "Agents (MCP)" section**
 
 Insert before `## Message routing convention — RETIRED 2026-08-27`:
@@ -2708,12 +2991,23 @@ client has no active row. Session JWTs are refused on `/mcp`; agent tokens
 get zero rows through PostgREST/Storage (restrictive RLS) — agents receive
 answers, never copies.
 
-**Tools:** `search_stash` (same request/response shape as `POST /search-items`,
-plus a readable text rendering) and `get_item` (`{ id }` → notes, description,
-summary, captured text capped at 12k chars, `attributes.link.flavor`,
-`attributes.location.label`). Every call is logged to `agent_access_log`
-(Settings → Connected agents → Activity) and rate-limited per grant
-(60/min, 2,000/day → `isError` result).
+**Tools** (all read-only, annotated `readOnlyHint: true`): `search_stash`
+(same request/response shape as `POST /search-items`, plus a readable text
+rendering) and `get_item` (`{ id }` → notes, description, summary, captured
+text capped at 12k chars, `attributes.link.flavor`,
+`attributes.location.label`); plus ChatGPT's required `search`
+(`{ query }` → `{ results: [{ id, title, url }] }`) and `fetch`
+(`{ id }` → `{ id, title, text, url, metadata }`) — aliases over the same code,
+returned as `structuredContent` and as a JSON string in the text item. Every
+call is logged to `agent_access_log` (Settings → Connected agents → Activity)
+and rate-limited per grant (60/min, 2,000/day → `isError` result).
+
+**Discovery:** protected-resource metadata at
+`/.well-known/oauth-protected-resource[/mcp]` and a server card at
+`/.well-known/mcp-server-card` (site root, static) and under
+`/mcp/.well-known/…` (function). Registry entry: `mcp/server.json`
+(`it.gostash/stash`). Directory runbook: `docs/mcp/DIRECTORIES.md`.
+Protocol versions: `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`.
 
 **Client contracts** (any surface adding a "Connected agents" screen):
 active grants = `agent_grants` where `revoked_at is null` (owner RLS);
@@ -2769,8 +3063,8 @@ Append to this plan:
 ```
 Then:
 ```bash
-git add docs/PLATFORM_API.md docs/ui-changes.md docs/superpowers/plans/2026-09-05-mcp-server.md
-git commit -m "docs(mcp): platform API contract, ui-changes entry, plan outcome"
+git add docs/PLATFORM_API.md docs/ui-changes.md docs/mcp/DIRECTORIES.md docs/superpowers/plans/2026-09-05-mcp-server.md
+git commit -m "docs(mcp): platform API contract, ui-changes entry, directory runbook, plan outcome"
 # from the main checkout:
 git merge --ff-only feat/mcp-server && git push origin main
 ```

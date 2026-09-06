@@ -1,6 +1,8 @@
 # Stash MCP server — design
 
-**Date:** 2026-09-05 · **Status:** proposed, awaiting Will's approval ·
+**Date:** 2026-09-05 · **Status:** approved by Will 2026-09-05 (with the added
+requirement: broadest client compatibility and directory discoverability —
+see "Compatibility & discoverability") ·
 **Implements:** Workstream C (MCP server) + Workstream D minimal (grants, audit,
 revocation, the "answers not copies" fence) from
 `docs/superpowers/specs/2026-08-28-retention-loop-and-context-layer-spec.md`.
@@ -68,6 +70,14 @@ page (`/oauth/consent`) that says exactly what the agent can and cannot do.
    testable under the existing vitest setup and avoids betting on the
    week-old SDK v2 running under Deno. Revisit if resources/prompts/elicitation
    are ever needed.
+9. **Compatibility is a v1 requirement, not a follow-up** (Will, 2026-09-05):
+   every tool carries a `title` and read-only annotations (Claude directory
+   requirement); ChatGPT's `search`/`fetch` contract is exposed alongside our
+   tools; the four protocol versions clients send today are all accepted;
+   discovery documents (protected-resource metadata, server card, registry
+   `server.json`) are published at the standard paths; and the OAuth setup
+   supports pre-registered confidential clients for directories that hold
+   credentials. Details in "Compatibility & discoverability".
 
 ## Architecture
 
@@ -174,6 +184,72 @@ Every `tools/call` writes one `agent_access_log` row and bumps
 `agent_grants.last_used_at`. Rate limit: count log rows for the grant in the
 last 60s (>60 → refuse) and 24h (>2,000 → refuse); refusals are `isError`
 results and are not logged.
+
+## Compatibility & discoverability
+
+Goal: any MCP client that speaks remote Streamable HTTP with OAuth connects
+without special-casing, and Stash can be listed in the directories that
+matter (Claude connectors directory, ChatGPT connectors, the official MCP
+Registry, and URL-based catalogs such as Smithery/Glama/PulseMCP).
+
+**Transport.** Streamable HTTP only. Protocol versions accepted and echoed:
+`2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05` (anything else →
+latest). JSON responses for every POST (all Streamable HTTP clients must
+accept JSON or SSE); JSON-RPC batches accepted; `Mcp-Session-Id` never
+issued and ignored if sent; `MCP-Protocol-Version` header accepted;
+`tools/list` tolerates `cursor`. The deprecated HTTP+SSE transport (`GET /sse`
++ `POST /messages`) is not offered: it needs long-lived streams that don't fit
+edge functions, and every current client speaks Streamable HTTP.
+
+**Tool annotations.** Every tool: `title` plus
+`annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }`.
+The Claude directory groups tools by these hints and rejects tools missing a
+title or the read-only/destructive hint.
+
+**ChatGPT contract.** ChatGPT connectors and deep research require two tools
+named exactly `search` and `fetch`. Both are exposed as thin aliases over the
+same code as `search_stash`/`get_item`, with OpenAI's exact shapes returned
+both as `structuredContent` and as a JSON string in the text content item:
+
+- `search({ query: string })` → `{ results: [{ id, title, url }] }`
+- `fetch({ id: string })` → `{ id, title, text, url, metadata }` where `text` is
+  the same rendering `get_item` produces and `metadata` carries `type`,
+  `created_at`, `flavor`, `location`, `description`, `summary`.
+
+`url` must be a non-empty string for ChatGPT to create a citation, so it is
+the item's own URL when it has one, otherwise the item's web deep link.
+Four tools total; models are told via descriptions that `search`/`fetch` and
+`search_stash`/`get_item` are the same capability.
+
+**Discovery documents** (all `application/json`, CORS `*`, cacheable 1h):
+
+| Path | Served by | Content |
+|---|---|---|
+| `https://www.gostash.it/.well-known/oauth-protected-resource/mcp` | Vercel static | RFC 9728 metadata (path-specific probe) |
+| `https://www.gostash.it/.well-known/oauth-protected-resource` | Vercel static | same (root probe) |
+| `https://www.gostash.it/mcp/.well-known/oauth-protected-resource` | `mcp` function | same (authoritative; pointed to by the 401) |
+| `https://www.gostash.it/.well-known/mcp-server-card` | Vercel static | SEP-2127 server card |
+| `https://www.gostash.it/mcp/.well-known/mcp-server-card` | `mcp` function | same |
+| `mcp/server.json` (repo) | published with `mcp-publisher` | MCP Registry entry, namespace `it.gostash/stash` |
+
+Server card fields: `$schema` (`https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json`),
+`name: "it.gostash/stash"`, `title: "Stash"`, `description`, `version`,
+`websiteUrl`, `icons` (existing `/icon-192.png`, `/icon-512.png`),
+`remotes: [{ type: "streamable-http", url, supportedProtocolVersions }]`.
+Registry `server.json` uses the `2025-12-11` schema with the same name and
+`remotes`. Both documents deliberately omit tool lists (dynamic per spec).
+
+**Directory readiness (Will's actions, runbook in `docs/mcp/DIRECTORIES.md`):**
+MCP Registry needs DNS verification of `gostash.it` (`mcp-publisher login
+dns`, a TXT record) then `mcp-publisher publish` from `mcp/`. Claude directory
+needs a Team/Enterprise org, a privacy policy URL (`https://www.gostash.it/privacy`),
+a documentation URL, an icon, a test account, and "reads data only"; auth mode
+"OAuth with dynamic client registration". For directories that prefer a fixed
+client (Claude's Anthropic-held credentials, admin-supplied client IDs),
+Supabase's admin API creates a confidential client
+(`POST /auth/v1/admin/oauth/clients` with the service role) — the runbook has
+the command. ChatGPT: add as a custom connector (developer mode) with the same
+URL; OAuth + DCR is what it requires.
 
 ## Data model (one migration)
 
