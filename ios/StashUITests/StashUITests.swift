@@ -2244,36 +2244,34 @@ final class StashUITests: XCTestCase {
                        "Expected the query cleared after Cancel (placeholder showing), got '\(clearedValue)'")
     }
 
-    // MARK: - Onboarding (Task 4, plan 12)
+    // MARK: - Onboarding (Task 4, plan 12; carousel rewrite, plan 13 task 1)
 
     /// "How to easily stash" panel — Will's device note 10: shown ONCE per app install right
     /// after a successful sign-in/sign-up, re-openable any time from Settings → "How to stash".
-    /// See `OnboardingState`'s own doc comment for the full showing rule this exercises. Five
-    /// behaviors in one flow (each needs the prior step's end state, so one test is more
-    /// failure-legible here than several that would each re-derive the same setup):
+    /// Plan 13 replaced the single static card with a three-panel swipe carousel (`Next` →
+    /// `Got it` on the last panel, plus a `Skip` link) — see `HowToStashView`'s own doc comment
+    /// for the full "Skip is not later" semantics this exercises. Six behaviors in one flow (each
+    /// needs the prior step's end state, so one test is more failure-legible here than several
+    /// that would each re-derive the same setup):
     /// 1. `--uitest-reset-onboarding` (DEBUG launch arg, wired alongside `--uitest-reset-auth` in
     ///    `SessionStore.start()`) forces both of `OnboardingState`'s flags to their defaults
-    ///    before this sign-in, so the panel appears; "Show me later" (`onboarding.showLater`)
-    ///    dismisses it WITHOUT marking it seen, but DOES defer it (F4's fix).
-    /// 2. A full app relaunch (real process boundary) with **NO launch arguments at all** — F3
-    ///    (whole-branch review): the previous version of this test relaunched with
-    ///    `--uitest-reset-auth`, which itself force-marks `hasSeenHowToStash` true in
-    ///    `SessionStore.start()`'s DEBUG block whenever `--uitest-reset-onboarding` isn't ALSO
-    ///    passed — so the old step 2 never actually observed a real Keychain-restore/deferred
-    ///    interaction, it just watched that same DEBUG bypass fire again. A bare relaunch instead
-    ///    goes through the real path: the Keychain session from step 1 restores directly to
-    ///    `.signedIn` (never touching `.signedOut`), landing on the tab bar with NO sign-in screen
-    ///    at all, and the panel must NOT reappear — "Show me later"'s deferred flag survives a
-    ///    cold relaunch by design (F4).
-    /// 3. From this same running session, an EXPLICIT sign-out (Settings → Sign Out) then sign
-    ///    back in — a genuine `.signedOut → .signedIn` transition — clears the deferred flag
-    ///    (F4), so the panel appears again; this time "Got it" (`onboarding.gotIt`) dismisses it
-    ///    AND permanently marks it seen.
-    /// 4. Another bare-argument relaunch: the panel must not reappear now that it's genuinely
-    ///    seen (not just deferred).
+    ///    before this sign-in, so the panel appears on panel 1; tapping `onboarding.gotIt` twice
+    ///    (labeled "Next" on panels 1-2) advances to panel 3, where the SAME identifier now reads
+    ///    "Got it" — tapping it there dismisses the panel AND marks it permanently seen. Screenshot
+    ///    checkpoints fire on all three panels for the visual-parity check against the prototype
+    ///    PNGs (`docs/superpowers/prototypes/2026-09-07-ios-share-tutorial-swipe-panel{1,2,3}.png`).
+    /// 2. A full app relaunch (real process boundary) with **NO launch arguments at all**: the
+    ///    Keychain session from step 1 restores directly to `.signedIn`, landing on the tab bar
+    ///    with no sign-in screen, and the panel must NOT reappear — it's genuinely seen now, not
+    ///    just deferred.
+    /// 3. A second `--uitest-reset-onboarding` + `--uitest-reset-auth` sign-in exercises the
+    ///    `Skip` branch instead: the panel appears again on panel 1, `onboarding.skip` dismisses
+    ///    it immediately (without advancing through panels 2-3) straight to the tab bar.
+    /// 4. Another bare-argument relaunch: the panel must not reappear after Skip either — plan
+    ///    13's semantics make Skip mark `hasSeenHowToStash` exactly like Got it does, not defer
+    ///    it the way plan 12's "Show me later" used to.
     /// 5. Settings' "How to stash" row (`settings.howToStash`) re-opens the same panel on demand
-    ///    regardless of the seen flag; "Show me later" dismisses it without re-touching
-    ///    `hasSeenHowToStash` (spec: only "Got it" marks it seen).
+    ///    regardless of the seen flag; this time `Skip` from panel 1 dismisses it back to Settings.
     @MainActor
     func testOnboardingPanelShowsOnceAfterSignIn() throws {
         let (email, password) = try testCredentials()
@@ -2287,8 +2285,9 @@ final class StashUITests: XCTestCase {
             app.buttons["signin.submit"].tap()
         }
 
-        // --- 1. Reset both flags; sign in; the panel appears; "Show me later" dismisses WITHOUT
-        // marking seen, but defers it.
+        // --- 1. Reset both flags; sign in; the panel appears on panel 1; Next ×2 reaches panel 3
+        // where the primary button's label has flipped to "Got it"; tapping it marks seen and
+        // dismisses.
         app.launchArguments = ["--uitest-reset-auth", "--uitest-reset-onboarding"]
         app.launch()
 
@@ -2296,22 +2295,32 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
         signIn(emailField, app.secureTextFields["signin.password"])
 
-        let showLaterButton = app.buttons["onboarding.showLater"]
-        XCTAssertTrue(showLaterButton.waitForExistence(timeout: 15),
+        let primaryButton = app.buttons["onboarding.gotIt"]
+        XCTAssertTrue(primaryButton.waitForExistence(timeout: 15),
                       "Expected the 'How to easily stash' panel to appear after a fresh sign-in with --uitest-reset-onboarding")
         XCTAssertTrue(app.staticTexts["onboarding.title"].exists, "Expected the panel's title to be present")
-        XCTAssertTrue(app.buttons["onboarding.gotIt"].exists, "Expected the 'Got it' button to be present")
+        XCTAssertTrue(app.buttons["onboarding.skip"].exists, "Expected the 'Skip' link to be present")
+        XCTAssertEqual(primaryButton.label, "Next", "Expected panel 1's primary button labeled 'Next'")
 
-        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: onboarding-panel\n".data(using: .utf8)!)
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: onboarding-panel-1\n".data(using: .utf8)!)
         sleep(2)
 
-        showLaterButton.tap()
-        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 10),
-                      "Expected the tab bar back after dismissing the panel with 'Show me later'")
+        primaryButton.tap()
+        XCTAssertEqual(primaryButton.label, "Next", "Expected panel 2's primary button still labeled 'Next'")
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: onboarding-panel-2\n".data(using: .utf8)!)
+        sleep(2)
 
-        // --- 2. Relaunch with NO launch arguments — a real cold-launch Keychain restore, not a
-        // fresh sign-in. F3/F4: the panel must stay suppressed (deferred survives the relaunch)
-        // and no sign-in screen should appear at all.
+        primaryButton.tap()
+        XCTAssertEqual(primaryButton.label, "Got it", "Expected panel 3's primary button label to flip to 'Got it'")
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: onboarding-panel-3\n".data(using: .utf8)!)
+        sleep(2)
+
+        primaryButton.tap()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 10),
+                      "Expected the tab bar back after dismissing the panel with 'Got it'")
+
+        // --- 2. Relaunch with NO launch arguments — a real cold-launch Keychain restore. The
+        // panel must NOT reappear: it's genuinely seen now.
         app.terminate()
         app.launchArguments = []
         app.launch()
@@ -2321,28 +2330,41 @@ final class StashUITests: XCTestCase {
         XCTAssertFalse(app.textFields["signin.email"].exists,
                        "Expected no sign-in screen on a Keychain-restore relaunch")
         XCTAssertFalse(app.buttons["onboarding.gotIt"].exists,
-                       "Expected the deferred panel NOT to reappear on a cold relaunch (F4)")
+                       "Expected the seen panel NOT to reappear on a cold relaunch")
 
-        // --- 3. An EXPLICIT sign-out + sign-in (not a relaunch) clears the deferred flag — the
-        // panel must appear again. This time "Got it" dismisses it and marks it permanently seen.
-        app.tabBars.buttons["Settings"].tap()
-        let signOutButton = app.buttons["settings.signout"]
-        XCTAssertTrue(signOutButton.waitForExistence(timeout: 10), "Sign Out row not found in Settings")
-        signOutButton.tap()
-        app.buttons["settings.signout.confirm"].tap()
+        // --- 3. Reset both flags again (a fresh --uitest-reset-onboarding run, not a sign-out —
+        // `hasSeenHowToStash` only ever resets via that DEBUG launch arg) to exercise the Skip
+        // branch: the panel appears on panel 1 again, and `onboarding.skip` dismisses it
+        // immediately without ever advancing to panel 2/3.
+        app.terminate()
+        app.launchArguments = ["--uitest-reset-auth", "--uitest-reset-onboarding"]
+        app.launch()
 
         let emailField2 = app.textFields["signin.email"]
-        XCTAssertTrue(emailField2.waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
+        XCTAssertTrue(emailField2.waitForExistence(timeout: 10), "Expected the sign-in screen after resetting auth")
         signIn(emailField2, app.secureTextFields["signin.password"])
 
-        let gotItButton = app.buttons["onboarding.gotIt"]
-        XCTAssertTrue(gotItButton.waitForExistence(timeout: 15),
-                      "Expected the panel to reappear after an explicit sign-in clears the deferred flag (F4)")
-        gotItButton.tap()
+        let skipButton = app.buttons["onboarding.skip"]
+        XCTAssertTrue(skipButton.waitForExistence(timeout: 15),
+                      "Expected the panel to reappear after resetting onboarding again")
+        // Task 1 root-cause note (kept for the next time a panel-height change reintroduces
+        // this): `skipButton` sits at the very bottom of the card, and an earlier, taller
+        // `HowToStashView.panelHeight` (508) put it only ~25pt above the bottom of an iPhone 15
+        // Pro's 852pt screen — inside the zone iOS reserves for the home-indicator swipe gesture.
+        // XCUITest still reported the element `hittable`, but the OS silently ate the touch
+        // before SwiftUI's `Button` ever saw it: `onboarding.skip` appeared to tap fine (no
+        // error), yet `OnboardingState.markHowToStashSeen()` never ran, so the panel reappeared
+        // on the very next relaunch. Fixed in the view (tighter padding, `panelHeight` 490) so
+        // `skipButton` now sits with a real safety margin above that zone — this `sleep(1)` is
+        // just the same settle beat step 1's Next/Got it taps already get for free from their
+        // screenshot-checkpoint sleeps.
+        sleep(1)
+        skipButton.tap()
         XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 10),
-                      "Expected the tab bar back after dismissing the panel with 'Got it'")
+                      "Expected the tab bar back after dismissing the panel with 'Skip'")
 
-        // --- 4. Another bare relaunch: the panel must not reappear now that it's genuinely seen.
+        // --- 4. Another bare relaunch: Skip must mark the panel seen exactly like Got it does —
+        // plan 13's "Skip is not later" semantics — so it must not reappear here either.
         app.terminate()
         app.launchArguments = []
         app.launch()
@@ -2350,21 +2372,22 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15),
                       "Expected to reach the tab bar directly, with no onboarding panel in the way")
         XCTAssertFalse(app.buttons["onboarding.gotIt"].exists,
-                       "Expected the 'How to easily stash' panel NOT to reappear once already marked seen")
+                       "Expected the 'How to easily stash' panel NOT to reappear once Skip marked it seen")
 
-        // --- 5. Settings → "How to stash" re-opens it any time; "Show me later" dismisses
-        // without re-marking anything (already seen from step 3).
+        // --- 5. Settings → "How to stash" re-opens it any time regardless of the seen flag;
+        // Skip dismisses it back to Settings.
         app.tabBars.buttons["Settings"].tap()
         let howToStashRow = app.buttons["settings.howToStash"]
         XCTAssertTrue(howToStashRow.waitForExistence(timeout: 10), "Expected the 'How to stash' Settings row")
         howToStashRow.tap()
 
-        let gotItButton2 = app.buttons["onboarding.gotIt"]
-        XCTAssertTrue(gotItButton2.waitForExistence(timeout: 10),
+        let skipButton2 = app.buttons["onboarding.skip"]
+        XCTAssertTrue(skipButton2.waitForExistence(timeout: 10),
                       "Expected Settings' row to re-open the 'How to easily stash' panel")
 
-        app.buttons["onboarding.showLater"].tap()
+        sleep(1)
+        skipButton2.tap()
         XCTAssertTrue(howToStashRow.waitForExistence(timeout: 10),
-                      "Expected to return to Settings after 'Show me later'")
+                      "Expected to return to Settings after 'Skip'")
     }
 }

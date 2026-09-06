@@ -8,6 +8,69 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-07 · iOS share tutorial carousel (plan 13)
+
+iOS-only round; no web changes. Plan:
+`docs/superpowers/plans/2026-09-07-ios-plan-13-share-tutorial-carousel.md`.
+Full outcome (commits, suites, decisions): plan's own Outcome section +
+`.superpowers/sdd/plan-13/progress.md`.
+
+- **"How to easily stash" is now a three-panel paged carousel**, replacing
+  plan 12's single-card, three-column-strip version
+  (`ios/Stash/Onboarding/HowToStashView.swift`). `TabView(selection:)` in
+  `.page(indexDisplayMode: .never)` style with custom dots (active 24×6
+  violet600 capsule, inactive 6pt faint circle). Panel copy (final, from the
+  approved HTML prototype
+  `docs/superpowers/prototypes/2026-09-07-ios-share-tutorial-swipe.html`):
+  persistent title "How to easily stash" + lead "Save from any app: tap
+  Share, then Stash."; kicker `STEP N`.
+  - **Panel 1** "Look for the share button" / "In Safari, Photos, or any
+    app, tap Share." — art is the iOS `square.and.arrow.up` Share glyph.
+  - **Panel 2** "Pick Stash" / "Choose Stash in the share sheet." / hint
+    "Don't see Stash? Tap More, then add Stash to your favorites." — art is
+    a natively drawn mock share sheet with a glowing Stash tile (real app
+    icon via a new `onboarding.stashTile` imageset) among stand-in rows.
+  - **Panel 3** "Add a note, save" / "Add an optional note, then Save.
+    Stash does the rest." — the plan-12 "subscribe to add items" panel is
+    removed; art is the existing ungated `onboarding.step3` capture.
+  - `onboarding.step1`/`onboarding.step2` imagesets deleted (no longer
+    referenced).
+- **Button semantics**: primary button is `onboarding.gotIt` (label "Next"
+  on panels 1–2, "Got it" on panel 3); `onboarding.skip` is a muted text
+  link. **Both Got It and Skip mark `onboarding.howToStash.seen`** — unlike
+  plan 12, Skip is not a "remind me later." The deferred-path plumbing
+  (`markHowToStashDeferred`/`clearHowToStashDeferred`/
+  `isHowToStashDeferred` in `OnboardingState`) is retained in code for
+  Settings/relaunch logic even though no button currently drives it; the
+  screen stays reachable any time from Settings → "How to stash."
+- **One documented non-token color**: panel 1's Share glyph uses
+  `Color(uiColor: .systemBlue)` rather than a Stash token, deliberately — it
+  is quoting the OS's own Share-sheet icon color, which the user is meant to
+  visually match against their own share sheet.
+- **Native mock share sheet** (panel 2): a `MockShareSheet` view (wash
+  sheet, grabber, three app tiles — a Reminders stand-in, the real Stash
+  icon, and "More" — then a grouped action list) with the Stash tile ringed
+  in 1px violet600 and a pulsing violet300 glow (radius 6→14pt, 1.6s
+  autoreverse; static at radius 10 when `accessibilityReduceMotion` is on).
+- **Home-indicator gesture-zone lesson** (found and fixed during
+  implementation, worth carrying to any platform with a similar bottom-of-
+  screen gesture strip): a tappable text link (here, `onboarding.skip`)
+  placed too close to the bottom edge on a Face-ID iPhone can land inside
+  the zone iOS reserves for the home-indicator swipe. XCUITest still reports
+  the element `hittable`, but the OS swallows the touch before the app ever
+  sees it — the tap *looks* like it worked (no error, and the tab bar
+  underneath a `.fullScreenCover` is still present in the accessibility
+  tree while covered) but the app-side handler never runs, so state that
+  should have been persisted silently isn't. Keep bottom-anchored tappable
+  text at least ~40pt clear of the bottom edge on those devices. Fixed here
+  by shrinking the card (`panelHeight` 490pt) rather than moving the button.
+- **SE-width note**: on a 375×667 iPhone SE the card content runs to
+  roughly 700pt tall — taller than the screen — but the card is inside a
+  `ScrollView`, so it scrolls rather than clips; no layout change needed for
+  that screen size.
+
+---
+
 ## 2026-09-07 · iOS feedback round 3 (plan 12)
 
 iOS-only round (Will's first on-device pass); no web changes. Plan:
