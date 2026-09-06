@@ -132,6 +132,49 @@ under the same filters. Returns
 This is the canonical search surface — library search boxes, future MCP
 tools, and Siri/Shortcuts should all call it rather than hitting the DB.
 
+## Agents (MCP)
+
+Remote MCP server (Streamable HTTP, JSON responses, stateless):
+`https://www.gostash.it/mcp` (a Vercel rewrite to the `mcp` edge function).
+Read-only. Spec: `docs/superpowers/specs/2026-09-05-mcp-server-design.md`.
+
+**Auth** is OAuth 2.1 through Supabase Auth's OAuth server — not the session
+JWT used everywhere else. Unauthenticated requests get
+`401` + `WWW-Authenticate: Bearer resource_metadata="https://www.gostash.it/mcp/.well-known/oauth-protected-resource", scope="email"`;
+clients discover the authorization server
+(`https://uqqsgmwkvslaomzxptnp.supabase.co/auth/v1`), register dynamically,
+and send the user to `https://www.gostash.it/oauth/consent` to approve. The
+consent page records an `agent_grants` row; the server refuses tokens whose
+client has no active row. Session JWTs are refused on `/mcp`; agent tokens
+(JWTs carrying a `client_id` claim) are refused on every other endpoint and
+get zero rows through PostgREST/Storage (restrictive RLS) — agents receive
+answers, never copies.
+
+**Tools** (all read-only, annotated `readOnlyHint: true`): `search_stash`
+(same request/response shape as `POST /search-items`, plus a readable text
+rendering) and `get_item` (`{ id }` → notes, description, summary, captured
+text capped at 12k chars, `attributes.link.flavor`,
+`attributes.location.label`); plus ChatGPT's required `search`
+(`{ query }` → `{ results: [{ id, title, url }] }`) and `fetch`
+(`{ id }` → `{ id, title, text, url, metadata }`) — aliases over the same code,
+returned as `structuredContent` and as a JSON string in the text item. Every
+call is logged to `agent_access_log` (Settings → Connected agents → Activity)
+and rate-limited per grant (60/min, 2,000/day → `isError` result).
+
+**Discovery:** protected-resource metadata at
+`/.well-known/oauth-protected-resource[/mcp]` and a server card at
+`/.well-known/mcp-server-card` (site root, static) and under
+`/mcp/.well-known/…` (function). Registry entry: `mcp/server.json`
+(`it.gostash/stash`). Directory runbook: `docs/mcp/DIRECTORIES.md`.
+Protocol versions: `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`.
+
+**Client contracts** (any surface adding a "Connected agents" screen):
+active grants = `agent_grants` where `revoked_at is null` (owner RLS);
+activity = last 50 `agent_access_log` rows, rendered per
+`src/utils/agentActivity.ts`; revoke = `DELETE /auth/v1/user/oauth/grants?client_id=…`
+(session JWT) **then** set `agent_grants.revoked_at`. Item deep link:
+`https://www.gostash.it/home#item=<uuid>` opens that card in the web library.
+
 ## Message routing convention — RETIRED 2026-08-27
 
 Chat composers are retrieval-only on every platform: all input goes to

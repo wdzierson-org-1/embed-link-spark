@@ -4,6 +4,7 @@
 //   node scripts/mcp-smoke.mjs                 # full run: discovery → DCR → PKCE authorize (you approve in a browser) → tools → fence
 //   node scripts/mcp-smoke.mjs --reuse         # re-run the tool + fence calls with the saved token (e.g. after revoking in Settings)
 //   node scripts/mcp-smoke.mjs --server https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp
+//   node scripts/mcp-smoke.mjs --client-id <id>   # reuse an already-registered client (e.g. to prove re-consent after a revoke)
 //
 // Node 18+, no dependencies. Mirrors what Claude does: reads the 401 challenge,
 // fetches protected-resource + authorization-server metadata, registers a
@@ -53,7 +54,8 @@ async function oauth() {
   ok('authorization server metadata', !!asMeta.registration_endpoint && !!asMeta.token_endpoint, JSON.stringify(Object.keys(asMeta)));
 
   const redirectUri = `http://127.0.0.1:${PORT}/callback`;
-  const reg = await (await fetch(asMeta.registration_endpoint, {
+  const existingClientId = opt('--client-id', null);
+  const reg = existingClientId ? { client_id: existingClientId } : await (await fetch(asMeta.registration_endpoint, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       client_name: 'Stash MCP smoke test', client_uri: 'https://www.gostash.it',
@@ -61,7 +63,7 @@ async function oauth() {
       response_types: ['code'], token_endpoint_auth_method: 'none',
     }),
   })).json();
-  ok('dynamic client registration', !!reg.client_id, JSON.stringify(reg).slice(0, 200));
+  ok(existingClientId ? 'reusing registered client' : 'dynamic client registration', !!reg.client_id, JSON.stringify(reg).slice(0, 200));
 
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash('sha256').update(verifier).digest());

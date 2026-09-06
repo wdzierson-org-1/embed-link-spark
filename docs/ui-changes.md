@@ -8,6 +8,38 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-05 · Connect an agent (MCP server) — web
+
+Read-only MCP server at `https://www.gostash.it/mcp` behind Supabase's OAuth
+2.1 server; spec `docs/superpowers/specs/2026-09-05-mcp-server-design.md`,
+plan `docs/superpowers/plans/2026-09-05-mcp-server.md`, wire contract in
+`docs/PLATFORM_API.md` → "Agents (MCP)".
+
+- **New route `/oauth/consent`** (Supabase redirects here with
+  `?authorization_id=`): one card — "<Agent> wants to connect to your Stash",
+  *It can* (search your stash · read saved items in full), *It can't* (add,
+  edit or delete anything · export your stash · see your account or billing),
+  signed-in email, "Returns to <host>" with an amber warning for loopback
+  hosts, **Allow access** / **Deny**. Signed-out visitors bounce through
+  `/auth?returnTo=…` and come back. Approve upserts `agent_grants`
+  (`scopes = ['read']`, `revoked_at = null`) before consent is sent.
+- **Settings gains a fifth tab, "Connected agents"** (lucide `Bot`): Connect
+  card (URL + copy, Claude / Claude Code / other how-tos), Connected list
+  (name · connected · last used · **Revoke** with confirm), Activity list
+  (last 50 sentences from `agent_access_log`, e.g. "Claude searched for
+  “restaurants in Saratoga” · 3 results", "Claude read “Beyond the Basics”").
+  No subscription gate.
+- **Library deep link:** `/home#item=<uuid>` opens that card once the library
+  loads (used by agent citations); the hash is cleared afterwards.
+- **Contracts for iOS/macOS** (no screens yet): read `agent_grants`
+  (`revoked_at is null`) and `agent_access_log` (owner RLS); revoke = GoTrue
+  `DELETE /auth/v1/user/oauth/grants?client_id=` then set `revoked_at`.
+  Sentence rules: `src/utils/agentActivity.ts`.
+- **Behavior change for all clients:** OAuth-issued agent tokens are rejected
+  by every non-MCP edge function (403) and by RLS. Session tokens are
+  unaffected. Supabase auth `site_url` is now `https://www.gostash.it` (was a
+  Lovable-era `localhost:3000`).
+
 ## 2026-09-05 · Chrome extension: minimal permissions + Chrome Web Store prep (v1.2.0)
 
 Chrome extension (`extension/`) only — user-visible behavior unchanged. Full plan:
