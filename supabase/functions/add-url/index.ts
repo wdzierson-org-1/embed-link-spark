@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { isAgentToken } from '../_shared/agentToken.ts';
 import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
@@ -228,6 +229,12 @@ Deno.serve(async (req) => {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
+      );
+    }
+    if (isAgentToken(token)) {
+      return new Response(
+        JSON.stringify({ error: 'Agent tokens are only accepted by the MCP endpoint' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

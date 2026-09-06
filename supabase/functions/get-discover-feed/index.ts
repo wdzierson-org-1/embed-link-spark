@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { isAgentToken } from '../_shared/agentToken.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,7 +22,9 @@ serve(async (req) => {
     const authHeader = req.headers.get('authorization');
     let currentUserId: string | null = null;
 
-    if (authHeader) {
+    // Agent (OAuth-client) tokens are treated as anonymous here — they may
+    // only act as the user through the MCP endpoint.
+    if (authHeader && !isAgentToken(authHeader)) {
       const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
       currentUserId = user?.id ?? null;
     }

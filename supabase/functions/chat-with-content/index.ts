@@ -2,6 +2,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { isAgentToken } from '../_shared/agentToken.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,6 +33,11 @@ serve(async (req) => {
         global: { headers: { Authorization: authHeader } },
       });
       const { data: { user } } = await authedClient.auth.getUser();
+      if (isAgentToken(authHeader)) {
+        return new Response(JSON.stringify({ error: 'Agent tokens are only accepted by the MCP endpoint' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
       const { data: dbItem } = await supabase
