@@ -761,59 +761,84 @@ final class StashUITests: XCTestCase {
         let marker = "UITEST-DELETE: smoke \(Int(Date().timeIntervalSince1970))"
         try await seedDisposableNote(content: marker, email: email, password: password)
 
-        let app = XCUIApplication()
-        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
-                      "Expected the tab bar to appear after sign-in")
+        // F5 (whole-branch review): capture the seeded row's own id up front so the teardown
+        // below can delete it directly by id if the UI delete path — the very thing this test
+        // exercises — doesn't actually land server-side, whether because the assertions below
+        // genuinely fail or because something upstream throws first. Before this, a failing run
+        // left the disposable row behind permanently: three `UITEST-DELETE: smoke …` rows leaked
+        // into production this way and were purged by hand as part of this same fix.
+        let seededId: String?
+        do {
+            let seededRow = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 15)
+            seededId = seededRow["id"] as? String
+        } catch {
+            seededId = nil
+        }
 
-        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
-        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+        do {
+            let app = XCUIApplication()
+            XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                          "Expected the tab bar to appear after sign-in")
 
-        let searchField = app.textFields["library.search"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
-        searchField.tap()
-        searchField.typeText(marker)
-        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the disposable item's card to appear")
-        card0().tap()
+            func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+            func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
-        let deleteButton = app.buttons["detail.delete"]
-        XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Delete button not found in detail sheet")
-        deleteButton.tap()
+            let searchField = app.textFields["library.search"]
+            XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+            searchField.tap()
+            searchField.typeText(marker)
+            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the disposable item's card to appear")
+            card0().tap()
 
-        let confirmButton = app.buttons["Delete"]
-        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Delete confirmation dialog did not appear")
-        confirmButton.tap()
+            let deleteButton = app.buttons["detail.delete"]
+            XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Delete button not found in detail sheet")
+            deleteButton.tap()
 
-        // 1. Local store no longer matches the marker search.
-        XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
-                      "Expected no results for the deleted item's marker search after deletion")
+            let confirmButton = app.buttons["Delete"]
+            XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Delete confirmation dialog did not appear")
+            confirmButton.tap()
 
-        // 2. Clear the search back to the full unfiltered grid, then pull-to-refresh it: the
-        // exact gesture from Will's report, and the one a purely-local "remove it from the
-        // array" fix would pass right past — only a genuine server round trip proves the row is
-        // really gone. Re-`tap()` the field first: confirming the delete dismissed the sheet
-        // AND, per this fix round's "a card tap dismisses the keyboard first" change, dropped
-        // the search field's own focus — it's still the frontmost element, just no longer
-        // focused, so a bare action on it fails to synthesize without refocusing first. The
-        // pill's own clear button (atomic, drops the query to exactly "" in one step) rather
-        // than a counted backspace (this fix round's search pill copy/shape is a moving target,
-        // but the clear button's identifier and effect are stable regardless).
-        searchField.tap()
-        app.buttons["library.search.clear"].tap()
-        let grid = anyElement("library.grid")
-        XCTAssertTrue(grid.waitForExistence(timeout: 15), "Expected the unfiltered grid back once the search clears")
-        grid.swipeDown()
-        sleep(3)   // let the pulled-to-refresh fetch resolve before searching again
+            // 1. Local store no longer matches the marker search.
+            XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
+                          "Expected no results for the deleted item's marker search after deletion")
 
-        searchField.tap()
-        searchField.typeText(marker)
-        XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
-                      "Expected the deleted item to STILL be absent after a real pull-to-refresh " +
-                      "re-fetch — its reappearance here would mean the delete never actually landed server-side")
+            // 2. Clear the search back to the full unfiltered grid, then pull-to-refresh it: the
+            // exact gesture from Will's report, and the one a purely-local "remove it from the
+            // array" fix would pass right past — only a genuine server round trip proves the row is
+            // really gone. Re-`tap()` the field first: confirming the delete dismissed the sheet
+            // AND, per this fix round's "a card tap dismisses the keyboard first" change, dropped
+            // the search field's own focus — it's still the frontmost element, just no longer
+            // focused, so a bare action on it fails to synthesize without refocusing first. The
+            // pill's own clear button (atomic, drops the query to exactly "" in one step) rather
+            // than a counted backspace (this fix round's search pill copy/shape is a moving target,
+            // but the clear button's identifier and effect are stable regardless).
+            searchField.tap()
+            app.buttons["library.search.clear"].tap()
+            let grid = anyElement("library.grid")
+            XCTAssertTrue(grid.waitForExistence(timeout: 15), "Expected the unfiltered grid back once the search clears")
+            grid.swipeDown()
+            sleep(3)   // let the pulled-to-refresh fetch resolve before searching again
 
-        // 3. Server-side proof, independent of anything this client believes: the row itself is
-        // gone, not just absent from whatever this one session's store happens to hold.
-        let stillExists = try await rowExists(matchingContent: marker, email: email, password: password)
-        XCTAssertFalse(stillExists, "Expected the deleted item's row to be gone server-side, not just filtered from view")
+            searchField.tap()
+            searchField.typeText(marker)
+            XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
+                          "Expected the deleted item to STILL be absent after a real pull-to-refresh " +
+                          "re-fetch — its reappearance here would mean the delete never actually landed server-side")
+
+            // 3. Server-side proof, independent of anything this client believes: the row itself is
+            // gone, not just absent from whatever this one session's store happens to hold.
+            let stillExists = try await rowExists(matchingContent: marker, email: email, password: password)
+            if stillExists, let seededId {
+                // Teardown: the UI delete path under test didn't actually remove the row
+                // server-side — clean it up directly by id rather than leaking a permanent
+                // `UITEST-DELETE: smoke …` row (see F5's doc comment above).
+                try? await deleteRow(id: seededId, email: email, password: password)
+            }
+            XCTAssertFalse(stillExists, "Expected the deleted item's row to be gone server-side, not just filtered from view")
+        } catch {
+            if let seededId { try? await deleteRow(id: seededId, email: email, password: password) }
+            throw error
+        }
     }
 
     /// Public toggle/sticky-note lifecycle (Task 9), exercised against the permanent
@@ -1747,11 +1772,13 @@ final class StashUITests: XCTestCase {
     /// Plan 8 Task 2 (feedback round 1): Will's reversal — the plan-7 footer text links didn't
     /// work well on a phone ("the previous implementation… buttons in a mobile friendly way was
     /// the better approach — go back to this"), so this restores the pre-plan-7 header affordance:
-    /// two round icon buttons, right-aligned above the thread, with no wordmark/title above them.
-    /// Same accessibility identifiers as before (`ask.newChat`/`ask.history`), so
+    /// two round icon buttons, right-aligned above the thread. Plan 12 Task 2 then added a small
+    /// "Chat with your Stash" title left-aligned in the same header row (Will: "add a title back
+    /// to the 'Ask' tab") — NOT the old "Ask Stash" title block this test used to describe as
+    /// fully removed; only its item-count subtitle (`ask.itemCount`) stayed gone. Same
+    /// accessibility identifiers as before (`ask.newChat`/`ask.history`), so
     /// `testConversationsSmoke`'s navigation keeps working unchanged; this test proves the NEW
-    /// position (above the intro bubble, not below the composer) and that the "Ask Stash" title
-    /// block's item-count subtitle (`ask.itemCount`) is gone.
+    /// position (above the intro bubble, not below the composer) and that `ask.itemCount` is gone.
     func testAskHeaderButtonsOpenConversations() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -1779,7 +1806,9 @@ final class StashUITests: XCTestCase {
         XCTAssertLessThan(historyButton.frame.maxY, bubble.frame.minY,
                           "Expected the history button above the intro bubble")
 
-        // The "Ask Stash" title block (and its item-count subtitle) is gone — no wordmark, no title.
+        // The old "Ask Stash" title block's item-count subtitle stays gone — plan 12 Task 2 added
+        // back a small "Chat with your Stash" title in this same header row (see `askHeader`),
+        // but never brought back `ask.itemCount`.
         XCTAssertFalse(anyElement("ask.itemCount").exists, "Expected ask.itemCount to be removed")
 
         // Screenshot rig (same checkpoint technique as testAskSmoke/testConversationsSmoke): holds
@@ -1851,6 +1880,10 @@ final class StashUITests: XCTestCase {
         // --- Final wave, item B: the keyboard accessory clears WHICHEVER field has focus, not
         // just notes'. Previously hardcoded to only clear notes' own focus, so tapping it while
         // title/description was focused was a dead tap (confirmed live: the keyboard stayed up).
+        // F7 (plan 12 final wave) then moved this control from the notes section header into the
+        // pinned footer bar (right side, next to the autosave label) — reachable regardless of
+        // scroll position instead of ~400pt below the title field. Same identifier, same
+        // "visible while any field is focused" contract, so this assertion is unchanged.
         let titleField = anyElement("detail.title")
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
         titleField.tap()
@@ -1910,12 +1943,14 @@ final class StashUITests: XCTestCase {
     ///
     /// Plan 12 Task 2 (Will, on-device: "the 'minimize keyboard' button appears to occlude the
     /// 'submit note' button" on iOS 26): `.toolbar(placement: .keyboard)` is retired — the same
-    /// `capture.dismissKeyboard` identifier/label/behavior now lives as a plain button in the
-    /// composer's own bottom bar (left group, shown only while the editor is focused), so it can
-    /// never float over Save. No assertions below changed — same identifier, same "Hide keyboard"
-    /// label, same appear-while-focused/disappear-after-tap contract — only the comment two lines
-    /// down (the `.buttons[...]` scoping is no longer working around a toolbar-placement
-    /// duplicate; it's just this file's usual convention for an unambiguous button lookup now).
+    /// `capture.dismissKeyboard` identifier moved to a plain button in the composer's own bottom
+    /// bar (left group, shown only while the editor is focused). Final wave (F1 + Will's markup,
+    /// device review round 2): that in-bar CIRCLE turned out to have the same class of bug at a
+    /// smaller scale — it widened the bottom bar past the card's own column while focused
+    /// (measured margin 14→2.7pt) — so it's gone too, replaced with a "Cancel" TEXT button
+    /// top-right of the header row (visible only while the editor is focused; tapping it resigns
+    /// focus and keeps the draft — never clears it). Same identifier, new label ("Cancel", not
+    /// "Hide keyboard") and new location; assertions below updated to match.
     func testComposerKeyboardAccessory() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -1946,22 +1981,23 @@ final class StashUITests: XCTestCase {
         editor.tap()
         editor.typeText("x")
 
-        // `.buttons[...]` (not the file's usual `anyElement` helper) — now a plain in-bar button
-        // (plan 12: the `.keyboard` toolbar placement that used to double this identifier onto an
-        // extra non-button "other" container is gone), scoped the same way `capture.save`/
-        // `signin.submit` already are elsewhere in this file.
+        // `.buttons[...]` (not the file's usual `anyElement` helper) — a plain header-row text
+        // button now (final wave, F1 + Will's markup: the in-bar minimize CIRCLE that used to sit
+        // here was removed outright — it widened the bottom bar past the card's own column while
+        // focused — and replaced with a "Cancel" text button top-right of the wordmark header),
+        // scoped the same way `capture.save`/`signin.submit` already are elsewhere in this file.
         let dismissKeyboard = app.buttons["capture.dismissKeyboard"]
         XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
-                      "Expected the minimize-keyboard accessory control to appear while the editor is focused")
-        XCTAssertEqual(dismissKeyboard.label, "Hide keyboard",
-                       "Expected the accessory control's a11y label to read 'Hide keyboard', got '\(dismissKeyboard.label)'")
+                      "Expected the header's Cancel control to appear while the editor is focused")
+        XCTAssertEqual(dismissKeyboard.label, "Cancel",
+                       "Expected the header control's a11y label to read 'Cancel', got '\(dismissKeyboard.label)'")
         XCTAssertFalse(app.buttons["Done"].exists,
                        "Expected the keyboard toolbar's text 'Done' button to be gone")
 
         // Screenshot rig (same checkpoint technique as testCaptureSmoke/testLocationPinSmoke):
         // holds here, keyboard up with "x" typed, so an external `xcrun simctl io <udid>
-        // screenshot` can capture the violet send button (primary) alongside the icon-only
-        // minimize accessory (secondary) — no competing "Done" text button.
+        // screenshot` can capture the violet send button (bottom bar) alongside the header's
+        // "Cancel" text button — no competing "Done" text button, no overlap between the two.
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: composer-keyboard\n".data(using: .utf8)!)
         sleep(3)
 
@@ -1970,7 +2006,11 @@ final class StashUITests: XCTestCase {
         let accessoryGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
                                                         object: dismissKeyboard)
         XCTAssertEqual(XCTWaiter().wait(for: [accessoryGone], timeout: 10), .completed,
-                       "Expected the keyboard accessory to disappear once the keyboard is dismissed")
+                       "Expected 'Cancel' to disappear once the keyboard is dismissed")
+        // Cancel = dismiss keyboard only, draft preserved — the typed "x" survives the tap above
+        // (contrast a hypothetical "discard" affordance, which this deliberately is not).
+        XCTAssertEqual(app.textViews["capture.editor"].value as? String, "x",
+                       "Expected Cancel to preserve the draft, not clear it")
 
         // Attachment × clipping fix (CaptureAttachmentsRow): drives the real PhotosPicker against
         // the simulator's own default Photos library (seeded content every sim ships with, no
@@ -2108,11 +2148,10 @@ final class StashUITests: XCTestCase {
         editor.tap()
         XCTAssertEqual(captureCard.value as? String, "active", "Expected the composer card to go active once the editor is focused")
 
-        // `.buttons[...]` (not `anyElement`) — same collision `testComposerKeyboardAccessory`
-        // documents: the `.keyboard` toolbar placement renders an extra non-button container
-        // that inherits the same identifier.
+        // `.buttons[...]` (not `anyElement`) — the header's "Cancel" text button
+        // (`testComposerKeyboardAccessory` documents the F1 rework in full).
         let dismissKeyboard = app.buttons["capture.dismissKeyboard"]
-        XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10), "Expected the minimize-keyboard accessory while the editor is focused")
+        XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10), "Expected the header's Cancel control while the editor is focused")
         dismissKeyboard.tap()
         // Draft is still empty (no text was typed) — the editor losing focus alone must be
         // enough to drop the card back to idle.
@@ -2201,72 +2240,112 @@ final class StashUITests: XCTestCase {
 
     /// "How to easily stash" panel — Will's device note 10: shown ONCE per app install right
     /// after a successful sign-in/sign-up, re-openable any time from Settings → "How to stash".
-    /// Three behaviors in one flow (each needs the prior step's end state, so one test is more
-    /// failure-legible here than three that would each re-derive the same setup):
-    /// 1. `--uitest-reset-onboarding` (new DEBUG launch arg, wired alongside `--uitest-reset-auth`
-    ///    in `SessionStore.start()`) forces `OnboardingState`'s seen flag to `false` before this
-    ///    sign-in, so the panel appears; "Got it" (`onboarding.gotIt`) dismisses it AND
-    ///    permanently marks it seen.
-    /// 2. A full app relaunch (real process boundary, not just re-entering credentials in the
-    ///    same running app — proves the flag survived past `SessionStore`'s in-memory state) with
-    ///    ONLY `--uitest-reset-auth` signs in again and must reach the tab bar directly — the
-    ///    panel must NOT reappear now that it's been marked seen.
-    /// 3. Settings' "How to stash" row (`settings.howToStash`) re-opens the same panel on demand
-    ///    regardless of the seen flag; "Show me later" (`onboarding.showLater`) dismisses it
-    ///    without re-touching the flag (spec: only "Got it" marks it seen).
+    /// See `OnboardingState`'s own doc comment for the full showing rule this exercises. Five
+    /// behaviors in one flow (each needs the prior step's end state, so one test is more
+    /// failure-legible here than several that would each re-derive the same setup):
+    /// 1. `--uitest-reset-onboarding` (DEBUG launch arg, wired alongside `--uitest-reset-auth` in
+    ///    `SessionStore.start()`) forces both of `OnboardingState`'s flags to their defaults
+    ///    before this sign-in, so the panel appears; "Show me later" (`onboarding.showLater`)
+    ///    dismisses it WITHOUT marking it seen, but DOES defer it (F4's fix).
+    /// 2. A full app relaunch (real process boundary) with **NO launch arguments at all** — F3
+    ///    (whole-branch review): the previous version of this test relaunched with
+    ///    `--uitest-reset-auth`, which itself force-marks `hasSeenHowToStash` true in
+    ///    `SessionStore.start()`'s DEBUG block whenever `--uitest-reset-onboarding` isn't ALSO
+    ///    passed — so the old step 2 never actually observed a real Keychain-restore/deferred
+    ///    interaction, it just watched that same DEBUG bypass fire again. A bare relaunch instead
+    ///    goes through the real path: the Keychain session from step 1 restores directly to
+    ///    `.signedIn` (never touching `.signedOut`), landing on the tab bar with NO sign-in screen
+    ///    at all, and the panel must NOT reappear — "Show me later"'s deferred flag survives a
+    ///    cold relaunch by design (F4).
+    /// 3. From this same running session, an EXPLICIT sign-out (Settings → Sign Out) then sign
+    ///    back in — a genuine `.signedOut → .signedIn` transition — clears the deferred flag
+    ///    (F4), so the panel appears again; this time "Got it" (`onboarding.gotIt`) dismisses it
+    ///    AND permanently marks it seen.
+    /// 4. Another bare-argument relaunch: the panel must not reappear now that it's genuinely
+    ///    seen (not just deferred).
+    /// 5. Settings' "How to stash" row (`settings.howToStash`) re-opens the same panel on demand
+    ///    regardless of the seen flag; "Show me later" dismisses it without re-touching
+    ///    `hasSeenHowToStash` (spec: only "Got it" marks it seen).
     @MainActor
     func testOnboardingPanelShowsOnceAfterSignIn() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
 
-        // --- 1. Reset both flags; sign in; the panel appears; "Got it" dismisses + marks seen.
+        func signIn(_ emailField: XCUIElement, _ passwordField: XCUIElement) {
+            emailField.tap()
+            emailField.typeText(email)
+            passwordField.tap()
+            passwordField.typeText(password)
+            app.buttons["signin.submit"].tap()
+        }
+
+        // --- 1. Reset both flags; sign in; the panel appears; "Show me later" dismisses WITHOUT
+        // marking seen, but defers it.
         app.launchArguments = ["--uitest-reset-auth", "--uitest-reset-onboarding"]
         app.launch()
 
         let emailField = app.textFields["signin.email"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
-        emailField.tap()
-        emailField.typeText(email)
-        let passwordField = app.secureTextFields["signin.password"]
-        passwordField.tap()
-        passwordField.typeText(password)
-        app.buttons["signin.submit"].tap()
+        signIn(emailField, app.secureTextFields["signin.password"])
 
-        let gotItButton = app.buttons["onboarding.gotIt"]
-        XCTAssertTrue(gotItButton.waitForExistence(timeout: 15),
+        let showLaterButton = app.buttons["onboarding.showLater"]
+        XCTAssertTrue(showLaterButton.waitForExistence(timeout: 15),
                       "Expected the 'How to easily stash' panel to appear after a fresh sign-in with --uitest-reset-onboarding")
         XCTAssertTrue(app.staticTexts["onboarding.title"].exists, "Expected the panel's title to be present")
-        XCTAssertTrue(app.buttons["onboarding.showLater"].exists, "Expected the 'Show me later' link to be present")
+        XCTAssertTrue(app.buttons["onboarding.gotIt"].exists, "Expected the 'Got it' button to be present")
 
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: onboarding-panel\n".data(using: .utf8)!)
         sleep(2)
 
+        showLaterButton.tap()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 10),
+                      "Expected the tab bar back after dismissing the panel with 'Show me later'")
+
+        // --- 2. Relaunch with NO launch arguments — a real cold-launch Keychain restore, not a
+        // fresh sign-in. F3/F4: the panel must stay suppressed (deferred survives the relaunch)
+        // and no sign-in screen should appear at all.
+        app.terminate()
+        app.launchArguments = []
+        app.launch()
+
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15),
+                      "Expected a bare relaunch to restore straight to the tab bar via the Keychain session")
+        XCTAssertFalse(app.textFields["signin.email"].exists,
+                       "Expected no sign-in screen on a Keychain-restore relaunch")
+        XCTAssertFalse(app.buttons["onboarding.gotIt"].exists,
+                       "Expected the deferred panel NOT to reappear on a cold relaunch (F4)")
+
+        // --- 3. An EXPLICIT sign-out + sign-in (not a relaunch) clears the deferred flag — the
+        // panel must appear again. This time "Got it" dismisses it and marks it permanently seen.
+        app.tabBars.buttons["Settings"].tap()
+        let signOutButton = app.buttons["settings.signout"]
+        XCTAssertTrue(signOutButton.waitForExistence(timeout: 10), "Sign Out row not found in Settings")
+        signOutButton.tap()
+        app.buttons["settings.signout.confirm"].tap()
+
+        let emailField2 = app.textFields["signin.email"]
+        XCTAssertTrue(emailField2.waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
+        signIn(emailField2, app.secureTextFields["signin.password"])
+
+        let gotItButton = app.buttons["onboarding.gotIt"]
+        XCTAssertTrue(gotItButton.waitForExistence(timeout: 15),
+                      "Expected the panel to reappear after an explicit sign-in clears the deferred flag (F4)")
         gotItButton.tap()
         XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 10),
                       "Expected the tab bar back after dismissing the panel with 'Got it'")
 
-        // --- 2. Relaunch (real process boundary), sign in again, WITHOUT the onboarding reset —
-        // the panel must not reappear now that "Got it" marked it seen.
+        // --- 4. Another bare relaunch: the panel must not reappear now that it's genuinely seen.
         app.terminate()
-        app.launchArguments = ["--uitest-reset-auth"]
+        app.launchArguments = []
         app.launch()
-
-        let emailField2 = app.textFields["signin.email"]
-        XCTAssertTrue(emailField2.waitForExistence(timeout: 10), "Sign-in email field did not appear on relaunch")
-        emailField2.tap()
-        emailField2.typeText(email)
-        let passwordField2 = app.secureTextFields["signin.password"]
-        passwordField2.tap()
-        passwordField2.typeText(password)
-        app.buttons["signin.submit"].tap()
 
         XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15),
                       "Expected to reach the tab bar directly, with no onboarding panel in the way")
         XCTAssertFalse(app.buttons["onboarding.gotIt"].exists,
                        "Expected the 'How to easily stash' panel NOT to reappear once already marked seen")
 
-        // --- 3. Settings → "How to stash" re-opens it any time; "Show me later" dismisses
-        // without re-marking anything (already seen from step 1).
+        // --- 5. Settings → "How to stash" re-opens it any time; "Show me later" dismisses
+        // without re-marking anything (already seen from step 3).
         app.tabBars.buttons["Settings"].tap()
         let howToStashRow = app.buttons["settings.howToStash"]
         XCTAssertTrue(howToStashRow.waitForExistence(timeout: 10), "Expected the 'How to stash' Settings row")
