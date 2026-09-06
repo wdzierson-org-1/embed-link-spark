@@ -128,9 +128,13 @@ struct HowToStashView: View {
     }
 
     /// Deliberately does NOT call `OnboardingState.markHowToStashSeen()` — spec: "'Show me
-    /// later' does NOT [set the seen flag] (it reappears next sign-in)".
+    /// later' does NOT [set the seen flag] (it reappears next sign-in)". Final wave (F4): DOES
+    /// call `markHowToStashDeferred()` — the first version of this button left the panel eligible
+    /// to re-show on the very next COLD LAUNCH, not just "next sign-in" as the copy promises; see
+    /// `OnboardingState`'s own doc comment for the full rule this fixes.
     private var showLaterButton: some View {
         Button {
+            OnboardingState.markHowToStashDeferred()
             dismiss()
         } label: {
             Text("Show me later")

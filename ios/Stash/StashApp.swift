@@ -15,6 +15,13 @@ struct StashApp: App {
     // `OnboardingState.hasSeenHowToStash` is still false; `HowToStashView` clears this itself via
     // `\.dismiss` on either of its own buttons (see its doc comment).
     @State private var showHowToStash = false
+    // Final wave (F4): the sign-in transition can land WHILE `SplashView` is still up (its own
+    // fixed 1.6s timer, independent of how fast `session.start()` resolves) — presenting the
+    // `.fullScreenCover` immediately in that case would cut the brand animation off mid-play,
+    // covering it. `pendingHowToStash` holds the "yes, show it" decision until the splash's own
+    // `.task` below flips `showSplash` false, at which point it's converted into the real
+    // `showHowToStash` presentation.
+    @State private var pendingHowToStash = false
 
     var body: some Scene {
         WindowGroup {
@@ -47,12 +54,19 @@ struct StashApp: App {
                 // enough to never feel like a gate — session restore continues underneath.
                 try? await Task.sleep(for: .seconds(1.6))
                 withAnimation(.easeOut(duration: 0.5)) { showSplash = false }
+                // Final wave (F4): the sign-in transition below may have already decided to show
+                // the panel while this splash was still up — convert that decision into the real
+                // presentation now that the brand animation has actually finished.
+                if pendingHowToStash {
+                    pendingHowToStash = false
+                    showHowToStash = true
+                }
             }
             .task { await session.start() }
             // "Launch refresh": fires once the session actually resolves to signed-in, whether
             // that's a cold launch restoring a Keychain session or a fresh sign-in from
             // SignInView — both are "the start of a signed-in session" for gate purposes.
-            .onChange(of: session.state) { _, newState in
+            .onChange(of: session.state) { oldState, newState in
                 if case .signedIn(let userId) = newState {
                     Task { await subscriptionStore.refresh() }
                     // Plan 5 Task 7: startup sweep + drain. `sweepOrphans` recovers any
@@ -64,14 +78,28 @@ struct StashApp: App {
                     // still covers "the Add tab appears/returns to foreground" — this covers the
                     // gap before that view has ever appeared on a fresh launch.
                     Task { await sweepAndDrainOnLaunch(userId: userId) }
+                    // Final wave (F4): an EXPLICIT sign-in — `oldState` was `.signedOut`, not
+                    // `.loading` (a cold-launch Keychain restore never passes through
+                    // `.signedOut` first) — gives a previously-deferred panel a fresh chance to
+                    // show again. See `OnboardingState`'s doc comment for why this distinction
+                    // exists at all (a bare "next `.signedIn`" re-showed on every cold relaunch).
+                    if case .signedOut = oldState {
+                        OnboardingState.clearHowToStashDeferred()
+                    }
                     // Plan 12 task 4: "shown ONCE after a successful sign-in/sign-up" — this fires
                     // on every ACTUAL transition into `.signedIn` (cold-launch restore counts as
                     // "the start of a signed-in session" too, same as the sweep/drain above), but
                     // `SessionState`'s `Equatable` conformance means `onChange` only re-fires when
                     // the case/associated value actually changes, so a same-user token refresh
                     // mid-session never re-triggers this.
-                    if !OnboardingState.hasSeenHowToStash {
-                        showHowToStash = true
+                    if !OnboardingState.hasSeenHowToStash && !OnboardingState.isHowToStashDeferred {
+                        // Splash still up (see `pendingHowToStash`'s own doc comment) → hold the
+                        // decision until it finishes instead of covering the brand animation.
+                        if showSplash {
+                            pendingHowToStash = true
+                        } else {
+                            showHowToStash = true
+                        }
                     }
                 } else if case .signedOut = newState {
                     // Cross-account gate-bleed fix (final review, plan 3): SubscriptionStore
