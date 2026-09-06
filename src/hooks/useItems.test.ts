@@ -71,7 +71,7 @@ describe("useItems", () => {
 
     await vi.waitFor(() => {
       expect(mockSelect).toHaveBeenCalledWith(
-        "id,type,title,content,url,file_path,description,summary,created_at,mime_type,file_size,is_public,supplemental_note,attributes"
+        "id,type,title,content,url,file_path,description,summary,created_at,mime_type,file_size,is_public,supplemental_note,attributes,remind_at,reminder_cleared_at"
       );
     });
   });

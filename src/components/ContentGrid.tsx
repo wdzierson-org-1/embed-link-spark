@@ -7,6 +7,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { itemMatchesSearchQuery } from '@/utils/itemSearch';
 import { landedPieces, REVEAL_TTL_MS, type AssemblyPiece } from '@/utils/itemAssembly';
 import type { Attachment } from '@/components/CollectionAttachments';
+import { orderDueFirst } from '@/utils/reminders';
+import { useNow } from '@/hooks/useNow';
 
 type RevealMap = Record<string, Partial<Record<AssemblyPiece, number>>>;
 
@@ -57,6 +59,7 @@ const ContentGrid = ({
   typeFilter = 'all',
   compact = false
 }: ContentGridProps) => {
+  const now = useNow();
   const [itemTags, setItemTags] = useState<Record<string, string[]>>({});
   const [collectionAttachmentsByItem, setCollectionAttachmentsByItem] = useState<Record<string, Attachment[]>>({});
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
@@ -251,10 +254,13 @@ const ContentGrid = ({
 
   // Separate optimistic and real items
   const optimisticItems = filteredItems.filter(item => item.isOptimistic);
-  const visibleRealItems = filteredItems.filter(item => !item.isOptimistic);
+  let visibleRealItems = filteredItems.filter(item => !item.isOptimistic);
   if (searchRank) {
     // Relevance order while a server search is active (grid is otherwise chronological)
     visibleRealItems.sort((a, b) => searchRank.get(a.id)! - searchRank.get(b.id)!);
+  } else {
+    // Due reminders surface above the chronological list
+    visibleRealItems = orderDueFirst(visibleRealItems, now);
   }
 
   // Empty state: no real items and no search active

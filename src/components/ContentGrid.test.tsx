@@ -69,3 +69,25 @@ describe('ContentGrid rank precedence', () => {
     expect(screen.queryByText('Bravo card')).not.toBeInTheDocument();
   });
 });
+
+describe('ContentGrid reminders', () => {
+  const dueItems = [
+    { id: 'n', title: 'Newest plain', type: 'text', created_at: '2026-09-06T10:00:00Z' },
+    { id: 'd', title: 'Due card', type: 'text', created_at: '2026-08-01T00:00:00Z',
+      remind_at: new Date(Date.now() - 60_000).toISOString(), reminder_cleared_at: null },
+    { id: 's', title: 'Scheduled card', type: 'text', created_at: '2026-08-02T00:00:00Z',
+      remind_at: new Date(Date.now() + 86_400_000).toISOString(), reminder_cleared_at: null },
+  ];
+
+  it('lifts due cards above the chronological list', () => {
+    render(<ContentGrid {...baseProps} items={dueItems} />);
+    const titles = screen.getAllByTestId('card').map(el => el.textContent);
+    expect(titles).toEqual(['Due card', 'Newest plain', 'Scheduled card']);
+  });
+
+  it('leaves server relevance order alone during a search', () => {
+    render(<ContentGrid {...baseProps} items={dueItems} serverResultIds={['n', 'd']} searchQuery="x" />);
+    const titles = screen.getAllByTestId('card').map(el => el.textContent);
+    expect(titles).toEqual(['Newest plain', 'Due card']);
+  });
+});
