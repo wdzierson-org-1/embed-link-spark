@@ -2354,7 +2354,7 @@ final class StashUITests: XCTestCase {
         // XCUITest still reported the element `hittable`, but the OS silently ate the touch
         // before SwiftUI's `Button` ever saw it: `onboarding.skip` appeared to tap fine (no
         // error), yet `OnboardingState.markHowToStashSeen()` never ran, so the panel reappeared
-        // on the very next relaunch. Fixed in the view (tighter padding, `panelHeight` 470) so
+        // on the very next relaunch. Fixed in the view (tighter padding, `panelHeight` 490) so
         // `skipButton` now sits with a real safety margin above that zone — this `sleep(1)` is
         // just the same settle beat step 1's Next/Got it taps already get for free from their
         // screenshot-checkpoint sleeps.

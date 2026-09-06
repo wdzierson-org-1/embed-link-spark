@@ -35,3 +35,41 @@
 - [ ] `docs/ui-changes.md` top entry "2026-09-07 · iOS share tutorial carousel (plan 13)" (copy, semantics: Skip = seen; deferred path retained for Settings/relaunch logic; system-blue exception documented), plan Outcome section.
 - [ ] `ios/project.yml` `CURRENT_PROJECT_VERSION: 9` → `xcodegen generate`; suites: StashKit, `npm test`, UI ×2.
 - [ ] `./scripts/release.sh all` → upload → poll VALID → attach both groups → beta review submit ONLY if no build is in review (build 8 was WAITING_FOR_REVIEW at plan start; expect blocked → record).
+
+## Outcome (2026-09-07)
+
+Commits on `worktree-ios-plan-13` (base `89898ee`): `f3c4d94` (prototype v2
+— Will's panel revisions: share glyph P1, glowing Stash tile + More hint P2,
+ungated step-3 recapture), `7d4938b` (T1: carousel rewrite, `onboarding.
+stashTile` asset, deleted `onboarding.step1`/`step2`, updated onboarding
+UI test), then this wrap's docs/build-9 commits below. `git fetch origin` +
+`git log --oneline HEAD..origin/main` found zero new commits — nothing to
+merge.
+
+**Review verdict:** APPROVE (subagent-driven-development branch review after
+T1), with one nit — the onboarding UI test's root-cause comment said
+`panelHeight` 470 while the view ships 490 — folded into this wrap (comment
+now reads 490, matching the view).
+
+**Home-indicator gesture-zone finding** (T1, worth carrying to any bottom-
+anchored control on a Face-ID iPhone): the first working carousel used a
+taller card (`panelHeight` 508pt), which put `onboarding.skip` at `y≈819` on
+an 852pt-tall iPhone 15 Pro — inside the strip iOS reserves for the home-
+indicator swipe gesture. XCUITest still reported the button `hittable`, and
+the tap even *looked* like it dismissed the panel (the tab bar underneath a
+`.fullScreenCover` stays in the accessibility tree while covered), but the
+OS silently ate the touch before SwiftUI's `Button` action ever ran, so
+`OnboardingState.markHowToStashSeen()` never fired and the panel silently
+reappeared on the next relaunch. Fixed by shrinking the card to 490pt
+(~93pt clear of the edge), not by moving the button. Recorded in-code
+(`StashUITests.swift`) for the next height change.
+
+**SE-scroll note:** on a 375×667 iPhone SE the card's content runs to
+roughly 700pt tall — taller than the screen — but the card lives inside a
+`ScrollView`, so it scrolls cleanly rather than clipping; no layout change
+was needed for that screen size.
+
+Suites and build-9 TestFlight outcome (upload id, processing state,
+beta-group attachment, beta-review submission result) are recorded in a
+follow-up amendment to this section once the pipeline finishes — see
+`.superpowers/sdd/plan-13/task-2-report.md` for the full transcript.
