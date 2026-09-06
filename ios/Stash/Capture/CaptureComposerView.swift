@@ -96,18 +96,47 @@ struct CaptureComposerView: View {
                 // brings the wordmark's effective margin to 16 × 1.1 ≈ 18 here without touching
                 // the shared component.
                 StashHeader {
-                    if viewModel.pendingOutboxCount > 0 {
-                        Text("\(viewModel.pendingOutboxCount)")
-                            .font(StashType.semibold(size: 11))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            // .orange has no DESIGN.md token yet.
-                            .background(Color.orange, in: Capsule())
-                            .accessibilityIdentifier("capture.outboxBadge")
+                    // Will's markup (plan 12 final wave, F1): the in-bar hide-keyboard circle is
+                    // gone (it pushed the bottom bar past the card's own width while focused —
+                    // measured margin 14→2.7pt on device). Its job moves up here: a plain "Cancel"
+                    // text button, top-right of the header row, vertically centered with the
+                    // wordmark via `StashHeader`'s own `.center`-aligned HStack, shown only while
+                    // the editor is focused. Semantics: cancel = dismiss keyboard only — the draft
+                    // is NEVER cleared, matching the composer's existing "stay in Add and keep
+                    // capturing" behavior everywhere else. `capture.dismissKeyboard` + the "Cancel"
+                    // a11y label are preserved so `testComposerKeyboardAccessory` still finds a
+                    // control there (its glyph assertions were updated in place for the new copy).
+                    HStack(spacing: 12) {
+                        if viewModel.pendingOutboxCount > 0 {
+                            Text("\(viewModel.pendingOutboxCount)")
+                                .font(StashType.semibold(size: 11))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                // .orange has no DESIGN.md token yet.
+                                .background(Color.orange, in: Capsule())
+                                .accessibilityIdentifier("capture.outboxBadge")
+                        }
+                        if editorFocused {
+                            Button {
+                                editorFocused = false
+                            } label: {
+                                Text("Cancel")
+                                    .font(StashType.body())
+                                    .foregroundStyle(StashColor.violet600)
+                            }
+                            .accessibilityIdentifier("capture.dismissKeyboard")
+                            .accessibilityLabel("Cancel")
+                        }
                     }
                 }
                 .padding(.horizontal, 2)
+                // Will's markup (F1c): "add whitespace under the wordmark" — ~10pt more breathing
+                // room between the header row and the card's top edge than the bare `StashHeader`
+                // padding (`.padding(.bottom, 4)`) gave on its own. A fixed spacer (not `Spacer()`)
+                // — this VStack sits in a full-height ZStack, so a flexible `Spacer` here would
+                // greedily eat the rest of the tab and shove the card to the bottom of the screen.
+                Color.clear.frame(height: 10)
                 // `isPanelActive` (web `UnifiedInputPanel.tsx:898-902`): focused OR
                 // `hasAnyContent` (`!editorIsEmpty || inputItems.length > 0`) — a non-empty draft
                 // OR at least one staged attachment, exactly mirroring the web's boolean shape
@@ -221,7 +250,10 @@ struct CaptureComposerView: View {
                 Text("Save a thought, a link, anything…")
                     .foregroundStyle(StashColor.muted)
                     .padding(.horizontal, 5)
-                    .padding(.vertical, 9)
+                    // Will's markup (F1d): vertical 9→8 — paired with the container's new 4pt top
+                    // inset below, this keeps the placeholder sitting at the same on-screen height
+                    // as `TextEditor`'s own caret (see the container comment for the full math).
+                    .padding(.vertical, 8)
                     .allowsHitTesting(false)
             }
             TextEditor(text: $viewModel.text)
@@ -235,7 +267,16 @@ struct CaptureComposerView: View {
         // 2/3 of the tab's height (Task 2) — just whatever's left inside the card; the small
         // horizontal inset keeps text off the card's own edge, not the display's.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 12)
+        // Will's markup (F1d): "increase the editor's top and leading inset so the
+        // placeholder/caret sit ~12pt from the card's top edge and ~16pt from its left edge."
+        // BEFORE: `.padding(.horizontal, 12)` only, no explicit top — `TextEditor`'s own built-in
+        // `UITextView` insets (textContainerInset top 8, lineFragmentPadding 5) supplied the rest,
+        // landing the caret at ≈(17, 8) from the card's corner. AFTER: leading 11 (+5 intrinsic =
+        // 16) and top 4 (+8 intrinsic = 12); trailing stays 12 (only the top/leading edges were
+        // asked for). Measured against a screenshot post-change to confirm.
+        .padding(.leading, 11)
+        .padding(.trailing, 12)
+        .padding(.top, 4)
     }
 
     /// Composer gate (Task 7): proactively disabled + explained, unlike the web's `UnifiedInputPanel`
@@ -285,20 +326,14 @@ struct CaptureComposerView: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
             // iOS 26 device-review fix (plan 12): `.toolbar(placement: .keyboard)` used to render
-            // this same minimize control as a floating accessory bar that, on iOS 26, sometimes
-            // occludes the violet send button (Will: "the 'minimize keyboard' button appears to
-            // occlude the 'submit note' button"). Moved in-content — a plain circle in this bar's
-            // own left group, shown only while the editor is focused, so it never overlaps Save.
-            if editorFocused {
-                Button {
-                    editorFocused = false
-                } label: {
-                    CircleIcon(systemImage: "keyboard.chevron.compact.down")
-                }
-                .accessibilityIdentifier("capture.dismissKeyboard")
-                .accessibilityLabel("Hide keyboard")
-            }
-
+            // a floating minimize accessory that, on iOS 26, sometimes occluded the violet send
+            // button. The in-content replacement that briefly lived HERE (a plain circle in this
+            // bar's own left group) turned out to have the same shape of bug at a smaller scale:
+            // it widened this row past the card's own column width while focused (measured margin
+            // 14→2.7pt on device), so the bottom bar itself started overflowing the card. Final
+            // wave (F1 + Will's markup): removed outright — the same job (dismiss the keyboard,
+            // keep the draft) now lives as a "Cancel" text button in the header row above
+            // (`capture.dismissKeyboard`, see `StashHeader` usage), which can never widen this bar.
             PhotosPicker(selection: $selectedPhotoItems, matching: .images) {
                 CircleIcon(systemImage: "photo.on.rectangle")
             }
