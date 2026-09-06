@@ -1,5 +1,6 @@
 Stash.xcodeproj/
 DerivedData/
+DerivedData-*/
 .env.test.local
 *.xcuserstate
 .build/
