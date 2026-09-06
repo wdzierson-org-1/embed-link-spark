@@ -2,6 +2,20 @@
   "rewrites": [
     { "source": "/mcp", "destination": "https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp" },
     { "source": "/mcp/:path*", "destination": "https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp/:path*" },
+    { "source": "/.well-known/oauth-protected-resource/mcp", "destination": "/.well-known/oauth-protected-resource-mcp.json" },
+    { "source": "/.well-known/oauth-protected-resource", "destination": "/.well-known/oauth-protected-resource.json" },
+    { "source": "/.well-known/mcp-server-card", "destination": "/.well-known/mcp-server-card.json" },
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/.well-known/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" },
+        { "key": "Cache-Control", "value": "public, max-age=3600" }
+      ]
+    }
   ]
 }

@@ -121,6 +121,16 @@ const Index = () => {
     }
   };
 
+  // Deep link from agents/citations: /home#item=<uuid> opens that card once
+  // the library has loaded, then clears the hash so reloads don't reopen it.
+  useEffect(() => {
+    const match = /^#item=([0-9a-f-]{36})$/i.exec(window.location.hash);
+    if (!match || !items.length) return;
+    const item = items.find((it) => it.id === match[1]);
+    if (item) setEditingItem(item);
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, [items]);
+
   if (loading || (user && isInitialLoadInProgress)) {
     return <LoadingInterstitial />;
   }

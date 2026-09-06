@@ -1,0 +1,1 @@
+{"resource":"https://www.gostash.it/mcp","authorization_servers":["https://uqqsgmwkvslaomzxptnp.supabase.co/auth/v1"],"scopes_supported":["email"],"bearer_methods_supported":["header"],"resource_name":"Stash"}
