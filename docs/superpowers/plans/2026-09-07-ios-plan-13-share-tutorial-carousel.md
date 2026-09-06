@@ -73,3 +73,48 @@ Suites and build-9 TestFlight outcome (upload id, processing state,
 beta-group attachment, beta-review submission result) are recorded in a
 follow-up amendment to this section once the pipeline finishes — see
 `.superpowers/sdd/plan-13/task-2-report.md` for the full transcript.
+
+## Outcome amendment (2026-09-07, build 9)
+
+**Suites:** StashKit 344/344. `npm test` 250/250 across 39 files. Both
+Xcode targets (`Stash`, `StashShareExtension`) build warning-free against
+`28F9E3CD-90E2-4D17-AFDE-D0C37316BFBB` (only the pre-existing, allowed
+`appintentsmetadataprocessor` notice). UI suite run 2× (24 test methods
+each): run 1 landed on exactly the 3 standing gate-blocked failures
+(`testCaptureSmoke`/`testLocationPinSmoke`/`testAskSmoke`), 21 green; run 2
+surfaced those same 3 plus a 4th, `testEditSmoke`. Investigated: the
+in-test title-replace step (`replaceText`/`clearField`) raced and left a
+stray timestamp fragment prepended to the fixture title (garbled to
+`" 1788711131)UITEST-FIXTURE: note one"`), which fell outside the
+self-heal preflight's `title=like.UITEST-FIXTURE: note one*` prefix match
+(the prefix landed after the stray fragment, not at the start), so
+`restoreNoteOneFixtureToCanonical` threw "matched zero rows" on its own
+next invocation — a documented pre-existing flake (plan 2's "testEditSmoke
+keyboard-focus flake," 1-in-4 historically) corrupting fixture state in a
+way its own self-heal couldn't reach, not a regression from this plan's
+onboarding-only changes. Repaired the one row via a direct REST PATCH
+(same anon-key/password-grant recipe the test itself uses, via `ilike`
+instead of the prefix-only `like` to find it) back to the canonical
+title/content, then re-ran `testEditSmoke` alone — green in 57s. No
+product code changed; test-only/data-only, per the flake-watch protocol
+(re-run once, escalate only on repeat — it didn't repeat).
+
+**Build 9:** `./scripts/release.sh all` (generate/archive/export) then
+`upload` both succeeded via session auth. Entitlements checked in the
+exported `.ipa` on both `Stash.app` and
+`Stash.app/PlugIns/StashShareExtension.appex` — team id `3CH3K9NTT2`,
+matching `group.it.gostash.stash` app-group and
+`3CH3K9NTT2.it.gostash.stash.shared` keychain-access-group on each,
+`get-task-allow: false` on both; both `Info.plist`s report
+`CFBundleVersion` 9. One environment hiccup found and fixed along the way:
+this worktree's `ios/.asc/` had a stray nested `ios/.asc/.asc/` (key files
+one level too deep, apparently from how the worktree was seeded) — moved
+`AuthKey_QC98GTFRC6.p8`/`config.env` up to `ios/.asc/` directly (both stay
+gitignored; nothing committed) so `asc-api.sh` could find them. Build id
+`26343157-9a75-4978-a620-d8aa31fd09b7` reached `processingState: VALID` on
+the very first poll (well under the 60s-interval budget). Attached to both
+beta groups (`d19f78c1-…`, `d0d24fce-…`, HTTP 204 each). Beta App Review:
+build 8 (`b3c79486-2cba-46f8-a60e-24d5e8c47662`) is still
+`betaReviewState: WAITING_FOR_REVIEW` — per this plan's explicit
+constraint, build 9 was **not** submitted; blocked by build 8 until Apple
+resolves that review. Full transcript: `.superpowers/sdd/plan-13/task-2-report.md`.
