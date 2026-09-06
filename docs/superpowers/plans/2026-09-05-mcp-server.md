@@ -90,7 +90,7 @@ q() { curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: applic
 **Interfaces:**
 - Produces: the decision `MCP_RESOURCE_URL` (either `https://www.gostash.it/mcp` or the raw function URL), recorded at the top of `supabase/functions/mcp/index.ts` in Task 6 and in the Task 8 copy.
 
-- [ ] **Step 1: Write the echo stub**
+- [x] **Step 1: Write the echo stub**
 
 ```ts
 // supabase/functions/mcp/index.ts — TEMPORARY spike stub (Task 1). Replaced in Task 6.
@@ -110,7 +110,7 @@ serve(async (req) => {
 });
 ```
 
-- [ ] **Step 2: Register the function as public in config.toml**
+- [x] **Step 2: Register the function as public in config.toml**
 
 Append to `supabase/config.toml` after the `[functions.summarize-content]` block:
 
@@ -121,7 +121,7 @@ Append to `supabase/config.toml` after the `[functions.summarize-content]` block
 verify_jwt = false
 ```
 
-- [ ] **Step 3: Add the rewrites**
+- [x] **Step 3: Add the rewrites**
 
 Replace `vercel.json` with:
 
@@ -135,7 +135,7 @@ Replace `vercel.json` with:
 }
 ```
 
-- [ ] **Step 4: Deploy the stub and verify it directly**
+- [x] **Step 4: Deploy the stub and verify it directly**
 
 ```bash
 supabase functions deploy mcp --project-ref uqqsgmwkvslaomzxptnp
@@ -145,7 +145,7 @@ curl -s -X POST https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp \
 ```
 Expected: JSON with `"spike":true`, `"hasAuthorization":true`, `"body":"{\"hello\":1}"`. (No `apikey` header is needed with `verify_jwt = false`; `twilio-webhook` is the existing precedent.)
 
-- [ ] **Step 5: Commit, merge to main, push (deploy point)**
+- [x] **Step 5: Commit, merge to main, push (deploy point)**
 
 ```bash
 git add vercel.json supabase/config.toml supabase/functions/mcp/index.ts
@@ -154,7 +154,7 @@ git commit -m "feat(mcp): endpoint spike — /mcp rewrite + public echo function
 git merge --ff-only feat/mcp-server && git push origin main
 ```
 
-- [ ] **Step 6: Verify through the rewrite once Vercel deploys (~1–2 min)**
+- [x] **Step 6: Verify through the rewrite once Vercel deploys (~1–2 min)**
 
 ```bash
 curl -s -X POST https://www.gostash.it/mcp -H "Authorization: Bearer test" \
@@ -183,7 +183,7 @@ Decision: if both pass, `MCP_RESOURCE_URL = 'https://www.gostash.it/mcp'`. If th
   - `parseJsonRpcBody(raw: string): { ok: true; value: unknown } | { ok: false; response: McpHttpResult }`
   - `textResult(text, structured?)`, `errorResult(text)`, `negotiateProtocolVersion(requested)`, `LATEST_PROTOCOL_VERSION`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // supabase/functions/_shared/mcpProtocol.test.ts
@@ -300,12 +300,12 @@ describe('result helpers', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run supabase/functions/_shared/mcpProtocol.test.ts`
 Expected: FAIL — cannot resolve `./mcpProtocol`.
 
-- [ ] **Step 3: Implement the core**
+- [x] **Step 3: Implement the core**
 
 ```ts
 // supabase/functions/_shared/mcpProtocol.ts
@@ -435,12 +435,12 @@ export function parseJsonRpcBody(raw: string): { ok: true; value: unknown } | { 
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run supabase/functions/_shared/mcpProtocol.test.ts`
 Expected: all green. Then `npm test` — the full suite still passes (the new file is picked up by vitest's default include; `ios/`, `extension/`, `.claude/` stay excluded).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add supabase/functions/_shared/mcpProtocol.ts supabase/functions/_shared/mcpProtocol.test.ts
@@ -465,7 +465,7 @@ git commit -m "feat(mcp): dependency-free MCP JSON-RPC core with tests"
   - `searchItems(req: SearchRequest, deps: { supabaseAdmin; userId: string; embed: (text: string) => Promise<number[]> }): Promise<SearchResult[]>`
   - `openAiEmbedder(apiKey: string): (text: string) => Promise<number[]>`
 
-- [ ] **Step 1: Write the failing normalization tests**
+- [x] **Step 1: Write the failing normalization tests**
 
 ```ts
 // supabase/functions/_shared/search.test.ts
@@ -504,12 +504,12 @@ describe('normalizeSearchRequest', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run supabase/functions/_shared/search.test.ts`
 Expected: FAIL — cannot resolve `./search`.
 
-- [ ] **Step 3: Write the shared module**
+- [x] **Step 3: Write the shared module**
 
 ```ts
 // supabase/functions/_shared/search.ts
@@ -681,12 +681,12 @@ export async function searchItems(req: SearchRequest, deps: SearchDeps): Promise
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run supabase/functions/_shared/search.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Turn `search-items` into a shell**
+- [x] **Step 5: Turn `search-items` into a shell**
 
 Replace `supabase/functions/search-items/index.ts` with:
 
@@ -742,7 +742,7 @@ serve(async (req) => {
 });
 ```
 
-- [ ] **Step 6: Deploy and check parity against production**
+- [x] **Step 6: Deploy and check parity against production**
 
 Get a session token for the test account, then compare a query before/after (run the "before" call first, keep the output):
 
@@ -764,7 +764,7 @@ diff <(python3 -m json.tool /tmp/list-before.json) <(python3 -m json.tool /tmp/l
 ```
 Expected: both parity lines print (result ids and snippets identical; `score` values may differ in the last decimals across embedding calls — if only scores differ, that is parity).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add supabase/functions/_shared/search.ts supabase/functions/_shared/search.test.ts supabase/functions/search-items/index.ts
@@ -781,7 +781,7 @@ git commit -m "refactor(search): extract retrieval core to _shared/search.ts for
 **Interfaces:**
 - Produces tables `public.agent_grants`, `public.agent_access_log`, function `public.is_agent_token()`, restrictive policies named `agent tokens: no direct access` on every user-data table and `agent tokens: no storage access` on `storage.objects`.
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration**
 
 ```sql
 -- MCP server (spec: docs/superpowers/specs/2026-09-05-mcp-server-design.md).
@@ -878,7 +878,7 @@ CREATE POLICY "agent tokens: no storage access" ON storage.objects
   USING (NOT public.is_agent_token()) WITH CHECK (NOT public.is_agent_token());
 ```
 
-- [ ] **Step 2: Apply it through the Management API and record it**
+- [x] **Step 2: Apply it through the Management API and record it**
 
 ```bash
 TOKEN=$(security find-generic-password -s "Supabase CLI" -a "supabase" -w | sed 's/^go-keyring-base64://' | base64 -d)
@@ -890,7 +890,7 @@ q "insert into supabase_migrations.schema_migrations (version, name) values ('20
 ```
 Expected: first call returns `[]` (no error object); second returns `[]`.
 
-- [ ] **Step 3: Verify the schema and the fence shape**
+- [x] **Step 3: Verify the schema and the fence shape**
 
 ```bash
 q "select count(*) as fence_policies from pg_policies where policyname = 'agent tokens: no direct access'"
@@ -908,7 +908,7 @@ curl -s "https://uqqsgmwkvslaomzxptnp.supabase.co/rest/v1/items?select=id&limit=
 ```
 Expected: one row (JWT from Task 3 Step 6). The agent-token side of the fence is proven in Task 10.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/migrations/20260905120000_agent_grants_and_access_log.sql
@@ -929,7 +929,7 @@ git commit -m "feat(mcp): agent_grants + agent_access_log tables and the agent-t
 - Produces (`agentToken.ts`): `bearerToken(header: string | null | undefined): string | null`, `decodeJwtPayload(token: string): Record<string, unknown> | null`, `agentClientId(token: string): string | null`, `isAgentToken(token: string | null | undefined): boolean`.
 - Produces (`auth.ts`): `assertNotAgentToken(tokenOrHeader: string | null | undefined): void` (throws `Error('Authentication failed: agent tokens are only accepted by the MCP endpoint')`), and `authenticateUser` now calls it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // supabase/functions/_shared/agentToken.test.ts
@@ -971,12 +971,12 @@ describe('agentClientId / isAgentToken', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx vitest run supabase/functions/_shared/agentToken.test.ts`
 Expected: FAIL — cannot resolve `./agentToken`.
 
-- [ ] **Step 3: Implement `agentToken.ts`**
+- [x] **Step 3: Implement `agentToken.ts`**
 
 ```ts
 // supabase/functions/_shared/agentToken.ts
@@ -1020,12 +1020,12 @@ export function isAgentToken(token: string | null | undefined): boolean {
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx vitest run supabase/functions/_shared/agentToken.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Wire the guard into `_shared/auth.ts`**
+- [x] **Step 5: Wire the guard into `_shared/auth.ts`**
 
 Replace the file with:
 
@@ -1079,7 +1079,7 @@ export async function authenticateUser(authHeader: string | null) {
 ```
 (`search-items` and `chat-with-all-content` already map messages containing "Authentication" to 401, so agent tokens get a 401 with this message.)
 
-- [ ] **Step 6: Insert the guard into the direct-`getUser` functions**
+- [x] **Step 6: Insert the guard into the direct-`getUser` functions**
 
 Add `import { isAgentToken } from '../_shared/agentToken.ts';` to each file's imports, then right after the existing successful-auth check:
 
@@ -1142,7 +1142,7 @@ In `summarize-content` use its own helper instead (signature `json(body, status 
 ```
 (replaces the existing `if (authHeader) { … }` block.)
 
-- [ ] **Step 7: Deploy every touched function and confirm normal sessions still work**
+- [x] **Step 7: Deploy every touched function and confirm normal sessions still work**
 
 ```bash
 for f in search-items chat-with-all-content add-note add-url add-file check-subscription create-checkout \
@@ -1158,7 +1158,7 @@ curl -s -X POST https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/search-ite
 ```
 Expected: check-subscription returns the subscription JSON (not 401/403); search-items returns one result. The agent-token rejection itself is proven end-to-end in Task 10 Step 5.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add supabase/functions/_shared/agentToken.ts supabase/functions/_shared/agentToken.test.ts supabase/functions/_shared/auth.ts \
@@ -1184,7 +1184,7 @@ git commit -m "feat(mcp): reject agent (OAuth-client) tokens on every non-MCP en
   `type AgentAuthResult = { ok: true; user: { id: string; email?: string }; grant: AgentGrant; supabaseAdmin } | { ok: false; status: 401 | 403; error: string; description: string }` and
   `interface AgentGrant { id: string; user_id: string; client_id: string; client_name: string; scopes: string[]; revoked_at: string | null }`.
 
-- [ ] **Step 1: Write `agentAuth.ts`**
+- [x] **Step 1: Write `agentAuth.ts`**
 
 ```ts
 // supabase/functions/_shared/agentAuth.ts
@@ -1257,7 +1257,7 @@ export async function authenticateAgent(authHeader: string | null): Promise<Agen
 }
 ```
 
-- [ ] **Step 2: Write the function**
+- [x] **Step 2: Write the function**
 
 Replace `supabase/functions/mcp/index.ts` with (set `MCP_RESOURCE_URL` per Task 1's decision):
 
@@ -1643,7 +1643,7 @@ serve(async (req) => {
 });
 ```
 
-- [ ] **Step 3: Deploy and verify the unauthenticated surface**
+- [x] **Step 3: Deploy and verify the unauthenticated surface**
 
 ```bash
 supabase functions deploy mcp --project-ref uqqsgmwkvslaomzxptnp
@@ -1656,7 +1656,7 @@ curl -s -i -X POST $BASE -H "Authorization: Bearer $JWT" -H "Content-Type: appli
 ```
 Expected, in order: `401` with `WWW-Authenticate: Bearer resource_metadata="https://www.gostash.it/mcp/.well-known/oauth-protected-resource", scope="email"`; the metadata JSON with `"resource":"https://www.gostash.it/mcp"`; the server card line `it.gostash/stash https://www.gostash.it/mcp ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']`; `405`; and — with a *session* JWT — `401` whose description says only OAuth-issued tokens are accepted (this is the "session tokens refused" rule).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/functions/_shared/agentAuth.ts supabase/functions/mcp/index.ts
@@ -1686,7 +1686,7 @@ git commit -m "feat(mcp): MCP edge function — OAuth-authenticated search_stash
   - `revokeOAuthGrant(clientId, accessToken): Promise<void>`
 - Produces (types): `Database['public']['Tables']['agent_grants' | 'agent_access_log']`.
 
-- [ ] **Step 1: Add the table types**
+- [x] **Step 1: Add the table types**
 
 In `src/integrations/supabase/types.ts`, insert directly after `    Tables: {` (before `card_feedback`):
 
@@ -1771,7 +1771,7 @@ In `src/integrations/supabase/types.ts`, insert directly after `    Tables: {` (
       }
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 ```ts
 // src/utils/oauthConsent.test.ts
@@ -1841,12 +1841,12 @@ describe('REST helpers', () => {
 });
 ```
 
-- [ ] **Step 3: Run to verify failure**
+- [x] **Step 3: Run to verify failure**
 
 Run: `npx vitest run src/utils/oauthConsent.test.ts`
 Expected: FAIL — cannot resolve `./oauthConsent`.
 
-- [ ] **Step 4: Implement `oauthConsent.ts`**
+- [x] **Step 4: Implement `oauthConsent.ts`**
 
 ```ts
 // src/utils/oauthConsent.ts
@@ -1949,12 +1949,12 @@ export async function revokeOAuthGrant(clientId: string, accessToken: string): P
 }
 ```
 
-- [ ] **Step 5: Run to verify pass**
+- [x] **Step 5: Run to verify pass**
 
 Run: `npx vitest run src/utils/oauthConsent.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Build the page**
+- [x] **Step 6: Build the page**
 
 ```tsx
 // src/pages/OAuthConsent.tsx
@@ -2153,16 +2153,16 @@ const OAuthConsent = () => {
 export default OAuthConsent;
 ```
 
-- [ ] **Step 7: Route it**
+- [x] **Step 7: Route it**
 
 In `src/App.tsx`: add `import OAuthConsent from '@/pages/OAuthConsent';` after the `Settings` import, and add `<Route path="/oauth/consent" element={<OAuthConsent />} />` directly after the `/settings` route.
 
-- [ ] **Step 8: Typecheck and run the suite**
+- [x] **Step 8: Typecheck and run the suite**
 
 Run: `npx tsc --noEmit -p tsconfig.app.json && npm test`
 Expected: no type errors; all tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/integrations/supabase/types.ts src/utils/oauthConsent.ts src/utils/oauthConsent.test.ts src/pages/OAuthConsent.tsx src/App.tsx
@@ -2186,7 +2186,7 @@ git commit -m "feat(mcp): /oauth/consent page — approve or deny an agent, reco
 - Consumes: `listOAuthGrants`, `revokeOAuthGrant` (Task 7); `agent_grants`, `agent_access_log` types (Task 7).
 - Produces: `MCP_SERVER_URL` const (in `agentActivity.ts`, single source for the web copy), `describeAgentActivity(row: AgentAccessRow, clientName: string): string`, `useConnectedAgents()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // src/utils/agentActivity.test.ts
@@ -2223,12 +2223,12 @@ describe('describeAgentActivity', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `npx vitest run src/utils/agentActivity.test.ts`
 Expected: FAIL — cannot resolve `./agentActivity`.
 
-- [ ] **Step 3: Implement `agentActivity.ts`**
+- [x] **Step 3: Implement `agentActivity.ts`**
 
 ```ts
 // src/utils/agentActivity.ts
@@ -2280,12 +2280,12 @@ export function describeAgentActivity(row: AgentAccessRow, clientName: string): 
 }
 ```
 
-- [ ] **Step 4: Run to verify pass**
+- [x] **Step 4: Run to verify pass**
 
 Run: `npx vitest run src/utils/agentActivity.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Write the hook**
+- [x] **Step 5: Write the hook**
 
 ```ts
 // src/hooks/useConnectedAgents.ts
@@ -2376,7 +2376,7 @@ export const useConnectedAgents = () => {
 };
 ```
 
-- [ ] **Step 6: Write the settings component**
+- [x] **Step 6: Write the settings component**
 
 ```tsx
 // src/components/settings/ConnectedAgentsSettings.tsx
@@ -2506,7 +2506,7 @@ const ConnectedAgentsSettings = () => {
 export default ConnectedAgentsSettings;
 ```
 
-- [ ] **Step 7: Add the tab**
+- [x] **Step 7: Add the tab**
 
 In `src/pages/Settings.tsx`:
 - Change the lucide import to `import { Settings as SettingsIcon, Smartphone, User, Crown, Tag, Bot } from 'lucide-react';`
@@ -2526,7 +2526,24 @@ In `src/pages/Settings.tsx`:
         </TabsContent>
 ```
 
-- [ ] **Step 8: Static metadata + headers**
+- [x] **Step 7b: Open a card from a `#item=<id>` deep link**
+
+ChatGPT citations for notes/photos/memos point at `https://www.gostash.it/home#item=<uuid>` (Task 6's `ITEM_LINK_BASE`). The library page only honours that hash inside chat-citation clicks today, so add a one-time open on load. In `src/pages/Index.tsx`, directly after the `handleSourceClick` function:
+
+```tsx
+  // Deep link from agents/citations: /home#item=<uuid> opens that card once
+  // the library has loaded, then clears the hash so reloads don't reopen it.
+  useEffect(() => {
+    const match = /^#item=([0-9a-f-]{36})$/i.exec(window.location.hash);
+    if (!match || !items.length) return;
+    const item = items.find((it) => it.id === match[1]);
+    if (item) setEditingItem(item);
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, [items]);
+```
+(`useEffect` and `items` are already in scope in that file.)
+
+- [x] **Step 8: Static metadata + headers**
 
 Create `public/.well-known/oauth-protected-resource/mcp` AND `public/.well-known/oauth-protected-resource` (both extensionless, identical content — path-specific and root probes):
 ```json
@@ -2580,7 +2597,7 @@ Replace `vercel.json` with (the `/mcp` rewrites from Task 1 stay first; the thre
 ```
 Vercel documents `/.well-known` as reserved for rewrites/redirects, so these three rewrites may be ignored; the `.json` files themselves are always served. Step 10 checks both forms and the Outcome section records which resolved. The function serves the same documents under `/mcp/.well-known/…` regardless, and the 401 challenge points there.
 
-- [ ] **Step 9: Typecheck, test, commit, merge to main, push (deploy point)**
+- [x] **Step 9: Typecheck, test, commit, merge to main, push (deploy point)**
 
 ```bash
 npx tsc --noEmit -p tsconfig.app.json && npm test
@@ -2593,7 +2610,7 @@ git commit -m "feat(mcp): Settings → Connected agents (connect, revoke, activi
 git merge --ff-only feat/mcp-server && git push origin main
 ```
 
-- [ ] **Step 10: Verify the deployed web surface**
+- [x] **Step 10: Verify the deployed web surface**
 
 After Vercel finishes:
 ```bash
@@ -2613,7 +2630,7 @@ With Playwright MCP: `browser_navigate` to `https://www.gostash.it/auth`, sign i
 **Files:**
 - Modify: `supabase/config.toml` (mirror of the hosted config)
 
-- [ ] **Step 1: Read the current allow list, then PATCH the config**
+- [x] **Step 1: Read the current allow list, then PATCH the config**
 
 ```bash
 TOKEN=$(security find-generic-password -s "Supabase CLI" -a "supabase" -w | sed 's/^go-keyring-base64://' | base64 -d)
@@ -2636,14 +2653,14 @@ EOF
 ```
 Expected: `{'site_url': 'https://www.gostash.it', 'oauth_server_enabled': True, 'oauth_server_allow_dynamic_registration': True, 'oauth_server_authorization_path': '/oauth/consent'}`.
 
-- [ ] **Step 2: Verify discovery**
+- [x] **Step 2: Verify discovery**
 
 ```bash
 curl -s https://uqqsgmwkvslaomzxptnp.supabase.co/.well-known/oauth-authorization-server/auth/v1 | python3 -m json.tool | grep -E '"issuer"|registration_endpoint|authorization_endpoint|token_endpoint"|code_challenge_methods_supported' -A1
 ```
 Expected: `issuer` = `https://uqqsgmwkvslaomzxptnp.supabase.co/auth/v1`, a `registration_endpoint`, `authorization_endpoint` ending `/oauth/authorize`, `token_endpoint` ending `/oauth/token`, and `S256` under `code_challenge_methods_supported`.
 
-- [ ] **Step 3: Mirror in config.toml and commit**
+- [x] **Step 3: Mirror in config.toml and commit**
 
 Append to `supabase/config.toml` under the `[auth]` block:
 ```toml
@@ -2671,7 +2688,7 @@ git commit -m "chore(auth): enable Supabase OAuth 2.1 server for MCP (consent at
 **Interfaces:**
 - Consumes: everything deployed. Writes `/tmp/stash-mcp-smoke.json` (tokens) for the `--reuse` run.
 
-- [ ] **Step 1: Write the smoke script**
+- [x] **Step 1: Write the smoke script**
 
 ```js
 #!/usr/bin/env node
@@ -2828,7 +2845,7 @@ await tools(token);
 await fence(token);
 ```
 
-- [ ] **Step 2: Run the full flow (browser approval via Playwright)**
+- [x] **Step 2: Run the full flow (browser approval via Playwright)**
 
 ```bash
 node scripts/mcp-smoke.mjs --query design   # keep running; it prints the authorize URL and waits
@@ -2839,7 +2856,7 @@ Expected script output: every line `PASS` — 401 challenge, metadata, registrat
 
 If `dynamic client registration` FAILS on the loopback `redirect_uris`, re-run with `--port 443`-style hosted redirect is not possible; instead record the failure in the Outcome section: hosted Claude (redirect `https://claude.ai/api/mcp/auth_callback`) is unaffected, Claude Code is the gap.
 
-- [ ] **Step 3: Confirm the audit trail and Settings rendering**
+- [x] **Step 3: Confirm the audit trail and Settings rendering**
 
 ```bash
 q "select tool, query, result_count, item_title, created_at from agent_access_log order by created_at desc limit 6"
@@ -2849,7 +2866,7 @@ Expected: rows for the calls just made; `last_used_at` set; `revoked_at` null.
 
 Playwright: `/settings` → Connected agents → "Stash MCP smoke test" listed with "last used less than a minute ago"; Activity shows "Stash MCP smoke test searched for “design” · 3 results" and "… read “<title>”". Screenshot for the ui-changes entry.
 
-- [ ] **Step 4: Revoke and prove the door closes**
+- [x] **Step 4: Revoke and prove the door closes**
 
 Playwright: click **Revoke** → confirm **Revoke access** → toast "Stash MCP smoke test disconnected"; the Connected list shows the empty state; Activity remains.
 
@@ -2859,11 +2876,11 @@ q "select revoked_at is not null as revoked from agent_grants where client_name 
 ```
 Expected: `reuse: ping → 401` or `403` (Supabase kills the session on grant revoke → 401 `invalid_token`; if the JWT is still honored, our grant check yields 403 `insufficient_scope`); every subsequent line `FAIL` is expected here and confirms revocation. `revoked` = true.
 
-- [ ] **Step 5: Reconnect works (re-consent un-revokes)**
+- [x] **Step 5: Reconnect works (re-consent un-revokes)**
 
 Run `node scripts/mcp-smoke.mjs` again and approve → all `PASS`; `q "select revoked_at from agent_grants where client_name = 'Stash MCP smoke test'"` → null. Then revoke once more from Settings so the test account is left clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/mcp-smoke.mjs
@@ -2879,7 +2896,7 @@ git commit -m "test(mcp): end-to-end OAuth + tools + fence + revocation smoke sc
 - Modify: `docs/ui-changes.md` (new top entry)
 - Modify: `docs/superpowers/plans/2026-09-05-mcp-server.md` (Outcome section at the bottom)
 
-- [ ] **Step 1: Claude Code as a real client (if available in the session)**
+- [x] **Step 1: Claude Code as a real client (if available in the session)**
 
 ```bash
 claude mcp add --transport http stash https://www.gostash.it/mcp
@@ -2887,7 +2904,7 @@ claude mcp list
 ```
 Then in an interactive `claude` session run `/mcp` → authenticate → approve on the consent page → ask "search my stash for design". Expected: tools appear as `mcp__stash__search_stash` / `mcp__stash__get_item` and return results. If the session cannot run the interactive flow, record it as a step for Will in the Outcome section (exact commands above).
 
-- [ ] **Step 1b: Directory & registry runbook**
+- [x] **Step 1b: Directory & registry runbook**
 
 Create `docs/mcp/DIRECTORIES.md`:
 
@@ -2968,7 +2985,7 @@ curl -s -X POST https://uqqsgmwkvslaomzxptnp.supabase.co/auth/v1/admin/oauth/cli
 List/revoke: `GET`/`DELETE …/admin/oauth/clients[/<id>]` with the same headers.
 ```
 
-- [ ] **Step 2: PLATFORM_API.md — "Agents (MCP)" section**
+- [x] **Step 2: PLATFORM_API.md — "Agents (MCP)" section**
 
 Insert before `## Message routing convention — RETIRED 2026-08-27`:
 
@@ -3016,7 +3033,7 @@ activity = last 50 `agent_access_log` rows, rendered per
 (session JWT) **then** set `agent_grants.revoked_at`.
 ```
 
-- [ ] **Step 3: ui-changes.md entry (top of file, after the `---`)**
+- [x] **Step 3: ui-changes.md entry (top of file, after the `---`)**
 
 ```markdown
 ## 2026-09-05 · Connect an agent (MCP server) — web
@@ -3049,7 +3066,7 @@ plan `docs/superpowers/plans/2026-09-05-mcp-server.md`, wire contract in
   unaffected.
 ```
 
-- [ ] **Step 4: Outcome section + final commit, merge, push (deploy point)**
+- [x] **Step 4: Outcome section + final commit, merge, push (deploy point)**
 
 Append to this plan:
 ```markdown
@@ -3069,3 +3086,13 @@ git commit -m "docs(mcp): platform API contract, ui-changes entry, directory run
 git merge --ff-only feat/mcp-server && git push origin main
 ```
 Finally update memory (`project-vision-roadmap.md` / a new `mcp-server.md`): what shipped, the endpoint, the fence rule, the smoke script, and any gap found.
+
+## Outcome (2026-09-05)
+
+- **Endpoint:** `https://www.gostash.it/mcp` via the Vercel rewrite — POST bodies, the `Authorization` header and sub-paths all proxy (Task 1). Function deployed; `search-items` refactored onto `_shared/search.ts` with byte-for-byte parity on ids/titles/snippets.
+- **Smoke (`scripts/mcp-smoke.mjs`):** three full runs, 22/22 PASS each — 401 challenge → protected-resource metadata → authorization-server metadata → dynamic registration → PKCE authorize (consent page, Playwright as the uitest account) → token (+ refresh token) → `initialize` (2025-06-18 and 2024-11-05 echoed), `notifications/initialized` → 202, `tools/list` (4 tools, all titled + read-only), `search_stash`, `get_item`, unknown id → `isError`, filter-mode listing, ChatGPT `search`/`fetch` shapes, and the fence (agent token: PostgREST `items` → `[]`, `search-items` → 401, `add-note` → 403).
+- **Revocation:** Settings → Revoke → next call 401 `invalid_token` (Supabase killed the session) and `agent_grants.revoked_at` set; the tab shows the empty state and keeps the activity history. Re-consenting the same client (`--client-id`) flipped the existing row back to active. Test grants revoked again afterwards; the three DCR clients remain registered in Supabase (harmless).
+- **Claude Code loopback DCR:** works — Supabase's registration endpoint accepted `http://127.0.0.1:8765/callback` and the authorize/consent/callback loop completed. `claude mcp add -s user --transport http stash https://www.gostash.it/mcp` is registered on Will's machine and shows "Needs authentication" until `/mcp` → authenticate is run interactively.
+- **Discovery on Vercel:** all six paths serve `application/json` with CORS `*` and `max-age=3600` — the extensionless `/.well-known/…` rewrites were honored, so root-probing clients and catalogs get the protected-resource metadata and server card without the 401 hint.
+- **Supabase auth config:** `site_url` → `https://www.gostash.it`, allow list gained `https://www.gostash.it/**` and `https://gostash.it/**`, OAuth server enabled with dynamic registration and authorization path `/oauth/consent`; discovery advertises DCR, S256, `offline_access`, and `token_endpoint_auth_methods_supported: [client_secret_basic, client_secret_post, none]` (no CIMD — Claude falls back to DCR).
+- **Left for Will:** (1) run `/mcp` in Claude Code to authenticate the registered server; (2) add Stash as a custom connector in claude.ai and ChatGPT developer mode; (3) directory listings per `docs/mcp/DIRECTORIES.md` (registry DNS verification + publish; Claude directory needs a Team/Enterprise org and a fixture account); (4) `git pull --ff-only` in the main checkout — every deploy point pushed the branch head straight to `origin/main` from the worktree.
