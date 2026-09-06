@@ -332,14 +332,35 @@ struct ItemDetailView: View {
         .accessibilityIdentifier("detail.done")
     }
 
-    /// Pinned footer bar (hairline top): "Delete item" left, autosave status right — port of
-    /// `EditItemSheet.tsx`'s footer.
+    /// Pinned footer bar (hairline top): "Delete item" left, autosave status + hide-keyboard
+    /// right — port of `EditItemSheet.tsx`'s footer, plus (final wave, F7) the sheet's one
+    /// keyboard-dismiss control.
+    ///
+    /// `detail.dismissKeyboard` used to live in `ItemDetailContent.sectionHead` (the notes
+    /// section's own header) — reachable only when the notes tab's header happened to be on
+    /// screen, which put it ~400pt below the title/description fields on a typical item (whole-
+    /// branch review, F7). This footer is a pinned SIBLING below the ScrollView (see the doc
+    /// comment on this view's outer `ZStack`), so it's always on screen regardless of scroll
+    /// position or which of the three fields (`DetailField`) is focused — same identifier, same
+    /// "visible while any field is focused, clears the shared `focusedField`" contract, just
+    /// reachable from anywhere in the sheet now. 40pt (`CircleIcon`'s own default `size`,
+    /// matching the composer's equivalent control) rather than the notes header's smaller 32pt —
+    /// this is now a primary footer control, not an inline section accessory.
     private var footerBar: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 deleteButton
                 Spacer()
                 autosaveLabel
+                if focusedField != nil {
+                    Button {
+                        focusedField = nil
+                    } label: {
+                        CircleIcon(systemImage: "keyboard.chevron.compact.down")
+                    }
+                    .accessibilityIdentifier("detail.dismissKeyboard")
+                    .accessibilityLabel("Hide keyboard")
+                }
             }
             if let deleteErrorMessage {
                 Text(deleteErrorMessage)
@@ -628,7 +649,14 @@ struct ItemDetailView: View {
             // ethos — the grid will drop the row itself once this resolves (and, redundantly,
             // via the realtime subscription's own broadcast of the delete).
             Task { await store.refresh() }
+        } catch ItemEditorError.deleteMatchedNoRows {
+            // Final wave (F6): a well-understood, non-transient shape (RLS/stale id) — "try
+            // again" would be actively wrong copy here, since retrying the same delete against
+            // the same non-existent/inaccessible row will just fail the same way again.
+            deleteErrorMessage = "Couldn't delete this item — it may not exist anymore or you may not have permission."
         } catch {
+            // Everything else (network failure, `.deleteResponseUnreadable`, any other thrown
+            // error) is plausibly transient — "try again" is still the right steer.
             deleteErrorMessage = "Couldn't delete — try again."
         }
     }

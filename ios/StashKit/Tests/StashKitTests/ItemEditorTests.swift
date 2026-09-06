@@ -98,6 +98,27 @@ final class ItemEditorTests: XCTestCase {
         XCTAssertTrue(patcher.deleted.isEmpty, "A failed delete must never be recorded as having succeeded")
     }
 
+    /// Final wave (F6): `deleteResponseUnreadable` (a DELETE response that couldn't even be
+    /// decoded) must reach the caller as its OWN distinct case, not fold into
+    /// `.deleteMatchedNoRows` — `ItemDetailView.performDelete` keys its UI copy off this
+    /// distinction (a decode failure gets the generic "try again", not the no-rows-matched
+    /// "may not exist anymore" copy, which would misdescribe an unreadable response as a
+    /// definitely-absent row).
+    func testDeletePropagatesResponseUnreadableDistinctFromNoRows() async {
+        let patcher = RecordingPatcher()
+        patcher.deleteError = ItemEditorError.deleteResponseUnreadable
+        let editor = ItemEditor(patcher: patcher, refresher: EmbeddingRefresher(syncer: RecordingSyncer()))
+
+        do {
+            try await editor.delete(itemId: UUID())
+            XCTFail("Expected the patcher's delete failure to propagate")
+        } catch {
+            let itemError = error as? ItemEditorError
+            XCTAssertEqual(itemError, .deleteResponseUnreadable)
+            XCTAssertNotEqual(itemError, .deleteMatchedNoRows)
+        }
+    }
+
     func testUnshareWithNoteClearsSticky() {
         let editor = ItemEditor(patcher: RecordingPatcher(), refresher: EmbeddingRefresher(syncer: RecordingSyncer()))
         let patch = editor.togglePublic(item: snapshot(note: "sticky", isPublic: true), to: false)

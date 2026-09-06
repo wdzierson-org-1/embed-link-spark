@@ -52,26 +52,17 @@ struct ItemDetailContent: View {
     /// doc comment for why (three tabs wrapped mid-word at 393pt when squeezed onto the label's
     /// row, confirmed live pre-dating this fix round).
     ///
-    /// `trailing` (plan 12 feedback round 3, Task 1) is this section's own hide-keyboard control —
-    /// see `ItemDetailView`'s doc comment on `focusedField` for why the toolbar accessory this
-    /// replaced lived at the sheet's own top level: iOS 26 renders `.toolbar(placement: .keyboard)`
-    /// as a floating bar that's unreliable inside a `.sheet(item:)` presentation (sometimes never
-    /// appears at all). This header is shared by every tab this type has (`config.title`'s "Notes"/
-    /// "Notes & Summary"/"Notes & Transcript"), so showing it here — rather than duplicating it
-    /// inside `NotesEditor` itself — covers title/description focus too, not just notes, with one
-    /// control: `notesFocused` is the SAME unified `FocusState<DetailField?>` all three fields
-    /// share, so "any of title/description/notes is focused" is just "wrappedValue != nil".
+    /// `trailing` used to carry this section's own hide-keyboard control (plan 12 feedback round
+    /// 3, Task 1). Final wave (F7, whole-branch review): moved to `ItemDetailView.footerBar`
+    /// instead — the notes header sits roughly 400pt below the title/description fields on a
+    /// typical item, so a control there was a long reach back down to it when the FIELD being
+    /// dismissed was the title/description, not notes. The footer is pinned and always on
+    /// screen regardless of scroll position, so it's reachable no matter which of the three
+    /// fields is focused. `trailing` is empty now — kept as a named slot (not deleted) in case a
+    /// future section-local control needs it.
     private var sectionHead: some View {
         SectionHeader(title: config.title, trailing: {
-            if notesFocused.wrappedValue != nil {
-                Button {
-                    notesFocused.wrappedValue = nil
-                } label: {
-                    CircleIcon(systemImage: "keyboard.chevron.compact.down", size: 32)
-                }
-                .accessibilityIdentifier("detail.dismissKeyboard")
-                .accessibilityLabel("Hide keyboard")
-            }
+            EmptyView()
         }, accessory: {
             if tabs.count > 1 {
                 let pillItems = tabs.map { PillTabs<ContentTabKey>.Item($0.key, label: $0.label) }

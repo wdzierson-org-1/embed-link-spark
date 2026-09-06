@@ -155,7 +155,16 @@ public struct SupabaseItemPatcher: ItemPatching {
             .eq("id", value: itemId.uuidString)
             .select("id")
             .execute().data
-        let deletedRows = (try? JSONDecoder().decode([DeletedRow].self, from: data)) ?? []
+        // Final wave (F6): a decode FAILURE (malformed/unexpected body — a real server-side
+        // anomaly) used to fold into the exact same "matched no rows" bucket as a genuinely
+        // empty `[]` array (the expected, well-understood RLS/stale-id shape this whole method's
+        // doc comment above is about). Distinguished now so the two get their own error cases —
+        // `deleteResponseUnreadable` can't reuse `deleteMatchedNoRows`'s "it may not exist
+        // anymore or you may not have permission" copy, which would be actively misleading for a
+        // response the client couldn't even parse.
+        guard let deletedRows = try? JSONDecoder().decode([DeletedRow].self, from: data) else {
+            throw ItemEditorError.deleteResponseUnreadable
+        }
         guard !deletedRows.isEmpty else {
             throw ItemEditorError.deleteMatchedNoRows
         }
@@ -258,7 +267,14 @@ public enum ItemEditorError: Error, Equatable {
     /// DELETE request completed with an HTTP success status but matched zero rows server-side —
     /// see `SupabaseItemPatcher.deleteItemCascade`'s doc comment for the confirmed root cause
     /// (RLS silently filters the row out of the DELETE's candidate set rather than erroring).
+    /// UI copy: "Couldn't delete this item — it may not exist anymore or you may not have
+    /// permission."
     case deleteMatchedNoRows
+    /// Final wave (F6): the DELETE's representation body came back but couldn't be decoded as
+    /// `[{id: UUID}]` at all — a genuinely unexpected server response, NOT the well-understood
+    /// "matched zero rows" shape `deleteMatchedNoRows` covers (which decodes cleanly to `[]`).
+    /// Kept distinct so the two never share misleading UI copy.
+    case deleteResponseUnreadable
 }
 
 /// Backs the item detail view: save/delete/public-toggle/tag operations, all delegating network
