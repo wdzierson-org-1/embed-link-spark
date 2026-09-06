@@ -248,9 +248,10 @@ normal chronological list; a server search's relevance order wins while
 active.
 
 Daily job: `reminder-digest` (pg_cron 13:00 UTC → pg_net → edge function,
-`x-cron-secret` header). Step 1 expires stale reminders; step 2 emails each
-user their due, un-notified reminders once (one email per user per day,
-never one per reminder) and stamps `reminder_notified_at`.
+`x-cron-secret` header). Step 1 (expire stale reminders) is live. Step 2 —
+one email per user per day listing their due, un-notified reminders (never
+one per reminder), then stamping `reminder_notified_at` — is specified but
+not yet built: it ships with plan 3 and is currently skipped.
 
 ## Live updates
 
