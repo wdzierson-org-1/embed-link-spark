@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { isAgentToken } from '../_shared/agentToken.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,6 +51,12 @@ Deno.serve(async (req) => {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
+      );
+    }
+    if (isAgentToken(token)) {
+      return new Response(
+        JSON.stringify({ error: 'Agent tokens are only accepted by the MCP endpoint' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

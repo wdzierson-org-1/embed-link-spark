@@ -2,11 +2,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Settings as SettingsIcon, Smartphone, User, Crown, Tag } from 'lucide-react';
+import { Settings as SettingsIcon, Smartphone, User, Crown, Tag, Bot } from 'lucide-react';
 import PhoneNumberSetup from '@/components/PhoneNumberSetup';
 import SubscriptionSettings from '@/components/SubscriptionSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
 import TagsSettings from '@/components/settings/TagsSettings';
+import ConnectedAgentsSettings from '@/components/settings/ConnectedAgentsSettings';
 import HeaderSection from '@/components/HeaderSection';
 
 const Settings = () => {
@@ -45,7 +46,7 @@ const Settings = () => {
       </div>
 
       <Tabs defaultValue="account" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 mb-6">
+        <TabsList className="grid w-full grid-cols-5 mb-6">
           <TabsTrigger value="account" className="flex items-center gap-2">
             <User className="h-4 w-4" />
             Your Information
@@ -61,6 +62,10 @@ const Settings = () => {
           <TabsTrigger value="subscription" className="flex items-center gap-2">
             <Crown className="h-4 w-4" />
             Subscription
+          </TabsTrigger>
+          <TabsTrigger value="agents" className="flex items-center gap-2">
+            <Bot className="h-4 w-4" />
+            Connected agents
           </TabsTrigger>
         </TabsList>
 
@@ -78,6 +83,10 @@ const Settings = () => {
 
         <TabsContent value="subscription" className="mt-0">
           <SubscriptionSettings />
+        </TabsContent>
+
+        <TabsContent value="agents" className="mt-0">
+          <ConnectedAgentsSettings />
         </TabsContent>
       </Tabs>
       </div>

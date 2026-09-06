@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { isAgentToken } from '../_shared/agentToken.ts';
 import { generateSummary } from '../_shared/summarize.ts';
 
 const corsHeaders = {
@@ -43,6 +44,9 @@ serve(async (req) => {
     const { data: { user } } = await authedClient.auth.getUser();
     if (!user) {
       return json({ success: false, reason: 'Not authenticated' }, 401);
+    }
+    if (isAgentToken(authHeader)) {
+      return json({ success: false, reason: 'Agent tokens are only accepted by the MCP endpoint' }, 403);
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);

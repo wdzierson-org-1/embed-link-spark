@@ -14,6 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_access_log: {
+        Row: {
+          client_id: string
+          created_at: string
+          filters: Json | null
+          grant_id: string
+          id: string
+          item_id: string | null
+          item_title: string | null
+          query: string | null
+          result_count: number | null
+          tool: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          filters?: Json | null
+          grant_id: string
+          id?: string
+          item_id?: string | null
+          item_title?: string | null
+          query?: string | null
+          result_count?: number | null
+          tool: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          filters?: Json | null
+          grant_id?: string
+          id?: string
+          item_id?: string | null
+          item_title?: string | null
+          query?: string | null
+          result_count?: number | null
+          tool?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_grants: {
+        Row: {
+          client_id: string
+          client_name: string
+          client_uri: string | null
+          created_at: string
+          id: string
+          last_used_at: string | null
+          revoked_at: string | null
+          scopes: string[]
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          client_name: string
+          client_uri?: string | null
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          scopes?: string[]
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          client_name?: string
+          client_uri?: string | null
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          revoked_at?: string | null
+          scopes?: string[]
+          user_id?: string
+        }
+        Relationships: []
+      }
       card_feedback: {
         Row: {
           client: string

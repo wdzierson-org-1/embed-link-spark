@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { isAgentToken } from '../_shared/agentToken.ts';
 import { NO_PREAMBLE_RULES, stripPreamble } from '../_shared/summarize.ts';
 import {
   KEEP_FILENAME_TOKEN,
@@ -92,6 +93,7 @@ Deno.serve(async (req) => {
     if (!token) return json(401, { error: 'Missing authorization token' });
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return json(401, { error: 'Invalid or expired token' });
+    if (isAgentToken(token)) return json(403, { error: 'Agent tokens are only accepted by the MCP endpoint' });
 
     const { file_path, mime_type, file_size, content, title, is_public = false, attributes } = await req.json();
     const safeAttributes =

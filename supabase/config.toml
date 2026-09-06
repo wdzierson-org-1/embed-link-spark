@@ -10,10 +10,17 @@ max_rows = 1000
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
+site_url = "https://www.gostash.it"
 additional_redirect_urls = ["https://localhost:3000"]
 jwt_expiry = 3600
 enable_signup = true
+
+# Hosted project has the same values (set 2026-09-05 via the Management API):
+# Supabase is the OAuth 2.1 authorization server for the MCP endpoint.
+[auth.oauth_server]
+enabled = true
+authorization_url_path = "/oauth/consent"
+allow_dynamic_registration = true
 
 [functions.twilio-webhook]
 verify_jwt = false
@@ -57,3 +64,8 @@ port = 54322
 [storage]
 enabled = true
 file_size_limit = "50MiB"
+
+# MCP endpoint: auth is checked in-function so unauthenticated requests get
+# the RFC 9728 WWW-Authenticate challenge instead of the gateway's opaque 401.
+[functions.mcp]
+verify_jwt = false

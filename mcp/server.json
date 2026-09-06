@@ -1,0 +1,11 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "it.gostash/stash",
+  "title": "Stash",
+  "description": "Search and read a Stash user's saved links, notes, photos, memos and documents. Read-only, OAuth.",
+  "version": "1.0.0",
+  "websiteUrl": "https://www.gostash.it",
+  "remotes": [
+    { "type": "streamable-http", "url": "https://www.gostash.it/mcp" }
+  ]
+}

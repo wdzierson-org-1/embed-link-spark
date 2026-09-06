@@ -17,6 +17,7 @@ import {
   requestWaybackSnapshot,
   verifyRemoteImage,
 } from '../_shared/blockedContentFallbacks.ts';
+import { resolveYouTubeLink } from '../_shared/youtube.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -929,6 +930,9 @@ const rescueBlockedMetadata = async (
 serve(async (req) => {
   const traceId = `trace_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   let requestPayload: { url?: string; userId?: string; fastOnly?: boolean } = {};
+  // Probed i.ytimg.com thumbnail for YouTube links — resolved before any page
+  // fetch and authoritative on every path below, including the error fallbacks
+  let youtubeThumbnail: string | undefined;
 
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -965,6 +969,45 @@ serve(async (req) => {
     }
 
     console.log(`Extracting metadata for: ${url}`);
+
+    // YouTube answers our egress IPs with HTTP 429 on watch pages, so the
+    // page fetch below never reaches the HTML parser's YouTube branch and the
+    // error path used to ship a Jina rescue whose "image" was the watch URL.
+    // Resolve from the URL alone first (oEmbed + probed thumbnail, both
+    // reachable from the cloud); with a title in hand there's nothing the
+    // page could add. Without one, keep the thumbnail and let the rescue
+    // tiers supply the title.
+    const youtube = await resolveYouTubeLink(url);
+    youtubeThumbnail = youtube?.image;
+    if (youtube?.title) {
+      let previewImagePath: string | undefined;
+      let previewImagePublicUrl: string | undefined;
+      if (!fastOnly && youtube.image && userId) {
+        const stored = await downloadAndStoreImage(youtube.image, userId);
+        if (stored) {
+          previewImagePath = stored.path;
+          previewImagePublicUrl = stored.publicUrl;
+        }
+      }
+      const result: MetadataResult = {
+        title: cleanOptionalMetaText(youtube.title),
+        description: cleanOptionalMetaText(youtube.description),
+        image: youtube.image,
+        previewImagePath,
+        previewImagePublicUrl,
+        siteName: youtube.siteName,
+        videoUrl: youtube.canonicalUrl,
+        strategyUsed: 'youtube-oembed',
+        traceId,
+        url,
+        success: true,
+      };
+      console.log('YouTube resolved from URL alone:', { title: result.title, image: result.image, previewImagePath });
+      return new Response(
+        JSON.stringify(result),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Use platform-specific User-Agent
     const userAgent = getUserAgent(url);
@@ -1079,8 +1122,10 @@ serve(async (req) => {
       // now — clients store this URL in file_path, and an unfetchable one
       // renders as a broken/fallback cover forever. (Fast path skips the check
       // to stay responsive; the deep pass re-runs and overwrites.)
-      let validImage = metadata.image;
-      if (!fastOnly && validImage) {
+      // A probed YouTube thumbnail beats anything the page or a rescue tier
+      // reported (Jina hands back the watch URL itself in the image slot)
+      let validImage = youtubeThumbnail ?? metadata.image;
+      if (!fastOnly && validImage && validImage !== youtubeThumbnail) {
         const ok = await verifyRemoteImage(validImage);
         if (!ok) {
           console.log(`Image failed verification, dropping: ${validImage}`);
@@ -1164,7 +1209,7 @@ serve(async (req) => {
             JSON.stringify({
               title: rescued.title || fallbackUrl.hostname,
               description: rescued.description,
-              image: rescued.image,
+              image: youtubeThumbnail ?? rescued.image,
               siteName: rescued.siteName || fallbackUrl.hostname,
               strategyUsed: rescued.strategyUsed,
               traceId,
@@ -1182,7 +1227,7 @@ serve(async (req) => {
       const fallbackResult: MetadataResult = {
         title: finalFallback?.title || fallbackUrl.hostname,
         description: finalFallback?.description,
-        image: finalFallback?.image,
+        image: youtubeThumbnail ?? finalFallback?.image,
         siteName: finalFallback?.siteName || fallbackUrl.hostname,
         videoUrl: finalFallback?.videoUrl,
         strategyUsed: finalFallback?.strategyUsed || 'hostname-fallback',

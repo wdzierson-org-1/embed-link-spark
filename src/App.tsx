@@ -12,6 +12,7 @@ import Pricing from '@/pages/Pricing';
 import Index from '@/pages/Index';
 import Auth from '@/pages/Auth';
 import Settings from '@/pages/Settings';
+import OAuthConsent from '@/pages/OAuthConsent';
 import SubscriptionSuccess from '@/pages/SubscriptionSuccess';
 import NotFound from '@/pages/NotFound';
 import { PublicFeed } from '@/pages/PublicFeed';
@@ -39,6 +40,7 @@ function App() {
                 <Route path="/home" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/oauth/consent" element={<OAuthConsent />} />
                 <Route path="/subscription-success" element={<SubscriptionSuccess />} />
                 <Route path="/404" element={<NotFound />} />
                 <Route path="/feed/:username" element={<PublicFeed />} />

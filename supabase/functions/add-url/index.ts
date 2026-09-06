@@ -1,7 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { isAgentToken } from '../_shared/agentToken.ts';
 import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
+import { resolveYouTubeLink } from '../_shared/youtube.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -230,6 +232,12 @@ Deno.serve(async (req) => {
         }
       );
     }
+    if (isAgentToken(token)) {
+      return new Response(
+        JSON.stringify({ error: 'Agent tokens are only accepted by the MCP endpoint' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const body = await req.json();
     console.log('add-url called', { hasAttributes: !!body.attributes, url: body.url });
@@ -269,56 +277,76 @@ Deno.serve(async (req) => {
     let metadata: { title: string | null | undefined, description: string | null | undefined, image: string | null | undefined, siteName: string | null | undefined } = { title: null, description: null, image: null, siteName: null };
     let previewImagePath = null;
 
-    try {
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; Notes2MeBot/1.0)'
-        }
-      });
-
-      if (response.ok) {
-        const html = await response.text();
-        metadata = extractMetaFromHtml(html);
-        console.log('Extracted metadata:', metadata);
-
-        // A bot wall's page ("Client Challenge", "Just a moment…") is worse
-        // than no metadata: null it so the fallbacks and the deep enrichment
-        // pass (which can rescue the real title) take over
-        if (isBlockedPageTitle(metadata.title)) {
-          console.log('Quick fetch hit a challenge page; discarding its metadata');
-          metadata = { title: null, description: null, image: null, siteName: metadata.siteName };
-        }
-
-        // Download and store preview image if available
-        if (metadata.image) {
-          previewImagePath = await downloadAndStoreImage(metadata.image, targetUserId, supabase);
-        }
+    // YouTube rate-limits our egress IPs on watch pages (HTTP 429), so the
+    // quick fetch would come back empty and the card would sit on a favicon
+    // plate until deep enrichment. Resolve from the URL alone instead —
+    // oEmbed title + probed i.ytimg.com thumbnail — so the first paint is
+    // already the finished card. If oEmbed is down the thumbnail still lands
+    // and the deep pass supplies the title.
+    const youtube = await resolveYouTubeLink(url);
+    if (youtube) {
+      metadata = {
+        title: youtube.title ?? null,
+        description: youtube.description ?? null,
+        image: youtube.image ?? null,
+        siteName: youtube.siteName,
+      };
+      console.log('YouTube resolved from URL alone:', metadata);
+      if (youtube.image) {
+        previewImagePath = await downloadAndStoreImage(youtube.image, targetUserId, supabase);
       }
-    } catch (fetchError) {
-      console.log('Direct fetch failed, trying with proxy:', fetchError);
-      
-      // Try with a proxy service as fallback
+    } else {
       try {
-        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-        const proxyResponse = await fetch(proxyUrl);
-        
-        if (proxyResponse.ok) {
-          const proxyData = await proxyResponse.json();
-          const html = proxyData.contents;
-          metadata = extractMetaFromHtml(html);
-          console.log('Extracted metadata via proxy:', metadata);
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; Notes2MeBot/1.0)'
+          }
+        });
 
+        if (response.ok) {
+          const html = await response.text();
+          metadata = extractMetaFromHtml(html);
+          console.log('Extracted metadata:', metadata);
+
+          // A bot wall's page ("Client Challenge", "Just a moment…") is worse
+          // than no metadata: null it so the fallbacks and the deep enrichment
+          // pass (which can rescue the real title) take over
           if (isBlockedPageTitle(metadata.title)) {
-            console.log('Proxy fetch hit a challenge page; discarding its metadata');
+            console.log('Quick fetch hit a challenge page; discarding its metadata');
             metadata = { title: null, description: null, image: null, siteName: metadata.siteName };
           }
 
+          // Download and store preview image if available
           if (metadata.image) {
             previewImagePath = await downloadAndStoreImage(metadata.image, targetUserId, supabase);
           }
         }
-      } catch (proxyError) {
-        console.error('Proxy fetch also failed:', proxyError);
+      } catch (fetchError) {
+        console.log('Direct fetch failed, trying with proxy:', fetchError);
+
+        // Try with a proxy service as fallback
+        try {
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+          const proxyResponse = await fetch(proxyUrl);
+
+          if (proxyResponse.ok) {
+            const proxyData = await proxyResponse.json();
+            const html = proxyData.contents;
+            metadata = extractMetaFromHtml(html);
+            console.log('Extracted metadata via proxy:', metadata);
+
+            if (isBlockedPageTitle(metadata.title)) {
+              console.log('Proxy fetch hit a challenge page; discarding its metadata');
+              metadata = { title: null, description: null, image: null, siteName: metadata.siteName };
+            }
+
+            if (metadata.image) {
+              previewImagePath = await downloadAndStoreImage(metadata.image, targetUserId, supabase);
+            }
+          }
+        } catch (proxyError) {
+          console.error('Proxy fetch also failed:', proxyError);
+        }
       }
     }
 
