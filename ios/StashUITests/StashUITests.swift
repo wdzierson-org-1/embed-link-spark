@@ -2196,4 +2196,88 @@ final class StashUITests: XCTestCase {
         XCTAssertEqual(clearedValue, "Search your stash",
                        "Expected the query cleared after Cancel (placeholder showing), got '\(clearedValue)'")
     }
+
+    // MARK: - Onboarding (Task 4, plan 12)
+
+    /// "How to easily stash" panel — Will's device note 10: shown ONCE per app install right
+    /// after a successful sign-in/sign-up, re-openable any time from Settings → "How to stash".
+    /// Three behaviors in one flow (each needs the prior step's end state, so one test is more
+    /// failure-legible here than three that would each re-derive the same setup):
+    /// 1. `--uitest-reset-onboarding` (new DEBUG launch arg, wired alongside `--uitest-reset-auth`
+    ///    in `SessionStore.start()`) forces `OnboardingState`'s seen flag to `false` before this
+    ///    sign-in, so the panel appears; "Got it" (`onboarding.gotIt`) dismisses it AND
+    ///    permanently marks it seen.
+    /// 2. A full app relaunch (real process boundary, not just re-entering credentials in the
+    ///    same running app — proves the flag survived past `SessionStore`'s in-memory state) with
+    ///    ONLY `--uitest-reset-auth` signs in again and must reach the tab bar directly — the
+    ///    panel must NOT reappear now that it's been marked seen.
+    /// 3. Settings' "How to stash" row (`settings.howToStash`) re-opens the same panel on demand
+    ///    regardless of the seen flag; "Show me later" (`onboarding.showLater`) dismisses it
+    ///    without re-touching the flag (spec: only "Got it" marks it seen).
+    @MainActor
+    func testOnboardingPanelShowsOnceAfterSignIn() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+
+        // --- 1. Reset both flags; sign in; the panel appears; "Got it" dismisses + marks seen.
+        app.launchArguments = ["--uitest-reset-auth", "--uitest-reset-onboarding"]
+        app.launch()
+
+        let emailField = app.textFields["signin.email"]
+        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
+        emailField.tap()
+        emailField.typeText(email)
+        let passwordField = app.secureTextFields["signin.password"]
+        passwordField.tap()
+        passwordField.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        let gotItButton = app.buttons["onboarding.gotIt"]
+        XCTAssertTrue(gotItButton.waitForExistence(timeout: 15),
+                      "Expected the 'How to easily stash' panel to appear after a fresh sign-in with --uitest-reset-onboarding")
+        XCTAssertTrue(app.staticTexts["onboarding.title"].exists, "Expected the panel's title to be present")
+        XCTAssertTrue(app.buttons["onboarding.showLater"].exists, "Expected the 'Show me later' link to be present")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: onboarding-panel\n".data(using: .utf8)!)
+        sleep(2)
+
+        gotItButton.tap()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 10),
+                      "Expected the tab bar back after dismissing the panel with 'Got it'")
+
+        // --- 2. Relaunch (real process boundary), sign in again, WITHOUT the onboarding reset —
+        // the panel must not reappear now that "Got it" marked it seen.
+        app.terminate()
+        app.launchArguments = ["--uitest-reset-auth"]
+        app.launch()
+
+        let emailField2 = app.textFields["signin.email"]
+        XCTAssertTrue(emailField2.waitForExistence(timeout: 10), "Sign-in email field did not appear on relaunch")
+        emailField2.tap()
+        emailField2.typeText(email)
+        let passwordField2 = app.secureTextFields["signin.password"]
+        passwordField2.tap()
+        passwordField2.typeText(password)
+        app.buttons["signin.submit"].tap()
+
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15),
+                      "Expected to reach the tab bar directly, with no onboarding panel in the way")
+        XCTAssertFalse(app.buttons["onboarding.gotIt"].exists,
+                       "Expected the 'How to easily stash' panel NOT to reappear once already marked seen")
+
+        // --- 3. Settings → "How to stash" re-opens it any time; "Show me later" dismisses
+        // without re-marking anything (already seen from step 1).
+        app.tabBars.buttons["Settings"].tap()
+        let howToStashRow = app.buttons["settings.howToStash"]
+        XCTAssertTrue(howToStashRow.waitForExistence(timeout: 10), "Expected the 'How to stash' Settings row")
+        howToStashRow.tap()
+
+        let gotItButton2 = app.buttons["onboarding.gotIt"]
+        XCTAssertTrue(gotItButton2.waitForExistence(timeout: 10),
+                      "Expected Settings' row to re-open the 'How to easily stash' panel")
+
+        app.buttons["onboarding.showLater"].tap()
+        XCTAssertTrue(howToStashRow.waitForExistence(timeout: 10),
+                      "Expected to return to Settings after 'Show me later'")
+    }
 }

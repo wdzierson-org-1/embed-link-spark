@@ -24,6 +24,17 @@ final class SessionStore {
             // locally without broadcast to other sessions — matches web's LogoutButton behavior.
             try? await StashClient.shared.auth.signOut(scope: .local)
         }
+        // Plan 12 task 4: the "How to easily stash" panel's UserDefaults flag lives outside the
+        // Keychain session entirely (see `OnboardingState`'s doc comment), so `--uitest-reset-auth`
+        // above never touches it on its own. `--uitest-reset-onboarding` opts a run IN to seeing
+        // the panel; every OTHER `--uitest-reset-auth` smoke in this suite predates the panel and
+        // doesn't expect a full-screen cover to appear mid-sign-in, so it defaults to
+        // already-seen instead of leaving the flag at its untouched (unseen) default.
+        if CommandLine.arguments.contains("--uitest-reset-onboarding") {
+            OnboardingState.resetHowToStashSeenForTests()
+        } else if CommandLine.arguments.contains("--uitest-reset-auth") {
+            OnboardingState.markHowToStashSeen()
+        }
         #endif
         // Zombie-session lesson: any failure here (incl. "Auth session missing")
         // means signed-out — show the sign-in screen, never an error loop.

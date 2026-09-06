@@ -11,6 +11,10 @@ struct StashApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showSplash = true
+    // Plan 12 task 4: "How to easily stash" panel — set on the `signedIn` transition below when
+    // `OnboardingState.hasSeenHowToStash` is still false; `HowToStashView` clears this itself via
+    // `\.dismiss` on either of its own buttons (see its doc comment).
+    @State private var showHowToStash = false
 
     var body: some Scene {
         WindowGroup {
@@ -27,6 +31,9 @@ struct StashApp: App {
                         .transition(.opacity)
                         .zIndex(1)
                 }
+            }
+            .fullScreenCover(isPresented: $showHowToStash) {
+                HowToStashView()
             }
             .environment(session)
             .environment(subscriptionStore)
@@ -57,6 +64,15 @@ struct StashApp: App {
                     // still covers "the Add tab appears/returns to foreground" — this covers the
                     // gap before that view has ever appeared on a fresh launch.
                     Task { await sweepAndDrainOnLaunch(userId: userId) }
+                    // Plan 12 task 4: "shown ONCE after a successful sign-in/sign-up" — this fires
+                    // on every ACTUAL transition into `.signedIn` (cold-launch restore counts as
+                    // "the start of a signed-in session" too, same as the sweep/drain above), but
+                    // `SessionState`'s `Equatable` conformance means `onChange` only re-fires when
+                    // the case/associated value actually changes, so a same-user token refresh
+                    // mid-session never re-triggers this.
+                    if !OnboardingState.hasSeenHowToStash {
+                        showHowToStash = true
+                    }
                 } else if case .signedOut = newState {
                     // Cross-account gate-bleed fix (final review, plan 3): SubscriptionStore
                     // is app-lifetime (constructed once above), so without this, user A's

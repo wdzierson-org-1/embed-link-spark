@@ -13,6 +13,10 @@ struct SettingsView: View {
 
     @Environment(SessionStore.self) private var session
     @State private var showSignOutConfirm = false
+    // Plan 12 task 4: re-entry point for the post-sign-in "How to easily stash" panel — same
+    // `HowToStashView` the sign-in completion hook in `StashApp.swift` presents once per install;
+    // here it's reachable any time regardless of `OnboardingState.hasSeenHowToStash`.
+    @State private var showHowToStash = false
 
     var body: some View {
         // No wordmark/title above this (Will's call, plan 8 — View/Ask/Settings all drop it). The
@@ -24,6 +28,7 @@ struct SettingsView: View {
             AccountSection(userId: userId)
             PhoneSection(userId: userId)
             SubscriptionSection()
+            howToStashSection
             signOutSection
             footerSection
         }
@@ -32,6 +37,27 @@ struct SettingsView: View {
             Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
                 .accessibilityIdentifier("settings.signout.confirm")
             Button("Cancel", role: .cancel) {}
+        }
+        .fullScreenCover(isPresented: $showHowToStash) {
+            HowToStashView()
+        }
+    }
+
+    private var howToStashSection: some View {
+        Section {
+            Button {
+                showHowToStash = true
+            } label: {
+                HStack {
+                    Text("How to stash")
+                        .foregroundStyle(StashColor.ink)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(StashColor.faint)
+                }
+            }
+            .accessibilityIdentifier("settings.howToStash")
         }
     }
 
