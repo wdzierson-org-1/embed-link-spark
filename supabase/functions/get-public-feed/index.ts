@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { stripReminderColumns } from '../_shared/reminders.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,8 +89,9 @@ serve(async (req) => {
 
     console.log(`Found ${items?.length || 0} public items for ${username}`);
 
-    // Process items to include comment counts
-    const processedItems = (items || []).map(item => ({
+    // Process items to include comment counts — reminders are owner-only
+    // metadata and must never reach anonymous public-feed viewers.
+    const processedItems = (items || []).map(item => stripReminderColumns({
       ...item,
       comment_count: item.comment_count?.[0]?.count || 0
     }));

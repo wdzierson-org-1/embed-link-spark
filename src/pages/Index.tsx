@@ -12,6 +12,7 @@ import UnifiedInputPanel from '@/components/UnifiedInputPanel';
 import LibraryToolbar from '@/components/LibraryToolbar';
 import DismissibleHint from '@/components/DismissibleHint';
 import ContentGrid from '@/components/ContentGrid';
+import { NowProvider } from '@/hooks/useNow';
 import EditItemSheet from '@/components/EditItemSheet';
 import ChatMole from '@/components/ChatMole';
 import ConversationsView from '@/components/ConversationsView';
@@ -210,17 +211,19 @@ const Index = () => {
                   </button>
                 </div>
               )}
-              <ContentGrid
-                items={items}
-                onDeleteItem={handleDeleteItem}
-                onEditItem={handleEditItem}
-                onChatWithItem={() => {}}
-                tagFilters={selectedTags}
-                searchQuery={searchQuery}
-                serverResultIds={serverResultIds}
-                focusItemIds={focusItemIds}
-                compact={molePinned}
-              />
+              <NowProvider>
+                <ContentGrid
+                  items={items}
+                  onDeleteItem={handleDeleteItem}
+                  onEditItem={handleEditItem}
+                  onChatWithItem={() => {}}
+                  tagFilters={selectedTags}
+                  searchQuery={searchQuery}
+                  serverResultIds={serverResultIds}
+                  focusItemIds={focusItemIds}
+                  compact={molePinned}
+                />
+              </NowProvider>
             </>
           )}
         </main>

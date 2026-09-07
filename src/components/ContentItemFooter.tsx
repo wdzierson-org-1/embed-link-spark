@@ -1,13 +1,18 @@
 
 import React, { useState } from 'react';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin, Flag } from 'lucide-react';
+import { MoreHorizontal, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin, Flag, Bell, BellOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
 import CardFeedbackDialog from '@/components/CardFeedbackDialog';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
+import { useToast } from '@/hooks/use-toast';
+import { useNow } from '@/hooks/useNow';
+import { saveItem } from '@/utils/itemOperations';
+import { ReminderChip } from '@/components/cards/ReminderChip';
+import { REMINDER_PRESETS, clearReminderPatch, remindAtForPreset, reminderLabel, reminderState, setReminderPatch, type ReminderPreset } from '@/utils/reminders';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -25,6 +30,8 @@ interface ContentItem {
   comment_count?: number;
   summary?: string;
   attributes?: ItemAttributes;
+  remind_at?: string | null;
+  reminder_cleared_at?: string | null;
 }
 
 interface ContentItemFooterProps {
@@ -51,6 +58,20 @@ const ContentItemFooter = ({
   const isProcessing = isDocumentProcessing(item);
   const [reportOpen, setReportOpen] = useState(false);
 
+  const now = useNow();
+  const { toast } = useToast();
+  const reminder = reminderState(item, now);
+  const reminderText = reminderLabel(item, now);
+  const hasActiveReminder = reminder === 'scheduled' || reminder === 'due';
+
+  // Writes go straight through the items PATCH path; the realtime subscription
+  // in useItems refetches the list, so no local refresh is needed.
+  const noRefresh = async () => {};
+  const setReminder = (days: ReminderPreset) =>
+    saveItem(item.id, setReminderPatch(remindAtForPreset(days, new Date())), noRefresh, toast, { showSuccessToast: false, refreshItems: false });
+  const removeReminder = () =>
+    saveItem(item.id, clearReminderPatch(new Date()), noRefresh, toast, { showSuccessToast: false, refreshItems: false });
+
   const getFileUrl = (item: ContentItem) => {
     if (item.file_path) {
       const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
@@ -76,6 +97,9 @@ const ContentItemFooter = ({
         <p className="text-xs text-muted-foreground whitespace-nowrap">
           {format(new Date(item.created_at), 'MMM d, yyyy')}
         </p>
+        {!isPublicView && hasActiveReminder && reminderText && item.remind_at && (
+          <ReminderChip state={reminder} label={reminderText} remindAt={item.remind_at} onDismiss={removeReminder} />
+        )}
         {item.attributes?.location?.label && (
           <p
             className="flex items-center gap-0.5 text-xs text-muted-foreground min-w-0"
@@ -155,7 +179,27 @@ const ContentItemFooter = ({
             )}
             {!isPublicView && (
               <>
-                <DropdownMenuItem 
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <Bell className="h-4 w-4 mr-2" />
+                    {hasActiveReminder ? 'Change reminder…' : 'Remind me…'}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {REMINDER_PRESETS.map((days) => (
+                      <DropdownMenuItem key={days} onClick={() => setReminder(days)}>
+                        {days === 1 ? 'In 1 day' : `In ${days} days`}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                {hasActiveReminder && (
+                  <DropdownMenuItem onClick={removeReminder}>
+                    <BellOff className="h-4 w-4 mr-2" />
+                    Remove reminder
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
                   onClick={() => onEditItem(item)}
                   disabled={isProcessing}
                   className={isProcessing ? 'opacity-50 cursor-not-allowed' : ''}

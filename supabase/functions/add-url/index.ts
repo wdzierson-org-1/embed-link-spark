@@ -4,6 +4,7 @@ import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_sh
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
+import { parseRemindAt } from '../_shared/reminders.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -242,9 +243,13 @@ Deno.serve(async (req) => {
     const body = await req.json();
     console.log('add-url called', { hasAttributes: !!body.attributes, url: body.url });
 
-    const { url, title: customTitle, content: userNotes, message, supplemental_note, is_public = false, attributes } = body;
+    const { url, title: customTitle, content: userNotes, message, supplemental_note, is_public = false, attributes, remind_at } = body;
     const safeAttributes =
       attributes && typeof attributes === 'object' && !Array.isArray(attributes) ? attributes : {};
+    const remindAt = parseRemindAt(remind_at);
+    if (remind_at !== undefined && remindAt === null) {
+      console.warn('add-url: ignoring invalid remind_at', { remind_at });
+    }
 
     // Validate URL
     if (!url) {
@@ -385,7 +390,8 @@ Deno.serve(async (req) => {
         file_path: previewImagePath,
         is_public: is_public,
         visibility: is_public ? 'public' : 'private',
-        attributes: safeAttributes
+        attributes: safeAttributes,
+        remind_at: remindAt
       })
       .select()
       .single();

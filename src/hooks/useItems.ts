@@ -19,6 +19,8 @@ const ITEM_LIST_COLUMNS = [
   'is_public',
   'supplemental_note',
   'attributes',
+  'remind_at',
+  'reminder_cleared_at',
 ].join(',');
 
 export const useItems = () => {

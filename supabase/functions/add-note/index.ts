@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
+import { parseRemindAt } from '../_shared/reminders.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -63,9 +64,13 @@ Deno.serve(async (req) => {
     const body = await req.json();
     console.log('add-note called', { hasAttributes: !!body.attributes, contentLength: (body.content ?? '').length });
 
-    const { content, title, is_public = false, attributes } = body;
+    const { content, title, is_public = false, attributes, remind_at } = body;
     const safeAttributes =
       attributes && typeof attributes === 'object' && !Array.isArray(attributes) ? attributes : {};
+    const remindAt = parseRemindAt(remind_at);
+    if (remind_at !== undefined && remindAt === null) {
+      console.warn('add-note: ignoring invalid remind_at', { remind_at });
+    }
 
     if (!content) {
       return new Response(
@@ -93,7 +98,8 @@ Deno.serve(async (req) => {
         description: null,
         is_public: is_public,
         visibility: is_public ? 'public' : 'private',
-        attributes: safeAttributes
+        attributes: safeAttributes,
+        remind_at: remindAt
       })
       .select()
       .single();

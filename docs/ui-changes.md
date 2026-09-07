@@ -71,6 +71,37 @@ Full outcome (commits, suites, decisions): plan's own Outcome section +
 
 ---
 
+## 2026-09-06 · Reminders: "bring this back in 1 / 3 / 5 days" — web + platform (iOS + email follow)
+
+Spec `docs/superpowers/specs/2026-09-06-reminders-design.md`; plans
+`docs/superpowers/plans/2026-09-06-reminders-{1-backend-web,2-ios,3-email}.md`.
+
+- **Contract (all clients):** three columns on `items` — `remind_at`,
+  `reminder_cleared_at`, `reminder_notified_at`. State is derived with a 24h
+  window (`none / scheduled / due / cleared`); see `docs/PLATFORM_API.md`
+  → Reminders for the table, the two write shapes, and the due-items query.
+  Capture endpoints accept an optional top-level `remind_at`; invalid values
+  are ignored, never a 4xx.
+- **Ordering rule:** due items first (`remind_at` asc), then chronological.
+  Skipped while a server search rank is active.
+- **Web:** footer chip after the date — scheduled `in 3d` (muted, clock),
+  due `Due` (violet, bell) with an always-visible × "Remove reminder"; a
+  violet `Due` pill joins the hero-corner badge zone. Card menu gains
+  "Remind me…" (In 1 / 3 / 5 days), "Change reminder…" and "Remove reminder"
+  when one is active. None of it renders in public views. One `NowProvider`
+  clock per grid (60 s tick + visibilitychange) drives state.
+- **Backend:** `reminder-digest` edge function on a version-controlled
+  pg_cron schedule (13:00 UTC, secret from Vault). Today it only expires
+  stale reminders; the email step ships with plan 3.
+- **iOS (plan 2):** share-sheet chips `1 day · 3 days · 5 days` above Save;
+  View tab badge = due count; due block at the top of the grid; same footer
+  chip + Due overlay + dismiss.
+- **Not in this cut:** inferred resurfacing, Keep/Done/Let go, push, custom
+  dates, per-user timezone, controls in the in-app composer / extension /
+  web capture box.
+
+---
+
 ## 2026-09-07 · iOS feedback round 3 (plan 12)
 
 iOS-only round (Will's first on-device pass); no web changes. Plan:

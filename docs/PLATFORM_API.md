@@ -31,6 +31,13 @@ isn't a plain object (e.g. an array) and it's treated as `{}` — never a 500.
 link: a caller-supplied flavor wins, otherwise the server classifies one from
 the URL alone (`article` / `video` / `repo` / `book` / `social` / `generic`).
 
+Every capture endpoint also accepts an optional top-level `remind_at`
+(ISO-8601 timestamp): "bring this back to me then". It must parse and be no
+older than one hour before now; anything else is ignored — the item still
+saves with `remind_at: null` and a warning is logged. Never a 4xx. The
+returned item includes `remind_at`, `reminder_cleared_at`,
+`reminder_notified_at`. See **Reminders** below.
+
 ### `POST /add-url` — save a link
 
 ```json
@@ -200,6 +207,51 @@ Chat composers are retrieval-only on every platform: all input goes to
 capture surfaces (input panel, share sheets, extension, SMS). Web has removed
 `moleRouting.ts`; iOS should remove `StashKit/MessageRouting.swift` usage from
 its Ask composer to match. Do not build new clients on message routing.
+
+## Reminders
+
+Spec: `docs/superpowers/specs/2026-09-06-reminders-design.md`.
+
+Three nullable `timestamptz` columns on `items`: `remind_at`,
+`reminder_cleared_at`, `reminder_notified_at`. State is **derived**, never
+stored, with `DUE_WINDOW = 24h`:
+
+| condition | state |
+|---|---|
+| `remind_at` is null | none |
+| `reminder_cleared_at` is set | cleared |
+| `now < remind_at` | scheduled |
+| `remind_at ≤ now < remind_at + 24h` | due |
+| otherwise | cleared (expired; the daily job back-fills `reminder_cleared_at`) |
+
+`now` is the device clock on clients; re-evaluate on a 60 s tick and on
+foreground, because crossing either boundary emits no realtime event.
+
+Writes (owner, ordinary PostgREST `PATCH /rest/v1/items?id=eq.<id>`):
+
+- set / re-set: `{ "remind_at": "<ISO>", "reminder_cleared_at": null, "reminder_notified_at": null }`
+- dismiss: `{ "reminder_cleared_at": "<now ISO>" }`
+
+Clients never write `reminder_notified_at`. Presets are 1 / 3 / 5 days;
+clients send the absolute instant.
+
+Due items for a badge or a top-of-list block:
+
+```
+GET /rest/v1/items?select=<list columns>&user_id=eq.<uid>
+  &reminder_cleared_at=is.null&remind_at=lte.<now>&remind_at=gt.<now-24h>
+  &order=remind_at.asc
+```
+
+Ordering rule on every surface: due items first (`remind_at` asc), then the
+normal chronological list; a server search's relevance order wins while
+active.
+
+Daily job: `reminder-digest` (pg_cron 13:00 UTC → pg_net → edge function,
+`x-cron-secret` header). Step 1 (expire stale reminders) is live. Step 2 —
+one email per user per day listing their due, un-notified reminders (never
+one per reminder), then stamping `reminder_notified_at` — is specified but
+not yet built: it ships with plan 3 and is currently skipped.
 
 ## Live updates
 

@@ -38,6 +38,8 @@ interface ContentItem {
   supplemental_note?: string;
   summary?: string;
   attributes?: ItemAttributes;
+  remind_at?: string | null;
+  reminder_cleared_at?: string | null;
 }
 
 interface ContentItemProps {

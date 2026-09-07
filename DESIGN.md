@@ -186,8 +186,7 @@ favicon.*
 
 **Card anatomy** (top to bottom): hero → kicker (links: domain or author
 handle) → title (PP Editorial New 400 · 20/tight, 2-line clamp) → description
-(muted, clamp 3) → annotation (violet bar, italic) → chips → footer (date
-left; overflow `more-horizontal` right).
+(muted, clamp 3) → annotation (violet bar, italic) → chips → footer (date · reminder chip · location pin left; overflow `more-horizontal` right).
 
 **Cover crops are subject-aware.** A hero that `cover`-crops an image centres
 the crop on the detected subject, not the frame: sample the image (≤64px),
@@ -215,6 +214,13 @@ Per-type hero:
 replaces any hover-only type badge) → format·size (mono) → one salient fact
 (duration / pages / read-time / price-date). **No tag UI on cards or panel** —
 tags are retired; themes will handle grouping.
+
+**Reminder chip** (footer, after the date; both platforms): scheduled = clock
+icon + relative time in the muted meta style; due = bell + "Due" in
+violet-600 on a 10 % violet field with an always-visible × ("Remove
+reminder", ≥24 px hit area). Due cards also carry a violet-600 "Due" pill in
+the hero-corner badge zone next to "Processing…" / "PUBLICLY SHARED". Neither
+belongs in the chips row.
 
 **Player** (card hero and panel strip share it): flat type-tint field, solid
 accent play/pause circle, waveform bars in accent at .72 (unplayed .26),

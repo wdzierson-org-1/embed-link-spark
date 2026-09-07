@@ -9,6 +9,7 @@ import {
   isUuidObjectName,
   transcriptTitleSystemPrompt,
 } from '../_shared/titlePolicy.ts';
+import { parseRemindAt } from '../_shared/reminders.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -95,9 +96,13 @@ Deno.serve(async (req) => {
     if (authError || !user) return json(401, { error: 'Invalid or expired token' });
     if (isAgentToken(token)) return json(403, { error: 'Agent tokens are only accepted by the MCP endpoint' });
 
-    const { file_path, mime_type, file_size, content, title, is_public = false, attributes } = await req.json();
+    const { file_path, mime_type, file_size, content, title, is_public = false, attributes, remind_at } = await req.json();
     const safeAttributes =
       attributes && typeof attributes === 'object' && !Array.isArray(attributes) ? attributes : {};
+    const remindAt = parseRemindAt(remind_at);
+    if (remind_at !== undefined && remindAt === null) {
+      console.warn('add-file: ignoring invalid remind_at', { remind_at });
+    }
     if (!file_path || typeof file_path !== 'string') return json(400, { error: 'file_path is required' });
     if (!mime_type || typeof mime_type !== 'string') return json(400, { error: 'mime_type is required' });
     if (!file_path.startsWith(`${user.id}/`)) {
@@ -131,6 +136,7 @@ Deno.serve(async (req) => {
         is_public,
         visibility: is_public ? 'public' : 'private',
         attributes: safeAttributes,
+        remind_at: remindAt,
       })
       .select()
       .single();
