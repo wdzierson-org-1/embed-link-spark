@@ -16,7 +16,7 @@
 - Cadence: one run per day at 13:00 UTC; one email per user per run; no email when nothing is due. Never one email per reminder.
 - Selection: `remind_at ≤ now`, `remind_at > now − 24h`, `reminder_cleared_at is null`, `reminder_notified_at is null`, `coalesce(user_preferences.reminder_emails, true)`.
 - `reminder_notified_at` is stamped only after a successful send; a failed send leaves rows untouched for the next run.
-- Sender: `Stash <reminders@gostash.it>`. Item link: `https://www.gostash.it/home#item=<id>`.
+- Sender: `Stash <reminders@mail.gostash.it>`. Item link: `https://www.gostash.it/home#item=<id>`.
 - Secrets: `RESEND_API_KEY` (from the Vercel Marketplace resource), `EMAIL_LINK_SECRET` (new, `openssl rand -hex 32`). Never echo either.
 - Render (`renderReminderDigest`) is a pure function, separate from delivery (spec A6).
 - Test commands: `npm test`, `npx tsc --noEmit -p tsconfig.app.json`.
@@ -24,7 +24,7 @@
 ## Prerequisites Will owns (do these before Task 4)
 
 1. **Accept the Resend Marketplace terms** in the browser: `https://vercel.com/wdzierson-s-team/~/integrations/accept-terms/resend?source=cli`. The repo is already linked to `wdzierson-s-team/embed-link-spark` and the CLI is at 59.11.7. After acceptance the executor runs Task 4 Step 1 to finish provisioning.
-2. **Verify the sending domain at GoDaddy.** gostash.it's nameservers are `ns81/ns82.domaincontrol.com` (GoDaddy), so the DNS records have to be added there. In the Resend dashboard (`vercel integration open resend`), Domains → Add `gostash.it` → copy the records it shows (a DKIM `TXT` at `resend._domainkey`, plus `MX` + `TXT` on the `send` subdomain for the return path). They do not collide with the existing root SPF (`v=spf1 include:dc-aa8e722993._spfm.gostash.it ~all`) or Google MX. Wait for Resend to show "Verified".
+2. **Verify the sending subdomain at GoDaddy.** Automated mail sends from `mail.gostash.it` (Will's decision 2026-09-07: keeps its reputation separate from personal Google mail on the root). gostash.it's nameservers are `ns81/ns82.domaincontrol.com` (GoDaddy), so the records go there. In the Resend dashboard (`vercel integration open resend`), Domains → Add `mail.gostash.it` (region us-east-1) → copy the records it shows: DKIM `TXT` at `resend._domainkey.mail`, plus `MX` (`feedback-smtp.us-east-1.amazonses.com`, priority 10) and `TXT` (`v=spf1 include:amazonses.com ~all`) at `send.mail`. They do not touch the root SPF, Google MX, or the existing root `_dmarc` (relaxed alignment covers the subdomain). Wait for Resend to show "Verified".
 
 Until both are done, Tasks 1–3 and 5 can ship; Task 4 sends nothing (the function keeps skipping while `RESEND_API_KEY` is unset).
 
@@ -403,7 +403,7 @@ git commit -m "feat(reminders): one-click reminder-email opt-out endpoint"
 - [ ] **Step 1: Finish the Marketplace install (after Will accepts terms)**
 
 ```bash
-vercel --non-interactive integration add resend --format=json --no-env-pull
+vercel --non-interactive integration add resend -m domain=mail.gostash.it -m region=us-east-1 --format=json --no-env-pull
 vercel env ls production | grep -i resend
 ```
 
@@ -436,7 +436,7 @@ import { signEmailLinkToken } from '../_shared/emailLinkToken.ts';
 
 const DUE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UNSUB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const FROM = 'Stash <reminders@gostash.it>';
+const FROM = 'Stash <reminders@mail.gostash.it>';
 const PREFS_URL = `${Deno.env.get('SUPABASE_URL')}/functions/v1/reminder-email-prefs`;
 
 type Row = DigestItem & { user_id: string };
@@ -660,7 +660,7 @@ Daily job: `reminder-digest` (pg_cron 13:00 UTC → pg_net → edge function,
 `x-cron-secret`). Step 1 expires stale reminders (`reminders_expire()`).
 Step 2 selects due, uncleared, un-notified rows for users with
 `user_preferences.reminder_emails` not false, sends **one** email per user
-via Resend (`Stash <reminders@gostash.it>`), then stamps
+via Resend (`Stash <reminders@mail.gostash.it>`), then stamps
 `reminder_notified_at`. Each item links to `/home#item=<id>`. The footer's
 "Turn off reminder emails" is `GET /reminder-email-prefs?token=<signed,
 30-day>` — no session needed. Clients that want their own toggle write
@@ -677,7 +677,7 @@ Replace the Backend bullet in the entry with:
   type fallback; "Saved Sep 3 · reminder for today"; deep link per item);
   signed one-click opt-out + Settings → Account "Email me when reminders are
   due" switch (`user_preferences.reminder_emails`). Sent through Resend from
-  `reminders@gostash.it`. Per-user timezone is a later refinement.
+  `reminders@mail.gostash.it`. Per-user timezone is a later refinement.
 ```
 
 - [ ] **Step 3: Commit and finish**

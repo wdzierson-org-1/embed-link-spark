@@ -169,7 +169,7 @@ vitest, separate from delivery (spec A6).
   sets `user_preferences.reminder_emails = false` and returns a one-line HTML
   page. Web Settings → Account gets a matching switch "Email me when
   reminders are due" through `useUserPreferences`.
-- Provider: Resend, from `Stash <reminders@gostash.it>`. Plain HTML, DESIGN.md
+- Provider: Resend, from `Stash <reminders@mail.gostash.it>`. Plain HTML, DESIGN.md
   type ramp and violet-600 for the single link colour, no images.
 
 ## Web
@@ -274,7 +274,7 @@ rest of the bar.
 
 ## Prerequisites Will owns
 
-- **Email provider:** a Resend account, `gostash.it` sender domain verified
+- **Email provider:** a Resend account, `mail.gostash.it` sender subdomain verified
   (DNS records), `RESEND_API_KEY` set as an edge-function secret. Until then
   deliverable 4 cannot send; everything else ships.
 - **Vault secret** `cron_secret` and edge secrets `CRON_SECRET`,
