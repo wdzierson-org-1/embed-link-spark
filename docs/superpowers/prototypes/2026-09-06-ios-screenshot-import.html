@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stash iOS — screenshot import: onboarding + Settings (first look)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Medium.woff2') format('woff2'); font-weight:500; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Semibold.woff2') format('woff2'); font-weight:600; font-style:normal; font-display:swap; }
+
+  :root {
+    --ink:#22262f; --muted:#646b76; --faint:#959ba6;
+    --violet-600:#6d5bd0; --violet-300:#b6a8ef;
+    --hairline:rgba(0,0,0,.07); --success:#2f9e63;
+    --sans:'PP Neue Montreal', -apple-system, sans-serif;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body {
+    font-family:var(--sans); color:var(--ink); line-height:1.5; min-height:100vh; background:#f7f7f9;
+    padding:40px 36px 60px; display:flex; justify-content:center; gap:40px; align-items:flex-start;
+  }
+  button { font:inherit; border:none; background:none; cursor:pointer; color:inherit; padding:0; }
+  button:focus-visible { outline:2px solid var(--violet-600); outline-offset:2px; }
+
+  /* ───── control rail (prototype chrome, not product) ───── */
+  .controls { position:sticky; top:40px; width:320px; flex:none; }
+  .controls .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--violet-600); font-weight:600; margin-bottom:8px; }
+  .controls h1 { font-weight:600; letter-spacing:-.02em; font-size:24px; line-height:1.2; margin-bottom:10px; }
+  .controls .sub { font-size:13px; color:var(--muted); margin-bottom:18px; }
+  .controls h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); margin:18px 0 8px; font-weight:600; }
+  .seg { display:flex; gap:6px; background:rgba(0,0,0,.04); border-radius:12px; padding:4px; }
+  .seg button { flex:1; font-size:12.5px; font-weight:500; text-align:center; padding:8px 6px; border-radius:9px; color:var(--muted); }
+  .seg button.on { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .controls ol { padding-left:18px; font-size:12.5px; line-height:1.65; color:var(--ink); margin-top:6px; }
+  .controls li { margin-bottom:8px; }
+  .controls b { font-weight:600; }
+  .contract { font-size:12.5px; color:var(--muted); line-height:1.6; padding-left:12px; border-left:2px solid var(--violet-300); margin-bottom:10px; }
+  .contract b { color:var(--ink); }
+  .stagebtns { display:flex; flex-wrap:wrap; gap:6px; }
+  .stagebtns button { font-size:12px; border:1px solid rgba(0,0,0,.12); background:#fff; border-radius:999px; padding:5px 11px; color:var(--muted); }
+  .stagebtns button.on { background:var(--violet-600); border-color:var(--violet-600); color:#fff; }
+
+  /* ───── phone ───── */
+  .phonewrap { flex:none; }
+  .phone { width:393px; height:852px; background:#fff; border-radius:54px; border:10px solid #1c1c1e; box-shadow:0 24px 60px rgba(30,15,60,.18); overflow:hidden; position:relative; }
+  .statusbar { height:54px; display:flex; align-items:flex-end; justify-content:space-between; padding:0 30px 6px; font-size:15px; font-weight:600; position:relative; z-index:30; }
+  .statusbar .island { position:absolute; top:11px; left:50%; transform:translateX(-50%); width:120px; height:34px; background:#000; border-radius:20px; }
+  .homebar { position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:135px; height:5px; border-radius:3px; background:#1c1c1e; z-index:25; }
+  .screen { position:absolute; inset:54px 0 0 0; overflow:hidden; display:none; flex-direction:column;
+    background:linear-gradient(160deg, rgba(102,126,234,.10), rgba(118,75,162,.09) 30%, rgba(157,95,216,.08) 55%, rgba(194,65,143,.07) 75%, rgba(56,189,248,.07)), #fff; }
+  .screen.on { display:flex; }
+  .screen-scroll { flex:1; overflow-y:auto; display:flex; align-items:center; padding:24px 20px 40px; }
+
+  /* paper card (StashRadius.sheet 20 + stashCardShadow) */
+  .ob-card { width:100%; background:#fff; border-radius:20px; border:1px solid var(--hairline); box-shadow:0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08); padding:28px 24px 24px; display:flex; flex-direction:column; gap:22px; }
+  .ob-title { font-weight:500; font-size:24px; line-height:1.2; text-align:center; letter-spacing:-.01em; }
+  .ob-sub { font-size:14px; color:var(--muted); text-align:center; margin-top:8px; line-height:1.5; }
+  .ob-fine { font-size:12px; color:var(--faint); text-align:center; line-height:1.5; }
+  .ob-actions { display:flex; flex-direction:column; gap:10px; }
+  .ob-primary { font-weight:500; font-size:15px; color:#fff; background:var(--violet-600); border-radius:12px; height:52px; display:flex; align-items:center; justify-content:center; }
+  .ob-primary:active { opacity:.85; }
+  .ob-primary.disabled { background:rgba(0,0,0,.06); color:var(--muted); pointer-events:none; }
+  .ob-quiet { font-size:14px; color:var(--muted); text-align:center; height:44px; display:flex; align-items:center; justify-content:center; }
+
+  /* fanned mock screenshots on the intro card */
+  .fan { position:relative; height:190px; }
+  .fan .shot { position:absolute; left:50%; top:10px; width:84px; height:170px; border-radius:12px; border:1px solid var(--hairline); box-shadow:0 8px 22px rgba(30,33,44,.14); overflow:hidden; background:#fff; transform-origin:50% 100%; }
+  .fan .shot:nth-child(1) { transform:translateX(-50%) rotate(-14deg) translateX(-38px); }
+  .fan .shot:nth-child(2) { transform:translateX(-50%) translateY(-6px); z-index:2; }
+  .fan .shot:nth-child(3) { transform:translateX(-50%) rotate(14deg) translateX(38px); }
+
+  /* a fake screenshot: colored app bar + text lines */
+  .mock { width:100%; height:100%; display:flex; flex-direction:column; background:#fff; }
+  .mock .bar { height:16%; }
+  .mock .body { flex:1; padding:8% 9%; display:flex; flex-direction:column; gap:6%; }
+  .mock .body i { display:block; height:4%; border-radius:2px; background:rgba(34,38,47,.12); }
+  .mock .body i.h { height:6%; width:55%; background:rgba(34,38,47,.28); }
+  .mock .body i.s { width:70%; }
+  .mock .body i.xs { width:40%; }
+  .mock .body b { display:block; height:22%; border-radius:6px; background:rgba(34,38,47,.06); margin-top:2%; }
+  .mock.chat .body i { align-self:flex-start; width:60%; height:7%; border-radius:8px; background:rgba(109,91,208,.16); }
+  .mock.chat .body i:nth-child(even) { align-self:flex-end; background:rgba(34,38,47,.08); }
+  .mock.map .body { padding:0; }
+  .mock.map .body b { flex:1; margin:0; border-radius:0; background:
+    radial-gradient(circle at 60% 40%, rgba(47,143,232,.35) 0 6%, transparent 7%),
+    linear-gradient(115deg, transparent 48%, rgba(34,38,47,.12) 49% 51%, transparent 52%),
+    linear-gradient(25deg, transparent 58%, rgba(34,38,47,.12) 59% 61%, transparent 62%),
+    #eef3ee; }
+  .mock.receipt .body i { width:85%; }
+  .mock.receipt .body i.total { width:50%; height:6%; background:rgba(34,38,47,.35); align-self:flex-end; }
+
+  /* iOS alert */
+  .alert-scrim { position:absolute; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:40; }
+  .alert-scrim.on { display:flex; }
+  .alert { width:270px; background:rgba(248,248,248,.96); border-radius:14px; overflow:hidden; text-align:center; font-family:-apple-system, 'PP Neue Montreal', sans-serif; box-shadow:0 12px 40px rgba(0,0,0,.25); }
+  .alert .t { font-weight:600; font-size:17px; padding:19px 16px 4px; }
+  .alert .m { font-size:13px; color:#333; padding:0 16px 16px; line-height:1.35; }
+  .alert button { display:block; width:100%; height:44px; border-top:1px solid rgba(0,0,0,.12); font-size:17px; color:#0a7aff; }
+  .alert button.b { font-weight:600; }
+
+  /* ───── grid screen ───── */
+  .grid-screen { display:flex; flex-direction:column; height:100%; background:#fff; }
+  .grid-head { padding:10px 20px 0; }
+  .grid-head .row { display:flex; justify-content:space-between; align-items:center; height:36px; font-size:15px; }
+  .grid-head .row .quiet { color:var(--muted); }
+  .grid-head .row .accent { color:var(--violet-600); font-weight:500; }
+  .grid-head .count { font-size:12.5px; color:var(--faint); margin-top:2px; }
+  .grid-head .limited { font-size:12.5px; color:var(--muted); margin-top:6px; display:none; }
+  .grid-head .limited.on { display:block; }
+  .grid-head .limited button { color:var(--violet-600); font-weight:500; margin-left:4px; }
+  .chips { display:flex; gap:8px; padding:12px 20px; overflow-x:auto; scrollbar-width:none; }
+  .chips::-webkit-scrollbar { display:none; }
+  .chip { flex:none; font-size:13.5px; font-weight:500; color:var(--muted); border:1px solid var(--hairline); border-radius:999px; padding:7px 14px; background:#fff; }
+  .chip.on { background:var(--violet-600); border-color:var(--violet-600); color:#fff; }
+  .grid-scroll { flex:1; overflow-y:auto; padding:4px 16px 16px; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .tile { position:relative; aspect-ratio:9/19.5; border-radius:12px; overflow:hidden; border:1px solid var(--hairline); cursor:pointer; transition:opacity .12s; }
+  .tile.off { opacity:.5; }
+  .tile.on { border-color:var(--violet-600); }
+  .tile .badge { position:absolute; top:6px; right:6px; width:22px; height:22px; border-radius:50%; background:#fff; display:grid; place-items:center; box-shadow:0 1px 4px rgba(0,0,0,.2); }
+  .tile .badge i { width:16px; height:16px; border-radius:50%; border:1.5px solid rgba(0,0,0,.25); }
+  .tile.on .badge i { border:none; background:var(--violet-600); position:relative; }
+  .tile.on .badge i::after { content:''; position:absolute; left:5px; top:2.5px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+  .tile .age { position:absolute; left:6px; bottom:6px; font-size:9.5px; color:#fff; background:rgba(0,0,0,.45); border-radius:999px; padding:1px 6px; }
+  .grid-empty { text-align:center; color:var(--faint); font-size:13.5px; padding:60px 20px; }
+  .grid-foot { border-top:1px solid var(--hairline); padding:14px 20px 30px; background:#fff; }
+  .grid-foot .ob-primary { width:100%; }
+
+  /* ───── View tab ───── */
+  .lib { display:flex; flex-direction:column; height:100%; }
+  .lib .search { margin:10px 16px 6px; height:40px; border-radius:999px; border:1px solid var(--hairline); background:rgba(255,255,255,.85); display:flex; align-items:center; gap:8px; padding:0 14px; font-size:14px; color:var(--faint); }
+  .banner { margin:8px 12px 0; background:var(--violet-600); color:#fff; border-radius:10px; padding:8px 12px; font-size:12.5px; display:flex; flex-direction:column; gap:6px; }
+  .banner .row { display:flex; align-items:center; gap:10px; }
+  .banner .row span { flex:1; }
+  .banner .row b { font-weight:600; font-size:12px; cursor:pointer; }
+  .banner .track { height:3px; border-radius:2px; background:rgba(255,255,255,.3); overflow:hidden; }
+  .banner .fill { height:100%; width:0%; background:#fff; transition:width .25s; }
+  .banner.done { background:var(--success); }
+  .banner.hidden { display:none; }
+  .cards { flex:1; overflow-y:auto; padding:8px 16px 12px; display:flex; flex-direction:column; gap:14px; }
+  .card { flex:none; background:#fff; border-radius:16px; border:1px solid var(--hairline); box-shadow:0 1px 2px rgba(20,22,30,.04), 0 6px 18px rgba(30,33,44,.06); overflow:hidden; animation:landin .35s ease-out; }
+  @keyframes landin { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .card .hero { height:160px; display:flex; justify-content:center; background:#f2f3f5; overflow:hidden; }
+  .card .hero .mock { width:100px; height:200px; margin-top:8px; border-radius:10px 10px 0 0; border:1px solid var(--hairline); }
+  .card .meta { padding:12px 14px 14px; }
+  .card .chipsrow { display:flex; gap:6px; margin-bottom:8px; }
+  .card .tchip { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; font-weight:600; border-radius:999px; padding:3px 9px; background:rgba(52,132,201,.12); color:#22689c; }
+  .card .mchip { font-size:10.5px; font-family:ui-monospace, Menlo, monospace; color:var(--faint); border:1px solid var(--hairline); border-radius:999px; padding:3px 8px; }
+  .card .ct { font-size:16px; font-weight:500; line-height:1.25; }
+  .card .ct.pending { color:var(--faint); font-style:italic; font-weight:400; }
+  .card .cd { font-size:13px; color:var(--muted); margin-top:4px; line-height:1.45; }
+  .lib-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--faint); font-size:14px; gap:6px; }
+  .tabbar { height:82px; border-top:1px solid var(--hairline); background:rgba(255,255,255,.92); display:flex; justify-content:space-around; align-items:flex-start; padding-top:10px; font-size:10px; color:var(--faint); }
+  .tabbar div { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .tabbar div i { width:22px; height:22px; border-radius:6px; background:rgba(0,0,0,.12); }
+  .tabbar div.on { color:var(--violet-600); }
+  .tabbar div.on i { background:var(--violet-600); }
+
+  /* ───── Settings ───── */
+  .settings { display:flex; flex-direction:column; height:100%; background:#f2f2f7; }
+  .settings .list { flex:1; overflow-y:auto; padding:20px 16px; display:flex; flex-direction:column; gap:22px; }
+  .group { background:#fff; border-radius:12px; overflow:hidden; }
+  .srow { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; font-size:16px; min-height:46px; }
+  .srow + .srow { border-top:1px solid var(--hairline); margin-left:16px; padding-left:0; }
+  .srow .k { color:var(--ink); }
+  .srow .v { color:var(--faint); font-size:15px; }
+  .srow .sub { display:block; font-size:12.5px; color:var(--faint); margin-top:1px; }
+  .srow .chev { color:var(--faint); font-size:14px; }
+  .srow.link { cursor:pointer; }
+  .srow.link:active { background:rgba(0,0,0,.03); }
+  .srow.danger { justify-content:center; color:#c93a3a; }
+
+  .hidden { display:none !important; }
+  @media (max-width:1180px) { body { flex-wrap:wrap; justify-content:flex-start; } .controls { position:static; width:100%; max-width:393px; } }
+  @media (prefers-reduced-motion: reduce) { .card { animation:none; } .banner .fill { transition:none; } }
+</style>
+</head>
+<body>
+
+<!-- ═══════ prototype controls ═══════ -->
+<div class="controls">
+  <div class="eyebrow">Stash iOS · Sep 6 2026 · onboarding + Settings</div>
+  <h1>Bring in your screenshots</h1>
+  <p class="sub">Second onboarding panel (after "How to easily stash") and a permanent Settings row. Same paper card; the review grid takes the whole screen. Spec: <code>2026-09-06-screenshot-import-design.md</code>.</p>
+
+  <h2>Entry point</h2>
+  <div class="seg" id="entrySeg">
+    <button data-entry="onboarding" class="on">Onboarding</button>
+    <button data-entry="settings">Settings</button>
+  </div>
+
+  <h2>Photos access the user grants</h2>
+  <div class="seg" id="accessSeg">
+    <button data-access="full" class="on">Full</button>
+    <button data-access="limited">Limited</button>
+    <button data-access="denied">Denied</button>
+  </div>
+
+  <h2>Jump to a stage</h2>
+  <div class="stagebtns" id="stageBtns">
+    <button data-stage="intro" class="on">Intro</button>
+    <button data-stage="grid">Review grid</button>
+    <button data-stage="library">Importing</button>
+    <button data-stage="denied">Denied</button>
+  </div>
+
+  <h2>Try it</h2>
+  <ol>
+    <li>Tap <b>Import recent screenshots</b> → the system Photos prompt → allow.</li>
+    <li>The grid arrives <b>fully selected</b> (50 most recent). Tap tiles to deselect; use the period chips; <b>Select all / Deselect all</b> at top right.</li>
+    <li><b>Import N</b> dismisses the panel instantly — progress is a banner on the View tab, and cards land as they upload.</li>
+  </ol>
+
+  <h2>The contract</h2>
+  <p class="contract"><b>Nothing at capture.</b> This is onboarding/Settings, one decision, opt-in.</p>
+  <p class="contract"><b>50 most recent, resized to 1600px JPEG</b> before upload; each screenshot is its own item.</p>
+  <p class="contract"><b>The grid is the privacy review</b> — screenshots hold 2FA codes and bank balances; one look before 50 upload.</p>
+</div>
+
+<!-- ═══════ phone ═══════ -->
+<div class="phonewrap">
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span class="island"></span><span>&#9679;&#9679;&#9679;</span></div>
+
+    <!-- ── intro ── -->
+    <div class="screen on" id="scr-intro">
+      <div class="screen-scroll">
+        <div class="ob-card">
+          <div>
+            <div class="ob-title">Bring in your screenshots</div>
+            <div class="ob-sub">Stash reads every one — names, prices, places — and makes them searchable.</div>
+          </div>
+          <div class="fan">
+            <div class="shot"><div class="mock receipt"><div class="bar" style="background:#e8eef8"></div><div class="body"><i class="h"></i><i></i><i></i><i class="s"></i><i></i><i class="total"></i></div></div></div>
+            <div class="shot"><div class="mock chat"><div class="bar" style="background:#6d5bd0"></div><div class="body"><i></i><i></i><i></i><i></i><i></i></div></div></div>
+            <div class="shot"><div class="mock map"><div class="bar" style="background:#2f8fe8"></div><div class="body"><b></b></div></div></div>
+          </div>
+          <p class="ob-fine">Up to 50 most recent · resized before upload · you review the list first</p>
+          <div class="ob-actions">
+            <button class="ob-primary" id="introStart">Import recent screenshots</button>
+            <button class="ob-quiet" onclick="notNow()">Not now</button>
+          </div>
+        </div>
+      </div>
+      <div class="alert-scrim" id="alert">
+        <div class="alert">
+          <div class="t">“Stash” Would Like to Access Your Photos</div>
+          <div class="m">Stash reads your screenshots only to import the ones you choose.</div>
+          <button onclick="grant('limited')">Limit Access…</button>
+          <button class="b" onclick="grant('full')">Allow Full Access</button>
+          <button onclick="grant('denied')">Don’t Allow</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── review grid ── -->
+    <div class="screen" id="scr-grid">
+      <div class="grid-screen">
+        <div class="grid-head">
+          <div class="row">
+            <button class="quiet" onclick="notNow()">Not now</button>
+            <button class="accent" id="selAll" onclick="toggleAll()">Deselect all</button>
+          </div>
+          <div class="count" id="countLine"></div>
+          <div class="limited" id="limitedNote">Showing the screenshots you allowed.<button onclick="alert('Opens the system limited-library picker (PHPhotoLibrary.presentLimitedLibraryPicker).')">Manage</button></div>
+        </div>
+        <div class="chips" id="chips">
+          <button class="chip" data-period="7">7 days</button>
+          <button class="chip" data-period="30">30 days</button>
+          <button class="chip" data-period="90">90 days</button>
+          <button class="chip on" data-period="all">All recent</button>
+        </div>
+        <div class="grid-scroll"><div class="grid" id="grid"></div><div class="grid-empty hidden" id="gridEmpty">No new screenshots in this period.</div></div>
+        <div class="grid-foot"><button class="ob-primary" id="confirmBtn" onclick="startImport()">Import 50</button></div>
+      </div>
+    </div>
+
+    <!-- ── denied ── -->
+    <div class="screen" id="scr-denied">
+      <div class="screen-scroll">
+        <div class="ob-card">
+          <div>
+            <div class="ob-title">Photos access is off</div>
+            <div class="ob-sub">Turn it on in Settings to import screenshots. You can always share a screenshot to Stash from Photos instead.</div>
+          </div>
+          <div class="ob-actions">
+            <button class="ob-primary" onclick="alert('Opens the app’s page in iOS Settings (UIApplication.openSettingsURLString).')">Open Settings</button>
+            <button class="ob-quiet" onclick="notNow()">Not now</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── View tab (library) ── -->
+    <div class="screen" id="scr-library">
+      <div class="lib">
+        <div class="search">⌕ &nbsp;Search your stash</div>
+        <div class="banner hidden" id="banner">
+          <div class="row"><span id="bannerText">Importing screenshots · 0 of 50</span><b id="bannerDone" class="hidden" onclick="hideBanner()">Done</b></div>
+          <div class="track" id="bannerTrack"><div class="fill" id="bannerFill"></div></div>
+        </div>
+        <div class="cards" id="cards"></div>
+        <div class="lib-empty hidden" id="libEmpty"><div>Nothing here yet</div><div style="font-size:12.5px">Save a link, note, or file to get started.</div></div>
+        <div class="tabbar"><div><i></i>Add</div><div><i></i>Ask</div><div class="on"><i></i>View</div><div><i></i>Settings</div></div>
+      </div>
+    </div>
+
+    <!-- ── Settings ── -->
+    <div class="screen" id="scr-settings">
+      <div class="settings">
+        <div class="list">
+          <div class="group">
+            <div class="srow"><span class="k">Email</span><span class="v">will@dzierson.com</span></div>
+            <div class="srow"><span class="k">Username</span><span class="v">will</span></div>
+          </div>
+          <div class="group">
+            <div class="srow"><span class="k">Phone</span><span class="v">+1 ••• ••• 4821</span></div>
+          </div>
+          <div class="group">
+            <div class="srow"><span class="k">Plan</span><span class="v">Stash Pro · renews Oct 3</span></div>
+          </div>
+          <div class="group">
+            <div class="srow link"><span class="k">How to stash</span><span class="chev">›</span></div>
+            <div class="srow link" onclick="openFromSettings()"><span class="k">Import screenshots<span class="sub" id="settingsSub">Up to 50 recent screenshots</span></span><span class="chev">›</span></div>
+          </div>
+          <div class="group"><div class="srow danger">Sign Out</div></div>
+        </div>
+        <div class="tabbar"><div><i></i>Add</div><div><i></i>Ask</div><div><i></i>View</div><div class="on"><i></i>Settings</div></div>
+      </div>
+    </div>
+
+    <div class="homebar"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- prototype state ---------- */
+let entry = 'onboarding';
+let access = 'full';
+let stage = 'intro';
+let period = 'all';
+const CAP = 50;
+let items = [];                // {id, kind, hue, daysAgo, selected}
+let importDone = false;
+
+/* deterministic mock screenshots: kinds cycle, ages spread over ~120 days, more recent = denser */
+const KINDS = ['chat','web','map','receipt','web','chat'];
+function seed(n) {
+  const out = [];
+  let r = 7;
+  const rnd = () => { r = (r * 9301 + 49297) % 233280; return r / 233280; };
+  for (let i = 0; i < n; i++) {
+    const daysAgo = Math.round(Math.pow(rnd(), 1.7) * 120);
+    out.push({ id: 'a' + i, kind: KINDS[i % KINDS.length], hue: Math.round(rnd() * 360), daysAgo, selected: true });
+  }
+  return out.sort((a, b) => a.daysAgo - b.daysAgo);
+}
+const ALL = seed(140);          // the library has more than the cap; "All recent" shows 50 of 140
+
+function eligible() {
+  const inPeriod = period === 'all' ? ALL : ALL.filter(x => x.daysAgo <= Number(period));
+  const shown = access === 'limited' ? inPeriod.slice(0, 12) : inPeriod;   // limited: the 12 the user allowed
+  return { total: shown.length, list: shown.slice(0, CAP) };
+}
+
+function mockHTML(kind, hue) {
+  const bar = `background:hsl(${hue} 55% 55%)`;
+  if (kind === 'chat') return `<div class="mock chat"><div class="bar" style="${bar}"></div><div class="body"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>`;
+  if (kind === 'map') return `<div class="mock map"><div class="bar" style="${bar}"></div><div class="body"><b></b></div></div>`;
+  if (kind === 'receipt') return `<div class="mock receipt"><div class="bar" style="${bar}"></div><div class="body"><i class="h"></i><i></i><i></i><i></i><i class="s"></i><i></i><i class="total"></i></div></div>`;
+  return `<div class="mock"><div class="bar" style="${bar}"></div><div class="body"><i class="h"></i><i></i><i class="s"></i><b></b><i></i><i class="xs"></i><i></i></div></div>`;
+}
+function ageLabel(d) { return d === 0 ? 'today' : d === 1 ? '1d' : d < 30 ? d + 'd' : d < 60 ? '1mo' : Math.round(d / 30) + 'mo'; }
+
+/* ---------- grid ---------- */
+function buildGrid() {
+  const { total, list } = eligible();
+  items = list.map(x => ({ ...x }));   // fresh selection each time the period changes: all on
+  const grid = document.getElementById('grid');
+  grid.innerHTML = items.map((x, i) =>
+    `<div class="tile on" data-i="${i}">${mockHTML(x.kind, x.hue)}<span class="badge"><i></i></span><span class="age">${ageLabel(x.daysAgo)}</span></div>`).join('');
+  document.getElementById('gridEmpty').classList.toggle('hidden', items.length > 0);
+  document.getElementById('limitedNote').classList.toggle('on', access === 'limited');
+  updateCount(total);
+}
+function updateCount(total) {
+  total = total ?? eligible().total;
+  const sel = items.filter(x => x.selected).length;
+  const capped = total > items.length;
+  document.getElementById('countLine').textContent = capped
+    ? `${items.length} most recent of ${total} · ${sel} selected`
+    : `${items.length} screenshots · ${sel} selected`;
+  document.getElementById('selAll').textContent = sel === items.length && items.length ? 'Deselect all' : 'Select all';
+  const btn = document.getElementById('confirmBtn');
+  btn.textContent = sel ? `Import ${sel}` : 'Select screenshots to import';
+  btn.classList.toggle('disabled', !sel);
+}
+document.getElementById('grid').addEventListener('click', e => {
+  const t = e.target.closest('.tile'); if (!t) return;
+  const x = items[Number(t.dataset.i)];
+  x.selected = !x.selected;
+  t.classList.toggle('on', x.selected); t.classList.toggle('off', !x.selected);
+  updateCount();
+});
+function toggleAll() {
+  const allOn = items.every(x => x.selected);
+  items.forEach(x => x.selected = !allOn);
+  document.querySelectorAll('#grid .tile').forEach(t => { t.classList.toggle('on', !allOn); t.classList.toggle('off', allOn); });
+  updateCount();
+}
+document.getElementById('chips').addEventListener('click', e => {
+  const c = e.target.closest('.chip'); if (!c) return;
+  period = c.dataset.period;
+  document.querySelectorAll('#chips .chip').forEach(b => b.classList.toggle('on', b === c));
+  buildGrid();
+});
+
+/* ---------- flow ---------- */
+function show(id) {
+  stage = id;
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === 'scr-' + id));
+  document.querySelectorAll('#stageBtns button').forEach(b => b.classList.toggle('on', b.dataset.stage === id));
+}
+document.getElementById('introStart').addEventListener('click', () => {
+  // Already authorized (e.g. re-entry from Settings) → straight to the grid; else the system prompt.
+  if (access === 'denied') { show('denied'); return; }
+  document.getElementById('alert').classList.add('on');
+});
+function grant(level) {
+  document.getElementById('alert').classList.remove('on');
+  access = level;
+  document.querySelectorAll('#accessSeg button').forEach(b => b.classList.toggle('on', b.dataset.access === level));
+  if (level === 'denied') { show('denied'); return; }
+  buildGrid(); show('grid');
+}
+function notNow() {
+  // Real screen: OnboardingState.markScreenshotImportDeferred() + dismiss → lands on the View tab.
+  renderLibrary(false); show('library');
+}
+function openFromSettings() {
+  if (access === 'denied') { show('denied'); return; }
+  if (importDone) { period = 'all'; }
+  buildGrid(); show('grid');
+}
+
+/* ---------- import + View tab ---------- */
+let timer = null;
+function renderLibrary(withCards) {
+  const cards = document.getElementById('cards');
+  cards.innerHTML = '';
+  document.getElementById('libEmpty').classList.toggle('hidden', withCards);
+}
+const LANDED = [
+  { kind:'receipt', hue:210, title:'Screenshot of a Delta boarding pass', desc:'JFK → SFO · Seat 14C · Sep 4, 7:05 AM · Gate B22.' },
+  { kind:'chat',    hue:262, title:'Screenshot of a text thread about Friday dinner', desc:'“Let’s do Via Carota at 8?” — addresses and a phone number detected.' },
+  { kind:'map',     hue:205, title:'Screenshot of a map pin in Brooklyn', desc:'Roberta’s, 261 Moore St — saved location and hours read from the pin.' },
+];
+function startImport() {
+  const sel = items.filter(x => x.selected).length; if (!sel) return;
+  importDone = true;
+  document.getElementById('settingsSub').textContent = `${sel} imported · today`;
+  show('library'); renderLibrary(true);
+  const banner = document.getElementById('banner');
+  banner.classList.remove('hidden', 'done');
+  document.getElementById('bannerTrack').classList.remove('hidden');
+  document.getElementById('bannerDone').classList.add('hidden');
+  let n = 0;
+  clearInterval(timer);
+  timer = setInterval(() => {
+    n++;
+    document.getElementById('bannerText').textContent = `Importing screenshots · ${n} of ${sel}`;
+    document.getElementById('bannerFill').style.width = (n / sel * 100) + '%';
+    if (n <= LANDED.length) addCard(LANDED[n - 1], n);
+    if (n >= sel) {
+      clearInterval(timer);
+      banner.classList.add('done');
+      document.getElementById('bannerText').textContent = `Added ${sel} screenshots`;
+      document.getElementById('bannerTrack').classList.add('hidden');
+      document.getElementById('bannerDone').classList.remove('hidden');
+      setTimeout(hideBanner, 4000);
+    }
+  }, Math.max(60, 2400 / sel));
+}
+function addCard(c, n) {
+  const cards = document.getElementById('cards');
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `<div class="hero">${mockHTML(c.kind, c.hue)}</div><div class="meta"><div class="chipsrow"><span class="tchip">Screenshot</span><span class="mchip">jpg · 310 KB</span></div><div class="ct pending">Reading the screenshot…</div><div class="cd">Just now</div></div>`;
+  cards.prepend(el);
+  // enrichment lands a beat later (realtime): AI title + description replace the pending line
+  setTimeout(() => {
+    const t = el.querySelector('.ct'); t.textContent = c.title; t.classList.remove('pending');
+    el.querySelector('.cd').textContent = c.desc;
+  }, 900 + n * 400);
+}
+function hideBanner() { document.getElementById('banner').classList.add('hidden'); }
+
+/* ---------- rail controls ---------- */
+document.getElementById('entrySeg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-entry]'); if (!b) return;
+  entry = b.dataset.entry;
+  document.querySelectorAll('#entrySeg button').forEach(x => x.classList.toggle('on', x === b));
+  if (entry === 'settings') show('settings'); else show('intro');
+});
+document.getElementById('accessSeg').addEventListener('click', e => {
+  const b = e.target.closest('button[data-access]'); if (!b) return;
+  access = b.dataset.access;
+  document.querySelectorAll('#accessSeg button').forEach(x => x.classList.toggle('on', x === b));
+  if (stage === 'grid') buildGrid();
+});
+document.getElementById('stageBtns').addEventListener('click', e => {
+  const b = e.target.closest('button[data-stage]'); if (!b) return;
+  const s = b.dataset.stage;
+  if (s === 'grid') { if (access === 'denied') access = 'full'; buildGrid(); }
+  if (s === 'library') { if (!importDone) { buildGrid(); startImport(); return; } renderLibrary(true); }
+  show(s);
+});
+</script>
+</body>
+</html>

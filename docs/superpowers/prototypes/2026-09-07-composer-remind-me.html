@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stash — "Remind me" in the web composer (Sep 7 2026)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Medium.woff2') format('woff2'); font-weight:500; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Semibold.woff2') format('woff2'); font-weight:600; font-style:normal; font-display:swap; }
+  @font-face { font-family:'PPEditorialNew-Regular'; src:url('../../../src/assets/fonts/PPEditorialNew-Regular.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
+
+  :root {
+    --ink:#22262f; --muted:#646b76; --faint:#959ba6;
+    --violet-600:#6d5bd0; --violet-300:#b6a8ef; --violet-deep:#4c3fa8;
+    --hair:rgba(0,0,0,.07); --chipbg:rgba(20,22,30,.05);
+    --sans:'PP Neue Montreal', Inter, -apple-system, sans-serif;
+    --serif:'PPEditorialNew-Regular', Georgia, serif;
+  }
+  * { box-sizing:border-box; margin:0; }
+  html { -webkit-font-smoothing:antialiased; }
+  body { font-family:var(--sans); color:var(--ink); line-height:1.5; background:#fff; min-height:100vh; padding:48px 48px 96px; position:relative; }
+  body::before { content:''; position:fixed; inset:0; z-index:-2; background:linear-gradient(-45deg, #667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8); opacity:.3; }
+  body::after { content:''; position:fixed; inset:0; z-index:-1; background:linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,.55) 35%, #fff 100%); }
+  button { font:inherit; border:none; background:none; cursor:pointer; color:inherit; padding:0; }
+  svg { display:block; }
+  .wrap { max-width:1240px; margin:0 auto; }
+
+  .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--violet-600); font-weight:600; margin-bottom:10px; }
+  h1 { font-weight:600; font-size:38px; line-height:1.12; letter-spacing:-.022em; max-width:640px; margin-bottom:14px; }
+  .lede { font-size:15px; color:var(--muted); max-width:700px; margin-bottom:8px; }
+  .lede b { color:var(--ink); font-weight:600; }
+
+  .opt { margin-top:56px; }
+  .opt h2 { font-size:20px; font-weight:600; letter-spacing:-.012em; margin-bottom:6px; display:flex; align-items:baseline; gap:12px; }
+  .opt h2 small { font-size:12px; font-weight:500; color:var(--faint); letter-spacing:0; }
+  .opt .why { font-size:13.5px; line-height:1.55; color:var(--muted); max-width:780px; }
+  .opt .why b { color:var(--ink); font-weight:600; }
+  .states { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:22px; align-items:start; margin-top:20px; }
+  .state { display:flex; flex-direction:column; gap:9px; }
+  .state-tag { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); font-weight:600; }
+  .state-tag b { color:var(--violet-600); font-weight:600; }
+  .state-note { font-size:12px; line-height:1.5; color:var(--muted); padding:0 2px; }
+  .state-note b { color:var(--ink); font-weight:600; }
+  .state.pop-room .composer { margin-bottom:118px; } /* room for the open popover before the note */
+
+  /* ── the composer, from UnifiedInputPanel.tsx (shell, editor, action row) ── */
+  .composer { background:rgba(255,255,255,.9); backdrop-filter:blur(6px); border-radius:6px; padding:16px; position:relative; display:flex; flex-direction:column; gap:16px;
+    box-shadow:0 0 0 1px rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3); }
+  .composer.active { box-shadow:0 0 0 1px rgba(109,91,208,.5), 0 0 0 6px rgba(109,91,208,.08), 0 24px 48px -20px rgba(109,91,208,.35); transform:translateY(-2px) scale(1.006); }
+  .editor { min-height:64px; font-size:15px; line-height:1.55; color:var(--ink); }
+  .editor .ph { color:#9ca3af; }
+  .editor .caret { display:inline-block; width:1px; height:1em; background:var(--ink); vertical-align:-2px; margin-left:1px; animation:blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .actions { display:flex; align-items:center; justify-content:space-between; padding-top:8px; }
+  .actions .right { display:flex; align-items:center; gap:8px; position:relative; }
+  .rb { width:48px; height:48px; border-radius:50%; border:1px solid #d1d5db; background:#fff; color:#9ca3af; display:grid; place-items:center; box-shadow:0 1px 2px rgba(0,0,0,.05); flex:none; transition:background .15s, color .15s, border-color .15s; }
+  .rb svg { width:20px; height:20px; }
+  .rb.plus { color:#6b7280; } .rb.plus svg { width:24px; height:24px; }
+  .rb:hover { background:#f9fafb; color:#4b5563; }
+  .rb.on { background:#f5f3ff; border-color:#c4b5fd; color:#7c3aed; }
+  .rb.send.hot { background:#8b5cf6; border-color:#8b5cf6; color:#fff; }
+  .cap { font-size:12px; color:#6b7280; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cap.set { color:var(--violet-600); font-weight:500; }
+
+  /* option 1: popover under the bell */
+  .pop { position:absolute; top:56px; right:112px; width:190px; background:#fff; border-radius:12px; padding:6px; z-index:5;
+    box-shadow:0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16), 0 0 0 1px rgba(0,0,0,.05); }
+  .pop .ttl { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); padding:6px 10px 4px; }
+  .pop button { display:flex; width:100%; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; font-size:13.5px; color:var(--ink); text-align:left; }
+  .pop button svg { width:14px; height:14px; color:var(--faint); }
+  .pop button:hover, .pop button.sel { background:rgba(109,91,208,.08); color:var(--violet-600); }
+  .pop button.sel svg, .pop button:hover svg { color:var(--violet-600); }
+  .pop .sep { height:1px; background:rgba(0,0,0,.06); margin:4px 6px; }
+  .pop button.quiet { color:var(--muted); }
+
+  /* option 2: chip row under the editor (the input-chips row, pt-2 border-t) */
+  .chiprow { display:flex; flex-wrap:wrap; gap:8px; padding-top:8px; border-top:1px solid #e5e7eb; align-items:center; }
+  .ichip { display:flex; align-items:center; gap:12px; max-width:300px; }
+  .ichip .th { width:40px; height:40px; border-radius:4px; background:var(--chipbg); flex:none; display:grid; place-items:center; color:var(--muted); }
+  .ichip .th svg { width:18px; height:18px; }
+  .ichip .tx { min-width:0; }
+  .ichip .tx p { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ichip .tx small { font-size:11px; color:var(--faint); }
+  .ichip .x { width:20px; height:20px; border-radius:50%; display:grid; place-items:center; color:var(--faint); flex:none; }
+  .ichip .x svg, .setchip .x svg { width:12px; height:12px; }
+  .ghost { display:inline-flex; align-items:center; gap:5px; border:1px dashed rgba(0,0,0,.22); border-radius:999px; padding:5px 11px 5px 9px; font-size:12.5px; color:var(--muted); }
+  .ghost svg { width:13px; height:13px; }
+  .ghost:hover { border-color:var(--violet-300); color:var(--violet-600); }
+  .seg2 { display:inline-flex; align-items:center; gap:3px; background:var(--chipbg); border-radius:999px; padding:3px; }
+  .seg2 .lbl { font-size:12px; color:var(--muted); padding:0 6px 0 9px; display:inline-flex; align-items:center; gap:5px; }
+  .seg2 .lbl svg { width:13px; height:13px; }
+  .seg2 button { padding:4px 10px; border-radius:999px; font-size:12.5px; color:var(--muted); }
+  .seg2 button.sel { background:#fff; color:var(--violet-600); box-shadow:0 1px 2px rgba(20,22,30,.08); font-weight:500; }
+  .seg2 .x { width:22px; height:22px; border-radius:50%; display:grid; place-items:center; color:var(--faint); }
+  .seg2 .x svg { width:12px; height:12px; }
+  .setchip { display:inline-flex; align-items:center; gap:6px; background:rgba(109,91,208,.1); color:var(--violet-deep); border-radius:999px; padding:5px 6px 5px 10px; font-size:12.5px; font-weight:500; }
+  .setchip > svg { width:13px; height:13px; }
+  .setchip .x { width:20px; height:20px; border-radius:50%; display:grid; place-items:center; color:rgba(76,63,168,.7); }
+  .setchip .x:hover { background:rgba(109,91,208,.15); }
+
+  /* option 3: the phrase becomes a token */
+  .tok { background:rgba(109,91,208,.12); color:var(--violet-deep); border-radius:4px; padding:1px 4px; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
+  .parsed { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); padding-top:8px; border-top:1px solid #e5e7eb; }
+  .parsed svg { width:13px; height:13px; color:var(--violet-600); flex:none; }
+  .parsed b { color:var(--ink); font-weight:500; }
+  .parsed .txt { flex:1; min-width:0; line-height:1.4; }
+  .parsed .undo { margin-left:auto; color:var(--violet-600); font-weight:500; flex:none; }
+
+  /* the card it makes (variant C, condensed) */
+  .card { background:#fff; border-radius:16px; box-shadow:0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08); display:flex; flex-direction:column; }
+  .hz { position:relative; }
+  .field { height:176px; border-radius:16px 16px 0 0; background:rgba(20,22,30,.04); padding:46px 24px 20px; box-shadow:inset 0 -1px 0 rgba(0,0,0,.04); overflow:hidden; }
+  .field p { font-size:15px; line-height:1.5; color:rgba(34,38,47,.85); }
+  .rem { position:absolute; top:10px; left:10px; display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 9px 0 8px; border-radius:999px; font-size:11.5px; font-weight:500; color:var(--violet-600); background:rgba(255,255,255,.85); backdrop-filter:blur(8px); box-shadow:0 1px 2px rgba(20,22,30,.08), 0 0 0 1px rgba(0,0,0,.05); }
+  .rem svg { width:12px; height:12px; }
+  .c-body { padding:18px 24px 20px; }
+  .meta { display:flex; align-items:center; gap:9px; font-size:12.5px; margin-bottom:10px; }
+  .meta .src { display:inline-flex; align-items:center; gap:5px; font-weight:500; }
+  .meta .src svg { width:12px; height:12px; }
+  .meta .date { color:var(--faint); }
+  .title { font-family:var(--serif); font-weight:400; font-size:21px; line-height:1.2; min-height:calc(21px * 1.2 * 2); margin-bottom:8px; }
+  .desc { font-size:14.5px; line-height:1.5; color:var(--muted); height:calc(14.5px * 1.5 * 2); overflow:hidden; }
+  .foot { padding-top:16px; min-height:40px; }
+
+  .rec { margin-top:64px; background:rgba(255,255,255,.8); border:1px solid var(--hair); border-radius:16px; padding:28px 32px; }
+  .rec h2 { font-size:20px; font-weight:600; letter-spacing:-.012em; margin-bottom:12px; }
+  .rec p, .rec li { font-size:13.5px; line-height:1.6; color:var(--muted); max-width:820px; }
+  .rec ul { padding-left:18px; margin-top:8px; }
+  .rec li { margin-bottom:6px; }
+  .rec b { color:var(--ink); font-weight:600; }
+  .rec code { font-family:ui-monospace, Menlo, monospace; font-size:11.5px; background:rgba(0,0,0,.05); border-radius:4px; padding:0 4px; color:var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) { .editor .caret { animation:none; } }
+  @media (max-width: 1100px) { .states { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Stash · reminders · web composer · Sep 7 2026 · v0.1 · exploration, not a spec</div>
+  <h1>Remind me, from the composer.</h1>
+  <p class="lede">The reminder contract already exists: capture endpoints accept an optional <b>remind_at</b>, the presets are 1 / 3 / 5 days, and the iOS share sheet has its chips above Save. The web capture box has no control yet. Three ways to add one, each <b>entirely optional</b>: nothing on the composer changes until someone reaches for it, and a capture without a reminder is exactly what it is today.</p>
+
+  <!-- ═══ option 1 ═══ -->
+  <section class="opt">
+    <h2>1 · A bell beside the pin <small>persistent tool, mirrors the location toggle</small></h2>
+    <p class="why">The composer already has one optional add-on with exactly this shape: the location pin. It is a round outline button that takes the violet tint when on, and writes a small caption beside itself ("posted from Kure Beach"). A bell that does the same is <b>zero new vocabulary</b>. Pressing it opens the three presets; once set, the bell stays lit and the caption says when the card comes back.</p>
+    <div class="states">
+      <div class="state">
+        <div class="state-tag">at rest</div>
+        <div class="composer">
+          <div class="editor"><span class="ph">Paste a link, drop a file, or type a note — press '/' for commands</span></div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <button class="rb" aria-label="Remind me"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></button>
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Third round button in the right cluster. Grey like the pin; nothing asks for attention.</div>
+      </div>
+      <div class="state pop-room">
+        <div class="state-tag"><b>pressed</b> · choosing</div>
+        <div class="composer active">
+          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <button class="rb on" aria-label="Remind me" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></button>
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+              <div class="pop" role="menu">
+                <div class="ttl">Bring this back</div>
+                <button role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>In 1 day</button>
+                <button role="menuitem" class="sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>In 3 days</button>
+                <button role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>In 5 days</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Same popover the card menu uses for "Remind me…", anchored under the bell. Enter after typing still just saves.</div>
+      </div>
+      <div class="state">
+        <div class="state-tag"><b>set</b> · ready to save</div>
+        <div class="composer active">
+          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <span class="cap set">back in 3 days</span>
+              <button class="rb on" aria-label="Remind me: in 3 days" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></button>
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Lit bell + caption, the same pair the location pin makes. Pressing the bell again reopens the presets with "No reminder" added.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ option 2 ═══ -->
+  <section class="opt">
+    <h2>2 · A reminder is something you attach <small>contextual, appears once there is a capture to attach it to</small></h2>
+    <p class="why">The composer already grows a chip row under the editor when you paste a link or drop a file. A reminder can live in that same row as <b>one more thing attached to this capture</b>. At rest there is nothing; once there is content, a quiet dashed "Remind me" appears in the row. It expands into the presets in place, and settles into a chip beside the attachments.</p>
+    <div class="states">
+      <div class="state">
+        <div class="state-tag">typing · the offer appears</div>
+        <div class="composer active">
+          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
+          <div class="chiprow">
+            <button class="ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>Remind me</button>
+          </div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">Dashed outline, muted text: an offer, not a control. Fades in with the chip row's existing motion. Empty composer shows nothing.</div>
+      </div>
+      <div class="state">
+        <div class="state-tag"><b>choosing</b> · in place</div>
+        <div class="composer active">
+          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
+          <div class="chiprow">
+            <div class="seg2" role="radiogroup" aria-label="Remind me">
+              <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>Remind me in</span>
+              <button role="radio">1 day</button><button role="radio" class="sel" aria-checked="true">3 days</button><button role="radio">5 days</button>
+              <button class="x" aria-label="No reminder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">The offer unfolds into the three presets right where it was; no popover, no layer. × collapses it back to the offer.</div>
+      </div>
+      <div class="state">
+        <div class="state-tag"><b>set</b> · beside a pasted link</div>
+        <div class="composer active">
+          <div class="editor">worth a read before the renewal meeting<span class="caret"></span></div>
+          <div class="chiprow">
+            <div class="ichip">
+              <span class="th"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+              <span class="tx"><p>Why we remember the books we argue with</p><small>theatlantic.com</small></span>
+              <button class="x" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+            <span class="setchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>Remind me in 3 days<button class="x" aria-label="No reminder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span>
+          </div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">The link chip and the reminder chip sit in one row: both are things attached to this capture. Same violet field the card's due state uses.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ option 3 ═══ -->
+  <section class="opt">
+    <h2>3 · Say it in the note <small>zero chrome, works on every capture channel</small></h2>
+    <p class="why">No control at all. If the words <b>"remind me in 3 days"</b> (or "tomorrow", "in a week", "next Friday") appear in what you type, the composer recognises the phrase, tints it, and tells you what it will do. The parse can run server-side at capture, which means it also works from SMS, WhatsApp, the extension and the share sheet with no UI on any of them. Lowest friction of the three; also the least discoverable, so it pairs with 1 or 2 rather than replacing them.</p>
+    <div class="states">
+      <div class="state">
+        <div class="state-tag">typing · the phrase is recognised</div>
+        <div class="composer active">
+          <div class="editor">Sublease clause in §14 looks off, <span class="tok">remind me in 3 days</span> so I re-read it before we sign<span class="caret"></span></div>
+          <div class="parsed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><span class="txt">Brings this back <b>Thursday, Sep 10</b>. The words stay in your note.</span><button class="undo">Undo</button></div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">The token is a highlight, not a widget: the text stays editable. The confirm line under the editor says the absolute date so a mis-parse is caught before saving. Undo drops the reminder and the tint.</div>
+      </div>
+      <div class="state">
+        <div class="state-tag">a pasted link, one word</div>
+        <div class="composer active">
+          <div class="editor"><span class="tok">remind me tomorrow</span><span class="caret"></span></div>
+          <div class="chiprow">
+            <div class="ichip">
+              <span class="th"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
+              <span class="tx"><p>Northwind lease renewal — terms redlined</p><small>docs.google.com</small></span>
+              <button class="x" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+            </div>
+          </div>
+          <div class="parsed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><span class="txt">Brings this back <b>tomorrow, Sep 8</b>. The phrase is dropped from the note.</span><button class="undo">Undo</button></div>
+          <div class="actions">
+            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <div class="right">
+              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
+              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <div class="state-note">When the phrase is the <b>whole</b> note, it is an instruction rather than content, so it is consumed: the link saves with no annotation and a reminder. Same rule an SMS "https://… remind me tomorrow" would follow.</div>
+      </div>
+      <div class="state">
+        <div class="state-tag">the card it makes</div>
+        <article class="card">
+          <div class="hz">
+            <div class="field"><p>Sublease clause in §14 looks off, remind me in 3 days so I re-read it before we sign</p></div>
+            <span class="rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>in 3 days</span>
+          </div>
+          <div class="c-body">
+            <div class="meta"><span class="src"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>Note</span><span class="date">Sep 7, 2026</span></div>
+            <h3 class="title">Re-read the Northwind §14 sublease clause before signing</h3>
+            <p class="desc">A flag on the sublease terms in the renewal draft, set to come back three days before the signing.</p>
+            <div class="foot"></div>
+          </div>
+        </article>
+        <div class="state-note">Whatever the entry point, the result is the same C card with its reminder chip. Option 1's caption, option 2's chip and option 3's token all write the same <b>remind_at</b>.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="rec">
+    <h2>Recommendation</h2>
+    <p><b>Ship 1 and 3 together.</b> The bell mirrors the location pin so it costs nothing to learn and is visible before anyone has typed; the phrase parser is the friction-free path and, run at capture, it lights up SMS, WhatsApp, the extension and the share sheet for free. Option 2 is the most elegant on the web but hides the affordance until there is content, and it competes with the input-chip row for space on a narrow composer.</p>
+    <ul>
+      <li>The composer posts <code>remind_at</code> alongside the capture (already accepted by every capture endpoint; invalid values are ignored). No new endpoint.</li>
+      <li>The parser is a small regex family on the note text at submit (web) and on <code>content</code> at capture (server): "remind me in N days", "tomorrow", "in a week", "next &lt;weekday&gt;". Anything it cannot parse is left alone. Whole-note phrases are consumed; in-sentence phrases are kept.</li>
+      <li>Presets stay 1 / 3 / 5 in the bell; the parser can express any day. Custom dates in the UI remain out of scope, as the spec says.</li>
+      <li>Both write the same card state: the chip on the hero, escalating as the date nears.</li>
+    </ul>
+  </section>
+
+</div>
+</body>
+</html>
