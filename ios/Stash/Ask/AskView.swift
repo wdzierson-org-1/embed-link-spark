@@ -4,8 +4,8 @@ import StashKit
 import AVFoundation
 
 /// The Ask tab: streaming Q&A over the user's stash (`ChatStore`, Task 2), with citation chips
-/// that open the existing read-only detail sheet, capture-as-chat (`.saved` chips), dictation,
-/// and read-aloud. Prose-specified per plan-1/2 precedent — the state machine underneath is
+/// that open the existing read-only detail sheet, capture-as-chat (`.saved` chips), and
+/// read-aloud. Prose-specified per plan-1/2 precedent — the state machine underneath is
 /// already tested (`ChatStoreTests`); this view is what renders it.
 struct AskView: View {
     let userId: UUID
@@ -14,13 +14,6 @@ struct AskView: View {
 
     @State private var store: ChatStore
     @State private var input = ""
-    @State private var dictation = DictationController()
-    /// The composer's content at the instant dictation last started — captured once per
-    /// start/restart so every interim update re-merges against the SAME unchanging prefix (see
-    /// `mergeDictation`). Without this, restarting dictation (redo) or dictating after already
-    /// typing something loses that text the moment `DictationController.start()` resets
-    /// `transcript` to "" (task review finding: the field went blank instantly on a second tap).
-    @State private var dictationPrefix = ""
     @State private var speech = SpeechReader()
     @State private var gateMessage: String?
     @State private var citationItem: Item?
@@ -82,17 +75,6 @@ struct AskView: View {
         .onChange(of: store.errorRestoredInput) { _, restored in
             if let restored { input = restored }
         }
-        // Ordered before the transcript mirror below: both fire from the same transaction when
-        // `start()` resets `transcript` to "" and flips `isListening` true together, and the
-        // prefix must already be captured by the time the transcript handler re-merges.
-        .onChange(of: dictation.isListening) { _, isListening in
-            if isListening { dictationPrefix = input }
-        }
-        .onChange(of: dictation.transcript) { _, newValue in
-            guard dictation.isListening else { return }
-            input = mergeDictation(prefix: dictationPrefix, interim: newValue)
-        }
-        .onDisappear { dictation.stop() }
         .sheet(item: $citationItem) { item in
             ItemDetailView(item: item, store: citationStore)
         }
@@ -207,7 +189,6 @@ struct AskView: View {
                             userId: userId,
                             loadingSourceId: loadingSourceId,
                             speech: speech,
-                            isDictating: dictation.isListening,
                             onCitationTap: openCitation
                         )
                         .id(message.id)
@@ -295,12 +276,7 @@ struct AskView: View {
             if let citationErrorMessage {
                 banner(citationErrorMessage, identifier: "ask.citationError")
             }
-            if dictation.isListening {
-                Text("Listening…")
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.destructive)
-            }
-            ChatComposerBar(text: $input, isSending: store.isStreaming, dictation: dictation, onSend: sendTapped)
+            ChatComposerBar(text: $input, isSending: store.isStreaming, onSend: sendTapped)
         }
         .padding(12)
     }

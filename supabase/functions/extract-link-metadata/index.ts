@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
-import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
+import { cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import {
   CRAWLER_UA,
   deriveDescriptionFromContent,
@@ -990,7 +990,7 @@ serve(async (req) => {
         }
       }
       const result: MetadataResult = {
-        title: cleanOptionalMetaText(youtube.title),
+        title: cleanOptionalMetaTitle(youtube.title, youtube.description),
         description: cleanOptionalMetaText(youtube.description),
         image: youtube.image,
         previewImagePath,
@@ -1162,10 +1162,10 @@ serve(async (req) => {
 
       // Create result with all available metadata. Every strategy (meta
       // tags, JSON-LD, oEmbed, Jina, Wayback, URL inference) funnels through
-      // here, so this is where entity decoding / emphasis stripping is
-      // guaranteed for whatever the clients store.
+      // here, so this is where entity decoding / emphasis stripping (and, for
+      // titles, hashtag removal) is guaranteed for whatever the clients store.
       const result: MetadataResult = {
-        title: cleanOptionalMetaText(metadata.title) || validUrl.hostname,
+        title: cleanOptionalMetaTitle(metadata.title, metadata.description) || validUrl.hostname,
         description: cleanOptionalMetaText(metadata.description),
         image: validImage,
         previewImagePath,
