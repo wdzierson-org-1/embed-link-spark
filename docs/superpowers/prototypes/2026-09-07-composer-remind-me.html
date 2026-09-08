@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Stash — "Remind me" in the web composer (Sep 7 2026)</title>
+<title>Stash — "Remind me" from the composer, iOS and the share sheet (Sep 7 2026, v0.2)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
@@ -12,336 +12,487 @@
 
   :root {
     --ink:#22262f; --muted:#646b76; --faint:#959ba6;
-    --violet-600:#6d5bd0; --violet-300:#b6a8ef; --violet-deep:#4c3fa8;
+    --violet-600:#6d5bd0; --violet-300:#b6a8ef; --violet-deep:#4c3fa8; --success:#2f9e63;
     --hair:rgba(0,0,0,.07); --chipbg:rgba(20,22,30,.05);
     --sans:'PP Neue Montreal', Inter, -apple-system, sans-serif;
     --serif:'PPEditorialNew-Regular', Georgia, serif;
+    --mono:ui-monospace, Menlo, monospace;
+    --splash:linear-gradient(-45deg, #667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8);
   }
   * { box-sizing:border-box; margin:0; }
   html { -webkit-font-smoothing:antialiased; }
   body { font-family:var(--sans); color:var(--ink); line-height:1.5; background:#fff; min-height:100vh; padding:48px 48px 96px; position:relative; }
-  body::before { content:''; position:fixed; inset:0; z-index:-2; background:linear-gradient(-45deg, #667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8); opacity:.3; }
+  body::before { content:''; position:fixed; inset:0; z-index:-2; background:var(--splash); opacity:.3; }
   body::after { content:''; position:fixed; inset:0; z-index:-1; background:linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,.55) 35%, #fff 100%); }
   button { font:inherit; border:none; background:none; cursor:pointer; color:inherit; padding:0; }
   svg { display:block; }
   .wrap { max-width:1240px; margin:0 auto; }
 
   .eyebrow { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--violet-600); font-weight:600; margin-bottom:10px; }
-  h1 { font-weight:600; font-size:38px; line-height:1.12; letter-spacing:-.022em; max-width:640px; margin-bottom:14px; }
-  .lede { font-size:15px; color:var(--muted); max-width:700px; margin-bottom:8px; }
+  h1 { font-weight:600; font-size:38px; line-height:1.12; letter-spacing:-.022em; max-width:680px; margin-bottom:14px; }
+  .lede { font-size:15px; color:var(--muted); max-width:720px; margin-bottom:8px; }
   .lede b { color:var(--ink); font-weight:600; }
 
-  .opt { margin-top:56px; }
-  .opt h2 { font-size:20px; font-weight:600; letter-spacing:-.012em; margin-bottom:6px; display:flex; align-items:baseline; gap:12px; }
+  .opt { margin-top:60px; }
+  .opt h2 { font-size:20px; font-weight:600; letter-spacing:-.012em; margin-bottom:6px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
   .opt h2 small { font-size:12px; font-weight:500; color:var(--faint); letter-spacing:0; }
-  .opt .why { font-size:13.5px; line-height:1.55; color:var(--muted); max-width:780px; }
+  .opt h2 .pill { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--violet-600); background:rgba(109,91,208,.1); border-radius:999px; padding:2px 8px; }
+  .opt h2 .pill.off { color:var(--faint); background:var(--chipbg); }
+  .opt .why { font-size:13.5px; line-height:1.55; color:var(--muted); max-width:800px; }
   .opt .why b { color:var(--ink); font-weight:600; }
   .states { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:22px; align-items:start; margin-top:20px; }
-  .state { display:flex; flex-direction:column; gap:9px; }
+  .states.four { grid-template-columns:repeat(4, minmax(0,1fr)); }
+  .states.two { grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .state { display:flex; flex-direction:column; gap:9px; min-width:0; }
   .state-tag { font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); font-weight:600; }
   .state-tag b { color:var(--violet-600); font-weight:600; }
   .state-note { font-size:12px; line-height:1.5; color:var(--muted); padding:0 2px; }
   .state-note b { color:var(--ink); font-weight:600; }
-  .state.pop-room .composer { margin-bottom:118px; } /* room for the open popover before the note */
 
-  /* ── the composer, from UnifiedInputPanel.tsx (shell, editor, action row) ── */
+  /* ── the web composer, from UnifiedInputPanel.tsx ── */
   .composer { background:rgba(255,255,255,.9); backdrop-filter:blur(6px); border-radius:6px; padding:16px; position:relative; display:flex; flex-direction:column; gap:16px;
     box-shadow:0 0 0 1px rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3); }
   .composer.active { box-shadow:0 0 0 1px rgba(109,91,208,.5), 0 0 0 6px rgba(109,91,208,.08), 0 24px 48px -20px rgba(109,91,208,.35); transform:translateY(-2px) scale(1.006); }
-  .editor { min-height:64px; font-size:15px; line-height:1.55; color:var(--ink); }
+  .editor { min-height:64px; font-size:15px; line-height:1.55; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; }
   .editor .ph { color:#9ca3af; }
-  .editor .caret { display:inline-block; width:1px; height:1em; background:var(--ink); vertical-align:-2px; margin-left:1px; animation:blink 1s steps(1) infinite; }
+  .caret { display:inline-block; width:1px; height:1em; background:var(--ink); vertical-align:-2px; margin-left:1px; animation:blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity:0; } }
   .actions { display:flex; align-items:center; justify-content:space-between; padding-top:8px; }
   .actions .right { display:flex; align-items:center; gap:8px; position:relative; }
-  .rb { width:48px; height:48px; border-radius:50%; border:1px solid #d1d5db; background:#fff; color:#9ca3af; display:grid; place-items:center; box-shadow:0 1px 2px rgba(0,0,0,.05); flex:none; transition:background .15s, color .15s, border-color .15s; }
+  .rb { width:48px; height:48px; border-radius:50%; border:1px solid #d1d5db; background:#fff; color:#9ca3af; display:grid; place-items:center; box-shadow:0 1px 2px rgba(0,0,0,.05); flex:none; }
   .rb svg { width:20px; height:20px; }
   .rb.plus { color:#6b7280; } .rb.plus svg { width:24px; height:24px; }
-  .rb:hover { background:#f9fafb; color:#4b5563; }
   .rb.on { background:#f5f3ff; border-color:#c4b5fd; color:#7c3aed; }
   .rb.send.hot { background:#8b5cf6; border-color:#8b5cf6; color:#fff; }
   .cap { font-size:12px; color:#6b7280; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .cap.set { color:var(--violet-600); font-weight:500; }
 
-  /* option 1: popover under the bell */
-  .pop { position:absolute; top:56px; right:112px; width:190px; background:#fff; border-radius:12px; padding:6px; z-index:5;
-    box-shadow:0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16), 0 0 0 1px rgba(0,0,0,.05); }
-  .pop .ttl { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); padding:6px 10px 4px; }
-  .pop button { display:flex; width:100%; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; font-size:13.5px; color:var(--ink); text-align:left; }
-  .pop button svg { width:14px; height:14px; color:var(--faint); }
-  .pop button:hover, .pop button.sel { background:rgba(109,91,208,.08); color:var(--violet-600); }
-  .pop button.sel svg, .pop button:hover svg { color:var(--violet-600); }
-  .pop .sep { height:1px; background:rgba(0,0,0,.06); margin:4px 6px; }
-  .pop button.quiet { color:var(--muted); }
-
-  /* option 2: chip row under the editor (the input-chips row, pt-2 border-t) */
-  .chiprow { display:flex; flex-wrap:wrap; gap:8px; padding-top:8px; border-top:1px solid #e5e7eb; align-items:center; }
+  /* the chip row: the reminder's home (option 2), filled by the recognizer (option 3) */
+  .chiprow { display:flex; flex-wrap:wrap; gap:8px; padding-top:8px; border-top:1px solid #e5e7eb; align-items:center; min-height:44px; }
   .ichip { display:flex; align-items:center; gap:12px; max-width:300px; }
   .ichip .th { width:40px; height:40px; border-radius:4px; background:var(--chipbg); flex:none; display:grid; place-items:center; color:var(--muted); }
   .ichip .th svg { width:18px; height:18px; }
   .ichip .tx { min-width:0; }
   .ichip .tx p { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ichip .tx small { font-size:11px; color:var(--faint); }
-  .ichip .x { width:20px; height:20px; border-radius:50%; display:grid; place-items:center; color:var(--faint); flex:none; }
-  .ichip .x svg, .setchip .x svg { width:12px; height:12px; }
+  .x { width:20px; height:20px; border-radius:50%; display:grid; place-items:center; color:var(--faint); flex:none; }
+  .x svg { width:12px; height:12px; }
+  .x:hover { background:rgba(0,0,0,.06); color:var(--ink); }
   .ghost { display:inline-flex; align-items:center; gap:5px; border:1px dashed rgba(0,0,0,.22); border-radius:999px; padding:5px 11px 5px 9px; font-size:12.5px; color:var(--muted); }
   .ghost svg { width:13px; height:13px; }
   .ghost:hover { border-color:var(--violet-300); color:var(--violet-600); }
-  .seg2 { display:inline-flex; align-items:center; gap:3px; background:var(--chipbg); border-radius:999px; padding:3px; }
-  .seg2 .lbl { font-size:12px; color:var(--muted); padding:0 6px 0 9px; display:inline-flex; align-items:center; gap:5px; }
+  .seg2 { display:inline-flex; align-items:center; gap:3px; background:var(--chipbg); border-radius:999px; padding:3px; max-width:100%; }
+  .seg2 .lbl { font-size:12px; color:var(--muted); padding:0 6px 0 9px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
   .seg2 .lbl svg { width:13px; height:13px; }
-  .seg2 button { padding:4px 10px; border-radius:999px; font-size:12.5px; color:var(--muted); }
-  .seg2 button.sel { background:#fff; color:var(--violet-600); box-shadow:0 1px 2px rgba(20,22,30,.08); font-weight:500; }
-  .seg2 .x { width:22px; height:22px; border-radius:50%; display:grid; place-items:center; color:var(--faint); }
-  .seg2 .x svg { width:12px; height:12px; }
-  .setchip { display:inline-flex; align-items:center; gap:6px; background:rgba(109,91,208,.1); color:var(--violet-deep); border-radius:999px; padding:5px 6px 5px 10px; font-size:12.5px; font-weight:500; }
-  .setchip > svg { width:13px; height:13px; }
-  .setchip .x { width:20px; height:20px; border-radius:50%; display:grid; place-items:center; color:rgba(76,63,168,.7); }
-  .setchip .x:hover { background:rgba(109,91,208,.15); }
+  .seg2 button.p { padding:4px 10px; border-radius:999px; font-size:12.5px; color:var(--muted); white-space:nowrap; }
+  .seg2 button.p.sel { background:#fff; color:var(--violet-600); box-shadow:0 1px 2px rgba(20,22,30,.08); font-weight:500; }
+  .seg2 .x { width:22px; height:22px; }
+  .setchip { display:inline-flex; align-items:center; gap:6px; background:rgba(109,91,208,.1); color:var(--violet-deep); border-radius:999px; padding:5px 6px 5px 10px; font-size:12.5px; font-weight:500; max-width:100%; }
+  .setchip > svg { width:13px; height:13px; flex:none; }
+  .setchip small { font-weight:400; color:rgba(76,63,168,.7); font-size:12px; }
+  .setchip .x { color:rgba(76,63,168,.7); }
+  .setchip .x:hover { background:rgba(109,91,208,.15); color:var(--violet-deep); }
+  .tok { background:rgba(109,91,208,.12); color:var(--violet-deep); border-radius:4px; padding:1px 3px; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
+  .tok.soft { background:rgba(20,22,30,.06); color:var(--ink); }
 
-  /* option 3: the phrase becomes a token */
-  .tok { background:rgba(109,91,208,.12); color:var(--violet-deep); border-radius:4px; padding:1px 4px; -webkit-box-decoration-break:clone; box-decoration-break:clone; }
-  .parsed { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); padding-top:8px; border-top:1px solid #e5e7eb; }
-  .parsed svg { width:13px; height:13px; color:var(--violet-600); flex:none; }
-  .parsed b { color:var(--ink); font-weight:500; }
-  .parsed .txt { flex:1; min-width:0; line-height:1.4; }
-  .parsed .undo { margin-left:auto; color:var(--violet-600); font-weight:500; flex:none; }
+  /* option 1 popover (kept for the record) */
+  .pop { position:absolute; top:56px; right:112px; width:190px; background:#fff; border-radius:12px; padding:6px; z-index:5; box-shadow:0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16), 0 0 0 1px rgba(0,0,0,.05); }
+  .pop .ttl { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); padding:6px 10px 4px; }
+  .pop button { display:flex; width:100%; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; font-size:13.5px; color:var(--ink); text-align:left; }
+  .pop button svg { width:14px; height:14px; color:var(--faint); }
+  .pop button.sel { background:rgba(109,91,208,.08); color:var(--violet-600); }
+  .pop button.sel svg { color:var(--violet-600); }
+  .state.pop-room .composer { margin-bottom:118px; }
 
-  /* the card it makes (variant C, condensed) */
-  .card { background:#fff; border-radius:16px; box-shadow:0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08); display:flex; flex-direction:column; }
-  .hz { position:relative; }
-  .field { height:176px; border-radius:16px 16px 0 0; background:rgba(20,22,30,.04); padding:46px 24px 20px; box-shadow:inset 0 -1px 0 rgba(0,0,0,.04); overflow:hidden; }
-  .field p { font-size:15px; line-height:1.5; color:rgba(34,38,47,.85); }
-  .rem { position:absolute; top:10px; left:10px; display:inline-flex; align-items:center; gap:5px; height:26px; padding:0 9px 0 8px; border-radius:999px; font-size:11.5px; font-weight:500; color:var(--violet-600); background:rgba(255,255,255,.85); backdrop-filter:blur(8px); box-shadow:0 1px 2px rgba(20,22,30,.08), 0 0 0 1px rgba(0,0,0,.05); }
-  .rem svg { width:12px; height:12px; }
-  .c-body { padding:18px 24px 20px; }
-  .meta { display:flex; align-items:center; gap:9px; font-size:12.5px; margin-bottom:10px; }
-  .meta .src { display:inline-flex; align-items:center; gap:5px; font-weight:500; }
-  .meta .src svg { width:12px; height:12px; }
-  .meta .date { color:var(--faint); }
-  .title { font-family:var(--serif); font-weight:400; font-size:21px; line-height:1.2; min-height:calc(21px * 1.2 * 2); margin-bottom:8px; }
-  .desc { font-size:14.5px; line-height:1.5; color:var(--muted); height:calc(14.5px * 1.5 * 2); overflow:hidden; }
-  .foot { padding-top:16px; min-height:40px; }
+  /* ── live recognizer ── */
+  .live { display:grid; grid-template-columns:minmax(0, 1.2fr) minmax(0, 1fr); gap:28px; align-items:start; margin-top:20px; }
+  .live-editor { position:relative; min-height:72px; }
+  .live-editor .hl { font-size:15px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere; min-height:72px; color:var(--ink); }
+  .live-editor .hl .ph { color:#9ca3af; }
+  .live-editor textarea { position:absolute; inset:0; width:100%; height:100%; background:transparent; color:transparent; caret-color:var(--ink); font:inherit; font-size:15px; line-height:1.55; border:none; outline:none; resize:none; padding:0; margin:0; overflow:hidden; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .samples { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+  .samples button { font-size:12px; color:var(--muted); background:rgba(255,255,255,.7); border:1px solid var(--hair); border-radius:999px; padding:4px 10px; }
+  .samples button:hover { color:var(--violet-600); border-color:var(--violet-300); }
+  .samples label { font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:6px; margin-left:auto; }
+  .readout { margin-top:14px; font-size:12.5px; line-height:1.7; color:var(--muted); background:rgba(255,255,255,.7); border:1px solid var(--hair); border-radius:12px; padding:12px 16px; }
+  .readout b { color:var(--ink); font-weight:600; }
+  .readout .k { display:inline-block; min-width:78px; color:var(--faint); }
+  .readout .act { font-weight:600; color:var(--violet-600); }
+  .lex h3 { font-size:13px; font-weight:600; margin:0 0 6px; }
+  .lex table { width:100%; border-collapse:collapse; font-size:12.5px; line-height:1.45; margin-bottom:16px; }
+  .lex td, .lex th { text-align:left; vertical-align:top; padding:6px 8px 6px 0; border-top:1px solid var(--hair); }
+  .lex th { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); font-weight:600; border-top:none; padding-top:0; }
+  .lex td:first-child { color:var(--ink); font-weight:500; white-space:nowrap; width:34%; }
+  .lex td { color:var(--muted); }
+  .lex code { font-family:var(--mono); font-size:11px; color:var(--ink); }
+  .matrix td .act { font-weight:600; color:var(--violet-600); }
+
+  /* ── phones (iOS composer + share sheet) ── */
+  .ph { width:390px; max-width:100%; border-radius:44px; border:1px solid rgba(0,0,0,.12); background:#fff; position:relative; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16); }
+  .ph .grad { position:absolute; top:0; left:-10%; right:-10%; height:260px; background:var(--splash); opacity:.25; filter:blur(24px); z-index:0; }
+  .ph .gradfade { position:absolute; top:0; left:0; right:0; height:260px; background:linear-gradient(to bottom, rgba(255,255,255,0) 20%, #fff); z-index:0; }
+  .ph > * { position:relative; z-index:1; }
+  .ph .status { display:flex; justify-content:space-between; align-items:center; padding:14px 28px 4px; font-size:13px; font-weight:600; }
+  .ph .status i { display:inline-block; width:22px; height:11px; border:1px solid var(--ink); border-radius:3px; position:relative; opacity:.8; }
+  .ph .status i::after { content:''; position:absolute; inset:1.5px; right:4px; background:var(--ink); border-radius:1px; }
+  .ph .hdr { display:flex; align-items:center; justify-content:space-between; padding:8px 16px 4px; min-height:44px; }
+  .ph .wordmark { font-weight:600; font-size:18px; letter-spacing:-.02em; }
+  .ph .xbtn { width:36px; height:36px; border-radius:50%; background:var(--chipbg); display:grid; place-items:center; color:var(--ink); }
+  .ph .xbtn svg { width:15px; height:15px; }
+  .ph .content { padding:8px 16px 20px; display:flex; flex-direction:column; gap:12px; flex:1; }
+  .hcard { background:#fff; border-radius:12px; box-shadow:0 1px 2px rgba(20,22,30,.06), 0 4px 14px rgba(30,33,44,.08); }
+  .prev { display:flex; align-items:center; gap:12px; padding:12px 14px; }
+  .prev img { width:32px; height:32px; border-radius:7px; flex:none; }
+  .prev .tx { min-width:0; }
+  .prev p { font-size:15px; font-weight:500; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prev small { font-size:12px; color:var(--muted); }
+  .notef { padding:12px 14px; font-size:15px; line-height:1.4; min-height:44px; color:var(--ink); }
+  .notef .ph2 { color:var(--faint); }
+  .ph .bar { padding:12px 20px 10px; background:#fff; display:flex; flex-direction:column; gap:10px; margin-top:auto; }
+  .rrow { display:flex; align-items:center; gap:5px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); min-height:32px; }
+  .rrow .lbl { display:inline-flex; align-items:center; gap:5px; margin-right:3px; white-space:nowrap; }
+  .rrow .lbl svg { width:13px; height:13px; }
+  .rrow .pc { padding:6px 10px; border-radius:999px; background:var(--chipbg); font-size:13px; color:var(--ink); font-weight:500; white-space:nowrap; }
+  .rrow .pc.sel { background:rgba(109,91,208,.12); color:var(--violet-deep); box-shadow:inset 0 0 0 1px rgba(109,91,208,.35); }
+  .rrow .setchip { font-size:13px; padding:6px 6px 6px 12px; }
+  .savebtn { height:52px; border-radius:12px; background:var(--violet-600); color:#fff; font-size:17px; font-weight:500; display:grid; place-items:center; }
+  .homebar { width:134px; height:5px; border-radius:3px; background:rgba(0,0,0,.2); margin:8px auto 10px; }
+  .pinline { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+  .pinline svg { width:13px; height:13px; }
+  .done { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:40px 24px; }
+  .done .ck { width:56px; height:56px; border-radius:50%; background:var(--success); color:#fff; display:grid; place-items:center; }
+  .done .ck svg { width:26px; height:26px; }
+  .done p { font-size:15px; font-weight:600; }
+  .done small { font-size:13px; color:var(--muted); }
+
+  /* iOS composer card (CaptureComposerView / ComposerCard) */
+  .ccard { background:rgba(255,255,255,.92); border-radius:12px; box-shadow:0 0 0 1px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.14); padding:14px 16px 12px; display:flex; flex-direction:column; gap:12px; min-height:300px; }
+  .ccard.focus { box-shadow:0 0 0 1px rgba(109,91,208,.5), 0 0 0 6px rgba(109,91,208,.08), 0 24px 48px -20px rgba(109,91,208,.35); transform:translateY(-2px) scale(1.006); }
+  .ccard .ed { flex:1; font-size:17px; line-height:1.4; min-height:110px; white-space:pre-wrap; }
+  .ccard .ed .ph { color:var(--faint); }
+  .ccard .chiprow { border-top-color:var(--hair); }
+  .ccard .ghost, .ccard .seg2 button.p, .ccard .setchip { font-size:13px; }
+  .cbar { display:flex; align-items:center; gap:8px; }
+  .ci { width:40px; height:40px; border-radius:50%; border:1px solid rgba(0,0,0,.1); display:grid; place-items:center; color:var(--ink); flex:none; }
+  .ci svg { width:17px; height:17px; }
+  .ci.on { border-color:rgba(109,91,208,.5); background:rgba(109,91,208,.08); color:var(--violet-600); }
+  .ci.send { background:var(--violet-600); border-color:var(--violet-600); color:#fff; margin-left:auto; }
+  .ci.send.cold { background:var(--chipbg); border-color:transparent; color:var(--faint); }
 
   .rec { margin-top:64px; background:rgba(255,255,255,.8); border:1px solid var(--hair); border-radius:16px; padding:28px 32px; }
   .rec h2 { font-size:20px; font-weight:600; letter-spacing:-.012em; margin-bottom:12px; }
-  .rec p, .rec li { font-size:13.5px; line-height:1.6; color:var(--muted); max-width:820px; }
+  .rec p, .rec li { font-size:13.5px; line-height:1.6; color:var(--muted); max-width:860px; }
   .rec ul { padding-left:18px; margin-top:8px; }
   .rec li { margin-bottom:6px; }
   .rec b { color:var(--ink); font-weight:600; }
-  .rec code { font-family:ui-monospace, Menlo, monospace; font-size:11.5px; background:rgba(0,0,0,.05); border-radius:4px; padding:0 4px; color:var(--ink); }
+  .rec code { font-family:var(--mono); font-size:11.5px; background:rgba(0,0,0,.05); border-radius:4px; padding:0 4px; color:var(--ink); }
 
-  @media (prefers-reduced-motion: reduce) { .editor .caret { animation:none; } }
-  @media (max-width: 1100px) { .states { grid-template-columns:1fr; } }
+  @media (prefers-reduced-motion: reduce) { .caret { animation:none; } }
+  @media (max-width: 1100px) { .states, .states.four, .states.two, .live { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <div class="eyebrow">Stash · reminders · web composer · Sep 7 2026 · v0.1 · exploration, not a spec</div>
-  <h1>Remind me, from the composer.</h1>
-  <p class="lede">The reminder contract already exists: capture endpoints accept an optional <b>remind_at</b>, the presets are 1 / 3 / 5 days, and the iOS share sheet has its chips above Save. The web capture box has no control yet. Three ways to add one, each <b>entirely optional</b>: nothing on the composer changes until someone reaches for it, and a capture without a reminder is exactly what it is today.</p>
+  <div class="eyebrow">Stash · reminders · composer, iOS, share sheet · Sep 7 2026 · v0.2 · exploration, not a spec</div>
+  <h1>Remind me, wherever you capture.</h1>
+  <p class="lede"><b>Sep 7 decision:</b> options 2 and 3, merged into one system. The chip row under the text is the reminder's <b>one home</b> on every surface; a recognised phrase simply fills it; the <b>×</b> is the only remove control, everywhere. v0.2 adds the recognizer itself (live, type into it), the rule for when a phrase counts as a reminder, and the same system on the iOS composer and the share sheet.</p>
 
-  <!-- ═══ option 1 ═══ -->
+  <!-- ═══ 1 · the chip row ═══ -->
   <section class="opt">
-    <h2>1 · A bell beside the pin <small>persistent tool, mirrors the location toggle</small></h2>
-    <p class="why">The composer already has one optional add-on with exactly this shape: the location pin. It is a round outline button that takes the violet tint when on, and writes a small caption beside itself ("posted from Kure Beach"). A bell that does the same is <b>zero new vocabulary</b>. Pressing it opens the three presets; once set, the bell stays lit and the caption says when the card comes back.</p>
-    <div class="states">
-      <div class="state">
-        <div class="state-tag">at rest</div>
-        <div class="composer">
-          <div class="editor"><span class="ph">Paste a link, drop a file, or type a note — press '/' for commands</span></div>
+    <h2>1 · The chip row <span class="pill">chosen</span> <small>a reminder is something you attach</small></h2>
+    <p class="why">The composer already grows a chip row under the editor when you paste a link or drop a file. A reminder lives in that same row as <b>one more thing attached to this capture</b>. At rest there is nothing; once there is content, a quiet dashed "Remind me" appears. It unfolds into the presets in place and settles into a chip beside the attachments. Typing a phrase (section 2) fills the very same chip.</p>
+    <div class="states four" id="s1"></div>
+  </section>
+
+  <!-- ═══ 2 · the recognizer ═══ -->
+  <section class="opt">
+    <h2>2 · Say it in the note <span class="pill">chosen</span> <small>the recognizer, live — type into it</small></h2>
+    <p class="why">Being smart means two questions, not one: <b>is this person asking to be brought back to something</b>, and <b>when</b>. Intent comes from a lexicon of reminder language, graded strong or weak; time comes from a small grammar of everyday date phrases. The two combine into one of four actions, in the table on the right. Nothing here is a model: a deterministic regex family that ports to TypeScript (web), Swift (iOS, share sheet) and the capture edge functions (SMS, WhatsApp, extension) with no drift.</p>
+    <div class="live">
+      <div>
+        <div class="composer active" id="live">
+          <div class="live-editor"><div class="hl" id="hl"><span class="ph">Type a note. Try one of the samples below.</span></div><textarea id="ta" spellcheck="false" aria-label="Note"></textarea></div>
+          <div class="chiprow" id="liverow" style="display:none"></div>
           <div class="actions">
             <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
             <div class="right">
-              <button class="rb" aria-label="Remind me"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></button>
               <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
+              <button class="rb send" id="livesend" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
             </div>
           </div>
         </div>
-        <div class="state-note">Third round button in the right cluster. Grey like the pin; nothing asks for attention.</div>
+        <div class="samples" id="samples"></div>
+        <div class="readout" id="readout"></div>
       </div>
-      <div class="state pop-room">
-        <div class="state-tag"><b>pressed</b> · choosing</div>
-        <div class="composer active">
-          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
-          <div class="actions">
-            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <div class="right">
-              <button class="rb on" aria-label="Remind me" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></button>
-              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
-              <div class="pop" role="menu">
-                <div class="ttl">Bring this back</div>
-                <button role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>In 1 day</button>
-                <button role="menuitem" class="sel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>In 3 days</button>
-                <button role="menuitem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>In 5 days</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="state-note">Same popover the card menu uses for "Remind me…", anchored under the bell. Enter after typing still just saves.</div>
-      </div>
-      <div class="state">
-        <div class="state-tag"><b>set</b> · ready to save</div>
-        <div class="composer active">
-          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
-          <div class="actions">
-            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <div class="right">
-              <span class="cap set">back in 3 days</span>
-              <button class="rb on" aria-label="Remind me: in 3 days" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg></button>
-              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="state-note">Lit bell + caption, the same pair the location pin makes. Pressing the bell again reopens the presets with "No reminder" added.</div>
+      <div class="lex">
+        <h3>What counts as intent</h3>
+        <table>
+          <tr><th>Grade</th><th>Phrases (case-insensitive, word-bounded)</th></tr>
+          <tr><td>Strong</td><td>remind me · reminder · don't let me forget · ping me · nudge me · bring this back · resurface this · come back to me</td></tr>
+          <tr><td>Weak</td><td>don't forget · follow up · circle back · check back · come back to this · revisit · look at this later / again · read (this) later · get back to this · before I forget · to-do · make sure I / to · need to</td></tr>
+        </table>
+        <h3>What counts as a time</h3>
+        <table>
+          <tr><th>Phrase</th><th>Resolves to</th></tr>
+          <tr><td>later today · tonight · this evening · eod</td><td>today, 6 pm local</td></tr>
+          <tr><td>tomorrow (morning / evening)</td><td>+1 day</td></tr>
+          <tr><td>in N days · in a couple of / a few days</td><td>+N (2 / 3)</td></tr>
+          <tr><td>in N weeks · in a month · next week</td><td>+7N · +30 · +7</td></tr>
+          <tr><td>(on / by / this / next / before) &lt;weekday&gt;</td><td>the next such weekday after today</td></tr>
+          <tr><td>this / the weekend · end of week · end of month</td><td>next Saturday · next Friday · last day of month</td></tr>
+          <tr><td>a clock time alone ("friday at 3")</td><td>day is used, the hour is ignored (presets are day-grained)</td></tr>
+        </table>
+        <h3>Intent × time → action</h3>
+        <table class="matrix">
+          <tr><th>Intent</th><th>Time</th><th>Action</th></tr>
+          <tr><td>strong</td><td>yes</td><td><span class="act">set</span> — chip filled with the resolved day; × to remove</td></tr>
+          <tr><td>strong</td><td>none</td><td><span class="act">set, default tomorrow</span> — presets shown with 1 day selected so changing is one tap</td></tr>
+          <tr><td>weak</td><td>yes</td><td><span class="act">set</span> — the explicit time makes the weak phrase explicit</td></tr>
+          <tr><td>weak</td><td>none</td><td><span class="act">offer</span> — presets unfold, nothing selected, Save is untouched</td></tr>
+          <tr><td>none</td><td>yes</td><td><span class="act">nothing</span> — "team offsite friday" is a fact, not a request</td></tr>
+        </table>
+        <p class="state-note"><b>Consumed or kept.</b> When the whole note is the phrase and something is attached (a link, a file, a share), the phrase is an instruction: it is dropped and the capture saves with a reminder and no annotation. When the phrase sits inside a sentence, the words stay; the tint is composer-only and is never stored. The × removes the reminder and the tint; the words stay in either case.</p>
       </div>
     </div>
   </section>
 
-  <!-- ═══ option 2 ═══ -->
+  <!-- ═══ 3 · iOS composer ═══ -->
   <section class="opt">
-    <h2>2 · A reminder is something you attach <small>contextual, appears once there is a capture to attach it to</small></h2>
-    <p class="why">The composer already grows a chip row under the editor when you paste a link or drop a file. A reminder can live in that same row as <b>one more thing attached to this capture</b>. At rest there is nothing; once there is content, a quiet dashed "Remind me" appears in the row. It expands into the presets in place, and settles into a chip beside the attachments.</p>
-    <div class="states">
-      <div class="state">
-        <div class="state-tag">typing · the offer appears</div>
-        <div class="composer active">
-          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
-          <div class="chiprow">
-            <button class="ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>Remind me</button>
-          </div>
-          <div class="actions">
-            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <div class="right">
-              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="state-note">Dashed outline, muted text: an offer, not a control. Fades in with the chip row's existing motion. Empty composer shows nothing.</div>
-      </div>
-      <div class="state">
-        <div class="state-tag"><b>choosing</b> · in place</div>
-        <div class="composer active">
-          <div class="editor">Look into the Northwind sublease clause before we sign<span class="caret"></span></div>
-          <div class="chiprow">
-            <div class="seg2" role="radiogroup" aria-label="Remind me">
-              <span class="lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>Remind me in</span>
-              <button role="radio">1 day</button><button role="radio" class="sel" aria-checked="true">3 days</button><button role="radio">5 days</button>
-              <button class="x" aria-label="No reminder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-            </div>
-          </div>
-          <div class="actions">
-            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <div class="right">
-              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="state-note">The offer unfolds into the three presets right where it was; no popover, no layer. × collapses it back to the offer.</div>
-      </div>
-      <div class="state">
-        <div class="state-tag"><b>set</b> · beside a pasted link</div>
-        <div class="composer active">
-          <div class="editor">worth a read before the renewal meeting<span class="caret"></span></div>
-          <div class="chiprow">
-            <div class="ichip">
-              <span class="th"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
-              <span class="tx"><p>Why we remember the books we argue with</p><small>theatlantic.com</small></span>
-              <button class="x" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-            </div>
-            <span class="setchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>Remind me in 3 days<button class="x" aria-label="No reminder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span>
-          </div>
-          <div class="actions">
-            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <div class="right">
-              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="state-note">The link chip and the reminder chip sit in one row: both are things attached to this capture. Same violet field the card's due state uses.</div>
-      </div>
-    </div>
+    <h2>3 · On iOS: the composer <small>Add tab, same row inside the card</small></h2>
+    <p class="why">The in-app composer card gets the identical row between the text and the icon bar. Same offer, same unfold, same chip, same × — and the same recognizer running on the text, so the two surfaces never disagree about what a phrase means.</p>
+    <div class="states" id="s3"></div>
   </section>
 
-  <!-- ═══ option 3 ═══ -->
+  <!-- ═══ 4 · share sheet ═══ -->
   <section class="opt">
-    <h2>3 · Say it in the note <small>zero chrome, works on every capture channel</small></h2>
-    <p class="why">No control at all. If the words <b>"remind me in 3 days"</b> (or "tomorrow", "in a week", "next Friday") appear in what you type, the composer recognises the phrase, tints it, and tells you what it will do. The parse can run server-side at capture, which means it also works from SMS, WhatsApp, the extension and the share sheet with no UI on any of them. Lowest friction of the three; also the least discoverable, so it pairs with 1 or 2 rather than replacing them.</p>
-    <div class="states">
-      <div class="state">
-        <div class="state-tag">typing · the phrase is recognised</div>
-        <div class="composer active">
-          <div class="editor">Sublease clause in §14 looks off, <span class="tok">remind me in 3 days</span> so I re-read it before we sign<span class="caret"></span></div>
-          <div class="parsed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><span class="txt">Brings this back <b>Thursday, Sep 10</b>. The words stay in your note.</span><button class="undo">Undo</button></div>
-          <div class="actions">
-            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <div class="right">
-              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="state-note">The token is a highlight, not a widget: the text stays editable. The confirm line under the editor says the absolute date so a mis-parse is caught before saving. Undo drops the reminder and the tint.</div>
-      </div>
-      <div class="state">
-        <div class="state-tag">a pasted link, one word</div>
-        <div class="composer active">
-          <div class="editor"><span class="tok">remind me tomorrow</span><span class="caret"></span></div>
-          <div class="chiprow">
-            <div class="ichip">
-              <span class="th"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>
-              <span class="tx"><p>Northwind lease renewal — terms redlined</p><small>docs.google.com</small></span>
-              <button class="x" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-            </div>
-          </div>
-          <div class="parsed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg><span class="txt">Brings this back <b>tomorrow, Sep 8</b>. The phrase is dropped from the note.</span><button class="undo">Undo</button></div>
-          <div class="actions">
-            <button class="rb plus" aria-label="Attach"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <div class="right">
-              <button class="rb" aria-label="Include your location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></button>
-              <button class="rb send hot" aria-label="Add to Stash"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></button>
-            </div>
-          </div>
-        </div>
-        <div class="state-note">When the phrase is the <b>whole</b> note, it is an instruction rather than content, so it is consumed: the link saves with no annotation and a reminder. Same rule an SMS "https://… remind me tomorrow" would follow.</div>
-      </div>
-      <div class="state">
-        <div class="state-tag">the card it makes</div>
-        <article class="card">
-          <div class="hz">
-            <div class="field"><p>Sublease clause in §14 looks off, remind me in 3 days so I re-read it before we sign</p></div>
-            <span class="rem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>in 3 days</span>
-          </div>
-          <div class="c-body">
-            <div class="meta"><span class="src"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>Note</span><span class="date">Sep 7, 2026</span></div>
-            <h3 class="title">Re-read the Northwind §14 sublease clause before signing</h3>
-            <p class="desc">A flag on the sublease terms in the renewal draft, set to come back three days before the signing.</p>
-            <div class="foot"></div>
-          </div>
-        </article>
-        <div class="state-note">Whatever the entry point, the result is the same C card with its reminder chip. Option 1's caption, option 2's chip and option 3's token all write the same <b>remind_at</b>.</div>
-      </div>
-    </div>
+    <h2>4 · On iOS: the share sheet <small>where most captures happen</small></h2>
+    <p class="why">The share sheet is a one-shot surface: the shared item <b>is</b> the content, so there is no "once there is content" moment to wait for. The reminders spec already puts a preset row above Save (default off, never gating Save); v0.2 keeps that row and wires the recognizer to the note field. Type "remind me next friday" in the optional note and the row fills with that day; the note, being nothing but the instruction, is consumed. Done copy confirms: "Saved · back Fri, Sep 11".</p>
+    <div class="states" id="s4"></div>
+  </section>
+
+  <!-- ═══ 5 · not chosen ═══ -->
+  <section class="opt">
+    <h2>5 · A bell beside the pin <span class="pill off">not chosen</span> <small>kept for the record</small></h2>
+    <p class="why">v0.1's option 1: a round bell button mirroring the location toggle, with a presets popover and a "back in 3 days" caption. Discoverable, but it puts a permanent control on a composer whose whole point is that nothing on it asks for attention, and it gives the reminder a second home away from the chip row. Will, Sep 7: 2 and 3.</p>
+    <div class="states" id="s5"></div>
   </section>
 
   <section class="rec">
-    <h2>Recommendation</h2>
-    <p><b>Ship 1 and 3 together.</b> The bell mirrors the location pin so it costs nothing to learn and is visible before anyone has typed; the phrase parser is the friction-free path and, run at capture, it lights up SMS, WhatsApp, the extension and the share sheet for free. Option 2 is the most elegant on the web but hides the affordance until there is content, and it competes with the input-chip row for space on a narrow composer.</p>
+    <h2>What to build</h2>
+    <p><b>One recognizer, three ports, one contract.</b> The lexicon and grammar above become a small pure module in <code>src/utils/reminderPhrase.ts</code> (web composer), <code>StashKit/ReminderPhrase.swift</code> (iOS composer + share extension) and a shared Deno module for the capture edge functions, each with the same fixture table so a phrase means the same thing everywhere.</p>
     <ul>
-      <li>The composer posts <code>remind_at</code> alongside the capture (already accepted by every capture endpoint; invalid values are ignored). No new endpoint.</li>
-      <li>The parser is a small regex family on the note text at submit (web) and on <code>content</code> at capture (server): "remind me in N days", "tomorrow", "in a week", "next &lt;weekday&gt;". Anything it cannot parse is left alone. Whole-note phrases are consumed; in-sentence phrases are kept.</li>
-      <li>Presets stay 1 / 3 / 5 in the bell; the parser can express any day. Custom dates in the UI remain out of scope, as the spec says.</li>
-      <li>Both write the same card state: the chip on the hero, escalating as the date nears.</li>
+      <li><b>Clients run it first.</b> Web and iOS parse as you type, show the row, and always send the <code>remind_at</code> key on capture — an ISO time when set, <code>null</code> when the user removed it with ×. The server parses <code>content</code> only when the key is absent (SMS, WhatsApp, extension, MCP), so an × on the client is never overridden.</li>
+      <li><b>Time is resolved on the device</b> (local midnight + 9 am for day-grained phrases; 6 pm for "later today"). Server-side parses for phone channels need a timezone the contract does not carry yet; until it does, the server resolves in UTC and the digest job's 24 h due window absorbs the slack. Flagging, not solving, here.</li>
+      <li><b>Presets stay 1 / 3 / 5</b> in the row; the recognizer may express any day and the chip shows the absolute date whenever the phrase was not a preset. Custom dates in the UI remain out of scope, as the spec says.</li>
+      <li><b>Share sheet:</b> the spec's <code>share.remind.1d/3d/5d</code> row above Save, plus the recognizer on <code>share.note</code>; whole-note phrases are consumed. Done copy gains the day. Hidden with the rest of the bar when the account gate is closed.</li>
+      <li><b>iOS composer</b> was "later" in the spec; the row is the same component as the share sheet's, so it comes along.</li>
+      <li>Every entry point writes the same card state: the chip on the hero, escalating as the date nears (card prototype, v0.2).</li>
     </ul>
   </section>
 
 </div>
+
+<script>
+/* ── icons (Lucide) ─────────────────────────────────────────────── */
+const I = {
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  send:'<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  pin:'<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+  bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  camera:'<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  fileplus:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
+  mic:'<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  up:'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  pinfill:'<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+};
+const ic = (n, fill) => `<svg viewBox="0 0 24 24" fill="${fill ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+const fav = d => `https://www.google.com/s2/favicons?domain=${d}&sz=64`;
+const esc = s => s.replace(/[&<>]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[c]));
+
+/* ── the recognizer ─────────────────────────────────────────────── */
+const TODAY = new Date(2026, 8, 7); // Mon Sep 7 2026, the prototype's "now"
+const DOW = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+const WORDNUM = { a:1, an:1, one:1, two:2, three:3, four:4, five:5, six:6, seven:7, 'a couple of':2, 'a few':3 };
+const num = w => WORDNUM[w.toLowerCase()] ?? parseInt(w, 10);
+const plusDays = n => new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate() + n);
+const fmt = d => d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+const nextWeekday = abbr => { const i = DOW.findIndex(d => d.startsWith(abbr.slice(0, 3).toLowerCase())); let delta = (i - TODAY.getDay() + 7) % 7; if (delta === 0) delta = 7; return delta; };
+
+const STRONG = /\b(remind (?:me|us)|reminder|don'?t let me forget|ping me|nudge me|bring (?:this|it) back|resurface (?:this|it)|come back to me)\b/i;
+const WEAK = /\b(don'?t forget|follow[- ]?up|circle back|check back|come back to (?:this|it)|revisit|look at (?:this|it) (?:again|later)|read (?:this |it )?later|get back to (?:this|it)|before i forget|to[- ]?dos?|make sure (?:i|to|we)|need to)\b/i;
+const TIME = [
+  { re:/\b(later today|tonight|this evening|end of (?:the )?day|eod)\b/i, fn:() => ({ days:0, label:'later today', abs:'today, 6 pm' }) },
+  { re:/\btomorrow(?: morning| evening| night)?\b/i, fn:() => ({ days:1, label:'tomorrow' }) },
+  { re:/\bin (a couple of|a few|a|an|one|two|three|four|five|six|seven|\d+) days?\b/i, fn:m => { const n = num(m[1]); return { days:n, label:`in ${n} day${n > 1 ? 's' : ''}` }; } },
+  { re:/\bin (a|an|one|two|three|\d+) weeks?\b/i, fn:m => { const n = num(m[1]); return { days:7 * n, label:`in ${n} week${n > 1 ? 's' : ''}` }; } },
+  { re:/\bin (?:a|an|one) month\b/i, fn:() => ({ days:30, label:'in a month' }) },
+  { re:/\bnext week\b/i, fn:() => ({ days:7, label:'next week' }) },
+  { re:/\b(?:this|next|on|by|before|until|for)\s+(sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)[a-z]*\b/i, fn:m => ({ days:nextWeekday(m[1]), weekday:true }) },
+  { re:/\b(sun|mon|tues|wednes|thurs|fri|satur)day\b/i, fn:m => ({ days:nextWeekday(m[1]), weekday:true }) },
+  { re:/\b(?:this|the|next) weekend\b/i, fn:() => ({ days:nextWeekday('sat'), weekday:true }) },
+  { re:/\bend of (?:the )?week\b/i, fn:() => ({ days:nextWeekday('fri'), weekday:true }) },
+  { re:/\bend of (?:the )?month\b/i, fn:() => { const last = new Date(TODAY.getFullYear(), TODAY.getMonth() + 1, 0); return { days:last.getDate() - TODAY.getDate(), label:'end of month' }; } },
+];
+
+function recognise(text) {
+  const strong = STRONG.exec(text);
+  const weak = strong ? null : WEAK.exec(text);
+  let time = null;
+  for (const t of TIME) { const m = t.re.exec(text); if (m) { time = { ...t.fn(m), match:m[0], index:m.index }; break; } }
+  if (time) { const d = plusDays(time.days); time.date = d; if (time.weekday) time.label = fmt(d); if (!time.abs) time.abs = time.days === 0 ? 'today' : fmt(d); }
+  const intent = strong ? 'strong' : weak ? 'weak' : null;
+  const im = strong || weak;
+  let action = 'none';
+  if (intent && time) action = 'set';
+  else if (intent === 'strong') action = 'set-default';
+  else if (intent === 'weak') action = 'offer';
+  const spans = [];
+  if (im) spans.push({ s:im.index, e:im.index + im[0].length, kind:'intent' });
+  if (time && intent) spans.push({ s:time.index, e:time.index + time.match.length, kind:'time' });
+  let rest = text;
+  for (const sp of spans) rest = rest.slice(0, sp.s) + ' '.repeat(sp.e - sp.s) + rest.slice(sp.e);
+  const consumable = action !== 'none' && rest.replace(/[\s,.;:!?\-–—]+/g, '') === '';
+  return { intent, intentPhrase: im?.[0] ?? null, time, action, spans: spans.sort((a, b) => a.s - b.s), consumable, days: time ? time.days : action === 'set-default' ? 1 : null };
+}
+function highlight(text, spans, ph) {
+  if (!text) return `<span class="ph">${ph}</span>`;
+  let out = '', i = 0;
+  for (const sp of spans) { out += esc(text.slice(i, sp.s)) + `<span class="tok">${esc(text.slice(sp.s, sp.e))}</span>`; i = sp.e; }
+  return out + esc(text.slice(i));
+}
+
+/* ── chip-row pieces ────────────────────────────────────────────── */
+const ghost = () => `<button class="ghost" data-ghost>${ic('bell')}Remind me</button>`;
+const presets = (sel) => `<div class="seg2" role="radiogroup" aria-label="Remind me in"><span class="lbl">${ic('bell')}Remind me in</span>${[1, 3, 5].map(d => `<button class="p${sel === d ? ' sel' : ''}" role="radio" aria-checked="${sel === d}" data-days="${d}">${d} day${d > 1 ? 's' : ''}</button>`).join('')}<button class="x" aria-label="No reminder" data-clear>${ic('x')}</button></div>`;
+const setchip = (label, abs) => `<span class="setchip">${ic('bell')}Remind me ${label}${abs ? ` <small>${abs}</small>` : ''}<button class="x" aria-label="Remove reminder" data-clear>${ic('x')}</button></span>`;
+const linkChip = (title, domain) => `<div class="ichip"><span class="th">${ic('link')}</span><span class="tx"><p>${title}</p><small>${domain}</small></span><button class="x" aria-label="Remove">${ic('x')}</button></div>`;
+const labelFor = (days, time) => time ? time.label : days === 1 ? 'tomorrow' : `in ${days} days`;
+const absFor = (days, time) => time ? (time.weekday ? null : time.abs) : fmt(plusDays(days));
+
+/* ── web composer template ──────────────────────────────────────── */
+const PH = "Paste a link, drop a file, or type a note — press '/' for commands";
+function composer({ active = false, html = '', row = '', attach = null, caption = '', bell = null, pop = false }) {
+  const editor = html ? `${html}<span class="caret"></span>` : `<span class="ph">${PH}</span>`;
+  const chips = (attach || row) ? `<div class="chiprow">${attach ? linkChip(attach.title, attach.domain) : ''}${row}</div>` : '';
+  const bellBtn = bell ? `<button class="rb${bell === 'on' ? ' on' : ''}" aria-label="Remind me">${ic('bell')}</button>` : '';
+  const popover = pop ? `<div class="pop" role="menu"><div class="ttl">Bring this back</div><button>${ic('clock')}In 1 day</button><button class="sel">${ic('clock')}In 3 days</button><button>${ic('clock')}In 5 days</button></div>` : '';
+  return `<div class="composer${active ? ' active' : ''}"><div class="editor">${editor}</div>${chips}<div class="actions"><button class="rb plus" aria-label="Attach">${ic('plus')}</button><div class="right">${caption ? `<span class="cap set">${caption}</span>` : ''}${bellBtn}<button class="rb" aria-label="Include your location">${ic('pin')}</button><button class="rb send${active ? ' hot' : ''}" aria-label="Add to Stash">${ic('send')}</button>${popover}</div></div></div>`;
+}
+const state = (tag, body, note) => `<div class="state"><div class="state-tag">${tag}</div>${body}<div class="state-note">${note}</div></div>`;
+const NOTE_A = 'Look into the Northwind sublease clause before we sign';
+
+/* section 1 */
+document.getElementById('s1').innerHTML = [
+  state('typing · the offer appears', composer({ active:true, html:esc(NOTE_A), row:ghost() }), 'Dashed outline, muted text: an offer, not a control. Empty composer shows nothing.'),
+  state('<b>choosing</b> · in place', composer({ active:true, html:esc(NOTE_A), row:presets(3) }), 'The offer unfolds into the three presets right where it was. × collapses it back to the offer.'),
+  state('<b>set</b> · beside a pasted link', composer({ active:true, html:'worth a read before the renewal meeting', attach:{ title:'Why we remember the books we argue with', domain:'theatlantic.com' }, row:setchip('in 3 days', 'Thu, Sep 10') }), 'The link chip and the reminder chip share one row: both are things attached to this capture. The faint date is the check against a mis-tap.'),
+  state('<b>said in the note</b> · the same chip', composer({ active:true, html:`Sublease clause in §14 looks off, <span class="tok">remind me in 3 days</span> so I re-read it before we sign`, row:setchip('in 3 days', 'Thu, Sep 10') }), 'The phrase is tinted where it sits and the chip fills itself. Same chip, same ×: removing it un-tints the words and leaves them in the note.'),
+].join('');
+
+/* section 2: live */
+const ta = document.getElementById('ta'), hl = document.getElementById('hl'), liverow = document.getElementById('liverow'), readout = document.getElementById('readout'), livesend = document.getElementById('livesend');
+const live = { manual:null, cleared:null, attach:false };
+const SAMPLES = [
+  'remind me in 3 days to re-read §14',
+  'don\'t let me forget to renew the passport',
+  'follow up with Dana next tuesday',
+  'read this later',
+  'team offsite friday at 3',
+  'remind me tomorrow',
+  'circle back after the offsite',
+];
+document.getElementById('samples').innerHTML = SAMPLES.map(s => `<button data-s="${esc(s)}">${esc(s)}</button>`).join('') + `<label><input type="checkbox" id="attach"> a link is attached</label>`;
+document.getElementById('samples').addEventListener('click', e => { const b = e.target.closest('button[data-s]'); if (!b) return; ta.value = b.dataset.s; live.manual = null; live.cleared = null; paintLive(); ta.focus(); });
+document.getElementById('attach').addEventListener('change', e => { live.attach = e.target.checked; paintLive(); });
+ta.addEventListener('input', () => { live.manual = null; paintLive(); });
+liverow.addEventListener('click', e => {
+  const g = e.target.closest('[data-ghost]'), p = e.target.closest('[data-days]'), c = e.target.closest('[data-clear]');
+  if (g) live.manual = 'open';
+  else if (p) live.manual = { days:Number(p.dataset.days) };
+  else if (c) { live.manual = 'none'; live.cleared = recognise(ta.value).intentPhrase; }
+  else return;
+  paintLive();
+});
+function paintLive() {
+  const text = ta.value;
+  const r = recognise(text);
+  const suppressed = live.cleared && r.intentPhrase === live.cleared; // × after recognition: stay off until the phrase changes
+  const spans = suppressed || live.manual === 'none' ? [] : r.spans;
+  hl.innerHTML = highlight(text, spans, 'Type a note. Try one of the samples below.');
+  ta.style.height = 'auto'; ta.style.height = `${Math.max(72, hl.scrollHeight)}px`;
+  let row = '', effective = 'none';
+  if (live.manual === 'open') row = presets(null), effective = 'offer';
+  else if (live.manual && live.manual.days) row = setchip(labelFor(live.manual.days), absFor(live.manual.days)), effective = 'set (by tap)';
+  else if (live.manual === 'none' || suppressed) row = text.trim() ? ghost() : '', effective = 'removed with ×';
+  else if (r.action === 'set') row = setchip(labelFor(r.days, r.time), absFor(r.days, r.time)), effective = 'set';
+  else if (r.action === 'set-default') row = presets(1), effective = 'set, default tomorrow';
+  else if (r.action === 'offer') row = presets(null), effective = 'offer';
+  else if (text.trim() || live.attach) row = ghost();
+  if (live.attach) row = linkChip('Northwind lease renewal — terms redlined', 'docs.google.com') + row;
+  liverow.style.display = row ? 'flex' : 'none';
+  liverow.innerHTML = row;
+  livesend.classList.toggle('hot', Boolean(text.trim()) || live.attach);
+  const consumed = r.consumable && live.attach && effective.startsWith('set') && !suppressed;
+  readout.innerHTML = text.trim()
+    ? `<div><span class="k">intent</span>${r.intent ? `<b>${r.intent}</b> · “${esc(r.intentPhrase)}”` : 'none'}</div>
+       <div><span class="k">time</span>${r.time ? `“${esc(r.time.match)}” → <b>${r.time.abs}</b>` : 'none'}</div>
+       <div><span class="k">action</span><span class="act">${effective}</span>${r.days != null && effective.startsWith('set') ? ` · remind_at = ${fmt(plusDays(live.manual?.days ?? r.days))}${r.time?.days === 0 ? ', 6 pm' : ', 9 am'}` : ''}</div>
+       <div><span class="k">phrase</span>${effective.startsWith('set') ? (consumed ? '<b>consumed</b> — the note is only the instruction and a link is attached' : r.consumable && !live.attach ? 'kept — nothing is attached, so the words are the capture' : 'kept — it sits inside a sentence') : '—'}</div>`
+    : `<div><span class="k">intent</span>—</div><div><span class="k">time</span>—</div><div><span class="k">action</span>—</div><div><span class="k">phrase</span>—</div>`;
+}
+paintLive();
+
+/* ── phones ──────────────────────────────────────────────────────── */
+const status = () => `<div class="status"><span>9:41</span><i></i></div>`;
+const wordmark = (close) => `<div class="hdr"><span class="wordmark">Stash</span>${close ? `<span class="xbtn" aria-label="Cancel">${ic('x')}</span>` : ''}</div>`;
+function composerPhone({ html = '', row = '', focus = true }) {
+  return `<div class="ph">${status()}${wordmark(false)}<div class="content"><div class="ccard${focus ? ' focus' : ''}"><div class="ed">${html || '<span class="ph">Save a thought, a link, anything…</span>'}</div>${row ? `<div class="chiprow">${row}</div>` : ''}<div class="cbar"><span class="ci">${ic('image')}</span><span class="ci">${ic('camera')}</span><span class="ci">${ic('fileplus')}</span><span class="ci">${ic('mic')}</span><span class="ci">${ic('pin')}</span><span class="ci send${html ? '' : ' cold'}">${ic('up')}</span></div></div></div><div class="homebar"></div></div>`;
+}
+function sharePhone({ note = '', noteHtml = '', rrow = '', done = null }) {
+  const noteBody = noteHtml || (note ? esc(note) : '<span class="ph2">Optional note…</span>');
+  if (done) return `<div class="ph"><div class="grad"></div><div class="gradfade"></div>${status()}${wordmark(false)}<div class="done"><span class="ck">${ic('check')}</span><p>${done.title}</p><small>${done.sub}</small></div><div class="homebar"></div></div>`;
+  return `<div class="ph"><div class="grad"></div><div class="gradfade"></div>${status()}${wordmark(true)}<div class="content"><div class="hcard prev"><img src="${fav('theatlantic.com')}" alt=""><span class="tx"><p>Why we remember the books we argue with</p><small>theatlantic.com</small></span></div><div class="hcard notef">${noteBody}</div><span class="pinline">${ic('pinfill')}posted from Hillsborough, NC</span></div><div class="bar"><div class="rrow">${rrow}</div><div class="savebtn">Save</div></div><div class="homebar"></div></div>`;
+}
+const rrowPresets = (sel) => `<span class="lbl">${ic('bell')}Remind me</span>${[1, 3, 5].map(d => `<span class="pc${sel === d ? ' sel' : ''}">${d} day${d > 1 ? 's' : ''}</span>`).join('')}`;
+const rrowSet = (label, abs) => setchip(label, abs);
+
+/* section 3 */
+document.getElementById('s3').innerHTML = [
+  state('typing · the offer', composerPhone({ html:'Renew the passport before the Lisbon trip', row:ghost() }), 'Same dashed offer, inside the card under the text, above the icon bar.'),
+  state('<b>strong intent, no time</b> · default tomorrow', composerPhone({ html:`<span class="tok">Don't let me forget</span> to renew the passport before the Lisbon trip`, row:presets(1) }), '"Don\'t let me forget" is strong intent with no date, so the reminder is set to tomorrow and the presets stay open: changing it is one tap, × removes it.'),
+  state('<b>weak intent with a day</b> · set', composerPhone({ html:`<span class="tok">Follow up</span> with Dana about the offsite budget <span class="tok">on Thursday</span>`, row:setchip('Thu, Sep 10') }), 'A weak phrase plus an explicit day is explicit enough. The chip shows the resolved day because "on Thursday" was not a preset.'),
+].join('');
+
+/* section 4 */
+document.getElementById('s4').innerHTML = [
+  state('at rest', sharePhone({ rrow:rrowPresets(null) }), 'The spec\'s row: "Remind me" and three presets above Save, nothing selected, Save never blocked. Everything above it is the shipped compose screen.'),
+  state('<b>chosen</b> · a tap', sharePhone({ rrow:rrowPresets(3) }), 'Tap selects, tap again deselects. The selected preset takes the violet field the card\'s due state uses.'),
+  state('<b>said in the note</b> · consumed', sharePhone({ noteHtml:`<span class="tok">remind me next friday</span>`, rrow:rrowSet('Fri, Sep 11') }), 'The note is nothing but the instruction and a link is attached, so it is consumed: the link saves with a reminder and no annotation. × puts the presets back.'),
+  state('done', sharePhone({ done:{ title:'Saved · back Fri, Sep 11', sub:'Why we remember the books we argue with' } }), 'The outcome names the day (spec: "Saved · back in 3 days"; the recognizer can produce any day, so the absolute date reads better here). Queued: "Saved — will sync · back Fri, Sep 11".'),
+].join('');
+
+/* section 5: not chosen */
+document.getElementById('s5').innerHTML = [
+  state('at rest', composer({ bell:'off' }), 'A third round button in the right cluster.'),
+  `<div class="state pop-room"><div class="state-tag">pressed</div>${composer({ active:true, html:esc(NOTE_A), bell:'on', pop:true })}<div class="state-note">Presets popover under the bell.</div></div>`,
+  state('set', composer({ active:true, html:esc(NOTE_A), bell:'on', caption:'back in 3 days' }), 'Lit bell and caption, the pair the location pin makes.'),
+].join('');
+
+/* deep links: #shot=s1|live|s3|s4|s5 shows one section; #sample=N&attach=1 preloads the recognizer */
+const P = new URLSearchParams(location.hash.slice(1));
+if (P.has('sample')) { ta.value = SAMPLES[Number(P.get('sample'))] ?? ''; if (P.get('attach') === '1') { live.attach = true; document.getElementById('attach').checked = true; } paintLive(); }
+if (P.get('shot')) {
+  const keep = document.getElementById(P.get('shot'))?.closest('.opt');
+  document.querySelectorAll('.wrap > *').forEach(el => { if (el !== keep) el.style.display = 'none'; });
+  if (keep) keep.style.marginTop = '0';
+  document.body.style.padding = '24px 48px';
+}
+</script>
 </body>
 </html>
