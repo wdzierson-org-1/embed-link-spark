@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useProfile } from '@/hooks/useProfile';
 import { Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import DeleteAccountSection from './DeleteAccountSection';
 
 const AccountSettings = () => {
   const { profile, email, loading, saving, updateProfile, updateEmail } = useProfile();
@@ -77,6 +78,7 @@ const AccountSettings = () => {
   }
 
   return (
+    <div className="space-y-6">
     <Card>
       <CardHeader>
         <CardTitle>Your Information</CardTitle>
@@ -180,6 +182,8 @@ const AccountSettings = () => {
         </div>
       </CardContent>
     </Card>
+    <DeleteAccountSection />
+    </div>
   );
 };
 

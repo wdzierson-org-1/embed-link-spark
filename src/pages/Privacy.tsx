@@ -3,7 +3,7 @@ import LegalPage from './LegalPage';
 const Privacy = () => (
   <LegalPage
     title="Privacy"
-    lastUpdated="August 9, 2026"
+    lastUpdated="September 7, 2026"
     intro="Stash exists to hold things you want to remember — which means we take holding them seriously. This page explains what we collect, what we do with it, and what we will never do with it, in plain language."
     sections={[
       {
@@ -69,8 +69,10 @@ const Privacy = () => (
           <>
             <p>
               Deleting an item removes it and its derived data (descriptions, search indexes) from your
-              stash. To delete your entire account and everything in it, email us and we'll take care of
-              it promptly.
+              stash. To delete your entire account and everything in it, open Settings → Your
+              Information → Delete account. Deletion is immediate and permanent: every item, file,
+              transcript, note, and conversation is removed, your phone number is unlinked, and any
+              subscription is canceled.
             </p>
           </>
         ),

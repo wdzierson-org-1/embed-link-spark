@@ -182,6 +182,34 @@ activity = last 50 `agent_access_log` rows, rendered per
 (session JWT) **then** set `agent_grants.revoked_at`. Item deep link:
 `https://www.gostash.it/home#item=<uuid>` opens that card in the web library.
 
+## Account deletion
+
+`POST /functions/v1/delete-account` — no body. Standard auth headers; the
+target account is always the JWT's owner, and agent (MCP) tokens are refused
+with `403`. Irreversible, so clients gate it behind an explicit
+type-to-confirm step (web: type `DELETE`).
+
+Server order, chosen so that a failure part-way leaves the account intact
+and the call can simply be retried:
+
+1. Stripe — every live subscription on the customer(s) with the user's email
+   is canceled (customer record kept for invoice history, tagged
+   `stash_account_deleted_at`).
+2. Storage — every object under `stash-media/<user_id>/` is removed.
+3. `auth.admin.deleteUser` — DB cascades take items, embeddings, tags,
+   conversations, messages, phone number, profile, agent grants, feedback,
+   logs and all `auth.*` rows (migration `20260907120000`).
+
+```
+200 { "deleted": true, "storageObjects": 42, "stripe": { "customers": 1, "canceled": 1 } }
+401 { "error": "Invalid or expired token" }
+403 { "error": "Agent tokens cannot delete an account" }
+500 { "deleted": false, "error": "<step>: <reason>" }   ← nothing irreversible happened
+```
+
+After `200` the JWT is dead server-side: clients drop the local session
+(`signOut({ scope: 'local' })` / clear the keychain) and return to sign-in.
+
 ## Delete contract
 
 PostgREST's `DELETE` (the underlying call behind `supabase-swift`'s

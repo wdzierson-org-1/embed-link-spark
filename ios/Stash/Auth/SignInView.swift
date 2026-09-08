@@ -82,6 +82,19 @@ struct SignInView: View {
                 }
 
                 submitButton
+
+                if mode == .signIn {
+                    // Web parity (Auth.tsx "Forgot password?"). Recovery is email-driven, so the
+                    // link lands on the web reset form (`/auth?mode=reset`) rather than a native flow.
+                    Link(destination: URL(string: "https://www.gostash.it/auth?mode=reset")!) {
+                        Text("Forgot password?")
+                            .font(StashType.meta())
+                            .foregroundStyle(StashColor.muted)
+                            .underline()
+                    }
+                    .accessibilityIdentifier("auth.forgotPassword")
+                    .padding(.top, 4)
+                }
             }
             .padding(.top, 4)
         }

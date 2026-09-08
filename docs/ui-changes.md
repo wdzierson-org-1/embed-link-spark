@@ -106,6 +106,67 @@ messages and replies; remove the mic; top-align Send on a multi-line composer.
 
 ---
 
+## 2026-09-07 · Password reset + account deletion (launch punch list B1, B2)
+
+Web + backend round; iOS and the extension get links only. Punch list:
+`docs/gtm/2026-09-07-v1-launch-punch-list.md`.
+
+- **Password reset (web)** — "Forgot password?" under the sign-in form
+  (`src/pages/Auth.tsx`) swaps the card to an in-place reset form; the tabs
+  hide while it is showing. `?mode=reset` deep-links straight to it (the
+  extension and iOS use this). Submitting calls
+  `supabase.auth.resetPasswordForEmail(email, { redirectTo: origin + '/reset-password' })`
+  and then shows the same confirmation whether or not the address exists —
+  "Check your email · If an account exists for … a reset link is on its way.
+  It expires in an hour." (no account enumeration). A GoTrue throttle (HTTP
+  429 / "For security purposes…") is surfaced as "Wait a moment before trying
+  again" rather than the raw message.
+- **`/reset-password` (new route, `src/pages/ResetPassword.tsx`)** — the
+  recovery-email landing page. supabase-js turns the `#access_token…&type=recovery`
+  hash into a session on load; the page waits for that (2.5 s grace), then
+  shows New password + Confirm (min 8 characters, client-side; server minimum
+  is 6) → `auth.updateUser({ password })` → toast "Password updated" →
+  `/home`, signed in. A dead link (`#error_code=otp_expired…` in the hash, or
+  no session inside the grace period) shows "This reset link has expired" with
+  "Request a new link" → `/auth?mode=reset`.
+- **Supabase auth config** (changed live via the Management API, not in
+  repo): the redirect allowlist is now only `https://www.gostash.it/**`,
+  `https://gostash.it/**`, `http://localhost:8080/**`, `http://127.0.0.1:8080/**`
+  — the dead Lovable preview domains are gone. Recovery email subject is
+  "Reset your Stash password" with plain copy. Still on Supabase's default
+  mailer (no custom SMTP): reset mail is capped at 2 sends/hour project-wide
+  until Resend is wired as the auth SMTP (punch list B4).
+- **Extension** — `extension/signin.html` gains "Forgot your password? Reset
+  it at gostash.it" → `https://www.gostash.it/auth?mode=reset` (new tab).
+- **iOS** — `SignInView` gains a "Forgot password?" `Link` (identifier
+  `auth.forgotPassword`, `StashType.meta` / `StashColor.muted`, underlined)
+  under the sign-in button, sign-in tab only, opening the same web URL. No
+  native reset flow: recovery is email-driven and the link lands on web.
+- **Account deletion** — Settings → Your Information → new "Delete account"
+  card (`src/components/settings/DeleteAccountSection.tsx`, hairline tinted
+  `#c93a3a`/25): destructive "Delete my account" → AlertDialog "Delete your
+  account?" → type `DELETE` (exact, case-sensitive) enables "Delete
+  everything" → `POST delete-account` → local sign-out → `/` with toast "Your
+  account has been deleted". A server refusal keeps the account and toasts
+  the reason. Wire contract in `docs/PLATFORM_API.md` → "Account deletion".
+- **Backend** — migration `20260907120000_account_deletion_cascades`:
+  `items.user_id` and `conversations.user_id` now cascade from `auth.users`
+  (they were NO ACTION, which is why deleting a user who owned anything
+  500'd); `chat_feedback`, `card_feedback`, `pending_intents`, `retrieval_log`
+  gain cascading FKs (orphans purged first). New edge function
+  `delete-account` (JWT required, agent tokens refused): cancels every live
+  Stripe subscription on the customer(s) with the user's email (customer kept,
+  tagged `stash_account_deleted_at`), removes `stash-media/<user_id>/**` via
+  the storage API, then `auth.admin.deleteUser`. Steps run in that order so a
+  failure part-way is retryable with the account intact.
+- **Privacy policy** — "Deleting your data" now describes the in-app path
+  instead of "email us"; `lastUpdated` bumped to September 7, 2026.
+- **iOS to mirror (App Store 5.1.1(v))** — a Settings → "Delete account" row
+  with the same type-`DELETE` gate calling `delete-account`; on success clear
+  the session (`SessionStore`) and return to sign-in. Not in this cut.
+
+---
+
 ## 2026-09-07 · iOS share tutorial carousel (plan 13)
 
 iOS-only round; no web changes. Plan:

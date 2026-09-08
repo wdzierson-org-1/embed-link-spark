@@ -1,61 +1,90 @@
-import { render, waitFor } from "@testing-library/react";
-import Auth from "./Auth";
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import Auth from './Auth';
 
-const navigateMock = vi.fn();
-
-// Mutable auth state so each test can vary who is "signed in"
-const authState: {
-  user: { id: string; is_anonymous?: boolean } | null;
-} = { user: null };
-
-vi.mock("react-router-dom", () => ({
-  useNavigate: () => navigateMock,
-  useSearchParams: () => [new URLSearchParams()],
+const { mockReset, mockToast } = vi.hoisted(() => ({
+  mockReset: vi.fn(() => Promise.resolve({ data: {}, error: null })),
+  mockToast: vi.fn(),
 }));
 
-vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({
-    user: authState.user,
-    signIn: vi.fn(),
-    signUp: vi.fn(),
-  }),
+vi.mock('@/integrations/supabase/client', () => ({
+  supabase: {
+    auth: { resetPasswordForEmail: mockReset },
+    // username / phone uniqueness probes — never hit in these tests
+    from: () => ({
+      select: () => ({
+        eq: () => ({ single: () => Promise.resolve({ data: null, error: { code: 'PGRST116' } }) }),
+      }),
+    }),
+  },
 }));
 
-vi.mock("@/hooks/usePhoneNumber", () => ({
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => ({ signIn: vi.fn(), signUp: vi.fn(), user: null }),
+}));
+
+vi.mock('@/hooks/usePhoneNumber', () => ({
   usePhoneNumber: () => ({ registerPhoneNumber: vi.fn() }),
 }));
 
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: mockToast }),
 }));
 
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { from: vi.fn() },
-}));
+const renderAuth = (path = '/auth') =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <Auth />
+    </MemoryRouter>,
+  );
 
-describe("Auth already-signed-in redirect", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    authState.user = null;
+describe('Auth — forgot password', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('opens the reset form from the sign-in tab', () => {
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: /forgot password/i }));
+    expect(screen.getByRole('button', { name: /send reset link/i })).toBeTruthy();
+    // the tabs are gone while resetting
+    expect(screen.queryByRole('tab', { name: /sign up/i })).toBeNull();
   });
 
-  it("does not redirect when nobody is signed in", () => {
-    render(<Auth />);
-    expect(navigateMock).not.toHaveBeenCalled();
+  it('opens the reset form directly from ?mode=reset (extension + iOS deep link)', () => {
+    renderAuth('/auth?mode=reset');
+    expect(screen.getByRole('button', { name: /send reset link/i })).toBeTruthy();
   });
 
-  it("redirects a real signed-in user to /home", async () => {
-    authState.user = { id: "user-1" };
-    render(<Auth />);
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/home"));
+  it('sends the reset email with the app redirect and confirms without leaking existence', async () => {
+    renderAuth('/auth?mode=reset');
+    fireEvent.change(screen.getByPlaceholderText('Email'), { target: { value: 'will@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /send reset link/i }));
+
+    await waitFor(() => expect(mockReset).toHaveBeenCalledTimes(1));
+    const [email, opts] = mockReset.mock.calls[0] as unknown as [string, { redirectTo: string }];
+    expect(email).toBe('will@example.com');
+    expect(opts.redirectTo).toMatch(/\/reset-password$/);
+
+    expect(await screen.findByText(/check your email/i)).toBeTruthy();
+    expect(screen.getByText(/if an account exists/i)).toBeTruthy();
   });
 
-  it("keeps an anonymous try-stash session on the sign-in form", () => {
-    // A lingering signInAnonymously() session must not bounce the visitor:
-    // Index sends anonymous users back to "/", so redirecting here loops
-    // /auth → /home → / and makes signing in impossible.
-    authState.user = { id: "anon-1", is_anonymous: true };
-    render(<Auth />);
-    expect(navigateMock).not.toHaveBeenCalled();
+  it('explains a rate limit instead of confirming', async () => {
+    mockReset.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'For security purposes, you can only request this after 52 seconds.', status: 429 },
+    } as never);
+    renderAuth('/auth?mode=reset');
+    fireEvent.change(screen.getByPlaceholderText('Email'), { target: { value: 'will@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /send reset link/i }));
+
+    await waitFor(() => expect(mockToast).toHaveBeenCalledTimes(1));
+    expect(mockToast.mock.calls[0][0].title).toMatch(/wait a moment/i);
+    expect(screen.queryByText(/check your email/i)).toBeNull();
+  });
+
+  it('returns to sign in from the reset form', () => {
+    renderAuth('/auth?mode=reset');
+    fireEvent.click(screen.getByRole('button', { name: /back to sign in/i }));
+    expect(screen.getByRole('tab', { name: /sign in/i })).toBeTruthy();
   });
 });

@@ -18,6 +18,9 @@ const quietInput =
 const primaryCta =
   'h-11 w-full rounded-xl bg-[#6d5bd0] text-[15px] font-medium text-white hover:bg-[#5f4ec2] focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0';
 
+const textLink =
+  'rounded text-sm text-[#646b76] underline-offset-4 hover:text-[#22262f] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b6a8ef]';
+
 const Auth = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,10 +31,14 @@ const Auth = () => {
   const [phoneError, setPhoneError] = useState('');
   const [searchParams] = useSearchParams();
 
-  // Get URL parameters for return flow
+  // Get URL parameters for return flow. `mode=reset` (extension + iOS deep
+  // link) opens the forgot-password form directly.
   const mode = searchParams.get('mode') || 'signin';
   const returnTo = searchParams.get('returnTo');
   const commentItem = searchParams.get('commentItem');
+  const [view, setView] = useState<'tabs' | 'reset'>(mode === 'reset' ? 'reset' : 'tabs');
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const { signIn, signUp, user } = useAuth();
   const { registerPhoneNumber } = usePhoneNumber();
@@ -187,6 +194,37 @@ const Auth = () => {
     setLoading(false);
   };
 
+  const handleResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setResetLoading(false);
+    if (error) {
+      // GoTrue throttles reset mail per address and per project; say so
+      // plainly instead of surfacing "For security purposes…".
+      const throttled =
+        error.status === 429 || /rate limit|security purposes|too many/i.test(error.message);
+      toast({
+        title: throttled ? 'Wait a moment before trying again' : "Couldn't send the reset link",
+        description: throttled
+          ? 'Reset links are limited to a few per hour. Check your inbox for one we already sent.'
+          : error.message,
+        variant: 'destructive',
+      });
+      return;
+    }
+    // Same confirmation whether or not the address exists — no account enumeration.
+    setResetSent(true);
+  };
+
+  const showReset = () => {
+    setResetSent(false);
+    setView('reset');
+  };
+  const showTabs = () => setView('tabs');
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#f7f7f9] font-montreal">
       {/* Page wash: the app's ambient animated gradient (same class the
@@ -202,11 +240,49 @@ const Auth = () => {
             <StashWordmark className="h-6 text-[#22262f]" />
           </div>
           <p className="mt-4 text-center text-sm text-[#646b76]">
-            Sign in or create your account.
+            {view === 'reset' ? 'Reset your password.' : 'Sign in or create your account.'}
           </p>
 
           <div className="mt-6">
-            <Tabs defaultValue={mode} className="w-full">
+            {view === 'reset' ? (
+              resetSent ? (
+                <div className="space-y-4">
+                  <p className="text-[15px] font-medium text-[#22262f]">Check your email</p>
+                  <p className="text-sm text-[#646b76]">
+                    If an account exists for{' '}
+                    <span className="font-medium text-[#22262f]">{email}</span>, a reset link is on
+                    its way. It expires in an hour.
+                  </p>
+                  <button type="button" onClick={showTabs} className={textLink}>
+                    Back to sign in
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleResetRequest} className="space-y-4">
+                  <p className="text-sm text-[#646b76]">
+                    Enter your email and we'll send a link to choose a new password.
+                  </p>
+                  <Input
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    autoFocus
+                    className={quietInput}
+                  />
+                  <Button type="submit" className={primaryCta} disabled={resetLoading}>
+                    {resetLoading ? 'Sending…' : 'Send reset link'}
+                  </Button>
+                  <div className="text-center">
+                    <button type="button" onClick={showTabs} className={textLink}>
+                      Back to sign in
+                    </button>
+                  </div>
+                </form>
+              )
+            ) : (
+            <Tabs defaultValue={mode === 'reset' ? 'signin' : mode} className="w-full">
               <TabsList className="grid h-10 w-full grid-cols-2 rounded-full bg-[rgba(20,22,30,0.05)] p-1 text-[#646b76]">
                 <TabsTrigger
                   value="signin"
@@ -245,6 +321,11 @@ const Auth = () => {
                   <Button type="submit" className={primaryCta} disabled={loading}>
                     {loading ? "Signing in..." : "Sign in"}
                   </Button>
+                  <div className="text-center">
+                    <button type="button" onClick={showReset} className={textLink}>
+                      Forgot password?
+                    </button>
+                  </div>
                 </form>
               </TabsContent>
 
@@ -332,6 +413,7 @@ const Auth = () => {
                 </form>
               </TabsContent>
             </Tabs>
+            )}
           </div>
         </div>
       </div>

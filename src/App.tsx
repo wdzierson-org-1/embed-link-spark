@@ -11,6 +11,7 @@ import Terms from '@/pages/Terms';
 import Pricing from '@/pages/Pricing';
 import Index from '@/pages/Index';
 import Auth from '@/pages/Auth';
+import ResetPassword from '@/pages/ResetPassword';
 import Settings from '@/pages/Settings';
 import OAuthConsent from '@/pages/OAuthConsent';
 import SubscriptionSuccess from '@/pages/SubscriptionSuccess';
@@ -45,6 +46,7 @@ function App() {
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/home" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/oauth/consent" element={<OAuthConsent />} />
                 <Route path="/subscription-success" element={<SubscriptionSuccess />} />
