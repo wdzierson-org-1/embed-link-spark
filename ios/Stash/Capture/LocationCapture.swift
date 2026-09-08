@@ -282,8 +282,8 @@ private enum LocationCaptureError: Error {
 
 extension LocationCapture: CLLocationManagerDelegate {
     // CoreLocation calls delegate methods on an arbitrary (non-main) queue/thread — same
-    // `nonisolated` + `Task { @MainActor in … }` hop `AudioRecorderController`/`DictationController`
-    // already use for their own NotificationCenter callbacks, applied here to CLLocationManager's.
+    // `nonisolated` + `Task { @MainActor in … }` hop `AudioRecorderController` already uses for
+    // its own NotificationCenter callbacks, applied here to CLLocationManager's.
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }

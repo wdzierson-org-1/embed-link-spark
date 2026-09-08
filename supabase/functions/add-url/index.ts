@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
-import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
+import { cleanMetaText, cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
@@ -356,9 +356,11 @@ Deno.serve(async (req) => {
     }
 
     // Use custom title or fallback to extracted title or URL
-    // Scraped text gets entity-decoded / emphasis-stripped before it is stored;
-    // a caller-supplied title is the user's own words and is kept verbatim
-    const finalTitle = customTitle || cleanOptionalMetaText(metadata.title) || url;
+    // Scraped text gets entity-decoded / emphasis-stripped before it is stored
+    // (titles additionally lose their hashtags — a tags-only LinkedIn lead is
+    // rebuilt from the post body in the description); a caller-supplied title
+    // is the user's own words and is kept verbatim
+    const finalTitle = customTitle || cleanOptionalMetaTitle(metadata.title, metadata.description) || url;
     const finalDescription = cleanOptionalMetaText(metadata.description) || `Link from ${metadata.siteName || new URL(url).hostname}`;
 
     // Parse tags from content fields and get cleaned content
@@ -453,7 +455,8 @@ Deno.serve(async (req) => {
         if (deepMeta) {
           const updates: Record<string, string> = {};
           if (!customTitle && !metadata.title && deepMeta.title && !isBlockedPageTitle(deepMeta.title)) {
-            updates.title = cleanMetaText(deepMeta.title);
+            const deepTitle = cleanOptionalMetaTitle(deepMeta.title, deepMeta.description);
+            if (deepTitle) updates.title = deepTitle;
           }
           if (!metadata.description && deepMeta.description) {
             updates.description = cleanMetaText(deepMeta.description);

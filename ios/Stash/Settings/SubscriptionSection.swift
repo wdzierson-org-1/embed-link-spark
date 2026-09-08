@@ -13,7 +13,7 @@ import StashKit
 /// every 30s while this section stays on screen, mirroring the web's `setInterval`
 /// (useSubscription.tsx:178-183) but scoped down to "while Settings is visible" rather than the
 /// whole app session — `.task`'s built-in cancel-on-disappear (proven already in this codebase:
-/// `AskView.onDisappear` tears down dictation on the same TabView appear/disappear cycle) is all
+/// `AskView.onDisappear` lets go of an explicit session on the same TabView appear/disappear cycle) is all
 /// that's needed; no extra Timer/cleanup plumbing.
 struct SubscriptionSection: View {
     @Environment(SubscriptionStore.self) private var subscription

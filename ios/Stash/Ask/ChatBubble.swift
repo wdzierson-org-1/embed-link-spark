@@ -23,11 +23,6 @@ struct ChatBubble: View {
     /// spinner on the matching chip across every bubble, so only one lookup is ever in flight.
     let loadingSourceId: UUID?
     var speech: SpeechReader
-    /// True while `DictationController` is actively listening — the mic session holds the audio
-    /// category at `.record`, which does not support simultaneous playback, so starting read-aloud
-    /// during dictation is a silent no-op. Disabling the speaker button surfaces that as a visible
-    /// affordance instead of a tap that appears to do nothing.
-    let isDictating: Bool
     let onCitationTap: (UUID) -> Void
 
     @State private var rating: Int?
@@ -75,7 +70,12 @@ struct ChatBubble: View {
     private var userBubble: some View {
         HStack {
             Spacer(minLength: 40)
+            // Same face and rhythm as the assistant side (`MarkdownBlocksView`, compact) —
+            // DESIGN.md's one UI family. A bare `Text` here fell back to SF at the system size
+            // while replies rendered Neue Montreal 14 (Will, 2026-09-07).
             Text(message.content)
+                .font(StashType.body())
+                .lineSpacing(14 * 0.35)
                 .accessibilityIdentifier("ask.bubble.\(index)")
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
@@ -252,7 +252,6 @@ struct ChatBubble: View {
         } label: {
             Image(systemName: isSpeaking ? "stop.circle.fill" : "speaker.wave.2")
         }
-        .disabled(isDictating)
         .accessibilityIdentifier("ask.bubble.\(index).speak")
     }
 
@@ -352,7 +351,6 @@ private struct ChatFeedbackInsert: Encodable {
         userId: UUID(),
         loadingSourceId: nil,
         speech: SpeechReader(),
-        isDictating: false,
         onCitationTap: { _ in }
     )
     .padding()

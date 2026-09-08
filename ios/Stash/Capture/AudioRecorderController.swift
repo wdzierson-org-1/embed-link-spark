@@ -9,24 +9,22 @@ import StashKit
 /// `RecordingStore`'s own doc comment describes), a 10Hz timer driving `elapsed`/`averagePower`
 /// for the sheet's timer + level meter, and start/stop/cancel.
 ///
-/// AUDIO SESSION CARE (per Task 5's own review fix to `DictationController`, carried forward here
-/// deliberately, not reinvented): configures `.record` on `start()` and deactivates with
-/// `.notifyOthersOnDeactivation` on every stop/cancel; registers the same
-/// `AVAudioSession.interruptionNotification` teardown pattern. One deliberate difference from
-/// `DictationController`: an interruption there just discards a live, never-sent transcript, so it
-/// tears down exactly like a user-initiated stop. Here, `stop()` FINALIZES the audio file
+/// AUDIO SESSION CARE (per Task 5's own review fix to the Ask tab's since-removed
+/// `DictationController`, carried forward here deliberately, not reinvented): configures
+/// `.record` on `start()` and deactivates with `.notifyOthersOnDeactivation` on every
+/// stop/cancel; registers the same `AVAudioSession.interruptionNotification` teardown pattern.
+/// One deliberate difference from that dictation controller: an interruption there just
+/// discarded a live, never-sent transcript, so it tore down exactly like a user-initiated stop.
+/// Here, `stop()` FINALIZES the audio file
 /// (`AVAudioRecorder.stop()` closes and completes it) rather than discarding anything — so an
 /// interruption (phone call, alarm, Siri, another app taking the mic) preserves whatever was
 /// captured so far via `RecordingStore`, and the sheet naturally lands on its preview state
 /// (Save / Re-record / Cancel) once the user returns to the app. That matches the plan's own rule:
 /// "a recording is never destroyed until the server confirms."
 ///
-/// Cross-tab note: this controller and `DictationController` can never contend for the microphone
-/// at the same time by construction, not by any explicit coordination — dictation lives on the Ask
-/// tab, this recorder on the Add tab's composer sheet, and `AskView.onDisappear` already tears its
-/// own session down (Task 5) the moment the user switches away from Ask, before the Add tab's mic
-/// button is even reachable. No cross-tab plumbing (shared actor, notification, etc.) is needed to
-/// keep the two from fighting over `AVAudioSession`.
+/// Cross-tab note: since the Ask tab's dictation was removed (2026-09-07) this recorder is the
+/// app's only microphone client, so nothing else contends for `AVAudioSession` and no cross-tab
+/// plumbing (shared actor, notification, etc.) is needed.
 @MainActor
 @Observable
 final class AudioRecorderController {
@@ -48,7 +46,7 @@ final class AudioRecorderController {
     private var timer: Timer?
 
     /// Registered for the duration of a recording only (`start()`…`stop()`/`cancel()`) — same
-    /// rationale as `DictationController`'s identical property: `@ObservationIgnored` (never
+    /// rationale the former `DictationController` had for its identical property: `@ObservationIgnored` (never
     /// UI-relevant state) + `nonisolated(unsafe)` (plain `nonisolated` is only legal on an
     /// immutable `let`; this needs to stay a mutable `var`), safe because it's only ever mutated
     /// from `@MainActor`-isolated methods while the controller is live, except for one `deinit`
@@ -65,8 +63,8 @@ final class AudioRecorderController {
         }
     }
 
-    /// No-ops once a decision has already been made (never re-prompts) — matches
-    /// `DictationController.requestAuthorization()`'s "ask once" shape for the same system
+    /// No-ops once a decision has already been made (never re-prompts) — the same "ask once"
+    /// shape the former `DictationController.requestAuthorization()` used for this system
     /// permission dance.
     func requestPermissionIfNeeded() async {
         guard permissionState == .notDetermined else { return }
@@ -171,7 +169,7 @@ final class AudioRecorderController {
 
     /// A begin-type interruption (phone call, alarm, Siri, another app taking the microphone)
     /// stops (finalizing, not discarding) exactly like `stop()` — see the header doc comment for
-    /// why that's the right behavior here, unlike `DictationController`'s equivalent.
+    /// why that's the right behavior here, unlike the former `DictationController`'s equivalent.
     private func registerInterruptionObserver() {
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,

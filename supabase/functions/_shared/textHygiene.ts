@@ -67,3 +67,83 @@ export const cleanOptionalMetaText = (value: string | null | undefined): string 
   const cleaned = cleanMetaText(value);
   return cleaned.length > 0 ? cleaned : undefined;
 };
+
+// --- Titles -----------------------------------------------------------------
+//
+// Social sites fold hashtags into og:title. A LinkedIn post that opens with a
+// tag block ships a title that is nothing but tags ("#aiagents #opensource |
+// André Lindenberg | 13 comments"); Instagram and TikTok captions end on a run
+// of them. None of that reads as a card title. A tag here is `#` plus a letter
+// at a word start, so `C#`, `#42` and `Issue #3` are left alone.
+const TAG = '#\\p{L}[\\p{L}\\p{N}_]*';
+const NOT_WORD_BEFORE = '(?<![\\p{L}\\p{N}_#])';
+const NOT_WORD_AFTER = '(?![\\p{L}\\p{N}_])';
+// Two or more tags in a row are a tag block wherever they sit ("#hiring #jobs
+// We're looking…", "…Link in bio. #maven #ai", "…at home. #diy #decor @shop").
+const TAG_BLOCK_RE = new RegExp(`${NOT_WORD_BEFORE}${TAG}(?:\\s+${TAG})+${NOT_WORD_AFTER}`, 'gu');
+// A lone tag closing a segment — a closing quote or bracket may sit after it
+// (Instagram wraps the caption in quotes).
+const TRAILING_TAG_RE = new RegExp(`${NOT_WORD_BEFORE}${TAG}(?=\\s*["'”’)\\]]*\\s*$)`, 'u');
+// Any lone tag left is prose ("#AI is changing work", "from #Stanford"): keep
+// the word.
+const INLINE_TAG_RE = /(?<![\p{L}\p{N}_])#(?=\p{L})/gu;
+const EMPTY_QUOTES_RE = /"\s*"|“\s*”/g;
+const SPACE_BEFORE_CLOSER_RE = /\s+(?=["”’)\]]\s*$)/;
+const DANGLING_PUNCT_RE = /^[\s:;,|\-–—]+|[\s:;,|\-–—]+$/g;
+// LinkedIn's engagement tail ("| 13 comments"); never a title on its own.
+const COUNT_SEGMENT_RE = /^\d[\d,.]*[kKmM]?\s+(comments?|reactions?|likes?|reposts?)$/i;
+const SEGMENT_SEPARATOR_RE = /\s+\|\s+/;
+// Sentence end: . ! ? then whitespace — except after an initial ("Fabio A.
+// recommended…") or a short abbreviation.
+const SENTENCE_END_RE = /(?<=[.!?])(?<!\b\p{Lu}\.)(?<!\b(?:e\.g|i\.e|vs|etc|Dr|Mr|Mrs|Ms)\.)\s+/u;
+const LEAD_MAX = 90;
+
+const stripHashtags = (segment: string): string =>
+  segment
+    .replace(TAG_BLOCK_RE, '')
+    .replace(TRAILING_TAG_RE, '')
+    .replace(INLINE_TAG_RE, '')
+    .replace(EMPTY_QUOTES_RE, '')
+    .replace(/\s+/g, ' ')
+    .replace(SPACE_BEFORE_CLOSER_RE, '')
+    .replace(DANGLING_PUNCT_RE, '');
+
+const capLead = (text: string): string => {
+  if (text.length <= LEAD_MAX) return text;
+  const cut = text.slice(0, LEAD_MAX);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > LEAD_MAX / 2 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+};
+
+// First sentence of a post body, standing in for a lead that was only tags.
+// A description that is itself just a URL (TikTok tag pages) is no lead.
+const leadFromDescription = (description: string): string => {
+  const body = stripHashtags(cleanMetaText(description));
+  if (/^https?:\/\/\S*$/i.test(body)) return '';
+  const sentence = body.split(SENTENCE_END_RE)[0] ?? '';
+  return capLead(sentence.replace(/\.$/, '').trim());
+};
+
+// Title hygiene: everything cleanMetaText does, then hashtags out of every
+// ` | ` segment, the engagement tail dropped, and a tags-only lead replaced
+// by the first sentence of `description` (the post body) when one is known.
+export const cleanMetaTitle = (title: string, description?: string | null): string => {
+  const rawSegments = cleanMetaText(title).split(SEGMENT_SEPARATOR_RE);
+  const segments = rawSegments.map(stripHashtags);
+  const leadWasTags = segments[0] === '' && /#\p{L}/u.test(rawSegments[0]);
+  const kept = segments.filter((segment) => segment !== '' && !COUNT_SEGMENT_RE.test(segment));
+  if (leadWasTags && description) {
+    const lead = leadFromDescription(description);
+    if (lead) kept.unshift(lead);
+  }
+  return kept.join(' | ');
+};
+
+export const cleanOptionalMetaTitle = (
+  title: string | null | undefined,
+  description?: string | null,
+): string | undefined => {
+  if (title === null || title === undefined) return undefined;
+  const cleaned = cleanMetaTitle(title, description);
+  return cleaned.length > 0 ? cleaned : undefined;
+};
