@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Stash — "Remind me" from the composer, iOS and the share sheet (Sep 7 2026, v0.2)</title>
+<title>Stash — "Remind me" from the composer, iOS and the share sheet (Sep 7 2026, v0.3)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   @font-face { font-family:'PP Neue Montreal'; src:url('../../../src/assets/fonts/PPNeueMontreal-Book.woff2') format('woff2'); font-weight:400; font-style:normal; font-display:swap; }
@@ -128,18 +128,18 @@
   .matrix td .act { font-weight:600; color:var(--violet-600); }
 
   /* ── phones (iOS composer + share sheet) ── */
-  .ph { width:390px; max-width:100%; border-radius:44px; border:1px solid rgba(0,0,0,.12); background:#fff; position:relative; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16); }
-  .ph .grad { position:absolute; top:0; left:-10%; right:-10%; height:260px; background:var(--splash); opacity:.25; filter:blur(24px); z-index:0; }
-  .ph .gradfade { position:absolute; top:0; left:0; right:0; height:260px; background:linear-gradient(to bottom, rgba(255,255,255,0) 20%, #fff); z-index:0; }
-  .ph > * { position:relative; z-index:1; }
-  .ph .status { display:flex; justify-content:space-between; align-items:center; padding:14px 28px 4px; font-size:13px; font-weight:600; }
-  .ph .status i { display:inline-block; width:22px; height:11px; border:1px solid var(--ink); border-radius:3px; position:relative; opacity:.8; }
-  .ph .status i::after { content:''; position:absolute; inset:1.5px; right:4px; background:var(--ink); border-radius:1px; }
-  .ph .hdr { display:flex; align-items:center; justify-content:space-between; padding:8px 16px 4px; min-height:44px; }
-  .ph .wordmark { font-weight:600; font-size:18px; letter-spacing:-.02em; }
-  .ph .xbtn { width:36px; height:36px; border-radius:50%; background:var(--chipbg); display:grid; place-items:center; color:var(--ink); }
-  .ph .xbtn svg { width:15px; height:15px; }
-  .ph .content { padding:8px 16px 20px; display:flex; flex-direction:column; gap:12px; flex:1; }
+  .phone { width:390px; max-width:100%; border-radius:44px; border:1px solid rgba(0,0,0,.12); background:#fff; position:relative; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16); }
+  .phone .grad { position:absolute; top:0; left:-10%; right:-10%; height:260px; background:var(--splash); opacity:.25; filter:blur(24px); z-index:0; }
+  .phone .gradfade { position:absolute; top:0; left:0; right:0; height:260px; background:linear-gradient(to bottom, rgba(255,255,255,0) 20%, #fff); z-index:0; }
+  .phone > * { position:relative; z-index:1; }
+  .phone .status { display:flex; justify-content:space-between; align-items:center; padding:14px 28px 4px; font-size:13px; font-weight:600; }
+  .phone .status i { display:inline-block; width:22px; height:11px; border:1px solid var(--ink); border-radius:3px; position:relative; opacity:.8; }
+  .phone .status i::after { content:''; position:absolute; inset:1.5px; right:4px; background:var(--ink); border-radius:1px; }
+  .phone .hdr { display:flex; align-items:center; justify-content:space-between; padding:8px 16px 4px; min-height:44px; }
+  .phone .wordmark { font-weight:600; font-size:18px; letter-spacing:-.02em; }
+  .phone .xbtn { width:36px; height:36px; border-radius:50%; background:var(--chipbg); display:grid; place-items:center; color:var(--ink); }
+  .phone .xbtn svg { width:15px; height:15px; }
+  .phone .content { padding:8px 16px 20px; display:flex; flex-direction:column; gap:12px; flex:1; }
   .hcard { background:#fff; border-radius:12px; box-shadow:0 1px 2px rgba(20,22,30,.06), 0 4px 14px rgba(30,33,44,.08); }
   .prev { display:flex; align-items:center; gap:12px; padding:12px 14px; }
   .prev img { width:32px; height:32px; border-radius:7px; flex:none; }
@@ -148,7 +148,7 @@
   .prev small { font-size:12px; color:var(--muted); }
   .notef { padding:12px 14px; font-size:15px; line-height:1.4; min-height:44px; color:var(--ink); }
   .notef .ph2 { color:var(--faint); }
-  .ph .bar { padding:12px 20px 10px; background:#fff; display:flex; flex-direction:column; gap:10px; margin-top:auto; }
+  .phone .bar { padding:12px 20px 10px; background:#fff; display:flex; flex-direction:column; gap:10px; margin-top:auto; }
   .rrow { display:flex; align-items:center; gap:5px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); min-height:32px; }
   .rrow .lbl { display:inline-flex; align-items:center; gap:5px; margin-right:3px; white-space:nowrap; }
   .rrow .lbl svg { width:13px; height:13px; }
@@ -194,21 +194,22 @@
 <body>
 <div class="wrap">
 
-  <div class="eyebrow">Stash · reminders · composer, iOS, share sheet · Sep 7 2026 · v0.2 · exploration, not a spec</div>
+  <div class="eyebrow">Stash · reminders · composer, iOS, share sheet · Sep 7 2026 · v0.3 · decided, spec next</div>
   <h1>Remind me, wherever you capture.</h1>
-  <p class="lede"><b>Sep 7 decision:</b> options 2 and 3, merged into one system. The chip row under the text is the reminder's <b>one home</b> on every surface; a recognised phrase simply fills it; the <b>×</b> is the only remove control, everywhere. v0.2 adds the recognizer itself (live, type into it), the rule for when a phrase counts as a reminder, and the same system on the iOS composer and the share sheet.</p>
+  <p class="lede"><b>Sep 7, decided.</b> The "Remind me" chip is <b>always offered</b>, on every capture surface, and it expands to the right into the presets the way the card's reminder chip expands into Snooze and Dismiss. Typing something reminder-shaped tints the phrase and pre-fills the chip; otherwise the chip just waits, and the person can reach for it themselves. The <b>×</b> is the only remove control. iOS composer and share sheet go as shown in sections 3 and 4.</p>
+  <p class="lede"><b>Why it is there.</b> Stash is not a reminder app. The chip is a convenience and a way back to something, and a reminder is an <b>explicit signal that this object matters</b> to the person who saved it, which the email digest can use to decide what to resurface.</p>
 
   <!-- ═══ 1 · the chip row ═══ -->
   <section class="opt">
-    <h2>1 · The chip row <span class="pill">chosen</span> <small>a reminder is something you attach</small></h2>
-    <p class="why">The composer already grows a chip row under the editor when you paste a link or drop a file. A reminder lives in that same row as <b>one more thing attached to this capture</b>. At rest there is nothing; once there is content, a quiet dashed "Remind me" appears. It unfolds into the presets in place and settles into a chip beside the attachments. Typing a phrase (section 2) fills the very same chip.</p>
-    <div class="states four" id="s1"></div>
+    <h2>1 · The chip row <span class="pill">chosen · always offered</span> <small>a reminder is something you attach</small></h2>
+    <p class="why">The composer already grows a chip row under the editor when you paste a link or drop a file. A reminder lives in that same row as <b>one more thing attached to this capture</b>, and unlike v0.2 the offer is <b>there from the start</b>: a quiet dashed "Remind me" sits under the empty editor, one decision that never has to be discovered. It unfolds <b>to the right</b> into the presets, in place, and settles into a chip beside the attachments. Typing a phrase (section 2) fills the very same chip. The row costs the idle composer one line; that is the price of always offering.</p>
+    <div class="states two" id="s1"></div>
   </section>
 
   <!-- ═══ 2 · the recognizer ═══ -->
   <section class="opt">
     <h2>2 · Say it in the note <span class="pill">chosen</span> <small>the recognizer, live — type into it</small></h2>
-    <p class="why">Being smart means two questions, not one: <b>is this person asking to be brought back to something</b>, and <b>when</b>. Intent comes from a lexicon of reminder language, graded strong or weak; time comes from a small grammar of everyday date phrases. The two combine into one of four actions, in the table on the right. Nothing here is a model: a deterministic regex family that ports to TypeScript (web), Swift (iOS, share sheet) and the capture edge functions (SMS, WhatsApp, extension) with no drift.</p>
+    <p class="why">The chip is always there; the recognizer only makes it smarter. Being smart means two questions, not one: <b>is this person asking to be brought back to something</b>, and <b>when</b>. Intent comes from a lexicon of reminder language, graded strong or weak; time comes from a small grammar of everyday date phrases. The two combine into one of four actions, in the table on the right; when the words are not reminder-shaped the chip simply waits. Nothing here is a model: a deterministic regex family that ports to TypeScript (web), Swift (iOS, share sheet) and the capture edge functions (SMS, WhatsApp, extension) with no drift.</p>
     <div class="live">
       <div>
         <div class="composer active" id="live">
@@ -259,14 +260,14 @@
 
   <!-- ═══ 3 · iOS composer ═══ -->
   <section class="opt">
-    <h2>3 · On iOS: the composer <small>Add tab, same row inside the card</small></h2>
-    <p class="why">The in-app composer card gets the identical row between the text and the icon bar. Same offer, same unfold, same chip, same × — and the same recognizer running on the text, so the two surfaces never disagree about what a phrase means.</p>
+    <h2>3 · On iOS: the composer <span class="pill">chosen as shown</span> <small>Add tab, same row inside the card</small></h2>
+    <p class="why">The in-app composer card gets the identical row between the text and the icon bar. Same offer, same unfold, same chip, same × — and the same recognizer running on the text, so the two surfaces never disagree about what a phrase means. The dashed chip deliberately looks nothing like the round icon buttons beneath it: one less thing to tell apart. The icon bar itself is a lot of buttons; simplifying it is a separate, later pass.</p>
     <div class="states" id="s3"></div>
   </section>
 
   <!-- ═══ 4 · share sheet ═══ -->
   <section class="opt">
-    <h2>4 · On iOS: the share sheet <small>where most captures happen</small></h2>
+    <h2>4 · On iOS: the share sheet <span class="pill">chosen as shown</span> <small>where most captures happen</small></h2>
     <p class="why">The share sheet is a one-shot surface: the shared item <b>is</b> the content, so there is no "once there is content" moment to wait for. The reminders spec already puts a preset row above Save (default off, never gating Save); v0.2 keeps that row and wires the recognizer to the note field. Type "remind me next friday" in the optional note and the row fills with that day; the note, being nothing but the instruction, is consumed. Done copy confirms: "Saved · back Fri, Sep 11".</p>
     <div class="states" id="s4"></div>
   </section>
@@ -287,6 +288,7 @@
       <li><b>Presets stay 1 / 3 / 5</b> in the row; the recognizer may express any day and the chip shows the absolute date whenever the phrase was not a preset. Custom dates in the UI remain out of scope, as the spec says.</li>
       <li><b>Share sheet:</b> the spec's <code>share.remind.1d/3d/5d</code> row above Save, plus the recognizer on <code>share.note</code>; whole-note phrases are consumed. Done copy gains the day. Hidden with the rest of the bar when the account gate is closed.</li>
       <li><b>iOS composer</b> was "later" in the spec; the row is the same component as the share sheet's, so it comes along.</li>
+      <li><b>A reminder is a signal, not just a timer.</b> Setting one says this object matters; the email digest (reminders plan 3) should treat items with a reminder, set or cleared, as candidates to resurface, and the spec's decision to keep <code>reminder_cleared_at</code> rather than deleting means the history stays queryable for that.</li>
       <li>Every entry point writes the same card state: the chip on the hero, escalating as the date nears (card prototype, v0.2).</li>
     </ul>
   </section>
@@ -389,8 +391,8 @@ const NOTE_A = 'Look into the Northwind sublease clause before we sign';
 
 /* section 1 */
 document.getElementById('s1').innerHTML = [
-  state('typing · the offer appears', composer({ active:true, html:esc(NOTE_A), row:ghost() }), 'Dashed outline, muted text: an offer, not a control. Empty composer shows nothing.'),
-  state('<b>choosing</b> · in place', composer({ active:true, html:esc(NOTE_A), row:presets(3) }), 'The offer unfolds into the three presets right where it was. × collapses it back to the offer.'),
+  state('at rest · always offered', composer({ row:ghost() }), 'Dashed outline, muted text: an offer, not a control. It is there before anything is typed.'),
+  state('<b>choosing</b> · expands to the right', composer({ active:true, html:esc(NOTE_A), row:presets(3) }), 'The offer unfolds into the three presets right where it was, the way the card chip unfolds into Snooze and Dismiss. × collapses it back to the offer.'),
   state('<b>set</b> · beside a pasted link', composer({ active:true, html:'worth a read before the renewal meeting', attach:{ title:'Why we remember the books we argue with', domain:'theatlantic.com' }, row:setchip('in 3 days', 'Thu, Sep 10') }), 'The link chip and the reminder chip share one row: both are things attached to this capture. The faint date is the check against a mis-tap.'),
   state('<b>said in the note</b> · the same chip', composer({ active:true, html:`Sublease clause in §14 looks off, <span class="tok">remind me in 3 days</span> so I re-read it before we sign`, row:setchip('in 3 days', 'Thu, Sep 10') }), 'The phrase is tinted where it sits and the chip fills itself. Same chip, same ×: removing it un-tints the words and leaves them in the note.'),
 ].join('');
@@ -433,9 +435,9 @@ function paintLive() {
   else if (r.action === 'set') row = setchip(labelFor(r.days, r.time), absFor(r.days, r.time)), effective = 'set';
   else if (r.action === 'set-default') row = presets(1), effective = 'set, default tomorrow';
   else if (r.action === 'offer') row = presets(null), effective = 'offer';
-  else if (text.trim() || live.attach) row = ghost();
+  else row = ghost(); // always offered
   if (live.attach) row = linkChip('Northwind lease renewal — terms redlined', 'docs.google.com') + row;
-  liverow.style.display = row ? 'flex' : 'none';
+  liverow.style.display = 'flex';
   liverow.innerHTML = row;
   livesend.classList.toggle('hot', Boolean(text.trim()) || live.attach);
   const consumed = r.consumable && live.attach && effective.startsWith('set') && !suppressed;
@@ -452,12 +454,12 @@ paintLive();
 const status = () => `<div class="status"><span>9:41</span><i></i></div>`;
 const wordmark = (close) => `<div class="hdr"><span class="wordmark">Stash</span>${close ? `<span class="xbtn" aria-label="Cancel">${ic('x')}</span>` : ''}</div>`;
 function composerPhone({ html = '', row = '', focus = true }) {
-  return `<div class="ph">${status()}${wordmark(false)}<div class="content"><div class="ccard${focus ? ' focus' : ''}"><div class="ed">${html || '<span class="ph">Save a thought, a link, anything…</span>'}</div>${row ? `<div class="chiprow">${row}</div>` : ''}<div class="cbar"><span class="ci">${ic('image')}</span><span class="ci">${ic('camera')}</span><span class="ci">${ic('fileplus')}</span><span class="ci">${ic('mic')}</span><span class="ci">${ic('pin')}</span><span class="ci send${html ? '' : ' cold'}">${ic('up')}</span></div></div></div><div class="homebar"></div></div>`;
+  return `<div class="phone">${status()}${wordmark(false)}<div class="content"><div class="ccard${focus ? ' focus' : ''}"><div class="ed">${html || '<span class="ph">Save a thought, a link, anything…</span>'}</div>${row ? `<div class="chiprow">${row}</div>` : ''}<div class="cbar"><span class="ci">${ic('image')}</span><span class="ci">${ic('camera')}</span><span class="ci">${ic('fileplus')}</span><span class="ci">${ic('mic')}</span><span class="ci">${ic('pin')}</span><span class="ci send${html ? '' : ' cold'}">${ic('up')}</span></div></div></div><div class="homebar"></div></div>`;
 }
 function sharePhone({ note = '', noteHtml = '', rrow = '', done = null }) {
   const noteBody = noteHtml || (note ? esc(note) : '<span class="ph2">Optional note…</span>');
-  if (done) return `<div class="ph"><div class="grad"></div><div class="gradfade"></div>${status()}${wordmark(false)}<div class="done"><span class="ck">${ic('check')}</span><p>${done.title}</p><small>${done.sub}</small></div><div class="homebar"></div></div>`;
-  return `<div class="ph"><div class="grad"></div><div class="gradfade"></div>${status()}${wordmark(true)}<div class="content"><div class="hcard prev"><img src="${fav('theatlantic.com')}" alt=""><span class="tx"><p>Why we remember the books we argue with</p><small>theatlantic.com</small></span></div><div class="hcard notef">${noteBody}</div><span class="pinline">${ic('pinfill')}posted from Hillsborough, NC</span></div><div class="bar"><div class="rrow">${rrow}</div><div class="savebtn">Save</div></div><div class="homebar"></div></div>`;
+  if (done) return `<div class="phone"><div class="grad"></div><div class="gradfade"></div>${status()}${wordmark(false)}<div class="done"><span class="ck">${ic('check')}</span><p>${done.title}</p><small>${done.sub}</small></div><div class="homebar"></div></div>`;
+  return `<div class="phone"><div class="grad"></div><div class="gradfade"></div>${status()}${wordmark(true)}<div class="content"><div class="hcard prev"><img src="${fav('theatlantic.com')}" alt=""><span class="tx"><p>Why we remember the books we argue with</p><small>theatlantic.com</small></span></div><div class="hcard notef">${noteBody}</div><span class="pinline">${ic('pinfill')}posted from Hillsborough, NC</span></div><div class="bar"><div class="rrow">${rrow}</div><div class="savebtn">Save</div></div><div class="homebar"></div></div>`;
 }
 const rrowPresets = (sel) => `<span class="lbl">${ic('bell')}Remind me</span>${[1, 3, 5].map(d => `<span class="pc${sel === d ? ' sel' : ''}">${d} day${d > 1 ? 's' : ''}</span>`).join('')}`;
 const rrowSet = (label, abs) => setchip(label, abs);
