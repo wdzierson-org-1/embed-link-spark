@@ -23,6 +23,12 @@ const DesignCardPreview = import.meta.env.DEV
   ? lazy(() => import('@/pages/DesignCardPreview'))
   : null;
 
+// Temporary admin dashboard (gated by admin_users; see
+// docs/superpowers/specs/2026-09-08-admin-dashboard-design.md). Lazy so
+// members never download it.
+const Admin = lazy(() => import('@/pages/Admin'));
+const AdminUser = lazy(() => import('@/pages/AdminUser'));
+
 const queryClient = new QueryClient();
 
 function App() {
@@ -45,6 +51,22 @@ function App() {
                 <Route path="/404" element={<NotFound />} />
                 <Route path="/feed/:username" element={<PublicFeed />} />
                 <Route path="/discover" element={<Discover />} />
+                <Route
+                  path="/admin"
+                  element={
+                    <Suspense fallback={null}>
+                      <Admin />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="/admin/users/:userId"
+                  element={
+                    <Suspense fallback={null}>
+                      <AdminUser />
+                    </Suspense>
+                  }
+                />
                 {DesignCardPreview && (
                   <Route
                     path="/design/cards"
