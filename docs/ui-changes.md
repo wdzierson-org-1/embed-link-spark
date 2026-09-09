@@ -8,6 +8,104 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-08 · Admin dashboard (web-only, temporary)
+
+Spec `docs/superpowers/specs/2026-09-08-admin-dashboard-design.md`. Internal
+tooling for the alpha: no member-facing behavior changes and nothing for
+iOS / macOS / the extension to mirror. Logged because it adds a table, an
+RPC and an edge function that other agents will meet in the schema.
+
+- **Gate:** `public.admin_users` (RLS: read your own row only; service-role
+  writes only). The migration seeds Will's account. **Kill switch:**
+  `DELETE FROM public.admin_users;` hides the menu entry and makes every
+  admin call 403. Agent (MCP) tokens are fenced from it like every table.
+- **Data:** `public.admin_user_stats()` (SECURITY DEFINER, service role
+  only) joins `auth.users` + `auth.audit_log_entries` + `user_profiles` +
+  `items`. Per account: email, username / display name, joined, last login,
+  explicit login count (`login` audit entries), active days (distinct UTC
+  days with a login *or* a token refresh), last active, item count, items
+  in the last 7 days, last saved, items by type.
+- **Endpoint:** `POST /functions/v1/admin-stats` (JWT + apikey; gateway
+  `verify_jwt` on, then an `admin_users` check). `{ action: 'users' }` →
+  `{ users: [...] }`; `{ action: 'items', user_id }` → `{ user, items }`
+  with the same columns the library grid loads (`ITEM_LIST_COLUMN_NAMES` +
+  `user_id`, parity-tested). 401 / 403 / 400 / 404 as JSON `{ error }`.
+  Every admin read is logged in the function logs (admin id → target id).
+- **Web:** the avatar menu gains "Admin" (Lucide `Gauge`) for admins only.
+  `/admin` = four stat tiles (members, active in the last 7 days, items
+  saved, saved in the last 7 days) and a sortable member table; name and
+  email link to the member page; a "Hide test accounts" checkbox (on by
+  default) hides the `will+…` fixtures; anonymous try-it sessions are never
+  listed, only counted. `/admin/users/:userId` = identity strip with type
+  chips, search and type pills over `ContentGrid` in **public-view mode**: a
+  read-only recreation of the member's grid (no card menu, edit, delete,
+  reminders, comments or privacy controls; link titles open the URL).
+  Non-admins are sent to `/home`.
+- **Privacy posture:** a deliberate, time-boxed exception to "only you see
+  your stash" while every member is a known early tester. Remove with the
+  kill switch above once there is a critical mass of members.
+
+---
+
+## 2026-09-07 · Hashtag-free link titles (platform) + iOS Ask composer cleanup
+
+Will's notes, same day: LinkedIn titles "often have hashtags in the titles —
+let's try to disambiguate these further"; Ask tab font mismatch between sent
+messages and replies; remove the mic; top-align Send on a multi-line composer.
+
+- **Link titles lose their hashtags at capture — all clients, no client
+  change needed.** `add-url` (quick pass and the deep `enrichAfterResponse`
+  pass) and `extract-link-metadata` now run scraped titles through
+  `cleanMetaTitle(title, description)` from
+  `supabase/functions/_shared/textHygiene.ts` (mirrored in
+  `src/utils/textHygiene.ts`; `src/utils/textHygiene.test.ts` covers the
+  rules and asserts the two copies are byte-identical from `NAMED_ENTITIES`
+  on). Caller-supplied titles are still stored verbatim. Rules:
+  - A tag is `#` + a letter at a word start — `C#`, `#42`, `Issue #3` are
+    untouched.
+  - Two or more tags in a row are a tag block and are removed wherever they
+    sit (`…Link in bio. #maven #ai #llms` → `…Link in bio.`; `#hiring #jobs
+    We're looking…` → `We're looking…`; a block inside Instagram's closing
+    quote tightens back onto the quote).
+  - A lone tag closing a segment is removed; a lone tag inside prose keeps
+    its word (`from #Stanford examines` → `from Stanford examines`).
+  - Titles are treated as ` | ` segments (LinkedIn's `lead | Author | 13
+    comments`): the engagement tail (`N comments/reactions/likes/reposts`)
+    is dropped, and a lead segment that was *only* tags is replaced by the
+    first sentence of `description` (the post body), capped at 90 chars at a
+    word boundary with `…`. Sentence detection skips initials (`Fabio A.`)
+    and common abbreviations; a description that is just a URL yields no
+    lead. Example: `#aiagents #opensource | André Lindenberg | 13 comments`
+    + body "OfficeCLI gives an AI agent a single binary…" →
+    `OfficeCLI gives an AI agent a single binary that reads, writes and
+    creates Word, Excel… | André Lindenberg`.
+  - If nothing readable is left, the title falls back exactly as before (the
+    URL in `add-url`, the hostname in `extract-link-metadata`).
+- **Backfill (2026-09-07):** the 16 existing `type='link'` rows on
+  will@dzierson.com whose title carried a hashtag were rewritten in place
+  with the same helper (before/after log kept with the session); the 3
+  matching rows on another account were deliberately left alone.
+- **iOS Ask tab** (`ios/Stash/Ask/`):
+  - User bubbles and the composer `TextField` now use `StashType.body()`
+    with the compact `14 * 0.35` line spacing — the same face and rhythm
+    `MarkdownBlocksView(compact: true)` gives assistant replies. Both were
+    bare SwiftUI text before, i.e. SF at the system size next to Neue
+    Montreal 14.
+  - The mic / live-dictation button is gone: `DictationController.swift`,
+    StashKit's `DictationMerge.swift` (+ its tests) and
+    `NSSpeechRecognitionUsageDescription` (project.yml + Info.plist) are
+    removed; `NSMicrophoneUsageDescription` now reads "voice notes" only —
+    voice capture stays on the Add tab's voice memo. `ChatComposerBar` no
+    longer takes a `dictation` parameter and `ChatBubble` no longer takes
+    `isDictating` (the speaker button is never disabled for it). The
+    `ask.mic` identifier no longer exists; `ask.input` / `ask.send` are
+    unchanged.
+  - The composer `HStack` is `.top`-aligned (was `.bottom`), so the send
+    circle stays on the first line while the field grows to its four-line
+    cap.
+
+---
+
 ## 2026-09-07 · iOS share tutorial carousel (plan 13)
 
 iOS-only round; no web changes. Plan:

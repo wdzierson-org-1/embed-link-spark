@@ -78,3 +78,28 @@ describe('ContentItemFooter reminders (public vs owner)', () => {
     );
   });
 });
+
+// A read-only view (public feed, admin member view) only gets the overflow
+// menu when it would contain something — an empty menu is a dead control.
+describe('ContentItemFooter menu (public view)', () => {
+  const base = { created_at: '2026-08-01T00:00:00Z', user_id: 'owner-1' };
+
+  it('renders no menu trigger when a public view has nothing to offer', () => {
+    render(
+      <ContentItemFooter item={{ ...base, id: 'n1', type: 'text' }} onDeleteItem={noop} onEditItem={noop} isPublicView />
+    );
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('keeps the menu for a public link, which can still be opened', () => {
+    render(
+      <ContentItemFooter
+        item={{ ...base, id: 'l1', type: 'link', url: 'https://example.test' }}
+        onDeleteItem={noop}
+        onEditItem={noop}
+        isPublicView
+      />
+    );
+    expect(screen.getByRole('button')).toBeInTheDocument();
+  });
+});

@@ -3,10 +3,15 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import HeaderSection from "./HeaderSection";
 
-const { navigateMock, authSignOutMock, rawSupabaseSignOutMock } = vi.hoisted(() => ({
+const { navigateMock, authSignOutMock, rawSupabaseSignOutMock, adminState } = vi.hoisted(() => ({
   navigateMock: vi.fn(),
   authSignOutMock: vi.fn().mockResolvedValue(undefined),
   rawSupabaseSignOutMock: vi.fn().mockResolvedValue({ error: null }),
+  adminState: { isAdmin: false, loading: false },
+}));
+
+vi.mock("@/hooks/useIsAdmin", () => ({
+  useIsAdmin: () => adminState,
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -53,6 +58,35 @@ describe("HeaderSection sign out", () => {
     await waitFor(() => expect(authSignOutMock).toHaveBeenCalledTimes(1));
     expect(rawSupabaseSignOutMock).not.toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith("/");
+  });
+});
+
+// The temporary admin dashboard is reachable only from this menu, and only
+// for accounts with an admin_users row (spec 2026-09-08-admin-dashboard-design.md)
+describe("HeaderSection admin entry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    adminState.isAdmin = false;
+  });
+
+  const openMenu = () => {
+    const trigger = screen.getByRole("button", { name: /w/i, expanded: false });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+  };
+
+  it("hides Admin from ordinary members", async () => {
+    render(<HeaderSection user={{ email: "will@dzierson.com", id: "u1" }} />);
+    openMenu();
+    await screen.findByRole("menuitem", { name: /settings/i });
+    expect(screen.queryByRole("menuitem", { name: /admin/i })).not.toBeInTheDocument();
+  });
+
+  it("offers Admin to admins and routes to /admin", async () => {
+    adminState.isAdmin = true;
+    render(<HeaderSection user={{ email: "will@dzierson.com", id: "u1" }} />);
+    openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: /admin/i }));
+    expect(navigateMock).toHaveBeenCalledWith("/admin");
   });
 });
 

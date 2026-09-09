@@ -1836,6 +1836,55 @@ final class StashUITests: XCTestCase {
                       "Expected the Ask thread after popping Conversations")
     }
 
+    /// 2026-09-07 Ask composer cleanup (Will's notes): the mic/dictation button is gone, and the
+    /// composer row is `.top`-aligned so the send circle stays on the first line while the field
+    /// grows. Types a question long enough to wrap to several lines (no send — the standing test
+    /// account is subscription-gated for Ask anyway) and checks geometry: the send button's top
+    /// edge matches the field's top edge, and sits well above the field's bottom edge. Also the
+    /// screenshot rig for this round: two checkpoints, empty composer and the wrapped one.
+    func testAskComposerLayout() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        app.tabBars.buttons["Ask"].tap()
+
+        let input = anyElement("ask.input")
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
+        let send = app.buttons["ask.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "Send button did not appear")
+        XCTAssertFalse(app.buttons["ask.mic"].exists, "Expected the mic button to be gone")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-composer-empty\n".data(using: .utf8)!)
+        sleep(4)
+
+        input.tap()
+        input.typeText("Which of my saved links talk about coding agents, what did each of them recommend for keeping memory across sessions, and which one should I read first if I only have ten minutes tonight?")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-composer-wrapped\n".data(using: .utf8)!)
+        sleep(4)
+
+        // Re-read frames after the field has grown. `ask.input`'s accessibility frame is the
+        // TEXT area only — `ChatComposerBar`'s `.padding(.vertical, 10)` wraps it but is not part
+        // of the element (measured live: one 14pt line reports ~17pt, three lines ~51pt) — so the
+        // visible field spans `inputFrame` inset by that padding. With `.top` alignment the 40pt
+        // send circle's top edge meets the field's top edge, and it ends above the field's
+        // bottom edge once the field has wrapped.
+        let fieldPadding: CGFloat = 10
+        let inputFrame = input.frame
+        let sendFrame = send.frame
+        let fieldTop = inputFrame.minY - fieldPadding
+        let fieldBottom = inputFrame.maxY + fieldPadding
+        XCTAssertGreaterThan(inputFrame.height, 30, "Expected the composer to have wrapped (text height \(inputFrame.height))")
+        XCTAssertLessThan(abs(sendFrame.minY - fieldTop), 4,
+                          "Expected the send button top-aligned with the field (send top \(sendFrame.minY) vs field top \(fieldTop))")
+        XCTAssertLessThan(sendFrame.maxY, fieldBottom - 6,
+                          "Expected the send button to end above the field's bottom edge (send bottom \(sendFrame.maxY) vs field bottom \(fieldBottom))")
+    }
+
     /// Plan 7 Task 6: the item detail sheet rebuilt to DESIGN.md's detail-panel anatomy — eyebrow
     /// (type pill + domain), URL bar (replacing the old blue "Open Link" button), pill content
     /// tabs, and the autosave footer caption. Exercised against the permanent "UITEST-FIXTURE:

@@ -4,7 +4,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
-const ITEM_LIST_COLUMNS = [
+// The columns a library card needs. The admin dashboard's member view loads
+// the same list (supabase/functions/_shared/adminDashboard.ts, parity-tested)
+// so its recreation of the grid never drifts from the real one.
+export const ITEM_LIST_COLUMN_NAMES = [
   'id',
   'type',
   'title',
@@ -21,7 +24,8 @@ const ITEM_LIST_COLUMNS = [
   'attributes',
   'remind_at',
   'reminder_cleared_at',
-].join(',');
+];
+const ITEM_LIST_COLUMNS = ITEM_LIST_COLUMN_NAMES.join(',');
 
 export const useItems = () => {
   const { user } = useAuth();
