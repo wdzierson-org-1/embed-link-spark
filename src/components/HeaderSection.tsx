@@ -11,9 +11,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Settings, LogOut, ExternalLink, Compass } from 'lucide-react';
+import { Settings, LogOut, ExternalLink, Compass, Gauge } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import StashWordmark from '@/components/StashWordmark';
 
 interface HeaderSectionProps {
@@ -27,6 +28,8 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
   // scope defaults to 'global' and deletes every session on the account — it
   // was logging the chrome extension (and any other device) out on each click.
   const { signOut } = useAuth();
+  // Temporary admin dashboard — the entry only exists for admin_users rows
+  const { isAdmin } = useIsAdmin();
 
   const getUserInitials = (email: string) => {
     return email?.charAt(0).toUpperCase() || 'U';
@@ -91,6 +94,12 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
                   <Compass className="mr-2 h-4 w-4" />
                   Discover
                 </DropdownMenuItem>
+                {isAdmin && (
+                  <DropdownMenuItem onClick={() => navigate('/admin')}>
+                    <Gauge className="mr-2 h-4 w-4" />
+                    Admin
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => window.open(`/feed/${profile?.username || user.id}`, '_blank')}>
                   <ExternalLink className="mr-2 h-4 w-4" />
                   Preview public feed

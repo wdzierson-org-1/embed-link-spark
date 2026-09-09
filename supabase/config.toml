@@ -74,3 +74,8 @@ verify_jwt = false
 # in-function; there is no user JWT on this path.
 [functions.reminder-digest]
 verify_jwt = false
+
+# Temporary admin dashboard. The gateway verifies the JWT; the function then
+# requires an admin_users row (docs/superpowers/specs/2026-09-08-admin-dashboard-design.md).
+[functions.admin-stats]
+verify_jwt = true

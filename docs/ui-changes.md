@@ -8,6 +8,45 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-08 · Admin dashboard (web-only, temporary)
+
+Spec `docs/superpowers/specs/2026-09-08-admin-dashboard-design.md`. Internal
+tooling for the alpha: no member-facing behavior changes and nothing for
+iOS / macOS / the extension to mirror. Logged because it adds a table, an
+RPC and an edge function that other agents will meet in the schema.
+
+- **Gate:** `public.admin_users` (RLS: read your own row only; service-role
+  writes only). The migration seeds Will's account. **Kill switch:**
+  `DELETE FROM public.admin_users;` hides the menu entry and makes every
+  admin call 403. Agent (MCP) tokens are fenced from it like every table.
+- **Data:** `public.admin_user_stats()` (SECURITY DEFINER, service role
+  only) joins `auth.users` + `auth.audit_log_entries` + `user_profiles` +
+  `items`. Per account: email, username / display name, joined, last login,
+  explicit login count (`login` audit entries), active days (distinct UTC
+  days with a login *or* a token refresh), last active, item count, items
+  in the last 7 days, last saved, items by type.
+- **Endpoint:** `POST /functions/v1/admin-stats` (JWT + apikey; gateway
+  `verify_jwt` on, then an `admin_users` check). `{ action: 'users' }` →
+  `{ users: [...] }`; `{ action: 'items', user_id }` → `{ user, items }`
+  with the same columns the library grid loads (`ITEM_LIST_COLUMN_NAMES` +
+  `user_id`, parity-tested). 401 / 403 / 400 / 404 as JSON `{ error }`.
+  Every admin read is logged in the function logs (admin id → target id).
+- **Web:** the avatar menu gains "Admin" (Lucide `Gauge`) for admins only.
+  `/admin` = four stat tiles (members, active in the last 7 days, items
+  saved, saved in the last 7 days) and a sortable member table; name and
+  email link to the member page; a "Hide test accounts" checkbox (on by
+  default) hides the `will+…` fixtures; anonymous try-it sessions are never
+  listed, only counted. `/admin/users/:userId` = identity strip with type
+  chips, search and type pills over `ContentGrid` in **public-view mode**: a
+  read-only recreation of the member's grid (no card menu, edit, delete,
+  reminders, comments or privacy controls; link titles open the URL).
+  Non-admins are sent to `/home`.
+- **Privacy posture:** a deliberate, time-boxed exception to "only you see
+  your stash" while every member is a known early tester. Remove with the
+  kill switch above once there is a critical mass of members.
+
+---
+
 ## 2026-09-07 · Hashtag-free link titles (platform) + iOS Ask composer cleanup
 
 Will's notes, same day: LinkedIn titles "often have hashtags in the titles —
