@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  compactAgo,
   describeTypes,
   filterRows,
+  formatRate,
   isTestAccount,
   loginsPerDay,
   memberName,
@@ -40,6 +42,15 @@ describe('loginsPerDay', () => {
   });
 });
 
+describe('formatRate', () => {
+  it('shows more precision the smaller the rate, and a bare 0 for none', () => {
+    expect(formatRate(12.4)).toBe('12');
+    expect(formatRate(1.26)).toBe('1.3');
+    expect(formatRate(0.014)).toBe('0.01');
+    expect(formatRate(0)).toBe('0');
+  });
+});
+
 describe('isTestAccount', () => {
   it('flags plus-addressed will+ fixtures on any domain', () => {
     expect(isTestAccount('will+uitest@dzierson.com')).toBe(true);
@@ -72,6 +83,28 @@ describe('describeTypes', () => {
 
   it('is empty when nothing is saved', () => {
     expect(describeTypes({})).toBe('');
+  });
+
+  it('caps the list and counts the rest', () => {
+    expect(describeTypes({ link: 5, text: 4, image: 3, audio: 2, video: 1 }, 3)).toBe(
+      '5 links, 4 notes, 3 images +2 more'
+    );
+    expect(describeTypes({ link: 5, text: 4, image: 3 }, 3)).toBe('5 links, 4 notes, 3 images');
+  });
+});
+
+describe('compactAgo', () => {
+  it('renders the largest whole unit that fits', () => {
+    expect(compactAgo('2026-09-08T11:59:30Z', now)).toBe('just now');
+    expect(compactAgo('2026-09-08T11:15:00Z', now)).toBe('45m ago');
+    expect(compactAgo('2026-09-08T01:00:00Z', now)).toBe('11h ago');
+    expect(compactAgo('2026-09-01T12:00:00Z', now)).toBe('7d ago');
+    expect(compactAgo('2026-06-08T12:00:00Z', now)).toBe('3mo ago');
+    expect(compactAgo('2025-06-08T12:00:00Z', now)).toBe('1y ago');
+  });
+
+  it('says Never for a missing timestamp', () => {
+    expect(compactAgo(null, now)).toBe('Never');
   });
 });
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import { ArrowDown, ArrowUp, Loader2, Search } from 'lucide-react';
 import HeaderSection from '@/components/HeaderSection';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -8,8 +8,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { fetchAdminUsers } from '@/utils/adminApi';
 import {
+  compactAgo,
   describeTypes,
   filterRows,
+  formatRate,
   isTestAccount,
   loginsPerDay,
   memberName,
@@ -25,12 +27,11 @@ import {
 // Reachable only through the avatar menu for accounts in admin_users; the
 // server refuses everyone else, this page just sends them home.
 
-const relative = (iso: string | null): string =>
-  iso ? formatDistanceToNow(new Date(iso), { addSuffix: true }) : 'Never';
 const absolute = (iso: string | null): string | undefined =>
   iso ? format(new Date(iso), 'PPpp') : undefined;
 
-type Column = { key: SortKey; label: string; numeric?: boolean; defaultDir: SortDir };
+// wide: the Items column carries the per-type breakdown under its count
+type Column = { key: SortKey; label: string; numeric?: boolean; wide?: boolean; defaultDir: SortDir };
 
 const COLUMNS: Column[] = [
   { key: 'name', label: 'Member', defaultDir: 'asc' },
@@ -41,7 +42,7 @@ const COLUMNS: Column[] = [
   { key: 'total_logins', label: 'Logins', numeric: true, defaultDir: 'desc' },
   { key: 'per_day', label: 'Per day', numeric: true, defaultDir: 'desc' },
   { key: 'active_days', label: 'Active days', numeric: true, defaultDir: 'desc' },
-  { key: 'item_count', label: 'Items', numeric: true, defaultDir: 'desc' },
+  { key: 'item_count', label: 'Items', numeric: true, defaultDir: 'desc', wide: true },
   { key: 'last_item_at', label: 'Last saved', defaultDir: 'desc' },
 ];
 
@@ -58,9 +59,9 @@ const Tile = ({ id, label, value, note }: { id: string; label: string; value: nu
   </div>
 );
 
-const When = ({ iso }: { iso: string | null }) => (
+const When = ({ iso, now }: { iso: string | null; now: Date }) => (
   <span title={absolute(iso)} className={iso ? undefined : 'text-[#959ba6]'}>
-    {relative(iso)}
+    {compactAgo(iso, now)}
   </span>
 );
 
@@ -195,7 +196,9 @@ const Admin = () => {
                       <TableHead
                         key={column.key}
                         aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                        className={`h-10 whitespace-nowrap px-3 ${column.numeric ? 'text-right' : ''}`}
+                        className={`h-10 whitespace-nowrap px-3 ${column.numeric ? 'text-right' : ''} ${
+                          column.wide ? 'min-w-[200px]' : ''
+                        }`}
                       >
                         <button
                           type="button"
@@ -226,7 +229,9 @@ const Admin = () => {
                         <Link to={`/admin/users/${row.user_id}`} className="font-medium text-[#6d5bd0] hover:underline">
                           {memberName(row)}
                         </Link>
-                        {row.username && <div className="text-xs text-[#959ba6]">@{row.username}</div>}
+                        {row.username && row.username !== memberName(row) && (
+                          <div className="text-xs text-[#959ba6]">@{row.username}</div>
+                        )}
                       </TableCell>
                       <TableCell className="px-3 py-3 align-top">
                         {row.email ? (
@@ -237,19 +242,21 @@ const Admin = () => {
                           <span className="text-[#959ba6]">No email</span>
                         )}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When iso={row.created_at} /></TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When iso={row.last_sign_in_at} /></TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When iso={row.last_active_at} /></TableCell>
+                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When now={now} iso={row.created_at} /></TableCell>
+                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When now={now} iso={row.last_sign_in_at} /></TableCell>
+                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When now={now} iso={row.last_active_at} /></TableCell>
                       <TableCell className="px-3 py-3 text-right align-top tabular-nums">{row.total_logins.toLocaleString()}</TableCell>
-                      <TableCell className="px-3 py-3 text-right align-top tabular-nums">{loginsPerDay(row, now).toFixed(1)}</TableCell>
+                      <TableCell className="px-3 py-3 text-right align-top tabular-nums">{formatRate(loginsPerDay(row, now))}</TableCell>
                       <TableCell className="px-3 py-3 text-right align-top tabular-nums">{row.active_days.toLocaleString()}</TableCell>
-                      <TableCell className="px-3 py-3 text-right align-top tabular-nums">
+                      <TableCell className="min-w-[200px] px-3 py-3 text-right align-top tabular-nums">
                         {row.item_count.toLocaleString()}
                         {row.item_count > 0 && (
-                          <div className="whitespace-nowrap text-xs font-normal text-[#959ba6]">{describeTypes(row.items_by_type)}</div>
+                          <div className="text-xs font-normal leading-snug text-[#959ba6]">
+                            {describeTypes(row.items_by_type, 4)}
+                          </div>
                         )}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When iso={row.last_item_at} /></TableCell>
+                      <TableCell className="whitespace-nowrap px-3 py-3 align-top"><When now={now} iso={row.last_item_at} /></TableCell>
                     </TableRow>
                   ))
                 )}

@@ -90,6 +90,10 @@ const ContentItemFooter = ({
   const fileUrl = getFileUrl(item);
   const isOwner = currentUserId && item.user_id === currentUserId;
   const showOwnerControls = isPublicView && isOwner;
+  // Read-only views (public feed, admin member view) only get the overflow
+  // menu when it would hold something — an empty menu is a dead control
+  const hasMenu =
+    !isPublicView || Boolean(onCommentClick) || Boolean(fileUrl) || Boolean(item.url) || Boolean(showOwnerControls);
 
   return (
     <div className="flex items-center justify-between mt-auto">
@@ -121,6 +125,7 @@ const ContentItemFooter = ({
         )}
         
         {/* Menu dropdown */}
+        {hasMenu && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -219,6 +224,7 @@ const ContentItemFooter = ({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        )}
       </div>
 
       {!isPublicView && <CardFeedbackDialog item={item} open={reportOpen} onOpenChange={setReportOpen} />}

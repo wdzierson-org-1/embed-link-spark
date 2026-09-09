@@ -45,6 +45,14 @@ export const daysSince = (iso: string, now: Date): number =>
 export const loginsPerDay = (row: AdminUserRow, now: Date): number =>
   row.total_logins / daysSince(row.created_at, now);
 
+/** Logins per day for the table: coarser as it grows, a bare 0 for none. */
+export const formatRate = (rate: number): string => {
+  if (rate === 0) return '0';
+  if (rate >= 10) return rate.toFixed(0);
+  if (rate >= 1) return rate.toFixed(1);
+  return rate.toFixed(2);
+};
+
 /** Will's plus-addressed fixtures (`will+uitest@…`), on whichever domain. */
 export const isTestAccount = (email: string | null): boolean => !!email && /^will\+/i.test(email);
 
@@ -66,13 +74,33 @@ export const typeLabel = (type: string, count: number): string => {
   return count === 1 ? one : many;
 };
 
-/** "12 links, 3 notes, 1 image" — largest first. */
-export const describeTypes = (byType: Record<string, number>): string =>
-  Object.entries(byType)
+/** "12 links, 3 notes, 1 image" — largest first; past `limit` types, "+N more". */
+export const describeTypes = (byType: Record<string, number>, limit = Infinity): string => {
+  const entries = Object.entries(byType)
     .filter(([, n]) => n > 0)
-    .sort((a, b) => b[1] - a[1])
+    .sort((a, b) => b[1] - a[1]);
+  const shown = entries
+    .slice(0, limit)
     .map(([type, n]) => `${n} ${typeLabel(type, n)}`)
     .join(', ');
+  const rest = entries.length - Math.min(entries.length, limit);
+  return rest > 0 ? `${shown} +${rest} more` : shown;
+};
+
+/** Compact relative time for dense tables: "45m ago", "3mo ago", "Never". */
+export const compactAgo = (iso: string | null, now: Date): string => {
+  if (!iso) return 'Never';
+  const seconds = Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+};
 
 export interface MemberSummary {
   members: number;
