@@ -111,8 +111,9 @@ Discover and Preview public feed, only when `useIsAdmin()` resolves true.
   click sorts (default: Last active desc — the people to look at first).
   Member and Email cells are violet links to the user page. Items cell
   carries a small type breakdown (`12 links · 3 notes`) in the faint style.
-- Times are relative (`date-fns` `formatDistanceToNow`) with the absolute
-  timestamp in `title`.
+- Times are compact relative strings (`45m ago`, `3mo ago`, `Never`) with the
+  absolute timestamp in `title`; the per-day rate shows two decimals under 1,
+  one under 10, none above.
 
 **`/admin/users/:userId` — a member's library.**
 - Back link "Members", then an identity strip: initial avatar, display name
