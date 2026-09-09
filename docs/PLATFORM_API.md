@@ -73,14 +73,35 @@ Upload to Storage first (`stash-media/<userId>/<name>.<ext>`), then:
 
 Returns `{ success, item }` fast. Type derives from MIME (image/audio/video,
 else document). Enrichment continues server-side after the response: vision
-description + OCR for images, Whisper transcript into `page_body` for
-audio/video, embeddings for all. Documents branch by exact MIME: `application/
+description + OCR for images; for audio/video the `transcribe-audio` job
+below (transcript into `page_body`, blurb, summary, AI title, media kind);
+embeddings for all. Documents branch by exact MIME: `application/
 pdf` gets quick summary + full text extraction into `page_body`; Office Open
 XML (`.pptx`/`.docx`/`.xlsx`) gets text extraction via the same page_body/
 summary/description contract; anything else settles immediately with an AI
 description (`summary` mirrors `description` — no `page_body`). Realtime
 delivers the upgrades. `file_path` must sit inside the caller's own folder
 (403 otherwise).
+
+### `POST /transcribe-audio` — transcription job for audio/video items
+
+```json
+{ "itemId": "<uuid>" }
+```
+
+Returns `202 { accepted: true, itemId }` at once (owner JWT or service role;
+`add-file` starts it for you, so most clients never call it). The job splits
+files over 24 MiB without re-encoding (m4a / mp4 / mov; other containers over
+the cap fail with `unsupported_container`), transcribes ≤ 20-minute chunks
+with OpenAI, and writes `page_body` progressively, then `description`,
+`summary`, an AI title when the title is still filename-shaped,
+`attributes.media.kind`, embeddings, and `attributes.media.transcript`
+(`status: pending | processing | done | failed`, `chunks_done` /
+`chunks_total`, `attempts`, `error`). A pg_cron sweep (`{ "sweep": true }`
+with `x-cron-secret`, every 10 minutes) resumes stalled jobs and retries
+failures up to 3 attempts. Preview mode `{ "audioUrl", "fileName" }` (a
+`stash-media` URL, ≤ 24 MiB) still returns `{ transcription, description }`
+synchronously; larger files return `{ deferred: true }`.
 
 ## Ask
 
@@ -277,5 +298,6 @@ supabase.channel(`items-${userId}`)
 - Menubar widget / extension: `add-url` + `add-note` are sufficient for v1
   capture; JWT can be obtained via a one-time device sign-in with supabase-js.
 - Voice: the web app uses the Web Speech API client-side and sends the final
-  transcript through the normal chat routing; `/transcribe-audio`
-  (Whisper) exists for platforms without native speech recognition.
+  transcript through the normal chat routing; `/transcribe-audio` preview
+  mode (OpenAI, ≤ 24 MiB) exists for platforms without native speech
+  recognition.

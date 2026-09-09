@@ -79,3 +79,9 @@ verify_jwt = false
 # requires an admin_users row (docs/superpowers/specs/2026-09-08-admin-dashboard-design.md).
 [functions.admin-stats]
 verify_jwt = true
+
+# Transcription job (spec 2026-09-09). Auth is in-function: x-cron-secret
+# (sweep + continuation), the service role (add-file), or the item owner's JWT —
+# pg_cron sends no JWT, so the gateway check must stay off.
+[functions.transcribe-audio]
+verify_jwt = false

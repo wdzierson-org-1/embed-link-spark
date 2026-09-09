@@ -6,11 +6,19 @@ import EditItemContentEditor from '@/components/EditItemContentEditor';
 import { SectionHead } from '@/components/edit/EditPanelSection';
 import { useItemSourceContent } from '@/hooks/useItemSourceContent';
 import { getContentTabsConfig, needsSourceContent, type ContentTabKey } from '@/utils/editPanelTabs';
+import {
+  isTranscribing,
+  transcribingLabel,
+  transcriptFailureCopy,
+  transcriptRefreshKey,
+} from '@/utils/transcriptStatus';
+import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
   id: string;
   type?: string;
   title?: string;
+  attributes?: ItemAttributes;
 }
 
 interface EditItemContentSectionProps {
@@ -71,6 +79,9 @@ const EditItemContentSection = ({
     setActiveTab(getContentTabsConfig(item?.type).defaultTab);
   }, [item?.id, item?.type]);
 
+  // Audio/video: the transcript job reports progress in attributes; each
+  // landed chunk changes the key and re-pulls page_body so the tab fills in
+  const transcript = item?.attributes?.media?.transcript;
   const {
     summary,
     pageBody,
@@ -78,7 +89,7 @@ const EditItemContentSection = ({
     isGenerating,
     generateError,
     generateSummary,
-  } = useItemSourceContent(item?.id, needsSourceContent(item?.type));
+  } = useItemSourceContent(item?.id, needsSourceContent(item?.type), transcriptRefreshKey(transcript));
 
   const isDocument = item?.type === 'document' || item?.type === 'pdf';
 
@@ -163,7 +174,22 @@ const EditItemContentSection = ({
   const transcriptView = isSourceLoading ? (
     <LoadingState />
   ) : pageBody ? (
-    <ReadOnlyText text={pageBody} />
+    <>
+      {transcript && isTranscribing(transcript) && (
+        <div className="mb-3 flex items-center text-xs text-[#959ba6]">
+          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+          {transcribingLabel(transcript)}
+        </div>
+      )}
+      <ReadOnlyText text={pageBody} />
+    </>
+  ) : transcript && isTranscribing(transcript) ? (
+    <TabEmptyState>
+      <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+      {transcribingLabel(transcript)}
+    </TabEmptyState>
+  ) : transcript?.status === 'failed' ? (
+    <TabEmptyState>{transcriptFailureCopy(transcript)}</TabEmptyState>
   ) : (
     <TabEmptyState>No transcript available for this recording.</TabEmptyState>
   );
