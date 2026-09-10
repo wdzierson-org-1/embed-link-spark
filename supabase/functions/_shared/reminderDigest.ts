@@ -28,6 +28,8 @@ const TYPE_LABEL: Record<string, string> = {
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+const isoDay = (iso: string) => new Date(iso).toISOString().slice(0, 10);
+
 const monthDay = (iso: string) =>
   new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
@@ -46,12 +48,12 @@ export function renderReminderDigest({ items, unsubscribeUrl, now = new Date() }
   const n = items.length;
   const subject = `${n} ${n === 1 ? 'item' : 'items'} you asked to see again`;
   const intro = 'You asked Stash to remind you about these.';
-  const today = monthDay(now.toISOString());
+  const todayIso = isoDay(now.toISOString());
 
   const rows = items.map((item) => {
     const title = digestItemTitle(item);
     const link = ITEM_LINK_BASE + item.id;
-    const when = monthDay(item.remind_at) === today ? 'reminder for today' : `reminder for ${monthDay(item.remind_at)}`;
+    const when = isoDay(item.remind_at) === todayIso ? 'reminder for today' : `reminder for ${monthDay(item.remind_at)}`;
     const meta = `Saved ${monthDay(item.created_at)} · ${when}`;
     return { title, link, meta, type: TYPE_LABEL[item.type] ?? 'Saved item' };
   });

@@ -35,4 +35,13 @@ describe('renderReminderDigest', () => {
     expect(text).toContain('Turn off reminder emails: https://u?token=t');
     expect(html).toContain('Saved Sep 3 · reminder for today');
   });
+  it('labels a non-today reminder with its date', () => {
+    const { html } = renderReminderDigest({ items: [{ ...base, id: 'a', title: 'A', remind_at: '2026-09-04T15:00:00Z' }], unsubscribeUrl: 'https://u', now });
+    expect(html).toContain('Saved Sep 3 · reminder for Sep 4');
+  });
+  it('does not call a same-month-day reminder from another year "today"', () => {
+    const { html } = renderReminderDigest({ items: [{ ...base, id: 'a', title: 'A', remind_at: '2025-09-06T15:00:00Z' }], unsubscribeUrl: 'https://u', now });
+    expect(html).toContain('reminder for Sep 6');
+    expect(html).not.toContain('reminder for today');
+  });
 });
