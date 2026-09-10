@@ -22,5 +22,7 @@ describe('email link token', () => {
     expect(await verifyEmailLinkToken(token, secret, new Date('2026-11-01T00:00:00Z'))).toBeNull();
     expect(await verifyEmailLinkToken('nope', secret, now)).toBeNull();
     expect(await verifyEmailLinkToken('', secret, now)).toBeNull();
+    expect(await verifyEmailLinkToken(null as unknown as string, secret, now)).toBeNull();
+    expect(await verifyEmailLinkToken(undefined as unknown as string, secret, now)).toBeNull();
   });
 });

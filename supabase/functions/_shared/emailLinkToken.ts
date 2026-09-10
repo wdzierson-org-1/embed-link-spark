@@ -28,6 +28,7 @@ export async function signEmailLinkToken(userId: string, secret: string, expires
 }
 
 export async function verifyEmailLinkToken(token: string, secret: string, now: Date = new Date()): Promise<string | null> {
+  if (typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
   const [payload, sig] = parts;
