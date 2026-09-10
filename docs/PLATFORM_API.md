@@ -276,10 +276,14 @@ normal chronological list; a server search's relevance order wins while
 active.
 
 Daily job: `reminder-digest` (pg_cron 13:00 UTC → pg_net → edge function,
-`x-cron-secret` header). Step 1 (expire stale reminders) is live. Step 2 —
-one email per user per day listing their due, un-notified reminders (never
-one per reminder), then stamping `reminder_notified_at` — is specified but
-not yet built: it ships with plan 3 and is currently skipped.
+`x-cron-secret`). Step 1 expires stale reminders (`reminders_expire()`).
+Step 2 selects due, uncleared, un-notified rows for users with
+`user_preferences.reminder_emails` not false, sends **one** email per user
+via Resend (`Stash <reminders@mail.gostash.it>`), then stamps
+`reminder_notified_at`. Each item links to `/home#item=<id>`. The footer's
+"Turn off reminder emails" is `GET /reminder-email-prefs?token=<signed,
+30-day>` — no session needed. Clients that want their own toggle write
+`user_preferences.reminder_emails` directly (owner RLS).
 
 ## Live updates
 
