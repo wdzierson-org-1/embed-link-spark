@@ -3,13 +3,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useProfile } from '@/hooks/useProfile';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import DeleteAccountSection from './DeleteAccountSection';
 
 const AccountSettings = () => {
   const { profile, email, loading, saving, updateProfile, updateEmail } = useProfile();
+  const { reminderEmails, updateReminderEmails, loading: prefsLoading } = useUserPreferences();
   const { toast } = useToast();
   
   const [formData, setFormData] = useState({
@@ -180,6 +183,16 @@ const AccountSettings = () => {
             Save Changes
           </Button>
         </div>
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>Reminder emails</CardTitle>
+        <CardDescription>One email a day listing the items whose reminder came due. Nothing is sent on days with no reminders.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex items-center justify-between">
+        <Label htmlFor="reminder-emails">Email me when reminders are due</Label>
+        <Switch id="reminder-emails" checked={reminderEmails} onCheckedChange={updateReminderEmails} disabled={prefsLoading} />
       </CardContent>
     </Card>
     <DeleteAccountSection />
