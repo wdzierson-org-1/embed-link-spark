@@ -21,12 +21,9 @@
 - Render (`renderReminderDigest`) is a pure function, separate from delivery (spec A6).
 - Test commands: `npm test`, `npx tsc --noEmit -p tsconfig.app.json`.
 
-## Prerequisites Will owns (do these before Task 4)
+## Prerequisites — DONE 2026-09-10
 
-1. **Accept the Resend Marketplace terms** in the browser: `https://vercel.com/wdzierson-s-team/~/integrations/accept-terms/resend?source=cli`. The repo is already linked to `wdzierson-s-team/embed-link-spark` and the CLI is at 59.11.7. After acceptance the executor runs Task 4 Step 1 to finish provisioning.
-2. **Verify the sending subdomain at GoDaddy.** Automated mail sends from `mail.gostash.it` (Will's decision 2026-09-07: keeps its reputation separate from personal Google mail on the root). gostash.it's nameservers are `ns81/ns82.domaincontrol.com` (GoDaddy), so the records go there. In the Resend dashboard (`vercel integration open resend`), Domains → Add `mail.gostash.it` (region us-east-1) → copy the records it shows: DKIM `TXT` at `resend._domainkey.mail`, plus `MX` (`feedback-smtp.us-east-1.amazonses.com`, priority 10) and `TXT` (`v=spf1 include:amazonses.com ~all`) at `send.mail`. They do not touch the root SPF, Google MX, or the existing root `_dmarc` (relaxed alignment covers the subdomain). Wait for Resend to show "Verified".
-
-Until both are done, Tasks 1–3 and 5 can ship; Task 4 sends nothing (the function keeps skipping while `RESEND_API_KEY` is unset).
+Resend is set up directly on Will's Resend team (the Vercel Marketplace path was abandoned; there is no Resend resource on the Vercel project). `mail.gostash.it` is verified (domain id `6a72ae8d-1e45-4a72-ba0a-d59eb6de4525`, us-east-1); a test send and a real Supabase Auth recovery email both delivered. `RESEND_API_KEY` is already a Supabase edge-function secret and lives locally in the gitignored `.env.local`. Supabase Auth SMTP already points at Resend (`smtp.resend.com:465`, sender `Stash <no-reply@mail.gostash.it>`). Task 4 Step 1 (Marketplace provisioning + key hand-off) is therefore a no-op: skip it and go straight to the digest code.
 
 ---
 

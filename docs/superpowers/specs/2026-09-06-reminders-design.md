@@ -274,9 +274,7 @@ rest of the bar.
 
 ## Prerequisites Will owns
 
-- **Email provider:** a Resend account, `mail.gostash.it` sender subdomain verified
-  (DNS records), `RESEND_API_KEY` set as an edge-function secret. Until then
-  deliverable 4 cannot send; everything else ships.
+- **Email provider:** DONE 2026-09-10 — Resend, `mail.gostash.it` verified, `RESEND_API_KEY` set as an edge secret, Supabase Auth SMTP on Resend.
 - **Vault secret** `cron_secret` and edge secrets `CRON_SECRET`,
   `EMAIL_LINK_SECRET` (one-time; runbook in the plan).
 - `pg_cron` 1.6, `pg_net` 0.14 and `supabase_vault` are already enabled on
