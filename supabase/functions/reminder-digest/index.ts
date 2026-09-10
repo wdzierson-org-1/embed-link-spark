@@ -47,10 +47,11 @@ async function runDigest(
   for (const row of (rows ?? []) as Row[]) byUser.set(row.user_id, [...(byUser.get(row.user_id) ?? []), row]);
   if (byUser.size === 0) return { status: opts.dryRun ? 'dry_run' : 'sent', users: 0, items: 0, failures: 0 };
 
-  const { data: prefs } = await supabase
+  const { data: prefs, error: prefsError } = await supabase
     .from('user_preferences')
     .select('user_id, reminder_emails')
     .in('user_id', [...byUser.keys()]);
+  if (prefsError) throw prefsError;
   const optedOut = new Set((prefs ?? []).filter((p: { reminder_emails: boolean }) => p.reminder_emails === false).map((p: { user_id: string }) => p.user_id));
 
   let users = 0, items = 0, failures = 0;
@@ -58,35 +59,41 @@ async function runDigest(
 
   for (const [userId, userRows] of byUser) {
     if (optedOut.has(userId)) continue;
-    const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
-    const to = userData?.user?.email;
-    if (userError || !to) { console.warn('reminder-digest: no email for user', { userId }); continue; }
+    try {
+      const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
+      const to = userData?.user?.email;
+      if (userError || !to) { console.warn('reminder-digest: no email for user', { userId }); continue; }
 
-    const token = await signEmailLinkToken(userId, linkSecret, new Date(opts.now.getTime() + UNSUB_TTL_MS));
-    const rendered = renderReminderDigest({ items: userRows, unsubscribeUrl: `${PREFS_URL}?token=${token}`, now: opts.now });
+      const token = await signEmailLinkToken(userId, linkSecret, new Date(opts.now.getTime() + UNSUB_TTL_MS));
+      const rendered = renderReminderDigest({ items: userRows, unsubscribeUrl: `${PREFS_URL}?token=${token}`, now: opts.now });
 
-    if (opts.dryRun) {
-      previews.push({ user_id: userId, to, subject: rendered.subject, text: rendered.text });
+      if (opts.dryRun) {
+        previews.push({ user_id: userId, to, subject: rendered.subject, text: rendered.text });
+        users += 1; items += userRows.length;
+        continue;
+      }
+
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: FROM, to: [to], subject: rendered.subject, html: rendered.html, text: rendered.text }),
+      });
+      if (!res.ok) {
+        failures += 1;
+        console.error('reminder-digest: send failed', { userId, status: res.status, body: (await res.text()).slice(0, 300) });
+        continue;   // rows stay un-notified; next run retries while still in window
+      }
+      const { error: markError } = await supabase
+        .from('items')
+        .update({ reminder_notified_at: nowIso })
+        .in('id', userRows.map((r) => r.id));
+      if (markError) console.error('reminder-digest: sent but failed to stamp', { userId, error: markError.message });
       users += 1; items += userRows.length;
+    } catch (err) {
+      failures += 1;
+      console.error('reminder-digest: user failed', { userId, error: err instanceof Error ? err.message : String(err) });
       continue;
     }
-
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: FROM, to: [to], subject: rendered.subject, html: rendered.html, text: rendered.text }),
-    });
-    if (!res.ok) {
-      failures += 1;
-      console.error('reminder-digest: send failed', { userId, status: res.status, body: (await res.text()).slice(0, 300) });
-      continue;   // rows stay un-notified; next run retries while still in window
-    }
-    const { error: markError } = await supabase
-      .from('items')
-      .update({ reminder_notified_at: nowIso })
-      .in('id', userRows.map((r) => r.id));
-    if (markError) console.error('reminder-digest: sent but failed to stamp', { userId, error: markError.message });
-    users += 1; items += userRows.length;
   }
 
   return { status: opts.dryRun ? 'dry_run' : 'sent', users, items, failures, ...(opts.dryRun ? { previews } : {}) };
