@@ -252,8 +252,9 @@ Spec `docs/superpowers/specs/2026-09-06-reminders-design.md`; plans
 - **Backend + email (shipped):** `reminder-digest` runs 13:00 UTC; one email
   per user per day listing due reminders (title → content excerpt → host →
   type fallback; "Saved Sep 3 · reminder for today"; deep link per item);
-  signed one-click opt-out + Settings → Account "Email me when reminders are
-  due" switch (`user_preferences.reminder_emails`). Sent through Resend from
+  signed opt-out link (confirmation page → POST; RFC 8058 one-click headers)
+  + Settings → Account "Email me when reminders are due" switch
+  (`user_preferences.reminder_emails`). Sent through Resend from
   `reminders@mail.gostash.it`. Per-user timezone is a later refinement.
 - **iOS (plan 2):** share-sheet chips `1 day · 3 days · 5 days` above Save;
   View tab badge = due count; due block at the top of the grid; same footer

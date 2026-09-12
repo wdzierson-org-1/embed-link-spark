@@ -281,9 +281,11 @@ Step 2 selects due, uncleared, un-notified rows for users with
 `user_preferences.reminder_emails` not false, sends **one** email per user
 via Resend (`Stash <reminders@mail.gostash.it>`), then stamps
 `reminder_notified_at`. Each item links to `/home#item=<id>`. The footer's
-"Turn off reminder emails" is `GET /reminder-email-prefs?token=<signed,
-30-day>` — no session needed. Clients that want their own toggle write
-`user_preferences.reminder_emails` directly (owner RLS).
+"Turn off reminder emails" link is `/reminder-email-prefs?token=<signed,
+30-day>` — no session needed; `GET` shows a confirmation page and `POST`
+(same URL; also RFC 8058 one-click) applies the opt-out. Clients that want
+their own toggle write `user_preferences.reminder_emails` directly (owner
+RLS).
 
 ## Live updates
 
