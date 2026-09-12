@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { renderReminderDigest, type DigestItem } from '../_shared/reminderDigest.ts';
 import { signEmailLinkToken } from '../_shared/emailLinkToken.ts';
+import { DUE_WINDOW_MS } from '../_shared/reminders.ts';
 
 // Daily job (pg_cron 13:00 UTC → pg_net → here). Two steps:
 //  1. hygiene: materialise reminder_cleared_at for reminders past their 24h window
@@ -12,12 +13,33 @@ import { signEmailLinkToken } from '../_shared/emailLinkToken.ts';
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const DUE_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UNSUB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const FROM = 'Stash <reminders@mail.gostash.it>';
 const PREFS_URL = `${Deno.env.get('SUPABASE_URL')}/functions/v1/reminder-email-prefs`;
 
 type Row = DigestItem & { user_id: string };
+
+// Attempts the Resend send once; on a thrown error or a 429/5xx response,
+// waits 2s and attempts exactly once more (transient rate-limit/outage), then
+// returns whatever the final attempt produced (or rethrows its error).
+async function sendWithRetry(resendKey: string, body: Record<string, unknown>): Promise<Response> {
+  const attempt = () =>
+    fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+  try {
+    const res = await attempt();
+    if (res.ok || (res.status !== 429 && res.status < 500)) return res;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return await attempt();
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return await attempt();
+  }
+}
 
 async function runDigest(
   // deno-lint-ignore no-explicit-any
@@ -65,7 +87,8 @@ async function runDigest(
       if (userError || !to) { console.warn('reminder-digest: no email for user', { userId }); continue; }
 
       const token = await signEmailLinkToken(userId, linkSecret, new Date(opts.now.getTime() + UNSUB_TTL_MS));
-      const rendered = renderReminderDigest({ items: userRows, unsubscribeUrl: `${PREFS_URL}?token=${token}`, now: opts.now });
+      const unsubscribeUrl = `${PREFS_URL}?token=${token}`;
+      const rendered = renderReminderDigest({ items: userRows, unsubscribeUrl, now: opts.now });
 
       if (opts.dryRun) {
         previews.push({ user_id: userId, to, subject: rendered.subject, text: rendered.text });
@@ -73,16 +96,17 @@ async function runDigest(
         continue;
       }
 
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: FROM, to: [to], subject: rendered.subject, html: rendered.html, text: rendered.text }),
-        signal: AbortSignal.timeout(10_000),
+      const res = await sendWithRetry(resendKey!, {
+        from: FROM,
+        to: [to],
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
       });
       if (!res.ok) {
         failures += 1;
         console.error('reminder-digest: send failed', { userId, status: res.status, body: (await res.text()).slice(0, 300) });
-        continue;   // rows stay un-notified; next run retries while still in window
+        continue;   // rows stay un-notified; under the daily cadence only a same-day manual re-run (?user_id=) retries them
       }
       const { error: markError } = await supabase
         .from('items')
@@ -97,7 +121,11 @@ async function runDigest(
     }
   }
 
-  return { status: opts.dryRun ? 'dry_run' : 'sent', users, items, failures, ...(opts.dryRun ? { previews } : {}) };
+  // Response shape: { status: 'dry_run' | 'sent' | 'partial', users, items, failures, previews? }.
+  // 'partial' (still HTTP 200) means >=1 user's send failed; those users' rows
+  // stay un-notified and are picked up by the next scheduled or manual run.
+  const status = opts.dryRun ? 'dry_run' : failures > 0 ? 'partial' : 'sent';
+  return { status, users, items, failures, ...(opts.dryRun ? { previews } : {}) };
 }
 
 serve(async (req) => {
@@ -115,7 +143,7 @@ serve(async (req) => {
 
   let expired = 0;
   if (dryRun) {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const cutoff = new Date(Date.now() - DUE_WINDOW_MS).toISOString();
     const { count, error } = await supabase
       .from('items')
       .select('id', { count: 'exact', head: true })
