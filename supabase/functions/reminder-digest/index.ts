@@ -102,6 +102,10 @@ async function runDigest(
         subject: rendered.subject,
         html: rendered.html,
         text: rendered.text,
+        headers: {
+          'List-Unsubscribe': `<${unsubscribeUrl}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
       });
       if (!res.ok) {
         failures += 1;
