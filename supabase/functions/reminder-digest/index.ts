@@ -77,6 +77,7 @@ async function runDigest(
         method: 'POST',
         headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ from: FROM, to: [to], subject: rendered.subject, html: rendered.html, text: rendered.text }),
+        signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) {
         failures += 1;
