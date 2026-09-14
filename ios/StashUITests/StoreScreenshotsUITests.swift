@@ -398,6 +398,11 @@ final class StoreScreenshotsUITests: XCTestCase {
         // --- 01: View library (cards with images) ---
         XCTAssertTrue(anyElement("library.grid").waitForExistence(timeout: 15), "Library grid did not appear")
         sleep(3)   // let card images finish loading in from cache/network
+        // No scroll: with the raw-UUID-filename voice note deleted via REST (task-4b retake), the
+        // newest-first grid already leads with the seeded photo card, and the frame's own height
+        // shows the start of the first enriched link card (real og-image) right below it.
+        // Confirmed live that BOTH a full `.swipeUp()` and a shorter partial drag scrolled the
+        // photo card off the top of the frame entirely — the opposite of what's needed here.
         checkpoint("01-view-library")
 
         // --- 02: Detail sheet of a link ---
@@ -430,11 +435,16 @@ final class StoreScreenshotsUITests: XCTestCase {
         let draftLine = "Remember to check the gallery opening this weekend"
         editor.tap()
         editor.typeText(draftLine)
-        sleep(2)
-        checkpoint("03-add-composer")
+        sleep(1)
+        // Dismisses the keyboard BEFORE the checkpoint (task-4b reshoot) via the composer's own
+        // "Cancel" header control — "dismiss keyboard only, draft preserved" per its own doc
+        // comment — so the frame shows the typed line AND the bottom action-button bar (photo/
+        // camera/file/mic + send), not half a screen of software keyboard.
         if app.buttons["capture.dismissKeyboard"].waitForExistence(timeout: 5) {
             app.buttons["capture.dismissKeyboard"].tap()
         }
+        sleep(1)
+        checkpoint("03-add-composer")
         editor.tap()
         editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draftLine.count))
         if app.buttons["capture.dismissKeyboard"].waitForExistence(timeout: 3) {
@@ -504,21 +514,43 @@ final class StoreScreenshotsUITests: XCTestCase {
         XCTAssertFalse(assistantBubble.label.trimmingCharacters(in: .whitespaces).isEmpty,
                        "Expected a non-empty assistant answer")
         sleep(2)
-        checkpoint("04-ask-answer")
-
-        // Fresh relaunch rather than switching tabs directly out of Ask: confirmed live (task-4b)
-        // that the Ask composer's `TextField` (`ChatComposerBar.swift`) has no focus-management or
-        // `.onSubmit` of its own to resign via — unlike the Add tab's search field, which exposes
-        // `library.search.clear` for exactly this. A software-keyboard `swipeDown()` gesture was
-        // tried as a generic dismiss and rejected: it landed near enough to the keyboard's own
-        // dictation control to pop a system "Enable Dictation?" prompt and background the app
-        // entirely (see task-4b-report.md). Relaunching sidesteps the still-focused keyboard
-        // altogether and reuses `signInAsReviewAndReachLibrary`'s already-proven cold-launch path
-        // (a bare relaunch never re-shows the onboarding panel once it's been marked seen this
-        // run) — no less realistic a screenshot precondition than a warm tab switch.
+        // Relaunches BEFORE the checkpoint (task-4b reshoot) so the frame shows the answer with
+        // its citation, not half a screen of software keyboard. `ChatComposerBar`'s `TextField`
+        // has no focus-management of its own to resign via (unlike the Add tab's search field),
+        // and four in-process approaches were tried and rejected first: (1)
+        // `app.keyboards.element.swipeDown()` once popped a one-time system "Enable Dictation?"
+        // sheet and backgrounded the app; (2) a manual press-then-drag across letter keys was
+        // mistaken for swipe-to-type and left garbage text in the input field; (3) a tab hop and
+        // (4) an `ask.history`-push/nav-bar-pop round trip both failed live for the same root
+        // cause — `askInput`'s `@FocusState` is bound at the `AskView` struct's own level, which
+        // NavigationStack/TabView keep alive rather than recreating, so the field silently regains
+        // focus the instant the view is back on screen; (5) tapping a different, unrelated control
+        // (the bubble's own "speak" icon) also didn't resign it — this app's `@FocusState` simply
+        // isn't tied to UIKit's ordinary responder-resignation behavior the way a plain
+        // `UITextField` would be. Only tearing down the process actually drops it.
+        //
+        // Relaunching is safe for THIS frame specifically — unlike the step-04→05 relaunch below,
+        // which deliberately avoids reopening Ask at all — because `ChatHistoryAPI.loadHistory`'s
+        // own doc comment confirms it reconstructs a bare-id `ChatSource` stand-in for every
+        // historical citation on reload (fallback title "Item N" per `ChatBubble.displayTitle`),
+        // and the inline "[1]" is already baked into the persisted `content` string at streaming
+        // time — so the restored bubble is NOT sourceless, contradicting an older assumption
+        // elsewhere in this codebase (confirmed by reading `loadHistory`'s current implementation
+        // directly, task-4b).
         app.terminate()
         XCTAssertTrue(signInAsReviewAndReachLibrary(app, email: email, password: password),
-                      "Expected to reach the review account's library after relaunching for step 05")
+                      "Expected to reach the review account's library after relaunching for step 04's screenshot")
+        tapTab("Ask")
+        XCTAssertTrue(askInput.waitForExistence(timeout: 10), "Ask input field did not appear after relaunch")
+        XCTAssertFalse(app.keyboards.element.exists, "Expected no keyboard on a fresh Ask tab load")
+        let restoredAnswer = anyElement("ask.bubble.1")
+        XCTAssertTrue(restoredAnswer.waitForExistence(timeout: 15), "Expected the restored assistant answer to render")
+        sleep(1)
+        checkpoint("04-ask-answer")
+
+        // No second relaunch needed here: the relaunch above (for step 04's own keyboard-free
+        // screenshot) already leaves the app keyboard-free and idle on the Ask tab, so this can
+        // switch tabs directly.
 
         // --- 05: Share sheet, Safari → Stash compose card ---
         tapTab("Settings")
@@ -533,11 +565,14 @@ final class StoreScreenshotsUITests: XCTestCase {
         addressBar.tap()
         let urlField = safari.textFields["URL"]
         XCTAssertTrue(urlField.waitForExistence(timeout: 5), "Safari URL edit field not found after tapping the address bar")
-        // example.com, not apple.com: matches `StashUITests.testShareExtensionURLSmoke`'s own
-        // proven choice — confirmed live (task-4b) that apple.com's much heavier page load can
-        // leave Safari's toolbar in a state where "ShareButton" never appears within a normal
-        // wait window, where example.com's near-instant load never has that problem.
-        urlField.typeText("example.com\n")
+        // www.nasa.gov, not example.com: task-4b retake — a recognizable real page reads far
+        // better in the compose-card screenshot than "example.com", and it loads fast enough
+        // (unlike apple.com, whose much heavier page can leave Safari's toolbar without a
+        // "ShareButton" within a normal wait window) not to reintroduce that flake. The
+        // nasa.gov link already exists in the review account (seeded by
+        // `testSeedReviewAccountContent`), so this flow captures the compose state and cancels —
+        // it must never tap Save, which would create a duplicate.
+        urlField.typeText("www.nasa.gov\n")
         // On the iPhone 17 Pro Max's wider toolbar (confirmed live via a throwaway diagnostic
         // dump, task-4b), Safari collapses the dedicated Share icon into a "MoreMenuButton" ("•••")
         // — a direct "ShareButton" never appears on the bottom bar itself here, only inside that
@@ -597,4 +632,5 @@ final class StoreScreenshotsUITests: XCTestCase {
         let skipButton = app.buttons["onboarding.skip"]
         if skipButton.waitForExistence(timeout: 5) { skipButton.tap() }
     }
+
 }

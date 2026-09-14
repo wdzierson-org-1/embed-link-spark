@@ -26,11 +26,12 @@ purposes selected for any type).
 | Audio Data | Yes | Yes | No | App Functionality |
 | Other User Content | Yes | Yes | No | App Functionality |
 | Coarse Location | Yes | Yes | No | App Functionality |
+| Search History | Yes | Yes | No | App Functionality |
 
-Everything else on Apple's full list (Precise Location, Contacts, Search
-History, Browsing History, Health & Fitness, Financial Info, Purchases,
-Identifiers/Device ID beyond the account User ID, Usage Data, Diagnostics,
-Advertising Data, etc.) — **not collected**.
+Everything else on Apple's full list (Precise Location, Contacts, Browsing
+History, Health & Fitness, Financial Info, Purchases, Identifiers/Device ID
+beyond the account User ID, Usage Data, Diagnostics, Advertising Data,
+etc.) — **not collected**.
 
 ## Why each type is declared this way
 
@@ -61,14 +62,21 @@ Advertising Data, etc.) — **not collected**.
   "Precise Location" threshold. If a future change starts requesting a finer
   accuracy, re-run this check and switch the manifests + this doc to
   Precise Location before shipping.
+- **Search History** — the questions typed into the Ask tab and their
+  answers persist server-side (Ask conversation history, visible via the
+  history icon in the Ask header — `AskView.swift`'s
+  `bubble.left.and.text.bubble.right` button) so a user can revisit past
+  threads. This is in-app search/ask history, not web browsing history —
+  declared as **App Functionality** only (not used to build an advertising
+  profile, not shared with third parties, not used for tracking).
 
 ## Not collected — explicitly ruled out
 
 - **Precise Location** — see above; the app only ever requests
   hundred-meter accuracy.
-- **Contacts, Browsing/Search History, Health & Fitness, Financial Info,
+- **Contacts, Browsing History, Health & Fitness, Financial Info,
   Purchases** — no code paths read or transmit any of these; there is no
-  in-app purchase (subscriptions are managed entirely on gostash.it).
+  in-app purchase (the subscription is provisioned entirely outside the app).
 - **Usage Data / Diagnostics / Advertising Data / any Identifiers used for
   tracking** — no analytics or advertising SDKs are integrated; `Privacy.tsx`
   states "We do not sell your data. We do not show you ads."
