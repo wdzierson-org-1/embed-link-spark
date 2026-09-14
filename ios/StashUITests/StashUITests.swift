@@ -1768,6 +1768,12 @@ final class StashUITests: XCTestCase {
 
         app.tabBars.buttons["Settings"].tap()
 
+        // Plan 14 T3 added a whole new "Delete account" section above the footer, pushing the
+        // DEBUG-only font-status label below the fold; SwiftUI `List` rows off-screen aren't in
+        // the accessibility tree yet, so scroll the list before looking for it (same technique
+        // `testLibrarySearchBarFadesAndKeyboardDismisses` already uses on the grid).
+        app.swipeUp()
+
         let fontStatus = app.descendants(matching: .any)["design.fontStatus"]
         XCTAssertTrue(fontStatus.waitForExistence(timeout: 10), "design.fontStatus label not found in Settings footer")
         XCTAssertEqual(fontStatus.label, "font:neue-montreal editorial:loaded",

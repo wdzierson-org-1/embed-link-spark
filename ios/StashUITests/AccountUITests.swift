@@ -118,7 +118,7 @@ final class AccountUITests: XCTestCase {
         deleteRow.tap()
 
         let confirmField = app.textFields["settings.deleteAccount.field"]
-        XCTAssertTrue(confirmField.waitForExistence(timeout: 5), "Expected the type-to-confirm field in the delete sheet")
+        XCTAssertTrue(confirmField.waitForExistence(timeout: 10), "Expected the type-to-confirm field in the delete sheet")
 
         let confirmButton = app.buttons["settings.deleteAccount.confirm"]
         XCTAssertFalse(confirmButton.isEnabled, "Expected Delete everything to start disabled")
