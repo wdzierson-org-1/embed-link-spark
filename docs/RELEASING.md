@@ -168,54 +168,70 @@ and re-add the tester to the group).
 
 ## App Store submission (1.0)
 
-Plan 14 Task 4 prepared everything an agent can prepare unattended. This
-section is the map of what's scripted via `asc-api.sh`, what's manual in the
-App Store Connect UI, and the pre-submit checklist. It assumes the version
-record already exists — App Store Connect version resource ids in use for
-1.0: version `c5b26d42-dcd6-466f-abd4-d91d37cf6d59`, appInfo
+Plan 14 Task 4 (T4a privacy/metadata drafting + T4b versioning/screenshots/
+metadata push) prepared everything an agent can prepare unattended. This
+section is the map of what's scripted via `asc-api.sh` **and already run**,
+what's still manual in the App Store Connect UI, and the pre-submit
+checklist. App Store Connect resource ids in use for 1.0: version
+`c5b26d42-dcd6-466f-abd4-d91d37cf6d59`, appInfo
 `be42aba1-dc93-4a7a-963e-45b14437c2f4`, en-US localization
-`4aeaf6b9-40c6-43c3-a89b-4f17162094cb` (app id `6806459949`, from the
-"Key facts" above). Exact copy for every field below lives in
-`docs/app-store/2026-09-13-listing.md`.
+`4aeaf6b9-40c6-43c3-a89b-4f17162094cb`, en-US appInfo localization
+`6efedb1c-2a3e-4571-8f0a-1a52cdb56f9d`, appStoreReviewDetail
+`84cae442-05a9-4621-8f23-d87923061db5`, 6.9" appScreenshotSet
+`3e44a2e8-ca07-4b9d-bf93-90c5b3c58d30` (app id `6806459949`, from the "Key
+facts" above). Exact copy for every field below lives in
+`docs/app-store/2026-09-13-listing.md`, whose "ASC state after T4b" section
+has the full response-verified record.
 
-### Metadata via `asc-api.sh`
+### Done (T4b, via `asc-api.sh`)
 
-All of the following are plain REST calls through the same wrapper used for
-TestFlight above — no new auth, no new tooling:
-
+- **Version**: `ios/project.yml` `MARKETING_VERSION` → `"1.0"`,
+  `CURRENT_PROJECT_VERSION` → `10`; confirmed via PlistBuddy on both the app
+  and share-extension Info.plists after a local build (both read `1.0`/`10`).
+  No archive/upload — that's the T5 wrap's job.
 - **`PATCH /v1/appStoreVersionLocalizations/<en-US localization id>`** —
-  `description`, `keywords`, `promotionalText`, `whatsNew`, `supportUrl`,
-  `marketingUrl`.
-- **`PATCH /v1/appInfoLocalizations/<en-US appInfo localization id>`** —
-  `name`, `subtitle`, `privacyPolicyUrl` (this resource is nested under
-  `appInfos`, not `appStoreVersions` — look up its id via `GET
-  /v1/appInfos/<appInfo id>/appInfoLocalizations` first).
-- **`PATCH /v1/appInfos/<appInfo id>`** — `relationships.primaryCategory`
-  (`PRODUCTIVITY`) and `relationships.secondaryCategory` (`UTILITIES`).
-- **`PATCH /v1/ageRatingDeclarations/<declaration id>`** (id from `GET
-  /v1/appInfos/<appInfo id>/ageRatingDeclaration`) — every questionnaire
-  attribute set to its `NONE`/`false` default per
-  `docs/app-store/2026-09-13-listing.md`'s age-rating section.
-- **`POST /v1/appStoreReviewDetails`** (or `PATCH
-  /v1/appStoreReviewDetails/<id>` if one already exists for this version) —
-  `contactFirstName`/`contactLastName`/`contactPhone`/`contactEmail`,
-  `demoAccountName`/`demoAccountPassword`/`demoAccountRequired: true`,
-  `notes` (the App Review notes block in the listing doc). The demo
-  password is typed into this field directly from
-  `ios/.env.test.local`'s `STASH_REVIEW_PASSWORD` — never written to a
-  committed file.
-- **`PATCH /v1/appStoreVersions/<version id>/relationships/build`** —
-  attaches the uploaded, `VALID` build (10+) to this version record once
-  it's processed (same build-processing poll as the TestFlight flow above).
-- **`appScreenshotSets` → `appScreenshots` upload flow** — create/find the
-  6.9" set (`screenshotDisplayType: APP_IPHONE_69`) under the en-US
-  localization via `POST /v1/appScreenshotSets`, then per screenshot:
-  `POST /v1/appScreenshots` (reserve, returns upload-operation URLs), `PUT`
-  each chunk to the returned URLs, then `PATCH
-  /v1/appScreenshots/<id>` with the computed `sourceFileChecksum` (md5) to
-  commit. Poll `assetDeliveryState.state` until `COMPLETE` for each. See the
-  plan's Task 4 for the `asc-api.sh upload-screenshot <setId> <png>`
-  subcommand this flow was built around.
+  `description`, `keywords`, `promotionalText`, `supportUrl`, `marketingUrl`
+  all set and GET-verified. `whatsNew` was attempted and rejected: ASC
+  returns `409 STATE_ERROR` ("Attribute 'whatsNew' cannot be edited at this
+  time") for a version's very first release — Apple only allows "What's
+  New" text starting with the second version. The intended 1.0 text ("First
+  release.") stays recorded in the listing doc for whenever 1.1 makes the
+  field editable.
+- **`PATCH /v1/appInfoLocalizations/<id>`** — `subtitle`, `privacyPolicyUrl`
+  set and GET-verified (`name` left untouched — already correct, "Stash --
+  save anything").
+- **`PATCH /v1/appInfos/<id>`** — `primaryCategory` → `PRODUCTIVITY`,
+  `secondaryCategory` → `UTILITIES`, confirmed via a follow-up GET on both
+  relationship endpoints.
+- **`PATCH /v1/appStoreVersions/<id>`** — `copyright` → "2026 William
+  Dzierson", confirmed in the response (`versionString` in that same
+  response also confirms `"1.0"`).
+- **`PATCH /v1/ageRatingDeclarations/<id>`** — every questionnaire attribute
+  set to its `NONE`/`false` default (id happens to equal the appInfo id).
+  Two field-type surprises worth knowing if this is ever redone by hand:
+  `gunsOrOtherWeapons` is the `NONE`/`INFREQUENT_OR_MILD`/`FREQUENT_OR_INTENSE`
+  enum family (not boolean, despite reading like a yes/no flag), while
+  `healthOrWellnessTopics` is boolean (not that enum family, despite the
+  naming parallel to the other content-descriptor fields). `lootBox` is
+  REQUIRED even though it doesn't appear in a plain GET of the resource.
+- **`POST /v1/appStoreReviewDetails`** — created (no prior record existed
+  for this version); `contactFirstName`/`contactLastName`/`contactPhone`/
+  `contactEmail`/`demoAccountName`/`demoAccountRequired`/`notes` all
+  GET-verified afterward. `demoAccountPassword` was written from
+  `ios/.env.test.local`'s `STASH_REVIEW_PASSWORD` and is present (confirmed
+  by response length) but was never echoed to a log or a committed file.
+- **Store screenshots** — the review account (`will+review@dzierson.com`)
+  was seeded through the app's own capture path (3 links, 1 note, 1 photo,
+  1 voice note — see `ios/StashUITests/StoreScreenshotsUITests.swift`'s
+  `testSeedReviewAccountContent`, idempotent on rerun) and all six 6.9"
+  frames were captured (`testCaptureStoreScreenshots`) and uploaded via
+  `asc-api.sh upload-screenshot <setId> <png>`. All six reached
+  `assetDeliveryState.state == COMPLETE` — verified with a follow-up GET on
+  the set. One correction to the plan's assumption: the ASC API's
+  `screenshotDisplayType` enum does **not** contain `APP_IPHONE_69` (the
+  live API rejects it and lists valid values) — the 6.9"/1320×2868 class is
+  still addressed as `APP_IPHONE_67` on this API version; the set above uses
+  that value.
 
 ### What stays manual in the App Store Connect UI
 
@@ -223,26 +239,33 @@ TestFlight above — no new auth, no new tooling:
   version; Will clicks the exact answers in
   `docs/app-store/2026-09-13-app-privacy-answers.md` at App Store Connect →
   Stash → App Privacy.
+- **Attaching a build to the 1.0 version record and creating the App Store
+  review submission** — deliberately not done by T4b (out of scope per the
+  plan: "Do NOT attach a build and do NOT create an appStoreVersionSubmission").
+  This is the wrap task's (T5) job once build 10 is uploaded and `VALID`:
+  `PATCH /v1/appStoreVersions/<id>/relationships/build`.
 - **The "Submit for Review" click itself** — deliberately never automated.
-  Everything up to this point (metadata, build attach, screenshots) can be
-  scripted; submission is Will's decision.
+  Everything up to this point (metadata, screenshots) is scripted and
+  already done; submission is Will's decision.
 
 ### Pre-submit checklist
 
 - [ ] Stripe: the demo account (`will+review@dzierson.com`) has an active
       comp/subscription that will not lapse during the review window — App
-      Review needs `canAddContent == true` to exercise capture. Check
-      before submitting, not after a rejection.
-- [ ] Build: version 1.0, a `VALID` build attached to the 1.0 version record
-      (not just to a TestFlight group).
-- [ ] Screenshots: all six 6.9" frames uploaded and each showing
-      `assetDeliveryState.state == COMPLETE`.
-- [ ] Metadata: name, subtitle, promotional text, description, keywords,
-      whatsNew, support/marketing/privacy URLs, categories, copyright, and
-      age rating all PATCHed and visible in the ASC UI.
-- [ ] App Review notes: demo account, contact phone, and the 3.1.3(f)/no-IAP
+      Review needs `canAddContent == true` to exercise capture (confirmed
+      `onTrial: true` as of this writing, 5 days left — recheck before
+      submitting, not after a rejection).
+- [x] Metadata: description, keywords, promotional text, support/marketing/
+      privacy URLs, categories, copyright, and age rating all PATCHed and
+      GET-verified (`whatsNew` is the one field ASC won't accept for a first
+      version — see above).
+- [x] App Review notes: demo account, contact phone, and the 3.1.3(f)/no-IAP
       explanation are present; the demo password was typed only into the
       ASC field.
+- [x] Screenshots: all six 6.9" frames uploaded and each showing
+      `assetDeliveryState.state == COMPLETE`.
+- [ ] Build: version 1.0, a `VALID` build attached to the 1.0 version record
+      (not just to a TestFlight group) — T5's job.
 - [ ] App Privacy nutrition label: answers entered manually per
       `docs/app-store/2026-09-13-app-privacy-answers.md`.
 - [ ] Privacy manifests: both `PrivacyInfo.xcprivacy` files are in the
