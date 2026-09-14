@@ -25,6 +25,16 @@ struct CardNoteEditorSheet: View {
     @State private var errorMessage: String?
     @FocusState private var isFocused: Bool
 
+    /// Plan 14 fix wave: mirrors `NotesEditor`'s own halved footprint (44–110pt, `@ScaledMetric`
+    /// relative to `.body`) exactly — this sheet can't embed `NotesEditor` itself without also
+    /// adopting its autosave-on-blur/`DetailField` focus-enum wiring (owned by `ItemDetailView`, a
+    /// Detail file explicitly out of scope this round), but there's no reason its field should keep
+    /// its own pre-existing, larger 120–220pt frame once the detail sheet's equivalent field has
+    /// been halved — same bounds, same Dynamic-Type growth, just still driven by this sheet's own
+    /// explicit Save/Cancel rather than a debounce.
+    @ScaledMetric(relativeTo: .body) private var minEditorHeight: CGFloat = 44
+    @ScaledMetric(relativeTo: .body) private var maxEditorHeight: CGFloat = 110
+
     init(item: Item, store: ItemStore, onFinished: @escaping (_ saved: Bool) -> Void) {
         self.item = item
         self.store = store
@@ -90,22 +100,30 @@ struct CardNoteEditorSheet: View {
     /// touch UI") applies here, and this sheet already carries the instruction implicitly via its
     /// own explicit Save/Cancel buttons.
     private var editorField: some View {
-        ZStack(alignment: .topLeading) {
+        // Rich mode is an append-only draft onto an existing document (never the note itself, the
+        // way plain mode's field is) — "Add to note…" says so; plain mode's field IS the whole
+        // note, so it keeps the detail sheet's own "Add a note…" copy.
+        let placeholder = model.isRich ? "Add to note…" : "Add a note…"
+        return ZStack(alignment: .topLeading) {
             if model.draft.isEmpty {
-                Text("Add a note…")
+                Text(placeholder)
                     .font(StashType.body())
                     .foregroundStyle(StashColor.faint)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 10)
                     .allowsHitTesting(false)
             }
+            // Same bounded-but-generous auto-grow shape as `NotesEditor.field` (its own doc comment
+            // has the full rationale): a fixed height range keeps the `TextEditor`'s intrinsic size
+            // constant while typing, growing this sheet's outer `ScrollView` content up to
+            // `maxEditorHeight`, then scrolling internally beyond that — the keyboard never moves.
             TextEditor(text: $model.draft)
                 .font(StashType.body())
                 .foregroundStyle(StashColor.ink)
                 .scrollContentBackground(.hidden)
                 .autocorrectionDisabled()
                 .focused($isFocused)
-                .frame(minHeight: 120, maxHeight: 220)
+                .frame(minHeight: minEditorHeight, maxHeight: maxEditorHeight)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 6)
                 .disabled(isSaving)

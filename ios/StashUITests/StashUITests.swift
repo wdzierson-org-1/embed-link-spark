@@ -606,7 +606,13 @@ final class StashUITests: XCTestCase {
         searchField.tap()
         searchField.typeText("note one")
         XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'note one'")
-        card0().tap()
+        // `card0()`'s own geometric-center tap now lands on the card's note (`CardNoteView`'s
+        // full-width `.highPriorityGesture`, plan 14 Task 1) for a fixture with real note content
+        // like "note one" — opening `CardNoteEditorSheet` instead of the detail sheet this test
+        // actually needs. `card.typeChip` (footer, never wrapped in a competing gesture) is the
+        // same fix `testDetailSheets.openAndCheck` already established for the identical problem —
+        // see that helper's own doc comment for the full rationale.
+        anyElement("card.typeChip").tap()
 
         let originalTitle = "UITEST-FIXTURE: note one"
         let epoch = Int(Date().timeIntervalSince1970)
@@ -629,7 +635,7 @@ final class StashUITests: XCTestCase {
 
         // Reopen — searching the ORIGINAL substring still matches since the edit only appended.
         XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the edited card to still be findable")
-        card0().tap()
+        anyElement("card.typeChip").tap()
 
         let reopenedTitleField = anyElement("detail.title")
         XCTAssertTrue(reopenedTitleField.waitForExistence(timeout: 10), "Title field not found on reopen")
@@ -698,7 +704,7 @@ final class StashUITests: XCTestCase {
 
         XCTAssertTrue(card0().waitForExistence(timeout: 15),
                       "Expected the card to still be findable after the immediate-dismiss round trip")
-        card0().tap()
+        anyElement("card.typeChip").tap()
 
         let reopenedNotesField = app.textViews["detail.notes.editor"]
         XCTAssertTrue(reopenedNotesField.waitForExistence(timeout: 10),
@@ -798,7 +804,11 @@ final class StashUITests: XCTestCase {
             searchField.tap()
             searchField.typeText(marker)
             XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the disposable item's card to appear")
-            card0().tap()
+            // Same fix as `testEditSmoke`/`testPublicSmoke`: this row's own `content` is the
+            // disposable marker text, real note content that `card0()`'s geometric-center tap can
+            // land on (`CardNoteView`'s `.highPriorityGesture`, plan 14 Task 1) instead of opening
+            // the detail sheet this test needs.
+            anyElement("card.typeChip").tap()
 
             let deleteButton = app.buttons["detail.delete"]
             XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Delete button not found in detail sheet")
@@ -877,7 +887,10 @@ final class StashUITests: XCTestCase {
         searchField.tap()
         searchField.typeText("note two")
         XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'note two'")
-        card0().tap()
+        // Same fix as `testEditSmoke`/`testDetailSheets`: "note two" has real note content, so
+        // `card0()`'s own geometric-center tap now lands on `CardNoteView`'s `.highPriorityGesture`
+        // (plan 14 Task 1) instead of opening the detail sheet this test needs.
+        anyElement("card.typeChip").tap()
 
         XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
 
@@ -1164,8 +1177,13 @@ final class StashUITests: XCTestCase {
         let done = app.buttons["detail.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for the new voice note")
         XCTAssertTrue(app.descendants(matching: .any)["detail.notes.heading"].waitForExistence(timeout: 5), "Expected the standalone Notes section")
-        XCTAssertTrue(app.buttons["Transcript"].waitForExistence(timeout: 5),
-                      "Expected a Transcript tab — the signal that this card is type audio")
+        // Single-tab types (audio included) render no pill-tab buttons at all — only the section's
+        // static "TRANSCRIPT" `SectionHeader` (`ItemDetailContent`'s `if !tabs.isEmpty { sectionHead
+        // }`, plan 14 housekeeping base) — so "a Transcript tab button exists" is no longer a valid
+        // signal. `detail.transcriptText` (the transcript body container, only ever rendered for
+        // audio/video) is the stable stand-in for the same intent: "this card is type audio".
+        XCTAssertTrue(anyElement("detail.transcriptText").waitForExistence(timeout: 5),
+                      "Expected the Transcript section — the signal that this card is type audio")
         XCTAssertFalse(app.buttons["Summary"].exists, "Did not expect a Summary tab for an audio item")
         XCTAssertFalse(app.buttons["Original Content"].exists, "Did not expect an Original Content tab for an audio item")
 
@@ -1398,7 +1416,10 @@ final class StashUITests: XCTestCase {
         searchField.tap()
         searchField.typeText(marker)
         XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for the seeded location item")
-        card0().tap()
+        // Same fix as `testEditSmoke`/`testPublicSmoke`/`testDeleteSmoke`: this row's own `content`
+        // is the disposable marker text, real note content `card0()`'s geometric-center tap can
+        // land on instead of opening the detail sheet this test needs.
+        anyElement("card.typeChip").tap()
 
         XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
 
