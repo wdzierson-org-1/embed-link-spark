@@ -4,7 +4,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Badge } from '@/components/ui/badge';
 import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
-import { libraryTitleClass } from '@/utils/libraryPresentation';
 import { domainOfUrl } from '@/utils/linkFlavor';
 import { decodeHtmlEntities } from '@/utils/textHygiene';
 import { useNow } from '@/hooks/useNow';
@@ -266,7 +265,7 @@ const ContentItemHeader = ({
                     disabled={isProcessing}
                     className={`text-left w-full group/title ${isProcessing ? 'cursor-not-allowed opacity-60' : ''}`}
                   >
-                    <h3 className={`${libraryTitleClass()} text-xl leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
+                    <h3 className={`font-editorial text-xl leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
                       {decodeHtmlEntities(item.title)}
                     </h3>
                   </button>
@@ -285,7 +284,7 @@ const ContentItemHeader = ({
                 }`}
                 disabled={!(item.type === 'link' && item.url)}
               >
-                <h3 className={`${libraryTitleClass()} text-xl leading-tight line-clamp-2 ${
+                <h3 className={`font-editorial text-xl leading-tight line-clamp-2 ${
                   item.type === 'link' && item.url ? 'group-hover/title:underline transition-all duration-200 text-blue-600' : ''
                 }`}>
                   {decodeHtmlEntities(item.title)}

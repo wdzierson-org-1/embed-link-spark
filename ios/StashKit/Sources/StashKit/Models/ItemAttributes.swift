@@ -212,3 +212,19 @@ public struct ItemAttributes: Codable, Equatable, Hashable, Sendable {
         return object
     }
 }
+
+public extension ItemAttributes {
+    /// Pipeline-owned status; unknown attributes still round-trip untouched.
+    func enrichmentStatus(at now: Date) -> String? {
+        guard case let .object(value) = extra["enrichment"],
+              case let .string(status) = value["status"] else { return nil }
+        guard status == "pending" else { return status }
+        guard case let .string(timestamp) = value["updated_at"] else { return "partial" }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = formatter.date(from: timestamp)
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let started = fractional ?? formatter.date(from: timestamp) else { return "partial" }
+        return now.timeIntervalSince(started) < 600 ? "pending" : "partial"
+    }
+}

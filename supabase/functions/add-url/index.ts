@@ -392,7 +392,7 @@ Deno.serve(async (req) => {
         file_path: previewImagePath,
         is_public: is_public,
         visibility: is_public ? 'public' : 'private',
-        attributes: safeAttributes,
+        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString() } },
         remind_at: remindAt
       })
       .select()
@@ -448,10 +448,12 @@ Deno.serve(async (req) => {
     // scrape that feeds embeddings. Every client of this endpoint — web chat
     // mole, menubar widget, browser extension, iOS — gets the same pipeline.
     const enrichAfterResponse = async () => {
+      let status = 'complete';
       try {
-        const { data: deepMeta } = await supabase.functions.invoke('extract-link-metadata', {
+        const { data: deepMeta, error: deepError } = await supabase.functions.invoke('extract-link-metadata', {
           body: { url, userId: targetUserId, fastOnly: false },
         });
+        if (deepError) throw deepError;
         if (deepMeta) {
           const updates: Record<string, string> = {};
           if (!customTitle && !metadata.title && deepMeta.title && !isBlockedPageTitle(deepMeta.title)) {
@@ -471,20 +473,26 @@ Deno.serve(async (req) => {
             updates.file_path = bestImage;
           }
           if (Object.keys(updates).length > 0) {
-            await supabase.from('items').update(updates).eq('id', item.id);
+            const { error: updateError } = await supabase.from('items').update(updates).eq('id', item.id);
+            if (updateError) throw updateError;
           }
         }
       } catch (enrichError) {
+        status = 'partial';
         console.error('Deep enrichment failed (non-fatal):', enrichError);
       }
 
       try {
-        await supabase.functions.invoke('scrape-page-content', {
+        const { data: scrape, error: scrapeError } = await supabase.functions.invoke('scrape-page-content', {
           body: { itemId: item.id, url },
         });
+        if (scrapeError || scrape?.success === false) status = 'partial';
       } catch (scrapeError) {
+        status = 'partial';
         console.error('Page scrape failed (non-fatal):', scrapeError);
       }
+      const { error: statusError } = await supabase.rpc('set_item_enrichment', { target_id: item.id, next_status: status });
+      if (statusError) console.error('Failed to settle enrichment:', statusError);
     };
 
     // Start enrichment now; register with the edge runtime so it survives the

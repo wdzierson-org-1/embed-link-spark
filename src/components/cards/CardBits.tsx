@@ -4,8 +4,7 @@ import type { ItemAttributes } from '@/types/itemAttributes';
 /**
  * Shared pieces of the single-object card system (DESIGN.md). Anatomy on
  * every card: hero → kicker → title (500) → description → annotation (violet
- * bar) → chips (type chip first, always visible) → footer (date · location
- * pin · overflow).
+ * bar) → metadata → footer (date · hover type chip · location · overflow).
  */
 
 /** The two hero heights in the system — nothing else */
@@ -63,7 +62,7 @@ export const SpectrumField = ({
   </div>
 );
 
-/** Always-visible tinted type chip — the color IS the type */
+/** Tinted type identity; the parent controls hover disclosure. */
 export const TypeChip = ({
   tint,
   icon,

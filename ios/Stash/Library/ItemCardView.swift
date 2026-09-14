@@ -30,6 +30,24 @@ struct ItemCardView: View {
     }()
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let status = item.attributes.enrichmentStatus(at: context.date)
+            cardBody
+                .opacity(status == "pending" ? 0.5 : 1)
+                .overlay(alignment: .topLeading) {
+                    if status == "pending" || status == "partial" {
+                        Text(status == "pending" ? "Gathering more information…" : "Some information unavailable")
+                            .font(StashType.meta())
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color(.systemBackground), in: Capsule())
+                            .padding(8)
+                            .accessibilityIdentifier("card.enrichmentStatus")
+                    }
+                }
+        }
+    }
+
+    private var cardBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             heroZone
             VStack(alignment: .leading, spacing: 8) {
@@ -160,7 +178,7 @@ struct ItemCardView: View {
     @ViewBuilder private var textBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !contentPlain.isEmpty {
-                Text(contentPlain).font(StashType.body()).foregroundStyle(.primary.opacity(0.85)).lineLimit(4)
+                Text(contentPlain).font(StashType.body()).foregroundStyle(.primary.opacity(0.85)).lineLimit(5)
             } else if !descriptionPlain.isEmpty {
                 Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
             }
@@ -174,7 +192,7 @@ struct ItemCardView: View {
                 Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
             }
             if !contentPlain.isEmpty {
-                CardAnnotation(text: contentPlain)
+                CardAnnotation(text: contentPlain, lineLimit: 5)
             }
             chipsRow
         }
@@ -225,9 +243,6 @@ struct ItemCardView: View {
     /// drawer.
     private var metadataChips: [AnyView] {
         var chips: [AnyView] = []
-        if let typeChip = typeChip(for: item) {
-            chips.append(typeChip)
-        }
         if item.type != .document, item.type != .link,
            let facts = factsLine(mime: item.mimeType, size: item.fileSize) {
             chips.append(AnyView(MetaChip(text: facts)))
@@ -249,6 +264,7 @@ struct ItemCardView: View {
             Text(Self.footerDateFormatter.string(from: item.createdAt))
                 .font(StashType.meta())
                 .foregroundStyle(.tertiary)
+            if let chip = typeChip(for: item) { chip }
             if let label = item.attributes.location?.label, !label.isEmpty {
                 locationBadge(label)
             }

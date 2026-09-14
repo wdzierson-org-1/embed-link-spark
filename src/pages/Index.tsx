@@ -10,7 +10,6 @@ import HeaderSection from '@/components/HeaderSection';
 import SubscriptionBanner from '@/components/SubscriptionBanner';
 import UnifiedInputPanel from '@/components/UnifiedInputPanel';
 import LibraryToolbar from '@/components/LibraryToolbar';
-import DismissibleHint from '@/components/DismissibleHint';
 import ContentGrid from '@/components/ContentGrid';
 import { NowProvider } from '@/hooks/useNow';
 import EditItemSheet from '@/components/EditItemSheet';
@@ -156,15 +155,9 @@ const Index = () => {
         <HeaderSection
           user={user}
         />
-        {/* Banner + hint share one spacing stack: every combination of them
-            (minimized banner, dismissed hint, neither) keeps even 16px gaps,
-            and the stack vanishes entirely when both are gone */}
+        {/* Collapse this spacing when there is no subscription notice. */}
         <div className="container mx-auto px-4 empty:hidden [&>*]:mt-4 [&>*:last-child]:mb-4">
           <SubscriptionBanner />
-          <DismissibleHint id="capture-shortcuts">
-            <b className="font-medium">Paste</b> a link anywhere on this page to capture it — or,{' '}
-            <b className="font-medium">drop</b> files onto the box below
-          </DismissibleHint>
         </div>
 
         {/* Capture is out of place while browsing conversations or focused on

@@ -687,6 +687,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      set_item_enrichment: { Args: { target_id: string; next_status: string }; Returns: undefined }
       follow_user: { Args: { target_id: string }; Returns: boolean }
       get_follower_count: { Args: { user_id: string }; Returns: number }
       get_following_count: { Args: { user_id: string }; Returns: number }

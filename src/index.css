@@ -470,3 +470,52 @@
     }
   }
 }
+
+/* Hover disclosure also works for keyboard users; touch has no rollover. */
+@media (hover: hover) and (pointer: fine) {
+  .card-hover-control { opacity: 0; pointer-events: none; }
+  .group:hover .card-hover-control,
+  .group:focus-within .card-hover-control { opacity: 1; pointer-events: auto; }
+}
+.card-hover-control { transition: opacity 150ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .card-hover-control { transition: none; }
+}
+
+/* A save settles back into the note: one soft wash, then a quiet checkmark.
+   These overlays do not change the masonry card's measured height. */
+.card-note-saved::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0 6px 6px 0;
+  background: rgba(109, 91, 208, 0.12);
+  pointer-events: none;
+  animation: card-note-save-wash 450ms cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+.card-note-saved-indicator {
+  animation: card-note-saved-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both,
+    card-note-saved-out 150ms ease-out 1150ms forwards;
+}
+.card-note-saved-check {
+  animation: card-note-check-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes card-note-save-wash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes card-note-saved-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes card-note-saved-out {
+  to { opacity: 0; transform: translateY(-2px); }
+}
+@keyframes card-note-check-in {
+  from { opacity: 0; transform: scale(0.75) rotate(-15deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-note-saved::after { animation: none; opacity: 0; }
+  .card-note-saved-indicator, .card-note-saved-check { animation: none; }
+}

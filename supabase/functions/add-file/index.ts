@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
         mime_type,
         is_public,
         visibility: is_public ? 'public' : 'private',
-        attributes: safeAttributes,
+        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString() } },
         remind_at: remindAt,
       })
       .select()
@@ -147,12 +147,14 @@ Deno.serve(async (req) => {
     const publicUrl = `${Deno.env.get('SUPABASE_URL')}/storage/v1/object/public/stash-media/${file_path}`;
 
     const enrich = async () => {
+      let status = 'complete';
       try {
         if (type === 'image') {
           // analyze-image writes description + page_body (OCR) and re-embeds the item
-          const { error: imgErr } = await supabase.functions.invoke('analyze-image', {
+          const { data: imageResult, error: imgErr } = await supabase.functions.invoke('analyze-image', {
             body: { itemId: item.id, imageUrl: publicUrl },
           });
+          if (imgErr || imageResult?.success === false) status = 'partial';
           if (imgErr) console.error('add-file: analyze-image failed for', item.id, imgErr);
         } else if (type === 'audio' || type === 'video') {
           const { data: t, error: tErr } = await supabase.functions.invoke('transcribe-audio', {
@@ -215,7 +217,8 @@ Deno.serve(async (req) => {
             }
           }
 
-          await supabase.from('items').update(updates).eq('id', item.id);
+          const { error: updateError } = await supabase.from('items').update(updates).eq('id', item.id);
+          if (updateError) throw updateError;
           const text = [finalTitle, content, t.transcription, t.description].filter(Boolean).join(' ');
           if (text.trim()) {
             const { error: embErr } = await supabase.functions.invoke('generate-embeddings', {
@@ -239,18 +242,20 @@ Deno.serve(async (req) => {
             });
             if (qpsErr) console.error('add-file: quick-pdf-summary failed for', item.id, qpsErr);
             // writes page_body + summary + content embeddings itself
-            const { error: extErr } = await supabase.functions.invoke('extract-pdf-text', {
+            const { data: pdfResult, error: extErr } = await supabase.functions.invoke('extract-pdf-text', {
               body: { fileUrl: publicUrl, itemId: item.id },
             });
+            if (extErr || pdfResult?.success === false) status = 'partial';
             if (extErr) console.error('add-file: extract-pdf-text failed for', item.id, extErr);
           } else if (OFFICE_MIMES.has(mime_type)) {
             // OOXML documents → extract-office-text (committed+deployed c4cbdd0;
             // mirrors extract-pdf-text: writes page_body + summary + description,
             // re-embeds). Contract: {fileUrl, itemId, fileName, mimeType}
             // (extract-office-text/index.ts:127).
-            const { error: offErr } = await supabase.functions.invoke('extract-office-text', {
+            const { data: officeResult, error: offErr } = await supabase.functions.invoke('extract-office-text', {
               body: { fileUrl: publicUrl, itemId: item.id, fileName, mimeType: mime_type },
             });
+            if (offErr || officeResult?.success === false) status = 'partial';
             if (offErr) console.error('add-file: extract-office-text failed for', item.id, offErr);
           } else {
             // Other non-PDF documents (parity with 83e9809): no PDF pipeline.
@@ -265,7 +270,11 @@ Deno.serve(async (req) => {
           }
         }
       } catch (e) {
+        status = 'partial';
         console.error('add-file enrichment failed (non-fatal):', e);
+      } finally {
+        const { error: statusError } = await supabase.rpc('set_item_enrichment', { target_id: item.id, next_status: status });
+        if (statusError) console.error('Failed to settle enrichment:', statusError);
       }
     };
 

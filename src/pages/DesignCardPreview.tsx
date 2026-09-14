@@ -11,6 +11,7 @@ import {
   StickyNote,
 } from 'lucide-react';
 import ContentItem from '@/components/ContentItem';
+import LibraryLayout from '@/components/LibraryLayout';
 
 /**
  * Dev-only design review page (/design/cards) — not routed in production.
@@ -382,7 +383,8 @@ const wiredItems = [
     url: 'https://www.linkedin.com/jobs/view/4373761967',
     content: 'Send to Dana before Friday.',
     created_at: '2026-08-12T10:00:00Z',
-    attributes: { link: { flavor: 'generic' as const } },
+    // Demo the interstitial while a blocked link's deep lookup is pending.
+    attributes: { link: { flavor: 'generic' as const }, enrichment: { status: 'pending' as const, updated_at: new Date().toISOString() } },
   },
   {
     id: 'w-image',
@@ -440,10 +442,10 @@ const DesignCardPreview = () => (
 
       <h2 className="mt-10 font-montreal font-semibold tracking-[-0.02em] text-2xl">Wired — the real components</h2>
       <p className="mb-5 mt-0.5 text-sm text-muted-foreground">
-        Actual ContentItem renders in the app's row-major grid: newest reads left-to-right, each row
-        stretches to its tallest card, footers pin to the bottom.
+        Actual ContentItem renders with the library’s left-to-right masonry layout and Montreal headings.
+        Each group of three follows source order across columns, with natural card heights and 24px gaps.
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <LibraryLayout>
         {wiredItems.map((item) => (
           <ContentItem
             key={item.id}
@@ -458,7 +460,7 @@ const DesignCardPreview = () => (
             onTagsUpdated={noop}
           />
         ))}
-      </div>
+      </LibraryLayout>
 
       <h2 className="mt-10 font-montreal font-semibold tracking-[-0.02em] text-2xl">The dashboard, together</h2>
       <p className="mb-5 mt-0.5 text-sm text-muted-foreground">

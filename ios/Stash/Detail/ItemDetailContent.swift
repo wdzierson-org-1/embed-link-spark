@@ -27,7 +27,7 @@ struct ItemDetailContent: View {
     var flushNotesNow: () async -> Void
 
     private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
-    private var tabs: [ContentTab] { config.tabs }
+    private var tabs: [ContentTab] { config.tabs.filter { $0.key != .notes } }
 
     var body: some View {
         // Outer spacing 0 — `sectionHead` is a `SectionHeader`, which already carries its own
@@ -35,10 +35,16 @@ struct ItemDetailContent: View {
         // double-count on top of that. `DetailLayout.gap` moves down onto the inner group instead,
         // unchanged in value from this VStack's own spacing before this fix round.
         VStack(alignment: .leading, spacing: 0) {
-            sectionHead
+            SectionHeader(title: "Notes")
+                .accessibilityIdentifier("detail.notes.heading")
+            NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
+                        scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
+            if !tabs.isEmpty { sectionHead }
 
             VStack(alignment: .leading, spacing: DetailLayout.gap) {
-                tabBody(for: selectedTab)
+                if let first = tabs.first {
+                    tabBody(for: selectedTab == .notes ? first.key : selectedTab)
+                }
 
                 if item.type == .collection {
                     attachmentsSection

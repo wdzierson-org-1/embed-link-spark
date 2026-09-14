@@ -333,8 +333,8 @@ final class StashUITests: XCTestCase {
             searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
         }
 
-        openAndCheck(search: "link one", expectedTabs: ["Summary", "Original Content", "Notes"],
-                     forbiddenTabs: ["Transcript"], checkpoint: "link")
+        openAndCheck(search: "link one", expectedTabs: ["Summary", "Original Content"],
+                     forbiddenTabs: ["Transcript", "Notes"], checkpoint: "link")
 
         // Plan 7 Task 6: pill tabs only render when a type has more than one
         // (`ItemDetailContent.sectionHead`, web parity — `EditItemContentSection.tsx`'s own
@@ -346,9 +346,8 @@ final class StashUITests: XCTestCase {
         openAndCheck(search: "image one", expectedTabs: [],
                      forbiddenTabs: ["Summary", "Original Content", "Transcript", "Notes"], checkpoint: "image")
 
-        openAndCheck(search: "audio one", expectedTabs: ["Notes", "Transcript"],
-                     forbiddenTabs: ["Summary", "Original Content"], checkpoint: "audio") {
-            app.buttons["Transcript"].tap()
+        openAndCheck(search: "audio one", expectedTabs: [],
+                     forbiddenTabs: ["Summary", "Original Content", "Notes", "Transcript"], checkpoint: "audio") {
             let transcript = app.descendants(matching: .any)["detail.transcriptText"]
             XCTAssertTrue(transcript.waitForExistence(timeout: 10), "Transcript text container not found")
             XCTAssertFalse(transcript.label.isEmpty, "Expected non-empty transcript text")
@@ -1161,7 +1160,7 @@ final class StashUITests: XCTestCase {
 
         let done = app.buttons["detail.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for the new voice note")
-        XCTAssertTrue(app.buttons["Notes"].waitForExistence(timeout: 5), "Expected a Notes tab for the voice note")
+        XCTAssertTrue(app.descendants(matching: .any)["detail.notes.heading"].waitForExistence(timeout: 5), "Expected the standalone Notes section")
         XCTAssertTrue(app.buttons["Transcript"].waitForExistence(timeout: 5),
                       "Expected a Transcript tab — the signal that this card is type audio")
         XCTAssertFalse(app.buttons["Summary"].exists, "Did not expect a Summary tab for an audio item")
@@ -1919,7 +1918,7 @@ final class StashUITests: XCTestCase {
         let urlBar = anyElement("detail.urlBar")
         XCTAssertTrue(urlBar.waitForExistence(timeout: 10), "URL bar not found")
 
-        for label in ["Summary", "Original Content", "Notes"] {
+        for label in ["Summary", "Original Content"] {
             XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "Expected a '\(label)' tab")
         }
         XCTAssertTrue(anyElement("detail.tabs").exists, "Expected the pill-tabs container")

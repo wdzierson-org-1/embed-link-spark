@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import type { JSONContent } from 'novel';
 import { Card } from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -14,9 +15,9 @@ import type { Attachment } from '@/components/CollectionAttachments';
 import { supabase } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
 import {
-  ASSEMBLY_WINDOW_MS,
-  itemAgeMs,
+  enrichmentState,
   missingPieces,
+  itemAgeMs,
   REVEAL_TTL_MS,
   type AssemblyPiece,
 } from '@/utils/itemAssembly';
@@ -91,9 +92,9 @@ const ContentItem = ({
 
   // ---- Assembling state: fresh capture, enrichment still landing ----------
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const missing = isPublicView ? [] : missingPieces(item);
-  const withinWindow = itemAgeMs(item, nowMs) < ASSEMBLY_WINDOW_MS;
-  const isAssemblingNow = withinWindow && missing.length > 0;
+  const assemblyState = isPublicView ? 'complete' : enrichmentState(item, nowMs);
+  const isAssemblingNow = assemblyState === 'pending';
+  const isFullyEnriched = assemblyState === 'complete' && (item.attributes?.enrichment?.status === 'complete' || missingPieces(item).length === 0);
 
   // While assembling, tick so the pulse honestly retires when the window
   // closes even if no further updates arrive (e.g. an enrichment step died)
@@ -109,12 +110,12 @@ const ContentItem = ({
   useEffect(() => {
     const was = wasAssemblingRef.current;
     wasAssemblingRef.current = isAssemblingNow;
-    if (was && !isAssemblingNow && missing.length === 0) {
+    if (was && !isAssemblingNow && isFullyEnriched) {
       setShowAssembled(true);
       const timer = setTimeout(() => setShowAssembled(false), 2200);
       return () => clearTimeout(timer);
     }
-  }, [isAssemblingNow, missing.length]);
+  }, [isAssemblingNow, isFullyEnriched]);
 
   // Cards born moments ago rise into the feed (realtime insert / first paint)
   const [enteredFresh] = useState(() => itemAgeMs(item, Date.now()) < 15_000);
@@ -157,10 +158,10 @@ const ContentItem = ({
       .trim();
   };
 
-  const extractTextFromTiptapJson = (jsonContent: any): string => {
+  const extractTextFromTiptapJson = (jsonContent: JSONContent): string => {
     if (!jsonContent || !jsonContent.content) return '';
     
-    const extractFromNode = (node: any): string => {
+    const extractFromNode = (node: JSONContent): string => {
       if (node.type === 'text') {
         return node.text || '';
       }
@@ -270,19 +271,21 @@ const ContentItem = ({
           edge; the image wrapper clips its own top corners instead */}
       <Card className={`group flex flex-col h-full bg-card border-0 shadow-[0_1px_2px_rgba(20,22,30,0.05),0_8px_24px_rgba(30,33,44,0.08)] hover:shadow-[0_2px_4px_rgba(20,22,30,0.06),0_14px_36px_rgba(30,33,44,0.13)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl ${
         enteredFresh ? 'animate-card-enter' : ''
-      } ${isAssemblingNow ? 'animate-assembly-breathe' : ''}`}>
+      }`}>
         {/* Note Overlay */}
         {renderNoteOverlay()}
 
         {/* Assembling thumper: enrichment is landing on this card right now */}
-        {(isAssemblingNow || showAssembled) && (
+        {(isAssemblingNow || showAssembled || assemblyState === 'partial') && (
           <div className="absolute top-2 left-2 z-30 animate-chip-pop">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.06] bg-white/85 px-2.5 py-1 text-[11px] font-medium text-foreground/70 shadow-sm backdrop-blur-sm">
+            <span role="status" className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.06] bg-white/85 px-2.5 py-1 text-[11px] font-medium text-foreground/70 shadow-sm backdrop-blur-sm">
               {isAssemblingNow ? (
                 <>
                   <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-assembly-dot" aria-hidden />
-                  Gathering more info…
+                  Gathering more information…
                 </>
+              ) : assemblyState === 'partial' ? (
+                <>Some information unavailable</>
               ) : (
                 <>
                   <span className="text-emerald-600" aria-hidden>✓</span>
@@ -293,6 +296,7 @@ const ContentItem = ({
           </div>
         )}
 
+        <div className={`flex flex-1 flex-col transition-opacity duration-500 motion-reduce:transition-none ${isAssemblingNow ? 'opacity-50' : 'opacity-100'}`} aria-busy={isAssemblingNow}>
         <ContentItemHeader
           item={item}
           imageErrors={imageErrors}
@@ -325,6 +329,7 @@ const ContentItem = ({
               isPublicView={isPublicView}
               collectionAttachments={collectionAttachments}
               revealDescription={contentReveal}
+              onNoteSaved={onTagsUpdated}
             />
           </div>
           
@@ -339,6 +344,8 @@ const ContentItem = ({
             onTogglePrivacy={onTogglePrivacy}
             onCommentClick={onCommentClick}
           />
+        </div>
+
         </div>
 
         {/* Video Lightbox */}

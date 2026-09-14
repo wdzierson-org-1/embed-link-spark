@@ -94,3 +94,17 @@ describe('landedPieces', () => {
     expect(landedPieces(item, { ...item, title: '' })).toEqual([]);
   });
 });
+
+describe('explicit enrichment lifecycle', () => {
+  it('keeps a rich-looking LinkedIn card pending through the deep lookup', () => {
+    const item = { id: 'link', type: 'link', title: 'LinkedIn', description: 'Preview', attributes: {
+      enrichment: { status: 'pending' as const, updated_at: secondsAgo(120) },
+    } };
+    expect(isAssembling(item, NOW)).toBe(true);
+    expect(isAssembling({ ...item, attributes: { enrichment: { ...item.attributes.enrichment, status: 'complete' } } }, NOW)).toBe(false);
+    expect(isAssembling({ ...item, attributes: { enrichment: { ...item.attributes.enrichment, status: 'partial' } } }, NOW)).toBe(false);
+  });
+  it('retires an interrupted worker instead of leaving a permanent spinner', () => {
+    expect(isAssembling({ id: 'link', attributes: { enrichment: { status: 'pending', updated_at: secondsAgo(601) } } }, NOW)).toBe(false);
+  });
+});

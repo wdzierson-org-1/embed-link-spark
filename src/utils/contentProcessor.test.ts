@@ -147,6 +147,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       }),
     },
     from: fromMock,
+    rpc: vi.fn().mockResolvedValue({ error: null }),
     functions: {
       invoke: invokeMock,
     },

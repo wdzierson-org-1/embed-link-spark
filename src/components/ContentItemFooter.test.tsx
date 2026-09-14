@@ -91,7 +91,7 @@ describe('ContentItemFooter menu (public view)', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('keeps the menu for a public link, which can still be opened', () => {
+  it('omits an empty public-link menu after removing Open link', () => {
     render(
       <ContentItemFooter
         item={{ ...base, id: 'l1', type: 'link', url: 'https://example.test' }}
@@ -100,6 +100,6 @@ describe('ContentItemFooter menu (public view)', () => {
         isPublicView
       />
     );
-    expect(screen.getByRole('button')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });

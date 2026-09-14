@@ -28,30 +28,9 @@ export const extractPlainTextFromNovelContent = (content: string): string => {
  * Recursively extracts text from Novel editor JSON content
  */
 const extractTextFromJsonContent = (node: JSONContent): string => {
-  let text = '';
-
-  // If this node has text content, add it
-  if (node.text) {
-    text += node.text;
-  }
-
-  // If this node has content (children), process them recursively
-  if (node.content && Array.isArray(node.content)) {
-    node.content.forEach(child => {
-      const childText = extractTextFromJsonContent(child);
-      if (childText) {
-        // Add spacing between different content blocks
-        if (text && !text.endsWith(' ') && !text.endsWith('\n')) {
-          if (child.type === 'paragraph' || child.type === 'heading') {
-            text += '\n';
-          } else {
-            text += ' ';
-          }
-        }
-        text += childText;
-      }
-    });
-  }
-
-  return text;
+  if (node.type === 'hardBreak') return '\n';
+  if (node.type === 'text') return node.text ?? '';
+  const children = node.content ?? [];
+  const inline = ['paragraph', 'heading', 'codeBlock'].includes(node.type ?? '');
+  return children.map(extractTextFromJsonContent).join(inline ? '' : '\n');
 };

@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ContentItem from './ContentItem';
-import LibraryLayout from '@/components/LibraryLayout';
 import ContentItemSkeleton from './ContentItemSkeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -287,7 +286,11 @@ const ContentGrid = ({
   }
 
   return (
-    <LibraryLayout compact={compact}>
+    // Row-major grid: newest reads left-to-right across the columns (CSS
+    // masonry columns flow top-to-bottom, which scrambles chronology). Each
+    // row stretches to its tallest card; card bodies flex and footers pin to
+    // the bottom, so mixed heights still align cleanly per row.
+    <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${compact ? '' : 'lg:grid-cols-3'}`}>
       {/* Show optimistic items first */}
       {optimisticItems.map((item) => (
         <ContentItemSkeleton
@@ -325,7 +328,7 @@ const ContentGrid = ({
           assemblyReveals={assemblyReveals[item.id]}
         />
       ))}
-    </LibraryLayout>
+    </div>
   );
 };
 

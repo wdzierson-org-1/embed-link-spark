@@ -60,6 +60,7 @@ export type MediaAttributes = {
 };
 
 export type ItemAttributes = {
+  enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string };
   location?: CapturedLocation;
   link?: LinkAttributes;
   media?: MediaAttributes;
