@@ -1,5 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT, normalizeSearchRequest, searchItems } from './search';
+import { SEARCH_DEFAULT_LIMIT, SEARCH_MAX_LIMIT, coerceSearchTypes, normalizeSearchRequest, searchItems } from './search';
+
+describe('coerceSearchTypes', () => {
+  it('keeps valid storage types and drops junk', () => {
+    expect(coerceSearchTypes(['link', 'audio'])).toEqual(['link', 'audio']);
+    expect(coerceSearchTypes(['bogus', 7, null])).toBeNull();
+    expect(coerceSearchTypes(undefined)).toBeNull();
+    expect(coerceSearchTypes([])).toBeNull();
+  });
+
+  it("maps the model's vocabulary onto storage types instead of failing the RPC", () => {
+    // 2026-09-14: gpt-5-mini sent types:["note"] → 'invalid input value for enum item_type'
+    expect(coerceSearchTypes(['note'])).toEqual(['text', 'audio']);
+    expect(coerceSearchTypes(['Notes', 'photo', 'pdf'])).toEqual(['text', 'audio', 'image', 'document']);
+    expect(coerceSearchTypes(['voice memo', 'file', 'text'])).toEqual(['audio', 'document', 'text']);
+  });
+});
 
 const doc = (text: string) =>
   JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] });

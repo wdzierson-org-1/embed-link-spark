@@ -57,6 +57,34 @@ export interface SearchDeps {
   embed: (text: string) => Promise<number[]>;
 }
 
+// Models describe items in their own vocabulary ("note", "photo", "pdf") and
+// the tool schema's enum doesn't stop them: on 2026-09-14 gpt-5-mini sent
+// types:["note"] and the RPC failed with 'invalid input value for enum
+// item_type', costing an agent round. Map the common words onto storage types
+// and drop the rest; filters are soft anyway (an unfiltered backstop runs).
+const TYPE_SYNONYMS: Record<string, ItemType[]> = {
+  note: ['text', 'audio'], memo: ['audio'], 'voice memo': ['audio'], 'voice note': ['audio'], voice: ['audio'],
+  recording: ['audio'], transcript: ['audio'],
+  photo: ['image'], picture: ['image'], screenshot: ['image'], img: ['image'],
+  pdf: ['document'], file: ['document'], doc: ['document'], attachment: ['document'],
+  url: ['link'], website: ['link'], page: ['link'], article: ['link'], post: ['link'], youtube: ['link'],
+};
+
+export const coerceSearchTypes = (raw: unknown): ItemType[] | null => {
+  if (!Array.isArray(raw)) return null;
+  const out: ItemType[] = [];
+  const push = (t: ItemType) => { if (!out.includes(t)) out.push(t); };
+  for (const value of raw) {
+    if (typeof value !== 'string') continue;
+    const key = value.trim().toLowerCase();
+    if ((ITEM_TYPES as readonly string[]).includes(key)) { push(key as ItemType); continue; }
+    const singular = key.endsWith('s') ? key.slice(0, -1) : key;
+    const mapped = TYPE_SYNONYMS[key] ?? TYPE_SYNONYMS[singular];
+    if (mapped) mapped.forEach(push);
+  }
+  return out.length ? out : null;
+};
+
 const parseTimestamp = (value: unknown): string | null => {
   if (typeof value !== 'string' || !value.trim()) return null;
   const parsed = new Date(value);

@@ -36,6 +36,12 @@ slot and the model never saw the note. Fix, three parts:
 - **Shared helper:** `supabase/functions/_shared/notes.ts` (`plainNotes`,
   `notesSnippet`) mirrors the web's `contentExtractor.ts`; iOS has the same
   logic in `renderTipTap` — keep the three in step.
+- **Also fixed while verifying:** the model regularly sends `types:["note"]`
+  (not a storage type) and the RPC failed with an enum error, costing an
+  agent round. `coerceSearchTypes` (`_shared/search.ts`) maps model
+  vocabulary onto storage types (`note` → text+audio, `photo` → image,
+  `pdf`/`file` → document, `url`/`article` → link) and drops the rest;
+  failed searches are now logged to `retrieval_log` with `filters.error`.
 
 ## 2026-09-08 · Admin dashboard (web-only, temporary)
 

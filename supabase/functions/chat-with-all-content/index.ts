@@ -2,6 +2,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { authenticateUser } from '../_shared/auth.ts';
 import { notesSnippet, plainNotes } from '../_shared/notes.ts';
+import { coerceSearchTypes } from '../_shared/search.ts';
 
 // Ask Stash — agentic retrieval. The model drives search itself through three
 // tools (search_stash, browse_catalog, get_item) instead of a fixed
@@ -301,7 +302,7 @@ serve(async (req) => {
       const query = typeof args.query === 'string' ? args.query.trim() : '';
       if (!query) return 'Error: query is required.';
       const limit = Math.min(Math.max(Math.trunc(Number(args.limit) || SEARCH_DEFAULT_LIMIT), 1), SEARCH_MAX_LIMIT);
-      const types = Array.isArray(args.types) && args.types.length ? args.types : null;
+      const types = coerceSearchTypes(args.types);
       const tags = Array.isArray(args.tags) && args.tags.length
         ? args.tags.map((t: string) => String(t).toLowerCase())
         : null;
@@ -331,14 +332,15 @@ serve(async (req) => {
       ]);
       if (primary.error) {
         console.error('search_stash RPC error:', primary.error);
+        await logRetrieval('search_stash', query, { types, tags, after: args.after || null, before: args.before || null, error: primary.error.message }, [], 0);
         return 'Search failed — try again with a simpler query or no filters.';
       }
 
       // A backstop hit still "matches" if the requested type names its link
       // flavor: "video" should surface YouTube saves (type link, flavor video).
       const matchesTypes = (hit: { item_type: string; item_flavor: string | null }) =>
-        !types || types.includes(hit.item_type) ||
-        (hit.item_flavor != null && types.includes(hit.item_flavor));
+        !types || (types as string[]).includes(hit.item_type) ||
+        (hit.item_flavor != null && (types as string[]).includes(hit.item_flavor));
 
       interface SearchHit {
         item_id: string; item_title: string | null; item_type: string; item_url: string | null;
