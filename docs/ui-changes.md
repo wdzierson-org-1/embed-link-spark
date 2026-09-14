@@ -122,6 +122,15 @@ handoff doc above, not repeated here. Version 1.0, build 10.
   now only flips a `@Binding`; the confirm UI itself moved into a new `DeleteAccountConfirmSheet`
   with its own local state, using `.interactiveDismissDisabled(isDeleting)` in place of the old
   custom dismiss-guard `Binding`.
+- **App Store metadata correction + Search History disclosure:** the ASC description and
+  review notes had external-purchase-steering language (App Review 3.1.3(f)) — cut. Review
+  notes' account-deletion path corrected. Ask conversation history (questions + answers
+  persisted server-side, revisited via the Ask header's history icon) is now declared as
+  **Search History** (App Functionality only, no tracking) in both `PrivacyInfo.xcprivacy`
+  manifests and `docs/app-store/2026-09-13-app-privacy-answers.md` — previously omitted.
+  All six 6.9" App Store screenshots retaken with a non-charging status bar and
+  keyboard-free composer/Ask frames; 01 now leads with a real photo (not a no-speech voice
+  note) and 05 uses nasa.gov (not example.com) — all COMPLETE in ASC's screenshot set.
 
 Spec: `docs/superpowers/plans/2026-09-13-ios-plan-14-housekeeping-mirror-and-app-store-readiness.md`.
 Progress ledger with every decision: `.superpowers/sdd/plan-14/progress.md`.

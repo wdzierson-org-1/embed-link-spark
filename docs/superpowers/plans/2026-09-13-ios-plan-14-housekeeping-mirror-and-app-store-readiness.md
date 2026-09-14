@@ -97,13 +97,37 @@
   44/110 with `@ScaledMetric`; rich-mode placeholder copy ("Add to note…").
 - `0f182df1` — T4b: version 1.0/build 10, review account seeded, 6 App Store screenshots
   uploaded (COMPLETE), metadata + age rating + review detail pushed to ASC.
-- (this task) — docs(ios): plan-14 outcome; ui-changes entry; build 10 + amendment with
-  final build id/states.
+- `5ef60b41` — docs(ios): plan-14 outcome; ui-changes entry; build 10 (first wrap pass).
+- `2f52b380` — T4b redo (concurrent with wrap): screenshot retakes 01/05, cut external-
+  purchase-steering copy from ASC description/review notes, corrected account-deletion path in
+  review notes, declared Search History in both PrivacyInfo.xcprivacy manifests + the App
+  Privacy answers doc.
+- `5e816d70` — T5: `testDesignSystemFontsLoad` scroll fix (test-only — T3's new Delete
+  Account section pushed the DEBUG-only footer below the List's lazy-render fold); noted (not
+  yet fixed) the `testDeleteAccountEndToEnd` product bug found during suite verification.
+- `22ed1480` — fix wave B (opus whole-branch review #4/#8/#9/#10/#11/#14a): neutral share-
+  extension gate copy (drops `gostash.it`, App Review 3.1.1/3.1.3(f)); foreground 403 parks
+  immediately instead of enqueuing pending-then-reparking; parked entries excluded from the
+  Add-tab badge; unpark on every launch/foreground refresh, not just the Add tab's own
+  `.onChange`; `ItemCardView`'s `TimelineView` only wraps cards with an `attributes.enrichment`
+  key; Notes editor hint only shows while focused/with a draft.
+- `98015106` — delete-account sheet presentation bug fix: ownership moved from
+  `DeleteAccountSection`'s own List row up to `SettingsView`'s List root (new
+  `DeleteAccountConfirmSheet`), fixing the List-reflow-vs-row-hosted-sheet race the wrap agent
+  found (root cause: `AccountSection.loadUsername()` resolving mid-presentation on a
+  brand-new account). `testDeleteAccountEndToEnd` 3/3 isolated + green inside the full suite.
+- (this task) — docs(ios): plan-14 fix-wave amendment (this commit) + build 10 upload/attach.
 
 **Reviews:** T1 APPROVE (one nit folded into the fix wave). T3 NEEDS FIX → fixed → CLOSED. T2
 APPROVE (flagged two pre-existing test failures, both confirmed genuine and fixed in the fix
 wave). T4a/T4b not independently re-reviewed beyond their own dispatch (docs/manifests/ASC
-pushes only, no product-behavior risk).
+pushes only, no product-behavior risk). Opus whole-branch review (dispatched alongside the
+first T5 wrap pass): NEEDS FIX WAVE — items #1/#2/#3/#6/#13/#14b (no-rebuild: screenshot
+retakes, listing/review-notes copy, Search History) folded into `2f52b380`; items
+#4/#8/#9/#10/#11/#14a (code) folded into `22ed1480`; #7 (Stripe comp) and #5/#12 (Settings
+Link/support URL) are Will's. The wrap agent's own suite run separately surfaced the
+delete-account sheet bug (not part of the opus review's findings), fixed in `98015106` and
+verified before proceeding to build 10.
 
 **Decisions carried from the ledger** (`.superpowers/sdd/plan-14/progress.md`):
 
@@ -120,3 +144,12 @@ pushes only, no product-behavior risk).
   exact list observed in this wrap's suite runs).
 - Not done, by design: App Privacy nutrition-label answers and the App Store "Submit for
   Review" click are Will's; a Stripe comp for `will+review`/`will+uitest` is Will's.
+- The delete-account sheet bug was genuine (reproduced 5/5 across isolated + full-suite runs,
+  confirmed via unified-log evidence, not a flake) — the wrap correctly stopped rather than
+  building on top of an unreviewed product fix; `98015106` fixed it and the fix was verified
+  (3/3 isolated + green inside a full suite run) before build 10 proceeded.
+- Final full UI-suite run (post fix-wave, sim `28F9E3CD`): exactly the 5 expected gate-blocked
+  failures (`testCaptureSmoke`/`testLocationPinSmoke`/`testAskSmoke`/`testDeleteSmoke`/
+  `testLocationEditSmoke`), `testDeleteAccountEndToEnd` and `testDesignSystemFontsLoad` both
+  green, `StoreScreenshotsUITests` correctly skipped (no `STORE_SCREENSHOTS=1`). StashKit 376/0
+  fail. `npm test` 363/363. Both targets build warning-free.
