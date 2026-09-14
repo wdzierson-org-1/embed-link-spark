@@ -96,16 +96,26 @@ enum StashType {
     /// micro-copy, chip labels, etc. that were previously bare `.system(size:)`).
     static func regular(size: CGFloat) -> Font { custom("PPNeueMontreal-Book", size: size, weight: .regular) }
 
-    /// Object title (card) — DESIGN.md's single serif role: "PP Editorial New" 400 · 20 / tight ·
-    /// 2-line clamp. Gated on `isEditorialAvailable` (not `isNeueMontrealAvailable` — a separate
-    /// TTF, registered or not independently of the Neue Montreal family), falling back to
+    /// Object title (card) — plan 9's original single serif role: "PP Editorial New" 400 · 20 /
+    /// tight · 2-line clamp. Superseded on the library grid by `cardTitle()` below (2026-09-13
+    /// housekeeping mirror, plan 14 — the user approved Montreal medium card headings from the
+    /// `/design/cards` review); kept defined (unused by any call site as of that change) rather
+    /// than deleted, in case a future surface still wants the serif "this is a saved object"
+    /// treatment. Gated on `isEditorialAvailable` (not `isNeueMontrealAvailable` — a separate TTF,
+    /// registered or not independently of the Neue Montreal family), falling back to
     /// `.system(size: 20, design: .serif)` so a card title never blanks or crashes if the face
-    /// fails to load. Callers apply DESIGN.md's "tight" line spacing themselves, e.g.
-    /// `.lineSpacing(-1)` / a small negative `.kerning` per their own multi-line clamp treatment —
-    /// this helper only returns the `Font`, not layout modifiers.
+    /// fails to load.
     static func editorialTitle() -> Font {
         isEditorialAvailable ? .custom("PPEditorialNew-Regular", size: 20) : .system(size: 20, design: .serif)
     }
+
+    /// Object title (card) — DESIGN.md's current card heading (2026-09-13 housekeeping mirror,
+    /// plan 14): Montreal **medium 20 / tight · −0.014em tracking**, 2-line clamp. Replaces
+    /// `editorialTitle()` above on `ItemCardView`'s title row after the web's `/design/cards`
+    /// review approved natural-height/masonry cards with Montreal headings over the prior serif
+    /// treatment. Callers apply the tracking themselves via `.stashTracking(-0.014, size: 20)`,
+    /// same pattern as every other tracked role in this file.
+    static func cardTitle() -> Font { custom("PPNeueMontreal-Medium", size: 20, weight: .medium) }
 }
 
 extension View {

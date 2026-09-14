@@ -296,15 +296,18 @@ final class StashUITests: XCTestCase {
             searchField.tap()
             searchField.typeText(search)
             XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
-            // Task 7: a plain `.tap()` (XCUITest's geometric center of the card) can land on the
-            // link kicker's own tap target now that one exists — for a card as compact as the
-            // `example.com` fixture (short favicon-plate hero + one-line description, no
-            // annotation), the card's vertical center sits almost exactly on the kicker's single
-            // line, so the tap opens Safari instead of this sheet (bisected live: dy 0.30-0.45
-            // and 0.55-0.70 all open the sheet; only dy≈0.50 hits the kicker and backgrounds the
-            // app). A near-bottom offset reliably clears the kicker for every type this loop
-            // searches (link/text/image/audio all place their footer there).
-            card0().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).tap()
+            // Task 7 originally used a fixed-ratio coordinate tap (dy≈0.85) to clear the link
+            // kicker's own tap target — a plain `.tap()` (XCUITest's geometric center) could land
+            // on it for a compact card. Plan 14, Task 1 retired that coordinate entirely: the
+            // card's own note (`CardNoteView`, `card.note`/`card.addNote`) now ALSO claims its own
+            // tap via `.highPriorityGesture` (by design — DESIGN.md "Card note"), and unlike the
+            // kicker it's full-width and variable-height, so no fixed ratio can reliably clear it
+            // for every fixture this loop searches (confirmed live: "image one" has real note
+            // content, and dy=0.85 newly landed on it instead of the card background). Tapping the
+            // footer's own `card.typeChip` instead — present for every type this loop searches,
+            // never wrapped in a competing gesture — sidesteps both the kicker and the note
+            // unconditionally, regardless of a card's actual content/height.
+            app.descendants(matching: .any)["card.typeChip"].tap()
 
             let done = app.buttons["detail.done"]
             XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for '\(search)'")
@@ -2437,5 +2440,273 @@ final class StashUITests: XCTestCase {
         skipButton2.tap()
         XCTAssertTrue(howToStashRow.waitForExistence(timeout: 10),
                       "Expected to return to Settings after 'Skip'")
+    }
+
+    // MARK: - Plan 14, Task 1: card notes (DESIGN.md §Components "Card note")
+
+    /// Seeds `testCardNoteAddEditAndSaveAcknowledgment`'s own disposable `.text` item via a
+    /// DIRECT `items` insert, not the `add-note` edge function `seedDisposableNote` above uses:
+    /// confirmed live that `add-note` now 403s `{"error":"subscription_required"}` for this
+    /// account (its Stripe trial has been lapsed since 2026-08-16 — see `testCaptureSmoke`'s own
+    /// standing-failure doc comment; this is a NEWER gate than when `seedDisposableNote` was
+    /// written, since that helper's own call site — `testDeleteSmoke` — isn't in that standing-
+    /// failure set). Ordinary RLS on a plain PostgREST insert only requires `user_id ==
+    /// auth.uid()`, which a lapsed trial doesn't change — verified live (`add-note` → 403;
+    /// an identical row shape inserted directly → 201) — so this seeds the row that way instead,
+    /// with an explicit `title` (this task's own brief: prefix throwaway rows `UITEST-CARDNOTE:`
+    /// so they're identifiable and never confused with `UITEST-FIXTURE`/`UITEST-DELETE` rows) and
+    /// an explicit `content` seeded as an EXISTING TipTap document, so the card-note sheet
+    /// exercises its rich-append path rather than the plain-text one. Never touches the permanent
+    /// `UITEST-FIXTURE` rows.
+    private func seedCardNoteItem(title: String, content: String, email: String, password: String) async throws {
+        var authRequest = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/auth/v1/token")
+                .appending(queryItems: [URLQueryItem(name: "grant_type", value: "password")]))
+        authRequest.httpMethod = "POST"
+        authRequest.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        authRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authRequest.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password])
+        let (authData, authResponse) = try await URLSession.shared.data(for: authRequest)
+        guard let authHTTP = authResponse as? HTTPURLResponse, (200..<300).contains(authHTTP.statusCode),
+              let authObject = try? JSONSerialization.jsonObject(with: authData) as? [String: Any],
+              let token = authObject["access_token"] as? String,
+              let user = authObject["user"] as? [String: Any],
+              let userId = user["id"] as? String
+        else {
+            throw FixtureRepairError("test-account auth failed while seeding the card-note UI test's disposable row")
+        }
+
+        var insertRequest = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items"))
+        insertRequest.httpMethod = "POST"
+        insertRequest.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        insertRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        insertRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        insertRequest.httpBody = try JSONSerialization.data(withJSONObject: [
+            "user_id": userId, "type": "text", "title": title, "content": content,
+            "is_public": false, "attributes": [String: Any](),
+        ])
+        let (_, response) = try await URLSession.shared.data(for: insertRequest)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError(
+                "direct items insert failed for the card-note UI test's disposable row (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+    }
+
+    /// Polls for a row by exact `title` match — `pollForRow(matchingContent:...)` above matches on
+    /// `content` instead, which this test's seed deliberately sets to a non-marker TipTap JSON
+    /// document; this test's seed sets an explicit, unique `title` precisely so it can be found
+    /// this way regardless of what `content` holds.
+    private func pollForRow(matchingTitle marker: String, email: String, password: String,
+                            timeout: TimeInterval) async throws -> [String: Any] {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [
+                    URLQueryItem(name: "title", value: "eq.\(marker)"),
+                    URLQueryItem(name: "select", value: "id"),
+                ]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let (data, response) = try? await URLSession.shared.data(for: request),
+               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+               let row = rows.first {
+                return row
+            }
+            try? await Task.sleep(for: .seconds(1))
+        } while Date() < deadline
+        throw FixtureRepairError("timed out waiting for the disposable card-note row '\(marker)' to appear via REST")
+    }
+
+    /// Direct REST read of the seeded card-note row's current `content` — the server-side proof
+    /// `testCardNoteAddEditAndSaveAcknowledgment` uses to confirm the sheet's save actually landed,
+    /// and that the append never flattened the pre-existing rich TipTap document to plain text.
+    private func fetchItemContent(matchingTitle marker: String, email: String, password: String) async throws -> String {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [
+                    URLQueryItem(name: "title", value: "eq.\(marker)"),
+                    URLQueryItem(name: "select", value: "content"),
+                ]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("card-note content fetch failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let row = rows.first, let content = row["content"] as? String
+        else {
+            throw FixtureRepairError("card-note content fetch returned no rows")
+        }
+        return content
+    }
+
+    /// Card note add/edit + save acknowledgment (Task 1, plan 14) — DESIGN.md §Components "Card
+    /// note". Seeds TWO throwaway `.text` items (both title-prefixed `UITEST-CARDNOTE:`): one
+    /// with an EXISTING TipTap document (so the sheet exercises its rich-append path, never the
+    /// plain-text one) and one with empty content (so the empty-state affordance has something
+    /// real to assert against), then proves the whole loop:
+    ///   0. empty content renders the `card.addNote` affordance, never the populated `card.note`
+    ///      preview — the two are mutually exclusive.
+    ///   1. non-empty content renders as a tappable `card.note` (not the empty-state `card.addNote`
+    ///      affordance) — same mutual-exclusivity check, the other way round.
+    ///   2. tapping it opens `CardNoteEditorSheet` (`cardNote.editor`); typing and tapping
+    ///      `cardNote.save` closes the sheet and shows the `card.note.saved` acknowledgment.
+    ///   3. a whole-card tap AWAY from the note (the footer's `card.typeChip` — chosen specifically
+    ///      because, unlike `card.0`'s own geometric center, it can never overlap the note's own
+    ///      `.highPriorityGesture` hit area) still opens the detail sheet — gesture precedence.
+    ///   4. the detail sheet's read-only rich-notes render (`detail.notesText`) shows BOTH the
+    ///      original paragraph and the newly-appended one.
+    ///   5. a direct REST read confirms `content` is STILL valid TipTap JSON (starts with `{`,
+    ///      proving the append never flattened the existing document) and contains both texts.
+    /// Cleans up its own disposable row on every exit path; never touches `UITEST-FIXTURE` rows.
+    @MainActor
+    func testCardNoteAddEditAndSaveAcknowledgment() async throws {
+        let (email, password) = try testCredentials()
+        let epoch = Int(Date().timeIntervalSince1970)
+        let marker = "UITEST-CARDNOTE: card note \(epoch)"
+        let emptyMarker = "UITEST-CARDNOTE: empty note \(epoch)"
+        let originalParagraph = "Original rich line \(epoch)"
+        let seedDoc: [String: Any] = [
+            "type": "doc",
+            "content": [[
+                "type": "paragraph",
+                "content": [["type": "text", "text": originalParagraph]],
+            ]],
+        ]
+        let seedContent = String(data: try JSONSerialization.data(withJSONObject: seedDoc), encoding: .utf8)!
+        try await seedCardNoteItem(title: marker, content: seedContent, email: email, password: password)
+        // A second, EMPTY-content throwaway (own row, own title) — this task's checklist also
+        // wants a screenshot of the "Add a note" empty-state affordance, which the rich-content
+        // row above never shows.
+        try await seedCardNoteItem(title: emptyMarker, content: "", email: email, password: password)
+
+        let seededId: String?
+        do {
+            let row = try await pollForRow(matchingTitle: marker, email: email, password: password, timeout: 15)
+            seededId = row["id"] as? String
+        } catch {
+            seededId = nil
+        }
+        let emptySeededId: String?
+        do {
+            let row = try await pollForRow(matchingTitle: emptyMarker, email: email, password: password, timeout: 15)
+            emptySeededId = row["id"] as? String
+        } catch {
+            emptySeededId = nil
+        }
+
+        do {
+            let app = XCUIApplication()
+            XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                          "Expected the tab bar to appear after sign-in")
+
+            func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+            func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+
+            let searchField = app.textFields["library.search"]
+            XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+
+            // 0. Empty content renders the "Add a note" affordance, never the populated
+            // "card.note" preview.
+            searchField.tap()
+            searchField.typeText(emptyMarker)
+            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the seeded empty-note item to appear")
+            let addNoteButton = anyElement("card.addNote")
+            XCTAssertTrue(addNoteButton.waitForExistence(timeout: 10), "Expected the empty-state 'Add a note' affordance")
+            XCTAssertFalse(anyElement("card.note").exists,
+                           "Did not expect the populated card-note affordance for an empty note")
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-empty\n".data(using: .utf8)!)
+            sleep(2)
+
+            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: emptyMarker.count))
+            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the grid back after clearing the empty-note search")
+
+            searchField.tap()
+            searchField.typeText(marker)
+            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the seeded card-note item to appear")
+
+            // 1. Non-empty content renders as the tappable "card.note" affordance, never the
+            // empty-state "card.addNote" one.
+            let noteButton = anyElement("card.note")
+            XCTAssertTrue(noteButton.waitForExistence(timeout: 10), "Expected a tappable card note for existing content")
+            XCTAssertFalse(anyElement("card.addNote").exists,
+                           "Did not expect the empty-state affordance for a card with an existing note")
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-note\n".data(using: .utf8)!)
+            sleep(2)
+
+            noteButton.tap()
+
+            let sheetEditor = app.textViews["cardNote.editor"]
+            XCTAssertTrue(sheetEditor.waitForExistence(timeout: 10), "Expected the card note editor sheet to open")
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-note-sheet\n".data(using: .utf8)!)
+            sleep(2)
+
+            // Same tap-then-throwaway-keystroke warm-up `testEditSmoke`'s notes step established
+            // for this exact `TextEditor` shape (see that step's own doc comment) — the first
+            // couple characters otherwise land at the tap point before the rest jumps to the end.
+            let appendedLine = "Appended via UI test \(epoch)"
+            sheetEditor.tap()
+            sheetEditor.typeText("x")
+            sleep(1)
+            sheetEditor.typeText(appendedLine)
+
+            app.buttons["cardNote.save"].tap()
+
+            // 2. Save acknowledgment: wash + "Saved" badge briefly appear on the card (~2s
+            // window), right as the sheet dismisses — waited for directly (no fixed dead-time
+            // sleep first) so a slower real network round trip can't eat into the badge's own
+            // visible window before this even starts checking.
+            let savedBadge = anyElement("card.note.saved")
+            XCTAssertTrue(savedBadge.waitForExistence(timeout: 10),
+                          "Expected a 'Saved' acknowledgment after a confirmed save")
+
+            XCTAssertFalse(app.textViews["cardNote.editor"].exists,
+                           "Expected the card note editor sheet to dismiss after Save")
+
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-note-saved\n".data(using: .utf8)!)
+            sleep(1)
+
+            // 3. Whole-card tap AWAY from the note still opens the detail sheet — gesture
+            // precedence (this task's own brief: "check whole-card tap gesture precedence").
+            // `card.typeChip` sits in the footer, spatially clear of the note's own
+            // `.highPriorityGesture` hit area, unlike `card.0`'s own geometric center.
+            anyElement("card.typeChip").tap()
+            let detailNotesText = anyElement("detail.notesText")
+            XCTAssertTrue(detailNotesText.waitForExistence(timeout: 10),
+                          "Expected the detail sheet to open on a whole-card tap away from the note")
+            XCTAssertTrue(detailNotesText.label.contains(originalParagraph) && detailNotesText.label.contains(appendedLine),
+                          "Expected the detail sheet's rendered note to contain both the original and appended " +
+                          "text, got '\(detailNotesText.label)'")
+
+            app.buttons["detail.done"].tap()
+            XCTAssertTrue(searchField.waitForExistence(timeout: 10),
+                          "Expected the library after dismissing the detail sheet")
+
+            // 4. Server-side proof: `content` is STILL valid TipTap JSON (never flattened to
+            // plain text) and contains both the original paragraph and the newly-appended one.
+            let content = try await fetchItemContent(matchingTitle: marker, email: email, password: password)
+            XCTAssertTrue(content.hasPrefix("{"),
+                          "Expected the saved content to remain TipTap JSON, not be flattened to plain text")
+            XCTAssertTrue(content.contains(originalParagraph),
+                          "Expected the original rich paragraph to survive the append, got '\(content)'")
+            XCTAssertTrue(content.contains(appendedLine),
+                          "Expected the newly-typed note to have been appended, got '\(content)'")
+
+            if let seededId { try? await deleteRow(id: seededId, email: email, password: password) }
+            if let emptySeededId { try? await deleteRow(id: emptySeededId, email: email, password: password) }
+        } catch {
+            if let seededId { try? await deleteRow(id: seededId, email: email, password: password) }
+            if let emptySeededId { try? await deleteRow(id: emptySeededId, email: email, password: password) }
+            throw error
+        }
     }
 }

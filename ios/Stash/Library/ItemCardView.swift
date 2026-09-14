@@ -3,17 +3,24 @@ import StashKit
 
 /// A single object-first card in the library grid (Plan 4 rework — see
 /// `docs/superpowers/specs/2026-08-16-single-object-items-design.md`; DESIGN.md §Components
-/// "Card anatomy" for the plan-9 token shell below). Anatomy, top to bottom: object zone
-/// (`CardHero.swift`) → kicker (links only) → serif title → description → the user's own
-/// annotation (violet bar, always visually distinct from description) → metadata chips (leading
-/// type chip — tinted or neutral, always present, `CardChips.swift` — then facts) → footer
-/// (date · location pin; plan 9 final wave dropped the footer's own type badge). Legacy
+/// "Card anatomy"/"Card note" for the plan-14 shell below). Anatomy, top to bottom: object zone
+/// (`CardHero.swift`) → kicker (links only) → Montreal medium title (`StashType.cardTitle()`,
+/// plan 14 — was the plan-9 serif `editorialTitle()`) → description → the card's editable note
+/// (`CardNoteView`, plan 14 — was a read-only `CardAnnotation`; "Add a note" when empty, a
+/// tappable violet-ruled preview otherwise, opening `CardNoteEditorSheet`) → metadata chips
+/// (leading type chip — tinted or neutral, always present, `CardChips.swift` — then facts) →
+/// footer (date · location pin; plan 9 final wave dropped the footer's own type badge). Legacy
 /// `collection` items get a rich note + a leading "N items" chip + `CollectionStrip` instead of
-/// steps 2 (no kicker) through 5 (no annotation). Shows a shimmering redacted overlay while a
-/// document is still processing, and a yellow sticky-note corner badge when the item carries a
-/// public supplemental note — both unchanged from the pre-rework card.
+/// steps 2 (no kicker) through 5 (no editable note — frozen design, never created going forward).
+/// Shows a shimmering redacted overlay while a document is still processing, and a yellow
+/// sticky-note corner badge when the item carries a public supplemental note — both unchanged
+/// from the pre-rework card.
 struct ItemCardView: View {
     let item: Item
+    /// Plan 14: the card note editor patches through the same `ItemStore` the detail sheet does
+    /// (`store.applyDetail(merged)`), so a save here is reflected in the grid immediately without
+    /// waiting on the next realtime broadcast — see `CardNoteView`'s own doc comment.
+    let store: ItemStore
 
     @Environment(\.openURL) private var openURL
     @State private var shimmerPhase: CGFloat = -1
@@ -52,12 +59,13 @@ struct ItemCardView: View {
             heroZone
             VStack(alignment: .leading, spacing: 8) {
                 kicker
-                // DESIGN.md's one serif role: "Object title (card) … PP Editorial New 400 · 20 /
-                // tight · 2-line clamp" (plan 9's `StashType.editorialTitle()`, Task 0). The
-                // negative `.lineSpacing` is the "tight" leading the font helper's own doc comment
-                // asks callers to apply — SwiftUI's default line spacing for a 20pt serif reads
-                // loose across a 2-line clamp otherwise.
-                Text(title).font(StashType.editorialTitle()).lineSpacing(-2).lineLimit(2)
+                // DESIGN.md's current card heading (2026-09-13 housekeeping mirror, plan 14):
+                // Montreal medium 20/tight · −0.014em tracking (`StashType.cardTitle()`),
+                // superseding the plan-9 serif `editorialTitle()`. The negative `.lineSpacing`
+                // keeps the "tight" leading the old serif treatment also needed — Montreal at
+                // 20pt across a 2-line clamp reads loose under SwiftUI's default line spacing too.
+                Text(title).font(StashType.cardTitle()).stashTracking(-0.014, size: 20)
+                    .lineSpacing(-2).lineLimit(2)
                 contentSection
                 footer
             }
@@ -169,19 +177,20 @@ struct ItemCardView: View {
         }
     }
 
-    /// Text-type inversion (step 5): `content` IS the body (4-line clamp, no annotation
-    /// treatment); `description` (the AI summary) shows only when there's no user content.
-    /// Plan 9 final wave: gained `chipsRow` too (web parity — `ContentItemContent.tsx`'s text
-    /// branch renders `typeChipFor(item)` unconditionally) now that `.text` earns a neutral
-    /// "note" chip; previously this branch (unlike `standardBody`) never called `chipsRow` at
-    /// all, which is why text cards showed no type identity until this wave.
+    /// Text-type inversion (step 5): `content` IS the body — editable via `CardNoteView`, same as
+    /// every other type's note (web parity, `ContentItemContent.tsx`'s `.text` branch: "the words
+    /// ARE the object — show them, not the AI summary"); `description` (the AI summary) shows only
+    /// when there's no user content yet. Plan 9 final wave: gained `chipsRow` too (web parity —
+    /// `ContentItemContent.tsx`'s text branch renders `typeChipFor(item)` unconditionally) now
+    /// that `.text` earns a neutral "note" chip; previously this branch (unlike `standardBody`)
+    /// never called `chipsRow` at all, which is why text cards showed no type identity until this
+    /// wave.
     @ViewBuilder private var textBody: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !contentPlain.isEmpty {
-                Text(contentPlain).font(StashType.body()).foregroundStyle(.primary.opacity(0.85)).lineLimit(5)
-            } else if !descriptionPlain.isEmpty {
+            if contentPlain.isEmpty, !descriptionPlain.isEmpty {
                 Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
             }
+            CardNoteView(item: item, store: store)
             chipsRow
         }
     }
@@ -191,9 +200,7 @@ struct ItemCardView: View {
             if !descriptionPlain.isEmpty {
                 Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
             }
-            if !contentPlain.isEmpty {
-                CardAnnotation(text: contentPlain, lineLimit: 5)
-            }
+            CardNoteView(item: item, store: store)
             chipsRow
         }
     }
@@ -327,6 +334,142 @@ struct ItemCardView: View {
             withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
                 shimmerPhase = 1.6
             }
+        }
+    }
+}
+
+// MARK: - Card note (DESIGN.md §Components "Card note", plan 14)
+
+/// The card's own editable `content` field — an "Add a note" affordance when empty, a tappable
+/// violet-ruled 5-line preview otherwise. Web reference: `src/components/cards/CardInlineNote.tsx`
+/// (full inline rich editor); this is the touch adaptation the handoff doc sanctions — "a compact
+/// editor sheet is a sensible touch adaptation" — opening `CardNoteEditorSheet` on tap instead of
+/// expanding in place. That sheet reuses `NotesEditorModel` (`ios/Stash/Detail/NotesEditor.swift`)
+/// so a rich TipTap document is only ever appended to, never flattened to plain text — exactly the
+/// detail sheet's own Notes-tab contract.
+///
+/// Claims its own tap via `.highPriorityGesture`, not a nested `Button`: `ItemCardView` sits
+/// inside `LibraryView.grid`'s own whole-card `Button` (opens the detail sheet), and this
+/// codebase already established (`ItemCardView.kicker`'s external-link icon, see its own doc
+/// comment) that `.highPriorityGesture` reliably wins the tap away from that ancestor `Button`
+/// while a plain nested `Button` is not guaranteed to — so every interactive piece inside a card
+/// uses the same technique for the same reason.
+struct CardNoteView: View {
+    let item: Item
+    let store: ItemStore
+
+    @State private var isEditing = false
+    @State private var washOpacity: Double = 0
+    @State private var showSavedBadge = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Plain-texted preview — same "never raw TipTap JSON on a card" rule `ItemCardView.plainText`
+    /// follows, computed independently here since this view doesn't have access to that private
+    /// helper.
+    private var preview: String {
+        String(renderTipTap(item.content).characters).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var rightRoundedShape: UnevenRoundedRectangle {
+        // "only the right corners of the hover surface are rounded" (DESIGN.md "Card note") — the
+        // left edge is squared off, flush with the violet fill bar overlaid on it.
+        UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0,
+                                bottomTrailingRadius: 8, topTrailingRadius: 8, style: .continuous)
+    }
+
+    var body: some View {
+        Group {
+            if preview.isEmpty { addNoteAffordance } else { notePreview }
+        }
+        .sheet(isPresented: $isEditing) {
+            CardNoteEditorSheet(item: item, store: store) { saved in
+                if saved { acknowledgeSave() }
+            }
+        }
+    }
+
+    private var addNoteAffordance: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "plus").font(.system(size: 10, weight: .semibold))
+            Text("Add a note")
+        }
+        .font(StashType.chip())
+        .foregroundStyle(StashColor.muted)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.04), in: Capsule())
+        .contentShape(Rectangle())
+        .highPriorityGesture(TapGesture().onEnded { isEditing = true })
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Add a note")
+        .accessibilityAction { isEditing = true }
+        .accessibilityIdentifier("card.addNote")
+    }
+
+    private var notePreview: some View {
+        Text(preview)
+            .font(StashType.body())
+            .foregroundStyle(.primary.opacity(0.75))
+            .lineLimit(5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 11)
+            .padding(.vertical, 5)
+            .padding(.trailing, 8)
+            .background(Color.primary.opacity(0.04), in: rightRoundedShape)
+            // The violet-600 fill bar (DESIGN.md: "a fill, not a stroke") — `.overlay`, not an
+            // `HStack` sibling, same reasoning the retired `CardAnnotation` documented: an
+            // unconstrained `Rectangle` has no intrinsic height, so it'd soak up any extra height
+            // an equalized grid row proposes; `.overlay` proposes the bar the `Text`'s own already-
+            // resolved frame instead.
+            .overlay(alignment: .leading) {
+                Rectangle().fill(StashColor.violet600).frame(width: 2)
+            }
+            // Save acknowledgment: violet-300 @ 0.25 fading to 0 over 450ms (static under Reduce
+            // Motion — no animated fade either direction).
+            .overlay {
+                StashColor.violet300.opacity(washOpacity)
+                    .clipShape(rightRoundedShape)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .topTrailing) { if showSavedBadge { savedBadge } }
+            .contentShape(Rectangle())
+            .highPriorityGesture(TapGesture().onEnded { isEditing = true })
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Edit note")
+            .accessibilityAction { isEditing = true }
+            .accessibilityIdentifier("card.note")
+    }
+
+    private var savedBadge: some View {
+        Label("Saved", systemImage: "checkmark")
+            .labelStyle(.titleAndIcon)
+            .font(StashType.chip())
+            .foregroundStyle(StashColor.violet600)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color(.systemBackground), in: Capsule())
+            .offset(x: 4, y: -14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Saved")
+            .accessibilityIdentifier("card.note.saved")
+    }
+
+    /// A confirmed save washes the note and shows a brief checkmark/"Saved" caption (~2s) — DESIGN.md
+    /// "Card note". Reduced-motion users get the same two states with no animated transition between
+    /// them (the wash appears/disappears as a hard cut instead of fading).
+    @MainActor
+    private func acknowledgeSave() {
+        showSavedBadge = true
+        washOpacity = 0.25
+        if !reduceMotion {
+            withAnimation(.easeOut(duration: 0.45)) { washOpacity = 0 }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            showSavedBadge = false
+            washOpacity = 0
         }
     }
 }

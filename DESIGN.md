@@ -36,10 +36,12 @@ document tint, deeper purple-biased page gradient).
 4. **Lively, not cute.** No emoji anywhere in product UI, ever — including
    toasts, empty states, and notifications. Iconography is Lucide (see below).
    Motion is purposeful and brief; `prefers-reduced-motion` is always honored.
-5. **One UI family; the serif belongs to the objects.** PP Neue Montreal for
-   all UI and content text, with weight as hierarchy. The single serif moment
-   is the **card title** — PP Editorial New marks "this is a saved object" in
-   the library grid. Nothing else is serif on product surfaces.
+5. **One UI family.** PP Neue Montreal for all UI and content text, with
+   weight as hierarchy — including card titles (Montreal medium, see below).
+   *2026-09-13 (housekeeping mirror, plan 14): card titles moved off the
+   single-serif treatment onto Montreal medium after a live `/design/cards`
+   review; PP Editorial New has no remaining call site but stays defined in
+   both `StashType`/CSS for a possible future serif moment.*
 6. **Enrichment answers "why did I save this?"** before the user asks. Cards
    answer at a glance (type tint, title, one or two fact chips); the panel
    answers in full (summary, transcript, dotted facts).
@@ -54,7 +56,7 @@ bundle); fall back to SF Pro only if the face fails to load.
 
 | Role | Weight | Size / line | Tracking | Notes |
 |---|---|---|---|---|
-| Object title (card) | **PP Editorial New** 400 | 20 / tight | 0 | 2-line clamp — the one serif role |
+| Object title (card) | 500 | 20 / tight | −0.014em | 2-line clamp — Montreal medium (2026-09-13, plan 14; `StashType.cardTitle()`); superseded the prior PP Editorial New treatment |
 | Object title (panel) | 500 | 28 / 1.2 | −0.02em | inline-editable |
 | Display header (marketing, empty states) | 600 | 32–40 / 1.12 | −0.022em | |
 | Body / description | 400 | 13.5–14.5 / 1.5–1.6 | 0 | muted color |
@@ -64,11 +66,12 @@ bundle); fall back to SF Pro only if the face fails to load.
 | Kicker / eyebrow | 600 | 11 caps | +0.10em | |
 | Date / meta | 400 | 12 | 0 | `faint` |
 
-**Exceptions:** card titles use upright **PP Editorial New** (see table);
-marketing pages (homepage, pricing) may use Tobias as the display face, with
-PP Editorial New *Ultralight Italic* for single accent words inside display
-headlines. PP Mori is retired everywhere; don't introduce Editorial in any
-other product role.
+**Exceptions:** marketing pages (homepage, pricing) may use Tobias as the
+display face, with PP Editorial New *Ultralight Italic* for single accent
+words inside display headlines. PP Mori is retired everywhere. PP Editorial
+New's upright weight is no longer used anywhere on product surfaces as of
+2026-09-13 (see card title row above) — don't reintroduce it without updating
+this file.
 
 ## Color
 
@@ -137,6 +140,11 @@ regardless of system appearance; web ships no dark stylesheet to toggle.
 - **`--card-gap: 18px`** — the gap between hero bottom and card body top, for
   *every* hero type, no per-type exceptions. Card body side padding 24px;
   cards without a hero take 22px top padding.
+- **Library gutter: 24px/24pt** between cards (web's masonry/masonry-rows
+  `gap-6`; iOS `LibraryView`'s grid spacing, plan 14 — was 14pt). Cards are
+  natural height, no forced row-equalization; a phone's single column needs
+  no masonry redistribution (web's multi-column masonry-rows algorithm is a
+  desktop/iPad-only concern).
 - Card shadow: `0 1px 2px rgba(20,22,30,.05), 0 8px 24px rgba(30,33,44,.08)`;
   hover: `0 2px 4px rgba(20,22,30,.06), 0 14px 36px rgba(30,33,44,.13)` with a
   2px lift. Sheet shadow: `0 2px 6px rgba(20,22,30,.05), 0 24px 70px rgba(30,33,44,.16)`.
@@ -185,8 +193,27 @@ favicon.*
 ## Components
 
 **Card anatomy** (top to bottom): hero → kicker (links: domain or author
-handle) → title (PP Editorial New 400 · 20/tight, 2-line clamp) → description
-(muted, clamp 3) → annotation (violet bar, italic) → chips → footer (date · reminder chip · location pin left; overflow `more-horizontal` right).
+handle) → title (Montreal medium 500 · 20/tight · −0.014em, 2-line clamp) →
+description (muted, clamp 3) → note (see below) → chips → footer (date ·
+reminder chip · location pin left; overflow `more-horizontal` right).
+
+**Card note** (2026-09-13, plan 14 — supersedes the old read-only "annotation"
+row): the card's `content` field, editable in place. An empty note shows an
+"Add a note" affordance (muted text + `plus` glyph) occupying the old chip
+area. An existing note is tappable, 5-line clamp, with a straight square-ended
+**2pt violet-600 fill** along its left edge (a fill, not a stroke — the 1px
+stroke rule doesn't apply here) and only its **right** corners rounded on the
+hover/press surface. Tapping either opens a compact rich-document editor:
+edits patch `items.content` — the same TipTap document the detail sheet's
+Notes editor reads/writes — never flattened to plain text. Explicit Save/
+Cancel; Return inserts a line (no separate hard-break gesture needed once
+Enter no longer submits). A confirmed save washes the note with violet-300 at
+25% opacity fading to 0 over 450ms, plus a brief checkmark + "Saved" caption
+(~2s); both are static (no fade animation) under reduced motion. A failed
+save keeps the draft and shows an inline error instead. Native touch adds a
+sheet-based editor (iOS: `.medium` detent) as its own adaptation of the web's
+inline expand-in-place editor — see `docs/ui-changes.md` for the parity
+notes.
 
 **Cover crops are subject-aware.** A hero that `cover`-crops an image centres
 the crop on the detected subject, not the frame: sample the image (≤64px),

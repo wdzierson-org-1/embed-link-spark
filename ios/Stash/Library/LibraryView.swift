@@ -178,7 +178,9 @@ struct LibraryView: View {
 
     private var grid: some View {
         ScrollView {
-            LazyVGrid(columns: columns, spacing: 14) {
+            // DESIGN.md §Space "Library gutter: 24px/24pt" (plan 14, was 14pt) — natural-height
+            // cards, no forced masonry redistribution needed on the phone's single column.
+            LazyVGrid(columns: columns, spacing: 24) {
                 ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                     Button {
                         // Device note 3/7: a card tap dismisses the keyboard before the sheet
@@ -186,7 +188,7 @@ struct LibraryView: View {
                         searchFocused = false
                         selectedItem = item
                         onSelect(item)
-                    } label: { ItemCardView(item: item) }
+                    } label: { ItemCardView(item: item, store: store) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("card.\(index)")
                         .onAppear { Task { await store.loadMoreIfNeeded(current: item) } }
