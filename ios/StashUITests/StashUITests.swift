@@ -2709,4 +2709,79 @@ final class StashUITests: XCTestCase {
             throw error
         }
     }
+
+    // MARK: - Transcribe with speakers + Notes editor footprint (Plan 14 Task 2)
+
+    /// "Transcribe with speakers" only appears in the Transcript section header for items with a
+    /// stored media file — asserted against the two permanent UITEST-FIXTURE rows `testDetailSheets`
+    /// already relies on (`audio one`/`link one`, found by the same unique-substring search, never
+    /// grid position), so this never seeds or mutates any row. Also asserts the Notes editor's own
+    /// rendered accessibility frame sits inside the halved 44–110pt footprint (Plan 14 Task 2 —
+    /// previously 80–220pt), proving the `@ScaledMetric` frame change actually reads through to a
+    /// real laid-out view, not just that it compiles.
+    ///
+    /// Deliberately doesn't tap the button itself: doing so would call the REAL `transcribe-audio`
+    /// function against the permanent "audio one" fixture's real recording, exactly what this
+    /// task's brief says never to do ("fixture rows are permanent... their transcript must not
+    /// change"). Presence/absence + the busy-vs-idle label text it's capable of are enough to prove
+    /// the wiring without ever tapping it live.
+    func testTranscribeWithSpeakersButtonAndFootprint() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
+
+        let searchField = app.textFields["library.search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+
+        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+
+        func openDetail(search: String) {
+            searchField.tap()
+            searchField.typeText(search)
+            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
+            anyElement("card.typeChip").tap()
+            XCTAssertTrue(app.buttons["detail.done"].waitForExistence(timeout: 10),
+                          "Detail sheet did not present for '\(search)'")
+        }
+
+        func closeDetailAndClearSearch(_ search: String) {
+            app.buttons["detail.done"].tap()
+            XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
+            searchField.tap()
+            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
+            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected the grid back after clearing search")
+        }
+
+        // 1. "audio one" — a stored recording — shows the button, and the Notes editor's
+        // rendered height sits inside the new halved footprint.
+        openDetail(search: "audio one")
+
+        let transcribeButton = app.buttons["detail.transcribeSpeakers"]
+        XCTAssertTrue(transcribeButton.waitForExistence(timeout: 10),
+                      "Expected 'Transcribe with speakers' on an audio item with a stored media file")
+        XCTAssertEqual(transcribeButton.label, "Transcribe with speakers",
+                       "Expected the idle label — this test never taps the button, so it should never read 'Transcribing…'")
+
+        let notesEditor = anyElement("detail.notes.editor")
+        XCTAssertTrue(notesEditor.waitForExistence(timeout: 5), "Expected the Notes editor to render")
+        let editorHeight = notesEditor.frame.height
+        XCTAssertGreaterThanOrEqual(editorHeight, 40,
+                                    "Expected the halved editor's ~44pt floor, got \(editorHeight)")
+        XCTAssertLessThanOrEqual(editorHeight, 130,
+                                 "Expected the halved editor's ~110pt ceiling (previously up to 220pt), got \(editorHeight)")
+
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: transcribe-button\n".data(using: .utf8)!)
+        sleep(2)
+
+        closeDetailAndClearSearch("audio one")
+
+        // 2. "link one" — no stored media file at all — never shows the button.
+        openDetail(search: "link one")
+        XCTAssertFalse(app.buttons["detail.transcribeSpeakers"].exists,
+                       "Did not expect 'Transcribe with speakers' on a link item")
+        closeDetailAndClearSearch("link one")
+    }
+
 }

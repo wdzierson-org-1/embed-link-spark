@@ -25,9 +25,26 @@ struct ItemDetailContent: View {
     var notesFocused: FocusState<DetailField?>.Binding
     var scheduleNotesFlush: () -> Void
     var flushNotesNow: () async -> Void
+    /// Plan 14 Task 2 ("Transcribe with speakers") — all three owned/driven by `ItemDetailView`
+    /// (same "the view that already talks to the network owns the state" split every other save
+    /// site here follows): `isTranscribing` disables the button and swaps its label,
+    /// `transcriptionErrorMessage` renders inline under this section's header on failure (the
+    /// previous transcript stays exactly as it was — this is purely a display concern), and
+    /// `onTranscribeWithSpeakers` is the trigger `ItemDetailView.retranscribe()` hands down.
+    let isTranscribing: Bool
+    let transcriptionErrorMessage: String?
+    var onTranscribeWithSpeakers: () -> Void
 
     private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
     private var tabs: [ContentTab] { config.tabs.filter { $0.key != .notes } }
+    /// Audio/video items with a stored media file only (web parity: `EditItemContentSection.tsx`
+    /// passes `item.file_path` straight through to `TranscriptContent`, which itself gates its
+    /// button on that prop being present) — a `.link`/`.text`/etc. item, or an audio/video row
+    /// that somehow has no `file_path` (shouldn't happen in practice, but nothing to rebuild from
+    /// either way), never shows this affordance.
+    private var showsTranscribeButton: Bool {
+        (item.type == .audio || item.type == .video) && !(item.filePath ?? "").isEmpty
+    }
 
     var body: some View {
         // Outer spacing 0 — `sectionHead` is a `SectionHeader`, which already carries its own
@@ -40,6 +57,13 @@ struct ItemDetailContent: View {
             NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
                         scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
             if !tabs.isEmpty { sectionHead }
+            if showsTranscribeButton, let transcriptionErrorMessage, !transcriptionErrorMessage.isEmpty {
+                Text(transcriptionErrorMessage)
+                    .font(StashType.meta())
+                    .foregroundStyle(StashColor.destructive)
+                    .padding(.bottom, DetailLayout.gap)
+                    .accessibilityIdentifier("detail.transcribeSpeakers.error")
+            }
 
             VStack(alignment: .leading, spacing: DetailLayout.gap) {
                 if let first = tabs.first {
@@ -68,7 +92,14 @@ struct ItemDetailContent: View {
     /// future section-local control needs it.
     private var sectionHead: some View {
         SectionHeader(title: config.title, trailing: {
-            EmptyView()
+            // Plan 14 Task 2: this used to be an always-empty named slot (see the doc comment
+            // above on why it was retired, not deleted, in an earlier round) — "Transcribe with
+            // speakers" is the first control to actually need it. Audio/video's `contentTabsConfig`
+            // never has more than one tab, so this and `accessory`'s `PillTabs` never compete for
+            // the same header.
+            if showsTranscribeButton {
+                transcribeButton
+            }
         }, accessory: {
             if tabs.count > 1 {
                 let pillItems = tabs.map { PillTabs<ContentTabKey>.Item($0.key, label: $0.label) }
@@ -76,6 +107,30 @@ struct ItemDetailContent: View {
                     .accessibilityIdentifier("detail.tabs")
             }
         })
+    }
+
+    /// Text button (DESIGN.md's "muted text + glyph" affordance family, same spirit as the card's
+    /// "Add a note") — mirrors the web's `TranscriptContent.tsx` outline button 1:1 in behavior,
+    /// just native's own plain-text-button chrome rather than a bordered pill: busy disables the
+    /// button and swaps the label to "Transcribing…" with a small spinner alongside it; copy never
+    /// claims real speaker identities ("Speaker 1/2…" is the server's own labeling, this button
+    /// just triggers the rebuild).
+    private var transcribeButton: some View {
+        Button {
+            onTranscribeWithSpeakers()
+        } label: {
+            HStack(spacing: 6) {
+                if isTranscribing {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+                Text(isTranscribing ? "Transcribing…" : "Transcribe with speakers")
+                    .font(StashType.meta())
+            }
+        }
+        .foregroundStyle(isTranscribing ? StashColor.faint : StashColor.violet600)
+        .disabled(isTranscribing)
+        .accessibilityIdentifier("detail.transcribeSpeakers")
     }
 
     private var attachmentsSection: some View {

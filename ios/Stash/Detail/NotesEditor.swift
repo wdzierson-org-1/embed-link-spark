@@ -99,6 +99,16 @@ struct NotesEditor: View {
     var scheduleFlush: () -> Void
     var flushNow: () async -> Void
 
+    /// Plan 14 Task 2 ("Notes editor footprint"): web halved its own detail Notes editor from
+    /// 300px to 150px (`docs/2026-09-13-housekeeping-handoff.md` — "compact Notes") in the same
+    /// review; native mirrors that with its own pre-existing 80–220 range roughly halved to
+    /// 44–110. `@ScaledMetric` (not a plain `CGFloat` constant) so both bounds grow with Dynamic
+    /// Type — a fixed 44pt floor would clip a single line of XXL-size text, and a fixed 110pt
+    /// ceiling would force scrolling far sooner than intended at larger text sizes. `relativeTo:
+    /// .body` matches the editor's own `StashType.body()` font this frame wraps.
+    @ScaledMetric(relativeTo: .body) private var minEditorHeight: CGFloat = 44
+    @ScaledMetric(relativeTo: .body) private var maxEditorHeight: CGFloat = 110
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.isRich, let content = item.content, !content.isEmpty {
@@ -139,19 +149,22 @@ struct NotesEditor: View {
                     .padding(.vertical, 10)
                     .allowsHitTesting(false)
             }
-            // Bounded-but-generous auto-grow (80–220pt) rather than a true unbounded
-            // `fixedSize(vertical: true)` + `scrollDisabled` grow-to-fit — the latter forces a
-            // SwiftUI/UIKit relayout of the TextEditor's own intrinsic size on every keystroke; a
-            // fixed height range keeps the TextEditor's own intrinsic size constant while typing —
-            // it still visually grows the sheet's outer ScrollView content up to `maxHeight`, then
-            // scrolls internally beyond that, same shape "auto-growing" reads as in practice.
+            // Bounded-but-generous auto-grow (44–110pt, Plan 14 Task 2 — roughly half the prior
+            // 80–220pt footprint, web parity's own 150px/half-of-300px move) rather than a true
+            // unbounded `fixedSize(vertical: true)` + `scrollDisabled` grow-to-fit — the latter
+            // forces a SwiftUI/UIKit relayout of the TextEditor's own intrinsic size on every
+            // keystroke; a fixed height range keeps the TextEditor's own intrinsic size constant
+            // while typing — it still visually grows the sheet's outer ScrollView content up to
+            // `maxHeight`, then scrolls internally beyond that (keyboard stays put either way,
+            // since this editor was never what pushes the keyboard offscreen — the sheet's own
+            // ScrollView does), same shape "auto-growing" reads as in practice.
             TextEditor(text: $model.draft)
                 .font(StashType.body())
                 .foregroundStyle(StashColor.ink)
                 .scrollContentBackground(.hidden)
                 .autocorrectionDisabled()
                 .focused(isFocused, equals: .notes)
-                .frame(minHeight: 80, maxHeight: 220)
+                .frame(minHeight: minEditorHeight, maxHeight: maxEditorHeight)
                 // Final wave: `TextEditor` wraps a `UITextView`, which carries its own ~5pt
                 // `textContainer.lineFragmentPadding` on top of whatever SwiftUI padding is
                 // declared here — at the old 7pt that put the typed glyph's left edge ~1pt right

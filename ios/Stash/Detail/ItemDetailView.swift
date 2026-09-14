@@ -67,6 +67,15 @@ struct ItemDetailView: View {
     @State private var editor = ItemEditor(patcher: SupabaseItemPatcher(),
                                             refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
     @State private var fieldDebouncer = Debouncer(interval: .milliseconds(400))
+    /// Plan 14 Task 2 ("Transcribe with speakers") — same one-per-sheet lifetime as `editor`
+    /// above and for the same reason (a plain stored property would be silently reconstructed,
+    /// along with its `EmbeddingRefresher`'s in-flight debounce state, on every re-render). Its
+    /// OWN `EmbeddingRefresher` instance rather than sharing `editor`'s: `ItemEditor` doesn't
+    /// expose the refresher it was built with, and two independent per-item debounce timers
+    /// racing here is harmless — both would ultimately schedule from the same merged row anyway.
+    @State private var transcriptionService = TranscriptionService(refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
+    @State private var isTranscribing = false
+    @State private var transcriptionErrorMessage: String?
     /// Notes' own draft/debounce state (Plan 8 Task 5, hoisted out in fix round 1 — see
     /// `NotesEditorModel`'s own doc comment) — same one-per-sheet lifetime as `editor` above, built
     /// once in `init` from the item's initial content.
@@ -164,7 +173,10 @@ struct ItemDetailView: View {
                         }
                         ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
                                           notesModel: notesModel, notesFocused: $focusedField,
-                                          scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow)
+                                          scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow,
+                                          isTranscribing: isTranscribing,
+                                          transcriptionErrorMessage: transcriptionErrorMessage,
+                                          onTranscribeWithSpeakers: { Task { await retranscribe() } })
 
                         // No standalone divider here anymore — `DetailsDrawer`'s own
                         // `SectionHeader` ("DETAILS") already draws the hairline that used to
@@ -608,6 +620,41 @@ struct ItemDetailView: View {
     private func handleSaved(_ merged: Item) {
         adopt(merged)
         store.applyDetail(merged)
+    }
+
+    /// Plan 14 Task 2 ("Transcribe with speakers"): `ItemDetailContent`'s trigger for the
+    /// Transcript header's button. `TranscriptionService.retranscribe` already guarantees a
+    /// thrown error means nothing was written server-side — this method's own job is purely
+    /// UI-state bookkeeping (busy flag, inline error) plus folding a SUCCESSFUL result back into
+    /// local state through the exact same `handleSaved` every other save site here uses, so the
+    /// Transcript tab's `readOnlyBlock(item.pageBody...)` picks up the new Markdown immediately
+    /// with no extra plumbing.
+    ///
+    /// `saveGeneration`-guarded like every other save site (fix round 1's established pattern):
+    /// this call can legitimately take several seconds (a real transcription job), long enough for
+    /// an unrelated field/notes save to start and finish first — the guard just makes sure THIS
+    /// response, if it's now stale relative to a newer save, doesn't stomp on it. In practice
+    /// `mergePreservingDetail` already protects `description`/`content`/title from a stale
+    /// overwrite regardless; this is defense-in-depth, not the only thing standing between here
+    /// and a lost edit.
+    @MainActor
+    private func retranscribe() async {
+        guard !isTranscribing else { return }
+        isTranscribing = true
+        transcriptionErrorMessage = nil
+        let gen = saveGeneration.next()
+        do {
+            let updated = try await transcriptionService.retranscribe(item: item)
+            if saveGeneration.isLatest(gen) {
+                handleSaved(updated)
+            }
+        } catch {
+            // Web parity copy (`TranscriptContent.tsx`): the previous transcript is untouched —
+            // `item.pageBody` was never mutated on this path, so the Transcript tab still shows
+            // exactly what it did before this tap.
+            transcriptionErrorMessage = "Couldn’t update the transcript. The original is preserved. Please try again."
+        }
+        isTranscribing = false
     }
 
     /// Detail-sheet realtime hygiene: `store.items` (and our own save responses) can bring a
