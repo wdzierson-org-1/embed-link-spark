@@ -18,6 +18,13 @@ struct SettingsView: View {
     // `HowToStashView` the sign-in completion hook in `StashApp.swift` presents once per install;
     // here it's reachable any time regardless of `OnboardingState.hasSeenHowToStash`.
     @State private var showHowToStash = false
+    // Plan 14 fix wave B (finding #7 — delete-sheet presentation race): owned at the List/root
+    // level, not inside `DeleteAccountSection`'s own row — see that type's doc comment for the bug
+    // this fixes. `DeleteAccountSection` only flips this via the binding it's handed; the actual
+    // `.sheet` lives here, alongside the pre-existing sign-out `.confirmationDialog` and
+    // How-to-Stash `.fullScreenCover` — both ROOT-anchored presentations that never exhibited the
+    // bug a ROW-anchored one did.
+    @State private var showDeleteAccountSheet = false
 
     var body: some View {
         // No wordmark/title above this (Will's call, plan 8 — View/Ask/Settings all drop it). The
@@ -31,7 +38,7 @@ struct SettingsView: View {
             SubscriptionSection()
             howToStashSection
             signOutSection
-            DeleteAccountSection(userId: userId)
+            DeleteAccountSection(showSheet: $showDeleteAccountSheet)
             footerSection
         }
         .listStyle(.insetGrouped)
@@ -42,6 +49,10 @@ struct SettingsView: View {
         }
         .fullScreenCover(isPresented: $showHowToStash) {
             HowToStashView()
+        }
+        .sheet(isPresented: $showDeleteAccountSheet) {
+            DeleteAccountConfirmSheet(userId: userId)
+                .presentationDetents([.medium])
         }
     }
 

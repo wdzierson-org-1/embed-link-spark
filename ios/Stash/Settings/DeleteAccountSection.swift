@@ -9,6 +9,52 @@ import StashKit
 /// enabled ONLY on an exact `"DELETE"` match, never a case-insensitive or trimmed one — same as
 /// web's `confirmation !== CONFIRM_WORD` check.
 ///
+/// Plan 14 fix wave B (finding #7, product bug from task-5-report.md): this row used to own the
+/// sheet's presentation directly (`@State private var showSheet` + `.sheet(isPresented:)` right
+/// here on the `Section`). That's a presentation anchored to a `List` ROW, not the List's own
+/// root — and `AccountUITests.testDeleteAccountEndToEnd` reproduced 5/5 under the full suite (T5's
+/// investigation, with `os.Logger` instrumentation): tapping "Delete account" DID flip `showSheet`
+/// true and the sheet genuinely started presenting, but ~1.10-1.104s later (millisecond-consistent
+/// across every run — not a fuzzy race) it silently flipped back to `false` with no user
+/// interaction, and the unified log showed UIKit's
+/// "Attempt to present ... while a presentation is in progress" right at that instant. Root cause:
+/// a **second** List-hosted presentation attempt colliding with this row's own — `AccountSection`
+/// above it in the same `List` runs a real network `.task { await loadUsername() }` that, on a
+/// brand-new account (this test's own shape: sign up → straight to Settings → straight to Delete,
+/// so the fetch is still in flight), flips a loading spinner into 2-3 real rows moments later,
+/// reflowing the whole `List` (UICollectionView-backed under SwiftUI) at just the wrong instant.
+///
+/// The fix: this row no longer owns any presentation state at all — `showSheet` is a `@Binding`
+/// the PARENT (`SettingsView`) owns and presents from at its own List root, alongside the
+/// pre-existing sign-out `.confirmationDialog` and How-to-Stash `.fullScreenCover`, neither of
+/// which ever exhibited this bug precisely because they're root-anchored, not row-anchored. This
+/// row's only job now is flipping that binding true.
+struct DeleteAccountSection: View {
+    @Binding var showSheet: Bool
+
+    var body: some View {
+        Section {
+            Button(role: .destructive) {
+                showSheet = true
+            } label: {
+                Text("Delete account").frame(maxWidth: .infinity, alignment: .center)
+            }
+            .accessibilityIdentifier("settings.deleteAccount")
+        } footer: {
+            Text("Permanently deletes your account and everything in it: every item, file, "
+                 + "transcript, note, and conversation. Your phone number is unlinked and any "
+                 + "subscription is canceled. This cannot be undone.")
+        }
+    }
+}
+
+/// The delete-account confirm sheet's actual content (Plan 14 fix wave B extraction) — presented
+/// from `SettingsView`'s own root `.sheet(isPresented:)`, never from `DeleteAccountSection`'s row
+/// (see that type's doc comment for the presentation-race bug this fixes). Owns its own
+/// `confirmation`/`isDeleting`/`errorMessage`: a `.sheet` content view is freshly instantiated on
+/// every presentation, so there's no need to lift this state up to the root just because the
+/// presentation TRIGGER lives there — only the boolean that opens/closes the sheet does.
+///
 /// Unlike web (an `AlertDialog` that keeps the whole page underneath), this uses a `.medium`
 /// sheet — consistent with this app's other confirm-with-typed-text flow
 /// (`CardNoteEditorSheet`'s own detent) and roomy enough for the longer consequence copy on a
@@ -20,11 +66,11 @@ import StashKit
 /// — never this view's own job to know about any of that. Failure keeps the sheet open with an
 /// inline error and the account fully intact (the edge function's own contract: every step before
 /// the final `auth.admin.deleteUser` is safe to retry).
-struct DeleteAccountSection: View {
+struct DeleteAccountConfirmSheet: View {
     let userId: UUID
 
     @Environment(SessionStore.self) private var session
-    @State private var showSheet = false
+    @Environment(\.dismiss) private var dismiss
     @State private var confirmation = ""
     @State private var isDeleting = false
     @State private var errorMessage: String?
@@ -32,32 +78,6 @@ struct DeleteAccountSection: View {
     private static let confirmWord = "DELETE"
 
     var body: some View {
-        Section {
-            Button(role: .destructive) {
-                confirmation = ""
-                errorMessage = nil
-                showSheet = true
-            } label: {
-                Text("Delete account").frame(maxWidth: .infinity, alignment: .center)
-            }
-            .accessibilityIdentifier("settings.deleteAccount")
-        } footer: {
-            Text("Permanently deletes your account and everything in it: every item, file, "
-                 + "transcript, note, and conversation. Your phone number is unlinked and any "
-                 + "subscription is canceled. This cannot be undone.")
-        }
-        .sheet(isPresented: Binding(
-            get: { showSheet },
-            // Guards against a swipe-to-dismiss mid-delete (web parity: the AlertDialog's own
-            // `handleOpenChange` refuses to close while `deleting` is true).
-            set: { next in if !isDeleting { showSheet = next } }
-        )) {
-            deleteSheet
-                .presentationDetents([.medium])
-        }
-    }
-
-    private var deleteSheet: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Delete your account?")
                 .font(StashType.bodyMedium(17))
@@ -93,7 +113,7 @@ struct DeleteAccountSection: View {
             }
 
             HStack {
-                Button("Cancel") { showSheet = false }
+                Button("Cancel") { dismiss() }
                     .disabled(isDeleting)
                     .accessibilityIdentifier("settings.deleteAccount.cancel")
                 Spacer()
@@ -111,6 +131,11 @@ struct DeleteAccountSection: View {
             }
         }
         .padding(24)
+        // Guards against a swipe-to-dismiss mid-delete (web parity: the AlertDialog's own
+        // `handleOpenChange` refuses to close while `deleting` is true) — `interactiveDismissDisabled`
+        // replaces the old custom `Binding` setter now that presentation lives at the root and this
+        // view no longer has direct write access to the `showSheet` boolean.
+        .interactiveDismissDisabled(isDeleting)
     }
 
     private func performDelete() async {
@@ -123,7 +148,7 @@ struct DeleteAccountSection: View {
         }
         do {
             _ = try await AccountDeleter().delete(using: FunctionsAccountDeletionTransport(), accessToken: accessToken)
-            showSheet = false
+            dismiss()
             await session.completeAccountDeletion(userId: userId)
         } catch {
             errorMessage = Self.message(for: error)

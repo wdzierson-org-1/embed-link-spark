@@ -97,6 +97,31 @@ handoff doc above, not repeated here. Version 1.0, build 10.
   expected. Resolves once Will comps `will+uitest`'s subscription.
 - **Removed-banner check:** the native app has no recurring paste/drop tutorial banner to
   remove (only the Ask composer placeholder) — nothing to do here.
+- **Fix wave B (opus whole-branch review, pre-App-Store-submission build):** share-extension
+  gate copy no longer names `gostash.it` ("Subscribe on gostash.it to add items" → "An active
+  subscription is required to save new items.", App Review 3.1.1/3.1.3(f) — the composer's and
+  Ask's own "Subscribe…"/"…needs an active trial or subscription." copy and Settings' "Manage
+  on gostash.it" link are unaffected, Will's call). A foreground `CaptureViewModel.submit()`
+  that gets a live `403 subscription_required` now enqueues straight to `.parked` (not
+  `.pending`), and the Add tab's outbox badge excludes parked entries — both were previously
+  only true after the *next* `Outbox.drain` pass rediscovered the same 403. Parked entries also
+  unpark on the app's own launch/foreground `SubscriptionStore.refresh()` (not just the Add
+  tab's own `.onChange`), so resubscribing on the web drains without ever opening Add.
+  `ItemCardView`'s `TimelineView(.periodic(by: 30))` now only wraps a card whose
+  `attributes.enrichment` key actually exists — a card that can never dim/pill no longer pays
+  for a perpetual 30s re-render. The detail Notes editor's "Editing note"/"Adds when you tap
+  Done…" hint only shows while focused or with draft content, not under a standing empty field.
+  **Delete-account sheet presentation bug (product bug, not test-only):**
+  `AccountUITests.testDeleteAccountEndToEnd` failed 5/5 under the full UI suite (root cause:
+  `DeleteAccountSection`'s sheet was presented from its own `List` row; `AccountSection`'s
+  async `loadUsername()` resolving on a brand-new account reflowed the List mid-presentation
+  and a second row-hosted presentation attempt collided with it — UIKit tore down the loser
+  ~1.1s after it opened). Fixed by moving the sheet's `@State`/`.sheet(isPresented:)` up to
+  `SettingsView`'s own `List` root (alongside the pre-existing sign-out confirmation and
+  How-to-Stash cover, both already root-anchored and never affected) — `DeleteAccountSection`
+  now only flips a `@Binding`; the confirm UI itself moved into a new `DeleteAccountConfirmSheet`
+  with its own local state, using `.interactiveDismissDisabled(isDeleting)` in place of the old
+  custom dismiss-guard `Binding`.
 
 Spec: `docs/superpowers/plans/2026-09-13-ios-plan-14-housekeeping-mirror-and-app-store-readiness.md`.
 Progress ledger with every decision: `.superpowers/sdd/plan-14/progress.md`.
