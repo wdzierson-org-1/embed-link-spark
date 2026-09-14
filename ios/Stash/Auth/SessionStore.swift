@@ -13,6 +13,11 @@ enum SessionState: Equatable {
 final class SessionStore {
     private(set) var state: SessionState = .loading
     var errorMessage: String?
+    /// Plan 14 T3: set the instant `completeAccountDeletion` finishes; `SignInView` reads it once
+    /// to show the "Your account was deleted." banner (`auth.deletedBanner`) and clears it on its
+    /// own disappearance so a later, ORDINARY sign-out (which never touches this flag) can never
+    /// resurface it.
+    var accountDeletedBannerVisible = false
 
     func start() async {
         #if DEBUG
@@ -85,8 +90,19 @@ final class SessionStore {
             // an optional phone is a best-effort follow-up — its own failure (upsert or the
             // welcome-message invoke) never fails the sign-up itself, exactly like web's nested
             // try/catch that only logs.
-            let cleanPhone = (phone ?? "").filter(\.isNumber)
-            if !cleanPhone.isEmpty {
+            //
+            // Punch-list A8 ("phone storage bug") fix: web's OWN sign-up path passes the raw typed
+            // string straight into a bare digit-strip with no leading-"1" normalization, so a
+            // sign-up-created row and a Settings-created row for the SAME real number end up with
+            // different digit counts (see `PhoneNumber.swift`'s doc comment for the full story).
+            // Routing through `PhoneNumber.normalize` here — the same function `PhoneSection` now
+            // uses — closes that gap rather than porting the bug: a 10-digit number gets "1"
+            // prepended before it's ever written, exactly like `PhoneNumberSetup.tsx`'s
+            // `formatPhoneNumber(...).cleanValue` already does on web's Settings side. An
+            // unparseable phone (never validated at all in the sign-up form today) is silently
+            // skipped, same "never fails sign-up" contract as an upsert/welcome-message failure.
+            if let phone, !phone.trimmingCharacters(in: .whitespaces).isEmpty,
+               case .success(let cleanPhone) = PhoneNumber.normalize(phone) {
                 let phoneBody: [String: AnyJSON] = [
                     "user_id": .string(response.user.id.uuidString),
                     "phone_number": .string(cleanPhone),
@@ -154,6 +170,40 @@ final class SessionStore {
         // locally without broadcast to other sessions — matches web's LogoutButton behavior.
         // Fixes zombie-session incident (see memory/supabase-log-forensics.md).
         try? await StashClient.shared.auth.signOut(scope: .local)
+        state = .signedOut
+    }
+
+    /// Plan 14 T3: called by `DeleteAccountSection` once `delete-account` has confirmed the
+    /// server-side account is gone. Purges every piece of THIS DEVICE's local state that still
+    /// names `userId` — there is nothing left anywhere for any of it to ever be sent to or read
+    /// back from — then hands off to the sign-in screen with the deleted banner armed:
+    ///
+    /// - **Outbox**: `clearAll()` (not `drain()` — the account is gone, nothing should ever be
+    ///   sent). Any entry queued offline before the deletion is discarded outright.
+    /// - **Staged files**: every not-yet-uploaded share/attachment on disk for this user is
+    ///   discarded via the store's existing `pendingStaged()`/`discard(_:)` pair.
+    /// - **App Group cache**: `subscription.canAddContent` (`SubscriptionStore.gateCacheKey`) is
+    ///   removed outright rather than left stale — a fresh sign-up/sign-in on this same device
+    ///   must never briefly inherit a deleted account's last-cached gate value.
+    /// - **Keychain session**: the SAME local-scope `auth.signOut(scope: .local)` `signOut()`
+    ///   above already uses — the server-side account is already gone, so this only ever clears
+    ///   this device's own session, never broadcasts anything.
+    ///
+    /// Deliberately does NOT touch `OnboardingState` (the "How to easily stash" seen-flag) — the
+    /// plan's own contract is "onboarding flags untouched," so a fresh sign-up on this same
+    /// device still sees them exactly as this device already left them.
+    func completeAccountDeletion(userId: UUID) async {
+        let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
+        await outbox.clearAll()
+
+        let staging = StagedFileStore(userId: userId)
+        for url in staging.pendingStaged() { staging.discard(url) }
+
+        UserDefaults(suiteName: AppGroup.identifier)?.removeObject(forKey: SubscriptionStore.gateCacheKey)
+
+        try? await StashClient.shared.auth.signOut(scope: .local)
+
+        accountDeletedBannerVisible = true
         state = .signedOut
     }
 }

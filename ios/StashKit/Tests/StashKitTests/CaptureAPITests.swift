@@ -109,4 +109,27 @@ final class CaptureAPITests: XCTestCase {
         do { _ = try await api.addFile(path: "u/x.png", mimeType: "image/png", fileSize: nil, content: nil, isPublic: false, accessToken: "jwt"); XCTFail() }
         catch { XCTAssertEqual(error as? CaptureError, .malformedResponse) }
     }
+
+    // MARK: - Plan 14 T3: 403 subscription_required detection
+
+    func testCaptureErrorForFailedResponseDetectsSubscriptionRequired() {
+        let body = Data(#"{"error":"subscription_required"}"#.utf8)
+        XCTAssertEqual(captureErrorForFailedResponse(status: 403, body: body), .subscriptionRequired)
+    }
+
+    func testCaptureErrorForFailedResponseOtherThreeOhThreeBodyIsOrdinaryBadStatus() {
+        // A 403 with a DIFFERENT body (e.g. an unrelated auth failure) must not be mistaken for
+        // the subscription gate — only the exact documented shape parks an Outbox entry.
+        let body = Data(#"{"error":"forbidden"}"#.utf8)
+        XCTAssertEqual(captureErrorForFailedResponse(status: 403, body: body), .badStatus(403))
+    }
+
+    func testCaptureErrorForFailedResponseNonThreeOhThreeStatusIsOrdinaryBadStatus() {
+        let body = Data(#"{"error":"subscription_required"}"#.utf8)
+        XCTAssertEqual(captureErrorForFailedResponse(status: 500, body: body), .badStatus(500))
+    }
+
+    func testCaptureErrorForFailedResponseUnparseableBodyIsOrdinaryBadStatus() {
+        XCTAssertEqual(captureErrorForFailedResponse(status: 403, body: Data("not json".utf8)), .badStatus(403))
+    }
 }

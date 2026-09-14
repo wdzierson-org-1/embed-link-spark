@@ -8,6 +8,14 @@ import Supabase
 /// leading "+" — the brief's own "E.164-ish" hedge acknowledges this isn't true E.164; kept this
 /// way for data parity with rows the web already created under this same convention).
 ///
+/// Plan 14 T3 (punch-list A8, "phone storage bug"): the FINAL clean/valid value this view stores
+/// now comes from `StashKit.PhoneNumber.normalize` — the single source of truth shared with
+/// `SessionStore.signUp` — rather than this file's own private `formatPhoneNumber` below, which
+/// stays ONLY as the as-you-type DISPLAY formatter for the text field (cosmetic; never used to
+/// decide validity or what gets written to `user_phone_numbers.phone_number` anymore). The two
+/// happen to agree on every case today, but only one of them is the contract other platforms and
+/// this file's own sign-up counterpart are pinned to.
+///
 /// **Web-parity gap: no OTP, see known-issues.** `usePhoneNumber.ts`'s `registerPhoneNumber`
 /// upserts `verified: true` unconditionally (no verification step exists on either platform yet)
 /// — this port matches that as-is rather than unilaterally "fixing" it; a real OTP/verification
@@ -22,7 +30,11 @@ struct PhoneSection: View {
     @State private var errorMessage: String?
     @State private var deleteTarget: PhoneNumberRow?
 
+    /// Display-only — see the type's doc comment above.
     private var formatted: PhoneFormat { formatPhoneNumber(input) }
+    /// The authoritative validity check for the "Add" button and `add()` itself.
+    private var normalizedInput: Result<String, PhoneNumberError> { PhoneNumber.normalize(input) }
+    private var isInputValid: Bool { if case .success = normalizedInput { return true }; return false }
 
     var body: some View {
         Section {
@@ -98,7 +110,7 @@ struct PhoneSection: View {
                 ProgressView()
             } else {
                 Button("Add") { Task { await add() } }
-                    .disabled(!formatted.isValid)
+                    .disabled(!isInputValid)
                     .accessibilityIdentifier("settings.phone.add")
             }
         }
@@ -125,7 +137,7 @@ struct PhoneSection: View {
     }
 
     private func add() async {
-        guard formatted.isValid else { return }
+        guard case .success(let clean) = normalizedInput else { return }
         isSaving = true
         errorMessage = nil
         defer { isSaving = false }
@@ -133,7 +145,7 @@ struct PhoneSection: View {
         // like `usePhoneNumber.ts`'s `registerPhoneNumber` (no verification step exists yet).
         let body: [String: AnyJSON] = [
             "user_id": .string(userId.uuidString),
-            "phone_number": .string(formatted.clean),
+            "phone_number": .string(clean),
             "verified": .bool(true),
         ]
         do {
@@ -143,7 +155,7 @@ struct PhoneSection: View {
             // Fire-and-forget welcome message (usePhoneNumber.ts:41-48) — its own try/catch on
             // web never fails the registration over this, so `try?` here discards any failure
             // the same way; nothing surfaced to the user either way.
-            let welcomeBody: [String: AnyJSON] = ["phoneNumber": .string(formatted.clean)]
+            let welcomeBody: [String: AnyJSON] = ["phoneNumber": .string(clean)]
             try? await StashClient.shared.functions
                 .invoke("send-welcome-message", options: FunctionInvokeOptions(body: welcomeBody))
             input = ""

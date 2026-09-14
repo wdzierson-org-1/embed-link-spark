@@ -53,6 +53,11 @@ struct SignInView: View {
                 .scrollDismissesKeyboard(.interactively)
             }
         }
+        // Plan 14 T3: the "Your account was deleted." banner is a ONE-SHOT flag — clearing it the
+        // instant this view disappears (the very next `.signedIn` transition, or the app being
+        // backgrounded and this view torn down) means it can never resurface on a later, ordinary
+        // sign-out, which never sets it in the first place.
+        .onDisappear { session.accountDeletedBannerVisible = false }
     }
 
     private var card: some View {
@@ -68,6 +73,18 @@ struct SignInView: View {
                 .font(StashType.body())
                 .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
+
+            if session.accountDeletedBannerVisible {
+                Text("Your account was deleted.")
+                    .font(StashType.meta())
+                    .foregroundStyle(StashColor.muted)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(StashColor.violet300.opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+                    .accessibilityIdentifier("auth.deletedBanner")
+            }
 
             tabPicker
 

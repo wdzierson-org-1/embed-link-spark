@@ -1,10 +1,32 @@
 import Foundation
 import Supabase
 
-public enum CaptureError: Error, Equatable { case badStatus(Int), malformedResponse }
+public enum CaptureError: Error, Equatable {
+    case badStatus(Int)
+    case malformedResponse
+    /// Plan 14 T3 (Outbox park-on-403): the server refused with HTTP 403 and body
+    /// `{"error": "subscription_required"}` — the account's subscription/trial has lapsed, not a
+    /// transient send failure. `Outbox.drain` special-cases this to PARK the entry instead of
+    /// incrementing `attempts` and retrying (see that method's catch clause). Distinct from the
+    /// generic `.badStatus(403)` an agent-token 403 (a different endpoint's shape entirely) or any
+    /// other 403 body would still map to — see `captureErrorForFailedResponse` below.
+    case subscriptionRequired
+}
 
 public protocol JSONPosting: Sendable {
     func post(path: String, body: [String: Any], accessToken: String) async throws -> Data
+}
+
+/// Maps a non-2xx `FunctionsPoster` response to the specific `CaptureError` case it represents.
+/// Pulled out of `post` as its own pure function so the 403 `subscription_required` detection is
+/// unit-testable without a real network round trip (`CaptureAPITests`).
+func captureErrorForFailedResponse(status: Int, body: Data) -> CaptureError {
+    if status == 403,
+       let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+       object["error"] as? String == "subscription_required" {
+        return .subscriptionRequired
+    }
+    return .badStatus(status)
 }
 
 /// POSTs to <supabase>/functions/v1/<path> with the platform's two auth headers.
@@ -20,7 +42,8 @@ public struct FunctionsPoster: JSONPosting {
         request.timeoutInterval = 20
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw CaptureError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw captureErrorForFailedResponse(status: status, body: data)
         }
         return data
     }

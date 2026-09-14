@@ -4,7 +4,8 @@ import StashKit
 /// The Settings tab (Task 7): account info, phone numbers, and subscription status, each
 /// a thin `Section`-returning subview (own network reads — "gate logic tested in Task 3; sections
 /// are thin reads" per the brief, so none of these need new StashKit tests), plus Sign Out
-/// (relocated here from the library toolbar's avatar menu) and a legal/version footer. Tags are
+/// (relocated here from the library toolbar's avatar menu), account deletion (plan 14 T3 —
+/// `DeleteAccountSection`, App Store 5.1.1(v)), and a legal/version footer. Tags are
 /// retired everywhere (final wave, item E — DESIGN.md: "No tag UI on cards or panel"); the
 /// `TagsSection` row this tab used to render was removed, along with its now-orphaned file.
 /// `TagsAPI`/the underlying data are untouched in StashKit.
@@ -30,6 +31,7 @@ struct SettingsView: View {
             SubscriptionSection()
             howToStashSection
             signOutSection
+            DeleteAccountSection(userId: userId)
             footerSection
         }
         .listStyle(.insetGrouped)

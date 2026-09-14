@@ -193,6 +193,26 @@ struct CaptureComposerView: View {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { Task { await viewModel.drainOutbox() } }
         }
+        // Plan 14 T3 (Outbox park-on-403): the moment `SubscriptionStore.refresh()` reports
+        // `canAddContent == true` again — self-heal trial, a resumed subscription checked on
+        // launch/foreground/Settings' own poll, all funnel through this one observed property —
+        // any entries a prior 403 `subscription_required` parked get unparked and this composer's
+        // own `drainOutbox()` (the gate-strip/outbox-badge state this view already owns) sends
+        // them. A FRESH `Outbox` instance over the exact same directory `viewModel`'s own drain
+        // uses (`Outbox.defaultDirectory(userId:)`) — this view has no access to `viewModel`'s
+        // private instance, but the directory (and its cross-process claim protocol) is the
+        // actual shared state, so a second actor instance over it is safe, same as tests and
+        // `StashApp`'s own launch sweep already rely on.
+        .onChange(of: subscription.canAddContent) { _, canAddContent in
+            guard canAddContent else { return }
+            Task {
+                let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
+                let unparked = await outbox.unparkAll()
+                if unparked > 0 {
+                    await viewModel.drainOutbox()
+                }
+            }
+        }
         // Task 6: any resolution failure (fix timeout, geocode came back with nothing nameable, or
         // auth denied) surfaces here — `locationCapture.toggle()` itself never presents UI, it only
         // updates `state`, so this is the one place that turns `.failed` into the brief's alert.

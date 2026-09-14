@@ -2,11 +2,45 @@ import Foundation
 
 public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable { case note, url, file }
+    /// Plan 14 T3 (Outbox park-on-403): `.pending` is drained normally; `.parked` is a capture
+    /// `drain` has already tried and gotten HTTP 403 `{"error":"subscription_required"}` for —
+    /// the account can't add content right now, not "this particular send failed," so retrying it
+    /// on every ordinary drain pass would just burn `attempts` for a reason retrying can never
+    /// fix. See `Outbox.drain`'s park branch and `Outbox.unparkAll` for the two transitions.
+    public enum Status: String, Codable, Sendable { case pending, parked }
     public var id: UUID
     public var kind: Kind
     public var payload: [String: String]
     public var createdAt: Date
     public var attempts: Int
+    public var status: Status
+
+    public init(id: UUID, kind: Kind, payload: [String: String], createdAt: Date, attempts: Int, status: Status = .pending) {
+        self.id = id
+        self.kind = kind
+        self.payload = payload
+        self.createdAt = createdAt
+        self.attempts = attempts
+        self.status = status
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, kind, payload, createdAt, attempts, status }
+
+    /// Custom `Decodable` so an entry written to disk BEFORE this task (no `status` key at all)
+    /// still decodes cleanly as `.pending` rather than failing to decode entirely — every
+    /// existing on-disk Outbox entry, and every entry any earlier StashKit build ever wrote, is
+    /// missing this key. `encode(to:)` stays the compiler-synthesized default (a custom
+    /// `init(from:)` alone doesn't disable `Encodable` synthesis), so a re-persisted entry always
+    /// carries an explicit `status` from then on.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        payload = try container.decode([String: String].self, forKey: .payload)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        attempts = try container.decode(Int.self, forKey: .attempts)
+        status = try container.decodeIfPresent(Status.self, forKey: .status) ?? .pending
+    }
 }
 
 /// Cross-process claim sidecar (Plan 5 Task 3): `<entryId>.claim`, written and read next to the
@@ -145,6 +179,11 @@ public actor Outbox {
         }
         var sent = 0
         for var entry in pending() {
+            // Plan 14 T3: a parked entry is skipped outright — no claim, no attempt, no
+            // `attempts` increment. It stays exactly as it is on disk until `unparkAll` flips it
+            // back to `.pending` (see that method's doc comment for who calls it and when).
+            guard entry.status != .parked else { continue }
+
             // Cross-process claim (Task 3): acquired BEFORE any processing of this entry —
             // including the missing-local-file drop check and the local-file upload lane below —
             // so the claim spans the entry's entire lifecycle for this pass, not just the final
@@ -206,6 +245,19 @@ public actor Outbox {
                 try? FileManager.default.removeItem(at: fileURL(for: entry.id))
                 releaseClaim(for: entry.id)
                 sent += 1
+            } catch CaptureError.subscriptionRequired {
+                // Plan 14 T3 (Outbox park-on-403): the server refused with
+                // `{"error":"subscription_required"}` — the account can't add content right now,
+                // which no amount of retrying this SEND will ever fix. Park it instead of the
+                // ordinary attempts-increment-and-retry path below: `attempts` is deliberately
+                // untouched (this isn't a failure of the send itself), and `drain`'s own guard at
+                // the top of this loop skips it on every subsequent pass until `unparkAll` flips
+                // it back.
+                entry.status = .parked
+                if let data = try? JSONEncoder().encode(entry) {
+                    try? data.write(to: fileURL(for: entry.id), options: .atomic)
+                }
+                releaseClaim(for: entry.id)
             } catch {
                 entry.attempts += 1
                 if let data = try? JSONEncoder().encode(entry) {
@@ -218,6 +270,41 @@ public actor Outbox {
             }
         }
         return sent
+    }
+
+    /// Flips every `.parked` entry back to `.pending` — called once `SubscriptionStore.refresh()`
+    /// reports `canAddContent == true` again (see `CaptureComposerView`'s
+    /// `.onChange(of: subscription.canAddContent)`, which constructs a fresh `Outbox` over this
+    /// same directory and calls this before its own next `drainOutbox()`). Idempotent and cheap
+    /// when nothing is parked — safe to call on every entitlement-restored signal, not just the
+    /// first one after a park. Doesn't itself send anything; the very next `drain` picks up the
+    /// now-`.pending` entries normally.
+    ///
+    /// - Returns: the number of entries unparked, for callers/tests that want to confirm work
+    ///   actually happened.
+    @discardableResult
+    public func unparkAll() -> Int {
+        var count = 0
+        for var entry in pending() where entry.status == .parked {
+            entry.status = .pending
+            if let data = try? JSONEncoder().encode(entry) {
+                try? data.write(to: fileURL(for: entry.id), options: .atomic)
+                count += 1
+            }
+        }
+        return count
+    }
+
+    /// Deletes every entry (and any claim sidecar) in this Outbox's directory outright, ignoring
+    /// `status`/`attempts` entirely — used by account deletion
+    /// (`SessionStore.completeAccountDeletion`) once the server has confirmed the account itself
+    /// is gone: there is nothing left anywhere to ever send these to. Unlike `drain`, this never
+    /// attempts a claim or a send first.
+    public func clearAll() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.pathExtension == "json" || file.pathExtension == "claim" {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     /// Attempts to acquire ownership of `id` for this `drain` pass. Returns `true` if this call

@@ -529,4 +529,114 @@ final class OutboxTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: claimURL.path),
                        "a failed send must release its claim so a retry — by this process or another — can pick the entry up")
     }
+
+    // MARK: - Plan 14 T3: Outbox park-on-403
+
+    func testDrainParksEntryOn403SubscriptionRequiredWithoutIncrementingAttempts() async throws {
+        let box = Outbox(directory: dir)
+        try await box.enqueue(.note, payload: ["content": "n1", "is_public": "false"])
+        let poster = ErrorThrowingPoster(error: CaptureError.subscriptionRequired)
+        let sent = await box.drain(api: CaptureAPI(poster: poster), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+
+        XCTAssertEqual(sent, 0)
+        let after = await box.pending()
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after[0].status, .parked)
+        XCTAssertEqual(after[0].attempts, 0, "a park is not a failed send attempt — attempts must stay untouched")
+    }
+
+    func testDrainSkipsParkedEntriesEntirelyOnSubsequentPasses() async throws {
+        let box = Outbox(directory: dir)
+        try await box.enqueue(.note, payload: ["content": "parked-one", "is_public": "false"])
+        let parkPoster = ErrorThrowingPoster(error: CaptureError.subscriptionRequired)
+        _ = await box.drain(api: CaptureAPI(poster: parkPoster), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+
+        // Second drain, this time with a poster that WOULD succeed — the parked entry must still
+        // be skipped (no claim taken, no send attempted, no attempts increment) until unparked.
+        let succeedingPoster = StubPoster(); succeedingPoster.response = noteJSON
+        let sent = await box.drain(api: CaptureAPI(poster: succeedingPoster), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+
+        XCTAssertEqual(sent, 0)
+        let after = await box.pending()
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after[0].status, .parked)
+        XCTAssertEqual(after[0].attempts, 0)
+    }
+
+    func testUnparkAllRestoresPendingAndPersistsAcrossInstances() async throws {
+        let box = Outbox(directory: dir)
+        try await box.enqueue(.note, payload: ["content": "n1", "is_public": "false"])
+        let parkPoster = ErrorThrowingPoster(error: CaptureError.subscriptionRequired)
+        _ = await box.drain(api: CaptureAPI(poster: parkPoster), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+        let parked = await box.pending()
+        XCTAssertEqual(parked.first?.status, .parked)
+
+        let unparkedCount = await box.unparkAll()
+        XCTAssertEqual(unparkedCount, 1)
+
+        // Read back through a FRESH `Outbox` instance over the same directory — proves the
+        // pending→parked→pending round trip is durably persisted, not just in-memory.
+        let rehydrated = Outbox(directory: dir)
+        let afterUnpark = await rehydrated.pending()
+        XCTAssertEqual(afterUnpark.first?.status, .pending)
+
+        // And a subsequent drain actually sends it now.
+        let succeedingPoster = StubPoster(); succeedingPoster.response = noteJSON
+        let sent = await rehydrated.drain(api: CaptureAPI(poster: succeedingPoster), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+        XCTAssertEqual(sent, 1)
+    }
+
+    func testUnparkAllOnNothingParkedIsANoOp() async throws {
+        let box = Outbox(directory: dir)
+        try await box.enqueue(.note, payload: ["content": "ordinary", "is_public": "false"])
+        let unparkedCount = await box.unparkAll()
+        XCTAssertEqual(unparkedCount, 0)
+        let pending = await box.pending()
+        XCTAssertEqual(pending.first?.status, .pending)
+    }
+
+    func testClearAllRemovesEntriesAndClaimSidecarsRegardlessOfStatus() async throws {
+        let box = Outbox(directory: dir)
+        try await box.enqueue(.note, payload: ["content": "one", "is_public": "false"])
+        try await box.enqueue(.note, payload: ["content": "two", "is_public": "false"])
+        let parkPoster = ErrorThrowingPoster(error: CaptureError.subscriptionRequired)
+        _ = await box.drain(api: CaptureAPI(poster: parkPoster), accessToken: "jwt", userId: UUID(), upload: noOpUpload)
+        // Leave a stray claim sidecar behind too, to prove clearAll sweeps those as well.
+        let strayId = UUID()
+        _ = await box.claimEntry(id: strayId)
+
+        await box.clearAll()
+
+        let after = await box.pending()
+        XCTAssertTrue(after.isEmpty)
+        let remaining = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        XCTAssertTrue(remaining.isEmpty, "clearAll must remove every .json entry and .claim sidecar")
+    }
+
+    func testEntryWithNoStatusKeyDecodesAsPendingForBackwardCompatibility() throws {
+        // Simulates an entry a pre-plan-14 StashKit build wrote to disk, with no `status` key at
+        // all — must still decode (and drain normally) rather than fail to decode entirely.
+        let id = UUID()
+        let json = """
+        {"id":"\(id.uuidString)","kind":"note","payload":{"content":"legacy","is_public":"false"},
+         "createdAt":\(Date().timeIntervalSinceReferenceDate),"attempts":0}
+        """
+        // OutboxEntry.createdAt is a plain `Date`, which JSONEncoder/Decoder by default encode as
+        // a `Double` (secondsSinceReferenceDate) — matching the encoder Outbox itself uses
+        // (`JSONEncoder()` with no explicit `.dateEncodingStrategy`).
+        let data = Data(json.utf8)
+        let entry = try JSONDecoder().decode(OutboxEntry.self, from: data)
+        XCTAssertEqual(entry.status, .pending)
+    }
+}
+
+/// `JSONPosting` that always throws a specific, caller-supplied error — used by the park-on-403
+/// tests above to simulate `CaptureAPI`'s `.subscriptionRequired` mapping without needing a real
+/// HTTP round trip through `FunctionsPoster`.
+private final class ErrorThrowingPoster: JSONPosting, @unchecked Sendable {
+    let error: Error
+    init(error: Error) { self.error = error }
+    func post(path: String, body: [String: Any], accessToken: String) async throws -> Data {
+        throw error
+    }
 }
