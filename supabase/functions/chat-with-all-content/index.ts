@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { authenticateUser } from '../_shared/auth.ts';
+import { notesSnippet, plainNotes } from '../_shared/notes.ts';
 
 // Ask Stash — agentic retrieval. The model drives search itself through three
 // tools (search_stash, browse_catalog, get_item) instead of a fixed
@@ -35,6 +36,10 @@ const SEARCH_MAX_LIMIT = 12;
 // Backstop hits appended past the filtered group (soft filters, spec R1)
 const SEARCH_EXTRA_LIMIT = 4;
 const SNIPPET_CHARS = 300;
+// The user's own note rides on every result as its own line (2026-09-14):
+// on long links the best-matching chunk is usually page body, which used to
+// hide the note — the highest-signal field — from the model entirely.
+const SEARCH_NOTES_CHARS = 280;
 const ITEM_BODY_CHARS = 6000;
 const ITEM_NOTES_CHARS = 4000;
 const CATALOG_MAX_ITEMS = 1500;
@@ -79,7 +84,7 @@ const TOOLS = [
     function: {
       name: 'search_stash',
       description:
-        "Search the user's saved items (hybrid semantic + keyword over titles, notes, summaries, and full captured text). Returns compact results with citation numbers. Call it more than once with different queries or filters for multi-part questions, and rephrase if the first results look irrelevant.",
+        "Search the user's saved items (hybrid semantic + keyword over titles, notes, summaries, and full captured text). Returns compact results with citation numbers; when the user wrote a note on an item it appears as a 'Notes:' line — those are the user's own words about why they saved it, the strongest signal there is. Call it more than once with different queries or filters for multi-part questions, and rephrase if the first results look irrelevant.",
       parameters: {
         type: 'object',
         properties: {
@@ -137,8 +142,6 @@ interface RegistryEntry {
   url: string | null;
   fetchedInFull: boolean;
 }
-
-const stripHtml = (text: string): string => text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 const generateQueryEmbedding = async (text: string, openAIApiKey: string): Promise<number[]> => {
   const response = await fetch('https://api.openai.com/v1/embeddings', {
@@ -340,7 +343,7 @@ serve(async (req) => {
       interface SearchHit {
         item_id: string; item_title: string | null; item_type: string; item_url: string | null;
         item_created_at: string | null; item_flavor: string | null; score: number;
-        content_chunk: string | null; item_description: string | null;
+        content_chunk: string | null; item_description: string | null; item_content: string | null;
       }
 
       // Select up to `limit` primary hits and up to SEARCH_EXTRA_LIMIT
@@ -376,7 +379,12 @@ serve(async (req) => {
         const flavor = hit.item_flavor ? `/${hit.item_flavor}` : '';
         const label = outside ? ' — outside your filters, may still be it' : '';
         const snippet = (hit.content_chunk || hit.item_description || '').slice(0, SNIPPET_CHARS);
-        blocks.push(`[${entry.n}] ${entry.title} (${entry.type}${flavor}${saved})${label} id:${entry.id}\n${snippet}`);
+        const notes = notesSnippet(hit.item_content, SEARCH_NOTES_CHARS);
+        blocks.push(
+          `[${entry.n}] ${entry.title} (${entry.type}${flavor}${saved})${label} id:${entry.id}`
+          + (notes ? `\nNotes: ${notes}` : '')
+          + `\n${snippet}`,
+        );
       }
 
       const filtersUsed = (types || tags || args.after || args.before)
@@ -422,10 +430,14 @@ serve(async (req) => {
         .eq('id', id)
         .eq('user_id', user.id)
         .maybeSingle();
-      if (error || !item) return 'Item not found.';
+      if (error || !item) {
+        await logRetrieval('get_item', null, { id }, [], 0);
+        return 'Item not found.';
+      }
 
       const entry = register(item);
       entry.fetchedInFull = true;
+      await logRetrieval('get_item', null, { id }, [item.id], 1);
 
       const parts: string[] = [
         `[${entry.n}] ${entry.title} (${item.type} · saved ${String(item.created_at).slice(0, 10)})`,
@@ -434,7 +446,8 @@ serve(async (req) => {
       const location = item.attributes?.location?.label;
       if (location) parts.push(`Saved at: ${location}`);
       if (item.description) parts.push(`Description: ${item.description}`);
-      if (item.content) parts.push(`User's notes: ${stripHtml(item.content).slice(0, ITEM_NOTES_CHARS)}`);
+      const notes = plainNotes(item.content);
+      if (notes) parts.push(`User's notes: ${notes.slice(0, ITEM_NOTES_CHARS)}`);
       if (item.supplemental_note) parts.push(`Sticky note: ${item.supplemental_note}`);
       if (item.summary) parts.push(`Summary: ${item.summary}`);
       if (item.page_body) parts.push(`Captured text:\n${item.page_body.slice(0, ITEM_BODY_CHARS)}`);
@@ -444,7 +457,7 @@ serve(async (req) => {
     const today = new Date().toISOString().slice(0, 10);
     const systemPrompt = `You are Stash, the user's personal memory assistant. Today is ${today}.
 
-For ANY question about the user's saved content, use the tools before answering — never assume something isn't saved without looking. Rewrite the user's words into focused queries; for follow-up questions, resolve pronouns and references from the conversation before searching. Date filters are reliable anchors ("last week" → after). Type filters are guesses — the stored type often differs from the user's word: YouTube and other web videos are saved as links (shown as link/video), voice notes and memos are audio, and "note" can mean a text note OR a voice note. Results labeled "outside your filters" are just as real as the rest — usually the filter guess was wrong, not the item missing. Use browse_catalog when the message is only a word or two, when recall is fuzzy ("that site from a while ago"), for "what do I have about…" questions, or when search results look irrelevant. NEVER tell the user something isn't saved until an unfiltered search or browse_catalog came up empty too. When several items could plausibly match a fuzzy memory, offer the top 2–4 candidates and ask which one they mean. Use get_item to read an item in full when a snippet isn't enough — especially before quoting details, and always before citing an item you found only in browse_catalog.
+For ANY question about the user's saved content, use the tools before answering — never assume something isn't saved without looking. Always run search_stash with the user's own key words first (before browse_catalog, and never with a title copied from the catalog as the query); then rewrite into focused queries as needed; for follow-up questions, resolve pronouns and references from the conversation before searching. A "Notes:" line on a result is the user's own note on that item — their words about why they saved it — and outweighs anything in the snippet: when a note matches the question, that item is the answer. Date filters are reliable anchors ("last week" → after). Type filters are guesses — the stored type often differs from the user's word: YouTube and other web videos are saved as links (shown as link/video), voice notes and memos are audio, and "note" can mean a text note OR a voice note. Results labeled "outside your filters" are just as real as the rest — usually the filter guess was wrong, not the item missing. Use browse_catalog when the message is only a word or two, when recall is fuzzy ("that site from a while ago"), for "what do I have about…" questions, or when search results look irrelevant. NEVER tell the user something isn't saved until an unfiltered search or browse_catalog came up empty too. When several items could plausibly match a fuzzy memory, offer the top 2–4 candidates and ask which one they mean. Use get_item to read an item in full when a snippet isn't enough — especially before quoting details, and always before citing an item you found only in browse_catalog.
 
 Answer using ONLY what the tools return, and cite the saved items you used. When you mention an item by name, write its title as a markdown link whose destination is the item's bracket number — like [Beyond the Basics](#3) — so the user can open the card directly. For claims that don't name the item, append the bare bracket number like [3] — but never add one to a sentence whose item title is already linked. Only cite items you actually used. Be concise and direct. If searching turned up nothing relevant, say so plainly and suggest different keywords. If the user asks how to use the Stash app itself, answer from the APP GUIDE (no citations, no search needed).
 

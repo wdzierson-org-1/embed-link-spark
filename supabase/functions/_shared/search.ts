@@ -11,11 +11,17 @@
 //   • filter mode — no/empty query: newest-first listing under the same
 //                   filters (type, date range, tags).
 //
-// No imports on purpose: normalizeSearchRequest is unit-tested under vitest.
+// Only relative _shared imports so the module stays unit-testable under vitest.
+
+import { notesSnippet } from './notes.ts';
 
 export const ITEM_TYPES = ['text', 'link', 'image', 'audio', 'video', 'document'] as const;
 export type ItemType = typeof ITEM_TYPES[number];
 export const SNIPPET_CHARS = 280;
+// The user's own note on the item, rendered separately from the snippet: it is
+// the highest-signal field (their words about why they saved it) and on long
+// links it would otherwise lose the snippet slot to a page-body chunk.
+export const NOTES_CHARS = 280;
 export const SEARCH_DEFAULT_LIMIT = 20;
 export const SEARCH_MAX_LIMIT = 50;
 
@@ -35,6 +41,7 @@ export interface SearchResult {
   url: string | null;
   created_at: string;
   description: string | null;
+  notes: string | null;
   snippet: string | null;
   score: number | null;
 }
@@ -113,6 +120,7 @@ export async function searchItems(req: SearchRequest, deps: SearchDeps): Promise
         url: hit.item_url,
         created_at: hit.item_created_at,
         description: hit.item_description,
+        notes: notesSnippet(hit.item_content, NOTES_CHARS),
         snippet: hit.content_chunk ? hit.content_chunk.slice(0, SNIPPET_CHARS) : null,
         score: hit.score,
       });
@@ -138,7 +146,7 @@ export async function searchItems(req: SearchRequest, deps: SearchDeps): Promise
 
   let listQuery = supabaseAdmin
     .from('items')
-    .select('id, title, type, url, created_at, description')
+    .select('id, title, type, url, created_at, description, content')
     .eq('user_id', userId)
     .neq('type', 'collection')
     .order('created_at', { ascending: false })
@@ -153,7 +161,7 @@ export async function searchItems(req: SearchRequest, deps: SearchDeps): Promise
 
   return (data ?? []).map((item: {
     id: string; title: string | null; type: string; url: string | null;
-    created_at: string; description: string | null;
+    created_at: string; description: string | null; content: string | null;
   }) => ({
     id: item.id,
     title: item.title,
@@ -161,6 +169,7 @@ export async function searchItems(req: SearchRequest, deps: SearchDeps): Promise
     url: item.url,
     created_at: item.created_at,
     description: item.description,
+    notes: notesSnippet(item.content, NOTES_CHARS),
     snippet: item.description ? item.description.slice(0, SNIPPET_CHARS) : null,
     score: null,
   }));
