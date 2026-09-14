@@ -38,14 +38,12 @@ public struct ContentTabsConfig: Sendable, Equatable {
 public func contentTabsConfig(for type: ItemType) -> ContentTabsConfig {
     switch type {
     case .link, .document:
-        return .init(title: "Notes & Summary", defaultTab: .summary, tabs: [
+        return .init(title: "Source", defaultTab: .summary, tabs: [
             .init(key: .summary, label: "Summary"),
             .init(key: .original, label: "Original Content"),
-            .init(key: .notes, label: "Notes"),
         ])
     case .audio, .video:
-        return .init(title: "Notes & Transcript", defaultTab: .notes, tabs: [
-            .init(key: .notes, label: "Notes"),
+        return .init(title: "Transcript", defaultTab: .transcript, tabs: [
             .init(key: .transcript, label: "Transcript"),
         ])
     default:
