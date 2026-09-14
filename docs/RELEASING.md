@@ -165,3 +165,88 @@ call. Give it a while and check spam. If it never arrives, the fallback is
 two clicks in the UI: **App Store Connect → your app → TestFlight → Internal
 Testing → Internal group → select the tester → Resend Invite** (or remove
 and re-add the tester to the group).
+
+## App Store submission (1.0)
+
+Plan 14 Task 4 prepared everything an agent can prepare unattended. This
+section is the map of what's scripted via `asc-api.sh`, what's manual in the
+App Store Connect UI, and the pre-submit checklist. It assumes the version
+record already exists — App Store Connect version resource ids in use for
+1.0: version `c5b26d42-dcd6-466f-abd4-d91d37cf6d59`, appInfo
+`be42aba1-dc93-4a7a-963e-45b14437c2f4`, en-US localization
+`4aeaf6b9-40c6-43c3-a89b-4f17162094cb` (app id `6806459949`, from the
+"Key facts" above). Exact copy for every field below lives in
+`docs/app-store/2026-09-13-listing.md`.
+
+### Metadata via `asc-api.sh`
+
+All of the following are plain REST calls through the same wrapper used for
+TestFlight above — no new auth, no new tooling:
+
+- **`PATCH /v1/appStoreVersionLocalizations/<en-US localization id>`** —
+  `description`, `keywords`, `promotionalText`, `whatsNew`, `supportUrl`,
+  `marketingUrl`.
+- **`PATCH /v1/appInfoLocalizations/<en-US appInfo localization id>`** —
+  `name`, `subtitle`, `privacyPolicyUrl` (this resource is nested under
+  `appInfos`, not `appStoreVersions` — look up its id via `GET
+  /v1/appInfos/<appInfo id>/appInfoLocalizations` first).
+- **`PATCH /v1/appInfos/<appInfo id>`** — `relationships.primaryCategory`
+  (`PRODUCTIVITY`) and `relationships.secondaryCategory` (`UTILITIES`).
+- **`PATCH /v1/ageRatingDeclarations/<declaration id>`** (id from `GET
+  /v1/appInfos/<appInfo id>/ageRatingDeclaration`) — every questionnaire
+  attribute set to its `NONE`/`false` default per
+  `docs/app-store/2026-09-13-listing.md`'s age-rating section.
+- **`POST /v1/appStoreReviewDetails`** (or `PATCH
+  /v1/appStoreReviewDetails/<id>` if one already exists for this version) —
+  `contactFirstName`/`contactLastName`/`contactPhone`/`contactEmail`,
+  `demoAccountName`/`demoAccountPassword`/`demoAccountRequired: true`,
+  `notes` (the App Review notes block in the listing doc). The demo
+  password is typed into this field directly from
+  `ios/.env.test.local`'s `STASH_REVIEW_PASSWORD` — never written to a
+  committed file.
+- **`PATCH /v1/appStoreVersions/<version id>/relationships/build`** —
+  attaches the uploaded, `VALID` build (10+) to this version record once
+  it's processed (same build-processing poll as the TestFlight flow above).
+- **`appScreenshotSets` → `appScreenshots` upload flow** — create/find the
+  6.9" set (`screenshotDisplayType: APP_IPHONE_69`) under the en-US
+  localization via `POST /v1/appScreenshotSets`, then per screenshot:
+  `POST /v1/appScreenshots` (reserve, returns upload-operation URLs), `PUT`
+  each chunk to the returned URLs, then `PATCH
+  /v1/appScreenshots/<id>` with the computed `sourceFileChecksum` (md5) to
+  commit. Poll `assetDeliveryState.state` until `COMPLETE` for each. See the
+  plan's Task 4 for the `asc-api.sh upload-screenshot <setId> <png>`
+  subcommand this flow was built around.
+
+### What stays manual in the App Store Connect UI
+
+- **App Privacy (nutrition label) answers** — not settable via this API
+  version; Will clicks the exact answers in
+  `docs/app-store/2026-09-13-app-privacy-answers.md` at App Store Connect →
+  Stash → App Privacy.
+- **The "Submit for Review" click itself** — deliberately never automated.
+  Everything up to this point (metadata, build attach, screenshots) can be
+  scripted; submission is Will's decision.
+
+### Pre-submit checklist
+
+- [ ] Stripe: the demo account (`will+review@dzierson.com`) has an active
+      comp/subscription that will not lapse during the review window — App
+      Review needs `canAddContent == true` to exercise capture. Check
+      before submitting, not after a rejection.
+- [ ] Build: version 1.0, a `VALID` build attached to the 1.0 version record
+      (not just to a TestFlight group).
+- [ ] Screenshots: all six 6.9" frames uploaded and each showing
+      `assetDeliveryState.state == COMPLETE`.
+- [ ] Metadata: name, subtitle, promotional text, description, keywords,
+      whatsNew, support/marketing/privacy URLs, categories, copyright, and
+      age rating all PATCHed and visible in the ASC UI.
+- [ ] App Review notes: demo account, contact phone, and the 3.1.3(f)/no-IAP
+      explanation are present; the demo password was typed only into the
+      ASC field.
+- [ ] App Privacy nutrition label: answers entered manually per
+      `docs/app-store/2026-09-13-app-privacy-answers.md`.
+- [ ] Privacy manifests: both `PrivacyInfo.xcprivacy` files are in the
+      archived build (`ios/Stash/PrivacyInfo.xcprivacy`,
+      `ios/StashShareExtension/PrivacyInfo.xcprivacy`, wired as resources in
+      `ios/project.yml`) — confirm via the archive's generated privacy
+      report before submitting.

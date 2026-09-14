@@ -20,6 +20,10 @@ targets:
     type: application
     platform: iOS
     sources: [Stash]
+    # Plan 14 Task 4: app-owned privacy manifest (required-reason API + collected-data
+    # declarations) — see docs/app-store/2026-09-13-app-privacy-answers.md for the grep evidence.
+    resources:
+      - path: Stash/PrivacyInfo.xcprivacy
     dependencies:
       - package: StashKit
       # Plan 5 Task 5: embeds the built StashShareExtension.appex into Stash.app/PlugIns —
@@ -92,6 +96,10 @@ targets:
       - path: Stash/Design/Fonts
         excludes:
           - "PPEditorialNew-Regular.ttf"
+    # Plan 14 Task 4: extension's own copy of the privacy manifest — an appex has its own bundle,
+    # same reasoning as the UIAppFonts/Info.plist duplication above.
+    resources:
+      - path: StashShareExtension/PrivacyInfo.xcprivacy
     dependencies:
       - package: StashKit
     settings:
