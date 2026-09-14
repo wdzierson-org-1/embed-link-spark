@@ -29,7 +29,7 @@
 
 ## Rollout and verification
 
-Apply `supabase/migrations/20260913120000_item_enrichment_state.sql` before deploying the web app and updated `add-url`, `add-file`, and `transcribe-audio` functions. The RPC is security-invoker and restricted to the item's owner or service role; ordinary RLS still applies. No schema migration or edge function was deployed as part of this local implementation.
+Apply `supabase/migrations/20260913120000_item_enrichment_state.sql` before deploying the web app and updated `add-url`, `add-file`, and `transcribe-audio` functions. The RPC is security-invoker and restricted to the item's owner or service role; ordinary RLS still applies. The initial implementation was local; production rollout is recorded below.
 
 OpenAI documentation: https://developers.openai.com/api/docs/guides/speech-to-text
 
@@ -41,7 +41,7 @@ Validation: web build and TypeScript check; automated card keyboard/save/failure
 
 The user approved the masonry layout from `/design/cards`, its PP Neue Montreal card headings, and the “Gathering more information…” treatment. The main local web app now uses that presentation: natural-height cards, 24px gutters, one/two/three columns, and Montreal medium 20px headings with -0.014em tracking. Compact views stop at two columns. CSS columns read down and then across; existing search/reminder ranking is retained in DOM order.
 
-The earlier aligned grid and PP Editorial New card headings remain selectable through `LIBRARY_PRESENTATION = 'aligned'` in `src/utils/libraryPresentation.ts`. Exact pre-change source copies and rollback instructions are saved in `docs/ui-snapshots/2026-09-13-before-masonry/`. The default is `'masonry'` for local review; nothing was deployed remotely.
+The earlier aligned grid and PP Editorial New card headings remain selectable through `LIBRARY_PRESENTATION = 'aligned'` in `src/utils/libraryPresentation.ts`. Exact pre-change source copies and rollback instructions are saved in `docs/ui-snapshots/2026-09-13-before-masonry/`. This first review used `'masonry'`; the final default and production rollout are recorded below.
 
 The web detail Notes editor is now 150px high (previously 300px); the inner editable minimum is 120px. Loading placeholders match the reduced height and the old mobile 400px spacer is removed. The formatting hint sits below the editor; full formatting, autosave, scrolling, and maximize remain available.
 
@@ -66,3 +66,12 @@ The card editor now uses the detail fields' pale violet surface and soft lavende
 After a confirmed successful save, a 450ms lavender wash settles over the note and a small checkmark/“Saved” confirmation appears briefly. Failure retains the draft and shows an error instead of success feedback. Reduced-motion users get a static confirmation. The overlays do not affect masonry geometry.
 
 Existing notes now have a straight, square-ended violet rule along their left edge, matching the user's reference image; only the right corners of the hover surface are rounded. Carry this treatment into the native card-note work. Native saves should use the same brief, accessible success acknowledgment without adding keyboard instructions to the touch UI.
+
+## Production release — September 13, 2026
+
+- Implementation commit: `cfdc4a18`, pushed to `main`.
+- Applied `20260913120000_item_enrichment_state.sql` through the authenticated Supabase CLI. The dry run showed this migration alone. Historical remote migrations were fetched into a temporary release directory because this checkout has older migration-history gaps; no historical migration records were repaired or replayed.
+- Deployed and verified ACTIVE: `add-url` version 68, `add-file` version 15, `transcribe-audio` version 27. Existing JWT verification settings were preserved (true, true, false respectively).
+- Vercel production deployment `dpl_BFywBGZqD584TgTnoJMWkDxNLPU9` is Ready and aliased to `https://www.gostash.it`. The final layout is `masonry-rows`.
+- Release validation: all 363 web tests passed; TypeScript, focused lint, and production build passed. Production `/home` returns HTTP 200, and the served bundle contains the new note editor, saved animation, enrichment treatment, and speaker transcription action.
+- Native source changes and follow-up instructions are checked in. No new TestFlight build was released in this step. Existing recordings were not reprocessed.
