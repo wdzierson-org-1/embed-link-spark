@@ -74,7 +74,49 @@
 
 ### Task 5: Wrap
 
-- [ ] Merge origin/main (expect the housekeeping web commit — iOS hunks identical to the carried base; resolve by keeping ours where they differ only in comments).
-- [ ] `docs/ui-changes.md` entry "2026-09-13 · iOS housekeeping mirror + App Store readiness (plan 14)"; plan Outcome.
-- [ ] Suites: StashKit, `npm test`, UI ×2 (expect the standing 3 unless comps landed).
-- [ ] `release.sh all` → upload build 10 → VALID → attach both TestFlight groups → attach to App Store version 1.0 (`PATCH /v1/appStoreVersions/{id}/relationships/build`) → beta review submit for build 10 if nothing is in review. Do NOT create an App Store review submission — that is Will's click.
+- [x] Merge origin/main (expect the housekeeping web commit — iOS hunks identical to the carried base; resolve by keeping ours where they differ only in comments).
+- [x] `docs/ui-changes.md` entry "2026-09-13 · iOS housekeeping mirror + App Store readiness (plan 14)"; plan Outcome.
+- [x] Suites: StashKit, `npm test`, UI ×2 (expect the standing 3 unless comps landed).
+- [x] `release.sh all` → upload build 10 → VALID → attach both TestFlight groups → attach to App Store version 1.0 (`PATCH /v1/appStoreVersions/{id}/relationships/build`) → beta review submit for build 10 if nothing is in review. Do NOT create an App Store review submission — that is Will's click.
+
+## Outcome
+
+**Commits (branch `worktree-ios-plan-14`, not pushed):**
+
+- `2a73e36c` — T1: card notes editor, Montreal card headings, 24pt gutters.
+- `5bca9ec6` + fix `d9f60118` — T3: account deletion, E.164 phone storage, Outbox parks on
+  subscription 403 (fix: `AccountUITests.testDeleteAccountEndToEnd` teardown now deletes the
+  throwaway account even on a mid-test failure).
+- `fa4c8b6e` — merge origin/main (production housekeeping release `cfdc4a18`: web masonry
+  layout, enrichment-state RPC/migration, diarized `transcribe-audio`) into the plan-14
+  worktree; one conflict in `ItemCardView.swift` resolved keeping ours (the carried base
+  already matched theirs).
+- `b6625bb7` — T2: transcribe with speakers, half-height notes editor.
+- `a1582a86` — fix wave A: card-tap tests moved off the note hit area (`card.typeChip`) after
+  T1's new gesture intercepted them; transcript-tab assertion fix; card-note sheet field sized
+  44/110 with `@ScaledMetric`; rich-mode placeholder copy ("Add to note…").
+- `0f182df1` — T4b: version 1.0/build 10, review account seeded, 6 App Store screenshots
+  uploaded (COMPLETE), metadata + age rating + review detail pushed to ASC.
+- (this task) — docs(ios): plan-14 outcome; ui-changes entry; build 10 + amendment with
+  final build id/states.
+
+**Reviews:** T1 APPROVE (one nit folded into the fix wave). T3 NEEDS FIX → fixed → CLOSED. T2
+APPROVE (flagged two pre-existing test failures, both confirmed genuine and fixed in the fix
+wave). T4a/T4b not independently re-reviewed beyond their own dispatch (docs/manifests/ASC
+pushes only, no product-behavior risk).
+
+**Decisions carried from the ledger** (`.superpowers/sdd/plan-14/progress.md`):
+
+- Card note edits never flatten rich TipTap `content`; append-only via the existing
+  `appendNoteParagraph` path.
+- `screenshotDisplayType` for the 6.9" set is actually `APP_IPHONE_67` on this ASC API
+  version, not `APP_IPHONE_69` as the plan assumed (live API rejects the latter).
+- `whatsNew` cannot be set on a version's very first release (`409 STATE_ERROR`) — intended
+  copy ("First release.") is recorded in `docs/app-store/2026-09-13-listing.md` for 1.1.
+- Server paywall (B5) went live in production mid-plan, turning the previously-hypothetical
+  add-note 403 into a real one on the lapsed `will+uitest` fixture — Outbox park-on-403
+  (T3) became load-bearing rather than speculative, and the standing UI-test failure set
+  grows accordingly (see `docs/ui-changes.md`'s 2026-09-13 entry and the task-5 report for the
+  exact list observed in this wrap's suite runs).
+- Not done, by design: App Privacy nutrition-label answers and the App Store "Submit for
+  Review" click are Will's; a Stripe comp for `will+review`/`will+uitest` is Will's.

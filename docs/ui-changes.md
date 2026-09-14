@@ -8,6 +8,101 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-13 · iOS housekeeping mirror + App Store readiness (plan 14)
+
+Mirrors the 2026-09-13 web housekeeping changes (`docs/2026-09-13-housekeeping-handoff.md`)
+into the native app and closes the engineering gaps standing between TestFlight and an App
+Store 1.0 submission. iOS-only entry — the web side of housekeeping is documented in the
+handoff doc above, not repeated here. Version 1.0, build 10.
+
+- **Card notes on iOS.** Empty-content cards show an explicit "Add a note" affordance
+  (`card.addNote`, plus-glyph, in the old chip area); cards with a note are tappable
+  (`card.note`) with a straight, square-ended 2pt violet-600 fill rule along the left edge
+  (only the right corners of the hover surface rounded) and clamp to five lines outside
+  editing. Tapping opens a compact `.medium`-detent sheet (`CardNoteEditorSheet`) built on the
+  same `NotesEditorModel` the detail sheet's Notes tab uses: plain-text notes edit in place;
+  rich (TipTap) notes render the existing document read-only above an append-only draft field
+  — `content` is never flattened to plain text, appends go through the existing
+  `appendNoteParagraph` merge path. Explicit Save/Cancel; native Return inserts a newline;
+  Cancel discards; an unchanged Save just closes. A confirmed save shows a 450ms violet-300
+  @0.25→0 wash plus a 2s checkmark/"Saved" acknowledgment (static under Reduce Motion);
+  failure keeps the draft in the sheet with an inline error. Both hit areas use
+  `.highPriorityGesture` so the whole-card tap (open detail sheet) still wins everywhere else.
+  VoiceOver: note = button "Edit note", add = button "Add a note".
+- **Montreal card headings.** New `StashType.cardTitle()` token — PP Neue Montreal medium
+  20pt, tracking −0.014em — replaces `editorialTitle()` on library card titles (web parity;
+  the detail sheet's own title token is unaffected). Library grid gutter 14pt → 24pt,
+  natural-height cards (no masonry on the phone's single column).
+- **Notes editor footprint.** `NotesEditor` frame `minHeight 80/maxHeight 220` →
+  `minHeight 44/maxHeight 110` via `@ScaledMetric` (web's 150px parity, roughly halved),
+  scrollable inside, grows with Dynamic Type, keyboard stays visible.
+- **"Transcribe with speakers"** — text button in `ItemDetailContent`'s Transcript header
+  (`detail.transcribeSpeakers`, audio/video items with a stored media file only). Resolves the
+  stored media URL the same way the player does, invokes `transcribe-audio` with the same
+  `{audioUrl, fileName}` body web sends, then patches only `page_body` + `description` via new
+  `StashKit.TranscriptionService`, refreshes embeddings, and refreshes the item store.
+  `content` is never touched; the previous transcript is preserved on failure; copy never
+  claims real speaker names (labels come from the server's diarization). Busy state disables
+  the button ("Transcribing…"); errors surface inline under the header.
+- **Account deletion (Settings).** New `DeleteAccountSection` after Sign Out
+  (`settings.deleteAccount`) → sheet with consequence copy mirroring
+  `src/components/settings/DeleteAccountSection.tsx`, a "Type DELETE to confirm" field, and a
+  destructive "Delete everything" button (`settings.deleteAccount.confirm`) enabled only on an
+  exact match. Calls the already-deployed `delete-account` edge function
+  (`POST` + bearer token, no body → `200 {deleted, storageObjects, stripe}` / `401` / `403` /
+  `500`). On success: local purge (Outbox cleared outright, staged files discarded, App Group
+  `subscription.canAddContent` cache cleared, Keychain session signed out local-scope) and
+  land on sign-in with a one-line "Your account was deleted." banner
+  (`auth.deletedBanner`). Failure leaves the account intact with an inline error.
+  `StashKit.AccountDeleter` is unit-tested against 200/401/403/500 response shapes.
+- **Phone storage bug fixed (punch-list A8).** iOS sign-up and the Settings phone section now
+  store `user_phone_numbers.phone_number` as bare-digit E.164-without-plus, matching web's
+  `src/utils/phoneNumber.ts` exactly (US 10 digits → prepend `1`; `1` + 10 digits kept; anything
+  else rejected). New `StashKit.PhoneNumber.normalize` ported with parity tests; wired into
+  `SessionStore.signUp` and `PhoneSection`'s stored (not display) value. Previously, sign-up
+  stored a bare-digit number with no country-code prefix while Settings normalized it — the two
+  paths diverged for the same real number.
+  - Server paywall (B5) is now live for real: adding content while `canAddContent == false`
+    returns `403 {error: "subscription_required"}`. Outbox now **parks** an entry on that
+    specific 403 instead of retrying it (no attempt burned, no drain loop); the Add tab's
+    existing gate strip covers the UI. Parked entries auto-drain (`Outbox.unparkAll()`) on the
+    next `SubscriptionStore` refresh that reports `canAddContent == true`. This makes the
+    lapsed `will+uitest` fixture account hit a *live* gate on any add-note flow — see
+    "Standing UI-test failures" below.
+- **Privacy manifests** (audit H1): `ios/Stash/PrivacyInfo.xcprivacy` +
+  `ios/StashShareExtension/PrivacyInfo.xcprivacy`, declared as `project.yml` resources.
+  `NSPrivacyTracking: false`. Declared required-reason APIs: UserDefaults (`CA92.1`), file
+  timestamp (`C617.1`, from Outbox/StagedFileStore reading modification dates). Declared
+  collected data types (linked to identity, not used for tracking): email, phone number, user
+  content (photos/video, audio, other), precise location downgraded to **coarse**
+  (`kCLLocationAccuracyHundredMeters`, app-functionality, opt-in), user ID.
+- **Version 1.0, build 10.** `MARKETING_VERSION` `0.1.0` → `1.0`, `CURRENT_PROJECT_VERSION` →
+  `10`. App Store metadata (description, keywords, promotional text, support/marketing/
+  privacy URLs, categories Productivity/Utilities, copyright, age rating all NONE/false) and
+  the 6 required 6.9" screenshots (View library, detail sheet, Add tab, Ask with a citation,
+  share sheet, share-tutorial panel 2 — captured against the seeded `will+review@dzierson.com`
+  account) are pushed to App Store Connect via `ios/scripts/asc-api.sh`; full field-by-field
+  record in `docs/app-store/2026-09-13-listing.md` and `docs/RELEASING.md`'s "App Store
+  submission (1.0)" section.
+- **Still manual (Will):** App Privacy nutrition-label answers (not settable via the ASC API;
+  exact answers in `docs/app-store/2026-09-13-app-privacy-answers.md`), the final "Submit for
+  Review" click, and a Stripe comp for the `will+review` demo account so it doesn't lapse
+  mid-review.
+- **Standing UI-test failures growing while `will+uitest` is lapsed:** with the paywall gate
+  now live in production, every UI-test flow that adds a note (not just fresh captures) on
+  that fixture account now hits the same `403 subscription_required` gate. The standing
+  failure set (previously `testCaptureSmoke`/`testLocationPinSmoke`/`testAskSmoke`) grows to
+  include tests that add a card note as a setup step — confirm each failure is happening ON
+  the gate (a `403` from `add-note`/capture), not a genuine regression, before treating it as
+  expected. Resolves once Will comps `will+uitest`'s subscription.
+- **Removed-banner check:** the native app has no recurring paste/drop tutorial banner to
+  remove (only the Ask composer placeholder) — nothing to do here.
+
+Spec: `docs/superpowers/plans/2026-09-13-ios-plan-14-housekeeping-mirror-and-app-store-readiness.md`.
+Progress ledger with every decision: `.superpowers/sdd/plan-14/progress.md`.
+
+---
+
 ## 2026-09-08 · Admin dashboard (web-only, temporary)
 
 Spec `docs/superpowers/specs/2026-09-08-admin-dashboard-design.md`. Internal
