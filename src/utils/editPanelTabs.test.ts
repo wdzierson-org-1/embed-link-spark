@@ -2,26 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { getContentTabsConfig, needsSourceContent } from './editPanelTabs';
 
 describe('getContentTabsConfig', () => {
-  it('gives links Summary | Original Content | Notes with Summary first', () => {
+  it('gives links Summary | Original Content with Summary first', () => {
     const config = getContentTabsConfig('link');
-    expect(config.title).toBe('Notes & Summary');
-    expect(config.tabs.map((t) => t.key)).toEqual(['summary', 'original', 'notes']);
+    expect(config.title).toBe('Source');
+    expect(config.tabs.map((t) => t.key)).toEqual(['summary', 'original']);
     expect(config.defaultTab).toBe('summary');
   });
 
   it('treats documents (and legacy pdf type) like links', () => {
     for (const type of ['document', 'pdf']) {
       const config = getContentTabsConfig(type);
-      expect(config.tabs.map((t) => t.key)).toEqual(['summary', 'original', 'notes']);
+      expect(config.tabs.map((t) => t.key)).toEqual(['summary', 'original']);
     }
   });
 
-  it('gives audio and video Notes | Transcript with Notes as default', () => {
+  it('gives audio and video Transcript below the independent Notes section', () => {
     for (const type of ['audio', 'video']) {
       const config = getContentTabsConfig(type);
-      expect(config.title).toBe('Notes & Transcript');
-      expect(config.tabs.map((t) => t.key)).toEqual(['notes', 'transcript']);
-      expect(config.defaultTab).toBe('notes');
+      expect(config.title).toBe('Transcript');
+      expect(config.tabs.map((t) => t.key)).toEqual(['transcript']);
+      expect(config.defaultTab).toBe('transcript');
     }
   });
 

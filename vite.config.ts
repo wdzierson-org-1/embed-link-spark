@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   test: {
+    server: { deps: { inline: ["novel", "react-tweet"] } },
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",

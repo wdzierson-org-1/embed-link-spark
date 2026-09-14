@@ -1,6 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { formatDiarizedTranscript } from '../_shared/transcript.ts';
 import { stripPreamble, NO_PREAMBLE_RULES } from '../_shared/summarize.ts';
 
 const corsHeaders = {
@@ -38,13 +38,14 @@ serve(async (req) => {
     
     console.log('Audio file downloaded, size:', audioBlob.size);
 
-    // Prepare form data for Whisper API
+    // Prepare form data for transcription API
     const formData = new FormData();
     formData.append('file', audioBlob, fileName || 'audio.webm');
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'text');
+    formData.append('model', 'gpt-4o-transcribe-diarize');
+    formData.append('response_format', 'diarized_json');
+    formData.append('chunking_strategy', 'auto');
 
-    // Send to OpenAI Whisper API
+    // Send to OpenAI transcription API
     const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
@@ -55,12 +56,11 @@ serve(async (req) => {
 
     if (!transcriptionResponse.ok) {
       const errorText = await transcriptionResponse.text();
-      console.error('Whisper API error:', errorText);
-      throw new Error(`Whisper API error: ${transcriptionResponse.status}`);
+      console.error('transcription API error:', errorText);
+      throw new Error(`transcription API error: ${transcriptionResponse.status}`);
     }
 
-    const transcriptionResult = await transcriptionResponse.text();
-    console.log('Transcription result:', transcriptionResult);
+    const transcriptionResult = formatDiarizedTranscript(await transcriptionResponse.json());
 
     if (!transcriptionResult || transcriptionResult.trim() === '') {
       return new Response(JSON.stringify({ 

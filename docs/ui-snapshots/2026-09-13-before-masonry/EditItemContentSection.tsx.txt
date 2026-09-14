@@ -87,17 +87,17 @@ const EditItemContentSection = ({
   const notesEditor = (
     <div className="relative">
       {isContentLoading ? (
-        <div className="flex min-h-[150px] items-center justify-center text-sm text-[#959ba6]">
+        <div className="flex min-h-[300px] items-center justify-center text-sm text-[#959ba6]">
           Loading editor...
         </div>
       ) : !mobileEditorReady && isMobile ? (
-        <div className="flex min-h-[150px] items-center justify-center text-sm text-[#959ba6]">
+        <div className="flex min-h-[300px] items-center justify-center text-sm text-[#959ba6]">
           <div className="text-center">
             <div className="animate-pulse motion-reduce:animate-none">Initializing editor...</div>
           </div>
         </div>
       ) : (
-        <div>
+        <div className={`${isMobile ? 'min-h-[400px]' : ''}`}>
           <EditItemContentEditor
             content={content}
             onContentChange={onContentChange}
@@ -107,7 +107,7 @@ const EditItemContentSection = ({
           />
         </div>
       )}
-      <div className="mt-2 text-right text-xs text-[#959ba6]">
+      <div className="absolute bottom-3 right-3 rounded bg-background/80 px-2 py-1 text-xs text-[#959ba6] backdrop-blur-sm">
         Press / for formatting options
       </div>
     </div>

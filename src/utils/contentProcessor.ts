@@ -1,3 +1,4 @@
+import { settleEnrichment } from './enrichment';
 
 import { supabase } from '@/integrations/supabase/client';
 import { generateDescription, generateEmbeddings } from '@/utils/aiOperations';
@@ -298,44 +299,36 @@ const enrichSavedLinkItem = async (
   existing: { title?: string | null; description?: string | null; file_path?: string | null },
   fetchItems: () => Promise<void>
 ) => {
-  const metadata = await extractLinkMetadata(url, userId);
-  if (!metadata) return;
+  let status = 'complete';
+  try {
+    const metadata = await extractLinkMetadata(url, userId);
+    if (!metadata) throw new Error('No metadata returned');
+    const updates: Record<string, string> = {};
+    const nextTitle = hasValue(metadata.title) ? metadata.title : undefined;
+    const nextDescription = hasValue(metadata.description) ? metadata.description : undefined;
+    const nextFilePath = getBestImagePath(metadata);
+    if (nextTitle && nextTitle !== existing.title) updates.title = nextTitle;
+    if (nextDescription && nextDescription !== existing.description) updates.description = nextDescription;
+    if (nextFilePath && nextFilePath !== existing.file_path) updates.file_path = nextFilePath;
 
-  const updates: Record<string, string> = {};
-  const nextTitle = hasValue(metadata.title) ? metadata.title : undefined;
-  const nextDescription = hasValue(metadata.description) ? metadata.description : undefined;
-  const nextFilePath = getBestImagePath(metadata);
-
-  if (nextTitle && nextTitle !== existing.title) {
-    updates.title = nextTitle;
+    if (Object.keys(updates).length > 0) {
+      const { error } = await supabase.from('items').update(updates).eq('id', itemId);
+      if (error) throw error;
+    }
+    // Keep the card pending through the source/summary pass, even if metadata
+    // was already present and did not need to change.
+    const { data: scrape, error } = await supabase.functions.invoke('scrape-page-content', {
+      body: { itemId, url },
+    });
+    if (error || scrape?.success === false) throw new Error('Source content unavailable');
+  } catch (error) {
+    status = 'partial';
+    console.error('Link enrichment incomplete:', error);
+  } finally {
+    const { error } = await supabase.rpc('set_item_enrichment', { target_id: itemId, next_status: status });
+    if (error) console.error('Could not settle enrichment status:', error);
+    await fetchItems();
   }
-  if (nextDescription && nextDescription !== existing.description) {
-    updates.description = nextDescription;
-  }
-  if (nextFilePath && nextFilePath !== existing.file_path) {
-    updates.file_path = nextFilePath;
-  }
-
-  if (Object.keys(updates).length === 0) {
-    return;
-  }
-
-  const { error } = await supabase
-    .from('items')
-    .update(updates)
-    .eq('id', itemId);
-
-  if (error) {
-    console.error('Error enriching saved link item:', error);
-    return;
-  }
-
-  // Fire-and-forget page scrape for richer embedding content
-  supabase.functions.invoke('scrape-page-content', {
-    body: { itemId, url }
-  }).catch((err) => console.error('Page scrape failed (non-fatal):', err));
-
-  await fetchItems();
 };
 
 const enrichCollectionLinkAttachment = async (
@@ -527,7 +520,7 @@ export const processAndInsertContent = async (
     file_size: data.file?.size,
     mime_type: data.file?.type,
     is_public: data.is_public ?? false,
-    attributes: data.attributes ?? {},
+    attributes: { ...data.attributes, ...((type === 'link' || ((type === 'image' || type === 'document') && (filePath || data.uploadedFilePath))) ? { enrichment: { status: 'pending', updated_at: new Date().toISOString() } } : {}) },
   };
 
   console.log('processAndInsertContent: Inserting item data:', itemData);
@@ -603,8 +596,14 @@ export const processAndInsertContent = async (
           ...(precomputed ? { precomputed } : {}),
         },
       })
-      .then(() => fetchItems())
-      .catch((err) => console.error('Image analysis failed (non-fatal):', err));
+      .then(async ({ data: result, error }) => {
+        await settleEnrichment(insertedItem.id, !error && result?.success !== false);
+        await fetchItems();
+      })
+      .catch(async (err) => {
+        console.error('Image analysis failed (non-fatal):', err);
+        await settleEnrichment(insertedItem.id, false);
+      });
   }
 
   // Handle document processing. Only PDFs have an extraction pipeline —
@@ -665,7 +664,7 @@ export const processAndInsertContent = async (
         const { data: officeUrl } = supabase.storage.from('stash-media').getPublicUrl(officePath);
         setTimeout(async () => {
           try {
-            await supabase.functions.invoke('extract-office-text', {
+            const { data: extracted, error: extractionError } = await supabase.functions.invoke('extract-office-text', {
               body: {
                 fileUrl: officeUrl.publicUrl,
                 itemId: insertedItem.id,
@@ -673,11 +672,15 @@ export const processAndInsertContent = async (
                 mimeType: officeMime,
               },
             });
+            await settleEnrichment(insertedItem.id, !extractionError && extracted?.success !== false);
             await fetchItems();
           } catch (error) {
             console.error('Office text extraction failed (non-fatal):', error);
+            await settleEnrichment(insertedItem.id, false);
           }
         }, 500);
+      } else {
+        await settleEnrichment(insertedItem.id, true);
       }
       return insertedItem;
     }

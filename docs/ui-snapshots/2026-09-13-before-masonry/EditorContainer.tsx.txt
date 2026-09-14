@@ -147,7 +147,7 @@ const EditorContainer = ({
   if (!initialJsonContent) {
     return (
       <div>
-        <div className={`flex items-center justify-center text-muted-foreground ${isMaximized ? 'h-96' : 'border rounded-md p-4 min-h-[150px]'}`}>
+        <div className={`flex items-center justify-center text-muted-foreground ${isMaximized ? 'h-96' : 'border rounded-md p-4 min-h-[300px]'}`}>
           Loading editor...
         </div>
       </div>

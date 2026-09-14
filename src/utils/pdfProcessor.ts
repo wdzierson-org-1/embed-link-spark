@@ -1,3 +1,4 @@
+import { settleEnrichment } from './enrichment';
 
 import { supabase } from '@/integrations/supabase/client';
 
@@ -27,11 +28,12 @@ export const processPdfContent = async (
       }
     });
 
-    if (error) {
+    if (error || result?.success === false) {
       console.error('PDF extraction error:', error);
-      throw error;
+      throw error || new Error('No document text was extracted');
     }
 
+    await settleEnrichment(itemId, result?.success !== false);
     console.log('PDF extraction result:', result);
 
     // Force refresh items multiple times to ensure UI updates
@@ -48,6 +50,7 @@ export const processPdfContent = async (
       description: "PDF text has been extracted and is now searchable!",
     });
   } catch (error) {
+    await settleEnrichment(itemId, false);
     console.error('Error processing PDF:', error);
     showToast({
       title: "PDF Processing Failed",

@@ -11,32 +11,27 @@ export interface ContentTabsConfig {
   tabs: ContentTab[];
 }
 
-// Which tabs the edit panel's content section shows, by item type:
-// - link/document: AI summary + captured source + the user's notes
-// - audio/video: notes + transcript (the AI summary lives in the description)
-// - image/text/everything else: just the user's notes (for images, the
-//   description carries the AI summary)
+// Notes are an independent section. These are the source tabs below it;
+// notes-only types retain a sentinel default for existing callers.
 export const getContentTabsConfig = (type?: string): ContentTabsConfig => {
   switch (type) {
     case 'link':
     case 'document':
     case 'pdf':
       return {
-        title: 'Notes & Summary',
+        title: 'Source',
         defaultTab: 'summary',
         tabs: [
           { key: 'summary', label: 'Summary' },
           { key: 'original', label: 'Original Content' },
-          { key: 'notes', label: 'Notes' },
         ],
       };
     case 'audio':
     case 'video':
       return {
-        title: 'Notes & Transcript',
-        defaultTab: 'notes',
+        title: 'Transcript',
+        defaultTab: 'transcript',
         tabs: [
-          { key: 'notes', label: 'Notes' },
           { key: 'transcript', label: 'Transcript' },
         ],
       };

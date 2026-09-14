@@ -2,17 +2,16 @@
 import React, { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, MessageCircle, Download, ExternalLink, Edit, Trash2, Eye, EyeOff, MapPin, Flag, Bell, BellOff } from 'lucide-react';
+import { MoreHorizontal, MessageCircle, Eye, EyeOff, MapPin, Flag, Bell, BellOff } from 'lucide-react';
 import { format } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
 import CardFeedbackDialog from '@/components/CardFeedbackDialog';
-import { isDocumentProcessing } from '@/utils/documentProcessing';
 import { useToast } from '@/hooks/use-toast';
 import { useNow } from '@/hooks/useNow';
 import { saveItem } from '@/utils/itemOperations';
 import { ReminderChip } from '@/components/cards/ReminderChip';
 import { REMINDER_PRESETS, clearReminderPatch, remindAtForPreset, reminderLabel, reminderState, setReminderPatch, type ReminderPreset } from '@/utils/reminders';
+import { typeChipFor } from '@/components/cards/ItemTypeChip';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -47,15 +46,12 @@ interface ContentItemFooterProps {
 
 const ContentItemFooter = ({
   item,
-  onDeleteItem,
-  onEditItem,
   onChatWithItem,
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
   onCommentClick
 }: ContentItemFooterProps) => {
-  const isProcessing = isDocumentProcessing(item);
   const [reportOpen, setReportOpen] = useState(false);
 
   const now = useNow();
@@ -72,35 +68,20 @@ const ContentItemFooter = ({
   const removeReminder = () =>
     saveItem(item.id, clearReminderPatch(new Date()), noRefresh, toast, { showSuccessToast: false, refreshItems: false });
 
-  const getFileUrl = (item: ContentItem) => {
-    if (item.file_path) {
-      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-      return data.publicUrl;
-    }
-    return null;
-  };
-
-  const handleDownloadFile = (item: ContentItem) => {
-    const fileUrl = getFileUrl(item);
-    if (fileUrl) {
-      window.open(fileUrl, '_blank');
-    }
-  };
-
-  const fileUrl = getFileUrl(item);
   const isOwner = currentUserId && item.user_id === currentUserId;
   const showOwnerControls = isPublicView && isOwner;
   // Read-only views (public feed, admin member view) only get the overflow
   // menu when it would hold something — an empty menu is a dead control
   const hasMenu =
-    !isPublicView || Boolean(onCommentClick) || Boolean(fileUrl) || Boolean(item.url) || Boolean(showOwnerControls);
+    !isPublicView || Boolean(onCommentClick) || Boolean(showOwnerControls && onTogglePrivacy);
 
   return (
     <div className="flex items-center justify-between mt-auto">
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
         <p className="text-xs text-muted-foreground whitespace-nowrap">
           {format(new Date(item.created_at), 'MMM d, yyyy')}
         </p>
+        <span className="card-hover-control flex shrink-0 items-center">{typeChipFor(item)}</span>
         {!isPublicView && hasActiveReminder && reminderText && item.remind_at && (
           <ReminderChip state={reminder} label={reminderText} remindAt={item.remind_at} onDismiss={removeReminder} />
         )}
@@ -129,6 +110,7 @@ const ContentItemFooter = ({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              aria-label="Card menu"
               variant="ghost"
               size="sm"
               className="h-6 w-6 rounded-full p-0 text-muted-foreground hover:bg-black/5 hover:text-foreground"
@@ -143,28 +125,8 @@ const ContentItemFooter = ({
                 Comments
               </DropdownMenuItem>
             )}
-            {fileUrl && (
-              <DropdownMenuItem onClick={() => handleDownloadFile(item)}>
-                <Download className="h-4 w-4 mr-2" />
-                Download
-              </DropdownMenuItem>
-            )}
-            {item.url && (
-              <DropdownMenuItem onClick={() => window.open(item.url, '_blank')}>
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Open link
-              </DropdownMenuItem>
-            )}
             {showOwnerControls && (
               <>
-                <DropdownMenuItem 
-                  onClick={() => onEditItem(item)}
-                  disabled={isProcessing}
-                  className={isProcessing ? 'opacity-50 cursor-not-allowed' : ''}
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  {isProcessing ? 'Processing...' : 'Edit'}
-                </DropdownMenuItem>
                 {onTogglePrivacy && (
                   <DropdownMenuItem onClick={() => onTogglePrivacy(item)}>
                     {item.is_public ? (
@@ -204,21 +166,9 @@ const ContentItemFooter = ({
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => onEditItem(item)}
-                  disabled={isProcessing}
-                  className={isProcessing ? 'opacity-50 cursor-not-allowed' : ''}
-                >
-                  <Edit className="h-4 w-4 mr-2" />
-                  {isProcessing ? 'Processing...' : 'Edit'}
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setReportOpen(true)}>
                   <Flag className="h-4 w-4 mr-2" />
                   Report a problem
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onDeleteItem(item.id)} className="text-red-600">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
                 </DropdownMenuItem>
               </>
             )}

@@ -23,6 +23,8 @@ import { toast } from 'sonner';
 interface EditorExtensionOptions {
   /** Override the empty-paragraph hint (headings keep their level hint) */
   placeholder?: string;
+  /** Compact card editor: keep the schema, omit slash/drag chrome. */
+  inline?: boolean;
 }
 
 export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExtensionOptions) => {
@@ -55,7 +57,7 @@ export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExte
           class: "border-l-4 border-primary pl-4 italic",
         },
       },
-      codeBlock: {
+      codeBlock: options?.inline ? false : {
         HTMLAttributes: {
           class: "rounded-md bg-muted text-muted-foreground border p-5 font-mono font-medium",
         },
@@ -121,9 +123,7 @@ export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExte
     HighlightExtension.configure({
       multicolor: true,
     }),
-    CustomKeymap,
-    GlobalDragHandle,
-    slashCommand,
+    ...(options?.inline ? [] : [CustomKeymap, GlobalDragHandle, slashCommand]),
   ];
 
   if (uploadFn) {

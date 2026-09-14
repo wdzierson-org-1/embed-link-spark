@@ -77,8 +77,21 @@ export const missingPieces = (item: AssemblySnapshot): AssemblyPiece[] => {
   }
 };
 
+/** Explicit pipeline status wins over field heuristics, including for rich links. */
+export const enrichmentState = (item: AssemblySnapshot, nowMs: number): 'pending' | 'complete' | 'partial' => {
+  const enrichment = item.attributes?.enrichment;
+  if (enrichment) {
+    if (enrichment.status !== 'pending') return enrichment.status;
+    const started = Date.parse(enrichment.updated_at);
+    // An interrupted worker must not leave a permanent spinner.
+    return Number.isFinite(started) && nowMs - started < 10 * 60_000 ? 'pending' : 'partial';
+  }
+  if (missingPieces(item).length === 0) return 'complete';
+  return itemAgeMs(item, nowMs) < ASSEMBLY_WINDOW_MS ? 'pending' : 'complete';
+};
+
 export const isAssembling = (item: AssemblySnapshot, nowMs: number): boolean =>
-  itemAgeMs(item, nowMs) < ASSEMBLY_WINDOW_MS && missingPieces(item).length > 0;
+  enrichmentState(item, nowMs) === 'pending';
 
 /** Pieces that landed between two snapshots of the same item. */
 export const landedPieces = (
