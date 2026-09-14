@@ -121,10 +121,15 @@ struct NotesEditor: View {
 
             field
 
-            Text(model.isRich ? "Adds when you tap Done or leave the field" : "Editing note")
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
-                .accessibilityIdentifier("detail.notes.hint")
+            // Plan 14 fix wave B (#14a): a standing hint under an EMPTY, unfocused field just adds
+            // clutter — show it only while the field is actually in play (focused) or already has
+            // unsaved draft text worth explaining.
+            if isFocused.wrappedValue == .notes || !model.draft.isEmpty {
+                Text(model.isRich ? "Adds when you tap Done or leave the field" : "Editing note")
+                    .font(StashType.meta())
+                    .foregroundStyle(StashColor.faint)
+                    .accessibilityIdentifier("detail.notes.hint")
+            }
         }
         // Fix round 1, review finding #1: flush on blur for BOTH modes now (previously rich-only)
         // — plain-mode notes were just as exposed as rich mode to "type then dismiss within the

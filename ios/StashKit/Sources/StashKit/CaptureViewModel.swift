@@ -184,6 +184,17 @@ public final class CaptureViewModel {
                 do {
                     _ = try await send(ready, accessToken: token)
                     savedCount += 1
+                } catch CaptureError.subscriptionRequired {
+                    // Plan 14 fix wave B (#8): a LIVE `.subscriptionRequired` 403 here means the
+                    // account can't add content right now — the exact same fact `Outbox.drain`'s
+                    // own 403 catch (Plan 14 T3) already parks on, just discovered one step
+                    // earlier, on the FOREGROUND send this view model just attempted directly.
+                    // Enqueue straight to `.parked` so it never briefly counts as an ordinary
+                    // `.pending` retry (which `pendingOutboxCount` would surface as "N pending" —
+                    // implying an automatic retry that can never succeed — instead of the gate
+                    // strip's correct explanation).
+                    await enqueue(ready, status: .parked)
+                    queuedCount += 1
                 } catch {
                     // `prepare` already succeeded — any upload it needed has landed in
                     // storage — so this is a CaptureAPI/network throw, exactly what the
@@ -274,8 +285,12 @@ public final class CaptureViewModel {
         await refreshPendingCount()
     }
 
+    /// Plan 14 fix wave B (#9): a parked entry is explained by the composer's gate strip, not by
+    /// "still trying" — counting it here would show e.g. "1 pending" for an entry that will never
+    /// send again until the user resubscribes, which reads as a stuck/broken retry rather than the
+    /// gated state it actually is.
     private func refreshPendingCount() async {
-        pendingOutboxCount = await outbox.pending().count
+        pendingOutboxCount = await outbox.pending().filter { $0.status != .parked }.count
     }
 
     // MARK: - Routing (Global Constraints: port of web UnifiedInputPanel submit, collections cut)
@@ -419,23 +434,23 @@ public final class CaptureViewModel {
         }
     }
 
-    private func enqueue(_ ready: ReadyUnit) async {
+    private func enqueue(_ ready: ReadyUnit, status: OutboxEntry.Status = .pending) async {
         let publicFlag = isPublic ? "true" : "false"
         switch ready {
         case .note(let content, let attributes):
             var payload = ["content": content, "is_public": publicFlag]
             if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
-            try? await outbox.enqueue(.note, payload: payload)
+            try? await outbox.enqueue(.note, payload: payload, status: status)
         case .url(let url, let note, let attributes):
             var payload = ["url": url, "content": note, "is_public": publicFlag]
             if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
-            try? await outbox.enqueue(.url, payload: payload)
+            try? await outbox.enqueue(.url, payload: payload, status: status)
         case .file(let path, let mimeType, let fileSize, let content, let attributes):
             var payload = ["file_path": path, "mime_type": mimeType,
                            "file_size": String(fileSize), "is_public": publicFlag]
             if let content { payload["content"] = content }
             if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
-            try? await outbox.enqueue(.file, payload: payload)
+            try? await outbox.enqueue(.file, payload: payload, status: status)
         }
     }
 

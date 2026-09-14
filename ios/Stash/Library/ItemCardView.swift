@@ -36,21 +36,36 @@ struct ItemCardView: View {
         return formatter
     }()
 
+    /// Plan 14 fix wave B (#10, perf): every card used to pay for a `TimelineView(.periodic
+    /// (by: 30))` — a perpetual 30s re-render tick, live for as long as the card is on screen —
+    /// even for an item with no `attributes.enrichment` key at all, which can NEVER dim or show a
+    /// status pill (`enrichmentStatus(at:)` returns `nil` unconditionally whenever that key is
+    /// missing; it only depends on wall-clock time once a "pending" status with a timestamp is
+    /// actually present). A library screen full of such items — most of them, once enrichment has
+    /// long since finished or never applied — was ticking a timer none of them could ever act on.
+    /// `nil`-ness itself never depends on `now`, so probing it once outside the timer (with any
+    /// `Date`) is enough to decide, per card, whether the timer is worth paying for at all; a card
+    /// whose enrichment key DOES exist still gets the exact same periodic re-evaluation as before,
+    /// so the pending→partial 10-minute timeout in `enrichmentStatus(at:)` is unaffected.
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            let status = item.attributes.enrichmentStatus(at: context.date)
+        if item.attributes.enrichmentStatus(at: .now) == nil {
             cardBody
-                .opacity(status == "pending" ? 0.5 : 1)
-                .overlay(alignment: .topLeading) {
-                    if status == "pending" || status == "partial" {
-                        Text(status == "pending" ? "Gathering more information…" : "Some information unavailable")
-                            .font(StashType.meta())
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Color(.systemBackground), in: Capsule())
-                            .padding(8)
-                            .accessibilityIdentifier("card.enrichmentStatus")
+        } else {
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                let status = item.attributes.enrichmentStatus(at: context.date)
+                cardBody
+                    .opacity(status == "pending" ? 0.5 : 1)
+                    .overlay(alignment: .topLeading) {
+                        if status == "pending" || status == "partial" {
+                            Text(status == "pending" ? "Gathering more information…" : "Some information unavailable")
+                                .font(StashType.meta())
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(Color(.systemBackground), in: Capsule())
+                                .padding(8)
+                                .accessibilityIdentifier("card.enrichmentStatus")
+                        }
                     }
-                }
+            }
         }
     }
 

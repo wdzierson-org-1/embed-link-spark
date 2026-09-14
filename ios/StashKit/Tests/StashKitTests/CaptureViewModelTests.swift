@@ -7,9 +7,14 @@ import XCTest
 final class RecordingPoster: JSONPosting, @unchecked Sendable {
     var calls: [(path: String, body: [String: Any])] = []
     var shouldFail = false
+    /// Plan 14 fix wave B: which error `shouldFail` throws — defaults to the ordinary transient
+    /// failure every pre-existing test expects; `testForegroundSubscriptionRequiredParksEntry...`
+    /// overrides it to `.subscriptionRequired` to exercise the park-not-pending branch without
+    /// touching any other test's behavior.
+    var failureError: Error = CaptureError.badStatus(500)
     func post(path: String, body: [String: Any], accessToken: String) async throws -> Data {
         calls.append((path, body))
-        if shouldFail { throw CaptureError.badStatus(500) }
+        if shouldFail { throw failureError }
         return path == "add-note" ? noteJSON : itemJSON
     }
 }
@@ -185,6 +190,54 @@ final class CaptureViewModelTests: XCTestCase {
         let pending = await box.pending()
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending[0].payload["content"], "offline note")
+    }
+
+    // Plan 14 fix wave B (#8, #9): a LIVE 403 subscription_required on the FOREGROUND send path
+    // (unlike a later Outbox.drain retry, Plan 14 T3) must park the entry immediately, and a
+    // parked entry must never inflate the outbox badge.
+    func testForegroundSubscriptionRequiredParksEntryInsteadOfPending() async {
+        let poster = RecordingPoster()
+        poster.shouldFail = true
+        poster.failureError = CaptureError.subscriptionRequired
+        let vm = makeViewModel(poster: poster)
+        vm.text = "gate-blocked note"
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
+        let box = Outbox(directory: dir)
+        let all = await box.pending()
+        XCTAssertEqual(all.count, 1)
+        XCTAssertEqual(all.first?.status, .parked,
+                       "a live subscriptionRequired 403 must enqueue as parked, not pending")
+        XCTAssertEqual(all.first?.attempts, 0, "parking is not a failed attempt")
+    }
+
+    func testPendingOutboxCountExcludesParkedEntries() async {
+        let poster = RecordingPoster()
+        poster.shouldFail = true
+        poster.failureError = CaptureError.subscriptionRequired
+        let vm = makeViewModel(poster: poster)
+        vm.text = "gate-blocked note"
+
+        _ = await vm.submit()
+
+        XCTAssertEqual(vm.pendingOutboxCount, 0,
+                       "a parked entry must not count toward the outbox badge — the gate strip is the explanation")
+    }
+
+    // An ordinary (non-subscription) failure must be entirely unaffected by the park branch above.
+    func testOrdinaryFailureStillEnqueuesAsPendingAndCountsTowardBadge() async {
+        let poster = RecordingPoster(); poster.shouldFail = true   // default .badStatus(500)
+        let vm = makeViewModel(poster: poster)
+        vm.text = "offline note"
+
+        _ = await vm.submit()
+
+        XCTAssertEqual(vm.pendingOutboxCount, 1)
+        let box = Outbox(directory: dir)
+        let all = await box.pending()
+        XCTAssertEqual(all.first?.status, .pending)
     }
 
     // Fix round (review Important finding): oversized/upload-failed attachments were being

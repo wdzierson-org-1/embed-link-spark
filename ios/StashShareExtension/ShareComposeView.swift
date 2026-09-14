@@ -257,10 +257,12 @@ struct ShareComposeView: View {
         .foregroundStyle(StashColor.muted)
     }
 
-    /// Task 7: "Subscribe on gostash.it to add items" — a cached-false gate, unlike the composer's
-    /// own "Subscribe to add new items." (that one always has a live `SubscriptionStore` to read
-    /// from and a Settings tab one tap away; the extension has neither, so the copy points
-    /// somewhere actionable instead).
+    /// Task 7 (Plan 14 fix wave B, #4 — App Review 3.1.1/3.1.3(f): copy must never name an
+    /// external purchase destination in-app): "An active subscription is required to save new
+    /// items." — neutral, no gostash.it mention. Distinct from the composer's own "Subscribe to
+    /// add new items." (that one always has a live `SubscriptionStore` to read from and a
+    /// Settings tab one tap away; the extension has neither, but naming the destination — not the
+    /// absence of a Settings link — is what Review flags).
     ///
     /// Will's direct request (relayed verbatim): "move the 'subscribe...' messaging to just above
     /// the 'save' button on the share sheet. it seems a little out of place between the shared
@@ -286,7 +288,7 @@ struct ShareComposeView: View {
             // Leaf-level identifier — see `doneView`'s doc comment for why this container doesn't
             // use `.accessibilityElement(children: .ignore)` the way the full app's equivalent
             // (`CaptureComposerView.pinPreview`) does.
-            Text("Subscribe on gostash.it to add items")
+            Text("An active subscription is required to save new items.")
                 .accessibilityIdentifier("share.gate")
         }
         .font(StashType.meta())

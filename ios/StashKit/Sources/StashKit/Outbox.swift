@@ -137,8 +137,14 @@ public actor Outbox {
         return destination
     }
 
-    public func enqueue(_ kind: OutboxEntry.Kind, payload: [String: String]) throws {
-        let entry = OutboxEntry(id: UUID(), kind: kind, payload: payload, createdAt: Date(), attempts: 0)
+    /// `status` (Plan 14 fix wave B, #8) lets a caller enqueue an entry that's already known to be
+    /// gated — a foreground `CaptureViewModel.submit()` that got a LIVE `.subscriptionRequired`
+    /// 403 enqueues straight to `.parked` rather than `.pending`, so it never sits as an ordinary
+    /// "will retry" entry for one drain cycle before `drain`'s own 403 catch (Plan 14 T3) would
+    /// have parked it anyway. Defaults to `.pending` — every pre-existing call site is unaffected.
+    public func enqueue(_ kind: OutboxEntry.Kind, payload: [String: String],
+                        status: OutboxEntry.Status = .pending) throws {
+        let entry = OutboxEntry(id: UUID(), kind: kind, payload: payload, createdAt: Date(), attempts: 0, status: status)
         let data = try JSONEncoder().encode(entry)
         try data.write(to: fileURL(for: entry.id), options: .atomic)
     }

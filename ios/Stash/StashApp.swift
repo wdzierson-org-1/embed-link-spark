@@ -68,7 +68,14 @@ struct StashApp: App {
             // SignInView — both are "the start of a signed-in session" for gate purposes.
             .onChange(of: session.state) { oldState, newState in
                 if case .signedIn(let userId) = newState {
-                    Task { await subscriptionStore.refresh() }
+                    Task {
+                        await subscriptionStore.refresh()
+                        // Plan 14 fix wave B (#11): a park from a PRIOR session (e.g. the app was
+                        // never reopened between the 403 and now) has no false→true transition for
+                        // this launch to observe — check unconditionally after every refresh
+                        // instead.
+                        await unparkIfEligible(userId: userId)
+                    }
                     // Plan 5 Task 7: startup sweep + drain. `sweepOrphans` recovers any
                     // staged/recorded file that never got an Outbox entry — a crash between
                     // staging and enqueue, in EITHER process (this app, or the share extension,
@@ -111,9 +118,34 @@ struct StashApp: App {
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase == .active, case .signedIn = session.state else { return }
-            Task { await subscriptionStore.refresh() }
+            guard newPhase == .active, case .signedIn(let userId) = session.state else { return }
+            Task {
+                await subscriptionStore.refresh()
+                await unparkIfEligible(userId: userId)
+            }
         }
+    }
+
+    /// Plan 14 fix wave B (#11): parked entries (Plan 14 T3 Outbox park-on-403) previously only
+    /// ever unparked via `CaptureComposerView`'s own `.onChange(of: subscription.canAddContent)`
+    /// — a user who resubscribes on the web and never opens the Add tab this session would sit
+    /// parked forever. Mirrors that view's own unpark+drain shape, over the same App-Group-backed
+    /// `Outbox` directory. Called after EVERY `subscriptionStore.refresh()` (launch AND
+    /// foreground), not just on a detected false→true transition: `unparkAll()` is itself the
+    /// idempotent guard against a loop — it returns 0 (no drain even attempted) whenever nothing
+    /// is parked, which is exactly "parked count > 0 and canAddContent is true" as a standalone
+    /// condition, with no separate transition-tracking state needed. A re-park on a still-lapsed
+    /// account just waits quietly for the NEXT refresh — never retried in a tight loop from here.
+    private func unparkIfEligible(userId: UUID) async {
+        guard subscriptionStore.canAddContent else { return }
+        let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
+        let unparked = await outbox.unparkAll()
+        guard unparked > 0, let token = try? await StashClient.shared.auth.session.accessToken else { return }
+        _ = await outbox.drain(api: CaptureAPI(), accessToken: token, userId: userId,
+                               upload: { fileURL, path, contentType in
+                                   try await uploadToStorageFromFile(fileURL: fileURL, path: path,
+                                                                     contentType: contentType, accessToken: token)
+                               })
     }
 
     /// Plan 5 Task 7: mirrors `CaptureViewModel.drainOutbox()`'s own token-fetch-then-file-based-
