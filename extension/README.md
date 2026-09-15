@@ -36,7 +36,7 @@ embeddings are enriched server-side after the save returns.
 | `stash-api.js` | Auth (GoTrue REST, session in `chrome.storage.local`, refresh-on-demand with single-flight) + `add-url`/`add-note`/`add-file` + Storage upload |
 | `lib.js` | Pure helpers (mime/extension resolution, URL checks) — node-testable |
 | `signin.html/js/css` | Sign-in page; also the options page |
-| `icons/` | Toolbar icons; `icon-src.html` regenerates them (instructions inside) |
+| `icons/` | Toolbar icons — generated from `brand/icon-src.html` by `node brand/build.mjs` at the repo root; never hand-edit |
 
 Auth deliberately avoids supabase-js: MV3 service workers sleep between
 events, which kills refresh timers, so the robust pattern is
