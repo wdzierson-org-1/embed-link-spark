@@ -8,6 +8,36 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-18 · Chrome extension install page + hosted zip refresh
+
+Unlisted install instructions for the zip-distributed extension, for anyone who
+isn't going to load an unpacked folder from a git checkout.
+
+- **URL**: `https://www.gostash.it/extension` — static
+  `public/extension/index.html`, `noindex, nofollow`, not linked from any nav or
+  footer (share the link by hand). Vercel serves the directory index ahead of
+  the SPA catch-all rewrite, same as `/prototypes-for-feedback/mutations`.
+- **Contents**: download tile for `/stash-it-extension.zip` (version + size
+  stamped in), six steps (unzip to a permanent folder → `chrome://extensions`
+  with a copy button, since web pages can't link to `chrome://` → Developer
+  mode → Load unpacked → pin → sign in once), the three capture gestures, a
+  "good to know" list (developer-mode startup notice, Chromium-only, red badge
+  = check sign-in), and update instructions (replace folder contents + reload
+  keeps the session; remove + re-add signs out).
+- **Hosted zip refreshed** to 1.2.0 (`public/stash-it-extension.zip` was still
+  1.1.1: old `<all_urls>` host permission, no forgot-password link on the
+  sign-in page). New `extension/scripts/publish-hosted-zip.sh` runs
+  `package.sh`, copies the result to `public/`, copies `icon128.png` next to
+  the page, and rewrites the page's `data-version` / `data-size` stamps — run
+  it with every extension release so the hosted copy stops drifting.
+- **Shared web fonts**: the four PP Neue Montreal woff2 files moved from
+  `public/prototypes-for-feedback/mutations/fonts/` to `public/fonts/` so any
+  static page outside the Vite build can use them; the mutations prototype
+  now points there too.
+- Design: DESIGN.md tokens copied inline (Montreal only, ink/muted/faint,
+  violet-600 on exactly one element, 1px hairlines, 16px tile radius, no
+  emoji, reduced-motion guard). iOS/macOS: nothing to mirror — desktop-only.
+
 ## 2026-09-13 · iOS housekeeping mirror + App Store readiness (plan 14)
 
 Mirrors the 2026-09-13 web housekeeping changes (`docs/2026-09-13-housekeeping-handoff.md`)

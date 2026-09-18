@@ -5,6 +5,9 @@ JavaScript, **no build step and no dependencies** — the directory loads as-is.
 
 ## Install (unpacked)
 
+Not working from a checkout? Send people to <https://www.gostash.it/extension>
+— an unlisted page with the hosted zip and step-by-step instructions.
+
 1. Open `chrome://extensions`, enable **Developer mode** (top right).
 2. **Load unpacked** → pick this `extension/` directory.
 3. Pin **Stash it** to the toolbar (puzzle-piece menu → pin).

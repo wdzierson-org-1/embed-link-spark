@@ -132,6 +132,18 @@ accept the developer agreement the first time).
 
 `gostash.it/stash-it-extension.zip` is a separate, informal "grab it here"
 link (referenced from marketing/help copy, not from the CWS listing itself)
-that should track whatever's actually published. This round doesn't touch
-that hosted copy — flagging it here so the next person who ships a version
-bump remembers to refresh it, not just the CWS package.
+that should track whatever's actually published. Install instructions for it
+live at the unlisted page `gostash.it/extension` (`public/extension/index.html`,
+noindex, share the link by hand).
+
+Refresh both with every release, right after step 1 above:
+
+```sh
+cd extension
+./scripts/publish-hosted-zip.sh
+```
+
+That rebuilds the zip via `package.sh`, copies it to
+`public/stash-it-extension.zip`, and stamps the new version + size into the
+install page. Commit the zip, the page, and `public/extension/icon128.png`;
+pushing `main` deploys them.
