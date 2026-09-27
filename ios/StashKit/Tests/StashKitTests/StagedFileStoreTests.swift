@@ -104,6 +104,80 @@ final class StagedFileStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - stage(data:fileExtension:) (plan 15)
+
+    func testStageDataWritesTheBytesUnderAFreshLowercasedName() throws {
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let bytes = Data([0x01, 0x02, 0x03])
+
+        let first = try store.stage(data: bytes, fileExtension: "PDF")
+        let second = try store.stage(data: bytes, fileExtension: "")
+
+        XCTAssertEqual(try Data(contentsOf: first), bytes)
+        XCTAssertEqual(first.pathExtension, "pdf")
+        XCTAssertEqual(second.pathExtension, "bin", "no extension stages as .bin, never a trailing dot")
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(first.deletingLastPathComponent().path, dir.path)
+    }
+
+    // MARK: - stagePreparedImage(from:) (plan 15 — the share extension's image policy)
+
+    func testStagePreparedImageReencodesABigImageToABoundedJPEG() throws {
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let source = dir.appending(path: "source.png")
+        try writeNoiseImage(width: 3000, height: 900, to: source)
+
+        let staged = try store.stagePreparedImage(from: source)
+
+        XCTAssertTrue(staged.wasReencoded)
+        XCTAssertEqual(staged.mimeType, "image/jpeg")
+        XCTAssertEqual(staged.url.pathExtension, "jpg")
+        let output = try XCTUnwrap(decodeImage(try Data(contentsOf: staged.url)))
+        XCTAssertEqual(output.typeIdentifier, UTType.jpeg.identifier)
+        XCTAssertEqual(max(output.width, output.height), 2560)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path), "the source is never modified or moved")
+    }
+
+    func testStagePreparedImageCopiesASmallJPEGByteForByte() throws {
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let jpeg = try encodeImages([makeSplitImage(width: 640, height: 480, left: (1, 0, 0), right: (0, 1, 0))], as: .jpeg)
+        let source = dir.appending(path: "photo.JPEG")
+        try jpeg.write(to: source)
+
+        let staged = try store.stagePreparedImage(from: source)
+
+        XCTAssertFalse(staged.wasReencoded)
+        XCTAssertEqual(staged.mimeType, "image/jpeg")
+        XCTAssertEqual(staged.url.pathExtension, "jpg")
+        XCTAssertEqual(try Data(contentsOf: staged.url), jpeg)
+    }
+
+    func testStagePreparedImageKeepsAGIF() throws {
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let gif = try encodeImages([makeSplitImage(width: 20, height: 20, left: (1, 0, 0), right: (0, 0, 1)),
+                                    makeSplitImage(width: 20, height: 20, left: (0, 0, 1), right: (1, 0, 0))], as: .gif)
+        let source = dir.appending(path: "anim.gif")
+        try gif.write(to: source)
+
+        let staged = try store.stagePreparedImage(from: source)
+
+        XCTAssertFalse(staged.wasReencoded)
+        XCTAssertEqual(staged.mimeType, "image/gif")
+        XCTAssertEqual(try Data(contentsOf: staged.url), gif)
+    }
+
+    func testStagePreparedImageThrowsForANonImage() throws {
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let source = try makeSourceFile(bytes: Data("definitely not an image".utf8))
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        XCTAssertThrowsError(try store.stagePreparedImage(from: source)) { error in
+            XCTAssertEqual(error as? StagedFileStoreError, .cannotReadImage)
+        }
+        XCTAssertThrowsError(try store.stagePreparedImage(from: dir.appending(path: "missing.png")))
+        XCTAssertTrue(store.pendingStaged().isEmpty, "a failed prepare leaves nothing staged")
+    }
+
     // MARK: - pendingStaged / discard / fileSize
 
     func testPendingStagedListsOnlyFiles() throws {

@@ -1,37 +1,52 @@
 import Foundation
 
+/// One persisted capture. Plan 15: EVERY iOS capture (composer, voice note, share extension) is
+/// written here FIRST and then sent with `capture_id = id` (lowercased) — the entry id is the
+/// server-side idempotency key, so any retry of this entry, from any process, at any time, resolves
+/// to the same single item.
+///
+/// `payload` keys (all strings — the file format predates typed payloads): `content`, `title`,
+/// `url`, `is_public` ("true"/"false"), `attributes_json` (the attributes object as a JSON string),
+/// `remind_at`; for `.file`: `mime_type`, `file_size`, `file_name` (the user-facing original name,
+/// plan 15), and exactly one of `local_file_path` (bytes still on this device — staged share,
+/// staged composer attachment, or a voice recording) or `file_path` (bytes already in Storage).
 public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable { case note, url, file }
-    /// Plan 14 T3 (Outbox park-on-403): `.pending` is drained normally; `.parked` is a capture
-    /// `drain` has already tried and gotten HTTP 403 `{"error":"subscription_required"}` for —
-    /// the account can't add content right now, not "this particular send failed," so retrying it
-    /// on every ordinary drain pass would just burn `attempts` for a reason retrying can never
-    /// fix. See `Outbox.drain`'s park branch and `Outbox.unparkAll` for the two transitions.
-    public enum Status: String, Codable, Sendable { case pending, parked }
+    /// - `pending`: `drain` sends it.
+    /// - `parked` (Plan 14 T3): `drain` already got HTTP 403 `{"error":"subscription_required"}`
+    ///   for it — the account can't add content right now, which no retry can fix, so it's skipped
+    ///   until `unparkAll` flips it back (see that method for who calls it and when).
+    /// - `transferring` (plan 15): a background `URLSession` transfer owns it (share extension,
+    ///   Task 4) since `transferStartedAt`. `drain` leaves it alone until that is older than
+    ///   `Outbox.staleTransferInterval` (or missing), then resends it — safe, because the server
+    ///   dedupes by capture id if the transfer actually landed.
+    public enum Status: String, Codable, Sendable { case pending, parked, transferring }
     public var id: UUID
     public var kind: Kind
     public var payload: [String: String]
     public var createdAt: Date
     public var attempts: Int
     public var status: Status
+    public var transferStartedAt: Date?
 
-    public init(id: UUID, kind: Kind, payload: [String: String], createdAt: Date, attempts: Int, status: Status = .pending) {
+    public init(id: UUID, kind: Kind, payload: [String: String], createdAt: Date, attempts: Int,
+                status: Status = .pending, transferStartedAt: Date? = nil) {
         self.id = id
         self.kind = kind
         self.payload = payload
         self.createdAt = createdAt
         self.attempts = attempts
         self.status = status
+        self.transferStartedAt = transferStartedAt
     }
 
-    private enum CodingKeys: String, CodingKey { case id, kind, payload, createdAt, attempts, status }
+    private enum CodingKeys: String, CodingKey { case id, kind, payload, createdAt, attempts, status, transferStartedAt }
 
-    /// Custom `Decodable` so an entry written to disk BEFORE this task (no `status` key at all)
-    /// still decodes cleanly as `.pending` rather than failing to decode entirely — every
-    /// existing on-disk Outbox entry, and every entry any earlier StashKit build ever wrote, is
-    /// missing this key. `encode(to:)` stays the compiler-synthesized default (a custom
-    /// `init(from:)` alone doesn't disable `Encodable` synthesis), so a re-persisted entry always
-    /// carries an explicit `status` from then on.
+    /// Custom `Decodable` so an entry written to disk by an OLDER build still decodes: no `status`
+    /// key (pre-plan-14) → `.pending`; no `transferStartedAt` (pre-plan-15) → `nil`. Entry ids were
+    /// always UUIDs, so every old entry already carries a valid idempotency key — no migration.
+    /// `encode(to:)` stays compiler-synthesized, so a re-persisted entry always carries an explicit
+    /// `status` (and `transferStartedAt` whenever set).
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -40,7 +55,27 @@ public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         attempts = try container.decode(Int.self, forKey: .attempts)
         status = try container.decodeIfPresent(Status.self, forKey: .status) ?? .pending
+        transferStartedAt = try container.decodeIfPresent(Date.self, forKey: .transferStartedAt)
     }
+}
+
+/// How one `Outbox.sendNow` (or one entry of a `drain` pass) ended.
+public enum OutboxSendResult: Sendable, Equatable {
+    /// The server has the capture (new, or `duplicate: true` for an earlier attempt that landed);
+    /// the entry, its claim, and its local file are gone.
+    case sent(CaptureResult)
+    /// HTTP 403 `subscription_required` — parked until `unparkAll`.
+    case parked
+    /// Still queued for a later pass: the send failed (`attempts` += 1), or the server reported the
+    /// same capture id already in progress (409, `attempts` unchanged).
+    case pending
+    /// Not attempted: another process/pass holds its claim, or a background transfer owns it.
+    case inFlight
+    /// No such entry any more (already sent by someone else, or cleared).
+    case notFound
+    /// Permanently dropped: its `local_file_path` no longer exists, so there are no bytes left to
+    /// send anywhere.
+    case dropped
 }
 
 /// Cross-process claim sidecar (Plan 5 Task 3): `<entryId>.claim`, written and read next to the
@@ -54,10 +89,18 @@ private struct OutboxClaim: Codable, Sendable {
     let claimedAt: Date
 }
 
-/// One JSON file per pending capture. Survives crashes and offline periods. See
+/// One JSON file per queued capture. Survives crashes and offline periods. See
 /// `defaultDirectory` below for how the directory itself is resolved (per-user, App-Group-backed
 /// since Plan 5 Task 2) and `drain` for the claim protocol (Plan 5 Task 3) that lets the app and
-/// the share extension (Task 5+) safely share one such directory without double-sending an entry.
+/// the share extension safely share one such directory without double-sending an entry.
+///
+/// Plan 15: every send goes through the idempotent `capture` endpoint (`CaptureAPI.submit`) keyed
+/// by the entry id. A `.file` entry still holding its bytes locally rides ONE multipart request
+/// when the file is ≤ `CaptureAPI.oneShotFileLimit`; a bigger one goes two-step — upload to the
+/// deterministic `<uid>/<entryId>.<ext>` Storage path (upsert), checkpoint `file_path` to disk,
+/// then a JSON capture. `sendNow` is the single-entry path the composer and share sheet use right
+/// after enqueueing; `drain` is the batch path; the `mark…`/`park`/`complete`/`checkpoint`
+/// helpers are for the background-transfer delegate (Task 4).
 public actor Outbox {
     private let directory: URL
     private var isDraining = false
@@ -70,6 +113,11 @@ public actor Outbox {
     /// entry's processing should ever legitimately take (including the local-file lane's upload
     /// step), while short enough that a genuinely abandoned claim doesn't block an entry forever.
     private static let staleClaimInterval: TimeInterval = 600
+
+    /// Plan 15: how long a `.transferring` entry is left to its background transfer before `drain`
+    /// resends it itself. A resend is always safe — the server dedupes by capture id — this only
+    /// bounds how long a transfer that silently died (or never started) can delay a capture.
+    public static let staleTransferInterval: TimeInterval = 600
 
     /// How long a claim sidecar with NO matching entry is left alone before `sweepOrphanClaims`
     /// (Task 4) treats it as inert clutter rather than a claim mid-cleanup by its own owning
@@ -94,9 +142,9 @@ public actor Outbox {
         return "\(name)#\(ProcessInfo.processInfo.processIdentifier)"
     }()
 
-    /// - Parameter now: Injectable for tests (`testStaleClaimIsReclaimed` backdates a claim by
-    ///   constructing an `Outbox` whose `now` returns a past instant). Defaults to the current
-    ///   time so no existing call site needs to change.
+    /// - Parameter now: Injectable for tests (`testStaleClaimIsReclaimed` backdates a claim, and
+    ///   the plan-15 transfer tests backdate `transferStartedAt`, by constructing an `Outbox` whose
+    ///   `now` returns a past instant). Defaults to the current time.
     public init(directory: URL,
                 // A bare `Date.init` reference triggers "converting non-Sendable function value
                 // to '@Sendable () -> Date' may introduce data races" on this toolchain — the
@@ -122,14 +170,11 @@ public actor Outbox {
     /// Plan 5 Task 2: now resolves through `AppGroup.userScopedURL`, which moves this directory
     /// into the shared App Group container when the app is entitled (falling back to the exact
     /// old Application Support formula otherwise, e.g. `swift test`) — so the share extension
-    /// (Task 5+) can enqueue into the same Outbox the app drains. This preserves the per-user
-    /// segment described above; collapsing back to one shared directory across accounts would
-    /// reopen the leak. A one-time `AppGroup.migrateLegacyDirectory` call relocates any entries
-    /// already queued at the pre-Task-2 location (dev-stage: no real users yet, but a
-    /// not-yet-drained entry from a developer's own test run would otherwise go silently
-    /// invisible on the first App-Group-entitled launch) — a no-op once moved, and a no-op
-    /// (guaranteed, since the two paths are then identical) wherever the App Group entitlement
-    /// isn't active.
+    /// can enqueue into the same Outbox the app drains. This preserves the per-user segment
+    /// described above; collapsing back to one shared directory across accounts would reopen the
+    /// leak. A one-time `AppGroup.migrateLegacyDirectory` call relocates any entries already
+    /// queued at the pre-Task-2 location — a no-op once moved, and a no-op (guaranteed, since the
+    /// two paths are then identical) wherever the App Group entitlement isn't active.
     public static func defaultDirectory(userId: UUID) -> URL {
         let destination = AppGroup.userScopedURL("StashOutbox", userId: userId)
         AppGroup.migrateLegacyDirectory(from: AppGroup.legacyUserScopedURL("StashOutbox", userId: userId),
@@ -137,18 +182,24 @@ public actor Outbox {
         return destination
     }
 
+    // MARK: - Enqueue / read
+
+    /// Persists a new entry and returns it (its `id` is the capture id every send of it will use).
+    ///
     /// `status` (Plan 14 fix wave B, #8) lets a caller enqueue an entry that's already known to be
-    /// gated — a foreground `CaptureViewModel.submit()` that got a LIVE `.subscriptionRequired`
-    /// 403 enqueues straight to `.parked` rather than `.pending`, so it never sits as an ordinary
-    /// "will retry" entry for one drain cycle before `drain`'s own 403 catch (Plan 14 T3) would
-    /// have parked it anyway. Defaults to `.pending` — every pre-existing call site is unaffected.
+    /// gated (`.parked`); plan 15's share extension enqueues `.transferring` entries it is about to
+    /// hand to a background session (`transferStartedAt` is stamped here). Defaults to `.pending`.
+    @discardableResult
     public func enqueue(_ kind: OutboxEntry.Kind, payload: [String: String],
-                        status: OutboxEntry.Status = .pending) throws {
-        let entry = OutboxEntry(id: UUID(), kind: kind, payload: payload, createdAt: Date(), attempts: 0, status: status)
+                        status: OutboxEntry.Status = .pending) throws -> OutboxEntry {
+        let entry = OutboxEntry(id: UUID(), kind: kind, payload: payload, createdAt: Date(), attempts: 0,
+                                status: status, transferStartedAt: status == .transferring ? now() : nil)
         let data = try JSONEncoder().encode(entry)
         try data.write(to: fileURL(for: entry.id), options: .atomic)
+        return entry
     }
 
+    /// Every entry on disk regardless of status (pending, parked, transferring), oldest first.
     public func pending() -> [OutboxEntry] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         return files
@@ -157,126 +208,262 @@ public actor Outbox {
             .sorted { $0.createdAt < $1.createdAt }
     }
 
+    /// The entry with `id`, read fresh from disk (another process may have changed it).
+    public func entry(id: UUID) -> OutboxEntry? {
+        guard let data = try? Data(contentsOf: fileURL(for: id)) else { return nil }
+        return try? JSONDecoder().decode(OutboxEntry.self, from: data)
+    }
+
+    // MARK: - Send
+
+    /// Plan 15: sends ONE entry right now — the composer/share-sheet path immediately after
+    /// `enqueue`. Takes the same cross-process claim `drain` does, so a concurrent drain (this
+    /// process or another) can never send it twice at once; the capture id makes even a later
+    /// resend harmless. Never sends a `.parked` entry or one a live background transfer owns.
+    ///
+    /// - Parameter upload: the two-step Storage lane, exactly as `drain`'s — `nil` streams through
+    ///   `api.uploadFileToStorage` with this call's own `accessToken`.
+    public func sendNow(id: UUID, api: CaptureAPI, userId: UUID, accessToken: String,
+                        upload: (@Sendable (URL, String, String) async throws -> Void)? = nil) async -> OutboxSendResult {
+        guard let snapshot = entry(id: id) else { return .notFound }
+        if snapshot.status == .parked { return .parked }
+        guard isEligibleForSend(snapshot) else { return .inFlight }
+        guard acquireClaim(for: id) else { return .inFlight }
+        guard let current = entry(id: id) else {
+            releaseClaim(for: id)
+            return .notFound
+        }
+        guard isEligibleForSend(current) else {
+            releaseClaim(for: id)
+            return current.status == .parked ? .parked : .inFlight
+        }
+        return await process(current, api: api, userId: userId, accessToken: accessToken,
+                             upload: resolvedUpload(upload, api: api, accessToken: accessToken))
+    }
+
+    /// Sends every eligible entry (`.pending`, plus `.transferring` ones whose transfer went
+    /// stale), oldest first; never `.parked`. Returns how many reached the server (including
+    /// idempotent `duplicate` replays of captures an earlier, unanswered attempt already created).
+    ///
     /// - Parameters:
-    ///   - userId: Needed to build the fresh `makeUploadPath` a `local_file_path` entry uploads
-    ///     to — see the `local_file_path` handling below.
-    ///   - upload: Injectable for tests; `nil` (every real call site) resolves to the real
-    ///     `uploadToStorageFromFile` using THIS call's own `accessToken`. Only ever called for a
-    ///     `.file` entry whose payload contains `local_file_path` (a locally-staged/recorded file
-    ///     not yet uploaded) — a `.file` entry with an already-uploaded `file_path` (Task 3) never
-    ///     touches this closure. Task 4: takes the local file's `URL` directly, not a loaded
-    ///     `Data` blob — `drain` streams straight from disk, never materializing a recording's or
-    ///     staged share's full bytes in this process's memory.
+    ///   - userId: builds the deterministic two-step Storage path (`<uid>/<entryId>.<ext>`).
+    ///   - upload: the two-step lane's Storage upload (`fileURL`, `path`, `contentType`) — only ever
+    ///     called for a `.file` entry whose local file needs two-step (`CaptureTransport
+    ///     .requiresTwoStep`, or after a 413). `nil` (the default) streams through
+    ///     `api.uploadFileToStorage` with THIS call's own `accessToken`; `StashApp` passes a
+    ///     closure over `uploadToStorageFromFile` (same request, `x-upsert` included). Never given
+    ///     loaded `Data` — the lane streams straight from disk.
     ///
     ///     `Optional`, not a plain closure with a default expression, because Swift default
-    ///     argument expressions can't reference a sibling parameter (verified: `accessToken` isn't
-    ///     in scope there) — the same constraint `CaptureViewModel`'s own `accessToken`-consuming
-    ///     defaults sidestep by fetching independently instead. Resolving the real default inside
-    ///     the function body (below) is what lets it reuse the CALLER's own `accessToken` — one
-    ///     token fetch per `drain`, not a second independent one buried in a default closure.
+    ///     argument expressions can't reference a sibling parameter (`accessToken`/`api` aren't
+    ///     in scope there); resolving the default in the body lets it reuse the caller's token.
     public func drain(api: CaptureAPI, accessToken: String, userId: UUID,
                       upload: (@Sendable (URL, String, String) async throws -> Void)? = nil) async -> Int {
         guard !isDraining else { return 0 }
         isDraining = true
         defer { isDraining = false }
-        let performUpload: @Sendable (URL, String, String) async throws -> Void = upload ?? { fileURL, path, contentType in
-            try await uploadToStorageFromFile(fileURL: fileURL, path: path, contentType: contentType,
-                                              accessToken: accessToken)
-        }
+        let performUpload = resolvedUpload(upload, api: api, accessToken: accessToken)
         var sent = 0
-        for var entry in pending() {
-            // Plan 14 T3: a parked entry is skipped outright — no claim, no attempt, no
-            // `attempts` increment. It stays exactly as it is on disk until `unparkAll` flips it
-            // back to `.pending` (see that method's doc comment for who calls it and when).
-            guard entry.status != .parked else { continue }
-
+        for snapshot in pending() where isEligibleForSend(snapshot) {
             // Cross-process claim (Task 3): acquired BEFORE any processing of this entry —
-            // including the missing-local-file drop check and the local-file upload lane below —
-            // so the claim spans the entry's entire lifecycle for this pass, not just the final
-            // `send`. `false` means some other in-flight drain (this process's own reentrant call
-            // can't reach here at all, thanks to `isDraining` above, so in practice this is
-            // another PROCESS — the share extension, Task 5+ — or a previous crashed run that
-            // hasn't gone stale yet) already owns this entry; skip it and move on to the next one.
-            guard acquireClaim(for: entry.id) else { continue }
-
-            // Recording durability (Task 4): a `.file` entry can carry `local_file_path` instead
-            // of (as well as, briefly) `file_path` — the app's recorder (Task 6) writes audio
-            // straight to local disk via `RecordingStore` and enqueues before any network call
-            // ever happens, so (unlike every other attachment, which is already uploaded by the
-            // time `CaptureViewModel.prepare` enqueues it — Task 3) the upload itself has to
-            // happen here, inside drain.
-            let localPath = entry.kind == .file ? entry.payload["local_file_path"] : nil
-
-            if let localPath, !FileManager.default.fileExists(atPath: localPath) {
-                // Permanent failure: the local recording is gone (e.g. the app was force-quit and
-                // its on-disk state got cleared before this entry was ever drained). There are no
-                // bytes left anywhere to upload, so — unlike every other failure below, which is
-                // retried (attempts += 1, entry rewritten to disk) — this entry is dropped
-                // outright. Retrying can never succeed; keeping it around would just retry forever
-                // for nothing.
-                print("Outbox: dropping entry \(entry.id) — its local recording file is missing, upload can never succeed")
-                try? FileManager.default.removeItem(at: fileURL(for: entry.id))
-                releaseClaim(for: entry.id)
+            // including the missing-local-file drop check and the upload lane below — so the
+            // claim spans the entry's entire lifecycle for this pass. `false` means some other
+            // in-flight send (another PROCESS — the share extension — a concurrent `sendNow`, or a
+            // crashed run that hasn't gone stale yet) owns this entry; skip it this pass.
+            guard acquireClaim(for: snapshot.id) else { continue }
+            // Re-read under the claim: the snapshot may be stale (another process completed,
+            // parked, or re-marked it between `pending()` and the claim).
+            guard let current = entry(id: snapshot.id), isEligibleForSend(current) else {
+                releaseClaim(for: snapshot.id)
                 continue
             }
-
-            do {
-                if let localPath {
-                    let localURL = URL(fileURLWithPath: localPath)
-                    let path = makeUploadPath(userId: userId, fileExtension: localURL.pathExtension)
-                    try await performUpload(localURL, path, entry.payload["mime_type"] ?? "application/octet-stream")
-                    entry.payload["file_path"] = path
-                    entry.payload.removeValue(forKey: "local_file_path")
-                    // Persist the transitioned entry to disk BEFORE deleting the local file or
-                    // attempting `send` (Critical, task review fix round). `send` below is a
-                    // network `await` — if the process is killed while it's suspended, no `catch`
-                    // ever runs, so the ONLY record of "this upload already succeeded" that
-                    // survives a relaunch is whatever's on disk at this exact point. Persisting
-                    // here first — synchronously, before either of the next two operations —
-                    // guarantees a relaunch's `pending()` sees an entry with `file_path` set and
-                    // no `local_file_path`, i.e. an ordinary already-uploaded `.file` entry that
-                    // just retries `addFile` (never re-uploads, and is never mistaken for the
-                    // missing-local-file permanent-failure case above once the line below deletes
-                    // the local copy).
-                    if let checkpoint = try? JSONEncoder().encode(entry) {
-                        try? checkpoint.write(to: fileURL(for: entry.id), options: .atomic)
-                    }
-                    // Only now is it safe to delete the local copy: a crash between the persist
-                    // above and here just leaves a harmless, sweepable local file; a crash after
-                    // here (including mid-`send`) is fully covered by the checkpoint already on
-                    // disk.
-                    try? FileManager.default.removeItem(at: localURL)
-                }
-                _ = try await send(entry, api: api, accessToken: accessToken)
-                try? FileManager.default.removeItem(at: fileURL(for: entry.id))
-                releaseClaim(for: entry.id)
+            if case .sent = await process(current, api: api, userId: userId, accessToken: accessToken,
+                                          upload: performUpload) {
                 sent += 1
-            } catch CaptureError.subscriptionRequired {
-                // Plan 14 T3 (Outbox park-on-403): the server refused with
-                // `{"error":"subscription_required"}` — the account can't add content right now,
-                // which no amount of retrying this SEND will ever fix. Park it instead of the
-                // ordinary attempts-increment-and-retry path below: `attempts` is deliberately
-                // untouched (this isn't a failure of the send itself), and `drain`'s own guard at
-                // the top of this loop skips it on every subsequent pass until `unparkAll` flips
-                // it back.
-                entry.status = .parked
-                if let data = try? JSONEncoder().encode(entry) {
-                    try? data.write(to: fileURL(for: entry.id), options: .atomic)
-                }
-                releaseClaim(for: entry.id)
-            } catch {
-                entry.attempts += 1
-                if let data = try? JSONEncoder().encode(entry) {
-                    try? data.write(to: fileURL(for: entry.id), options: .atomic)
-                }
-                // Release even on failure (attempts still increments above) so the entry is
-                // re-eligible immediately on the very next drain — by this process or another —
-                // rather than waiting out `staleClaimInterval` for no reason.
-                releaseClaim(for: entry.id)
             }
         }
         return sent
     }
+
+    /// `.pending` always; `.transferring` once its background transfer is stale (or was never
+    /// stamped); `.parked` never.
+    private func isEligibleForSend(_ entry: OutboxEntry) -> Bool {
+        switch entry.status {
+        case .pending: return true
+        case .parked: return false
+        case .transferring:
+            guard let started = entry.transferStartedAt else { return true }
+            return now().timeIntervalSince(started) > Self.staleTransferInterval
+        }
+    }
+
+    private func resolvedUpload(_ upload: (@Sendable (URL, String, String) async throws -> Void)?, api: CaptureAPI,
+                                accessToken: String) -> @Sendable (URL, String, String) async throws -> Void {
+        upload ?? { fileURL, path, contentType in
+            try await api.uploadFileToStorage(fileURL, path: path, contentType: contentType, accessToken: accessToken)
+        }
+    }
+
+    /// One claimed entry, start to finish. The caller holds the entry's claim; every path out of
+    /// here releases it (or deletes it along with the entry).
+    private func process(_ claimed: OutboxEntry, api: CaptureAPI, userId: UUID, accessToken: String,
+                         upload: @Sendable (URL, String, String) async throws -> Void) async -> OutboxSendResult {
+        var entry = claimed
+        if entry.kind == .file, entry.payload["file_path"] == nil, let localPath = entry.payload["local_file_path"],
+           !FileManager.default.fileExists(atPath: localPath) {
+            // Permanent failure: the local bytes are gone (e.g. the app's on-disk state was
+            // cleared before this entry was ever sent). Unlike every other failure below — each
+            // retried, never dropped — retrying can never succeed here, so the entry is dropped.
+            print("Outbox: dropping entry \(entry.id) — its local file is missing, it can never be sent")
+            try? FileManager.default.removeItem(at: fileURL(for: entry.id))
+            releaseClaim(for: entry.id)
+            return .dropped
+        }
+        do {
+            if CaptureTransport.requiresTwoStep(entry, oneShotLimit: api.oneShotLimit) {
+                entry = try await uploadAndCheckpoint(entry, userId: userId, upload: upload)
+            }
+            let result: CaptureResult
+            do {
+                result = try await api.submit(entry: entry, userId: userId, accessToken: accessToken)
+            } catch CaptureError.fileTooLarge where entry.payload["file_path"] == nil && entry.payload["local_file_path"] != nil {
+                // The one-shot body was refused as too large (the endpoint's own guard, or a
+                // gateway limit): same entry, same capture id, straight through the two-step lane.
+                entry = try await uploadAndCheckpoint(entry, userId: userId, upload: upload)
+                result = try await api.submit(entry: entry, userId: userId, accessToken: accessToken)
+            }
+            removeEntryAndLocalFile(entry)
+            if let item = result.item {
+                await postStashItemCaptured(item, duplicate: result.duplicate)
+            }
+            return .sent(result)
+        } catch CaptureError.subscriptionRequired {
+            // Plan 14 T3: the account can't add content right now, which no retry of this send can
+            // fix — park it (attempts untouched: not a failure of the send itself).
+            entry.status = .parked
+            entry.transferStartedAt = nil
+            persistIfPresent(entry)
+            releaseClaim(for: entry.id)
+            return .parked
+        } catch CaptureError.inProgress {
+            // Plan 15: another attempt with this capture id is mid-flight server-side (e.g. a
+            // background transfer). Not a failure: stays pending, attempts unchanged; the next
+            // pass gets the finished receipt back as `duplicate: true`.
+            entry.status = .pending
+            entry.transferStartedAt = nil
+            persistIfPresent(entry)
+            releaseClaim(for: entry.id)
+            return .pending
+        } catch {
+            entry.status = .pending
+            entry.transferStartedAt = nil
+            entry.attempts += 1
+            persistIfPresent(entry)
+            // Release even on failure (attempts still increments above) so the entry is
+            // re-eligible immediately on the very next pass — by this process or another —
+            // rather than waiting out `staleClaimInterval` for no reason.
+            releaseClaim(for: entry.id)
+            return .pending
+        }
+    }
+
+    /// The two-step lane's first half: streams the local file to the entry's deterministic Storage
+    /// path (`x-upsert`, so a repeat after a lost response overwrites the same object), then
+    /// checkpoints (`checkpointUploaded`) — returns the checkpointed entry.
+    private func uploadAndCheckpoint(_ entry: OutboxEntry, userId: UUID,
+                                     upload: @Sendable (URL, String, String) async throws -> Void) async throws -> OutboxEntry {
+        guard let localPath = entry.payload["local_file_path"] else { return entry }
+        let path = CaptureTransport.storagePath(userId: userId, entryId: entry.id,
+                                                fileExtension: CaptureTransport.storageFileExtension(for: entry))
+        try await upload(URL(fileURLWithPath: localPath), path, CaptureTransport.mimeType(for: entry))
+        return checkpointUploaded(entry, filePath: path)
+    }
+
+    /// Records "these bytes are in Storage at `filePath`" DURABLY before anything else happens
+    /// (Critical, Plan 5 task review): `file_path` set, `file_size` captured if missing,
+    /// `local_file_path` removed, written to disk — and only then is the local copy deleted. A
+    /// process killed mid-`submit` relaunches to an ordinary already-uploaded entry that just
+    /// retries the JSON capture (never re-uploads, never mistaken for the missing-local-file case).
+    /// Like every status write here it never resurrects an entry someone else already completed;
+    /// and if the checkpoint couldn't be written, the local copy is kept (the on-disk entry still
+    /// points at it — a retry re-uploads to the same path, harmlessly).
+    private func checkpointUploaded(_ entry: OutboxEntry, filePath: String) -> OutboxEntry {
+        var checkpointed = entry
+        let localPath = checkpointed.payload.removeValue(forKey: "local_file_path")
+        if checkpointed.payload["file_size"] == nil, let size = CaptureTransport.localFileSize(of: entry) {
+            checkpointed.payload["file_size"] = String(size)
+        }
+        checkpointed.payload["file_path"] = filePath
+        let entryURL = fileURL(for: checkpointed.id)
+        let stillQueued = FileManager.default.fileExists(atPath: entryURL.path)
+        var persisted = false
+        if stillQueued, let data = try? JSONEncoder().encode(checkpointed) {
+            persisted = (try? data.write(to: entryURL, options: .atomic)) != nil
+        }
+        if let localPath, persisted || !stillQueued {
+            try? FileManager.default.removeItem(atPath: localPath)
+        }
+        return checkpointed
+    }
+
+    // MARK: - Transitions for the background-transfer delegate (plan 15, Task 4)
+
+    /// Marks existing, non-parked entries `.transferring` from now (`transferStartedAt = now`) —
+    /// e.g. when a follow-up task is started for them. Returns the entries as persisted.
+    @discardableResult
+    public func markTransferring(ids: [UUID]) -> [OutboxEntry] {
+        var marked: [OutboxEntry] = []
+        for id in ids {
+            guard var entry = entry(id: id), entry.status != .parked else { continue }
+            entry.status = .transferring
+            entry.transferStartedAt = now()
+            persistIfPresent(entry)
+            marked.append(entry)
+        }
+        return marked
+    }
+
+    /// Back to `.pending` (a transfer that couldn't start, failed, or got 409), optionally
+    /// counting a failed attempt. No-op for an unknown id.
+    public func markPending(id: UUID, incrementAttempts: Bool) {
+        guard var entry = entry(id: id) else { return }
+        entry.status = .pending
+        entry.transferStartedAt = nil
+        if incrementAttempts { entry.attempts += 1 }
+        persistIfPresent(entry)
+    }
+
+    /// Parks an entry (403 `subscription_required`). No-op for an unknown id.
+    public func park(id: UUID) {
+        guard var entry = entry(id: id) else { return }
+        entry.status = .parked
+        entry.transferStartedAt = nil
+        persistIfPresent(entry)
+    }
+
+    /// The capture reached the server: deletes the entry, its claim sidecar, and its local file
+    /// (staged share/attachment or recording), if any. Returns the removed entry (`nil` if it was
+    /// already gone — e.g. `drain` finished it first; that's fine, the server deduped).
+    @discardableResult
+    public func complete(id: UUID) -> OutboxEntry? {
+        guard let entry = entry(id: id) else {
+            releaseClaim(for: id)
+            return nil
+        }
+        removeEntryAndLocalFile(entry)
+        return entry
+    }
+
+    /// The two-step lane's Storage upload for `id` landed at `filePath`: checkpoints it (see
+    /// `checkpointUploaded`) so the follow-up JSON capture — and any later resend — never
+    /// re-uploads. Returns the checkpointed entry (`nil` for an unknown id).
+    @discardableResult
+    public func checkpoint(id: UUID, filePath: String) -> OutboxEntry? {
+        guard let entry = entry(id: id) else { return nil }
+        return checkpointUploaded(entry, filePath: filePath)
+    }
+
+    // MARK: - Park / clear
 
     /// Flips every `.parked` entry back to `.pending` — called once `SubscriptionStore.refresh()`
     /// reports `canAddContent == true` again (see `CaptureComposerView`'s
@@ -313,11 +500,33 @@ public actor Outbox {
         }
     }
 
-    /// Attempts to acquire ownership of `id` for this `drain` pass. Returns `true` if this call
-    /// now owns the entry — either there was no existing claim, or there was a stale one this
-    /// call just replaced — and `false` if a live claim exists (owned by this process's own
-    /// earlier, still-in-flight attempt or, cross-process, by another one entirely), meaning the
-    /// entry must be skipped this pass.
+    // MARK: - Persistence helpers
+
+    /// Rewrites `entry` only if its file still exists — a status/attempts update must never
+    /// resurrect an entry another process (or the background-transfer delegate) completed while
+    /// this send was in flight.
+    private func persistIfPresent(_ entry: OutboxEntry) {
+        let url = fileURL(for: entry.id)
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? JSONEncoder().encode(entry) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private func removeEntryAndLocalFile(_ entry: OutboxEntry) {
+        try? FileManager.default.removeItem(at: fileURL(for: entry.id))
+        if let localPath = entry.payload["local_file_path"] {
+            try? FileManager.default.removeItem(atPath: localPath)
+        }
+        releaseClaim(for: entry.id)
+    }
+
+    // MARK: - Claims
+
+    /// Attempts to acquire ownership of `id` for this pass. Returns `true` if this call now owns
+    /// the entry — either there was no existing claim, or there was a stale one this call just
+    /// replaced — and `false` if a live claim exists (owned by this process's own earlier,
+    /// still-in-flight attempt or, cross-process, by another one entirely), meaning the entry must
+    /// be skipped this pass.
     private func acquireClaim(for id: UUID) -> Bool {
         if claimEntry(id: id) { return true }
         // Creation failed: a claim sidecar already exists. Read it to decide whether it's stale;
@@ -336,15 +545,14 @@ public actor Outbox {
         // second process independently polling the same stale claim could slip in — that's fine
         // and intentional, not a bug to close: exactly one of the two `claimEntry` calls wins the
         // O_EXCL create, and the loser's `false` return means it skips the entry this pass, same
-        // as any ordinary live-claim contention. The delete itself isn't atomic with the recreate,
-        // but the recreate is the step that actually decides ownership, and that one is.
+        // as any ordinary live-claim contention.
         try? FileManager.default.removeItem(at: url)
         return claimEntry(id: id)
     }
 
     /// Removes the claim sidecar for `id`, if any. Called once an entry reaches a terminal state
-    /// for this pass — sent, permanently dropped, or retried-after-failure — so the entry is
-    /// immediately re-eligible rather than waiting out `staleClaimInterval`.
+    /// for this pass — sent, permanently dropped, parked, or retried-after-failure — so the entry
+    /// is immediately re-eligible rather than waiting out `staleClaimInterval`.
     private func releaseClaim(for id: UUID) {
         try? FileManager.default.removeItem(at: claimFileURL(for: id))
     }
@@ -404,38 +612,6 @@ public actor Outbox {
             deleted += 1
         }
         return deleted
-    }
-
-    private func send(_ entry: OutboxEntry, api: CaptureAPI, accessToken: String) async throws -> Item {
-        let isPublic = entry.payload["is_public"] == "true"
-        let attributes = decodedAttributes(from: entry)
-        switch entry.kind {
-        case .note:
-            return try await api.addNote(content: entry.payload["content"] ?? "",
-                                         title: entry.payload["title"], isPublic: isPublic,
-                                         attributes: attributes, accessToken: accessToken)
-        case .url:
-            return try await api.addURL(entry.payload["url"] ?? "",
-                                        note: entry.payload["content"] ?? "", isPublic: isPublic,
-                                        attributes: attributes, accessToken: accessToken)
-        case .file:
-            return try await api.addFile(path: entry.payload["file_path"] ?? "",
-                                         mimeType: entry.payload["mime_type"] ?? "application/octet-stream",
-                                         fileSize: entry.payload["file_size"].flatMap(Int.init),
-                                         content: entry.payload["content"], isPublic: isPublic,
-                                         attributes: attributes, accessToken: accessToken)
-        }
-    }
-
-    /// Task 5: the counterpart to `CaptureViewModel.attributesPayloadString` — decodes the
-    /// `attributes_json` string an entry was enqueued with (if any) back into a real
-    /// `ItemAttributes`, so a drained entry sends the identical `attributes` object a live send
-    /// would have. `nil` for an entry with no `attributes_json` key (the ordinary case: nothing
-    /// was pinned/no media facts) or one that fails to decode (defensive — never crashes a drain
-    /// over a malformed persisted string; the entry still sends, just without its attributes).
-    private func decodedAttributes(from entry: OutboxEntry) -> ItemAttributes? {
-        guard let json = entry.payload["attributes_json"], let data = json.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(ItemAttributes.self, from: data)
     }
 
     private func fileURL(for id: UUID) -> URL {

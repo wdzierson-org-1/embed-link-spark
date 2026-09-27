@@ -44,13 +44,12 @@ struct CaptureComposerView: View {
         // LibraryView uses to build its ItemStore.
         let capture = LocationCapture()
         _locationCapture = State(initialValue: capture)
-        // The app is the one place allowed to import UIKit, so it supplies the real
-        // UIImage-based `downscale`; StashKit's own default is the identity closure. Task 6:
-        // `awaitPendingLocation` bridges to `capture` — StashKit never imports CoreLocation, so
-        // this closure is the only place that connects the two.
+        // Plan 15: photos are prepared inside StashKit (`ImagePreparation` — ImageIO-only, ≤ 2560 px
+        // JPEG, orientation applied, metadata dropped) as part of `submit()`, so the app no longer
+        // supplies an image hook. Task 6: `awaitPendingLocation` bridges to `capture` — StashKit
+        // never imports CoreLocation, so this closure is the only place that connects the two.
         _viewModel = State(initialValue: CaptureViewModel(
             userId: userId,
-            downscale: downscaleImageData,
             awaitPendingLocation: { [capture] timeout in await capture.awaitResolution(timeout: timeout) }
         ))
     }
@@ -247,6 +246,8 @@ struct CaptureComposerView: View {
                 if let data = image.jpegData(compressionQuality: 0.9) {
                     // A fresh camera capture has no source filename to carry forward (Task 5:
                     // "camera → nil") — `fileName`/`durationS` stay at their `nil` defaults.
+                    // `jpegData` records the UIImage orientation as EXIF; `ImagePreparation`
+                    // applies it (and resizes) when the capture is saved (plan 15).
                     viewModel.attachments.append(
                         CaptureAttachment(data: data, fileExtension: "jpg", mimeType: "image/jpeg", kind: .photo))
                 }
@@ -615,23 +616,6 @@ private enum CaptureToast: Equatable {
         case .queued, .rejected: .orange
         }
     }
-}
-
-/// Re-encodes oversized photo attachments as JPEG, capped at 4096px on the long side (mirrors
-/// the web's upload limits, MediaUploadTypes.ts:26-28). Passed to `CaptureViewModel` as its
-/// `downscale` hook so StashKit itself never has to import UIKit. Always re-encodes at the
-/// target quality (not just when the long side is over budget) so the hook's contract — "bring
-/// this under the size limit" — holds even when the size problem was format (e.g. a lossless
-/// PNG) rather than dimensions.
-@Sendable private func downscaleImageData(_ data: Data) -> Data {
-    guard let image = UIImage(data: data) else { return data }
-    let maxDimension: CGFloat = 4096
-    let longSide = max(image.size.width, image.size.height)
-    let scale = longSide > maxDimension ? maxDimension / longSide : 1
-    let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-    let renderer = UIGraphicsImageRenderer(size: newSize)
-    let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
-    return resized.jpegData(compressionQuality: 0.85) ?? data
 }
 
 /// A `Transferable` wrapper (Task 5) that surfaces the ORIGINAL filename PhotosPicker suggests for

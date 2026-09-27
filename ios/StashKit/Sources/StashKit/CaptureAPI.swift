@@ -11,22 +11,41 @@ public enum CaptureError: Error, Equatable {
     /// generic `.badStatus(403)` an agent-token 403 (a different endpoint's shape entirely) or any
     /// other 403 body would still map to — see `captureErrorForFailedResponse` below.
     case subscriptionRequired
+    /// Plan 15: the `capture` endpoint answered `409 {"error":"capture_in_progress"}` — another
+    /// attempt with the same capture id (the Outbox entry id) is in flight server-side right now.
+    /// Not a failure of this send: the Outbox leaves the entry `.pending` with `attempts`
+    /// unchanged, and a later pass finds the server's finished receipt (`duplicate: true`).
+    case inProgress
+    /// Plan 15: HTTP 413 — the one-shot multipart body was too big for the endpoint (its own
+    /// 45 MiB guard, or any gateway limit in front of it; the client's own 10 MiB routing limit
+    /// normally keeps it from ever happening). The Outbox immediately retries the same entry
+    /// through the two-step storage lane instead.
+    case fileTooLarge
+    /// Plan 15: an Outbox entry that can't be expressed as a capture request (a `.file` entry with
+    /// neither `file_path` nor `local_file_path`, or a `file_path` outside the user's own folder).
+    /// Rejected client-side, before any network call; the Outbox still keeps the entry (it never
+    /// auto-deletes user data) and counts it as an ordinary failed attempt.
+    case invalidEntry(String)
 }
 
 public protocol JSONPosting: Sendable {
     func post(path: String, body: [String: Any], accessToken: String) async throws -> Data
 }
 
-/// Maps a non-2xx `FunctionsPoster` response to the specific `CaptureError` case it represents.
-/// Pulled out of `post` as its own pure function so the 403 `subscription_required` detection is
-/// unit-testable without a real network round trip (`CaptureAPITests`).
+/// Maps a non-2xx `FunctionsPoster`/`capture` response to the specific `CaptureError` case it
+/// represents. Pulled out as its own pure function so the body-shape detection is unit-testable
+/// without a real network round trip (`CaptureAPITests`). Only the exact documented bodies map to
+/// the special cases (a 403 with any other body — e.g. an agent-token refusal — stays
+/// `.badStatus(403)`); 413 maps regardless of body, because a gateway in front of the function can
+/// send it too.
 func captureErrorForFailedResponse(status: Int, body: Data) -> CaptureError {
-    if status == 403,
-       let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-       object["error"] as? String == "subscription_required" {
-        return .subscriptionRequired
+    let error = ((try? JSONSerialization.jsonObject(with: body)) as? [String: Any])?["error"] as? String
+    switch status {
+    case 403 where error == "subscription_required": return .subscriptionRequired
+    case 409 where error == "capture_in_progress": return .inProgress
+    case 413: return .fileTooLarge
+    default: return .badStatus(status)
     }
-    return .badStatus(status)
 }
 
 /// POSTs to <supabase>/functions/v1/<path> with the platform's two auth headers.
@@ -51,7 +70,70 @@ public struct FunctionsPoster: JSONPosting {
 
 public struct CaptureAPI: Sendable {
     let poster: JSONPosting
-    public init(poster: JSONPosting = FunctionsPoster()) { self.poster = poster }
+    let transport: CaptureTransporting
+
+    /// Plan 15: a `.file` entry whose local file is at most this many bytes rides ONE multipart
+    /// request to `capture`; anything bigger goes two-step (Storage upload to the deterministic
+    /// path, then a JSON capture carrying `file_path`). Deliberately well under the endpoint's own
+    /// 45 MiB one-shot guard (coordinator decision, 2026-09-27): the gateway buffers the whole
+    /// request before the function runs and caps it at 150 s, so a big one-shot body is fragile on
+    /// a slow uplink, while the direct Storage upload has no such cap. Prepared photos
+    /// (~0.3–1.5 MB) stay one-shot; videos and long recordings go two-step.
+    public static let oneShotFileLimit = 10 * 1024 * 1024
+    /// Plan 15: after this many failed attempts a file entry stops trying the one-shot request and
+    /// switches to the two-step lane — see `CaptureTransport.requiresTwoStep`.
+    public static let oneShotMaxAttempts = 3
+
+    /// The one-shot limit this instance routes by — `oneShotFileLimit` unless a test injects a
+    /// tiny one to exercise the two-step lane without multi-megabyte fixtures.
+    public let oneShotLimit: Int
+
+    /// - Parameters:
+    ///   - transport: plan 15's network seam for `submit` and the storage lane. The legacy `add-*`
+    ///     methods below keep using `poster` (the Ask tab's chat-as-capture still calls them).
+    ///   - oneShotLimit: see the property.
+    public init(poster: JSONPosting = FunctionsPoster(), transport: CaptureTransporting = URLSessionCaptureTransport(),
+                oneShotLimit: Int = CaptureAPI.oneShotFileLimit) {
+        self.poster = poster
+        self.transport = transport
+        self.oneShotLimit = oneShotLimit
+    }
+
+    /// Plan 15: sends ONE capture request for `entry` as it stands (see
+    /// `CaptureTransport.captureRequest`) to the idempotent `capture` endpoint, keyed by
+    /// `capture_id = entry.id` (lowercased). Retrying the same entry can never create a second
+    /// item: the server answers a repeat with `duplicate: true` and the original item. The
+    /// one-shot vs two-step split (and its checkpoint) is `Outbox`'s job — this is one request.
+    ///
+    /// `userId` guards an already-uploaded `file_path` (the two-step lane's second half): it must
+    /// sit inside that user's own folder, as the server requires — checked here so a malformed
+    /// entry fails fast with `.invalidEntry` instead of costing a round trip.
+    public func submit(entry: OutboxEntry, userId: UUID, accessToken: String) async throws -> CaptureResult {
+        if entry.kind == .file, let filePath = entry.payload["file_path"],
+           !filePath.hasPrefix("\(userId.uuidString.lowercased())/") {
+            throw CaptureError.invalidEntry("file_path is outside the user's storage folder")
+        }
+        let prepared = try CaptureTransport.captureRequest(for: entry, accessToken: accessToken,
+                                                           bodyDirectory: Self.foregroundBodyDirectory)
+        defer { try? FileManager.default.removeItem(at: prepared.bodyFile) }
+        let (status, body) = try await transport.upload(prepared.urlRequest, fromFile: prepared.bodyFile)
+        return try CaptureTransport.result(status: status, body: body)
+    }
+
+    /// Plan 15: the two-step lane's Storage upload — streams `fileURL` to `stash-media/<path>` with
+    /// `x-upsert: true`, through the same transport as `submit` (so tests stub both with one seam).
+    public func uploadFileToStorage(_ fileURL: URL, path: String, contentType: String, accessToken: String) async throws {
+        let request = CaptureTransport.storageRequest(path: path, contentType: contentType, accessToken: accessToken)
+        let (status, _) = try await transport.upload(request, fromFile: fileURL)
+        guard (200..<300).contains(status) else { throw CaptureError.badStatus(status) }
+    }
+
+    /// Scratch space for foreground request bodies (each deleted right after its request).
+    /// Background transfers keep theirs in the App Group instead — the system daemon that runs a
+    /// background `URLSession` must be able to read them after this process is gone.
+    static var foregroundBodyDirectory: URL {
+        FileManager.default.temporaryDirectory.appending(path: "StashCaptureBodies")
+    }
 
     public func addNote(content: String, title: String?, isPublic: Bool,
                         attributes: ItemAttributes? = nil, accessToken: String) async throws -> Item {
@@ -125,12 +207,15 @@ public func uploadToStorage(data: Data, path: String, contentType: String) async
 /// same status-code check) — the one deliberate difference is no fixed `timeoutInterval`: that
 /// poster's 20s budget suits a small JSON POST, but a large file upload over a slow connection
 /// can legitimately take longer, so this leaves `URLRequest`'s ordinary default in place.
+///
+/// Plan 15: the request now comes from `CaptureTransport.storageRequest`, which adds
+/// `x-upsert: true` — the Outbox's two-step lane uploads to a DETERMINISTIC path per entry
+/// (`CaptureTransport.storagePath`), so re-uploading after a lost response or a relaunch must
+/// overwrite the object it already wrote rather than fail as a duplicate. Harmless for the random
+/// `makeUploadPath` names older call sites pass. (`CaptureAPI.uploadFileToStorage` is the same
+/// request through the injectable transport.)
 public func uploadToStorageFromFile(fileURL: URL, path: String, contentType: String, accessToken: String) async throws {
-    var request = URLRequest(url: StashConfig.supabaseURL.appending(path: "/storage/v1/object/stash-media/\(path)"))
-    request.httpMethod = "POST"
-    request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-    request.setValue(StashConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
-    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    let request = CaptureTransport.storageRequest(path: path, contentType: contentType, accessToken: accessToken)
     let (_, response) = try await URLSession.shared.upload(for: request, fromFile: fileURL)
     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
         throw CaptureError.badStatus((response as? HTTPURLResponse)?.statusCode ?? -1)

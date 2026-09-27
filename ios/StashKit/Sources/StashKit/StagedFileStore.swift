@@ -95,6 +95,65 @@ public struct StagedFileStore: Sendable {
         return destination
     }
 
+    /// Plan 15: writes bytes the caller ALREADY holds in memory (a composer attachment — the
+    /// photo picker and file importer hand the app `Data`) to a fresh staged file, so the capture
+    /// can be written to the Outbox before any network call and survive a failed send as a
+    /// retryable `local_file_path` entry instead of being dropped. An empty extension stages as
+    /// `.bin` rather than a name with a trailing dot.
+    public func stage(data: Data, fileExtension: String) throws -> URL {
+        let ext = fileExtension.isEmpty ? "bin" : fileExtension.lowercased()
+        let destination = directory.appending(path: "\(UUID().uuidString).\(ext)")
+        try data.write(to: destination, options: .atomic)
+        return destination
+    }
+
+    /// Result of `stagePreparedImage(from:)`.
+    public struct StagedImage: Sendable, Equatable {
+        public let url: URL
+        public let mimeType: String
+        /// `false` when the original bytes were kept (GIF, or a JPEG already ≤ 2560 px and
+        /// ≤ 2 MiB) — callers use it to decide whether `media.file_name` gets a `.jpg` extension
+        /// (`ImagePreparation.fileName(_:reencoded:)`).
+        public let wasReencoded: Bool
+    }
+
+    /// Plan 15: the file-based twin of `ImagePreparation.prepare(_:)` for the share extension —
+    /// the SAME policy (≤ 2560 px JPEG at 0.82, orientation applied, metadata dropped, alpha →
+    /// white, GIF/small-JPEG passthrough), but reading straight from `source` with bounded
+    /// memory: the decision reads only the image header, a passthrough is a kernel-level
+    /// `copyItem`, and a re-encode decodes directly at the output size and writes straight to the
+    /// staged file. Must be called synchronously inside `loadFileRepresentation`'s completion
+    /// handler (the provider's temp URL dies when that handler returns) — see `ProviderLoader`.
+    ///
+    /// Throws `.cannotReadImage` when ImageIO can't read `source` as an image at all (callers then
+    /// stage the original bytes generically instead of dropping the share) and `.downscaleFailed`
+    /// when decoding/encoding fails partway (no partial output file is left behind).
+    public func stagePreparedImage(from source: URL) throws -> StagedImage {
+        try autoreleasepool {
+            guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, ImagePreparation.sourceOptions),
+                  let plan = ImagePreparation.plan(for: imageSource, byteCount: fileSize(of: source) ?? .max) else {
+                throw StagedFileStoreError.cannotReadImage
+            }
+            switch plan {
+            case .passthrough(let mimeType, let fileExtension):
+                return StagedImage(url: try stage(from: source, fileExtension: fileExtension),
+                                   mimeType: mimeType, wasReencoded: false)
+            case .reencode(let longestEdge):
+                guard let image = ImagePreparation.renderedImage(from: imageSource, longestEdge: longestEdge) else {
+                    throw StagedFileStoreError.downscaleFailed
+                }
+                let destination = directory.appending(path: "\(UUID().uuidString).jpg")
+                guard let imageDestination = CGImageDestinationCreateWithURL(
+                        destination as CFURL, UTType.jpeg.identifier as CFString, 1, nil),
+                      ImagePreparation.encodeJPEG(image, into: imageDestination) else {
+                    try? FileManager.default.removeItem(at: destination)
+                    throw StagedFileStoreError.downscaleFailed
+                }
+                return StagedImage(url: destination, mimeType: "image/jpeg", wasReencoded: true)
+            }
+        }
+    }
+
     /// Staged files not yet cleaned up — either still queued for upload (an `Outbox` entry
     /// references one by path) or orphaned by a crash before that entry was ever enqueued
     /// (`sweepOrphans` below recovers those). Filters to regular files only, same rationale as

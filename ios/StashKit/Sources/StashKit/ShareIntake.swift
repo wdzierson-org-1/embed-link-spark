@@ -6,9 +6,9 @@ import Foundation
 /// completion runs off an Apple-owned queue, and `NSItemProvider` itself isn't `Sendable`), which
 /// would make this whole type impossible to exercise under plain `swift test` if it lived here
 /// too. By the time anything in this file sees a `.file`, its bytes are ALREADY durably on local
-/// disk — staged via `StagedFileStore.stage`/`stageDownscaledImage` (Task 4) — so `ShareIntake`
-/// never touches `NSItemProvider`, never loads a whole file into memory, and has no idea what UTI
-/// any of this came from.
+/// disk — staged via `StagedFileStore.stage`/`stagePreparedImage` — so `ShareIntake` never touches
+/// `NSItemProvider`, never loads a whole file into memory, and has no idea what UTI any of this
+/// came from.
 public enum SharedObject: Equatable, Sendable {
     case url(String)
     case text(String)
@@ -20,11 +20,10 @@ public enum SharedObject: Equatable, Sendable {
 ///
 /// Unlike `CaptureViewModel.CaptureOutcome`, there is no `.rejected`/`dropped` case here: every
 /// `SharedObject.file` already has its bytes durably on local disk by the time `submit` ever sees
-/// it (Task 4's `StagedFileStore`), so — exactly like `CaptureViewModel.submitVoiceNote`'s own
-/// reasoning — no failure in this type is ever unsafe to hand to the Outbox. `saved + queued +
-/// failed` always equals the count of objects `submit` was called with; nothing is ever silently
-/// dropped, which is why `failed` exists at all (an Outbox enqueue call can itself fail — an
-/// unwritable/full disk — and that must still be counted, never just logged).
+/// it, so no failure in this type is ever unsafe to leave in the Outbox. `saved + queued + failed`
+/// always equals the count of objects `submit` was called with; nothing is ever silently dropped,
+/// which is why `failed` exists at all (the Outbox write itself can fail — an unwritable/full disk
+/// — and that must still be counted, never just logged).
 public struct ShareIntakeResult: Equatable, Sendable {
     public var saved: Int
     public var queued: Int
@@ -43,10 +42,11 @@ public struct ShareIntakeResult: Equatable, Sendable {
 /// single-object capture, note-on-first) is the whole point: a multi-item OS share is N objects,
 /// not a user grouping decision, and saves as N items exactly like N composer attachments would.
 ///
-/// Direct-send-with-durable-Outbox-fallback (plan's "Direct-vs-queue rule"): every unit tries a
-/// live send first; ANY failure — network, no session, an oversized file skipping the attempt
-/// entirely — falls back to the Outbox, never drops data and never blocks the share sheet waiting
-/// on a retry.
+/// Plan 15 — outbox-first: every object is written to the Outbox FIRST (its entry id is the
+/// idempotency key the `capture` endpoint dedupes on), then either sent right away in the
+/// foreground (`submit`, `Outbox.sendNow`) or handed to a background `URLSession` by the extension
+/// (`enqueueForTransfer`, Task 4). A failed or skipped send never drops data and never blocks the
+/// share sheet: the entry just stays queued for the app's next drain.
 public struct ShareIntake: Sendable {
     private let userId: UUID
     private let capture: CaptureAPI
@@ -56,14 +56,14 @@ public struct ShareIntake: Sendable {
     private let accessToken: @Sendable () async throws -> String
     private let upload: (@Sendable (URL, String, String) async throws -> Void)?
 
-    /// - Parameter upload: `Optional`, not a plain closure with a default expression — Swift
-    ///   default-argument expressions can't reference a sibling parameter (`accessToken` isn't in
-    ///   scope in a default-argument expression here), the exact constraint `Outbox.drain`'s own
-    ///   `upload` parameter (Task 4) already works around the same way, and the same fix applies:
-    ///   `nil` (every real call site) is resolved inside `submit()` itself, reusing THAT call's own
-    ///   already-fetched token — never an independent second token fetch buried in a default
-    ///   closure. This is a deliberate departure from the brief's literal sketch (`=
-    ///   uploadToStorageFromFile persisted-shape`), which isn't valid Swift as written.
+    /// - Parameters:
+    ///   - directSendLimit: `submit` sends a staged file live only when it's at most this many
+    ///     bytes; a bigger one is left queued for the app (it would hold the share sheet open for
+    ///     the whole upload). Background transfers (`enqueueForTransfer`) have no such limit.
+    ///   - upload: the Outbox's two-step Storage lane (`Outbox.sendNow`) — `nil` streams through
+    ///     `capture.uploadFileToStorage` with the send's own token. `Optional`, not a closure with
+    ///     a default expression, because Swift default-argument expressions can't reference a
+    ///     sibling parameter (`accessToken`).
     public init(
         userId: UUID,
         capture: CaptureAPI = CaptureAPI(),
@@ -82,10 +82,8 @@ public struct ShareIntake: Sendable {
         self.upload = upload
     }
 
-    /// How one unit's attempt resolved — internal bookkeeping only; `submit` folds a whole batch of
-    /// these into the public `ShareIntakeResult` tally.
-    private enum UnitOutcome { case saved, queued, failed }
-
+    /// Enqueues every object (Outbox first), then sends each one right away in the foreground.
+    ///
     /// - Parameters:
     ///   - objects: Already-materialized shared objects. No reordering happens HERE (unlike
     ///     `CaptureViewModel.route()`, which always moves a detected URL to the front) —
@@ -99,42 +97,47 @@ public struct ShareIntake: Sendable {
     ///     plain value here (unlike `CaptureViewModel.pendingLocation`), since resolving an
     ///     in-flight pin is the extension's (T7) job, before this is ever called.
     public func submit(_ objects: [SharedObject], note: String?, location: CapturedLocation?) async -> ShareIntakeResult {
-        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveNote = (trimmed?.isEmpty ?? true) ? nil : trimmed
-
-        // Fetched once per submit, same reasoning as `CaptureViewModel.submit()`'s own `token`:
-        // every unit in this batch resolves against the SAME session snapshot, not whichever
-        // session happens to be current partway through an await-laced loop. A `nil` token isn't
-        // special-cased further here — every live send below already treats it as an ordinary
-        // queueable failure (`CaptureError.badStatus(-1)`), exactly like `CaptureViewModel.send`,
-        // so "no session" degrades to "queue the whole batch" rather than blocking the share sheet.
+        // Fetched once per submit: every unit in this batch sends under the SAME session snapshot.
+        // No session → every unit is still enqueued, just not sent (the app drains it later).
         let token = try? await accessToken()
-        let performUpload: @Sendable (URL, String, String) async throws -> Void = upload ?? { fileURL, path, contentType in
-            guard let token else { throw CaptureError.badStatus(-1) }
-            try await uploadToStorageFromFile(fileURL: fileURL, path: path, contentType: contentType, accessToken: token)
-        }
 
-        var saved = 0, queued = 0, failed = 0
-        for (index, object) in objects.enumerated() {
-            let noteForThisUnit = index == 0 ? effectiveNote : nil
-            let outcome: UnitOutcome
-            switch object {
-            case .url(let url):
-                outcome = await handleURL(url, note: noteForThisUnit ?? "", location: location, token: token)
-            case .text(let text):
-                outcome = await handleText(text, note: noteForThisUnit, location: location, token: token)
-            case .file(let stagedURL, let mimeType, let fileName, let durationS):
-                outcome = await handleFile(stagedURL: stagedURL, mimeType: mimeType, fileName: fileName,
-                                           durationS: durationS, content: noteForThisUnit, location: location,
-                                           token: token, performUpload: performUpload)
+        var result = ShareIntakeResult()
+        for unit in units(for: objects, note: note, location: location) {
+            guard let entry = try? await outbox.enqueue(unit.kind, payload: unit.payload) else {
+                // The Outbox write itself failed. Counted, never silent. A staged file is left in
+                // place: `sweepOrphans` is the recovery net on the app's next launch.
+                result.failed += 1
+                continue
             }
-            switch outcome {
-            case .saved: saved += 1
-            case .queued: queued += 1
-            case .failed: failed += 1
+            let fileSize = unit.stagedFile.flatMap { staging.fileSize(of: $0) } ?? 0
+            guard let token, fileSize <= directSendLimit else {
+                result.queued += 1
+                continue
+            }
+            switch await outbox.sendNow(id: entry.id, api: capture, userId: userId, accessToken: token, upload: upload) {
+            case .sent, .notFound: result.saved += 1
+            case .parked, .pending, .inFlight: result.queued += 1
+            case .dropped: result.failed += 1
             }
         }
-        return ShareIntakeResult(saved: saved, queued: queued, failed: failed)
+        return result
+    }
+
+    /// Plan 15 (for Task 4's background transfers): writes every object to the Outbox as
+    /// `.transferring` (stamped now) and returns the entries, in object order, WITHOUT sending
+    /// anything — the caller hands them to the shared background session and dismisses. Same
+    /// payload rules as `submit` (note on the first object, `.text` + note merge, location on
+    /// every unit). An object whose Outbox write fails is left out of the result (its staged file,
+    /// if any, stays for `sweepOrphans`). If the transfer can't start, the caller flips the
+    /// returned entries back with `Outbox.markPending(id:incrementAttempts: false)`.
+    public func enqueueForTransfer(_ objects: [SharedObject], note: String?, location: CapturedLocation?) async -> [OutboxEntry] {
+        var entries: [OutboxEntry] = []
+        for unit in units(for: objects, note: note, location: location) {
+            if let entry = try? await outbox.enqueue(unit.kind, payload: unit.payload, status: .transferring) {
+                entries.append(entry)
+            }
+        }
+        return entries
     }
 
     // MARK: - Ordering (Task 7, T6-review carry: adopted ordering decision)
@@ -167,18 +170,19 @@ public struct ShareIntake: Sendable {
         return reordered
     }
 
-    // MARK: - Per-type handling
+    // MARK: - Objects → Outbox units
 
-    private func handleURL(_ url: String, note: String, location: CapturedLocation?, token: String?) async -> UnitOutcome {
-        let attributes = buildAttributes(location: location)
-        do {
-            guard let token else { throw CaptureError.badStatus(-1) }
-            _ = try await capture.addURL(url, note: note, isPublic: false, attributes: attributes, accessToken: token)
-            return .saved
-        } catch {
-            var payload = ["url": url, "content": note, "is_public": "false"]
-            if let json = attributesJSONString(attributes) { payload["attributes_json"] = json }
-            return await enqueueOrFail(.url, payload: payload)
+    private struct Unit {
+        let kind: OutboxEntry.Kind
+        let payload: [String: String]
+        let stagedFile: URL?
+    }
+
+    private func units(for objects: [SharedObject], note: String?, location: CapturedLocation?) -> [Unit] {
+        let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveNote = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        return objects.enumerated().map { index, object in
+            unit(for: object, note: index == 0 ? effectiveNote : nil, location: location)
         }
     }
 
@@ -187,85 +191,29 @@ public struct ShareIntake: Sendable {
     /// (there's nothing else it could overwrite). A note attaching to a `.text` object instead
     /// AUGMENTS it: `appendNoteParagraph` — the same helper `NotesAppendComposer`'s "append to an
     /// existing item" flow uses — treats the shared text as the existing body and the typed note as
-    /// a new paragraph appended after it, so neither is ever silently dropped. This merge behavior
-    /// isn't in the brief's Step 1 test list (which never combines a `.text` object with a note);
-    /// disclosed as a deliberate, tested addition rather than leaving the combination unspecified.
-    private func handleText(_ text: String, note: String?, location: CapturedLocation?, token: String?) async -> UnitOutcome {
-        let content = (note.map { $0.isEmpty } ?? true) ? text : appendNoteParagraph(to: text, note: note!)
-        let attributes = buildAttributes(location: location)
-        do {
-            guard let token else { throw CaptureError.badStatus(-1) }
-            _ = try await capture.addNote(content: content, title: nil, isPublic: false, attributes: attributes, accessToken: token)
-            return .saved
-        } catch {
+    /// a new paragraph appended after it, so neither is ever silently dropped.
+    private func unit(for object: SharedObject, note: String?, location: CapturedLocation?) -> Unit {
+        switch object {
+        case .url(let url):
+            var payload = ["url": url, "content": note ?? "", "is_public": "false"]
+            if let json = attributesJSONString(buildAttributes(location: location)) { payload["attributes_json"] = json }
+            return Unit(kind: .url, payload: payload, stagedFile: nil)
+        case .text(let text):
+            let content = note.map { appendNoteParagraph(to: text, note: $0) } ?? text
             var payload = ["content": content, "is_public": "false"]
-            if let json = attributesJSONString(attributes) { payload["attributes_json"] = json }
-            return await enqueueOrFail(.note, payload: payload)
-        }
-    }
-
-    /// No `UnqueueableFailure`-style split between "upload failed" and "send failed" the way
-    /// `CaptureViewModel.prepare`/`send` splits for in-memory `CaptureAttachment` bytes: every
-    /// `SharedObject.file` is already durable on local disk (staged before this is ever called), so
-    /// — exactly like `CaptureViewModel.submitVoiceNote` — ANY failure anywhere in this method is
-    /// always safe, and always correct, to hand to the Outbox via the STAGED path.
-    private func handleFile(stagedURL: URL, mimeType: String, fileName: String?, durationS: Double?, content: String?,
-                            location: CapturedLocation?, token: String?,
-                            performUpload: @Sendable (URL, String, String) async throws -> Void) async -> UnitOutcome {
-        let media = buildMedia(fileName: fileName, durationS: durationS)
-        let attributes = buildAttributes(location: location, media: media)
-        // Attributes only (`StagedFileStore.fileSize`), never `Data(contentsOf:)` — this file may
-        // be up to the extension's own multi-item ceiling; the whole point of staging is to never
-        // require its bytes in memory just to make a routing decision.
-        let fileSize = staging.fileSize(of: stagedURL)
-
-        guard (fileSize ?? 0) <= directSendLimit else {
-            // Global Constraints "Direct-vs-queue rule": a file over the limit is NEVER even
-            // attempted live — straight to a durable Outbox entry. The staged file is RETAINED
-            // (not `discard`ed): `Outbox.drain`'s local-file lane uploads it later from this exact
-            // path, and Task 4's `sweepOrphans` recovers it if this process dies before that.
-            return await enqueueFile(stagedURL: stagedURL, mimeType: mimeType, content: content, attributes: attributes)
-        }
-
-        do {
-            guard let token else { throw CaptureError.badStatus(-1) }
-            let uploadPath = makeUploadPath(userId: userId, fileExtension: stagedURL.pathExtension)
-            try await performUpload(stagedURL, uploadPath, mimeType)
-            _ = try await capture.addFile(path: uploadPath, mimeType: mimeType, fileSize: fileSize, content: content,
-                                          isPublic: false, attributes: attributes, accessToken: token)
-            // Bytes are durably uploaded AND registered — the staged copy is now redundant, and
-            // discarding it is NOT optional cleanup: an un-discarded staged file with no Outbox
-            // entry pointing at it would look exactly like a crash orphan to `sweepOrphans` once it
-            // ages past the 60s grace period, minting a DUPLICATE `.file` entry — and eventually a
-            // duplicate item — for bytes that already landed.
-            staging.discard(stagedURL)
-            return .saved
-        } catch {
-            // ANY failure here — the upload or `addFile` itself — falls back via the STAGED path,
-            // never a maybe-registered `file_path`: mirrors `CaptureViewModel.submitVoiceNote`
-            // exactly. A retry re-uploads from the local file to a FRESH path rather than trusting
-            // that an upload which may or may not have actually landed is still good.
-            return await enqueueFile(stagedURL: stagedURL, mimeType: mimeType, content: content, attributes: attributes)
-        }
-    }
-
-    private func enqueueFile(stagedURL: URL, mimeType: String, content: String?, attributes: ItemAttributes?) async -> UnitOutcome {
-        var payload = ["local_file_path": stagedURL.path, "mime_type": mimeType, "is_public": "false"]
-        if let content { payload["content"] = content }
-        if let json = attributesJSONString(attributes) { payload["attributes_json"] = json }
-        return await enqueueOrFail(.file, payload: payload)
-    }
-
-    /// Shared tail of every fallback path: enqueue, and if THAT fails too, count it as `failed` —
-    /// never silent (brief: "Outbox enqueue failure → failed+1"), and never a thrown error the
-    /// caller has to catch — `submit()` has no `throws` surface at all; its whole contract is to
-    /// always finish the batch and hand back a tally, never abort partway through.
-    private func enqueueOrFail(_ kind: OutboxEntry.Kind, payload: [String: String]) async -> UnitOutcome {
-        do {
-            try await outbox.enqueue(kind, payload: payload)
-            return .queued
-        } catch {
-            return .failed
+            if let json = attributesJSONString(buildAttributes(location: location)) { payload["attributes_json"] = json }
+            return Unit(kind: .note, payload: payload, stagedFile: nil)
+        case .file(let stagedURL, let mimeType, let fileName, let durationS):
+            var payload = ["local_file_path": stagedURL.path, "mime_type": mimeType, "is_public": "false"]
+            // Attributes only (`StagedFileStore.fileSize`), never `Data(contentsOf:)`.
+            if let size = staging.fileSize(of: stagedURL) { payload["file_size"] = String(size) }
+            if let fileName, !fileName.isEmpty { payload["file_name"] = fileName }
+            if let note { payload["content"] = note }
+            let media = buildMedia(fileName: fileName, durationS: durationS)
+            if let json = attributesJSONString(buildAttributes(location: location, media: media)) {
+                payload["attributes_json"] = json
+            }
+            return Unit(kind: .file, payload: payload, stagedFile: stagedURL)
         }
     }
 
@@ -274,8 +222,7 @@ public struct ShareIntake: Sendable {
     /// Deliberately duplicated rather than shared with `CaptureViewModel`'s identical-shaped
     /// private helpers of the same name: both are tiny, and extracting a shared free function would
     /// be new public(ish) surface neither the brief nor `CaptureViewModel` asked for, for two call
-    /// sites. Same `nil`-collapsing contract either way — never an always-present `ItemAttributes()`
-    /// (`CaptureAPI`'s own non-empty check has nothing to do for the common unpinned/non-media unit).
+    /// sites. Same `nil`-collapsing contract either way — never an always-present `ItemAttributes()`.
     private func buildAttributes(location: CapturedLocation?, media: MediaAttributes? = nil) -> ItemAttributes? {
         guard location != nil || media != nil else { return nil }
         return ItemAttributes(location: location, media: media)
@@ -287,8 +234,8 @@ public struct ShareIntake: Sendable {
     }
 
     /// `attributes` serialized to a JSON string for the Outbox's text-only `[String: String]`
-    /// payload — mirrors `CaptureViewModel.attributesPayloadString` exactly, so a queued entry's
-    /// eventual `drain` sends exactly what a live send would have.
+    /// payload — mirrors `CaptureViewModel.attributesPayloadString` exactly, so every capture
+    /// request sends the attributes a direct call would have.
     private func attributesJSONString(_ attributes: ItemAttributes?) -> String? {
         guard let object = attributes?.nonEmptyJSONObject,
               let data = try? JSONSerialization.data(withJSONObject: object)

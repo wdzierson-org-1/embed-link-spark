@@ -1,11 +1,12 @@
 import XCTest
 @testable import StashKit
 
-/// Reuses `RecordingPoster`/`itemJSON`/`noteJSON` (CaptureViewModelTests.swift / CaptureAPITests.swift)
-/// and `UploadRecorder` (OutboxTests.swift) — all `internal`, same test target, no redeclaration.
+/// Plan 15: `ShareIntake` is outbox-first on the idempotent `capture` endpoint. Reuses
+/// `FakeCaptureServer` (CaptureTestSupport.swift) and `UploadRecorder` (OutboxTests.swift).
 final class ShareIntakeTests: XCTestCase {
     var dir: URL!            // Outbox directory
     var stagingDir: URL!     // StagedFileStore directory
+    let userId = UUID()
 
     override func setUp() {
         dir = FileManager.default.temporaryDirectory.appending(path: "share-intake-outbox-\(UUID().uuidString)")
@@ -18,19 +19,19 @@ final class ShareIntakeTests: XCTestCase {
     }
 
     private func makeIntake(
-        poster: RecordingPoster, outbox: Outbox? = nil, staging: StagedFileStore? = nil,
+        server: FakeCaptureServer, outbox: Outbox? = nil, staging: StagedFileStore? = nil,
         directSendLimit: Int = 8 * 1024 * 1024,
-        upload: @escaping @Sendable (URL, String, String) async throws -> Void = { _, _, _ in }
+        accessToken: @escaping @Sendable () async throws -> String = { "jwt" },
+        upload: (@Sendable (URL, String, String) async throws -> Void)? = nil
     ) -> ShareIntake {
-        ShareIntake(userId: UUID(), capture: CaptureAPI(poster: poster),
-                   outbox: outbox ?? Outbox(directory: dir),
-                   staging: staging ?? StagedFileStore(userId: UUID(), directory: stagingDir),
-                   directSendLimit: directSendLimit, accessToken: { "jwt" }, upload: upload)
+        ShareIntake(userId: userId, capture: CaptureAPI(transport: server),
+                    outbox: outbox ?? Outbox(directory: dir),
+                    staging: staging ?? StagedFileStore(userId: userId, directory: stagingDir),
+                    directSendLimit: directSendLimit, accessToken: accessToken, upload: upload)
     }
 
     /// Copies `bytes` into a scratch source file, then stages it via `store` — mirrors how a real
-    /// `SharedObject.file` comes to exist (`StagedFileStoreTests.makeSourceFile` + `stage`), so
-    /// `stagedURL.pathExtension`/`fileSize(of:)` behave exactly like production call sites.
+    /// `SharedObject.file` comes to exist.
     private func stageFile(store: StagedFileStore, bytes: Data, ext: String) throws -> URL {
         let source = FileManager.default.temporaryDirectory.appending(path: "src-\(UUID().uuidString).\(ext)")
         try bytes.write(to: source)
@@ -38,28 +39,31 @@ final class ShareIntakeTests: XCTestCase {
         return try store.stage(from: source, fileExtension: ext)
     }
 
-    // MARK: - Brief Step 1, scenario 1: url + note
+    // MARK: - url + note
 
-    func testURLWithNoteCallsAddURLWithNoteAsContent() async {
-        let poster = RecordingPoster()
-        let intake = makeIntake(poster: poster)
+    func testURLWithNoteSendsAURLCaptureWithNoteAsContent() async {
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
 
         let result = await intake.submit([.url("https://example.com")], note: "check this out", location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 1))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-url"])
-        XCTAssertEqual(poster.calls[0].body["url"] as? String, "https://example.com")
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "check this out")
+        XCTAssertEqual(server.captures.map(\.kind), ["url"])
+        XCTAssertEqual(server.captures[0].meta["url"] as? String, "https://example.com")
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "check this out")
+        XCTAssertEqual(server.captures[0].meta["is_public"] as? Bool, false)
+        let pending = await Outbox(directory: dir).pending()
+        XCTAssertTrue(pending.isEmpty, "a delivered share leaves nothing queued")
     }
 
-    // MARK: - Brief Step 1, scenario 2: url + 2 files + note
+    // MARK: - url + 2 files + note
 
     func testURLPlusTwoFilesPutsNoteOnURLOnlyFilesAreNoteless() async throws {
-        let poster = RecordingPoster()
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
         let staged1 = try stageFile(store: store, bytes: Data([0x01]), ext: "png")
         let staged2 = try stageFile(store: store, bytes: Data([0x02]), ext: "png")
-        let intake = makeIntake(poster: poster, staging: store)
+        let intake = makeIntake(server: server, staging: store)
 
         let objects: [SharedObject] = [
             .url("https://example.com"),
@@ -69,84 +73,83 @@ final class ShareIntakeTests: XCTestCase {
         let result = await intake.submit(objects, note: "ctx", location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 3))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-url", "add-file", "add-file"])
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "ctx")
-        XCTAssertNil(poster.calls[1].body["content"], "the note already rode the URL unit")
-        XCTAssertNil(poster.calls[2].body["content"])
+        XCTAssertEqual(server.captures.map(\.kind), ["url", "file", "file"])
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "ctx")
+        XCTAssertNil(server.captures[1].meta["content"], "the note already rode the URL unit")
+        XCTAssertNil(server.captures[2].meta["content"])
     }
 
-    // MARK: - Brief Step 1, scenario 3: small file
+    // MARK: - small file
 
-    func testSmallFileUploadsFromStagedURLThenAddFileWithNilContent() async throws {
-        let poster = RecordingPoster()
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
-        let staged = try stageFile(store: store, bytes: Data([0x01, 0x02, 0x03]), ext: "png")
+    func testSmallFileGoesAsOneMultipartCaptureAndTheStagedCopyIsDiscarded() async throws {
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let bytes = Data([0x01, 0x02, 0x03])
+        let staged = try stageFile(store: store, bytes: bytes, ext: "png")
         let recorder = UploadRecorder()
-        let intake = makeIntake(poster: poster, staging: store, upload: { url, path, type in
-            try await recorder.upload(fileURL: url, path: path, contentType: type)
-        })
+        let intake = makeIntake(server: server, staging: store, upload: recorder.closure)
 
-        let result = await intake.submit([.file(stagedURL: staged, mimeType: "image/png", fileName: nil, durationS: nil)],
+        let result = await intake.submit([.file(stagedURL: staged, mimeType: "image/png", fileName: "shot.png", durationS: nil)],
                                          note: nil, location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 1))
-        XCTAssertEqual(recorder.calls.count, 1)
-        XCTAssertEqual(recorder.calls[0].fileURL, staged, "upload must be called with the STAGED url directly")
-        XCTAssertEqual(recorder.calls[0].contentType, "image/png")
-        XCTAssertEqual(poster.calls.map(\.path), ["add-file"])
-        XCTAssertNil(poster.calls[0].body["content"])
+        XCTAssertTrue(recorder.calls.isEmpty, "within the one-shot limit, no separate storage upload")
+        let call = try XCTUnwrap(server.captures.first)
+        XCTAssertTrue(call.isMultipart)
+        XCTAssertEqual(call.filePart?.data, bytes)
+        XCTAssertEqual(call.meta["mime_type"] as? String, "image/png")
+        XCTAssertEqual(call.meta["file_size"] as? Int, 3)
+        XCTAssertEqual(call.meta["file_name"] as? String, "shot.png")
+        XCTAssertNil(call.meta["content"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path),
-                       "the staged file must be discarded once its bytes are durably uploaded and registered — " +
-                       "otherwise sweepOrphans would later mint a duplicate entry for it")
+                       "the staged file must be discarded once captured — otherwise sweepOrphans would " +
+                       "later mint a duplicate entry for it")
     }
 
-    // MARK: - Brief Step 1, scenario 4: big file
+    // MARK: - big file (over the foreground direct-send limit)
 
-    func testBigFileNeverUploadsAndEnqueuesWithLocalFilePathRetainingTheStagedFile() async throws {
-        let poster = RecordingPoster()
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
+    func testBigFileIsQueuedNotSentAndTheStagedFileIsRetained() async throws {
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
         let staged = try stageFile(store: store, bytes: Data(repeating: 0xAB, count: 20), ext: "bin")
-        let recorder = UploadRecorder()
         let outbox = Outbox(directory: dir)
-        let intake = makeIntake(poster: poster, outbox: outbox, staging: store, directSendLimit: 10,
-                                upload: { url, path, type in try await recorder.upload(fileURL: url, path: path, contentType: type) })
+        let intake = makeIntake(server: server, outbox: outbox, staging: store, directSendLimit: 10)
 
         let result = await intake.submit([.file(stagedURL: staged, mimeType: "application/octet-stream", fileName: nil, durationS: nil)],
                                          note: nil, location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(queued: 1))
-        XCTAssertTrue(recorder.calls.isEmpty, "a file over the direct-send limit must never be uploaded live")
-        XCTAssertTrue(poster.calls.isEmpty, "nor must add-file ever be called for it")
+        XCTAssertTrue(server.calls.isEmpty, "a file over the direct-send limit is never sent from the share sheet")
         let pending = await outbox.pending()
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending[0].kind, .file)
+        XCTAssertEqual(pending[0].status, .pending)
         XCTAssertEqual(pending[0].payload["local_file_path"], staged.path)
         XCTAssertEqual(pending[0].payload["mime_type"], "application/octet-stream")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path),
-                      "the staged file must be RETAINED — drain uploads it later from this exact path")
+        XCTAssertEqual(pending[0].payload["file_size"], "20")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path), "the app's drain sends it later from this path")
     }
 
     func testFileExactlyAtLimitTakesTheDirectSendPath() async throws {
-        let poster = RecordingPoster()
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
         let staged = try stageFile(store: store, bytes: Data(repeating: 0x01, count: 10), ext: "bin")
-        let recorder = UploadRecorder()
-        let intake = makeIntake(poster: poster, staging: store, directSendLimit: 10,
-                                upload: { url, path, type in try await recorder.upload(fileURL: url, path: path, contentType: type) })
+        let intake = makeIntake(server: server, staging: store, directSendLimit: 10)
 
         let result = await intake.submit([.file(stagedURL: staged, mimeType: "application/octet-stream", fileName: nil, durationS: nil)],
                                          note: nil, location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 1))
-        XCTAssertEqual(recorder.calls.count, 1, "a file exactly AT the limit must still be sent directly, not queued")
+        XCTAssertEqual(server.captures.count, 1, "a file exactly AT the limit is still sent directly")
     }
 
-    // MARK: - Brief Step 1, scenario 5: poster throws on url
+    // MARK: - send failures queue
 
-    func testURLSendFailureFallsBackToOutboxURLEntry() async throws {
-        let poster = RecordingPoster(); poster.shouldFail = true
+    func testURLSendFailureLeavesAQueuedURLEntry() async throws {
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(500, "{}")]
         let outbox = Outbox(directory: dir)
-        let intake = makeIntake(poster: poster, outbox: outbox)
+        let intake = makeIntake(server: server, outbox: outbox)
 
         let result = await intake.submit([.url("https://example.com")], note: "ctx", location: nil)
 
@@ -156,15 +159,49 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertEqual(pending[0].kind, .url)
         XCTAssertEqual(pending[0].payload["url"], "https://example.com")
         XCTAssertEqual(pending[0].payload["content"], "ctx")
+        XCTAssertEqual(pending[0].attempts, 1)
+        XCTAssertEqual(server.captures.first?.captureId, pending[0].id.uuidString.lowercased(),
+                       "the queued entry keeps the capture id its first attempt used")
     }
 
-    // MARK: - Brief Step 1, scenario 6: location threads to every unit
+    func testFileSendFailureKeepsTheStagedFileForTheRetry() async throws {
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.fail(URLError(.networkConnectionLost))]
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let staged = try stageFile(store: store, bytes: Data([0x01]), ext: "png")
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: server, outbox: outbox, staging: store)
+
+        let result = await intake.submit([.file(stagedURL: staged, mimeType: "image/png", fileName: nil, durationS: nil)],
+                                         note: nil, location: nil)
+
+        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.first?.payload["local_file_path"], staged.path)
+        XCTAssertNil(pending.first?.payload["file_path"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    func testSubscriptionRequiredParksTheSharedEntry() async {
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(403, subscriptionRequiredBody)]
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: server, outbox: outbox)
+
+        let result = await intake.submit([.url("https://example.com")], note: nil, location: nil)
+
+        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.first?.status, .parked)
+    }
+
+    // MARK: - location threads to every unit
 
     func testLocationThreadsToEveryUnitsAttributes() async throws {
-        let poster = RecordingPoster()
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
         let staged = try stageFile(store: store, bytes: Data([0x01]), ext: "jpg")
-        let intake = makeIntake(poster: poster, staging: store)
+        let intake = makeIntake(server: server, staging: store)
         let location = CapturedLocation(label: "Testville", source: "device-geolocation")
 
         let objects: [SharedObject] = [
@@ -174,120 +211,140 @@ final class ShareIntakeTests: XCTestCase {
         let result = await intake.submit(objects, note: "hi", location: location)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 2))
-        XCTAssertEqual(poster.calls.count, 2)
-        for call in poster.calls {
-            let loc = (call.body["attributes"] as? [String: Any])?["location"] as? [String: Any]
-            XCTAssertEqual(loc?["label"] as? String, "Testville", "every unit must carry the same location")
+        XCTAssertEqual(server.captures.count, 2)
+        for call in server.captures {
+            XCTAssertEqual((call.attributes?["location"] as? [String: Any])?["label"] as? String, "Testville")
         }
-        let media = (poster.calls[1].body["attributes"] as? [String: Any])?["media"] as? [String: Any]
-        XCTAssertEqual(media?["file_name"] as? String, "photo.jpg", "per-file media rides alongside the shared location")
+        XCTAssertEqual((server.captures[1].attributes?["media"] as? [String: Any])?["file_name"] as? String, "photo.jpg")
     }
 
-    // MARK: - Brief Step 1, scenario 7: outbox enqueue itself fails
+    // MARK: - the Outbox write itself fails
 
     func testEnqueueFailureCountsAsFailedNotSilentlyLost() async throws {
-        // A regular FILE at the outbox's directory path — `enqueue`'s write-inside-it must fail,
-        // since a file can't contain another file.
+        // A regular FILE at the outbox's directory path — `enqueue`'s write-inside-it must fail.
         let blocked = FileManager.default.temporaryDirectory.appending(path: "blocked-\(UUID().uuidString)")
         try Data().write(to: blocked)
         defer { try? FileManager.default.removeItem(at: blocked) }
-        let poster = RecordingPoster(); poster.shouldFail = true
-        let intake = makeIntake(poster: poster, outbox: Outbox(directory: blocked))
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server, outbox: Outbox(directory: blocked))
 
         let result = await intake.submit([.url("https://example.com")], note: nil, location: nil)
 
-        XCTAssertEqual(result, ShareIntakeResult(failed: 1), "a send failure whose Outbox fallback ALSO fails must be counted, never silent")
+        XCTAssertEqual(result, ShareIntakeResult(failed: 1), "an Outbox write failure must be counted, never silent")
+        XCTAssertTrue(server.calls.isEmpty, "outbox-first: nothing is sent that wasn't persisted first")
     }
 
-    func testFileEnqueueFailureAlsoCountsAsFailed() async throws {
+    func testFileEnqueueFailureAlsoCountsAsFailedAndKeepsTheStagedFile() async throws {
         let blocked = FileManager.default.temporaryDirectory.appending(path: "blocked-\(UUID().uuidString)")
         try Data().write(to: blocked)
         defer { try? FileManager.default.removeItem(at: blocked) }
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
         let staged = try stageFile(store: store, bytes: Data(repeating: 0x01, count: 20), ext: "bin")
-        let poster = RecordingPoster()
-        let intake = makeIntake(poster: poster, outbox: Outbox(directory: blocked), staging: store, directSendLimit: 10)
+        let intake = makeIntake(server: FakeCaptureServer(), outbox: Outbox(directory: blocked), staging: store)
 
         let result = await intake.submit([.file(stagedURL: staged, mimeType: "application/octet-stream", fileName: nil, durationS: nil)],
                                          note: nil, location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(failed: 1))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path),
-                      "a failed enqueue must still retain the staged file — sweepOrphans is the recovery net")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path), "sweepOrphans is the recovery net")
     }
 
-    // MARK: - Disclosed additions beyond the brief's Step 1 list: `.text` objects
+    // MARK: - `.text` objects
 
-    func testTextObjectRoutesToAddNoteWithSharedTextAsContent() async {
-        let poster = RecordingPoster()
-        let intake = makeIntake(poster: poster)
+    func testTextObjectSendsANoteCaptureWithTheSharedText() async {
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
 
         let result = await intake.submit([.text("selected text from safari")], note: nil, location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 1))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-note"])
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "selected text from safari")
+        XCTAssertEqual(server.captures.map(\.kind), ["note"])
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "selected text from safari")
     }
 
     func testTextObjectWithNoteAppendsNoteAfterTheSharedText() async {
-        let poster = RecordingPoster()
-        let intake = makeIntake(poster: poster)
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
 
         let result = await intake.submit([.text("shared body")], note: "my own take", location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 1))
-        let expected = appendNoteParagraph(to: "shared body", note: "my own take")
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, expected,
-                       "note augments the shared text (appendNoteParagraph), never replaces or drops it")
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, appendNoteParagraph(to: "shared body", note: "my own take"),
+                       "note augments the shared text, never replaces or drops it")
     }
 
     func testNonFirstTextObjectNeverReceivesTheNote() async {
-        let poster = RecordingPoster()
-        let intake = makeIntake(poster: poster)
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
 
         let result = await intake.submit([.url("https://example.com"), .text("second unit text")],
                                          note: "goes to url only", location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(saved: 2))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-url", "add-note"])
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "goes to url only")
-        XCTAssertEqual(poster.calls[1].body["content"] as? String, "second unit text",
-                       "the note must never leak onto a non-first unit")
+        XCTAssertEqual(server.captures.map(\.kind), ["url", "note"])
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "goes to url only")
+        XCTAssertEqual(server.captures[1].meta["content"] as? String, "second unit text")
     }
 
-    // MARK: - Disclosed additions: failure-ladder nuance + batch bookkeeping
-
-    // Locks down a deliberate, non-obvious design choice: an upload that itself SUCCEEDS but is
-    // followed by an addFile failure must still fall back via `local_file_path` (never a maybe-
-    // registered `file_path`) — mirrors `CaptureViewModel.submitVoiceNote` exactly.
-    func testSmallFileUploadSucceedsButAddFileFailsStillFallsBackViaLocalFilePath() async throws {
-        let poster = RecordingPoster(); poster.shouldFail = true
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
-        let staged = try stageFile(store: store, bytes: Data([0x01]), ext: "png")
-        let recorder = UploadRecorder()
+    func testTextSendFailureLeavesAQueuedNoteEntry() async {
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(500, "{}")]
         let outbox = Outbox(directory: dir)
-        let intake = makeIntake(poster: poster, outbox: outbox, staging: store,
-                                upload: { url, path, type in try await recorder.upload(fileURL: url, path: path, contentType: type) })
+        let intake = makeIntake(server: server, outbox: outbox)
 
-        let result = await intake.submit([.file(stagedURL: staged, mimeType: "image/png", fileName: nil, durationS: nil)],
-                                         note: nil, location: nil)
+        let result = await intake.submit([.text("shared body")], note: nil, location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(queued: 1))
-        XCTAssertEqual(recorder.calls.count, 1, "the upload itself must still have been attempted (and succeeded)")
         let pending = await outbox.pending()
-        XCTAssertEqual(pending.count, 1)
-        XCTAssertEqual(pending[0].payload["local_file_path"], staged.path,
-                       "fallback must always re-stage via the LOCAL path, never trust an upload that may or may not be registered")
-        XCTAssertNil(pending[0].payload["file_path"])
-        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+        XCTAssertEqual(pending.first?.kind, .note)
+        XCTAssertEqual(pending.first?.payload["content"], "shared body")
     }
 
+    // MARK: - queued entries carry note + attributes
+
+    func testQueuedURLEntryCarriesAttributesJSONForLocation() async throws {
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(500, "{}")]
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: server, outbox: outbox)
+
+        _ = await intake.submit([.url("https://example.com")], note: "ctx",
+                                location: CapturedLocation(label: "Testville", source: "device-geolocation"))
+
+        let pending = await outbox.pending()
+        let json = try XCTUnwrap(pending.first?.payload["attributes_json"])
+        let decoded = try JSONDecoder().decode(ItemAttributes.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.location?.label, "Testville")
+    }
+
+    func testBigFileQueuedEntryCarriesNoteNameAndAttributesJSON() async throws {
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let staged = try stageFile(store: store, bytes: Data(repeating: 0xAB, count: 20), ext: "bin")
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: FakeCaptureServer(), outbox: outbox, staging: store, directSendLimit: 10)
+
+        let result = await intake.submit(
+            [.file(stagedURL: staged, mimeType: "application/octet-stream", fileName: "big.bin", durationS: nil)],
+            note: "big file note", location: CapturedLocation(label: "Testville", source: "device-geolocation"))
+
+        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.first?.payload["content"], "big file note")
+        XCTAssertEqual(pending.first?.payload["file_name"], "big.bin")
+        let json = try XCTUnwrap(pending.first?.payload["attributes_json"])
+        let decoded = try JSONDecoder().decode(ItemAttributes.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.location?.label, "Testville")
+        XCTAssertEqual(decoded.media?.fileName, "big.bin")
+    }
+
+    // MARK: - batch bookkeeping
+
     func testCountsAlwaysSumToObjectCountAcrossMixedOutcomes() async throws {
-        let poster = RecordingPoster()   // live sends succeed
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
         let smallStaged = try stageFile(store: store, bytes: Data([0x01]), ext: "png")
         let bigStaged = try stageFile(store: store, bytes: Data(repeating: 0x02, count: 50), ext: "bin")
-        let intake = makeIntake(poster: poster, staging: store, directSendLimit: 10)
+        let intake = makeIntake(server: server, staging: store, directSendLimit: 10)
 
         let objects: [SharedObject] = [
             .url("https://example.com"),
@@ -301,97 +358,66 @@ final class ShareIntakeTests: XCTestCase {
     }
 
     func testEmptyObjectsProducesAllZeroResultWithNoCalls() async {
-        let poster = RecordingPoster()
-        let intake = makeIntake(poster: poster)
-
-        let result = await intake.submit([], note: "irrelevant", location: nil)
-
+        let server = FakeCaptureServer()
+        let result = await makeIntake(server: server).submit([], note: "irrelevant", location: nil)
         XCTAssertEqual(result, ShareIntakeResult())
-        XCTAssertTrue(poster.calls.isEmpty)
+        XCTAssertTrue(server.calls.isEmpty)
     }
 
-    // No session at all (accessToken throws): every unit must queue rather than ever attempting a
-    // live send — spec's auth note / plan's "never block the share sheet" rule.
+    // No session at all: every unit is still written to the Outbox, none is sent.
     func testNoSessionQueuesEverythingRatherThanAttemptingASend() async {
-        let poster = RecordingPoster()
+        let server = FakeCaptureServer()
         let outbox = Outbox(directory: dir)
-        let intake = ShareIntake(userId: UUID(), capture: CaptureAPI(poster: poster), outbox: outbox,
-                                 staging: StagedFileStore(userId: UUID(), directory: stagingDir),
-                                 accessToken: { throw CaptureError.badStatus(401) })
+        let intake = makeIntake(server: server, outbox: outbox, accessToken: { throw CaptureError.badStatus(401) })
 
         let result = await intake.submit([.url("https://example.com")], note: "x", location: nil)
 
         XCTAssertEqual(result, ShareIntakeResult(queued: 1))
-        XCTAssertTrue(poster.calls.isEmpty, "with no session, a live send must never even be attempted")
-    }
-
-    // MARK: - Task 7 carry (a): `.text` poster-throws falls back to a `.note` Outbox entry
-
-    func testTextSendFailureFallsBackToOutboxNoteEntry() async {
-        let poster = RecordingPoster(); poster.shouldFail = true
-        let outbox = Outbox(directory: dir)
-        let intake = makeIntake(poster: poster, outbox: outbox)
-
-        let result = await intake.submit([.text("shared body")], note: nil, location: nil)
-
-        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        XCTAssertTrue(server.calls.isEmpty, "with no session, a live send must never even be attempted")
         let pending = await outbox.pending()
         XCTAssertEqual(pending.count, 1)
-        XCTAssertEqual(pending[0].kind, .note)
-        XCTAssertEqual(pending[0].payload["content"], "shared body")
     }
 
-    // MARK: - Task 7 carry (b): attributes_json (location) + note/content asserted in QUEUED entries
+    // MARK: - enqueueForTransfer (plan 15, for Task 4)
 
-    // The pre-existing `testURLSendFailureFallsBackToOutboxURLEntry` never passed a `location`, so
-    // it could never have caught a regression that dropped `attributes_json` from the fallback
-    // path specifically (as opposed to the live-send path, already covered by
-    // `testLocationThreadsToEveryUnitsAttributes`).
-    func testQueuedURLEntryCarriesAttributesJSONForLocation() async throws {
-        let poster = RecordingPoster(); poster.shouldFail = true
-        let outbox = Outbox(directory: dir)
-        let intake = makeIntake(poster: poster, outbox: outbox)
+    func testEnqueueForTransferWritesTransferringEntriesInOrderWithoutSending() async throws {
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let staged = try stageFile(store: store, bytes: Data([0x01, 0x02]), ext: "jpg")
+        let startedAt = Date(timeIntervalSince1970: 1_950_000_000)
+        let outbox = Outbox(directory: dir, now: { startedAt })
+        let intake = makeIntake(server: server, outbox: outbox, staging: store)
         let location = CapturedLocation(label: "Testville", source: "device-geolocation")
 
-        let result = await intake.submit([.url("https://example.com")], note: "ctx", location: location)
+        let entries = await intake.enqueueForTransfer(
+            [.url("https://example.com"), .text("quote"),
+             .file(stagedURL: staged, mimeType: "image/jpeg", fileName: "IMG_1.jpg", durationS: nil)],
+            note: "  my note  ", location: location)
 
-        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
-        let pending = await outbox.pending()
-        XCTAssertEqual(pending.count, 1)
-        let json = try XCTUnwrap(pending[0].payload["attributes_json"])
-        let decoded = try JSONDecoder().decode(ItemAttributes.self, from: try XCTUnwrap(json.data(using: .utf8)))
-        XCTAssertEqual(decoded.location?.label, "Testville")
+        XCTAssertTrue(server.calls.isEmpty, "the background session sends them — nothing goes out here")
+        XCTAssertEqual(entries.map(\.kind), [.url, .note, .file])
+        XCTAssertTrue(entries.allSatisfy { $0.status == .transferring && $0.transferStartedAt == startedAt })
+        XCTAssertEqual(entries[0].payload["content"], "my note", "the trimmed note rides the first object only")
+        XCTAssertEqual(entries[1].payload["content"], "quote")
+        XCTAssertEqual(entries[2].payload["local_file_path"], staged.path)
+        XCTAssertEqual(entries[2].payload["file_size"], "2")
+        XCTAssertEqual(entries[2].payload["file_name"], "IMG_1.jpg")
+        XCTAssertNil(entries[2].payload["content"])
+        let persisted = await outbox.pending()
+        XCTAssertEqual(Set(persisted.map(\.id)), Set(entries.map(\.id)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path), "the transfer still needs the staged file")
+
+        // A drain right away leaves them to the background transfer (their stamp is fresh).
+        let appOutbox = Outbox(directory: dir)
+        let sentNow = await appOutbox.drain(api: CaptureAPI(transport: server), accessToken: "jwt", userId: userId)
+        XCTAssertEqual(sentNow, 0)
     }
 
-    // The pre-existing big-file test never passed `note`/`location`, so it could never have caught
-    // a regression that dropped either from the over-the-limit fallback path (`enqueueFile`).
-    func testBigFileQueuedEntryCarriesNoteAndAttributesJSON() async throws {
-        let poster = RecordingPoster()
-        let store = StagedFileStore(userId: UUID(), directory: stagingDir)
-        let staged = try stageFile(store: store, bytes: Data(repeating: 0xAB, count: 20), ext: "bin")
-        let outbox = Outbox(directory: dir)
-        let intake = makeIntake(poster: poster, outbox: outbox, staging: store, directSendLimit: 10)
-        let location = CapturedLocation(label: "Testville", source: "device-geolocation")
-
-        let result = await intake.submit(
-            [.file(stagedURL: staged, mimeType: "application/octet-stream", fileName: nil, durationS: nil)],
-            note: "big file note", location: location)
-
-        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
-        let pending = await outbox.pending()
-        XCTAssertEqual(pending.count, 1)
-        XCTAssertEqual(pending[0].payload["content"], "big file note")
-        let json = try XCTUnwrap(pending[0].payload["attributes_json"])
-        let decoded = try JSONDecoder().decode(ItemAttributes.self, from: try XCTUnwrap(json.data(using: .utf8)))
-        XCTAssertEqual(decoded.location?.label, "Testville")
-    }
-
-    // MARK: - Task 7 carry (c): `ProviderLoader` ordering decision — `reorderURLFirst`
+    // MARK: - `ProviderLoader` ordering decision — `reorderURLFirst`
 
     func testReorderURLFirstMovesURLToFront() {
         let objects: [SharedObject] = [.text("a"), .url("https://example.com"), .text("b")]
-        XCTAssertEqual(ShareIntake.reorderURLFirst(objects),
-                       [.url("https://example.com"), .text("a"), .text("b")])
+        XCTAssertEqual(ShareIntake.reorderURLFirst(objects), [.url("https://example.com"), .text("a"), .text("b")])
     }
 
     func testReorderURLFirstIsNoOpWhenNoURLPresent() {

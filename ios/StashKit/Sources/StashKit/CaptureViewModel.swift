@@ -3,10 +3,10 @@ import Observation
 import Supabase
 
 /// One captured attachment (photo or arbitrary file) staged in the composer before `submit()`
-/// uploads it. `kind` only drives display (thumbnail vs. doc icon) and which size-guard branch
-/// applies in `validatedUploadData` — both eventually go through the same `add-file` endpoint.
-public struct CaptureAttachment: Identifiable {
-    public enum Kind { case photo, file }
+/// saves it. `kind` drives display (thumbnail vs. doc icon) and which preparation/size-guard
+/// branch applies — both eventually go through the same `capture` endpoint as `kind: "file"`.
+public struct CaptureAttachment: Identifiable, Sendable {
+    public enum Kind: Sendable { case photo, file }
     public let id: UUID
     public var data: Data
     public var fileExtension: String
@@ -14,7 +14,8 @@ public struct CaptureAttachment: Identifiable {
     public var kind: Kind
     /// The original filename, captured at pick time (Task 5 — `attributes.media.file_name`):
     /// PhotosPicker's suggested name, the security-scoped URL's `lastPathComponent` for
-    /// `fileImporter`, or `nil` for a camera capture (no source filename exists).
+    /// `fileImporter`, or `nil` for a camera capture (no source filename exists). Plan 15: a photo
+    /// re-encoded by `ImagePreparation` records this name with its extension swapped to `.jpg`.
     public var fileName: String?
     /// Media duration in seconds, captured at pick time (`attributes.media.duration_s`): an
     /// `AVAsset` probe for a picked audio/video file, the recorder-elapsed time for a voice note,
@@ -34,11 +35,11 @@ public struct CaptureAttachment: Identifiable {
 }
 
 /// `dropped` on `.saved`/`.queued` and the dedicated `.rejected` case exist so data loss is
-/// never silent (fix round, review Important finding): every `UnqueueableFailure` — an oversized
-/// reject or an upload that never landed in storage — is counted and must reach the user, not
-/// just a `print` log. `.nothingToSave` is reserved for the case where `submit()` had literally
-/// nothing to attempt (empty text, no attachments); it is never returned once anything was
-/// attempted, even if everything attempted was dropped (`.rejected` covers that).
+/// never silent (fix round, review Important finding): every unit that could not even be written
+/// to the Outbox — an oversized reject, or bytes that couldn't be staged to disk — is counted and
+/// must reach the user, not just a `print` log. Plan 15: a failed SEND is no longer a drop — the
+/// unit is already in the Outbox and comes back as `.queued`. `.nothingToSave` is reserved for
+/// the case where `submit()` had literally nothing to attempt (empty text, no attachments).
 public enum CaptureOutcome: Equatable {
     case saved(count: Int, dropped: Int)
     case queued(count: Int, dropped: Int)
@@ -46,26 +47,27 @@ public enum CaptureOutcome: Equatable {
     case nothingToSave
 }
 
-/// Backs the Add-tab composer. UIKit-free by design (the only touch point for image bytes is
-/// the `downscale` hook, itself a plain `Data -> Data` closure), so the whole routing +
-/// Outbox-fallback contract is unit-testable under `swift test` without the app target.
-/// StashKit's own default `downscale` is the identity closure; the app supplies a real
-/// UIImage-based re-encoder at construction (see task-7-report.md for why this type lives here
-/// rather than in the app target, where the brief originally placed it).
+/// Backs the Add-tab composer. UIKit-free by design, so the whole routing + Outbox contract is
+/// unit-testable under `swift test` without the app target.
 ///
-/// Reconciliation note (brief's "Correction for implementability"): this type deliberately does
-/// NOT call `ItemStore.applyNew` — `LibraryView` owns its store privately, and there is no clean
-/// seam to reach it from here. Realtime is the single reconciliation path: on a successful
-/// capture the View tab's own `RealtimeObserver` subscription (already live, ~1s) picks up the
-/// new row once the user switches tabs. Wiring `applyNew` too would race a second reconciliation
-/// path against realtime for the same event, which Task 4's review flagged as unnecessary.
+/// Plan 15 — outbox-first: every unit of a submission is written to the Outbox BEFORE any network
+/// call (attachment bytes staged to disk via `StagedFileStore`, photos first through
+/// `ImagePreparation` — ≤ 2560 px JPEG), then sent right away with `Outbox.sendNow`. The entry id
+/// is the capture id the idempotent `capture` endpoint dedupes on, so a send whose response is lost
+/// can be retried by any later drain without ever creating a second item. A failed send leaves the
+/// unit queued (`.queued`) instead of dropping it; only size-limit and staging failures are
+/// `.rejected`/`dropped`.
+///
+/// Reconciliation: a capture that reaches the server posts `Notification.Name.stashItemCaptured`
+/// (from `Outbox`), which the app-scope item store prepends immediately; realtime still delivers
+/// the enrichment upgrades.
 ///
 /// Subscription-gate note (Task 7): this type deliberately does NOT check
 /// `SubscriptionStore.canAddContent` — same UI-layer-only precedent `ChatStore`/`AskView`
 /// established for the Ask tab's gates (Task 5). `CaptureComposerView` reads the gate from its
 /// environment and disables Save + shows the inline copy before `submit()`/`submitVoiceNote`
-/// are ever called; nothing here needs new test coverage as a result (the gate boolean itself is
-/// already fully covered by `SubscriptionStoreTests`, Task 3).
+/// are ever called. A stale gate that lets a save through still ends safely: the server's 403
+/// parks the entry (Plan 14 T3).
 @MainActor
 @Observable
 public final class CaptureViewModel {
@@ -83,9 +85,9 @@ public final class CaptureViewModel {
     private let userId: UUID
     private let api: CaptureAPI
     private let outbox: Outbox
-    private let upload: @Sendable (Data, String, String) async throws -> Void
+    private let staging: StagedFileStore
+    private let upload: (@Sendable (URL, String, String) async throws -> Void)?
     private let accessToken: @Sendable () async throws -> String
-    private let downscale: @Sendable (Data) -> Data
     private let awaitPendingLocationHook: (@Sendable (TimeInterval) async -> CapturedLocation?)?
 
     /// Global Constraints / Task 6 brief: "submit() waits ≤2.5s on .resolving … then proceeds with
@@ -93,24 +95,25 @@ public final class CaptureViewModel {
     /// (`submit()`, `submitVoiceNote()`) so it can't drift between them.
     private static let locationAwaitTimeout: TimeInterval = 2.5
 
+    /// - Parameters:
+    ///   - outbox: `nil` (every call site but tests) builds the per-user default directory from
+    ///     `userId` — a shared, user-agnostic default let one account's offline-queued captures
+    ///     drain into a different account's after a sign-out/sign-in (Critical final-review
+    ///     finding; see `Outbox.defaultDirectory(userId:)`). Tests inject a scratch directory.
+    ///   - staging: where attachment bytes are written before enqueueing — `nil` = the per-user
+    ///     App Group staging directory (the same one `sweepOrphans` watches, so a crash between
+    ///     staging and enqueue is still recovered on the next launch).
+    ///   - upload: the Outbox's two-step Storage lane for files over the one-shot limit — `nil`
+    ///     streams through `api.uploadFileToStorage` with the send's own token.
     public init(
         userId: UUID,
         api: CaptureAPI = CaptureAPI(),
-        // nil (every call site but tests) builds the per-user default directory from `userId`
-        // below — can't be a plain default-argument expression since it needs `userId`, which
-        // isn't available until the initializer body runs. Fix for a Critical final-review
-        // finding: a shared, user-agnostic default here let one account's offline-queued
-        // captures drain into a different account's after a sign-out/sign-in — see
-        // `Outbox.defaultDirectory(userId:)`'s doc comment. Tests inject an explicit `Outbox`
-        // over a scratch tmp directory.
         outbox: Outbox? = nil,
-        upload: @escaping @Sendable (Data, String, String) async throws -> Void = { data, path, contentType in
-            try await uploadToStorage(data: data, path: path, contentType: contentType)
-        },
+        staging: StagedFileStore? = nil,
+        upload: (@Sendable (URL, String, String) async throws -> Void)? = nil,
         accessToken: @escaping @Sendable () async throws -> String = {
             try await StashClient.shared.auth.session.accessToken
         },
-        downscale: @escaping @Sendable (Data) -> Data = { $0 },
         // Bridges to the app's Task 6 `LocationCapture` (CLLocationManager/CLGeocoder plumbing —
         // deliberately kept out of StashKit, which has no CoreLocation dependency and never will).
         // `nil` (default: every StashKit test, and any future call site that never wires one up)
@@ -123,9 +126,9 @@ public final class CaptureViewModel {
         self.userId = userId
         self.api = api
         self.outbox = outbox ?? Outbox(directory: Outbox.defaultDirectory(userId: userId))
+        self.staging = staging ?? StagedFileStore(userId: userId)
         self.upload = upload
         self.accessToken = accessToken
-        self.downscale = downscale
         self.awaitPendingLocationHook = awaitPendingLocation
     }
 
@@ -154,15 +157,16 @@ public final class CaptureViewModel {
     public func submit() async -> CaptureOutcome {
         let units = route()
         guard !units.isEmpty else { return .nothingToSave }
+        let publicFlag = isPublic
 
         // Clear immediately (web parity, UnifiedInputPanel.tsx:778-782 "clear the form
         // immediately for better UX") — everything below works off the captured `units`.
         text = ""
         attachments = []
 
-        // Fetched once per submit, not stored on `self` — mirrors `Outbox.drain`'s own
-        // one-token-per-batch shape (Task 3). `try?` turns "no session" into a nil token,
-        // which `send` below treats as an ordinary queueable failure.
+        // Fetched once per submit, not stored on `self` — every unit in this batch sends under
+        // the same session snapshot. `try?` turns "no session" into a nil token: the units are
+        // still written to the Outbox, just not sent until a later drain has a session.
         let token = try? await accessToken()
 
         // Task 6: give an in-flight pin resolution up to `locationAwaitTimeout` to finish before
@@ -179,35 +183,40 @@ public final class CaptureViewModel {
         var queuedCount = 0
         var droppedCount = 0
         for unit in units {
+            let ready: ReadyUnit
             do {
-                let ready = try await prepare(unit, location: location)
-                do {
-                    _ = try await send(ready, accessToken: token)
-                    savedCount += 1
-                } catch CaptureError.subscriptionRequired {
-                    // Plan 14 fix wave B (#8): a LIVE `.subscriptionRequired` 403 here means the
-                    // account can't add content right now — the exact same fact `Outbox.drain`'s
-                    // own 403 catch (Plan 14 T3) already parks on, just discovered one step
-                    // earlier, on the FOREGROUND send this view model just attempted directly.
-                    // Enqueue straight to `.parked` so it never briefly counts as an ordinary
-                    // `.pending` retry (which `pendingOutboxCount` would surface as "N pending" —
-                    // implying an automatic retry that can never succeed — instead of the gate
-                    // strip's correct explanation).
-                    await enqueue(ready, status: .parked)
-                    queuedCount += 1
-                } catch {
-                    // `prepare` already succeeded — any upload it needed has landed in
-                    // storage — so this is a CaptureAPI/network throw, exactly what the
-                    // Outbox exists to retry.
-                    await enqueue(ready)
-                    queuedCount += 1
-                }
+                ready = try await prepare(unit, location: location, isPublic: publicFlag)
             } catch {
-                // Never safe to queue — see `UnqueueableFailure`'s doc comment. Still counted
-                // (never just logged): silently losing an attachment is exactly the bug this
-                // fix round closes.
+                // Never queueable — see `UnqueueableFailure`. Still counted (never just logged).
                 droppedCount += 1
                 print("Capture: dropped an attachment — \(error)")
+                continue
+            }
+            let entry: OutboxEntry
+            do {
+                entry = try await outbox.enqueue(ready.kind, payload: ready.payload)
+            } catch {
+                // Couldn't persist the unit at all (e.g. a full disk). Its staged copy is removed
+                // so a later `sweepOrphans` can't quietly save something the user was told failed.
+                if let staged = ready.stagedFile { staging.discard(staged) }
+                droppedCount += 1
+                print("Capture: couldn't write a capture to the Outbox — \(error)")
+                continue
+            }
+            guard let token else {
+                queuedCount += 1
+                continue
+            }
+            switch await outbox.sendNow(id: entry.id, api: api, userId: userId, accessToken: token, upload: upload) {
+            case .sent, .notFound:
+                // `.notFound`: a concurrent drain already delivered it between enqueue and send.
+                savedCount += 1
+            case .dropped:
+                droppedCount += 1
+            case .parked, .pending, .inFlight:
+                // Plan 14 fix wave B (#8): a 403 subscription_required parks the entry (inside
+                // `sendNow`) instead of leaving it pending; either way it's safely queued.
+                queuedCount += 1
             }
         }
 
@@ -221,66 +230,52 @@ public final class CaptureViewModel {
 
     /// The voice-note counterpart to `submit()` — a single already-on-disk recording (written by
     /// the app's `AudioRecorderController` via `RecordingStore`, before this is ever called) is
-    /// read, uploaded, and registered via `addFile`. Unlike `submit()`'s attachment path, there is
-    /// no unqueueable-failure distinction: the recording's bytes are already durably on local disk
-    /// (that's the entire point of recording straight into `RecordingStore` instead of holding the
-    /// bytes in memory), so ANY failure here — reading the file, the upload, or `addFile` itself —
-    /// is always safe, and always correct, to hand to the Outbox: it retries with the exact same
-    /// local file, never invents a `file_path` nothing was ever written to.
+    /// written to the Outbox as a `.file` entry pointing at the recording (`local_file_path`),
+    /// then sent right away with `Outbox.sendNow`. The recording's bytes are already durably on
+    /// local disk, so any send failure just leaves the entry queued — retried later from exactly
+    /// this file, under the same capture id (never a second item). On success the entry AND the
+    /// local recording are removed.
     ///
     /// `content: nil` is deliberate, not an oversight — voice notes never consume the composer's
     /// `text` field (the sheet that calls this is a self-contained flow with its own Save button,
     /// independent of whatever's typed in the composer's editor at the time).
     /// - Parameter durationS: Recorder-elapsed seconds (`AudioRecorderController.elapsed` at Stop),
     ///   threaded into `attributes.media.duration_s` exactly like a picked file's `CaptureAttachment
-    ///   .durationS` — `nil` (default) omits the media fact entirely, same as a picked file whose
-    ///   own probe came back empty. `pendingLocation` rides along too, same as every `submit()`
-    ///   unit — including the same Task 6 `awaitPendingLocation` wait, in case the pin is still
-    ///   `.resolving` when a voice note is saved (e.g. the user toggled it on immediately before
-    ///   opening the recorder sheet).
+    ///   .durationS` — `nil` (default) omits the media fact entirely. `pendingLocation` rides along
+    ///   too, including the same Task 6 `awaitPendingLocation` wait as `submit()`.
     public func submitVoiceNote(fileURL: URL, durationS: Double? = nil) async -> CaptureOutcome {
         await awaitPendingLocation(timeout: Self.locationAwaitTimeout)
         let attributes = buildAttributes(location: pendingLocation, media: buildMedia(fileName: nil, durationS: durationS))
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let path = makeUploadPath(userId: userId, fileExtension: "m4a")
-            try await upload(data, path, "audio/mp4")
-            let token = try await accessToken()
-            _ = try await api.addFile(path: path, mimeType: "audio/mp4", fileSize: data.count,
-                                      content: nil, isPublic: isPublic, attributes: attributes, accessToken: token)
-            try? FileManager.default.removeItem(at: fileURL)
-            await refreshPendingCount()
-            return .saved(count: 1, dropped: 0)
-        } catch {
-            // Keep the file — this entry's local_file_path is the only reference to it, and the
-            // Outbox drain (Task 4) uploads it from exactly this path on retry.
-            var payload = [
-                "local_file_path": fileURL.path,
-                "mime_type": "audio/mp4",
-                "is_public": isPublic ? "true" : "false",
-            ]
-            if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
-            try? await outbox.enqueue(.file, payload: payload)
+        var payload = [
+            "local_file_path": fileURL.path,
+            "mime_type": "audio/mp4",
+            "is_public": isPublic ? "true" : "false",
+        ]
+        if let size = staging.fileSize(of: fileURL) { payload["file_size"] = String(size) }
+        if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
+
+        guard let entry = try? await outbox.enqueue(.file, payload: payload) else {
+            // The recording itself is still safe in `RecordingStore` — the next launch's
+            // `sweepOrphans` re-enqueues it — so this is "will sync", not a loss.
             await refreshPendingCount()
             return .queued(count: 1, dropped: 0)
+        }
+        guard let token = try? await accessToken() else {
+            await refreshPendingCount()
+            return .queued(count: 1, dropped: 0)
+        }
+        let result = await outbox.sendNow(id: entry.id, api: api, userId: userId, accessToken: token, upload: upload)
+        await refreshPendingCount()
+        switch result {
+        case .sent, .notFound: return .saved(count: 1, dropped: 0)
+        case .dropped: return .rejected(dropped: 1)
+        case .parked, .pending, .inFlight: return .queued(count: 1, dropped: 0)
         }
     }
 
     public func drainOutbox() async {
         if let token = try? await accessToken() {
-            // Task 4: `Outbox.drain`'s `local_file_path` lane is now file-based
-            // (`@Sendable (URL, String, String) async throws -> Void`), a different shape than
-            // this view model's own `upload` (`Data`-based — still right for `prepare`'s
-            // already-in-memory attachments and `submitVoiceNote`'s happy path, both of which
-            // start from bytes already held, not a bare file reference). So this no longer reuses
-            // `self.upload` for the drain call — it builds a small adapter around the real
-            // `uploadToStorageFromFile`, reusing the SAME token already fetched above rather than
-            // letting `drain`'s own default independently re-fetch one.
-            _ = await outbox.drain(api: api, accessToken: token, userId: userId,
-                                   upload: { fileURL, path, contentType in
-                                       try await uploadToStorageFromFile(fileURL: fileURL, path: path,
-                                                                         contentType: contentType, accessToken: token)
-                                   })
+            _ = await outbox.drain(api: api, accessToken: token, userId: userId, upload: upload)
         }
         await refreshPendingCount()
     }
@@ -288,7 +283,7 @@ public final class CaptureViewModel {
     /// Plan 14 fix wave B (#9): a parked entry is explained by the composer's gate strip, not by
     /// "still trying" — counting it here would show e.g. "1 pending" for an entry that will never
     /// send again until the user resubscribes, which reads as a stuck/broken retry rather than the
-    /// gated state it actually is.
+    /// gated state it actually is. (`.transferring` entries DO count: they're still in flight.)
     private func refreshPendingCount() async {
         pendingOutboxCount = await outbox.pending().filter { $0.status != .parked }.count
     }
@@ -306,14 +301,14 @@ public final class CaptureViewModel {
     /// extra "note" item — and the typed note, if any, rides `content` on the FIRST unit ONLY.
     /// That rule is universal across every branch below, not a special case of any one of them:
     ///
-    /// - A URL detected anywhere in the typed text is always its own unit (add-url, content = the
-    ///   text with the URL substring removed) and always comes FIRST when present, whether or not
-    ///   files are attached too. Any attachments then follow as individual add-file units with no
-    ///   content — the note already rode the URL.
-    /// - No URL, no attachments: a single add-note (or nothing, if the text is empty too).
-    /// - No URL, exactly one attachment: one add-file, the typed text as its content.
-    /// - No URL, multiple attachments: one add-file per attachment; the FIRST carries the typed
-    ///   text as its content, the rest carry none. There is no more separate add-note call for
+    /// - A URL detected anywhere in the typed text is always its own unit (a `url` capture,
+    ///   content = the text with the URL substring removed) and always comes FIRST when present,
+    ///   whether or not files are attached too. Any attachments then follow as individual file
+    ///   units with no content — the note already rode the URL.
+    /// - No URL, no attachments: a single note (or nothing, if the text is empty too).
+    /// - No URL, exactly one attachment: one file, the typed text as its content.
+    /// - No URL, multiple attachments: one file per attachment; the FIRST carries the typed
+    ///   text as its content, the rest carry none. There is no more separate note item for
     ///   "leftover" text once attachments are involved — plan 2's note-as-its-own-item behavior is
     ///   retired.
     private func route() -> [CaptureUnit] {
@@ -365,50 +360,99 @@ public final class CaptureViewModel {
         return !noteText(strippingURLFrom: trimmed, rawURL: rawURL).isEmpty
     }
 
-    // MARK: - Upload + send + Outbox fallback
+    // MARK: - Prepare (unit → Outbox payload)
 
-    /// Thrown by `prepare` for failures the Outbox must never see: `Outbox`'s `file` payload
-    /// only stores an already-uploaded `file_path` (Task 3's schema assumes the bytes are
-    /// already in storage and only the `add-file` registration call may need a retry), so
-    /// queuing a path nothing was ever written to would let a later drain register an item
-    /// pointing at nothing. An oversized reject is the same story: retrying, live or queued,
-    /// can never succeed. Neither is safe to queue — but both are still counted into `submit()`'s
-    /// `droppedCount` and surfaced via `CaptureOutcome`'s `dropped`/`.rejected` (fix round: this
-    /// used to be logged-and-dropped with no way for the caller to know data was lost — see
-    /// task-7-report.md's fix-round addendum).
+    /// Thrown by `prepare` for the only failures that never reach the Outbox: an oversized
+    /// attachment (retrying can never succeed) and bytes that couldn't be staged to disk (there's
+    /// nothing durable for an entry to point at). Both are counted into `submit()`'s `dropped` and
+    /// surfaced via `CaptureOutcome` — never silent.
     private struct UnqueueableFailure: Error { let reason: String }
 
-    private enum ReadyUnit {
-        case note(content: String, attributes: ItemAttributes?)
-        case url(url: String, note: String, attributes: ItemAttributes?)
-        case file(path: String, mimeType: String, fileSize: Int, content: String?, attributes: ItemAttributes?)
+    /// One unit, ready to enqueue: its Outbox kind + payload, and (for files) the staged copy the
+    /// payload's `local_file_path` points at.
+    private struct ReadyUnit: Sendable {
+        let kind: OutboxEntry.Kind
+        let payload: [String: String]
+        let stagedFile: URL?
     }
 
-    private func prepare(_ unit: CaptureUnit, location: CapturedLocation?) async throws -> ReadyUnit {
+    private func prepare(_ unit: CaptureUnit, location: CapturedLocation?, isPublic: Bool) async throws -> ReadyUnit {
+        let publicFlag = isPublic ? "true" : "false"
         switch unit {
         case .note(let content):
-            return .note(content: content, attributes: buildAttributes(location: location))
+            var payload = ["content": content, "is_public": publicFlag]
+            if let json = attributesPayloadString(buildAttributes(location: location)) { payload["attributes_json"] = json }
+            return ReadyUnit(kind: .note, payload: payload, stagedFile: nil)
         case .url(let url, let note):
-            return .url(url: url, note: note, attributes: buildAttributes(location: location))
+            var payload = ["url": url, "content": note, "is_public": publicFlag]
+            if let json = attributesPayloadString(buildAttributes(location: location)) { payload["attributes_json"] = json }
+            return ReadyUnit(kind: .url, payload: payload, stagedFile: nil)
         case .file(let attachment, let content):
-            let data = try validatedUploadData(for: attachment)
-            let path = makeUploadPath(userId: userId, fileExtension: attachment.fileExtension)
+            try validateSize(of: attachment)
+            let staged: StagedAttachment
             do {
-                try await upload(data, path, attachment.mimeType)
+                staged = try await Self.stage(attachment, into: staging)
             } catch {
-                throw UnqueueableFailure(reason: "upload failed before any bytes reached storage")
+                throw UnqueueableFailure(reason: "couldn't stage the attachment to disk: \(error)")
             }
-            let media = buildMedia(fileName: attachment.fileName, durationS: attachment.durationS)
-            let attributes = buildAttributes(location: location, media: media)
-            return .file(path: path, mimeType: attachment.mimeType, fileSize: data.count,
-                        content: content, attributes: attributes)
+            var payload = [
+                "local_file_path": staged.url.path,
+                "mime_type": staged.mimeType,
+                "file_size": String(staged.byteCount),
+                "is_public": publicFlag,
+            ]
+            if let content { payload["content"] = content }
+            if let fileName = staged.fileName { payload["file_name"] = fileName }
+            let media = buildMedia(fileName: staged.fileName, durationS: attachment.durationS)
+            if let json = attributesPayloadString(buildAttributes(location: location, media: media)) {
+                payload["attributes_json"] = json
+            }
+            return ReadyUnit(kind: .file, payload: payload, stagedFile: staged.url)
+        }
+    }
+
+    private struct StagedAttachment: Sendable {
+        let url: URL
+        let mimeType: String
+        let byteCount: Int
+        let fileName: String?
+    }
+
+    /// Photos go through `ImagePreparation` (≤ 2560 px JPEG, orientation applied, metadata
+    /// dropped; GIF and small JPEGs kept as-is); a photo ImageIO can't read is staged as its
+    /// original bytes rather than dropped. Runs off the main actor — decoding/encoding a 12 MP
+    /// photo takes long enough to hitch the UI.
+    nonisolated private static func stage(_ attachment: CaptureAttachment,
+                                          into staging: StagedFileStore) async throws -> StagedAttachment {
+        try await Task.detached(priority: .userInitiated) {
+            if attachment.kind == .photo, let prepared = ImagePreparation.prepare(attachment.data) {
+                let url = try staging.stage(data: prepared.data, fileExtension: prepared.fileExtension)
+                return StagedAttachment(url: url, mimeType: prepared.mimeType, byteCount: prepared.data.count,
+                                        fileName: ImagePreparation.fileName(attachment.fileName,
+                                                                            reencoded: prepared.wasReencoded))
+            }
+            let url = try staging.stage(data: attachment.data, fileExtension: attachment.fileExtension)
+            return StagedAttachment(url: url, mimeType: attachment.mimeType, byteCount: attachment.data.count,
+                                    fileName: attachment.fileName)
+        }.value
+    }
+
+    /// Photos are never rejected (plan 15: every photo is prepared down to ≤ 2560 px anyway);
+    /// other files mirror the web's per-kind limits (MediaUploadTypes.ts:26-28): 100 MB for
+    /// audio/video, 20 MB for everything else (docs).
+    private func validateSize(of attachment: CaptureAttachment) throws {
+        guard attachment.kind == .file else { return }
+        let mb = 1_048_576
+        let isAudioOrVideo = attachment.mimeType.hasPrefix("video/") || attachment.mimeType.hasPrefix("audio/")
+        let limit = (isAudioOrVideo ? 100 : 20) * mb
+        guard attachment.data.count <= limit else {
+            throw UnqueueableFailure(reason: "\(attachment.mimeType) attachment exceeds \(limit / mb) MB limit")
         }
     }
 
     /// `nil` whenever there's nothing to attach (no location pinned, no media facts) — kept as an
-    /// `ItemAttributes?`, not an always-present `ItemAttributes()`, so `CaptureAPI`'s own
-    /// non-empty check (never send `{}`) has nothing to do for the common case of an unpinned,
-    /// non-media unit.
+    /// `ItemAttributes?`, not an always-present `ItemAttributes()`, so the never-send-`{}` gate has
+    /// nothing to do for the common case of an unpinned, non-media unit.
     private func buildAttributes(location: CapturedLocation?, media: MediaAttributes? = nil) -> ItemAttributes? {
         guard location != nil || media != nil else { return nil }
         return ItemAttributes(location: location, media: media)
@@ -419,66 +463,14 @@ public final class CaptureViewModel {
         return MediaAttributes(durationS: durationS, fileName: fileName)
     }
 
-    private func send(_ ready: ReadyUnit, accessToken: String?) async throws -> Item {
-        guard let accessToken else { throw CaptureError.badStatus(-1) }   // no session — queueable
-        switch ready {
-        case .note(let content, let attributes):
-            return try await api.addNote(content: content, title: nil, isPublic: isPublic,
-                                         attributes: attributes, accessToken: accessToken)
-        case .url(let url, let note, let attributes):
-            return try await api.addURL(url, note: note, isPublic: isPublic,
-                                        attributes: attributes, accessToken: accessToken)
-        case .file(let path, let mimeType, let fileSize, let content, let attributes):
-            return try await api.addFile(path: path, mimeType: mimeType, fileSize: fileSize, content: content,
-                                         isPublic: isPublic, attributes: attributes, accessToken: accessToken)
-        }
-    }
-
-    private func enqueue(_ ready: ReadyUnit, status: OutboxEntry.Status = .pending) async {
-        let publicFlag = isPublic ? "true" : "false"
-        switch ready {
-        case .note(let content, let attributes):
-            var payload = ["content": content, "is_public": publicFlag]
-            if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
-            try? await outbox.enqueue(.note, payload: payload, status: status)
-        case .url(let url, let note, let attributes):
-            var payload = ["url": url, "content": note, "is_public": publicFlag]
-            if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
-            try? await outbox.enqueue(.url, payload: payload, status: status)
-        case .file(let path, let mimeType, let fileSize, let content, let attributes):
-            var payload = ["file_path": path, "mime_type": mimeType,
-                           "file_size": String(fileSize), "is_public": publicFlag]
-            if let content { payload["content"] = content }
-            if let json = attributesPayloadString(attributes) { payload["attributes_json"] = json }
-            try? await outbox.enqueue(.file, payload: payload, status: status)
-        }
-    }
-
     /// `attributes` serialized to a JSON string for the Outbox's text-only `[String: String]`
-    /// payload (Task 5) — `nil` whenever there's nothing worth persisting, same
-    /// `nonEmptyJSONObject` gate `CaptureAPI.addAttributes` uses, so a queued entry's eventual
-    /// `drain` sends exactly what a live send would have.
+    /// payload (Task 5) — `nil` whenever there's nothing worth persisting (the same
+    /// `nonEmptyJSONObject` gate the legacy `add-*` bodies use), so the capture request sends
+    /// exactly the attributes a direct call would have.
     private func attributesPayloadString(_ attributes: ItemAttributes?) -> String? {
         guard let object = attributes?.nonEmptyJSONObject,
               let data = try? JSONSerialization.data(withJSONObject: object)
         else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-
-    /// Images > 20MB downscale (never rejected); other files mirror the web's per-kind limits
-    /// (MediaUploadTypes.ts:26-28): 100MB for audio/video, 20MB for everything else (docs).
-    private func validatedUploadData(for attachment: CaptureAttachment) throws -> Data {
-        let mb = 1_048_576
-        switch attachment.kind {
-        case .photo:
-            return attachment.data.count > 20 * mb ? downscale(attachment.data) : attachment.data
-        case .file:
-            let isAudioOrVideo = attachment.mimeType.hasPrefix("video/") || attachment.mimeType.hasPrefix("audio/")
-            let limit = (isAudioOrVideo ? 100 : 20) * mb
-            guard attachment.data.count <= limit else {
-                throw UnqueueableFailure(reason: "\(attachment.mimeType) attachment exceeds \(limit / mb) MB limit")
-            }
-            return attachment.data
-        }
     }
 }

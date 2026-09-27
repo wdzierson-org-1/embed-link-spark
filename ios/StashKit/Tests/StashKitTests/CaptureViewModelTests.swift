@@ -1,70 +1,74 @@
+import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 @testable import StashKit
 
-/// Records every POST call (unlike `StubPoster`, which only keeps the last one) so tests can
-/// assert exactly how many `add-*` calls a routing decision produced. Responds with `noteJSON`
-/// for "add-note" and `itemJSON` for everything else, reusing Tasks 2-3's fixtures.
-final class RecordingPoster: JSONPosting, @unchecked Sendable {
-    var calls: [(path: String, body: [String: Any])] = []
-    var shouldFail = false
-    /// Plan 14 fix wave B: which error `shouldFail` throws — defaults to the ordinary transient
-    /// failure every pre-existing test expects; `testForegroundSubscriptionRequiredParksEntry...`
-    /// overrides it to `.subscriptionRequired` to exercise the park-not-pending branch without
-    /// touching any other test's behavior.
-    var failureError: Error = CaptureError.badStatus(500)
-    func post(path: String, body: [String: Any], accessToken: String) async throws -> Data {
-        calls.append((path, body))
-        if shouldFail { throw failureError }
-        return path == "add-note" ? noteJSON : itemJSON
-    }
-}
-
+/// Plan 15: the composer is outbox-first on the idempotent `capture` endpoint — every test drives
+/// it through `FakeCaptureServer` (CaptureTestSupport.swift), which models the endpoint's receipts.
 @MainActor
 final class CaptureViewModelTests: XCTestCase {
     var dir: URL!
+    var stagingDir: URL!
+    let userId = UUID()
+
     override func setUp() {
         dir = FileManager.default.temporaryDirectory.appending(path: "capture-vm-\(UUID().uuidString)")
+        stagingDir = FileManager.default.temporaryDirectory.appending(path: "capture-vm-staging-\(UUID().uuidString)")
     }
-    override func tearDown() { try? FileManager.default.removeItem(at: dir) }
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.removeItem(at: stagingDir)
+    }
 
-    func makeViewModel(poster: RecordingPoster) -> CaptureViewModel {
+    func makeViewModel(server: FakeCaptureServer,
+                       accessToken: @escaping @Sendable () async throws -> String = { "jwt" },
+                       awaitPendingLocation: (@Sendable (TimeInterval) async -> CapturedLocation?)? = nil) -> CaptureViewModel {
         CaptureViewModel(
-            userId: UUID(),
-            api: CaptureAPI(poster: poster),
+            userId: userId,
+            api: CaptureAPI(transport: server),
             outbox: Outbox(directory: dir),
-            upload: { _, _, _ in },
-            accessToken: { "jwt" }
+            staging: StagedFileStore(userId: userId, directory: stagingDir),
+            accessToken: accessToken,
+            awaitPendingLocation: awaitPendingLocation
         )
     }
 
-    func testURLTextRoutesToAddURL() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+    private func stagedFiles() -> [URL] {
+        StagedFileStore(userId: userId, directory: stagingDir).pendingStaged()
+    }
+
+    // MARK: - Routing
+
+    func testURLTextRoutesToAURLCapture() async {
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.text = "check this out https://example.com cool"
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-url"])
-        XCTAssertEqual(poster.calls[0].body["url"] as? String, "https://example.com")
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "check this out cool")
+        XCTAssertEqual(server.captures.map(\.kind), ["url"])
+        XCTAssertEqual(server.captures[0].meta["url"] as? String, "https://example.com")
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "check this out cool")
     }
 
-    func testPlainTextRoutesToAddNote() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+    func testPlainTextRoutesToANoteCapture() async {
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.text = "buy milk"
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-note"])
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "buy milk")
+        XCTAssertEqual(server.captures.map(\.kind), ["note"])
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "buy milk")
+        let pending = await Outbox(directory: dir).pending()
+        XCTAssertTrue(pending.isEmpty, "a delivered capture leaves nothing behind in the Outbox")
     }
 
-    func testOneFileWithTextRoutesToAddFileWithContent() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+    func testOneFileWithTextRoutesToOneFileCaptureWithContent() async {
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.text = "my screenshot"
         vm.attachments = [CaptureAttachment(data: Data([0x01, 0x02]), fileExtension: "png",
                                             mimeType: "image/png", kind: .photo)]
@@ -72,18 +76,17 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-file"])
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "my screenshot")
+        XCTAssertEqual(server.captures.map(\.kind), ["file"])
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "my screenshot")
+        XCTAssertTrue(server.captures[0].isMultipart, "a small file rides one multipart request")
+        XCTAssertTrue(stagedFiles().isEmpty, "the staged copy is removed once the capture lands")
     }
 
-    // Task 5 (single-object model, Global Constraints): collections are retired — N attachments
-    // always save as N items, never one item plus a separate note-only item. The typed note (if
-    // any) rides `content` on the FIRST unit only; this replaces the old
-    // `testThreeFilesWithTextRoutesToThreeAddFilePlusOneAddNote` expectation of a fourth,
-    // separate `add-note` call.
+    // Single-object model (Global Constraints): N attachments always save as N items; the typed note
+    // rides `content` on the FIRST unit only.
     func testMultiFileWithTextPutsNoteOnFirstOnly() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.text = "batch upload"
         vm.attachments = (0..<3).map { _ in
             CaptureAttachment(data: Data([0x01]), fileExtension: "png", mimeType: "image/png", kind: .photo)
@@ -92,20 +95,16 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 3, dropped: 0))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-file", "add-file", "add-file"],
-                       "no separate add-note call — the note rides the first add-file's content")
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "batch upload")
-        XCTAssertNil(poster.calls[1].body["content"])
-        XCTAssertNil(poster.calls[2].body["content"])
+        XCTAssertEqual(server.captures.map(\.kind), ["file", "file", "file"], "no separate note item")
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "batch upload")
+        XCTAssertNil(server.captures[1].meta["content"])
+        XCTAssertNil(server.captures[2].meta["content"])
+        XCTAssertEqual(Set(server.captures.compactMap(\.captureId)).count, 3, "every unit has its own capture id")
     }
 
-    // A URL detected in the typed text is always its own capture unit (add-url) and always comes
-    // first when present, whether or not files are attached too — the note (URL substring
-    // stripped out) rides its content; any attachments become individual add-file units with no
-    // content of their own, same "note on first only" rule as the no-URL multi-file case above.
     func testURLPlusFilesNoteGoesToURLFirst() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.text = "check this out https://example.com cool"
         vm.attachments = (0..<2).map { _ in
             CaptureAttachment(data: Data([0x01]), fileExtension: "png", mimeType: "image/png", kind: .photo)
@@ -114,44 +113,34 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 3, dropped: 0))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-url", "add-file", "add-file"])
-        XCTAssertEqual(poster.calls[0].body["url"] as? String, "https://example.com")
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "check this out cool")
-        XCTAssertNil(poster.calls[1].body["content"])
-        XCTAssertNil(poster.calls[2].body["content"])
+        XCTAssertEqual(server.captures.map(\.kind), ["url", "file", "file"])
+        XCTAssertEqual(server.captures[0].meta["url"] as? String, "https://example.com")
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "check this out cool")
+        XCTAssertNil(server.captures[1].meta["content"])
+        XCTAssertNil(server.captures[2].meta["content"])
     }
 
-    // Rider (Task 6, from Task 5's review): T5 generalized "a URL is always its own unit and
-    // always comes first" to every attachment count, including exactly one — previously,
-    // `attachments.count == 1` short-circuited before any URL check ran at all, so a single
-    // attached file + URL-bearing text used to merge the raw text (URL included) into the file's
-    // `content` instead of splitting into two units. Only the 2-attachment case had a dedicated
-    // test; this closes that gap for the 1-attachment case specifically. Pins existing behavior —
-    // no production code changed for this test.
     func testSingleAttachmentWithURLTextMakesTwoUnitsNoteOnURL() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.text = "check this https://example.com"
-        vm.attachments = [CaptureAttachment(data: Data([0x01]), fileExtension: "png",
-                                            mimeType: "image/png", kind: .photo)]
+        vm.attachments = [CaptureAttachment(data: Data([0x01]), fileExtension: "png", mimeType: "image/png", kind: .photo)]
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 2, dropped: 0))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-url", "add-file"])
-        XCTAssertEqual(poster.calls[0].body["url"] as? String, "https://example.com")
-        XCTAssertEqual(poster.calls[0].body["content"] as? String, "check this")
-        XCTAssertNil(poster.calls[1].body["content"], "the note already rode the URL unit")
+        XCTAssertEqual(server.captures.map(\.kind), ["url", "file"])
+        XCTAssertEqual(server.captures[0].meta["content"] as? String, "check this")
+        XCTAssertNil(server.captures[1].meta["content"], "the note already rode the URL unit")
     }
 
-    // `pendingLocation` (Task 6 wires the UI that sets it) threads into EVERY unit's attributes,
-    // alongside that unit's own per-attachment media facts (fileName/durationS captured at pick
-    // time by the composer) — each file keeps its own media blob, not a shared one.
+    // `pendingLocation` threads into EVERY unit's attributes, alongside each file's own media facts.
     func testAttributesThreadToEveryUnit() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.pendingLocation = CapturedLocation(label: "Testville", source: "device-geolocation")
         vm.attachments = [
+            // Not decodable as an image → staged as its original bytes (never dropped), name kept.
             CaptureAttachment(data: Data([0x01]), fileExtension: "jpg", mimeType: "image/jpeg",
                               kind: .photo, fileName: "one.jpg", durationS: nil),
             CaptureAttachment(data: Data([0x02]), fileExtension: "mp4", mimeType: "video/mp4",
@@ -161,104 +150,196 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 2, dropped: 0))
-        let fileCalls = poster.calls.filter { $0.path == "add-file" }
-        XCTAssertEqual(fileCalls.count, 2)
-
-        for call in fileCalls {
-            let location = (call.body["attributes"] as? [String: Any])?["location"] as? [String: Any]
-            XCTAssertEqual(location?["label"] as? String, "Testville")
+        XCTAssertEqual(server.captures.count, 2)
+        for call in server.captures {
+            XCTAssertEqual((call.attributes?["location"] as? [String: Any])?["label"] as? String, "Testville")
         }
-
-        let media0 = (fileCalls[0].body["attributes"] as? [String: Any])?["media"] as? [String: Any]
+        let media0 = server.captures[0].attributes?["media"] as? [String: Any]
         XCTAssertEqual(media0?["file_name"] as? String, "one.jpg")
         XCTAssertNil(media0?["duration_s"])
-
-        let media1 = (fileCalls[1].body["attributes"] as? [String: Any])?["media"] as? [String: Any]
+        XCTAssertEqual(server.captures[0].meta["file_name"] as? String, "one.jpg")
+        let media1 = server.captures[1].attributes?["media"] as? [String: Any]
         XCTAssertEqual(media1?["file_name"] as? String, "two.mp4")
         XCTAssertEqual(media1?["duration_s"] as? Double, 9.5)
+        XCTAssertEqual(server.captures[1].meta["mime_type"] as? String, "video/mp4")
+    }
+
+    // MARK: - Plan 15: photos are prepared before upload
+
+    func testPhotoAttachmentIsResizedToAJPEGBeforeUpload() async throws {
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
+        let png = try encodeImages([makeSplitImage(width: 3000, height: 2000, left: (1, 0, 0), right: (0, 0, 1))], as: .png)
+        vm.attachments = [CaptureAttachment(data: png, fileExtension: "png", mimeType: "image/png",
+                                            kind: .photo, fileName: "IMG_0001.PNG")]
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
+        let call = try XCTUnwrap(server.captures.first)
+        XCTAssertEqual(call.meta["mime_type"] as? String, "image/jpeg")
+        XCTAssertEqual(call.meta["file_name"] as? String, "IMG_0001.jpg", "extension swapped when re-encoded")
+        XCTAssertEqual((call.attributes?["media"] as? [String: Any])?["file_name"] as? String, "IMG_0001.jpg")
+        let filePart = try XCTUnwrap(call.filePart)
+        XCTAssertEqual(filePart.contentType, "image/jpeg")
+        let uploaded = try XCTUnwrap(decodeImage(filePart.data))
+        XCTAssertEqual(uploaded.typeIdentifier, UTType.jpeg.identifier)
+        XCTAssertEqual(max(uploaded.width, uploaded.height), 2560)
+        XCTAssertEqual(call.meta["file_size"] as? Int, filePart.data.count, "file_size describes the bytes actually sent")
+    }
+
+    // MARK: - Plan 15: queue instead of drop
+
+    /// The behavior change: a network failure used to DROP an attachment (its upload never
+    /// landed); now the bytes are staged to disk and written to the Outbox first, so the unit is
+    /// queued and a later drain delivers it — under the same capture id.
+    func testNetworkFailureQueuesTheAttachmentInsteadOfDroppingIt() async throws {
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.fail(URLError(.notConnectedToInternet))]
+        let vm = makeViewModel(server: server)
+        let bytes = Data([0x0A, 0x0B, 0x0C])
+        vm.attachments = [CaptureAttachment(data: bytes, fileExtension: "pdf", mimeType: "application/pdf",
+                                            kind: .file, fileName: "Doc.pdf")]
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .queued(count: 1, dropped: 0), "a failed send is no longer a drop")
+        XCTAssertEqual(vm.pendingOutboxCount, 1)
+        let pending = await Outbox(directory: dir).pending()
+        XCTAssertEqual(pending.count, 1)
+        let staged = try XCTUnwrap(pending[0].payload["local_file_path"])
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: staged)), bytes, "the staged copy holds the exact bytes")
+        XCTAssertEqual(pending[0].payload["file_name"], "Doc.pdf")
+
+        await vm.drainOutbox()
+
+        XCTAssertEqual(vm.pendingOutboxCount, 0)
+        XCTAssertEqual(server.captures.count, 2)
+        XCTAssertEqual(server.captures[1].filePart?.data, bytes)
+        XCTAssertEqual(server.captures[0].captureId, server.captures[1].captureId, "the retry reuses the capture id")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged))
     }
 
     func testFailureEnqueuesToOutboxAndReturnsQueued() async {
-        let poster = RecordingPoster(); poster.shouldFail = true
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(500, "{}")]
+        let vm = makeViewModel(server: server)
         vm.text = "offline note"
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
-        let box = Outbox(directory: dir)
-        let pending = await box.pending()
+        let pending = await Outbox(directory: dir).pending()
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending[0].payload["content"], "offline note")
+        XCTAssertEqual(pending[0].attempts, 1)
     }
 
-    // Plan 14 fix wave B (#8, #9): a LIVE 403 subscription_required on the FOREGROUND send path
-    // (unlike a later Outbox.drain retry, Plan 14 T3) must park the entry immediately, and a
-    // parked entry must never inflate the outbox badge.
+    /// A lost response (the server created the item, the phone never heard back) is queued, and
+    /// the next drain completes it as a duplicate — exactly one item server-side.
+    func testLostResponseIsRetriedIdempotentlyByTheNextDrain() async {
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.applyThenFail(URLError(.timedOut))]
+        let vm = makeViewModel(server: server)
+        vm.text = "https://example.com/story"
+
+        let outcome = await vm.submit()
+        XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
+
+        await vm.drainOutbox()
+
+        XCTAssertEqual(server.createdItemCount, 1, "no duplicate item")
+        XCTAssertEqual(vm.pendingOutboxCount, 0)
+    }
+
+    func testNoSessionStillWritesEveryUnitToTheOutbox() async {
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server, accessToken: { throw CaptureError.badStatus(401) })
+        vm.text = "later"
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
+        XCTAssertTrue(server.calls.isEmpty, "no session → nothing is sent")
+        let pending = await Outbox(directory: dir).pending()
+        XCTAssertEqual(pending.count, 1)
+    }
+
+    func testSubmitPostsStashItemCaptured() async {
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
+        vm.text = "announce me"
+        let captured = expectation(forNotification: .stashItemCaptured, object: nil) { note in
+            (note.userInfo?["item"] as? Item)?.content == "announce me"
+        }
+
+        _ = await vm.submit()
+
+        await fulfillment(of: [captured], timeout: 2)
+    }
+
+    // Plan 14 fix wave B (#8, #9): a LIVE 403 subscription_required parks the entry immediately,
+    // and a parked entry never inflates the outbox badge.
     func testForegroundSubscriptionRequiredParksEntryInsteadOfPending() async {
-        let poster = RecordingPoster()
-        poster.shouldFail = true
-        poster.failureError = CaptureError.subscriptionRequired
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(403, subscriptionRequiredBody)]
+        let vm = makeViewModel(server: server)
         vm.text = "gate-blocked note"
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
-        let box = Outbox(directory: dir)
-        let all = await box.pending()
+        let all = await Outbox(directory: dir).pending()
         XCTAssertEqual(all.count, 1)
-        XCTAssertEqual(all.first?.status, .parked,
-                       "a live subscriptionRequired 403 must enqueue as parked, not pending")
+        XCTAssertEqual(all.first?.status, .parked, "a live subscriptionRequired 403 must leave the entry parked")
         XCTAssertEqual(all.first?.attempts, 0, "parking is not a failed attempt")
     }
 
     func testPendingOutboxCountExcludesParkedEntries() async {
-        let poster = RecordingPoster()
-        poster.shouldFail = true
-        poster.failureError = CaptureError.subscriptionRequired
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(403, subscriptionRequiredBody)]
+        let vm = makeViewModel(server: server)
         vm.text = "gate-blocked note"
 
         _ = await vm.submit()
 
-        XCTAssertEqual(vm.pendingOutboxCount, 0,
-                       "a parked entry must not count toward the outbox badge — the gate strip is the explanation")
+        XCTAssertEqual(vm.pendingOutboxCount, 0, "the gate strip explains a parked entry, not the badge")
     }
 
-    // An ordinary (non-subscription) failure must be entirely unaffected by the park branch above.
     func testOrdinaryFailureStillEnqueuesAsPendingAndCountsTowardBadge() async {
-        let poster = RecordingPoster(); poster.shouldFail = true   // default .badStatus(500)
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(500, "{}")]
+        let vm = makeViewModel(server: server)
         vm.text = "offline note"
 
         _ = await vm.submit()
 
         XCTAssertEqual(vm.pendingOutboxCount, 1)
-        let box = Outbox(directory: dir)
-        let all = await box.pending()
+        let all = await Outbox(directory: dir).pending()
         XCTAssertEqual(all.first?.status, .pending)
     }
 
-    // Fix round (review Important finding): oversized/upload-failed attachments were being
-    // dropped print-only, with no way for the caller to know data was lost. Every drop must now
-    // be counted and surfaced via `CaptureOutcome`.
+    // Size limits are the one pre-send rejection left: an oversized non-photo is never staged,
+    // enqueued, or sent.
 
     func testOversizedDocAloneIsRejectedWithNoNetworkCalls() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.attachments = [CaptureAttachment(data: Data(count: 21 * 1024 * 1024), fileExtension: "pdf",
                                             mimeType: "application/pdf", kind: .file)]
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .rejected(dropped: 1))
-        XCTAssertTrue(poster.calls.isEmpty, "An oversized reject must never reach the network")
+        XCTAssertTrue(server.calls.isEmpty, "an oversized reject must never reach the network")
+        XCTAssertTrue(stagedFiles().isEmpty, "nor be staged")
+        let pending = await Outbox(directory: dir).pending()
+        XCTAssertTrue(pending.isEmpty)
     }
 
     func testThreeAttachmentsWithOneOversizedSavesTwoAndDropsOne() async {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         let smallPhotos = (0..<2).map { _ in
             CaptureAttachment(data: Data([0x01]), fileExtension: "png", mimeType: "image/png", kind: .photo)
         }
@@ -269,21 +350,14 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 2, dropped: 1))
-        XCTAssertEqual(poster.calls.filter { $0.path == "add-file" }.count, 2)
+        XCTAssertEqual(server.captures.count, 2)
     }
 
-    // MARK: - Voice notes (Task 6)
-    //
-    // `submitVoiceNote` is a separate, single-unit submit path, distinct from `submit()`'s
-    // attachment routing: the recording's bytes are already durably on local disk (written by
-    // `AVAudioRecorder` via `RecordingStore`, before this is ever called) — unlike a
-    // `CaptureAttachment`'s in-memory `Data`, nothing is lost by queuing on ANY failure, so
-    // (per the brief) there's no `UnqueueableFailure`-style distinction here: every failure mode
-    // queues, never drops.
+    // MARK: - Voice notes
 
-    func testSubmitVoiceNoteSuccessUploadsAndDeletesLocalFile() async throws {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+    func testSubmitVoiceNoteSuccessSendsOneFileCaptureAndDeletesLocalFile() async throws {
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
         try Data([0x01, 0x02, 0x03]).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -291,17 +365,22 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submitVoiceNote(fileURL: fileURL)
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        XCTAssertEqual(poster.calls.map(\.path), ["add-file"])
-        XCTAssertEqual(poster.calls[0].body["mime_type"] as? String, "audio/mp4")
-        XCTAssertEqual(poster.calls[0].body["file_size"] as? Int, 3)
-        XCTAssertNil(poster.calls[0].body["content"], "voice notes never attach the composer's text as content")
+        XCTAssertEqual(server.captures.map(\.kind), ["file"])
+        let call = server.captures[0]
+        XCTAssertEqual(call.meta["mime_type"] as? String, "audio/mp4")
+        XCTAssertEqual(call.meta["file_size"] as? Int, 3)
+        XCTAssertNil(call.meta["content"], "voice notes never attach the composer's text as content")
+        XCTAssertEqual(call.filePart?.data, Data([0x01, 0x02, 0x03]))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path),
-                       "the local recording must be deleted once its bytes are durably uploaded and registered")
+                       "the local recording is deleted once the capture lands")
+        let pending = await Outbox(directory: dir).pending()
+        XCTAssertTrue(pending.isEmpty)
     }
 
     func testSubmitVoiceNoteFailureRetainsFileAndEnqueuesOutboxEntryReferencingIt() async throws {
-        let poster = RecordingPoster(); poster.shouldFail = true
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.respond(500, "{}")]
+        let vm = makeViewModel(server: server)
         let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
         try Data([0x0A, 0x0B]).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -309,22 +388,17 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submitVoiceNote(fileURL: fileURL)
 
         XCTAssertEqual(outcome, .queued(count: 1, dropped: 0))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
-                      "a failed submit must never delete the only copy of the recording")
-        let box = Outbox(directory: dir)
-        let pending = await box.pending()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "a failed send never deletes the only copy")
+        let pending = await Outbox(directory: dir).pending()
         XCTAssertEqual(pending.count, 1)
-        XCTAssertEqual(pending[0].payload["local_file_path"], fileURL.path,
-                       "the queued entry must point at exactly the file that's still on disk")
+        XCTAssertEqual(pending[0].payload["local_file_path"], fileURL.path)
         XCTAssertEqual(pending[0].payload["mime_type"], "audio/mp4")
+        XCTAssertEqual(pending[0].payload["file_size"], "2")
     }
 
-    // Task 5: voice notes gain the same `attributes` threading as `submit()`'s file units —
-    // `pendingLocation` plus a `media` blob built from the recorder-elapsed duration the sheet
-    // passes in (there's no picked file here to read a `fileName`/`durationS` off of).
     func testVoiceNoteCarriesMediaAttributes() async throws {
-        let poster = RecordingPoster()
-        let vm = makeViewModel(poster: poster)
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server)
         vm.pendingLocation = CapturedLocation(label: "Testville", source: "device-geolocation")
         let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
         try Data([0x01, 0x02]).write(to: fileURL)
@@ -333,105 +407,69 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submitVoiceNote(fileURL: fileURL, durationS: 12.5)
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        let body = try XCTUnwrap(poster.calls.first?.body["attributes"] as? [String: Any])
-        let location = try XCTUnwrap(body["location"] as? [String: Any])
-        XCTAssertEqual(location["label"] as? String, "Testville")
-        let media = try XCTUnwrap(body["media"] as? [String: Any])
-        XCTAssertEqual(media["duration_s"] as? Double, 12.5)
+        let attributes = try XCTUnwrap(server.captures.first?.attributes)
+        XCTAssertEqual((attributes["location"] as? [String: Any])?["label"] as? String, "Testville")
+        XCTAssertEqual((attributes["media"] as? [String: Any])?["duration_s"] as? Double, 12.5)
     }
 
     // MARK: - Location resolution wait (Task 6)
     //
-    // `awaitPendingLocation(timeout:)` bridges to the app's `LocationCapture` via a closure
-    // injected at init — StashKit itself never imports CoreLocation, so it has no idea what
-    // ".resolving" means, only "the app may still be working on a location and here's how long to
-    // wait for it." NO hook at all (every OTHER test in this file, which never injects one, plus
-    // `makeViewModel` below) is a true no-op that never touches `pendingLocation` — that's what
-    // lets every attributes-threading test above set `pendingLocation` directly and trust it stays
-    // put. Once a hook IS wired, its result unconditionally REPLACES `pendingLocation`, nil
-    // included — a pin the user turned off (or that failed) must be able to clear a location a
-    // previous toggle-on cycle left behind, not just skip setting a new one.
+    // NO hook is a true no-op that never touches `pendingLocation`; once a hook IS wired, its
+    // result unconditionally REPLACES `pendingLocation`, nil included — a pin the user turned off
+    // (or that failed) must be able to clear a location a previous toggle-on cycle left behind.
 
     func testNoHookIsANoOpAndNeverTouchesAnExistingValue() async {
-        let vm = makeViewModel(poster: RecordingPoster())   // no awaitPendingLocation hook injected
+        let vm = makeViewModel(server: FakeCaptureServer())
         vm.pendingLocation = CapturedLocation(label: "AlreadySet", source: "device-geolocation")
         await vm.awaitPendingLocation(timeout: 2.5)
-        XCTAssertEqual(vm.pendingLocation?.label, "AlreadySet",
-                       "with no hook wired, awaitPendingLocation must never touch pendingLocation")
+        XCTAssertEqual(vm.pendingLocation?.label, "AlreadySet")
     }
 
     func testHookResultReplacesPendingLocationEvenOverwritingADirectlySetValue() async {
-        let vm = CaptureViewModel(
-            userId: UUID(), api: CaptureAPI(poster: RecordingPoster()), outbox: Outbox(directory: dir),
-            upload: { _, _, _ in }, accessToken: { "jwt" },
-            awaitPendingLocation: { _ in CapturedLocation(label: "Resolved", source: "device-geolocation") }
-        )
+        let vm = makeViewModel(server: FakeCaptureServer(),
+                               awaitPendingLocation: { _ in CapturedLocation(label: "Resolved", source: "device-geolocation") })
         vm.pendingLocation = CapturedLocation(label: "Stale", source: "device-geolocation")
         await vm.awaitPendingLocation(timeout: 2.5)
         XCTAssertEqual(vm.pendingLocation?.label, "Resolved")
     }
 
-    // The regression this contract exists to prevent: `LocationCapture.awaitResolution` returns
-    // `nil` for an `.off`/`.failed` pin (Task 6, app target) — e.g. the user resolved a location on
-    // an earlier save, then explicitly turned the pin back off before this one. A hook that's
-    // wired but resolves `nil` must CLEAR `pendingLocation`, not leave the earlier save's location
-    // attached to a batch the user never asked to tag.
     func testHookReturningNilClearsAPreviouslySetPendingLocation() async {
-        let vm = CaptureViewModel(
-            userId: UUID(), api: CaptureAPI(poster: RecordingPoster()), outbox: Outbox(directory: dir),
-            upload: { _, _, _ in }, accessToken: { "jwt" },
-            awaitPendingLocation: { _ in nil }   // simulates an .off/.failed pin
-        )
+        let vm = makeViewModel(server: FakeCaptureServer(), awaitPendingLocation: { _ in nil })
         vm.pendingLocation = CapturedLocation(label: "FromAnEarlierSave", source: "device-geolocation")
         await vm.awaitPendingLocation(timeout: 2.5)
         XCTAssertNil(vm.pendingLocation, "a wired hook resolving nil must clear a stale pendingLocation")
     }
 
     func testSubmitCallsAwaitPendingLocationBeforeSnapshottingAttributes() async {
-        let poster = RecordingPoster()
-        let vm = CaptureViewModel(
-            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
-            upload: { _, _, _ in }, accessToken: { "jwt" },
-            awaitPendingLocation: { _ in CapturedLocation(label: "JustResolved", source: "device-geolocation") }
-        )
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server,
+                               awaitPendingLocation: { _ in CapturedLocation(label: "JustResolved", source: "device-geolocation") })
         vm.text = "note while pin resolves"
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        let location = (poster.calls[0].body["attributes"] as? [String: Any])?["location"] as? [String: Any]
-        XCTAssertEqual(location?["label"] as? String, "JustResolved")
+        XCTAssertEqual((server.captures[0].attributes?["location"] as? [String: Any])?["label"] as? String, "JustResolved")
     }
 
-    // Pins the literal "≤2.5s" budget (Global Constraints) at the `submit()` call site itself,
-    // rather than just proving the hook is called at all (the test above) — the hook only returns
-    // a location when it's handed exactly the documented timeout, so a future edit that changes
-    // (or drops) that argument fails this test even though the wiring still "works".
+    // Pins the literal "≤2.5s" budget (Global Constraints) at the `submit()` call site itself.
     func testSubmitAwaitsExactlyTheDocumentedTimeoutBudget() async {
-        let poster = RecordingPoster()
-        let vm = CaptureViewModel(
-            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
-            upload: { _, _, _ in }, accessToken: { "jwt" },
-            awaitPendingLocation: { timeout in
-                timeout == 2.5 ? CapturedLocation(label: "SawExpectedTimeout", source: "device-geolocation") : nil
-            }
-        )
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server, awaitPendingLocation: { timeout in
+            timeout == 2.5 ? CapturedLocation(label: "SawExpectedTimeout", source: "device-geolocation") : nil
+        })
         vm.text = "note"
 
         _ = await vm.submit()
 
-        let location = (poster.calls[0].body["attributes"] as? [String: Any])?["location"] as? [String: Any]
-        XCTAssertEqual(location?["label"] as? String, "SawExpectedTimeout",
-                       "submit() must await with the documented ≤2.5s budget")
+        XCTAssertEqual((server.captures[0].attributes?["location"] as? [String: Any])?["label"] as? String,
+                       "SawExpectedTimeout", "submit() must await with the documented ≤2.5s budget")
     }
 
     func testSubmitVoiceNoteCallsAwaitPendingLocationBeforeSnapshottingAttributes() async throws {
-        let poster = RecordingPoster()
-        let vm = CaptureViewModel(
-            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
-            upload: { _, _, _ in }, accessToken: { "jwt" },
-            awaitPendingLocation: { _ in CapturedLocation(label: "VoiceResolved", source: "device-geolocation") }
-        )
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server,
+                               awaitPendingLocation: { _ in CapturedLocation(label: "VoiceResolved", source: "device-geolocation") })
         let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
         try Data([0x01]).write(to: fileURL)
         defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -439,30 +477,20 @@ final class CaptureViewModelTests: XCTestCase {
         let outcome = await vm.submitVoiceNote(fileURL: fileURL)
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        let location = (poster.calls[0].body["attributes"] as? [String: Any])?["location"] as? [String: Any]
-        XCTAssertEqual(location?["label"] as? String, "VoiceResolved")
+        XCTAssertEqual((server.captures[0].attributes?["location"] as? [String: Any])?["label"] as? String, "VoiceResolved")
     }
 
-    // End-to-end proof of the same regression `testHookReturningNilClearsAPreviouslySetPendingLocation`
-    // covers at the unit level, through the actual `submit()` path a real save takes: a location
-    // left over from an earlier batch (pin was on, then explicitly turned off before THIS save)
-    // must not silently ride along — the sent body must carry no `attributes.location` at all
-    // (media is absent too here, so `attributes` itself must be entirely absent — Task 3's
-    // never-send-`{}` contract).
+    // End-to-end: a location left over from an earlier batch must not ride along once the hook
+    // resolves nil — no `attributes` at all (never-send-`{}`).
     func testSubmitDoesNotAttachAStaleLocationOnceTheHookResolvesNil() async {
-        let poster = RecordingPoster()
-        let vm = CaptureViewModel(
-            userId: UUID(), api: CaptureAPI(poster: poster), outbox: Outbox(directory: dir),
-            upload: { _, _, _ in }, accessToken: { "jwt" },
-            awaitPendingLocation: { _ in nil }   // simulates the pin now being .off
-        )
+        let server = FakeCaptureServer()
+        let vm = makeViewModel(server: server, awaitPendingLocation: { _ in nil })
         vm.pendingLocation = CapturedLocation(label: "FromAnEarlierSave", source: "device-geolocation")
         vm.text = "a fresh note with the pin off"
 
         let outcome = await vm.submit()
 
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
-        XCTAssertNil(poster.calls[0].body["attributes"],
-                     "the stale location must be cleared, not silently attached to this batch")
+        XCTAssertNil(server.captures[0].meta["attributes"], "the stale location must be cleared")
     }
 }
