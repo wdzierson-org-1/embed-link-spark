@@ -8,8 +8,10 @@ import Foundation
 /// `payload` keys (all strings — the file format predates typed payloads): `content`, `title`,
 /// `url`, `is_public` ("true"/"false"), `attributes_json` (the attributes object as a JSON string),
 /// `remind_at`; for `.file`: `mime_type`, `file_size`, `file_name` (the user-facing original name,
-/// plan 15), and exactly one of `local_file_path` (bytes still on this device — staged share,
-/// staged composer attachment, or a voice recording) or `file_path` (bytes already in Storage).
+/// plan 15), `local_file_path` (bytes on this device — staged share, staged composer attachment, or
+/// a voice recording) and/or `file_path` (bytes already in Storage). When both are present (a
+/// two-step checkpoint keeps the local reference until the local copy is deleted), `file_path`
+/// wins everywhere.
 public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable { case note, url, file }
     /// - `pending`: `drain` sends it.
@@ -82,11 +84,37 @@ public enum OutboxSendResult: Sendable, Equatable {
 /// entry it guards. Existence alone is the mutex — `Outbox.claimEntry` creates it with
 /// `Data.write(options: [.withoutOverwriting])`, which maps to POSIX `O_EXCL` on APFS, so at most
 /// one of any number of concurrent creators targeting the same `id` ever succeeds. The fields
-/// inside are diagnostic-only: nothing ever reads `owner` or `claimedAt` back to arbitrate
-/// ownership, only to decide whether a claim has gone stale (see `Outbox.staleClaimInterval`).
+/// inside never arbitrate ownership; they only decide whether a claim has gone stale (see
+/// `Outbox.acquireClaim`: too old, or — plan 15 — left by a previous process of the app itself).
 private struct OutboxClaim: Codable, Sendable {
     let owner: String
     let claimedAt: Date
+}
+
+/// Who stamps a claim: `"<bundle id or process name>#<pid>"` (the on-disk format every build has
+/// written). `isSingleProcessApp` is true only in the main app — ONE process at a time, so a claim
+/// carrying the app's own name but another pid can only have been left by a previous app process
+/// that died mid-send (force-quit, crash, jetsam), and is reclaimed at once instead of blocking
+/// that entry for `staleClaimInterval`. Claims by any OTHER owner (the share extension, whose
+/// processes can overlap the app's) keep the plain age rule.
+struct ClaimOwner: Sendable, Equatable {
+    let name: String
+    let pid: Int32
+    let isSingleProcessApp: Bool
+
+    var stamp: String { "\(name)#\(pid)" }
+
+    static let current = ClaimOwner(
+        name: Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName,
+        pid: ProcessInfo.processInfo.processIdentifier,
+        isSingleProcessApp: Bundle.main.bundleURL.pathExtension == "app")
+
+    /// Whether `stamp` names this same app in a different (therefore dead) process.
+    func isDeadPredecessor(ofStamp stamp: String) -> Bool {
+        guard isSingleProcessApp, let hash = stamp.lastIndex(of: "#"),
+              let pid = Int32(stamp[stamp.index(after: hash)...]) else { return false }
+        return stamp[..<hash] == name && pid != self.pid
+    }
 }
 
 /// One JSON file per queued capture. Survives crashes and offline periods. See
@@ -131,16 +159,10 @@ public actor Outbox {
     /// operation a full minute before treating its leftovers as abandoned."
     private static let orphanClaimGracePeriod: TimeInterval = 60
 
-    /// Diagnostic value stamped into a claim's `owner` field — never read back to decide
-    /// ownership (the O_EXCL create is the actual mutex), but distinguishes which process holds a
-    /// claim if one is ever inspected by hand. Bundle id (falls back to the bare process name
-    /// when there's no bundle, e.g. the `swift test`/XCTest host) plus pid, so the app and the
-    /// share extension — two separate processes/bundles that legitimately point at the same App
-    /// Group directory — are always distinguishable from each other.
-    private static let processOwner: String = {
-        let name = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
-        return "\(name)#\(ProcessInfo.processInfo.processIdentifier)"
-    }()
+    /// Who this instance stamps its claims as (bundle id or process name, plus pid) — see
+    /// `ClaimOwner`. The app and the share extension are separate processes/bundles over the same
+    /// App Group directory, so their claims are always distinguishable.
+    private let claimOwner: ClaimOwner
 
     /// - Parameter now: Injectable for tests (`testStaleClaimIsReclaimed` backdates a claim, and
     ///   the plan-15 transfer tests backdate `transferStartedAt`, by constructing an `Outbox` whose
@@ -151,8 +173,15 @@ public actor Outbox {
                 // same quirk `drain`'s `upload` parameter default already works around by wrapping
                 // in a closure literal instead of passing the function value directly.
                 now: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(directory: directory, now: now, claimOwner: .current)
+    }
+
+    /// Test seam: `claimOwner` stands in for "a claim stamped by another process" (a previous app
+    /// process, or the share extension) without real OS processes.
+    init(directory: URL, now: @escaping @Sendable () -> Date = { Date() }, claimOwner: ClaimOwner) {
         self.directory = directory
         self.now = now
+        self.claimOwner = claimOwner
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
@@ -380,27 +409,25 @@ public actor Outbox {
     }
 
     /// Records "these bytes are in Storage at `filePath`" DURABLY before anything else happens
-    /// (Critical, Plan 5 task review): `file_path` set, `file_size` captured if missing,
-    /// `local_file_path` removed, written to disk — and only then is the local copy deleted. A
-    /// process killed mid-`submit` relaunches to an ordinary already-uploaded entry that just
-    /// retries the JSON capture (never re-uploads, never mistaken for the missing-local-file case).
-    /// Like every status write here it never resurrects an entry someone else already completed;
-    /// and if the checkpoint couldn't be written, the local copy is kept (the on-disk entry still
-    /// points at it — a retry re-uploads to the same path, harmlessly).
+    /// (Critical, Plan 5 task review): `file_path` set, `file_size` captured if missing, written
+    /// to disk — and only then is the local copy deleted. `file_path` takes precedence over
+    /// `local_file_path` everywhere (the missing-file drop check, two-step routing, the request
+    /// shape), so a process killed mid-`submit` relaunches to an already-uploaded entry that just
+    /// retries the JSON capture — never re-uploads, never mistaken for a missing local file.
+    ///
+    /// Plan 15 review: `local_file_path` is KEPT alongside `file_path`, so the local copy stays
+    /// referenced by its entry until it's actually gone — a process killed between the checkpoint
+    /// and the delete can't leave an unreferenced file for `sweepOrphans` to re-enqueue under a
+    /// second capture id. If the checkpoint can't be written (or the entry vanished), the local
+    /// copy is left alone here; the returned entry still names it, so the success path
+    /// (`removeEntryAndLocalFile`) deletes it.
     private func checkpointUploaded(_ entry: OutboxEntry, filePath: String) -> OutboxEntry {
         var checkpointed = entry
-        let localPath = checkpointed.payload.removeValue(forKey: "local_file_path")
         if checkpointed.payload["file_size"] == nil, let size = CaptureTransport.localFileSize(of: entry) {
             checkpointed.payload["file_size"] = String(size)
         }
         checkpointed.payload["file_path"] = filePath
-        let entryURL = fileURL(for: checkpointed.id)
-        let stillQueued = FileManager.default.fileExists(atPath: entryURL.path)
-        var persisted = false
-        if stillQueued, let data = try? JSONEncoder().encode(checkpointed) {
-            persisted = (try? data.write(to: entryURL, options: .atomic)) != nil
-        }
-        if let localPath, persisted || !stillQueued {
+        if persistIfPresent(checkpointed), let localPath = checkpointed.payload["local_file_path"] {
             try? FileManager.default.removeItem(atPath: localPath)
         }
         return checkpointed
@@ -504,19 +531,31 @@ public actor Outbox {
 
     /// Rewrites `entry` only if its file still exists — a status/attempts update must never
     /// resurrect an entry another process (or the background-transfer delegate) completed while
-    /// this send was in flight.
-    private func persistIfPresent(_ entry: OutboxEntry) {
+    /// this send was in flight. Returns whether the write happened.
+    @discardableResult
+    private func persistIfPresent(_ entry: OutboxEntry) -> Bool {
         let url = fileURL(for: entry.id)
         guard FileManager.default.fileExists(atPath: url.path),
-              let data = try? JSONEncoder().encode(entry) else { return }
-        try? data.write(to: url, options: .atomic)
+              let data = try? JSONEncoder().encode(entry) else { return false }
+        return (try? data.write(to: url, options: .atomic)) != nil
     }
 
+    /// The capture reached the server: removes the local bytes FIRST, then the entry and its claim
+    /// (plan 15 review). A process killed between the two leaves an entry whose local file is gone
+    /// — the next pass drops it, or (checkpointed) replays it as a `duplicate` — never a local file
+    /// with no entry, which `sweepOrphans` would re-enqueue under a NEW capture id (a second item).
+    /// For the same reason, if the local file can't be deleted the entry is kept (still naming the
+    /// file); its next send is an idempotent replay.
     private func removeEntryAndLocalFile(_ entry: OutboxEntry) {
-        try? FileManager.default.removeItem(at: fileURL(for: entry.id))
         if let localPath = entry.payload["local_file_path"] {
             try? FileManager.default.removeItem(atPath: localPath)
+            guard !FileManager.default.fileExists(atPath: localPath) else {
+                print("Outbox: couldn't delete the local file of captured entry \(entry.id); keeping the entry")
+                releaseClaim(for: entry.id)
+                return
+            }
         }
+        try? FileManager.default.removeItem(at: fileURL(for: entry.id))
         releaseClaim(for: entry.id)
     }
 
@@ -527,6 +566,11 @@ public actor Outbox {
     /// replaced — and `false` if a live claim exists (owned by this process's own earlier,
     /// still-in-flight attempt or, cross-process, by another one entirely), meaning the entry must
     /// be skipped this pass.
+    ///
+    /// Stale means older than `staleClaimInterval`, OR (plan 15 review) — in the app only — stamped
+    /// by a previous process of the app itself (same name, different pid; see `ClaimOwner`): the
+    /// app runs as one process at a time, so that owner is certainly dead, and a relaunch after a
+    /// kill mid-send resends immediately instead of 10 minutes later.
     private func acquireClaim(for id: UUID) -> Bool {
         if claimEntry(id: id) { return true }
         // Creation failed: a claim sidecar already exists. Read it to decide whether it's stale;
@@ -534,10 +578,11 @@ public actor Outbox {
         // double-process an entry just because its claim file looks odd).
         let url = claimFileURL(for: id)
         guard let data = try? Data(contentsOf: url),
-              let claim = try? JSONDecoder().decode(OutboxClaim.self, from: data),
-              now().timeIntervalSince(claim.claimedAt) > Self.staleClaimInterval else {
+              let claim = try? JSONDecoder().decode(OutboxClaim.self, from: data) else {
             return false
         }
+        let expired = now().timeIntervalSince(claim.claimedAt) > Self.staleClaimInterval
+        guard expired || claimOwner.isDeadPredecessor(ofStamp: claim.owner) else { return false }
         // Stale: the owning process almost certainly crashed or was force-quit mid-entry. Delete
         // the stale sidecar, then recreate it with the SAME `.withoutOverwriting` atomicity as a
         // fresh claim (`claimEntry` again) rather than assuming this call now owns it outright.
@@ -576,7 +621,7 @@ public actor Outbox {
     /// site (processing an entry without knowing whether this call actually owns it), so every
     /// caller — internal or in `OutboxTests` — is required to look at it.
     func claimEntry(id: UUID) -> Bool {
-        let claim = OutboxClaim(owner: Self.processOwner, claimedAt: now())
+        let claim = OutboxClaim(owner: claimOwner.stamp, claimedAt: now())
         guard let data = try? JSONEncoder().encode(claim) else { return false }
         return (try? data.write(to: claimFileURL(for: id), options: .withoutOverwriting)) != nil
     }

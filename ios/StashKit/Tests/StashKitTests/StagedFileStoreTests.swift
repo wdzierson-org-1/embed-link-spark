@@ -73,37 +73,6 @@ final class StagedFileStoreTests: XCTestCase {
         XCTAssertNotEqual(first, second, "every call must mint a fresh, never-reused destination")
     }
 
-    // MARK: - stageDownscaledImage
-
-    func testStageDownscaledImageBoundsPixelSizeAndReducesFileSize() throws {
-        let store = StagedFileStore(userId: UUID(), directory: dir)
-        let source = dir.appending(path: "source.png")
-        try writeNoiseImage(width: 1200, height: 900, to: source)
-        let sourceSize = try XCTUnwrap(store.fileSize(of: source))
-
-        let staged = try store.stageDownscaledImage(from: source, maxDimension: 300, quality: 0.6)
-
-        guard let imageSource = CGImageSourceCreateWithURL(staged as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
-            return XCTFail("staged output must be a readable image")
-        }
-        XCTAssertLessThanOrEqual(max(width, height), 300, "the staged output must be bounded by maxDimension")
-        let stagedSize = try XCTUnwrap(store.fileSize(of: staged))
-        XCTAssertLessThan(stagedSize, sourceSize, "downscaling a large noisy image must produce a smaller file")
-        XCTAssertEqual(staged.pathExtension, "jpg")
-    }
-
-    func testStageDownscaledImageThrowsForUnreadableSource() {
-        let store = StagedFileStore(userId: UUID(), directory: dir)
-        let missing = dir.appending(path: "does-not-exist.png")
-
-        XCTAssertThrowsError(try store.stageDownscaledImage(from: missing, maxDimension: 300, quality: 0.6)) { error in
-            XCTAssertEqual(error as? StagedFileStoreError, .cannotReadImage)
-        }
-    }
-
     // MARK: - stage(data:fileExtension:) (plan 15)
 
     func testStageDataWritesTheBytesUnderAFreshLowercasedName() throws {
@@ -164,6 +133,28 @@ final class StagedFileStoreTests: XCTestCase {
         XCTAssertFalse(staged.wasReencoded)
         XCTAssertEqual(staged.mimeType, "image/gif")
         XCTAssertEqual(try Data(contentsOf: staged.url), gif)
+    }
+
+    /// Plan 15 review: a passthrough JPEG staged by the share extension loses its GPS — losslessly,
+    /// keeping its orientation — before it can reach the public `stash-media` bucket.
+    func testStagePreparedImageStripsGPSFromAPassthroughJPEG() throws {
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let jpeg = try encodeImages([makeSplitImage(width: 640, height: 480, left: (1, 0, 0), right: (0, 1, 0))], as: .jpeg,
+                                    properties: [kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 51.5,
+                                                                                 kCGImagePropertyGPSLatitudeRef: "N"],
+                                                 kCGImagePropertyOrientation: 3])
+        let source = dir.appending(path: "IMG_0001.jpg")
+        try jpeg.write(to: source)
+
+        let staged = try store.stagePreparedImage(from: source)
+
+        XCTAssertFalse(staged.wasReencoded)
+        XCTAssertEqual(staged.mimeType, "image/jpeg")
+        XCTAssertEqual(staged.url.pathExtension, "jpg")
+        let output = try XCTUnwrap(decodeImage(try Data(contentsOf: staged.url)))
+        XCTAssertNil(output.properties[kCGImagePropertyGPSDictionary])
+        XCTAssertEqual(output.properties[kCGImagePropertyOrientation] as? Int, 3)
+        XCTAssertEqual(output.width, 640)
     }
 
     func testStagePreparedImageThrowsForANonImage() throws {

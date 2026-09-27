@@ -3,9 +3,9 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Thrown by `StagedFileStore.stageDownscaledImage` — the two ImageIO failure shapes that call
-/// can hit, kept as an `Error` (not just `throws Never`/a generic message) so callers can tell
-/// "not a readable image at all" apart from "opened, but the resize/encode step itself failed."
+/// Thrown by `StagedFileStore.stagePreparedImage` — the two ImageIO failure shapes that call can
+/// hit, kept as an `Error` (not just `throws Never`/a generic message) so callers can tell "not a
+/// readable image at all" apart from "opened, but the resize/encode step itself failed."
 public enum StagedFileStoreError: Error, Equatable, Sendable {
     /// `CGImageSourceCreateWithURL` couldn't open `source` — missing, corrupt, or not an image
     /// format ImageIO recognizes.
@@ -53,48 +53,6 @@ public struct StagedFileStore: Sendable {
         return destination
     }
 
-    /// Downscales an image to at most `maxDimension` pixels on its longest side, re-encoded as
-    /// JPEG at `quality`, written straight to a staged file. Uses ImageIO's thumbnail generator
-    /// rather than "decode the full image, then redraw it scaled" (an ordinary `CGImage`/`UIImage`
-    /// resize): `CGImageSourceCreateThumbnailAtIndex` can produce a downsampled decode directly
-    /// from the source's compressed bytes for common formats, so this call's peak memory is
-    /// bounded by the OUTPUT size, not the input's — a 50 MP photo shared from Photos never costs
-    /// anywhere near its full decoded size here. `kCGImageSourceCreateThumbnailFromImageAlways`
-    /// forces that path even when a smaller embedded thumbnail already exists (which could be
-    /// smaller than `maxDimension` and defeat the caller's own size intent);
-    /// `kCGImageSourceCreateThumbnailWithTransform` applies the source's EXIF orientation so a
-    /// sideways phone photo doesn't end up staged sideways.
-    ///
-    /// No UIKit anywhere in this call (`StashKit` has none, and never will) — CoreGraphics/ImageIO
-    /// only, so this runs identically under `swift test`'s macOS host and the real iOS app/
-    /// extension.
-    public func stageDownscaledImage(from source: URL, maxDimension: CGFloat, quality: CGFloat) throws -> URL {
-        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil) else {
-            throw StagedFileStoreError.cannotReadImage
-        }
-        let thumbnailOptions: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxDimension,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-        ]
-        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, thumbnailOptions as CFDictionary) else {
-            throw StagedFileStoreError.downscaleFailed
-        }
-
-        let destination = directory.appending(path: "\(UUID().uuidString).jpg")
-        guard let imageDestination = CGImageDestinationCreateWithURL(
-            destination as CFURL, UTType.jpeg.identifier as CFString, 1, nil
-        ) else {
-            throw StagedFileStoreError.downscaleFailed
-        }
-        let destinationOptions: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: quality]
-        CGImageDestinationAddImage(imageDestination, thumbnail, destinationOptions as CFDictionary)
-        guard CGImageDestinationFinalize(imageDestination) else {
-            throw StagedFileStoreError.downscaleFailed
-        }
-        return destination
-    }
-
     /// Plan 15: writes bytes the caller ALREADY holds in memory (a composer attachment — the
     /// photo picker and file importer hand the app `Data`) to a fresh staged file, so the capture
     /// can be written to the Outbox before any network call and survive a failed send as a
@@ -111,19 +69,20 @@ public struct StagedFileStore: Sendable {
     public struct StagedImage: Sendable, Equatable {
         public let url: URL
         public let mimeType: String
-        /// `false` when the original bytes were kept (GIF, or a JPEG already ≤ 2560 px and
-        /// ≤ 2 MiB) — callers use it to decide whether `media.file_name` gets a `.jpg` extension
-        /// (`ImagePreparation.fileName(_:reencoded:)`).
+        /// `false` when the original pixels were kept (GIF, or a JPEG already ≤ 2560 px and
+        /// ≤ 2 MiB — at most losslessly stripped of GPS) — callers use it to decide whether
+        /// `media.file_name` gets a `.jpg` extension (`ImagePreparation.fileName(_:reencoded:)`).
         public let wasReencoded: Bool
     }
 
     /// Plan 15: the file-based twin of `ImagePreparation.prepare(_:)` for the share extension —
     /// the SAME policy (≤ 2560 px JPEG at 0.82, orientation applied, metadata dropped, alpha →
-    /// white, GIF/small-JPEG passthrough), but reading straight from `source` with bounded
-    /// memory: the decision reads only the image header, a passthrough is a kernel-level
-    /// `copyItem`, and a re-encode decodes directly at the output size and writes straight to the
-    /// staged file. Must be called synchronously inside `loadFileRepresentation`'s completion
-    /// handler (the provider's temp URL dies when that handler returns) — see `ProviderLoader`.
+    /// white, GIF/small-JPEG passthrough with GPS stripped losslessly), reading straight from
+    /// `source`: the decision reads only the image header, a GPS-free passthrough is a
+    /// kernel-level `copyItem`, and a re-encode decodes through `ImagePreparation`'s
+    /// memory-bounded strategies and writes straight to the staged file. Must be called
+    /// synchronously inside `loadFileRepresentation`'s completion handler (the provider's temp URL
+    /// dies when that handler returns) — see `ProviderLoader`.
     ///
     /// Throws `.cannotReadImage` when ImageIO can't read `source` as an image at all (callers then
     /// stage the original bytes generically instead of dropping the share) and `.downscaleFailed`
@@ -136,22 +95,43 @@ public struct StagedFileStore: Sendable {
             }
             switch plan {
             case .passthrough(let mimeType, let fileExtension):
-                return StagedImage(url: try stage(from: source, fileExtension: fileExtension),
-                                   mimeType: mimeType, wasReencoded: false)
+                guard ImagePreparation.hasGPS(imageSource) else {
+                    return StagedImage(url: try stage(from: source, fileExtension: fileExtension),
+                                       mimeType: mimeType, wasReencoded: false)
+                }
+                let destination = directory.appending(path: "\(UUID().uuidString).\(fileExtension)")
+                if let type = CGImageSourceGetType(imageSource),
+                   let imageDestination = CGImageDestinationCreateWithURL(
+                       destination as CFURL, type, CGImageSourceGetCount(imageSource), nil),
+                   ImagePreparation.copyWithoutGPS(imageSource, into: imageDestination) {
+                    return StagedImage(url: destination, mimeType: mimeType, wasReencoded: false)
+                }
+                try? FileManager.default.removeItem(at: destination)
+                // No lossless rewrite: a GIF is staged exactly as it is; a JPEG is re-encoded (which
+                // drops all metadata) rather than published with its location.
+                if fileExtension == "gif" {
+                    return StagedImage(url: try stage(from: source, fileExtension: fileExtension),
+                                       mimeType: mimeType, wasReencoded: false)
+                }
+                return try stageReencoded(imageSource, longestEdge: ImagePreparation.maxLongestEdge)
             case .reencode(let longestEdge):
-                guard let image = ImagePreparation.renderedImage(from: imageSource, longestEdge: longestEdge) else {
-                    throw StagedFileStoreError.downscaleFailed
-                }
-                let destination = directory.appending(path: "\(UUID().uuidString).jpg")
-                guard let imageDestination = CGImageDestinationCreateWithURL(
-                        destination as CFURL, UTType.jpeg.identifier as CFString, 1, nil),
-                      ImagePreparation.encodeJPEG(image, into: imageDestination) else {
-                    try? FileManager.default.removeItem(at: destination)
-                    throw StagedFileStoreError.downscaleFailed
-                }
-                return StagedImage(url: destination, mimeType: "image/jpeg", wasReencoded: true)
+                return try stageReencoded(imageSource, longestEdge: longestEdge)
             }
         }
+    }
+
+    private func stageReencoded(_ imageSource: CGImageSource, longestEdge: Int) throws -> StagedImage {
+        guard let image = ImagePreparation.renderedImage(from: imageSource, longestEdge: longestEdge) else {
+            throw StagedFileStoreError.downscaleFailed
+        }
+        let destination = directory.appending(path: "\(UUID().uuidString).jpg")
+        guard let imageDestination = CGImageDestinationCreateWithURL(
+                destination as CFURL, UTType.jpeg.identifier as CFString, 1, nil),
+              ImagePreparation.encodeJPEG(image, into: imageDestination) else {
+            try? FileManager.default.removeItem(at: destination)
+            throw StagedFileStoreError.downscaleFailed
+        }
+        return StagedImage(url: destination, mimeType: "image/jpeg", wasReencoded: true)
     }
 
     /// Staged files not yet cleaned up — either still queued for upload (an `Outbox` entry

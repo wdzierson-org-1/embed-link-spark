@@ -79,6 +79,32 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertNil(server.captures[2].meta["content"])
     }
 
+    // MARK: - Plan 15 review: the whole share is durable before any network call
+
+    func testEveryObjectIsEnqueuedBeforeTheTokenFetchAndTheFirstSend() async throws {
+        let server = FakeCaptureServer()
+        let directory = dir!
+        let atFirstRequest = SnapshotCount()
+        server.onRequest = { _ in
+            if atFirstRequest.value == nil { atFirstRequest.value = await Outbox(directory: directory).pending().count }
+        }
+        let atTokenFetch = SnapshotCount()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let staged = try stageFile(store: store, bytes: Data([0x01]), ext: "png")
+        let intake = makeIntake(server: server, staging: store, accessToken: {
+            atTokenFetch.value = await Outbox(directory: directory).pending().count
+            return "jwt"
+        })
+
+        let result = await intake.submit([.url("https://example.com"), .text("quote"),
+                                          .file(stagedURL: staged, mimeType: "image/png", fileName: nil, durationS: nil)],
+                                         note: "n", location: nil)
+
+        XCTAssertEqual(result, ShareIntakeResult(saved: 3))
+        XCTAssertEqual(atTokenFetch.value, 3, "all three objects were in the Outbox before the token fetch")
+        XCTAssertEqual(atFirstRequest.value, 3, "…and before the first capture request")
+    }
+
     // MARK: - small file
 
     func testSmallFileGoesAsOneMultipartCaptureAndTheStagedCopyIsDiscarded() async throws {

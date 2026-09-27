@@ -169,6 +169,139 @@ final class ImagePreparationTests: XCTestCase {
         XCTAssertEqual(decodeImage(prepared.data)?.typeIdentifier, UTType.jpeg.identifier)
     }
 
+    // MARK: - Decode strategies (plan 15 review: RAW / huge sources)
+
+    func testDecodeStrategyThresholds() {
+        let strategy = ImagePreparation.decodeStrategy(typeIdentifier:pixelWidth:pixelHeight:)
+        XCTAssertEqual(strategy("com.adobe.raw-image", 400, 300), .embeddedPreview, "DNG → embedded preview")
+        XCTAssertEqual(strategy("com.canon.cr2-raw-image", 6000, 4000), .embeddedPreview)
+        XCTAssertEqual(strategy(UTType.jpeg.identifier, 4032, 3024), .thumbnail, "an ordinary photo")
+        XCTAssertEqual(strategy(UTType.png.identifier, 10000, 5000), .thumbnail, "exactly 50 MP is not over")
+        XCTAssertEqual(strategy(UTType.png.identifier, 10000, 5001), .subsampled(factor: 4))
+        XCTAssertEqual(strategy(UTType.jpeg.identifier, 10000, 10000), .subsampled(factor: 4), "100 MP → 2500 px")
+        XCTAssertEqual(strategy(UTType.tiff.identifier, 20000, 15000), .subsampled(factor: 8))
+        XCTAssertEqual(strategy(UTType.heic.identifier, 12000, 5000), .thumbnail, "HEIC's tiled decode stays bounded")
+        XCTAssertEqual(strategy(nil, 20000, 20000), .thumbnail)
+    }
+
+    /// The subsampled path orients by hand; ImageIO's own `WithTransform` thumbnail is the oracle,
+    /// for all 8 EXIF orientations (a lossless TIFF with four distinct quadrant colors).
+    func testHandRolledOrientationMatchesImageIOForAllEightOrientations() throws {
+        let width = 60, height = 30
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        let quadrants: [(CGRect, (CGFloat, CGFloat, CGFloat))] = [
+            (CGRect(x: 0, y: 15, width: 30, height: 15), (1, 0, 0)),     // top-left red
+            (CGRect(x: 30, y: 15, width: 30, height: 15), (0, 1, 0)),    // top-right green
+            (CGRect(x: 0, y: 0, width: 30, height: 15), (0, 0, 1)),      // bottom-left blue
+            (CGRect(x: 30, y: 0, width: 30, height: 15), (1, 1, 0)),     // bottom-right yellow
+        ]
+        for (rect, color) in quadrants {
+            context.setFillColor(red: color.0, green: color.1, blue: color.2, alpha: 1)
+            context.fill(rect)
+        }
+        let stored = try XCTUnwrap(context.makeImage())
+
+        for orientation in 1...8 {
+            let tiff = try encodeImages([stored], as: .tiff, properties: [kCGImagePropertyOrientation: orientation])
+            let source = try XCTUnwrap(CGImageSourceCreateWithData(tiff as CFData, nil))
+            let oracle = try XCTUnwrap(CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 60,
+                kCGImageSourceCreateThumbnailWithTransform: true] as CFDictionary))
+            let raw = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            let mine = try XCTUnwrap(ImagePreparation.oriented(raw, exifOrientation: orientation, longestEdge: 60))
+
+            XCTAssertEqual(mine.width, oracle.width, "orientation \(orientation): width")
+            XCTAssertEqual(mine.height, oracle.height, "orientation \(orientation): height")
+            for (fx, fy) in [(0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75)] {
+                let x = Int(Double(mine.width) * fx), y = Int(Double(mine.height) * fy)
+                let expected = pixel(oracle, x: x, y: y)
+                assertColor(pixel(mine, x: x, y: y), (expected.r, expected.g, expected.b), tolerance: 8,
+                            "orientation \(orientation) at (\(fx), \(fy))")
+            }
+        }
+    }
+
+    /// A synthetic > 50 MP PNG goes through the subsampled decode: bounded to 1/4 scale here
+    /// (2050×1550), comfortably under 2560, colors intact.
+    func testHugePNGIsPreparedThroughTheSubsampledDecode() throws {
+        let width = 8200, height = 6200   // 50.84 MP
+        let gray = CGColorSpaceCreateDeviceGray()
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                              space: gray, bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.setFillColor(gray: 1, alpha: 1)
+        context.fill(CGRect(x: width / 2, y: 0, width: width / 2, height: height))   // left black, right white
+        let png = try encodeImages([try XCTUnwrap(context.makeImage())], as: .png)
+        XCTAssertEqual(ImagePreparation.decodeStrategy(typeIdentifier: UTType.png.identifier, pixelWidth: width, pixelHeight: height),
+                       .subsampled(factor: 4))
+
+        let prepared = try XCTUnwrap(ImagePreparation.prepare(png))
+
+        XCTAssertTrue(prepared.wasReencoded)
+        let output = try XCTUnwrap(decodeImage(prepared.data))
+        XCTAssertEqual(output.typeIdentifier, UTType.jpeg.identifier)
+        XCTAssertEqual(output.width, 2050)
+        XCTAssertEqual(output.height, 1550)
+        assertColor(pixel(output.image, x: 200, y: 775), (0, 0, 0), "left half stays black")
+        assertColor(pixel(output.image, x: 1850, y: 775), (255, 255, 255), "right half stays white")
+    }
+
+    // MARK: - GPS in passthroughs (plan 15 review: stash-media URLs are public)
+
+    func testPassthroughJPEGLosesGPSLosslesslyAndKeepsOrientation() throws {
+        let source = try encodeImages([makeSplitImage(width: 800, height: 600, left: red, right: blue)], as: .jpeg, properties: [
+            kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 40.7, kCGImagePropertyGPSLatitudeRef: "N",
+                                            kCGImagePropertyGPSLongitude: 74.0, kCGImagePropertyGPSLongitudeRef: "W"],
+            kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "Apple"],
+            kCGImagePropertyOrientation: 6,
+        ])
+        XCTAssertNotNil(decodeImage(source)?.properties[kCGImagePropertyGPSDictionary], "fixture must carry GPS")
+
+        let prepared = try XCTUnwrap(ImagePreparation.prepare(source))
+
+        XCTAssertFalse(prepared.wasReencoded, "a lossless metadata rewrite, not a re-encode")
+        XCTAssertEqual(prepared.mimeType, "image/jpeg")
+        let output = try XCTUnwrap(decodeImage(prepared.data))
+        XCTAssertNil(output.properties[kCGImagePropertyGPSDictionary], "EXIF GPS removed")
+        let metadata = try XCTUnwrap(CGImageSourceCopyMetadataAtIndex(
+            try XCTUnwrap(CGImageSourceCreateWithData(prepared.data as CFData, nil)), 0, nil))
+        XCTAssertNil(CGImageMetadataCopyTagWithPath(metadata, nil, "exif:GPSLatitude" as CFString), "XMP GPS removed")
+        XCTAssertEqual(output.properties[kCGImagePropertyOrientation] as? Int, 6, "orientation kept — or it would display sideways")
+        XCTAssertEqual((output.properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any])?[kCGImagePropertyTIFFMake] as? String,
+                       "Apple", "everything but GPS is kept")
+        XCTAssertEqual(storedPixels(prepared.data), storedPixels(source), "pixels untouched (lossless)")
+    }
+
+    /// ImageIO can't rewrite GIF metadata losslessly, so a GIF is kept exactly as it is (GPS in a
+    /// GIF can only live in XMP — rare). Documented limitation.
+    func testGIFWithGPSIsKeptAsIs() throws {
+        let frames = [try makeSplitImage(width: 20, height: 20, left: red, right: blue),
+                      try makeSplitImage(width: 20, height: 20, left: blue, right: red)]
+        let gif = try encodeImages(frames, as: .gif, properties: [
+            kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 40.7, kCGImagePropertyGPSLatitudeRef: "N"]])
+
+        let prepared = try XCTUnwrap(ImagePreparation.prepare(gif))
+
+        XCTAssertEqual(prepared.data, gif)
+        XCTAssertEqual(prepared.mimeType, "image/gif")
+        XCTAssertFalse(prepared.wasReencoded)
+    }
+
+    /// Decoded stored pixels (no orientation applied) — for lossless comparisons.
+    private func storedPixels(_ data: Data) -> [UInt8] {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return [] }
+        var buffer = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        buffer.withUnsafeMutableBytes { raw in
+            let context = CGContext(data: raw.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
+                                    bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        return buffer
+    }
+
     // MARK: - Failure + naming
 
     func testUnreadableBytesReturnNil() {

@@ -220,6 +220,65 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged))
     }
 
+    // MARK: - Plan 15 review: the whole batch is durable before any network call
+
+    /// Every unit is on disk before the token is fetched (it may refresh over the network) and
+    /// before the first capture request — a kill while unit 1 uploads can't lose units 2…N.
+    func testEveryUnitIsEnqueuedBeforeTheTokenFetchAndTheFirstSend() async throws {
+        let server = FakeCaptureServer()
+        let directory = dir!
+        let atFirstRequest = SnapshotCount()
+        server.onRequest = { _ in
+            if atFirstRequest.value == nil { atFirstRequest.value = await Outbox(directory: directory).pending().count }
+        }
+        let atTokenFetch = SnapshotCount()
+        let vm = makeViewModel(server: server, accessToken: {
+            atTokenFetch.value = await Outbox(directory: directory).pending().count
+            return "jwt"
+        })
+        vm.text = "three things https://example.com"
+        vm.attachments = [
+            CaptureAttachment(data: Data([0x01]), fileExtension: "png", mimeType: "image/png", kind: .photo),
+            CaptureAttachment(data: Data([0x02]), fileExtension: "pdf", mimeType: "application/pdf", kind: .file),
+        ]
+
+        let outcome = await vm.submit()
+
+        XCTAssertEqual(outcome, .saved(count: 3, dropped: 0))
+        XCTAssertEqual(atTokenFetch.value, 3, "all three units were in the Outbox before the token fetch")
+        XCTAssertEqual(atFirstRequest.value, 3, "…and before the first capture request")
+    }
+
+    // MARK: - Badge
+
+    /// Background-transfer entries complete on their own — they're not the composer's backlog.
+    func testPendingOutboxCountExcludesTransferringEntries() async throws {
+        let box = Outbox(directory: dir)
+        try await box.enqueue(.note, payload: ["content": "bg", "is_public": "false"], status: .transferring)
+        try await box.enqueue(.note, payload: ["content": "waiting", "is_public": "false"])
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.fail(URLError(.notConnectedToInternet))]
+        let vm = makeViewModel(server: server)
+
+        await vm.drainOutbox()   // the pending one fails; the transferring one isn't touched
+
+        XCTAssertEqual(vm.pendingOutboxCount, 1)
+    }
+
+    /// A capture landing anywhere in the app (launch drain, background transfer) re-reads the badge.
+    func testStashItemCapturedRefreshesTheBadge() async throws {
+        let vm = makeViewModel(server: FakeCaptureServer())
+        XCTAssertEqual(vm.pendingOutboxCount, 0)
+        try await Outbox(directory: dir).enqueue(.note, payload: ["content": "queued elsewhere", "is_public": "false"])
+
+        let item = try XCTUnwrap(try CaptureTransport.result(
+            status: 200, body: JSONSerialization.data(withJSONObject: ["item": FakeCaptureServer.row(kind: "note", meta: [:])])).item)
+        await postStashItemCaptured(item, duplicate: false)
+
+        for _ in 0..<100 where vm.pendingOutboxCount != 1 { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(vm.pendingOutboxCount, 1, "the badge re-reads the Outbox when a capture lands")
+    }
+
     func testFailureEnqueuesToOutboxAndReturnsQueued() async {
         let server = FakeCaptureServer()
         server.captureBehaviors = [.respond(500, "{}")]

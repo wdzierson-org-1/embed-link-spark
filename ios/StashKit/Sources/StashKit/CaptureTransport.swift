@@ -1,5 +1,4 @@
 import Foundation
-import UniformTypeIdentifiers
 
 public extension Notification.Name {
     /// Plan 15: posted (on the main actor) every time a capture reaches the server — a composer
@@ -164,7 +163,7 @@ public enum CaptureTransport {
     }
 
     /// The `meta` object for `entry` (JSON-ready), mapped from the Outbox's `[String: String]`
-    /// payload. Field-for-field what the legacy `add-*` calls sent (the endpoint forwards to them):
+    /// payload, in the shape the endpoint forwards to `add-note`/`add-url`/`add-file`:
     /// notes/links always carry `content` (links may send `""`), files only a non-empty one;
     /// `attributes` is the `attributes_json` string parsed verbatim — never round-tripped through
     /// a typed model that could drop keys it doesn't know — and omitted when empty.
@@ -248,28 +247,56 @@ public enum CaptureTransport {
         return "\(userId.uuidString.lowercased())/\(entryId.uuidString.lowercased()).\(ext)"
     }
 
-    /// Extension for `entry`'s object name, in the server's own precedence for one-shot uploads
-    /// (`_shared/capture.ts` `fileExtensionFor`) so both lanes name the SAME object for an entry:
-    /// `file_name`'s extension, else the local file's own (it was staged/recorded with a real
-    /// one), else one derived from the mime type, else `bin`.
+    /// Extension for `entry`'s object name — exactly what the server picks for a one-shot upload
+    /// (`fileExtension(fileName:mimeType:)`, a port of `_shared/capture.ts` `fileExtensionFor`), so
+    /// an entry's object has ONE name whichever lane stored it (the two-step upsert then overwrites
+    /// a one-shot object instead of orphaning it). The local file's own extension is deliberately
+    /// NOT consulted: the server never sees it, and any tier the server lacks could only diverge.
     public static func storageFileExtension(for entry: OutboxEntry) -> String {
-        func saneExtension(_ path: String?) -> String? {
-            guard let path else { return nil }
-            let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
-            guard !ext.isEmpty, ext.count <= 10,
-                  ext.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber) }) else { return nil }
-            return ext
-        }
-        if let ext = saneExtension(entry.payload["file_name"])
-            ?? saneExtension(entry.payload["local_file_path"] ?? entry.payload["file_path"]) {
-            return ext
-        }
-        switch mimeType(for: entry) {
-        case "image/jpeg": return "jpg"
-        case "audio/mp4": return "m4a"
-        case let mime: return UTType(mimeType: mime)?.preferredFilenameExtension ?? "bin"
-        }
+        fileExtension(fileName: entry.payload["file_name"], mimeType: entry.payload["mime_type"])
     }
+
+    /// Port of the server's `fileExtensionFor` (supabase/functions/_shared/capture.ts; its vitest
+    /// cases are mirrored in `CaptureTransportTests`): the file name's extension when it has a
+    /// sane one (lowercased, `[a-z0-9]{1,10}`, not a leading/trailing dot), else the MIME map
+    /// (the server's table, verbatim), else `bin`.
+    public static func fileExtension(fileName: String?, mimeType: String?) -> String {
+        if let fileName, !fileName.isEmpty {
+            let base = fileName.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? ""
+            if let dot = base.lastIndex(of: "."), dot > base.startIndex, base.index(after: dot) < base.endIndex {
+                let ext = base[base.index(after: dot)...].lowercased()
+                if (1...10).contains(ext.count), ext.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) }) {
+                    return ext
+                }
+            }
+        }
+        if let mimeType {
+            let essence = (mimeType.split(separator: ";").first.map(String.init) ?? "")
+                .trimmingCharacters(in: .whitespaces).lowercased()
+            if let mapped = serverMimeExtensions[essence] { return mapped }
+        }
+        return "bin"
+    }
+
+    /// The server's `MIME_EXTENSIONS` table (capture.ts), verbatim — keep the two in sync.
+    static let serverMimeExtensions: [String: String] = [
+        "image/jpeg": "jpg", "image/jpg": "jpg", "image/pjpeg": "jpg", "image/png": "png", "image/gif": "gif",
+        "image/webp": "webp", "image/heic": "heic", "image/heif": "heif", "image/avif": "avif", "image/tiff": "tiff",
+        "image/bmp": "bmp", "image/svg+xml": "svg",
+        "video/mp4": "mp4", "video/quicktime": "mov", "video/x-m4v": "m4v", "video/webm": "webm", "video/mpeg": "mpeg",
+        "video/3gpp": "3gp",
+        "audio/mp4": "m4a", "audio/m4a": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac", "audio/mpeg": "mp3",
+        "audio/mp3": "mp3", "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/webm": "webm",
+        "audio/ogg": "ogg", "audio/flac": "flac", "audio/x-caf": "caf", "audio/amr": "amr",
+        "application/pdf": "pdf", "application/msword": "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "application/vnd.ms-excel": "xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+        "application/vnd.ms-powerpoint": "ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+        "application/rtf": "rtf", "application/epub+zip": "epub", "application/zip": "zip", "application/json": "json",
+        "text/plain": "txt", "text/markdown": "md", "text/csv": "csv", "text/html": "html", "text/rtf": "rtf",
+    ]
 
     /// The Storage object-endpoint request (`POST /storage/v1/object/stash-media/<path>`) with
     /// `x-upsert: true`; the body is the local file itself (`upload(_:fromFile:)`).
@@ -300,7 +327,8 @@ public enum CaptureTransport {
 
     /// Maps a `capture` response: 2xx → `CaptureResult`; non-2xx → the matching `CaptureError`
     /// (`captureErrorForFailedResponse`: 403 `subscription_required` → `.subscriptionRequired`,
-    /// 409 `capture_in_progress` → `.inProgress`, any 413 → `.fileTooLarge`, else `.badStatus`).
+    /// 409 `capture_in_progress` → `.inProgress`, 413 `file_too_large` → `.fileTooLarge`, else
+    /// `.badStatus` — including 413 `meta_too_large`, which no lane switch could fix).
     /// A 2xx whose `item` doesn't decode still counts as success (`item: nil`): the server has
     /// the capture, and throwing would only make the Outbox resend it forever.
     public static func result(status: Int, body: Data) throws -> CaptureResult {

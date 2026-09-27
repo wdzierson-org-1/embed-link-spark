@@ -89,6 +89,9 @@ public final class CaptureViewModel {
     private let upload: (@Sendable (URL, String, String) async throws -> Void)?
     private let accessToken: @Sendable () async throws -> String
     private let awaitPendingLocationHook: (@Sendable (TimeInterval) async -> CapturedLocation?)?
+    /// Keeps `pendingOutboxCount` honest when a capture lands outside this view model (see
+    /// `refreshPendingCount`). Removed with the view model.
+    @ObservationIgnored private var capturedObserver: NotificationObserver?
 
     /// Global Constraints / Task 6 brief: "submit() waits ≤2.5s on .resolving … then proceeds with
     /// whatever resolved." Single source of truth for that budget, referenced at every call site
@@ -130,6 +133,9 @@ public final class CaptureViewModel {
         self.upload = upload
         self.accessToken = accessToken
         self.awaitPendingLocationHook = awaitPendingLocation
+        capturedObserver = NotificationObserver(name: .stashItemCaptured) { [weak self] in
+            Task { @MainActor [weak self] in await self?.refreshPendingCount() }
+        }
     }
 
     /// Waits (bounded by `timeout` seconds) on an in-flight pin resolution before this batch's
@@ -164,23 +170,21 @@ public final class CaptureViewModel {
         text = ""
         attachments = []
 
-        // Fetched once per submit, not stored on `self` — every unit in this batch sends under
-        // the same session snapshot. `try?` turns "no session" into a nil token: the units are
-        // still written to the Outbox, just not sent until a later drain has a session.
-        let token = try? await accessToken()
-
         // Task 6: give an in-flight pin resolution up to `locationAwaitTimeout` to finish before
         // snapshotting — placed AFTER the immediate text/attachments clear above, so the "clear
         // the form immediately" UX (web parity, noted above) isn't itself delayed by the wait.
         await awaitPendingLocation(timeout: Self.locationAwaitTimeout)
 
-        // Snapshotted once, same reasoning as `token` above: every unit in THIS batch gets the
-        // same location (Global Constraints: "written to EVERY item in a batch"), not whatever
-        // `pendingLocation` happens to read partway through an `await`-laced loop.
+        // Snapshotted once: every unit in THIS batch gets the same location (Global Constraints:
+        // "written to EVERY item in a batch"), not whatever `pendingLocation` happens to read
+        // partway through an `await`-laced loop.
         let location = pendingLocation
 
-        var savedCount = 0
-        var queuedCount = 0
+        // 1. Persist the WHOLE batch before any network call (plan 15 review): the form is
+        //    already cleared, so from here on the Outbox is the only copy — a kill while unit 1
+        //    uploads must not lose units 2…N (links/notes would be gone for good; files would only
+        //    come back via `sweepOrphans`, without their note, location, or visibility).
+        var entryIds: [UUID] = []
         var droppedCount = 0
         for unit in units {
             let ready: ReadyUnit
@@ -192,22 +196,31 @@ public final class CaptureViewModel {
                 print("Capture: dropped an attachment — \(error)")
                 continue
             }
-            let entry: OutboxEntry
             do {
-                entry = try await outbox.enqueue(ready.kind, payload: ready.payload)
+                entryIds.append(try await outbox.enqueue(ready.kind, payload: ready.payload).id)
             } catch {
                 // Couldn't persist the unit at all (e.g. a full disk). Its staged copy is removed
                 // so a later `sweepOrphans` can't quietly save something the user was told failed.
                 if let staged = ready.stagedFile { staging.discard(staged) }
                 droppedCount += 1
                 print("Capture: couldn't write a capture to the Outbox — \(error)")
-                continue
             }
+        }
+
+        // 2. Only now the token — fetching it may itself refresh the session over the network.
+        //    Once per batch: every unit sends under the same session snapshot. `try?` turns "no
+        //    session" into a nil token: the units stay queued for a later drain.
+        let token = entryIds.isEmpty ? nil : try? await accessToken()
+
+        // 3. Send each (the capture id is the entry id, so any of these can be retried later).
+        var savedCount = 0
+        var queuedCount = 0
+        for id in entryIds {
             guard let token else {
                 queuedCount += 1
                 continue
             }
-            switch await outbox.sendNow(id: entry.id, api: api, userId: userId, accessToken: token, upload: upload) {
+            switch await outbox.sendNow(id: id, api: api, userId: userId, accessToken: token, upload: upload) {
             case .sent, .notFound:
                 // `.notFound`: a concurrent drain already delivered it between enqueue and send.
                 savedCount += 1
@@ -280,12 +293,16 @@ public final class CaptureViewModel {
         await refreshPendingCount()
     }
 
+    /// Only `.pending` entries count — the ones waiting on THIS app to send them.
+    ///
     /// Plan 14 fix wave B (#9): a parked entry is explained by the composer's gate strip, not by
     /// "still trying" — counting it here would show e.g. "1 pending" for an entry that will never
-    /// send again until the user resubscribes, which reads as a stuck/broken retry rather than the
-    /// gated state it actually is. (`.transferring` entries DO count: they're still in flight.)
+    /// send again until the user resubscribes. Plan 15 review: a `.transferring` entry belongs to a
+    /// background transfer and completes on its own, so it isn't the composer's backlog either.
+    /// Re-read whenever a capture lands anywhere in the app (`.stashItemCaptured` — e.g. the
+    /// launch drain or a background-transfer completion), not just after this view model's own sends.
     private func refreshPendingCount() async {
-        pendingOutboxCount = await outbox.pending().filter { $0.status != .parked }.count
+        pendingOutboxCount = await outbox.pending().filter { $0.status == .pending }.count
     }
 
     // MARK: - Routing (Global Constraints: port of web UnifiedInputPanel submit, collections cut)
@@ -464,13 +481,25 @@ public final class CaptureViewModel {
     }
 
     /// `attributes` serialized to a JSON string for the Outbox's text-only `[String: String]`
-    /// payload (Task 5) — `nil` whenever there's nothing worth persisting (the same
-    /// `nonEmptyJSONObject` gate the legacy `add-*` bodies use), so the capture request sends
-    /// exactly the attributes a direct call would have.
+    /// payload (Task 5) — `nil` whenever there's nothing worth persisting (the
+    /// `nonEmptyJSONObject` gate: never send `{}`), so the capture request carries exactly the
+    /// attributes the user's capture has.
     private func attributesPayloadString(_ attributes: ItemAttributes?) -> String? {
         guard let object = attributes?.nonEmptyJSONObject,
               let data = try? JSONSerialization.data(withJSONObject: object)
         else { return nil }
         return String(data: data, encoding: .utf8)
     }
+}
+
+/// A block-based `NotificationCenter` registration that unregisters itself when released — lets a
+/// `@MainActor` type observe notifications without a `deinit` (which can't touch its isolated state).
+final class NotificationObserver: @unchecked Sendable {
+    private let token: NSObjectProtocol
+
+    init(name: Notification.Name, handler: @escaping @Sendable () -> Void) {
+        token = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in handler() }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(token) }
 }

@@ -72,7 +72,8 @@ struct ProviderLoader {
             return await loadText(provider)
         }
         if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-            return await loadFile(provider, typeIdentifier: UTType.image.identifier, kind: .image, fallbackExtension: "jpg")
+            return await loadFile(provider, typeIdentifier: preferredImageTypeIdentifier(for: provider),
+                                  kind: .image, fallbackExtension: "jpg")
         }
         if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
             return await loadFile(provider, typeIdentifier: UTType.movie.identifier, kind: .movie, fallbackExtension: "mov")
@@ -88,6 +89,19 @@ struct ProviderLoader {
             return await loadFile(provider, typeIdentifier: typeIdentifier, kind: .other, fallbackExtension: fallbackExtension)
         }
         return nil   // nothing file-backed to stage — dropped (and counted), never crashed on.
+    }
+
+    /// Plan 15 review: which image representation to ask for. Asking for the abstract
+    /// `public.image` can hand back a camera RAW (DNG etc.) even when the provider also offers a
+    /// rendered JPEG/HEIC — a RAW+JPEG pair, or Photos' own rendition — and decoding a RAW is by far
+    /// the most expensive thing this extension could do. So: the provider's first registered image
+    /// type that is NOT a RAW, else `public.image` (a RAW-only share then takes
+    /// `ImagePreparation`'s embedded-preview path).
+    private func preferredImageTypeIdentifier(for provider: NSItemProvider) -> String {
+        provider.registeredTypeIdentifiers.first { identifier in
+            guard let type = UTType(identifier) else { return false }
+            return type.conforms(to: .image) && !type.conforms(to: .rawImage)
+        } ?? UTType.image.identifier
     }
 
     /// Plan 15: the type to request for a provider none of the specific branches claimed. Prefers

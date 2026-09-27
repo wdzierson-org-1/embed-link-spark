@@ -97,11 +97,13 @@ public struct ShareIntake: Sendable {
     ///     plain value here (unlike `CaptureViewModel.pendingLocation`), since resolving an
     ///     in-flight pin is the extension's (T7) job, before this is ever called.
     public func submit(_ objects: [SharedObject], note: String?, location: CapturedLocation?) async -> ShareIntakeResult {
-        // Fetched once per submit: every unit in this batch sends under the SAME session snapshot.
-        // No session → every unit is still enqueued, just not sent (the app drains it later).
-        let token = try? await accessToken()
-
         var result = ShareIntakeResult()
+
+        // 1. Persist EVERY object before any network call (plan 15 review) — the share sheet can be
+        //    killed at any moment once Save is tapped, and an object still only in memory while
+        //    an earlier one uploads would be lost (or, for a file, only come back through
+        //    `sweepOrphans` without its note or location).
+        var queued: [(id: UUID, stagedFile: URL?)] = []
         for unit in units(for: objects, note: note, location: location) {
             guard let entry = try? await outbox.enqueue(unit.kind, payload: unit.payload) else {
                 // The Outbox write itself failed. Counted, never silent. A staged file is left in
@@ -109,12 +111,22 @@ public struct ShareIntake: Sendable {
                 result.failed += 1
                 continue
             }
-            let fileSize = unit.stagedFile.flatMap { staging.fileSize(of: $0) } ?? 0
+            queued.append((entry.id, unit.stagedFile))
+        }
+
+        // 2. Only now the token (fetching it may refresh the session over the network) — once per
+        //    batch, so every unit sends under the same session snapshot. No session → everything
+        //    stays queued for the app to drain later.
+        let token = queued.isEmpty ? nil : try? await accessToken()
+
+        // 3. Send what fits the foreground budget; the rest waits for the app.
+        for (id, stagedFile) in queued {
+            let fileSize = stagedFile.flatMap { staging.fileSize(of: $0) } ?? 0
             guard let token, fileSize <= directSendLimit else {
                 result.queued += 1
                 continue
             }
-            switch await outbox.sendNow(id: entry.id, api: capture, userId: userId, accessToken: token, upload: upload) {
+            switch await outbox.sendNow(id: id, api: capture, userId: userId, accessToken: token, upload: upload) {
             case .sent, .notFound: result.saved += 1
             case .parked, .pending, .inFlight: result.queued += 1
             case .dropped: result.failed += 1

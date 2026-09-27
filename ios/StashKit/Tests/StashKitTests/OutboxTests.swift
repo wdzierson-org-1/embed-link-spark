@@ -340,8 +340,9 @@ final class OutboxTests: XCTestCase {
     }
 
     // The upload can succeed while the capture that follows fails (or the process dies first): the
-    // checkpoint (`file_path` set, `local_file_path` gone) must be on disk BEFORE the capture is
-    // attempted, and a retry must never re-upload. Verified across two drains on a rehydrated Outbox.
+    // checkpoint (`file_path` set — it wins over `local_file_path`) must be on disk BEFORE the
+    // capture is attempted, and a retry must never re-upload. Verified across two drains on a
+    // rehydrated Outbox.
     func testTwoStepUploadSucceedsButCaptureFailsPersistsCheckpointThenRetryNeverReuploads() async throws {
         let box = Outbox(directory: dir)
         let local = try localFile(Data([0x0A, 0x0B, 0x0C]))
@@ -361,7 +362,8 @@ final class OutboxTests: XCTestCase {
         let afterFirst = await rehydrated.pending()
         XCTAssertEqual(afterFirst.count, 1)
         XCTAssertEqual(afterFirst[0].payload["file_path"], uploadedPath)
-        XCTAssertNil(afterFirst[0].payload["local_file_path"])
+        XCTAssertEqual(afterFirst[0].payload["local_file_path"], local.path,
+                       "the local reference is kept (file_path wins) so the file is never unreferenced")
         XCTAssertEqual(afterFirst[0].payload["file_size"], "3")
         XCTAssertEqual(afterFirst[0].attempts, 1)
 
@@ -395,7 +397,121 @@ final class OutboxTests: XCTestCase {
 
         let payload = try XCTUnwrap(snapshot.payload, "the capture request must have gone out")
         XCTAssertNotNil(payload["file_path"], "the checkpoint must already be on disk when capture is attempted")
-        XCTAssertNil(payload["local_file_path"])
+        XCTAssertEqual(payload["local_file_path"], local.path, "the local reference stays alongside file_path")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: local.path),
+                       "the local copy goes only after the checkpoint is durable — before the capture request")
+        XCTAssertFalse(try XCTUnwrap(server.captures.first).isMultipart, "file_path wins: a JSON capture")
+    }
+
+    // MARK: - Crash windows around local-file cleanup (plan 15 review)
+
+    /// A process killed after the checkpoint was written but BEFORE the local copy was deleted
+    /// leaves [entry with file_path + local_file_path, local file still present]. The file is still
+    /// referenced, so `sweepOrphans` must NOT re-enqueue it under a second capture id; the next
+    /// drain sends JSON with the same id and then deletes the file.
+    func testKillBetweenCheckpointAndLocalDeleteNeverMintsASecondCaptureId() async throws {
+        let box = Outbox(directory: dir)
+        let staging = StagedFileStore(userId: userId, directory: filesDir)
+        let local = try staging.stage(data: Data([0x01, 0x02, 0x03]), fileExtension: "mov")
+        let entry = try await box.enqueue(.file, payload: [
+            "local_file_path": local.path, "file_path": "\(userId.uuidString.lowercased())/\(UUID()).mov",
+            "mime_type": "video/quicktime", "file_size": "3", "is_public": "false",
+        ])
+        let recordings = RecordingStore(userId: userId, directory: filesDir.appending(path: "rec"))
+        let farFuture: @Sendable () -> Date = { Date().addingTimeInterval(3600) }
+
+        let swept = await sweepOrphans(userId: userId, outbox: box, recordings: recordings, staging: staging, now: farFuture)
+
+        XCTAssertEqual(swept, 0, "a checkpointed entry still references its local file")
+        let server = FakeCaptureServer()
+        let sent = await box.drain(api: api(server), accessToken: "jwt", userId: userId)
+        XCTAssertEqual(sent, 1)
+        XCTAssertEqual(server.captures.map(\.captureId), [entry.id.uuidString.lowercased()])
+        XCTAssertFalse(try XCTUnwrap(server.captures.first).isMultipart)
+        XCTAssertTrue(server.storageUploads.isEmpty, "never re-uploaded")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: local.path), "deleted once captured")
+        let after = await box.pending()
+        XCTAssertTrue(after.isEmpty)
+    }
+
+    /// Completion deletes the local file FIRST: if it can't (made undeletable here), the entry is
+    /// kept — still naming the file — so the file is never unreferenced, `sweepOrphans` never
+    /// re-enqueues it, and the next pass replays idempotently (same capture id, still one item).
+    func testCompletionDeletesTheLocalFileBeforeTheEntry() async throws {
+        let box = Outbox(directory: dir)
+        let lockedDir = filesDir.appending(path: "locked")
+        try FileManager.default.createDirectory(at: lockedDir, withIntermediateDirectories: true)
+        let local = lockedDir.appending(path: "clip.m4a")
+        try Data([0x01, 0x02]).write(to: local)
+        let entry = try await fileEntry(box, local: local)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: lockedDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lockedDir.path) }
+        let server = FakeCaptureServer()
+
+        let result = await box.sendNow(id: entry.id, api: api(server), userId: userId, accessToken: "jwt")
+
+        guard case .sent = result else { return XCTFail("expected .sent, got \(result)") }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: local.path), "fixture: the file really is undeletable")
+        let kept = await box.entry(id: entry.id)
+        XCTAssertEqual(kept?.payload["local_file_path"], local.path, "the entry must outlive a local file it couldn't delete")
+        let staging = StagedFileStore(userId: userId, directory: lockedDir)
+        let recordings = RecordingStore(userId: userId, directory: filesDir.appending(path: "rec"))
+        let swept = await sweepOrphans(userId: userId, outbox: box, recordings: recordings, staging: staging,
+                                       now: { Date().addingTimeInterval(3600) })
+        XCTAssertEqual(swept, 0, "the file is still referenced — no second capture id")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lockedDir.path)
+        let sent = await box.drain(api: api(server), accessToken: "jwt", userId: userId)
+
+        XCTAssertEqual(sent, 1)
+        XCTAssertEqual(server.createdItemCount, 1, "the replay was a duplicate — still one item")
+        XCTAssertEqual(Set(server.captures.compactMap(\.captureId)), [entry.id.uuidString.lowercased()])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: local.path))
+        let after = await box.pending()
+        XCTAssertTrue(after.isEmpty)
+    }
+
+    /// A process killed after the local file was deleted but before the entry was removed leaves
+    /// [entry, no local file]: the next pass drops it (the capture already landed) — one item, and
+    /// nothing for `sweepOrphans` to find.
+    func testKillBetweenLocalDeleteAndEntryRemovalLeavesOneItem() async throws {
+        let box = Outbox(directory: dir)
+        let local = try localFile(Data([0x07]))
+        let entry = try await fileEntry(box, local: local)
+        let server = FakeCaptureServer()
+        server.captureBehaviors = [.applyThenFail(URLError(.networkConnectionLost))]
+        _ = await box.sendNow(id: entry.id, api: api(server), userId: userId, accessToken: "jwt")
+        XCTAssertEqual(server.createdItemCount, 1)
+        try FileManager.default.removeItem(at: local)   // the state that kill leaves behind
+
+        let sent = await box.drain(api: api(server), accessToken: "jwt", userId: userId)
+
+        XCTAssertEqual(sent, 0)
+        XCTAssertEqual(server.captures.count, 1, "nothing left to send")
+        XCTAssertEqual(server.createdItemCount, 1)
+        let after = await box.pending()
+        XCTAssertTrue(after.isEmpty, "the orphaned entry is dropped")
+    }
+
+    /// If the checkpoint can't be written, the local copy is kept at that point — and still deleted
+    /// once the capture succeeds (the in-memory entry keeps naming it).
+    func testLocalFileIsDeletedAfterSuccessEvenWhenTheCheckpointWriteFailed() async throws {
+        let box = Outbox(directory: dir)
+        let local = try localFile(Data([0x01, 0x02, 0x03]))
+        let entry = try await fileEntry(box, local: local)
+        let entryFile = dir.appending(path: "\(entry.id.uuidString).json")
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: entryFile.path)   // writes fail
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: entryFile.path) }
+        let server = FakeCaptureServer()
+
+        let result = await box.sendNow(id: entry.id, api: api(server, oneShotLimit: 1), userId: userId,
+                                       accessToken: "jwt", upload: UploadRecorder().closure)
+
+        guard case .sent = result else { return XCTFail("expected .sent, got \(result)") }
+        let onDisk = try JSONDecoder().decode(OutboxEntry.self, from: Data(contentsOf: entryFile))
+        XCTAssertNil(onDisk.payload["file_path"], "fixture: the checkpoint write really failed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: local.path),
+                       "a successful capture must still delete the local copy")
     }
 
     func test413FallsBackToTheTwoStepLaneWithinTheSameSend() async throws {
@@ -710,7 +826,8 @@ final class OutboxTests: XCTestCase {
         let checkpointed = await box.checkpoint(id: entry.id, filePath: "\(userId.uuidString.lowercased())/x.m4a")
 
         XCTAssertEqual(checkpointed?.payload["file_path"], "\(userId.uuidString.lowercased())/x.m4a")
-        XCTAssertNil(checkpointed?.payload["local_file_path"])
+        XCTAssertEqual(checkpointed?.payload["local_file_path"], local.path,
+                       "kept alongside file_path (which wins) until the entry is completed")
         XCTAssertEqual(checkpointed?.payload["file_size"], "42")
         XCTAssertFalse(FileManager.default.fileExists(atPath: local.path))
         let persisted = await Outbox(directory: dir).entry(id: entry.id)
@@ -783,6 +900,90 @@ final class OutboxTests: XCTestCase {
         XCTAssertEqual(after[0].attempts, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appending(path: "\(entry.id.uuidString).claim").path),
                        "a failed send must release its claim so a retry can pick the entry up")
+    }
+
+    // MARK: - Stale self-claims (plan 15 review)
+
+    private let appName = "it.gostash.stash"
+
+    private func claim(_ entryId: UUID, as owner: ClaimOwner) async -> Bool {
+        await Outbox(directory: dir, claimOwner: owner).claimEntry(id: entryId)
+    }
+
+    /// The app is one process at a time: a FRESH claim stamped by the app's own bundle under
+    /// another pid was left by a previous app process that died mid-send — reclaim it now, not
+    /// 10 minutes later.
+    func testTheAppReclaimsAClaimLeftByItsOwnPreviousProcessImmediately() async throws {
+        let box = Outbox(directory: dir, claimOwner: ClaimOwner(name: appName, pid: 2002, isSingleProcessApp: true))
+        let entry = try await box.enqueue(.note, payload: ["content": "x", "is_public": "false"])
+        let claimed = await claim(entry.id, as: ClaimOwner(name: appName, pid: 1001, isSingleProcessApp: true))
+        XCTAssertTrue(claimed)
+        let server = FakeCaptureServer()
+
+        let sent = await box.drain(api: api(server), accessToken: "jwt", userId: userId)
+
+        XCTAssertEqual(sent, 1, "a dead predecessor's claim must not block the relaunched app")
+    }
+
+    /// Everything else keeps the age rule: the share extension (processes can overlap the app's),
+    /// this very process (same pid: a live, in-flight send), and any non-app host.
+    func testOtherFreshClaimsStillBlock() async throws {
+        let app = ClaimOwner(name: appName, pid: 2002, isSingleProcessApp: true)
+        let cases: [(owner: ClaimOwner, why: String)] = [
+            (ClaimOwner(name: "it.gostash.stash.share", pid: 3003, isSingleProcessApp: false), "the share extension"),
+            (ClaimOwner(name: appName, pid: 2002, isSingleProcessApp: true), "this same process"),
+        ]
+        for (owner, why) in cases {
+            let box = Outbox(directory: dir, claimOwner: app)
+            let entry = try await box.enqueue(.note, payload: ["content": why, "is_public": "false"])
+            let claimed = await claim(entry.id, as: owner)
+            XCTAssertTrue(claimed)
+            let sent = await box.sendNow(id: entry.id, api: api(FakeCaptureServer()), userId: userId, accessToken: "jwt")
+            XCTAssertEqual(sent, .inFlight, "a fresh claim by \(why) must be honored")
+        }
+        // Outside the app (the extension, or `swift test`), even same-name/different-pid claims keep
+        // the age rule — only the app can know no other process of itself is alive.
+        let extensionBox = Outbox(directory: dir, claimOwner: ClaimOwner(name: appName, pid: 4004, isSingleProcessApp: false))
+        let entry = try await extensionBox.enqueue(.note, payload: ["content": "ext", "is_public": "false"])
+        let claimed = await claim(entry.id, as: ClaimOwner(name: appName, pid: 1001, isSingleProcessApp: false))
+        XCTAssertTrue(claimed)
+        let sent = await extensionBox.sendNow(id: entry.id, api: api(FakeCaptureServer()), userId: userId, accessToken: "jwt")
+        XCTAssertEqual(sent, .inFlight)
+    }
+
+    func testClaimStampsKeepTheirOnDiskFormat() {
+        let owner = ClaimOwner(name: "it.gostash.stash", pid: 42, isSingleProcessApp: true)
+        XCTAssertEqual(owner.stamp, "it.gostash.stash#42")
+        XCTAssertTrue(owner.isDeadPredecessor(ofStamp: "it.gostash.stash#41"))
+        XCTAssertFalse(owner.isDeadPredecessor(ofStamp: "it.gostash.stash#42"))
+        XCTAssertFalse(owner.isDeadPredecessor(ofStamp: "it.gostash.stash.share#41"))
+        XCTAssertFalse(owner.isDeadPredecessor(ofStamp: "garbage"))
+    }
+
+    // MARK: - 413 meta_too_large (plan 15 review)
+
+    /// A capture whose meta is over the endpoint's 1 MiB limit (a huge pasted note) is a plain
+    /// failed attempt — ONE request, no two-step detour that would only 413 again.
+    func testMetaTooLargeIsAnOrdinaryFailedAttemptNotATwoStepLoop() async throws {
+        let box = Outbox(directory: dir)
+        let note = try await box.enqueue(.note, payload: ["content": String(repeating: "x", count: 64), "is_public": "false"])
+        let local = try localFile(Data([0x01]))
+        let file = try await fileEntry(box, local: local)
+        let server = FakeCaptureServer()
+        server.captureBehaviors = Array(repeating: .respond(413, #"{"error":"meta_too_large","max_bytes":1048576}"#), count: 2)
+        let recorder = UploadRecorder()
+
+        let noteResult = await box.sendNow(id: note.id, api: api(server), userId: userId, accessToken: "jwt", upload: recorder.closure)
+        let fileResult = await box.sendNow(id: file.id, api: api(server), userId: userId, accessToken: "jwt", upload: recorder.closure)
+
+        XCTAssertEqual(noteResult, .pending)
+        XCTAssertEqual(fileResult, .pending)
+        XCTAssertEqual(server.calls.count, 2, "exactly one request each")
+        XCTAssertTrue(recorder.calls.isEmpty, "never switched to the storage lane")
+        let noteAfter = await box.entry(id: note.id)
+        let fileAfter = await box.entry(id: file.id)
+        XCTAssertEqual(noteAfter?.attempts, 1)
+        XCTAssertEqual(fileAfter?.attempts, 1)
     }
 
     // MARK: - Plan 14 T3: park-on-403
@@ -924,4 +1125,9 @@ final class OutboxTests: XCTestCase {
 /// Mutable holder a `@Sendable` hook can write into.
 final class SnapshotBox: @unchecked Sendable {
     var payload: [String: String]?
+}
+
+/// Mutable count holder a `@Sendable` hook can write into.
+final class SnapshotCount: @unchecked Sendable {
+    var value: Int?
 }
