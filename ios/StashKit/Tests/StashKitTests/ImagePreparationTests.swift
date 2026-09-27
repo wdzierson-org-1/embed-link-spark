@@ -169,19 +169,105 @@ final class ImagePreparationTests: XCTestCase {
         XCTAssertEqual(decodeImage(prepared.data)?.typeIdentifier, UTType.jpeg.identifier)
     }
 
-    // MARK: - Decode strategies (plan 15 review: RAW / huge sources)
+    // MARK: - Decode strategies (plan 15: memory-bounded decode)
 
     func testDecodeStrategyThresholds() {
         let strategy = ImagePreparation.decodeStrategy(typeIdentifier:pixelWidth:pixelHeight:)
+        let jpeg = UTType.jpeg.identifier
+        // Camera RAW → its embedded preview, whatever the size.
         XCTAssertEqual(strategy("com.adobe.raw-image", 400, 300), .embeddedPreview, "DNG → embedded preview")
         XCTAssertEqual(strategy("com.canon.cr2-raw-image", 6000, 4000), .embeddedPreview)
-        XCTAssertEqual(strategy(UTType.jpeg.identifier, 4032, 3024), .thumbnail, "an ordinary photo")
-        XCTAssertEqual(strategy(UTType.png.identifier, 10000, 5000), .thumbnail, "exactly 50 MP is not over")
-        XCTAssertEqual(strategy(UTType.png.identifier, 10000, 5001), .subsampled(factor: 4))
-        XCTAssertEqual(strategy(UTType.jpeg.identifier, 10000, 10000), .subsampled(factor: 4), "100 MP → 2500 px")
-        XCTAssertEqual(strategy(UTType.tiff.identifier, 20000, 15000), .subsampled(factor: 8))
-        XCTAssertEqual(strategy(UTType.heic.identifier, 12000, 5000), .thumbnail, "HEIC's tiled decode stays bounded")
+        // ≤ 2560 px: nothing to reduce.
+        XCTAssertEqual(strategy(jpeg, 2560, 1920), .thumbnail)
+        XCTAssertEqual(strategy(UTType.png.identifier, 1179, 2556), .thumbnail, "a phone screenshot")
+        // Over 2560 but can't be halved without dropping under 1600 px: decodes as before.
+        XCTAssertEqual(strategy(jpeg, 2561, 1920), .thumbnail)
+        XCTAssertEqual(strategy(jpeg, 3199, 2400), .thumbnail)
+        // The largest of 8/4/2 that keeps the long edge ≥ 1600.
+        XCTAssertEqual(strategy(jpeg, 3200, 2400), .subsampled(factor: 2), "3200 / 2 = 1600 exactly")
+        XCTAssertEqual(strategy(jpeg, 4032, 3024), .subsampled(factor: 2), "12 MP → 2016×1512")
+        XCTAssertEqual(strategy(UTType.heic.identifier, 3024, 4032), .subsampled(factor: 2), "HEIC too, portrait too")
+        XCTAssertEqual(strategy(UTType.heic.identifier, 8064, 6048), .subsampled(factor: 4), "48 MP → 2016 px")
+        XCTAssertEqual(strategy(UTType.heif.identifier, 8064, 6048), .subsampled(factor: 4))
+        XCTAssertEqual(strategy(UTType.png.identifier, 10000, 10000), .subsampled(factor: 4), "100 MP → 2500 px")
+        XCTAssertEqual(strategy(UTType.tiff.identifier, 12800, 9600), .subsampled(factor: 8), "12800 / 8 = 1600 exactly")
+        XCTAssertEqual(strategy(UTType.tiff.identifier, 12799, 9600), .subsampled(factor: 4))
+        // Formats ImageIO doesn't document subsampling for keep the thumbnail path.
+        XCTAssertEqual(strategy(UTType.webP.identifier, 4000, 3000), .thumbnail)
         XCTAssertEqual(strategy(nil, 20000, 20000), .thumbnail)
+    }
+
+    /// One end-to-end run per subsampled format — each carrying an EXIF orientation so the
+    /// hand-applied rotation is exercised on real decoder output, not just in isolation.
+    /// Stored: left half red, right half blue.
+    func testSubsampledDecodeProducesAnUprightReducedImageForEachFormat() throws {
+        struct Case { let type: UTType; let width: Int; let height: Int; let orientation: Int
+                      let factor: Int; let expected: (width: Int, height: Int) }
+        let cases = [
+            // 6 = rotate 90° CW: stored-left (red) becomes the TOP.
+            Case(type: .jpeg, width: 4000, height: 1000, orientation: 6, factor: 2, expected: (500, 2000)),
+            Case(type: .heic, width: 3600, height: 1800, orientation: 6, factor: 2, expected: (900, 1800)),
+            Case(type: .tiff, width: 6400, height: 800, orientation: 6, factor: 4, expected: (200, 1600)),
+            Case(type: .png, width: 4000, height: 1000, orientation: 1, factor: 2, expected: (2000, 500)),
+        ]
+        for testCase in cases {
+            let stored = try makeSplitImage(width: testCase.width, height: testCase.height, left: red, right: blue)
+            guard let data = try? encodeImages([stored], as: testCase.type,
+                                               properties: [kCGImagePropertyOrientation: testCase.orientation]) else {
+                XCTAssertEqual(testCase.type, .heic, "only HEIC encoding may be unavailable on a host")
+                continue
+            }
+            let label = testCase.type.identifier
+            XCTAssertEqual(ImagePreparation.decodeStrategy(typeIdentifier: testCase.type.identifier,
+                                                           pixelWidth: testCase.width, pixelHeight: testCase.height),
+                           .subsampled(factor: testCase.factor), label)
+
+            let prepared = try XCTUnwrap(ImagePreparation.prepare(data), label)
+
+            let output = try XCTUnwrap(decodeImage(prepared.data), label)
+            XCTAssertEqual(output.width, testCase.expected.width, "\(label) width")
+            XCTAssertEqual(output.height, testCase.expected.height, "\(label) height")
+            XCTAssertEqual((output.properties[kCGImagePropertyOrientation] as? Int) ?? 1, 1, "\(label): upright pixels")
+            if testCase.orientation == 6 {
+                assertColor(pixel(output.image, x: output.image.width / 2, y: 20), (255, 0, 0), "\(label): red on top")
+                assertColor(pixel(output.image, x: output.image.width / 2, y: output.image.height - 20), (0, 0, 255),
+                            "\(label): blue at the bottom")
+            } else {
+                assertColor(pixel(output.image, x: 20, y: output.image.height / 2), (255, 0, 0), "\(label): red left")
+                assertColor(pixel(output.image, x: output.image.width - 20, y: output.image.height / 2), (0, 0, 255),
+                            "\(label): blue right")
+            }
+        }
+    }
+
+    /// A reduced decode that's still over 2560 px is scaled down in the same draw: 6000×4000
+    /// halves to 3000×2000, then lands at 2560×1707.
+    func testSubsampledDecodeStillOverTheCapIsScaledToIt() throws {
+        let source = try encodeImages([makeSplitImage(width: 6000, height: 4000, left: red, right: blue)], as: .jpeg)
+        XCTAssertEqual(ImagePreparation.decodeStrategy(typeIdentifier: UTType.jpeg.identifier, pixelWidth: 6000, pixelHeight: 4000),
+                       .subsampled(factor: 2))
+
+        let output = try XCTUnwrap(decodeImage(try XCTUnwrap(ImagePreparation.prepare(source)).data))
+
+        XCTAssertEqual(output.width, 2560)
+        XCTAssertEqual(output.height, 1707)
+    }
+
+    /// The share extension's file-based path (`StagedFileStore.stagePreparedImage`) goes through
+    /// the same reduced decode: a 12 MP-class JPEG stages at half resolution.
+    func testFileBasedPreparationUsesTheSubsampledDecode() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "prep-file-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = StagedFileStore(userId: UUID(), directory: dir)
+        let source = dir.appending(path: "IMG_0001.JPG")
+        try encodeImages([makeSplitImage(width: 4032, height: 3024, left: red, right: blue)], as: .jpeg).write(to: source)
+
+        let staged = try store.stagePreparedImage(from: source)
+
+        XCTAssertTrue(staged.wasReencoded)
+        let output = try XCTUnwrap(decodeImage(try Data(contentsOf: staged.url)))
+        XCTAssertEqual(output.width, 2016)
+        XCTAssertEqual(output.height, 1512)
     }
 
     /// The subsampled path orients by hand; ImageIO's own `WithTransform` thumbnail is the oracle,
@@ -223,8 +309,8 @@ final class ImagePreparationTests: XCTestCase {
         }
     }
 
-    /// A synthetic > 50 MP PNG goes through the subsampled decode: bounded to 1/4 scale here
-    /// (2050×1550), comfortably under 2560, colors intact.
+    /// A synthetic 50.8 MP PNG goes through the subsampled decode at 1/4 scale (8200 / 4 = 2050,
+    /// the largest factor keeping the long edge ≥ 1600): 2050×1550, colors intact.
     func testHugePNGIsPreparedThroughTheSubsampledDecode() throws {
         let width = 8200, height = 6200   // 50.84 MP
         let gray = CGColorSpaceCreateDeviceGray()

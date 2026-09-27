@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 /// share-extension images (`StagedFileStore.stagePreparedImage(from:)`, file-based).
 ///
 /// Policy (plan Global Constraints, "Image preparation"):
-/// - longest edge ≤ `maxLongestEdge` (2560 px), never upscaled;
+/// - longest edge ≤ `maxLongestEdge` (2560 px), never upscaled — a source big enough to decode
+///   subsampled (see "Decoding" below) lands between 1600 and 2560 px, e.g. 12 MP → 2016×1512;
 /// - re-encoded as JPEG at `jpegQuality` (0.82), EXIF orientation applied to the pixels;
 /// - every other piece of source metadata (GPS, device make/model, capture dates) is dropped —
 ///   the output is written from a bare `CGImage`, which carries none of it;
@@ -22,14 +23,17 @@ import UniformTypeIdentifiers
 ///   can't rewrite GIF metadata losslessly ("not supported for lossless metadata modification"),
 ///   so a GIF is kept exactly as-is — GPS in a GIF is rare (XMP only).
 ///
-/// Decoding (plan 15 review, measured — see task-2-report.md): ImageIO's thumbnail generator
-/// decodes the whole source for PNG/TIFF and for a JPEG whose DCT reduction can't reach the
-/// target, so a very large source can cost several hundred MB — fatal under the share extension's
-/// ~120 MB ceiling. `decodeStrategy` therefore routes a camera RAW to its embedded preview, and a
-/// JPEG/PNG/TIFF over `largeImagePixelThreshold` to a subsampled decode
-/// (`kCGImageSourceSubsampleFactor`, bounded to `subsampledDecodePixelBudget` pixels; orientation
-/// applied by hand) — at the price of an output a little under 2560 px for such huge sources.
-/// HEIC stays on the thumbnail path (its tiled decoder doesn't grow with image size).
+/// Decoding (plan 15, measured — see task-2-report.md): ImageIO's thumbnail generator decodes the
+/// whole source whenever it can't reach the target with a cheap reduction, so an ordinary 12 MP
+/// photo cost ~87 MB (JPEG) / ~114 MB (HEIC) of peak memory on the iOS simulator — too close to
+/// the share extension's ~120 MB ceiling (a killed extension loses the share). `decodeStrategy`
+/// therefore decodes every source whose long edge is over 2560 px, in a format ImageIO can
+/// subsample (JPEG, HEIF/HEIC, TIFF, PNG), directly at reduced resolution
+/// (`kCGImageSourceSubsampleFactor`: the largest 2/4/8 that keeps the long edge ≥
+/// `minimumSubsampledLongEdge`) and applies the EXIF orientation by hand. A 4032×3024 photo lands
+/// at 2016×1512, 48 MP at 2016 px; a source that can't be halved without dropping under 1600 px
+/// (e.g. 3000 px) decodes through the thumbnail generator as before. A camera RAW goes to its
+/// embedded preview.
 ///
 /// ImageIO/CoreGraphics only (no UIKit) so the whole policy runs under `swift test` on the macOS
 /// host exactly as it does in the app and the extension.
@@ -37,10 +41,8 @@ public enum ImagePreparation {
     public static let maxLongestEdge = 2560
     public static let jpegQuality: CGFloat = 0.82
     public static let passthroughJPEGMaxBytes = 2 * 1024 * 1024
-    /// Above this many source pixels, a JPEG/PNG/TIFF is decoded subsampled (see type doc).
-    public static let largeImagePixelThreshold = 50_000_000
-    /// Most pixels a subsampled decode may produce (8 MP ≈ 32 MB of RGBA).
-    static let subsampledDecodePixelBudget = 8 * 1024 * 1024
+    /// A subsampled decode never takes the long edge below this (see `decodeStrategy`).
+    public static let minimumSubsampledLongEdge = 1600
     /// A RAW's embedded preview is used when at least this long (or already the target size);
     /// a smaller one (a tiny EXIF thumbnail) would be a visible quality loss.
     static let minimumUsablePreviewEdge = 1024
@@ -68,7 +70,8 @@ public enum ImagePreparation {
         case thumbnail
         /// A camera RAW: its embedded preview when usable, else the full decode.
         case embeddedPreview
-        /// A huge JPEG/PNG/TIFF: decoded at 1/`factor` scale, then oriented and sized by hand.
+        /// A JPEG/HEIF/TIFF/PNG over 2560 px: decoded at 1/`factor` scale, then oriented (and,
+        /// if still over the target, scaled) by hand in the same draw.
         case subsampled(factor: Int)
     }
 
@@ -90,15 +93,26 @@ public enum ImagePreparation {
         return .reencode(longestEdge: longest > 0 ? min(longest, maxLongestEdge) : maxLongestEdge)
     }
 
-    /// Pure decision — see `DecodeStrategy`. The subsample factor is the smallest of 2/4/8 that
-    /// brings the decode within `subsampledDecodePixelBudget`.
+    /// Pure decision — see `DecodeStrategy`. A source over `maxLongestEdge` in a format ImageIO
+    /// can subsample gets the LARGEST factor of 8/4/2 that keeps its long edge ≥
+    /// `minimumSubsampledLongEdge`; when even 2 would go under (long edge < 3200) it stays on the
+    /// thumbnail path, whose full decode is then small enough anyway.
     public static func decodeStrategy(typeIdentifier: String?, pixelWidth: Int, pixelHeight: Int) -> DecodeStrategy {
         guard let type = typeIdentifier.flatMap({ UTType($0) }) else { return .thumbnail }
         if type.conforms(to: .rawImage) { return .embeddedPreview }
-        guard pixelWidth * pixelHeight > largeImagePixelThreshold,
-              type.conforms(to: .jpeg) || type.conforms(to: .png) || type.conforms(to: .tiff) else { return .thumbnail }
-        let factor = [2, 4, 8].first { (pixelWidth / $0) * (pixelHeight / $0) <= subsampledDecodePixelBudget } ?? 8
+        let longest = max(pixelWidth, pixelHeight)
+        guard longest > maxLongestEdge, supportsSubsampledDecode(type),
+              let factor = [8, 4, 2].first(where: { longest >= minimumSubsampledLongEdge * $0 }) else {
+            return .thumbnail
+        }
         return .subsampled(factor: factor)
+    }
+
+    /// The formats ImageIO documents `kCGImageSourceSubsampleFactor` for: JPEG, HEIF, TIFF, PNG.
+    /// (`public.heic` doesn't conform to `public.heif`, so it's listed on its own.)
+    static func supportsSubsampledDecode(_ type: UTType) -> Bool {
+        type.conforms(to: .jpeg) || type.conforms(to: .heic) || type.conforms(to: .heif)
+            || type.conforms(to: .tiff) || type.conforms(to: .png)
     }
 
     /// `Data`-based preparation for the composer. `nil` when ImageIO can't read the bytes as an
@@ -181,9 +195,15 @@ public enum ImagePreparation {
             return thumbnail(source, index: index, longestEdge: longestEdge, alwaysFromFullImage: true)
                 .flatMap(flattenedIfNeeded)
         case .subsampled(let factor):
-            let options: [CFString: Any] = [kCGImageSourceSubsampleFactor: factor, kCGImageSourceShouldCache: false]
-            guard let decoded = CGImageSourceCreateImageAtIndex(source, index, options as CFDictionary) else { return nil }
-            return oriented(decoded, exifOrientation: orientation, longestEdge: longestEdge)
+            // Decoded straight at 1/factor (the full-size pixels never exist in memory), then
+            // oriented — and scaled, if still over `longestEdge` — in one draw. The pool releases
+            // the reduced decode as soon as the upright copy exists.
+            return autoreleasepool {
+                let options: [CFString: Any] = [kCGImageSourceSubsampleFactor: factor,
+                                                kCGImageSourceShouldCacheImmediately: true]
+                guard let decoded = CGImageSourceCreateImageAtIndex(source, index, options as CFDictionary) else { return nil }
+                return oriented(decoded, exifOrientation: orientation, longestEdge: longestEdge)
+            }
         }
     }
 
