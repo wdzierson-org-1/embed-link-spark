@@ -2,67 +2,57 @@ import SwiftUI
 import StashKit
 import Supabase
 
-/// One row in the Ask thread: a `.saved` capture chip, a right-aligned/tinted user bubble, or a
-/// left-aligned assistant bubble (streaming cursor, source chips, read-aloud, thumbs). Assistant
-/// content renders through `MarkdownBlocksView`, with citation markers (`[3]` / `[Title](#3)`)
-/// baked by `ChatCitations.link` into tappable `#item=<uuid>` links (Plan 8 Task 4 — Will:
-/// "replicate the web model where the user clicks hyperlinks from the chat itself to open the
-/// detail sheet"); the `.environment(\.openURL, …)` handler that routes those taps to
-/// `onCitationTap` lives at the thread level in `AskView`, not per-bubble.
-struct ChatBubble: View {
+/// One row in the Ask thread: a right-aligned/tinted user bubble, or a left-aligned assistant
+/// bubble (streaming cursor, source chips, read-aloud, thumbs). Assistant content renders as
+/// markdown, with citation markers (`[3]` / `[Title](#3)`) baked by `ChatCitations.link` into
+/// tappable `#item=<uuid>` links (Plan 8 Task 4 — Will: "replicate the web model where the user
+/// clicks hyperlinks from the chat itself to open the detail sheet"); the
+/// `.environment(\.openURL, …)` handler that routes those taps to `onCitationTap` lives at the
+/// thread level in `AskView`, not per-bubble.
+///
+/// Plan 15 (M1): `Equatable` over exactly what it draws, and used with `.equatable()` in
+/// `AskView`, so while an answer streams only the streaming bubble re-renders — finished bubbles
+/// skip their body entirely. The two closures are deliberately left out of `==`: they're rebuilt
+/// on every parent render, which is what used to defeat SwiftUI's diffing. The answer's citation
+/// linking and markdown parse come memoized from `ChatRenderCache`.
+///
+/// Plan 15 (M11): the `.saved` capture-chip row is gone with chat-as-capture — Ask is
+/// retrieval-only.
+struct ChatBubble: View, Equatable {
     let message: ChatMessage
     let index: Int
     /// Nearest preceding `.user` message's text, for the `chat_feedback` row's `question` column.
-    /// `ChatMessage` (Task 2, already shipped/tested) carries no `question` field of its own, so
-    /// this is inferred at the view layer instead of on the model — empty when there's no earlier
-    /// question in the thread, matching the web's own fallback for restored history (which never
-    /// carries a `question` either: ChatMole.tsx's `message.question || ''`).
+    /// `ChatMessage` carries no `question` field of its own, so this is inferred at the view
+    /// layer instead of on the model — empty when there's no earlier question in the thread,
+    /// matching the web's own fallback for restored history (ChatMole.tsx's
+    /// `message.question || ''`).
     let question: String
     let userId: UUID
-    /// Which source is currently being fetched for the citation sheet (nil = none) — drives the
-    /// spinner on the matching chip across every bubble, so only one lookup is ever in flight.
+    /// Which source is currently being fetched for the citation sheet — nil unless it's one of
+    /// THIS message's sources (AskView filters it), so a citation tap re-renders only the bubble
+    /// whose chip shows the spinner. Only one lookup is ever in flight.
     let loadingSourceId: UUID?
-    var speech: SpeechReader
+    /// An interrupted answer (`ChatMessage.isInterrupted`) offers Retry while it's the thread's
+    /// last row and nothing is streaming.
+    let showsRetry: Bool
+    let speech: SpeechReader
     let onCitationTap: (UUID) -> Void
+    let onRetry: () -> Void
 
     @State private var rating: Int?
     @State private var cursorVisible = true
-    @State private var shimmerPhase: CGFloat = -1
+
+    nonisolated static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
+        lhs.message == rhs.message && lhs.index == rhs.index && lhs.question == rhs.question
+            && lhs.userId == rhs.userId && lhs.loadingSourceId == rhs.loadingSourceId
+            && lhs.showsRetry == rhs.showsRetry && lhs.speech === rhs.speech
+    }
 
     var body: some View {
         switch message.role {
-        case .saved: savedCard
         case .user: userBubble
         case .assistant: assistantBubble
         }
-    }
-
-    // MARK: - Saved chip (chat-as-capture)
-
-    private var isSaving: Bool { message.savedItemTitle == nil || message.savedItemTitle == "Saving…" }
-
-    private var savedCard: some View {
-        HStack(spacing: 10) {
-            Image(systemName: message.savedKind == "link" ? "link" : "note.text")
-                .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
-                .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: 8))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(message.savedItemTitle ?? "Saving…")
-                    .font(StashType.bodySemibold())
-                    .lineLimit(1)
-                    .accessibilityIdentifier("ask.bubble.\(index)")
-                if !isSaving {
-                    Text("Saved to your stash").font(StashType.meta()).foregroundStyle(StashColor.success)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .frame(maxWidth: 320, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-        .redacted(reason: isSaving ? .placeholder : [])
-        .overlay { if isSaving { shimmer } }
     }
 
     // MARK: - User bubble
@@ -70,7 +60,7 @@ struct ChatBubble: View {
     private var userBubble: some View {
         HStack {
             Spacer(minLength: 40)
-            // Same face and rhythm as the assistant side (`MarkdownBlocksView`, compact) —
+            // Same face and rhythm as the assistant side (`ChatAnswerText`, compact) —
             // DESIGN.md's one UI family. A bare `Text` here fell back to SF at the system size
             // while replies rendered Neue Montreal 14 (Will, 2026-09-07).
             Text(message.content)
@@ -86,49 +76,35 @@ struct ChatBubble: View {
 
     // MARK: - Assistant bubble
 
-    /// Citation markers in `message.content` baked into item links against `message.sources` —
-    /// see `ChatCitations.link`. Recomputed per render rather than cached on `ChatMessage`: cheap
-    /// (a couple of linear scans), and it must track `message.content` as it grows token-by-token
-    /// while streaming. `displayText` additionally runs `stripUnresolvedMarkers` (fix round 1):
-    /// once baked, `message.content` itself already IS the baked text (`ChatStore` bakes before
-    /// ever setting it — see that type's `.done` handling), so this is normally a no-op re-bake,
-    /// but it's what keeps a leftover, never-resolved `[Title](#N)` — an older row reloaded from
-    /// before this fix, or a genuinely unknown citation number — from rendering as a dead violet
-    /// link: `AttributedString(markdown:)` accepts any `#`-fragment href as a real, tappable link,
-    /// so the raw marker has to be stripped down to plain text rather than left for
-    /// `MarkdownBlocksView` to style.
-    private var linkedAnswer: (displayText: String, linkedSourceIDs: Set<UUID>) {
-        let baked = ChatCitations.link(answer: message.content, sources: message.sources)
-        return (ChatCitations.stripUnresolvedMarkers(baked.text), baked.linkedSourceIDs)
-    }
-
-    /// Web parity (`ChatMole.tsx`'s `extraSources`): only sources that ISN'T already reachable via
-    /// an inline link render as a fallback chip — not all-or-nothing. `linkedSourceIDs` already
-    /// accounts for links baked just now AND links that arrived pre-baked (reloaded history), so
-    /// this filter is correct in both cases without needing to know which.
-    private func extraSources(linkedSourceIDs: Set<UUID>) -> [ChatSource] {
-        message.sources.filter { !linkedSourceIDs.contains($0.id) }
-    }
-
+    /// `ChatRenderCache` derives, once per (message id, content, sources): the citation-baked
+    /// display text (`ChatCitations.link`, then `stripUnresolvedMarkers` so a never-resolved
+    /// `[Title](#N)` — an older reloaded row, or an unknown citation number — renders as plain
+    /// text rather than a dead violet link), which sources are linked inline, the fallback chips
+    /// (web parity, `extraSources`: only sources NOT already reachable via an inline link), and
+    /// the parsed markdown blocks.
     private var assistantBubble: some View {
-        let linked = linkedAnswer
-        let extras = extraSources(linkedSourceIDs: linked.linkedSourceIDs)
+        let rendered = ChatRenderCache.shared.answer(for: message)
         return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .lastTextBaseline, spacing: 2) {
+                    // Plan 15: what the server's agent loop is doing before the first token
+                    // ("Searching your stash…"), in plain meta text inside the existing
+                    // placeholder bubble. Its own identifier, so `ask.bubble.<n>` below keeps
+                    // meaning "the answer text" for the UI tests that poll it.
+                    if rendered.displayText.isEmpty, let status = message.streamStatus {
+                        Text(status.label)
+                            .font(StashType.meta())
+                            .foregroundStyle(StashColor.muted)
+                            .accessibilityIdentifier("ask.bubble.\(index).status")
+                    }
                     // A wholly-blank answer (the instant between the placeholder's append and the
                     // first delta) would otherwise have no meaningful accessibility presence to
-                    // find/poll — a single space keeps the identifier reliably resolvable, same as
-                    // the plain-Text era this replaced.
+                    // find/poll — a single space keeps the identifier reliably resolvable.
                     Group {
-                        if linked.displayText.isEmpty {
+                        if rendered.displayText.isEmpty {
                             Text(" ")
                         } else {
-                            // `compact: true` (final wave, item E/8): the bubble hugs its own
-                            // text width instead of stretching to `.padding(12)`'s full available
-                            // width, with tighter line/paragraph spacing appropriate to a chat
-                            // bubble rather than the detail sheet's reading column.
-                            MarkdownBlocksView(text: linked.displayText, compact: true)
+                            ChatAnswerText(blocks: rendered.blocks)
                         }
                     }
                     .accessibilityIdentifier("ask.bubble.\(index)")
@@ -137,18 +113,17 @@ struct ChatBubble: View {
                     }
                 }
                 // Links can't carry their own per-run accessibility identifiers inside `Text` —
-                // this marker exists solely so a future UI test can confirm a bubble rendered
-                // inline links without parsing rendered text. A REAL (non-zero) frame: a 0×0 view
-                // doesn't reliably participate in the accessibility tree at all, so `exists` would
-                // silently and permanently return false regardless of whether links are present.
-                if !linked.linkedSourceIDs.isEmpty {
+                // this marker exists solely so a UI test can confirm a bubble rendered inline
+                // links without parsing rendered text. A REAL (non-zero) frame: a 0×0 view
+                // doesn't reliably participate in the accessibility tree at all.
+                if !rendered.linkedSourceIDs.isEmpty {
                     Color.clear
                         .frame(width: 1, height: 1)
                         .accessibilityIdentifier("ask.bubble.\(index).hasLinks")
                         .accessibilityHidden(false)
                 }
-                if !extras.isEmpty {
-                    sourcesRow(extras)
+                if !rendered.extraSources.isEmpty {
+                    sourcesRow(rendered.extraSources)
                 }
                 actionsRow
             }
@@ -223,20 +198,23 @@ struct ChatBubble: View {
         }
     }
 
-    // MARK: - Actions row (read-aloud + thumbs)
+    // MARK: - Actions row (read-aloud + retry / thumbs)
 
     @ViewBuilder private var actionsRow: some View {
         if !message.content.isEmpty {
             HStack(spacing: 14) {
                 speakerButton
+                if showsRetry {
+                    retryButton
+                }
                 // DISCLOSED adaptation: the web only shows thumbs once a message's `sources` key
                 // has been set at all (even to `[]`) — a byproduct of `sources` staying
                 // `undefined` until the `.done` SSE event, which incidentally also hides thumbs on
                 // messages restored from history. `ChatMessage.sources` here is a plain
-                // non-optional array (always `[]` by default), so that distinction isn't
-                // representable — thumbs show on any bubble that's finished streaming instead,
-                // restored history included.
-                if !message.isStreaming {
+                // non-optional array, so that distinction isn't representable — thumbs show on
+                // any bubble that finished streaming instead, restored history included. Never on
+                // a partial (interrupted) answer: there's no complete answer to rate.
+                if !message.isStreaming && !message.isInterrupted {
                     thumbsRow
                 }
             }
@@ -253,6 +231,20 @@ struct ChatBubble: View {
             Image(systemName: isSpeaking ? "stop.circle.fill" : "speaker.wave.2")
         }
         .accessibilityIdentifier("ask.bubble.\(index).speak")
+    }
+
+    /// Plan 15 (L1 / iOS spec "SSE drop mid-answer: keep partial text, show retry"): the answer
+    /// stopped before the server finished; Retry asks the same question again. Same meta/muted
+    /// treatment as its neighbours in this row.
+    private var retryButton: some View {
+        Button(action: onRetry) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.clockwise")
+                Text("Retry")
+            }
+        }
+        .accessibilityLabel("Answer interrupted. Retry")
+        .accessibilityIdentifier("ask.bubble.\(index).retry")
     }
 
     private var thumbsRow: some View {
@@ -298,23 +290,89 @@ struct ChatBubble: View {
             }
         }
     }
+}
 
-    /// Mirrors `ItemCardView`'s processing shimmer (same gradient/opacity/duration recipe,
-    /// duplicated rather than shared — `ItemTagsSection`'s own copy already established that
-    /// precedent for a small loading treatment with no other consumer).
-    private var shimmer: some View {
-        GeometryReader { geo in
-            LinearGradient(colors: [.clear, .white.opacity(0.55), .clear],
-                            startPoint: .leading, endPoint: .trailing)
-                .frame(width: geo.size.width * 0.6)
-                .offset(x: shimmerPhase * geo.size.width)
-        }
-        .allowsHitTesting(false)
-        .onAppear {
-            withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
-                shimmerPhase = 1.6
+/// An assistant answer's markdown, drawn from `ChatRenderCache`'s memoized blocks (plan 15, M1)
+/// instead of re-parsing the whole answer on every render. The layout is exactly
+/// `MarkdownBlocksView(text:compact: true)`'s (Detail/MarkdownBlocksView.swift) — the compact
+/// mode that existed only for this bubble — modifier for modifier, so nothing looks different.
+private struct ChatAnswerText: View {
+    let blocks: [ChatRenderedBlock]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                view(for: block)
             }
         }
+    }
+
+    @ViewBuilder private func view(for block: ChatRenderedBlock) -> some View {
+        switch block {
+        case .paragraph(let text):
+            inlineText(text)
+
+        case .heading(let text):
+            inlineText(text)
+                .font(StashType.bodySemibold())
+
+        case .bullets(let items):
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("•").foregroundStyle(StashColor.faint)
+                        inlineText(item)
+                    }
+                    .padding(.leading, 16)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+
+        case .numbered(let items):
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(index + 1).").foregroundStyle(StashColor.faint)
+                        inlineText(item)
+                    }
+                    .padding(.leading, 16)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+
+        case .quote(let text):
+            HStack(spacing: 10) {
+                Rectangle()
+                    .fill(StashColor.violet600)
+                    .frame(width: 2)
+                inlineText(text)
+                    .foregroundStyle(StashColor.muted)
+            }
+
+        case .code(let text):
+            Text(text)
+                .font(StashType.mono())
+                .foregroundStyle(StashColor.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(StashColor.wash, in: RoundedRectangle(cornerRadius: StashRadius.input))
+        }
+    }
+
+    /// `MarkdownBlocksView.inlineText` in compact mode, minus the parse (already done): links in
+    /// DESIGN.md violet600 with no underline, body face, ~1.35 line height, hugging its content.
+    private func inlineText(_ parsed: AttributedString) -> some View {
+        var attributed = parsed
+        let linkRanges = attributed.runs.filter { $0.link != nil }.map(\.range)
+        for range in linkRanges {
+            attributed[range].foregroundColor = StashColor.violet600
+            attributed[range].underlineStyle = nil
+        }
+        return Text(attributed)
+            .font(StashType.body())
+            .foregroundStyle(StashColor.ink)
+            .lineSpacing(14 * 0.35)
+            .frame(maxWidth: nil, alignment: .leading)
     }
 }
 
@@ -337,8 +395,7 @@ private struct ChatFeedbackInsert: Encodable {
 /// `ChatCitations.link` forms render inline AND the per-source chip row fallback (exactly the
 /// leftover source, not all-or-nothing) render at once. See
 /// `AskView.seedCitationScreenshotFixtureIfRequested` for the equivalent seeded through the real
-/// running app (used for `task-4-links.png`, since the standing test account is gate-blocked for
-/// a live answer).
+/// running app.
 #Preview {
     ChatBubble(
         message: ChatMessage(
@@ -350,8 +407,10 @@ private struct ChatFeedbackInsert: Encodable {
         question: "What do my saved items say about persimmons?",
         userId: UUID(),
         loadingSourceId: nil,
+        showsRetry: false,
         speech: SpeechReader(),
-        onCitationTap: { _ in }
+        onCitationTap: { _ in },
+        onRetry: {}
     )
     .padding()
 }

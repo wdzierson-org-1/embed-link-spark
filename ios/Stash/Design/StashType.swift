@@ -26,16 +26,17 @@ enum StashType {
     /// True once `PPNeueMontreal-Medium` resolves via `UIFont(name:size:)` — the cheapest single
     /// probe for "did the whole family register", since every weight ships together in the same
     /// `UIAppFonts` entry. Read by the DEBUG-only `design.fontStatus` / `share.fontStatus` labels.
-    static var isNeueMontrealAvailable: Bool {
-        UIFont(name: "PPNeueMontreal-Medium", size: 12) != nil
-    }
+    ///
+    /// Cached (plan 15): every `StashType` font below consults this, and it used to run a
+    /// `UIFont(name:size:)` lookup per call — i.e. per text view per render. `UIAppFonts` are
+    /// registered before any app code runs, so the answer can't change for the process lifetime.
+    static let isNeueMontrealAvailable: Bool = UIFont(name: "PPNeueMontreal-Medium", size: 12) != nil
 
     /// True once `PPEditorialNew-Regular` resolves via `UIFont(name:size:)`. App-target-only (see
     /// the type doc comment above) — always `false` in the share extension, which is fine since
     /// nothing there calls `editorialTitle()`. Read by the DEBUG-only `design.fontStatus` label.
-    static var isEditorialAvailable: Bool {
-        UIFont(name: "PPEditorialNew-Regular", size: 12) != nil
-    }
+    /// Cached for the same reason as `isNeueMontrealAvailable`.
+    static let isEditorialAvailable: Bool = UIFont(name: "PPEditorialNew-Regular", size: 12) != nil
 
     private static func custom(_ psName: String, size: CGFloat, weight: Font.Weight) -> Font {
         isNeueMontrealAvailable ? .custom(psName, size: size) : .system(size: size, weight: weight)

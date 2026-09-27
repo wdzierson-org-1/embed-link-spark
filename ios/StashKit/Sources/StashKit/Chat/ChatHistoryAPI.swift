@@ -3,26 +3,34 @@ import Supabase
 
 // MARK: - ChatMessage
 
+/// One thread row. Plan 15: Ask is retrieval-only on every platform (the 2026-08-27 decision in
+/// `docs/ui-changes.md`), so the old `.saved` capture-chip role and its `savedItemTitle` /
+/// `savedKind` fields are gone — a thread only ever holds user questions and assistant answers.
 public struct ChatMessage: Identifiable, Equatable, Sendable {
-    public enum Role: String, Sendable { case user, assistant, saved }
+    public enum Role: String, Sendable { case user, assistant }
 
     public var id: String
     public var role: Role
     public var content: String
     public var sources: [ChatSource]
-    public var savedItemTitle: String?    // role == .saved chips
-    public var savedKind: String?         // "link" | "note"
     public var isStreaming: Bool
+    /// The server's latest tool-round status while an answer has no text yet ("Searching your
+    /// stash…") — cleared by the first published token. Only ever set on the in-flight answer.
+    public var streamStatus: ChatStreamStatus?
+    /// The stream ended before its `done` frame (dropped connection, clean EOF, mid-answer server
+    /// error): `content` is the partial answer, kept and persisted rather than thrown away, and
+    /// the bubble offers a retry. Never set on history reloads.
+    public var isInterrupted: Bool
 
     public init(id: String, role: Role, content: String, sources: [ChatSource] = [],
-                savedItemTitle: String? = nil, savedKind: String? = nil, isStreaming: Bool = false) {
+                isStreaming: Bool = false, streamStatus: ChatStreamStatus? = nil, isInterrupted: Bool = false) {
         self.id = id
         self.role = role
         self.content = content
         self.sources = sources
-        self.savedItemTitle = savedItemTitle
-        self.savedKind = savedKind
         self.isStreaming = isStreaming
+        self.streamStatus = streamStatus
+        self.isInterrupted = isInterrupted
     }
 }
 
@@ -87,8 +95,7 @@ public struct SupabaseChatHistory: ChatHistoryStoring {
     }
 
     /// ChatMole.tsx:96-107 — last `limit` messages newest-first off the wire, reversed to
-    /// oldest-first for display, keeping only user/assistant turns (a `saved` chip never
-    /// round-trips through this table on the web either).
+    /// oldest-first for display, keeping only user/assistant turns (any other role is dropped).
     ///
     /// Fix round 1: also selects `source_items` (`messages.source_items UUID[]`, migration
     /// 20250622205827) and reconstructs bare-id `ChatSource` stand-ins from it — same shape the
@@ -109,7 +116,7 @@ public struct SupabaseChatHistory: ChatHistoryStoring {
             .limit(limit)
             .execute().value
         return rows.reversed().compactMap { row in
-            guard let role = ChatMessage.Role(rawValue: row.role), role == .user || role == .assistant else { return nil }
+            guard let role = ChatMessage.Role(rawValue: row.role) else { return nil }
             let sources = (row.source_items ?? []).compactMap(UUID.init(uuidString:))
                 .map { ChatSource(id: $0, title: nil, type: nil, url: nil, n: nil) }
             return ChatMessage(id: row.id, role: role, content: row.content, sources: sources)

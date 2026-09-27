@@ -21,14 +21,46 @@ public struct ChatSource: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// What the server's agent loop is doing between tokens — chat-with-all-content's OPTIONAL
+/// `data:{status}` frames, emitted while a retrieval tool runs (index.ts: `search_stash` →
+/// `searching`, `browse_catalog` → `browsing`, `get_item` → `reading`). Plan 15 surfaces them in
+/// the empty placeholder bubble so a multi-second tool round reads as progress, not a stall.
+public enum ChatStreamStatus: Equatable, Sendable {
+    case searching
+    case browsing
+    case reading
+
+    /// Wire value → status; nil for anything this build doesn't know (the contract marks these
+    /// frames optional, so a new server-side status is ignored rather than mis-labelled).
+    public init?(wireValue: String) {
+        switch wireValue {
+        case "searching": self = .searching
+        case "browsing": self = .browsing
+        case "reading": self = .reading
+        default: return nil
+        }
+    }
+
+    /// The copy shown in the placeholder bubble until the first token lands.
+    public var label: String {
+        switch self {
+        case .searching: "Searching your stash…"
+        case .browsing: "Browsing your stash…"
+        case .reading: "Reading…"
+        }
+    }
+}
+
 public enum SSEEvent: Equatable, Sendable {
     case delta(String)
+    case status(ChatStreamStatus)
     case done(sources: [ChatSource])
     case serverError(String)
 }
 
-/// One SSE line → event. Mirrors ChatMole.tsx:272-285 exactly: only `data:`
-/// lines matter; the payload is JSON; delta / done+sources / error.
+/// One SSE line → event. Mirrors ChatMole.tsx's reader: only `data:` lines matter; the payload
+/// is JSON; delta / done+sources / error — plus the optional `status` frames the web ignores
+/// (plan 15: iOS shows them in the placeholder bubble).
 public func parseSSELine(_ line: String) -> SSEEvent? {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     guard trimmed.hasPrefix("data:") else { return nil }
@@ -43,6 +75,9 @@ public func parseSSELine(_ line: String) -> SSEEvent? {
         return .done(sources: sources)
     }
     if let message = object["error"] as? String { return .serverError(message) }
+    if let wire = object["status"] as? String, let status = ChatStreamStatus(wireValue: wire) {
+        return .status(status)
+    }
     return nil
 }
 
@@ -50,6 +85,8 @@ public protocol ChatStreaming: Sendable {
     func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error>
 }
 
+/// A stream that ends cleanly (EOF) without a `done` frame finishes this sequence normally —
+/// `ChatStore` is what notices the missing `done` and finalizes the partial answer (plan 15, L1).
 public struct LiveChatStreamer: ChatStreaming {
     public init() {}
     public func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error> {

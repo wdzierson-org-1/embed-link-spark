@@ -1,8 +1,12 @@
 import SwiftUI
 
 /// TextField + send, in the web's round-button convention (`StashDesign.swift`): the send circle
-/// is violet-filled while there's something to send. Pure input collection — routing
-/// (`store.send`, chip/gate handling) lives in `AskView`; this view only reports a tap.
+/// is violet-filled while there's something to send. Pure input collection — sending and the
+/// subscription gate live in `AskView`; this view only reports a tap.
+///
+/// Placeholder "Ask your stash…" is the web mole's, verbatim (plan 15): Ask is retrieval-only on
+/// every platform (`docs/ui-changes.md`, 2026-08-27), so it no longer advertises the retired
+/// "paste a link / 'remember:' to save" capture routes.
 ///
 /// A mic button (live dictation via `DictationController`) sat between the field and the send
 /// circle until 2026-09-07 — removed at Will's request; voice capture stays on the Add tab's
@@ -22,7 +26,7 @@ struct ChatComposerBar: View {
         HStack(alignment: .top, spacing: 8) {
             // Same face as the thread's bubbles (`StashType.body()`, DESIGN.md's one UI family) —
             // a bare `TextField` fell back to SF while the replies rendered Neue Montreal.
-            TextField("Ask, or paste a link / 'remember:' to save", text: $text, axis: .vertical)
+            TextField("Ask your stash…", text: $text, axis: .vertical)
                 .font(StashType.body())
                 .lineLimit(1...4)
                 .padding(.horizontal, 14)
