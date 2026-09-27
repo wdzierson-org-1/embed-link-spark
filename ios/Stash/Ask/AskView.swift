@@ -8,10 +8,10 @@ import AVFoundation
 /// message is a question — capture belongs to the Add tab and the share sheet, as on the web.
 ///
 /// Plan 15 tune-up: while an answer streams the session can't be switched out from under it (new
-/// chat / history are disabled; leaving the tab defers the let-go until the answer lands — see
-/// `ChatStore`), the thread only follows the stream while the reader is at the bottom or just
-/// sent (M2), drags dismiss the keyboard (L10), and error banners clear on the next send and on
-/// tap (L2).
+/// chat, history and the restore banner are disabled; leaving the tab defers the let-go until the
+/// answer lands — see `ChatStore`), the thread follows the stream until the user drags it away
+/// (M2), drags dismiss the keyboard (L10), and error banners clear on the next send and on tap
+/// (L2).
 struct AskView: View {
     let userId: UUID
 
@@ -26,18 +26,21 @@ struct AskView: View {
     @State private var citationErrorMessage: String?
     @State private var showConversations = false
 
-    // Thread-follow state (M2).
-    /// The visible rect's bottom edge is within a short distance of the content's end.
-    @State private var isNearBottom = true
-    /// The user just sent (or retried): follow the next appended rows even if scrolled up.
-    @State private var followOnNextChange = false
+    // Thread-follow state (M2, review fix).
+    /// Pin the thread to its end as it grows. Turned OFF only by the user dragging the thread
+    /// away from the end (`AskThreadScrollObserver` — programmatic scrolls and content growth
+    /// never count); back ON when they drag to the end again, send, retry, or the thread is
+    /// replaced.
+    @State private var isFollowing = true
+    /// The thread's UIScrollView, so a follow-scroll never lands under a moving finger.
+    @State private var threadScroll = AskThreadScrollHandle()
     @State private var threadVisible = false
     /// The thread was replaced while off screen (e.g. a conversation opened from the pushed
     /// Conversations list) — land at its end when it's next shown. True for the first appearance.
     @State private var jumpToBottomOnAppear = true
     @State private var lastMessageCount = 0
     @State private var lastFirstMessageId: String?
-    @State private var lastScrollTime = Date.distantPast
+    @State private var answerWasStreaming = false
 
     /// Exists purely to satisfy `ItemDetailView`'s init — citation sheets are read-only here (per
     /// the brief), so this store's own `items`/save plumbing is never read by anything else; it
@@ -46,15 +49,35 @@ struct AskView: View {
 
     private static let bottomAnchorID = "ask-bottom"
 
+    #if DEBUG
+    /// `--uitest-scripted-chat` (UI tests only): answers come from `ScriptedChatStreamer` — a
+    /// long, list-heavy answer streamed locally over ~6 s, status frames first — with in-memory
+    /// history, so nothing reaches or is saved on the server and the subscription gate (a client
+    /// check guarding a server call that never happens here) is bypassed. Compiled out of Release.
+    private static let usesScriptedChat = ProcessInfo.processInfo.arguments.contains("--uitest-scripted-chat")
+    #else
+    private static let usesScriptedChat = false
+    #endif
+
     init(userId: UUID) {
         self.userId = userId
-        _store = State(initialValue: ChatStore(
+        _store = State(initialValue: Self.makeStore(userId: userId))
+        _citationStore = State(initialValue: ItemStore(userId: userId, fetcher: SupabaseItemsFetcher()))
+    }
+
+    private static func makeStore(userId: UUID) -> ChatStore {
+        #if DEBUG
+        if usesScriptedChat {
+            return ChatStore(userId: userId, streamer: ScriptedChatStreamer(), history: ScriptedChatHistory(),
+                             accessToken: { "scripted" })
+        }
+        #endif
+        return ChatStore(
             userId: userId,
             streamer: LiveChatStreamer(),
             history: SupabaseChatHistory(),
             accessToken: { try await StashClient.shared.auth.session.accessToken }
-        ))
-        _citationStore = State(initialValue: ItemStore(userId: userId, fetcher: SupabaseItemsFetcher()))
+        )
     }
 
     var body: some View {
@@ -79,9 +102,13 @@ struct AskView: View {
         // Fire on tab switches only (pushing Conversations keeps this NavigationStack on
         // screen): the iOS analog of collapsing the web mole — an explicitly loaded old
         // conversation is let go, restorable via the banner. Mid-answer the store defers the
-        // let-go until the answer lands; coming back first cancels it.
+        // let-go until the answer lands; coming back first cancels it. Read-aloud stops with the
+        // tab, so it can never be left holding the audio session a voice memo needs.
         .onAppear { store.cancelPendingLetGo() }
-        .onDisappear { store.letGoIfExplicit() }
+        .onDisappear {
+            store.letGoIfExplicit()
+            speech.stop()
+        }
         .task {
             await store.loadHistoryOnce()
             #if DEBUG
@@ -166,6 +193,8 @@ struct AskView: View {
 
     /// Web's "Load previous conversation — <title>" banner: appears only on an empty thread
     /// after an explicitly loaded conversation was let go (tab switch or Start new chat).
+    /// Disabled while a send is in flight — it's still on screen while that send resolves its
+    /// session, and the store refuses the switch then anyway (H4).
     @ViewBuilder private var restoreBanner: some View {
         if store.messages.isEmpty, let previous = store.lastLoaded {
             Button {
@@ -188,6 +217,7 @@ struct AskView: View {
                     .strokeBorder(StashColor.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             }
             .buttonStyle(.plain)
+            .disabled(store.isStreaming)
             .accessibilityIdentifier("ask.restoreBanner")
         }
     }
@@ -231,15 +261,13 @@ struct AskView: View {
                 .padding(.horizontal)
                 .padding(.top, 12)
                 .padding(.bottom, 4)
-                // M2: track "is the reader at the bottom?" — only flips are delivered, so this
-                // costs nothing while scrolling within the middle of a long thread.
-                .onGeometryChange(for: Bool.self) { geometry in
-                    guard let visible = geometry.bounds(of: .scrollView) else { return true }
-                    // Within 80pt of the end still counts as "reading the latest".
-                    return geometry.size.height - visible.maxY < 80
-                } action: { nearBottom in
-                    isNearBottom = nearBottom
-                }
+                // M2: the user's own drags decide whether the thread keeps following. Must sit
+                // inside the scrolled content (it walks up to the real UIScrollView).
+                .background(
+                    AskThreadScrollObserver(handle: threadScroll) { atEnd in
+                        if isFollowing != atEnd { isFollowing = atEnd }
+                    }
+                )
             }
             // L10: drag the thread to put the keyboard away (the composer field has no other
             // dismiss path).
@@ -291,35 +319,50 @@ struct AskView: View {
             .accessibilityIdentifier("ask.emptyState")
     }
 
-    /// M2: follow the conversation only when the reader is already at the bottom, or just sent.
-    /// A replaced thread (history restored, conversation opened, new chat) lands at its end.
-    /// Content-only changes (the streaming answer growing, ≤10 Hz after `ChatStore`'s
-    /// coalescing) scroll at most every ~0.3s.
+    /// M2 (review fix): while `isFollowing`, every change pins the thread to its end — each
+    /// streamed publish (`ChatStore` already caps those at ~10 Hz), with no throttle, so a burst
+    /// of lines can never outrun the view — plus one settle scroll once the answer completes (its
+    /// thumbs/source-chips row lays out after that change). Nothing here ever turns following
+    /// OFF: only a user drag does (`AskThreadScrollObserver`). A replaced thread (history
+    /// restored, conversation opened, new chat) lands at its end and follows again.
     private func followThread(_ messages: [ChatMessage], proxy: ScrollViewProxy) {
         let firstId = messages.first?.id
         let threadReplaced = firstId != lastFirstMessageId
         lastFirstMessageId = firstId
-        let countChanged = messages.count != lastMessageCount
+        let rowsChanged = messages.count != lastMessageCount
         lastMessageCount = messages.count
+        let answerStreaming = messages.last?.isStreaming ?? false
+        let answerCompleted = answerWasStreaming && !answerStreaming
+        answerWasStreaming = answerStreaming
 
         if threadReplaced {
-            followOnNextChange = false
+            isFollowing = true
             if threadVisible {
                 proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-                lastScrollTime = Date()
             } else {
                 jumpToBottomOnAppear = true
             }
             return
         }
-        let justSent = followOnNextChange && countChanged
-        if justSent { followOnNextChange = false }
-        guard justSent || isNearBottom else { return }
-        let now = Date()
-        guard countChanged || now.timeIntervalSince(lastScrollTime) > 0.3 else { return }
-        lastScrollTime = now
-        withAnimation(.easeOut(duration: 0.2)) {
+        // Never pin under a moving finger: while the user is dragging (or it's still gliding)
+        // their gesture decides — it either leaves the end (following stops) or doesn't, and the
+        // next publish pins again.
+        guard isFollowing, !threadScroll.userIsScrolling else { return }
+        if rowsChanged {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+            }
+        } else {
+            // Growth of the streaming answer: pin without animation, so a scroll is never still
+            // in flight when the user puts a finger on the thread.
             proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        }
+        if answerCompleted {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard isFollowing, !threadScroll.userIsScrolling else { return }
+                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+            }
         }
     }
 
@@ -379,24 +422,26 @@ struct AskView: View {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         clearBanners()
-        guard subscription.canUseAI else {
+        guard canAsk else {
             gateMessage = "AI chat needs an active trial or subscription."
             return
         }
         input = ""
-        followOnNextChange = true
+        isFollowing = true
         Task { await store.send(text) }
     }
 
     private func retryTapped(messageId: String) {
         clearBanners()
-        guard subscription.canUseAI else {
+        guard canAsk else {
             gateMessage = "AI chat needs an active trial or subscription."
             return
         }
-        followOnNextChange = true
+        isFollowing = true
         Task { await store.retry(messageId: messageId) }
     }
+
+    private var canAsk: Bool { subscription.canUseAI || Self.usesScriptedChat }
 
     private func clearBanners() {
         gateMessage = nil
@@ -457,7 +502,10 @@ struct AskView: View {
 /// - Puts the shared audio session in `.playback` / `.spokenAudio` before speaking, so read-aloud
 ///   is audible with the silent switch on and after a voice memo left the session in `.record`;
 ///   once nothing is speaking it deactivates (letting other audio resume) and restores whatever
-///   category was set before.
+///   category was set before — but only while the session is still read-aloud's own: if anything
+///   else (a voice memo) has re-categorized it since, it's theirs and is left untouched (review
+///   fix — deactivating it would cut their recording off).
+/// - Stops with the Ask tab (`stop()` from `AskView.onDisappear`).
 /// - Delegate callbacks act only for the utterance that's current, so a late `didFinish` for
 ///   bubble A can't clear bubble B's speaking state after the user switched.
 @MainActor
@@ -474,6 +522,14 @@ final class SpeechReader: NSObject, AVSpeechSynthesizerDelegate {
     override init() {
         super.init()
         synthesizer.delegate = self
+    }
+
+    /// Stops any read-aloud in progress (the audio session is handed back from `didCancel`).
+    func stop() {
+        guard speakingId != nil || synthesizer.isSpeaking else { return }
+        currentUtterance = nil
+        speakingId = nil
+        synthesizer.stopSpeaking(at: .immediate)
     }
 
     func toggle(id: String, text: String) {
@@ -534,6 +590,10 @@ final class SpeechReader: NSObject, AVSpeechSynthesizerDelegate {
         guard let saved = savedSessionConfiguration else { return }
         savedSessionConfiguration = nil
         let session = AVAudioSession.sharedInstance()
+        // Someone else took the session since read-aloud set it up (e.g. the Add tab's voice
+        // recorder switched it to `.record`): it's theirs now — deactivating or re-categorizing
+        // it would cut them off.
+        guard session.category == .playback, session.mode == .spokenAudio else { return }
         do {
             try session.setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
@@ -546,3 +606,149 @@ final class SpeechReader: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 }
+
+/// Plan 15 review fix (M2): tells the Ask thread whether the USER has left or returned to the end
+/// of the conversation. Reports only for user-driven motion — a finger drag or the momentum after
+/// one (`isDragging || isDecelerating`) — never for programmatic scrolls, keyboard insets or the
+/// content growing under a still viewport, so a burst of streamed lines can't switch following
+/// off by itself.
+///
+/// UIScrollView KVO rather than SwiftUI geometry, for the reason `LibraryView` documents (verified
+/// there): on the iOS 17 floor, geometry/preference tracking fires at layout but not during an
+/// interactive scroll. Invisible and zero-size; must sit inside the `ScrollView`'s own content so
+/// walking `superview` reaches the real `UIScrollView`.
+private struct AskThreadScrollObserver: UIViewRepresentable {
+    /// Receives the thread's UIScrollView once found.
+    let handle: AskThreadScrollHandle
+    /// "Is the viewport at the end of the thread (within 80 pt)?" — called on every user-driven
+    /// offset change.
+    var onUserScroll: (_ atEnd: Bool) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(handle: handle) }
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        context.coordinator.onUserScroll = onUserScroll
+        // `didMoveToWindow` is when this view's full ancestor chain (up through the UIScrollView)
+        // exists — see `LibraryScrollOffsetObserver` for the verification.
+        view.onWindowAttach = { [weak view, weak coordinator = context.coordinator] in
+            guard let view, let coordinator else { return }
+            coordinator.attach(from: view)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        context.coordinator.onUserScroll = onUserScroll
+        if uiView.window != nil { context.coordinator.attach(from: uiView) }
+    }
+
+    final class ProbeView: UIView {
+        var onWindowAttach: (() -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { onWindowAttach?() }
+        }
+    }
+
+    final class Coordinator {
+        var onUserScroll: ((Bool) -> Void)?
+        private let handle: AskThreadScrollHandle
+        private var observation: NSKeyValueObservation?
+
+        init(handle: AskThreadScrollHandle) {
+            self.handle = handle
+        }
+
+        func attach(from view: UIView) {
+            guard observation == nil else { return }
+            var ancestor = view.superview
+            while let candidate = ancestor {
+                if let scrollView = candidate as? UIScrollView {
+                    handle.scrollView = scrollView
+                    observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
+                        guard scrollView.isDragging || scrollView.isDecelerating else { return }
+                        self?.onUserScroll?(Self.isAtEnd(scrollView))
+                    }
+                    return
+                }
+                ancestor = candidate.superview
+            }
+        }
+
+        /// A thread shorter than the viewport is always "at the end" (so a rubber-band pull on a
+        /// short thread doesn't stop following); otherwise within 80 pt of the last row counts.
+        static func isAtEnd(_ scrollView: UIScrollView) -> Bool {
+            let insets = scrollView.adjustedContentInset
+            let visibleHeight = scrollView.bounds.height - insets.top - insets.bottom
+            guard scrollView.contentSize.height > visibleHeight else { return true }
+            let endOffset = scrollView.contentSize.height + insets.bottom - scrollView.bounds.height
+            return endOffset - scrollView.contentOffset.y < 80
+        }
+    }
+}
+
+/// A weak reference to the Ask thread's UIScrollView (filled in by `AskThreadScrollObserver`),
+/// held in `@State` so follow-scrolls can check whether the user's finger — or the glide after
+/// it — is moving the thread right now.
+final class AskThreadScrollHandle {
+    weak var scrollView: UIScrollView?
+
+    var userIsScrolling: Bool {
+        guard let scrollView else { return false }
+        return scrollView.isDragging || scrollView.isDecelerating
+    }
+}
+
+#if DEBUG
+/// `--uitest-scripted-chat` answers (UI tests only — see `AskView.usesScriptedChat`): status
+/// frames first, then a long, list-heavy answer over ~6 s, including two bursts of ten bullets in
+/// a single delta (the case that once outran the throttled follow-scroll), ending in a paragraph
+/// that names the question — "End of the scripted answer to: <question>" — so a UI test can find
+/// each answer's last line.
+private struct ScriptedChatStreamer: ChatStreaming {
+    func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                continuation.yield(.status(.searching))
+                try? await Task.sleep(for: .milliseconds(400))
+                continuation.yield(.status(.reading))
+                try? await Task.sleep(for: .milliseconds(400))
+                for chunk in Self.answerChunks(for: message) {
+                    guard !Task.isCancelled else { break }
+                    continuation.yield(.delta(chunk))
+                    try? await Task.sleep(for: .milliseconds(110))
+                }
+                continuation.yield(.done(sources: []))
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func answerChunks(for question: String) -> [String] {
+        func bullet(_ n: Int) -> String { "- Point \(n): a short scripted line\n" }
+        var chunks = ["Here is everything that matched:\n\n"]
+        chunks += (1...20).map(bullet)
+        chunks.append((21...30).map(bullet).joined())
+        chunks += (31...50).map(bullet)
+        chunks.append((51...60).map(bullet).joined())
+        chunks.append("\nEnd of the scripted answer to: \(question)")
+        return chunks
+    }
+}
+
+/// In-memory history for `--uitest-scripted-chat`: a fresh thread every launch, nothing persisted.
+private struct ScriptedChatHistory: ChatHistoryStoring {
+    func latestConversation(userId: UUID) async throws -> ChatSessions.Candidate? { nil }
+    func createConversation(userId: UUID) async throws -> UUID { UUID() }
+    func loadHistory(conversationId: UUID, limit: Int) async throws -> [ChatMessage] { [] }
+    func persist(conversationId: UUID, role: String, content: String, sourceItemIds: [UUID]?) async {}
+    func generateTitle(for question: String) async -> String? { nil }
+    func setTitle(conversationId: UUID, title: String) async {}
+    func listConversations(searchText: String?, pageLimit: Int, pageOffset: Int) async throws -> [ConversationListRow] { [] }
+}
+#endif
