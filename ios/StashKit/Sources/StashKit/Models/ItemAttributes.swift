@@ -14,16 +14,19 @@ public struct CapturedLocation: Codable, Equatable, Hashable, Sendable {
     public var country: String?
     public var source: String
     public var capturedAt: String?
-
-    enum CodingKeys: String, CodingKey {
-        case label, latitude, longitude, city, region, country, source
-        case accuracyM = "accuracy_m"
-        case capturedAt = "captured_at"
-    }
+    /// Every key on the server's `location` object this build doesn't model yet (e.g. a future
+    /// `place_id`) — captured on decode, written back unchanged on encode via the same `AnyKey`
+    /// technique `ItemAttributes` uses at the top level. `location` is itself whole-value-replaced
+    /// on every edit (see `ItemAttributes`'s doc comment), so this is the only thing standing
+    /// between a server-written key here and its silent deletion the next time this build saves a
+    /// DIFFERENT top-level attribute (e.g. `media` or `link`), since every attributes PATCH
+    /// re-encodes the whole blob, `location` included.
+    public var extra: [String: JSONValue]
 
     public init(label: String, latitude: Double? = nil, longitude: Double? = nil,
                 accuracyM: Double? = nil, city: String? = nil, region: String? = nil,
-                country: String? = nil, source: String, capturedAt: String? = nil) {
+                country: String? = nil, source: String, capturedAt: String? = nil,
+                extra: [String: JSONValue] = [:]) {
         self.label = label
         self.latitude = latitude
         self.longitude = longitude
@@ -33,6 +36,46 @@ public struct CapturedLocation: Codable, Equatable, Hashable, Sendable {
         self.country = country
         self.source = source
         self.capturedAt = capturedAt
+        self.extra = extra
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyKey.self)
+        label = try container.decode(String.self, forKey: AnyKey(stringValue: "label")!)
+        latitude = try container.decodeIfPresent(Double.self, forKey: AnyKey(stringValue: "latitude")!)
+        longitude = try container.decodeIfPresent(Double.self, forKey: AnyKey(stringValue: "longitude")!)
+        accuracyM = try container.decodeIfPresent(Double.self, forKey: AnyKey(stringValue: "accuracy_m")!)
+        city = try container.decodeIfPresent(String.self, forKey: AnyKey(stringValue: "city")!)
+        region = try container.decodeIfPresent(String.self, forKey: AnyKey(stringValue: "region")!)
+        country = try container.decodeIfPresent(String.self, forKey: AnyKey(stringValue: "country")!)
+        source = try container.decode(String.self, forKey: AnyKey(stringValue: "source")!)
+        capturedAt = try container.decodeIfPresent(String.self, forKey: AnyKey(stringValue: "captured_at")!)
+
+        let known: Set<String> = [
+            "label", "latitude", "longitude", "accuracy_m", "city", "region", "country",
+            "source", "captured_at",
+        ]
+        var extra: [String: JSONValue] = [:]
+        for key in container.allKeys where !known.contains(key.stringValue) {
+            extra[key.stringValue] = try container.decode(JSONValue.self, forKey: key)
+        }
+        self.extra = extra
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: AnyKey.self)
+        try container.encode(label, forKey: AnyKey(stringValue: "label")!)
+        try container.encodeIfPresent(latitude, forKey: AnyKey(stringValue: "latitude")!)
+        try container.encodeIfPresent(longitude, forKey: AnyKey(stringValue: "longitude")!)
+        try container.encodeIfPresent(accuracyM, forKey: AnyKey(stringValue: "accuracy_m")!)
+        try container.encodeIfPresent(city, forKey: AnyKey(stringValue: "city")!)
+        try container.encodeIfPresent(region, forKey: AnyKey(stringValue: "region")!)
+        try container.encodeIfPresent(country, forKey: AnyKey(stringValue: "country")!)
+        try container.encode(source, forKey: AnyKey(stringValue: "source")!)
+        try container.encodeIfPresent(capturedAt, forKey: AnyKey(stringValue: "captured_at")!)
+        for (key, value) in extra {
+            try container.encode(value, forKey: AnyKey(stringValue: key)!)
+        }
     }
 }
 
@@ -43,20 +86,48 @@ public struct LinkAttributes: Codable, Equatable, Hashable, Sendable {
     public var durationS: Double?
     public var stars: Int?
     public var readTimeMin: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case flavor, author, stars
-        case durationS = "duration_s"
-        case readTimeMin = "read_time_min"
-    }
+    /// Every key on the server's `link` object this build doesn't model yet — e.g. the flavor
+    /// facts `add-url`/`extract-link-metadata` write per `flavor` (`site_name`, `video_id`, and
+    /// similar). Captured on decode, written back unchanged on encode. Same reasoning as
+    /// `CapturedLocation.extra`.
+    public var extra: [String: JSONValue]
 
     public init(flavor: String? = nil, author: String? = nil, durationS: Double? = nil,
-                stars: Int? = nil, readTimeMin: Int? = nil) {
+                stars: Int? = nil, readTimeMin: Int? = nil, extra: [String: JSONValue] = [:]) {
         self.flavor = flavor
         self.author = author
         self.durationS = durationS
         self.stars = stars
         self.readTimeMin = readTimeMin
+        self.extra = extra
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyKey.self)
+        flavor = try container.decodeIfPresent(String.self, forKey: AnyKey(stringValue: "flavor")!)
+        author = try container.decodeIfPresent(String.self, forKey: AnyKey(stringValue: "author")!)
+        durationS = try container.decodeIfPresent(Double.self, forKey: AnyKey(stringValue: "duration_s")!)
+        stars = try container.decodeIfPresent(Int.self, forKey: AnyKey(stringValue: "stars")!)
+        readTimeMin = try container.decodeIfPresent(Int.self, forKey: AnyKey(stringValue: "read_time_min")!)
+
+        let known: Set<String> = ["flavor", "author", "duration_s", "stars", "read_time_min"]
+        var extra: [String: JSONValue] = [:]
+        for key in container.allKeys where !known.contains(key.stringValue) {
+            extra[key.stringValue] = try container.decode(JSONValue.self, forKey: key)
+        }
+        self.extra = extra
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: AnyKey.self)
+        try container.encodeIfPresent(flavor, forKey: AnyKey(stringValue: "flavor")!)
+        try container.encodeIfPresent(author, forKey: AnyKey(stringValue: "author")!)
+        try container.encodeIfPresent(durationS, forKey: AnyKey(stringValue: "duration_s")!)
+        try container.encodeIfPresent(stars, forKey: AnyKey(stringValue: "stars")!)
+        try container.encodeIfPresent(readTimeMin, forKey: AnyKey(stringValue: "read_time_min")!)
+        for (key, value) in extra {
+            try container.encode(value, forKey: AnyKey(stringValue: key)!)
+        }
     }
 }
 
@@ -64,20 +135,48 @@ public struct LinkAttributes: Codable, Equatable, Hashable, Sendable {
 public struct MediaAttributes: Codable, Equatable, Hashable, Sendable {
     public var durationS: Double?
     public var fileName: String?
+    /// Every key on the server's `media` object this build doesn't model yet — notably `kind`
+    /// (the voice_note/recording/video subtype `add-file` computes once transcription finishes;
+    /// web reads it via `CardBits.tsx`'s `audioSubtype`/`isScreenshotItem`) and `transcript`
+    /// (status/model/chunk progress written by the chunked transcription job). `media` is never
+    /// edited from iOS at all, yet every whole-blob attributes PATCH re-encodes it from this
+    /// struct — before this field existed, saving e.g. a `location` edit would silently delete
+    /// these the next time the row was saved, because `MediaAttributes` had nowhere to put them.
+    /// Captured on decode, written back unchanged on encode.
+    public var extra: [String: JSONValue]
 
-    enum CodingKeys: String, CodingKey {
-        case durationS = "duration_s"
-        case fileName = "file_name"
-    }
-
-    public init(durationS: Double? = nil, fileName: String? = nil) {
+    public init(durationS: Double? = nil, fileName: String? = nil, extra: [String: JSONValue] = [:]) {
         self.durationS = durationS
         self.fileName = fileName
+        self.extra = extra
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyKey.self)
+        durationS = try container.decodeIfPresent(Double.self, forKey: AnyKey(stringValue: "duration_s")!)
+        fileName = try container.decodeIfPresent(String.self, forKey: AnyKey(stringValue: "file_name")!)
+
+        let known: Set<String> = ["duration_s", "file_name"]
+        var extra: [String: JSONValue] = [:]
+        for key in container.allKeys where !known.contains(key.stringValue) {
+            extra[key.stringValue] = try container.decode(JSONValue.self, forKey: key)
+        }
+        self.extra = extra
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: AnyKey.self)
+        try container.encodeIfPresent(durationS, forKey: AnyKey(stringValue: "duration_s")!)
+        try container.encodeIfPresent(fileName, forKey: AnyKey(stringValue: "file_name")!)
+        for (key, value) in extra {
+            try container.encode(value, forKey: AnyKey(stringValue: key)!)
+        }
     }
 }
 
-/// A `CodingKey` that accepts any string, letting `ItemAttributes` walk every key actually present
-/// in the JSON object rather than a fixed, closed set.
+/// A `CodingKey` that accepts any string, letting `ItemAttributes` — and, as of Task 5, its
+/// `CapturedLocation`/`LinkAttributes`/`MediaAttributes` leaves — each walk every key actually
+/// present in their own JSON object rather than a fixed, closed set.
 private struct AnyKey: CodingKey {
     let stringValue: String
     let intValue: Int?
@@ -102,13 +201,20 @@ private struct AnyKey: CodingKey {
 /// the server's row the next time it saves. `location`/`link`/`media` decode typed for call sites
 /// that read them; every other top-level key is captured in `extra` and written back unchanged.
 ///
-/// Preservation stops at the top level deliberately: `location`/`link`/`media` are themselves
-/// plain `Codable` structs (an unrecognized key nested *inside* one of them is dropped, not kept).
-/// The same whole-value-replace convention applies one level down — an edit that touches
-/// `location` always writes a complete new `CapturedLocation`, never a partial patch of it — so
-/// there's no code path that would author a sub-object containing a field this build can't parse
-/// and then need to hand it back untouched. Tripling the `AnyKey` machinery for leaves that can
-/// never actually lose data isn't worth the complexity.
+/// Preservation does NOT stop at the top level — `location`, `link`, and `media` each carry their
+/// own `extra: [String: JSONValue]` too (same `AnyKey` technique as this type), because nested
+/// loss here isn't hypothetical: `media` is never edited from iOS at all, yet every whole-blob
+/// attributes PATCH (any edit to `location`, `link`, title, description, …) re-encodes it from
+/// this build's typed `MediaAttributes`. Before `MediaAttributes.extra` existed, that re-encode
+/// silently dropped server-written keys this build didn't model — `media.kind` (the
+/// voice_note/recording/video subtype `add-file` computes after transcription) and
+/// `media.transcript` (status/model/chunk progress) chief among them — the very next time the row
+/// was saved for an unrelated reason. `link` has the same exposure for flavor facts (e.g.
+/// `site_name`, `video_id`) this build doesn't model. The whole-value-replace convention one level
+/// down still holds (an edit that touches `location` always writes a complete new
+/// `CapturedLocation`, never a partial patch of it), which is exactly why the ONLY way a nested
+/// key like `media.kind` survives an edit to a *sibling* attribute is if `MediaAttributes` itself
+/// round-trips keys it doesn't recognize — so each leaf struct now does, via its own `extra`.
 public struct ItemAttributes: Codable, Equatable, Hashable, Sendable {
     public var location: CapturedLocation?
     public var link: LinkAttributes?
