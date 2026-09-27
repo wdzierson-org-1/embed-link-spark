@@ -10,6 +10,14 @@ import StashKit
 /// to exactly one of the two heights in `CardHeroHeight` — the anatomy's own opening rule,
 /// applied uniformly (the web's plates are content-hugging; the grid's row-pairing needs a
 /// fixed hero height per card instead).
+///
+/// Plan 15 (Task 3) — hit testing: a `.fill`-scaled image (and the 1.25× blurred backdrop) is
+/// larger than its zone. `.clipped()` only clips DRAWING, not hit testing, and each card is drawn
+/// above the one before it, so the overflow of card N+1's hero used to swallow taps aimed at the
+/// bottom of card N (Will: "when tapping the bottom of the first item in the list, it often chooses
+/// the second item"). The imagery is therefore `.allowsHitTesting(false)` — the zone's fixed-size
+/// base carries the card's taps — and `LibraryView` also gives each card button an exact
+/// `contentShape`. Images load through `ImagePipeline` (memory + disk cache, downsampled decode).
 
 // MARK: - Tall / standard image treatments (shared by link covers and the `image` type)
 
@@ -34,14 +42,18 @@ struct TallContainedImage: View {
                         .opacity(0.4)
                     image.resizable().aspectRatio(contentMode: .fit)
                 }
+                .allowsHitTesting(false)
             }
             .clipped()
-            .accessibilityElement(children: .contain)
+            // One leaf element sized to the zone itself (not the overflowing backdrop), so the
+            // card's accessibility frame matches what's drawn.
+            .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("card.hero.tall")
     }
 }
 
 /// Landscape imagery / any non-tall link flavor with a usable image: fills the standard hero.
+/// Carries `card.hero.cover` (plan 15) — only present once the image has actually loaded.
 struct StandardCoverImage: View {
     let image: Image
 
@@ -50,8 +62,58 @@ struct StandardCoverImage: View {
         // the cover image must never be able to widen the card beyond its grid column.
         Color(.tertiarySystemFill)
             .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, maxHeight: CardHeroHeight.standard)
-            .overlay { image.resizable().aspectRatio(contentMode: .fill) }
+            .overlay { image.resizable().aspectRatio(contentMode: .fill).allowsHitTesting(false) }
             .clipped()
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("card.hero.cover")
+    }
+}
+
+// MARK: - Sizing (shared with the app-scope hero prefetch)
+
+/// The exact `ImageRequest` a card's hero makes — computed identically by the hero views and by
+/// `MainTabView`'s first-page prefetch, so a prefetched image is a memory hit on first draw.
+@MainActor
+enum CardHeroSizing {
+    /// Card width for the current window: `LibraryView.grid`'s 16pt side padding, one column on
+    /// phones (two where the width class is regular, 8pt apart).
+    static func cardWidth(regularWidth: Bool) -> CGFloat {
+        let columns: CGFloat = regularWidth ? 2 : 1
+        return ((ScreenMetrics.windowWidth - 32 - (columns - 1) * 8) / columns).rounded(.down)
+    }
+
+    /// nil when the item's hero isn't an image (plates, repo links, video items, no thumbnail).
+    static func fit(for item: Item, cardWidth: CGFloat) -> ImageFit? {
+        guard item.thumbnailURL != nil else { return nil }
+        let tall = CGSize(width: cardWidth, height: CardHeroHeight.tall)
+        let standard = CGSize(width: cardWidth, height: CardHeroHeight.standard)
+        switch item.type {
+        case .link:
+            let flavor = item.attributes.link?.flavor ?? "generic"
+            if flavor == "repo" { return nil }
+            return flavor == "video" || flavor == "book" ? .fit(tall) : .fill(standard)
+        case .image:
+            return .hero(portrait: tall, landscape: standard)
+        default:
+            return nil
+        }
+    }
+
+    static func request(for item: Item, cardWidth: CGFloat, scale: CGFloat) -> ImageRequest? {
+        guard let url = item.thumbnailURL, let fit = fit(for: item, cardWidth: cardWidth) else { return nil }
+        return ImageRequest(url: url, fit: fit, scale: scale)
+    }
+}
+
+/// Card content width for the hero views, set once by `LibraryView`.
+private struct CardWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 361
+}
+
+extension EnvironmentValues {
+    var cardWidth: CGFloat {
+        get { self[CardWidthKey.self] }
+        set { self[CardWidthKey.self] = newValue }
     }
 }
 
@@ -62,7 +124,7 @@ struct StandardCoverImage: View {
 /// image (nil `thumbnailURL`, or a failed load) always resolves to the favicon plate.
 struct LinkHeroZone: View {
     let item: Item
-    @State private var imageFailed = false
+    @Environment(\.cardWidth) private var cardWidth
 
     private var flavor: String { item.attributes.link?.flavor ?? "generic" }
     private var tall: Bool { flavor == "video" || flavor == "book" }
@@ -71,16 +133,14 @@ struct LinkHeroZone: View {
     var body: some View {
         if flavor == "repo" {
             RepoPlate(url: item.url, description: item.description)
-        } else if let url = item.thumbnailURL, !imageFailed {
-            AsyncImage(url: url) { phase in
+        } else if let url = item.thumbnailURL, let fit = CardHeroSizing.fit(for: item, cardWidth: cardWidth) {
+            CachedImage(url: url, fit: fit) { phase in
                 switch phase {
                 case .success(let image):
-                    coveredImage(image)
+                    coveredImage(Image(uiImage: image))
                 case .failure:
-                    // Can't flip `imageFailed` mid-body-evaluation; defer to the next tick so
-                    // the favicon-plate fallback renders on the following pass instead.
-                    Color.clear.frame(height: zoneHeight).onAppear { imageFailed = true }
-                default:
+                    FaviconPlate(url: item.url)
+                case .empty:
                     Color(.tertiarySystemFill).frame(height: zoneHeight)
                 }
             }
@@ -100,55 +160,50 @@ struct LinkHeroZone: View {
     }
 }
 
-/// Native `image`-type object zone: probes the real pixel aspect ratio on load
-/// (`isPortraitAspect`) to choose contained-tall vs cover-standard — SwiftUI's `Image` has no
-/// intrinsic-size accessor, so this fetches+decodes via `UIImage` the way the web reads
+/// Native `image`-type object zone: the real pixel aspect ratio (known once decoded) chooses
+/// contained-tall vs cover-standard (`isPortraitAspect`) — the way the web reads
 /// `naturalWidth`/`naturalHeight` from `onLoad`. A failed/missing load falls back to the file
 /// plate — a captured image never renders broken.
 struct ImageHeroZone: View {
     let item: Item
-    @State private var uiImage: UIImage?
-    @State private var failed = false
+    @Environment(\.cardWidth) private var cardWidth
 
     private var facts: String? { factsLine(mime: item.mimeType, size: item.fileSize) }
 
     var body: some View {
-        Group {
-            if let uiImage {
-                if isPortraitAspect(width: uiImage.size.width, height: uiImage.size.height) {
-                    TallContainedImage(image: Image(uiImage: uiImage))
-                } else {
-                    StandardCoverImage(image: Image(uiImage: uiImage))
+        if let url = item.thumbnailURL, let fit = CardHeroSizing.fit(for: item, cardWidth: cardWidth) {
+            CachedImage(url: url, fit: fit) { phase in
+                switch phase {
+                case .success(let image):
+                    if isPortraitAspect(width: image.size.width, height: image.size.height) {
+                        TallContainedImage(image: Image(uiImage: image))
+                    } else {
+                        StandardCoverImage(image: Image(uiImage: image))
+                    }
+                case .failure:
+                    filePlate
+                case .empty:
+                    Color(.tertiarySystemFill).frame(height: CardHeroHeight.standard)
                 }
-            } else if failed || item.thumbnailURL == nil {
-                // Screenshot identity carries through even on this rare imageless-fallback path
-                // (DESIGN.md's type-spectrum "screenshot" tint) — see `isScreenshotItem`'s doc
-                // comment (`CardChips.swift`) for why this reads the title, not `media.kind`.
-                FilePlate(kind: isScreenshotItem(item) ? .screenshot : .image,
-                          fileName: item.attributes.media?.fileName, factsLine: facts)
-            } else {
-                Color(.tertiarySystemFill).frame(height: CardHeroHeight.standard)
             }
+        } else {
+            filePlate
         }
-        .task(id: item.thumbnailURL) { await load() }
     }
 
-    private func load() async {
-        guard let url = item.thumbnailURL else { return }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let decoded = UIImage(data: data) else { failed = true; return }
-            uiImage = decoded
-        } catch {
-            failed = true
-        }
+    /// Screenshot identity carries through even on this rare imageless-fallback path
+    /// (DESIGN.md's type-spectrum "screenshot" tint) — `ItemDisplay.isScreenshot` reads
+    /// `media.kind` first, then the vision title's own words.
+    private var filePlate: some View {
+        FilePlate(kind: ItemDisplay.isScreenshot(item) ? .screenshot : .image,
+                  fileName: item.attributes.media?.fileName, factsLine: facts)
     }
 }
 
 /// Native `video`-type object zone: a thumbnail zone with the duration badge bottom-trailing.
 /// No frame-extraction from the video file itself yet (AVAssetImageGenerator is a heavier lift
 /// with no fixture to verify it against this task — `thumbnailURL` for a `.video` item points at
-/// the video file, which `AsyncImage` can't decode as a still) — an honest dark plate + duration
+/// the video file, which an image decoder can't read as a still) — an honest dark plate + duration
 /// badge stands in, same spirit as the other plates.
 struct VideoHeroZone: View {
     let item: Item

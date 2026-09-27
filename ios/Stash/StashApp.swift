@@ -8,6 +8,9 @@ struct StashApp: App {
     // launch/foreground refresh). Settings' own 30s while-visible polling is Task 7's addition on
     // top of this same instance.
     @State private var subscriptionStore = SubscriptionStore(checker: SupabaseSubscriptionChecker())
+    /// Plan 15 ("Instant library"): the signed-in user's `ItemStore` lives here, at app scope —
+    /// created (and hydrated from the disk cache) once per signed-in user, not by `LibraryView`.
+    @State private var libraryStores = LibraryStoreProvider()
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showSplash = true
@@ -30,7 +33,10 @@ struct StashApp: App {
                     switch session.state {
                     case .loading: ProgressView()
                     case .signedOut: SignInView()
-                    case .signedIn(let userId): MainTabView(userId: userId)
+                    case .signedIn(let userId):
+                        MainTabView(userId: userId, store: libraryStores.store(for: userId))
+                            // A different account never inherits the previous one's tab/search state.
+                            .id(userId)
                     }
                 }
                 if showSplash {
@@ -114,6 +120,14 @@ struct StashApp: App {
                     // status — and any gates A left open — would persist verbatim into user
                     // B's next session. See SubscriptionStore.reset()'s doc comment.
                     subscriptionStore.reset()
+                    // Plan 15: leaving a signed-in session — Settings sign-out, account deletion, or
+                    // a session the server revoked — drops the library store and its cached first
+                    // page + hero images, so nothing of that account stays on device. A launch
+                    // whose session restore fails (`.loading → .signedOut`) had no store yet, and
+                    // its per-user cache file is only ever read back for the same user.
+                    if case .signedIn = oldState {
+                        Task { await libraryStores.purge() }
+                    }
                 }
             }
         }

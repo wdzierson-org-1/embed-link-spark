@@ -210,10 +210,14 @@ Cancel; Return inserts a line (no separate hard-break gesture needed once
 Enter no longer submits). A confirmed save washes the note with violet-300 at
 25% opacity fading to 0 over 450ms, plus a brief checkmark + "Saved" caption
 (~2s); both are static (no fade animation) under reduced motion. A failed
-save keeps the draft and shows an inline error instead. Native touch adds a
-sheet-based editor (iOS: `.medium` detent) as its own adaptation of the web's
-inline expand-in-place editor — see `docs/ui-changes.md` for the parity
-notes.
+save keeps the draft and shows an inline error instead.
+
+*iOS (2026-09-27, plan 15): the card is ONE tap target that opens the detail
+sheet — no in-card controls. The note renders read-only (same violet fill bar,
+5-line clamp, right-rounded surface; nothing at all when empty — no "Add a
+note"), and is written in the detail sheet's Notes editor. The link kicker is
+a plain label (the sheet's URL bar opens the link). Web keeps the inline
+editor above. Supersedes plan 14's iOS card-note sheet.*
 
 **Cover crops are subject-aware.** A hero that `cover`-crops an image centres
 the crop on the detected subject, not the frame: sample the image (≤64px),

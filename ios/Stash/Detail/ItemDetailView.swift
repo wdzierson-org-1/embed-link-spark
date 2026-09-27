@@ -301,10 +301,13 @@ struct ItemDetailView: View {
     /// `.link` item whose `thumbnailURL` resolves (a scraped og-image), matching web's `hasImage`
     /// gate. Native `.video`/`.audio` players are still out of scope for this task ("as today" per
     /// the brief, and today there are none) — this call site's own gate above never reaches them.
+    /// Plan 15: loaded through the app's `ImagePipeline` (memory + disk cache, decoded at the
+    /// sheet's width instead of the original's full resolution) — a hero the card already showed
+    /// comes straight off disk.
     private func heroImage(_ url: URL) -> some View {
-        AsyncImage(url: url) { phase in
+        CachedImage(url: url, fit: DetailHeroSizing.fit) { phase in
             if case .success(let image) = phase {
-                image.resizable().aspectRatio(contentMode: .fit)
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
             } else {
                 Color(.tertiarySystemFill).aspectRatio(4 / 3, contentMode: .fit)
             }

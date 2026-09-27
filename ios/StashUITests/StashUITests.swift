@@ -97,6 +97,55 @@ final class StashUITests: XCTestCase {
         return reached
     }
 
+    // MARK: - Library search + card helpers (plan 15, Task 3)
+    //
+    // The View tab's search asks the server (`search-items`, web parity) after a 300 ms debounce
+    // and shows the instant local filter until it answers; server results are relevance-ranked
+    // (literal title/content matches first) and reach pages the phone hasn't loaded. So a fixture
+    // is found by its TITLE once the search has settled — never by grid position, and never via a
+    // shared child identifier like `card.typeChip`, which now matches one chip per result card.
+
+    /// Waits until the search pill (`library.search.pill`) stops reporting "searching" — i.e. the
+    /// grid shows the server's answer (or the local fallback, if the server failed).
+    @discardableResult
+    private func waitForLibrarySearchToSettle(_ app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
+        let pill = app.descendants(matching: .any)["library.search.pill"]
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", "searching"), object: pill)
+        return XCTWaiter().wait(for: [settled], timeout: timeout) == .completed
+    }
+
+    /// The grid card (`card.<n>`) whose accessibility label contains `title`.
+    private func libraryCard(_ app: XCUIApplication, titled title: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier MATCHES %@ AND label CONTAINS %@", #"card\.[0-9]+"#, title))
+            .firstMatch
+    }
+
+    /// Types `query` into the library search, waits for it to settle, and returns the card for
+    /// `title` (asserting it's there).
+    @discardableResult
+    private func searchLibrary(_ app: XCUIApplication, for query: String, cardTitled title: String) -> XCUIElement {
+        let searchField = app.textFields["library.search"]
+        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        searchField.tap()
+        searchField.typeText(query)
+        XCTAssertTrue(waitForLibrarySearchToSettle(app), "Search for '\(query)' never settled")
+        let card = libraryCard(app, titled: title)
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "Expected a card titled '\(title)' for search '\(query)'")
+        return card
+    }
+
+    /// Clears the search with the pill's own clear button (atomic: query → "" and keyboard down)
+    /// and waits for the unfiltered grid.
+    private func clearLibrarySearch(_ app: XCUIApplication) {
+        let searchField = app.textFields["library.search"]
+        searchField.tap()
+        let clear = app.buttons["library.search.clear"]
+        if clear.waitForExistence(timeout: 5) { clear.tap() }
+        XCTAssertTrue(app.descendants(matching: .any)["card.0"].waitForExistence(timeout: 15),
+                      "Expected the grid back after clearing the search")
+    }
+
     // MARK: - Fixture self-repair (Task 8 hardening)
     //
     // testEditSmoke's fixture-corruption failure mode has hit TWICE: a crashed run dying
@@ -231,25 +280,28 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: grid\n".data(using: .utf8)!)
         sleep(3)
 
-        // 2. Local search narrows to nothing for an unmatchable query, then clears back.
+        // 2. Search (plan 15: server `search-items` with the instant local filter as fallback).
         // (Type chips and the tag filter are gone — the 2026-08-28 UI pass removed the chip
         // row and hid tags from the View tab entirely, pending product-wide tag deprecation.
         // Search is the custom pill field now, a plain text field, not `.searchable` — so no
         // system "Cancel" button appears and no dismissal dance is needed.)
+        //
+        // a) A term that lives ONLY in a row's page_body ("florentine" — the Wikipedia article
+        //    behind "UITEST-FIXTURE: link two"; no title/description/content/url contains it, so
+        //    the local filter alone finds nothing) comes back from the server, ranked first.
         let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 5), "Search field not found")
-        searchField.tap()
-        let needle = "zzzunmatchablezzz"
-        searchField.typeText(needle)
-        XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 10), "Expected an empty state for an unmatchable search")
-        XCTAssertFalse(anyElement("card.0").exists, "No cards should be visible for an unmatchable search")
+        let pageBodyHit = searchLibrary(app, for: "florentine", cardTitled: "UITEST-FIXTURE: link two")
+        XCTAssertEqual(pageBodyHit.identifier, "card.0", "Expected the page_body match ranked first")
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: search\n".data(using: .utf8)!)
+        sleep(3)
+        clearLibrarySearch(app)
 
-        searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: needle.count))
-        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected cards to return after clearing the search")
-
-        // The pill field spawns no system Cancel button (unlike `.searchable`), so the keyboard
-        // would still be covering the tab bar here — return ("Search") dismisses it.
-        searchField.typeText("\n")
+        // b) A literal title match is ranked first even when the server's own relevance puts a
+        //    sibling above it ("note one" → "note two" scores close; the literal match wins).
+        let noteOne = searchLibrary(app, for: "note one", cardTitled: "UITEST-FIXTURE: note one")
+        XCTAssertEqual(noteOne.identifier, "card.0", "Expected the literal title match ranked first")
+        clearLibrarySearch(app)
 
         // 5. Sign out via the Settings tab (Task 7: relocated from the library toolbar's avatar
         // menu, which no longer exists — `library.menu`/`library.signOut` are gone).
@@ -289,25 +341,12 @@ final class StashUITests: XCTestCase {
         let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
 
-        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
-
         func openAndCheck(search: String, expectedTabs: [String], forbiddenTabs: [String],
                            checkpoint: String, extra: () -> Void = {}) {
-            searchField.tap()
-            searchField.typeText(search)
-            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
-            // Task 7 originally used a fixed-ratio coordinate tap (dy≈0.85) to clear the link
-            // kicker's own tap target — a plain `.tap()` (XCUITest's geometric center) could land
-            // on it for a compact card. Plan 14, Task 1 retired that coordinate entirely: the
-            // card's own note (`CardNoteView`, `card.note`/`card.addNote`) now ALSO claims its own
-            // tap via `.highPriorityGesture` (by design — DESIGN.md "Card note"), and unlike the
-            // kicker it's full-width and variable-height, so no fixed ratio can reliably clear it
-            // for every fixture this loop searches (confirmed live: "image one" has real note
-            // content, and dy=0.85 newly landed on it instead of the card background). Tapping the
-            // footer's own `card.typeChip` instead — present for every type this loop searches,
-            // never wrapped in a competing gesture — sidesteps both the kicker and the note
-            // unconditionally, regardless of a card's actual content/height.
-            app.descendants(matching: .any)["card.typeChip"].tap()
+            // Plan 15: the whole card is one tap target (no in-card note/kicker gestures left to
+            // dodge — the plan-14 `card.typeChip` workaround is gone), and server search ranks
+            // results, so the fixture is found by title and tapped anywhere.
+            searchLibrary(app, for: search, cardTitled: "UITEST-FIXTURE: \(search)").tap()
 
             let done = app.buttons["detail.done"]
             XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for '\(search)'")
@@ -325,15 +364,9 @@ final class StashUITests: XCTestCase {
 
             done.tap()
             XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
-            // Plan 12 Task 3 made the grid's card tap explicitly drop search focus
-            // (`searchFocused = false` before presenting the sheet, so the keyboard dismisses
-            // before the detail sheet appears — see task-3-report.md's "Smart keyboard dismissal").
-            // That means the field is no longer focused when we land back here after `done.tap()`,
-            // so typing the clearing delete-keys straight away fails to synthesize ("Neither
-            // element nor any descendant has keyboard focus") — re-tap to regain focus first,
-            // same as every other call site in this helper.
-            searchField.tap()
-            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
+            // The card tap dropped search focus (plan 12 Task 3), so `clearLibrarySearch`
+            // re-taps the field before using the pill's clear button.
+            clearLibrarySearch(app)
         }
 
         openAndCheck(search: "link one", expectedTabs: ["Summary", "Original Content"],
@@ -390,36 +423,32 @@ final class StashUITests: XCTestCase {
         let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
 
-        /// Narrows the grid to one fixture via a unique local-search substring (never grid
-        /// position — same reasoning `testDetailSheets` documents), waits for its card, runs
-        /// `assert`, screenshots, then clears the search back out and waits for the grid to
-        /// return before the next iteration types into the (shared) field — same clear-then-
-        /// confirm technique `testLibrarySmoke`'s own search step already established.
-        func isolateAndCheck(search: String, checkpoint: String, assert: () -> Void) {
-            searchField.tap()
-            searchField.typeText(search)
-            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
+        /// Finds one fixture's card by title after a search (never grid position — same reasoning
+        /// `testDetailSheets` documents; plan 15's server search returns several ranked cards, so
+        /// every assertion below is scoped INSIDE the fixture's own card), runs `assert`,
+        /// screenshots, then clears the search and waits for the grid to return.
+        func isolateAndCheck(search: String, title: String, checkpoint: String, assert: (XCUIElement) -> Void) {
+            let card = searchLibrary(app, for: search, cardTitled: title)
 
-            assert()
+            assert(card)
 
             FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: anatomy-\(checkpoint)\n".data(using: .utf8)!)
             sleep(2)
 
-            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
-            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the grid back after clearing '\(search)'")
+            clearLibrarySearch(app)
         }
 
         // 1. Repo link (Task 9 fixture) → dark repo plate, mono "owner/repo" label.
-        isolateAndCheck(search: "repo link", checkpoint: "repo") {
-            let plate = anyElement("card.repoplate")
+        isolateAndCheck(search: "repo link", title: "supabase/supabase-swift", checkpoint: "repo") { card in
+            let plate = card.descendants(matching: .any)["card.repoplate"]
             XCTAssertTrue(plate.waitForExistence(timeout: 10), "Expected a repo plate for the repo-link fixture")
             XCTAssertTrue(plate.label.contains("supabase/supabase-swift"),
                           "Expected the repo plate's label to contain 'supabase/supabase-swift', got '\(plate.label)'")
         }
 
         // 2. Located note (Task 9 fixture) → footer location badge, "posted from <label>".
-        isolateAndCheck(search: "located note", checkpoint: "location") {
-            let location = anyElement("card.location")
+        isolateAndCheck(search: "located note", title: "UITEST-FIXTURE: located note", checkpoint: "location") { card in
+            let location = card.descendants(matching: .any)["card.location"]
             XCTAssertTrue(location.waitForExistence(timeout: 10), "Expected a location badge for the located-note fixture")
             XCTAssertTrue(location.label.contains("Saratoga Springs"),
                           "Expected the location badge's label to contain 'Saratoga Springs', got '\(location.label)'")
@@ -432,9 +461,9 @@ final class StashUITests: XCTestCase {
         // correctness hinges on, so this asserts "one of the two", not a specific one. Whichever
         // branch actually renders is written to stderr and disclosed in the report rather than
         // silently assumed.
-        isolateAndCheck(search: "video link", checkpoint: "video") {
-            let tallHero = anyElement("card.hero.tall")
-            let favicon = anyElement("card.faviconplate")
+        isolateAndCheck(search: "video link", title: "Rick Astley", checkpoint: "video") { card in
+            let tallHero = card.descendants(matching: .any)["card.hero.tall"]
+            let favicon = card.descendants(matching: .any)["card.faviconplate"]
             let heroExists = tallHero.waitForExistence(timeout: 8)
             // 30s: the faviconplate branch renders only after AsyncImage fetch-FAILS the watch-page HTML — budget must exceed slow-network fetch failure, not just render time.
             let faviconExists = !heroExists && favicon.waitForExistence(timeout: 30)
@@ -446,8 +475,8 @@ final class StashUITests: XCTestCase {
 
         // 4. Document (pre-existing "document one" fixture — Task 7's own file-plate case, first
         // asserted on here rather than just visually confirmed) → file plate, "PDF" facts.
-        isolateAndCheck(search: "document one", checkpoint: "document") {
-            let plate = anyElement("card.fileplate")
+        isolateAndCheck(search: "document one", title: "UITEST-FIXTURE: document one", checkpoint: "document") { card in
+            let plate = card.descendants(matching: .any)["card.fileplate"]
             XCTAssertTrue(plate.waitForExistence(timeout: 10), "Expected a file plate for the document fixture")
             XCTAssertTrue(plate.label.contains("PDF"),
                           "Expected the file plate's label to contain 'PDF', got '\(plate.label)'")
@@ -602,17 +631,9 @@ final class StashUITests: XCTestCase {
         }
 
         let searchField = app.textFields["library.search"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
-        searchField.tap()
-        searchField.typeText("note one")
-        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'note one'")
-        // `card0()`'s own geometric-center tap now lands on the card's note (`CardNoteView`'s
-        // full-width `.highPriorityGesture`, plan 14 Task 1) for a fixture with real note content
-        // like "note one" — opening `CardNoteEditorSheet` instead of the detail sheet this test
-        // actually needs. `card.typeChip` (footer, never wrapped in a competing gesture) is the
-        // same fix `testDetailSheets.openAndCheck` already established for the identical problem —
-        // see that helper's own doc comment for the full rationale.
-        anyElement("card.typeChip").tap()
+        // Plan 15: found by title after the server search settles (never grid position — a wrong
+        // card here would edit another fixture), and opened by a plain whole-card tap.
+        searchLibrary(app, for: "note one", cardTitled: "UITEST-FIXTURE: note one").tap()
 
         let originalTitle = "UITEST-FIXTURE: note one"
         let epoch = Int(Date().timeIntervalSince1970)
@@ -634,8 +655,9 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
 
         // Reopen — searching the ORIGINAL substring still matches since the edit only appended.
-        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the edited card to still be findable")
-        anyElement("card.typeChip").tap()
+        let editedCard = libraryCard(app, titled: editedTitle)
+        XCTAssertTrue(editedCard.waitForExistence(timeout: 15), "Expected the edited card to still be findable")
+        editedCard.tap()
 
         let reopenedTitleField = anyElement("detail.title")
         XCTAssertTrue(reopenedTitleField.waitForExistence(timeout: 10), "Title field not found on reopen")
@@ -702,9 +724,10 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 10),
                       "Expected the library after the immediate-dismiss tap (Done should await the flush)")
 
-        XCTAssertTrue(card0().waitForExistence(timeout: 15),
+        let reopenedCard = libraryCard(app, titled: editedTitle)
+        XCTAssertTrue(reopenedCard.waitForExistence(timeout: 15),
                       "Expected the card to still be findable after the immediate-dismiss round trip")
-        anyElement("card.typeChip").tap()
+        reopenedCard.tap()
 
         let reopenedNotesField = app.textViews["detail.notes.editor"]
         XCTAssertTrue(reopenedNotesField.waitForExistence(timeout: 10),
@@ -800,15 +823,9 @@ final class StashUITests: XCTestCase {
             func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
             let searchField = app.textFields["library.search"]
-            XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
-            searchField.tap()
-            searchField.typeText(marker)
-            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the disposable item's card to appear")
-            // Same fix as `testEditSmoke`/`testPublicSmoke`: this row's own `content` is the
-            // disposable marker text, real note content that `card0()`'s geometric-center tap can
-            // land on (`CardNoteView`'s `.highPriorityGesture`, plan 14 Task 1) instead of opening
-            // the detail sheet this test needs.
-            anyElement("card.typeChip").tap()
+            // Plan 15: found by its marker once the server search settles; whole-card tap. (The
+            // marker is the row's `content`, which the card shows as its note preview.)
+            searchLibrary(app, for: marker, cardTitled: marker).tap()
 
             let deleteButton = app.buttons["detail.delete"]
             XCTAssertTrue(deleteButton.waitForExistence(timeout: 10), "Delete button not found in detail sheet")
@@ -818,9 +835,14 @@ final class StashUITests: XCTestCase {
             XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Delete confirmation dialog did not appear")
             confirmButton.tap()
 
-            // 1. Local store no longer matches the marker search.
-            XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
-                          "Expected no results for the deleted item's marker search after deletion")
+            // 1. The deleted card is gone from the (still-searched) grid. Server search always
+            // returns its nearest neighbours, so "no card for the marker" — not an empty state —
+            // is the assertion.
+            let deletedCard = libraryCard(app, titled: marker)
+            let goneAfterDelete = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                            object: deletedCard)
+            XCTAssertEqual(XCTWaiter().wait(for: [goneAfterDelete], timeout: 15), .completed,
+                           "Expected the deleted item's card to disappear after deletion")
 
             // 2. Clear the search back to the full unfiltered grid, then pull-to-refresh it: the
             // exact gesture from Will's report, and the one a purely-local "remove it from the
@@ -841,9 +863,10 @@ final class StashUITests: XCTestCase {
 
             searchField.tap()
             searchField.typeText(marker)
-            XCTAssertTrue(anyElement("library.empty").waitForExistence(timeout: 15),
-                          "Expected the deleted item to STILL be absent after a real pull-to-refresh " +
-                          "re-fetch — its reappearance here would mean the delete never actually landed server-side")
+            XCTAssertTrue(waitForLibrarySearchToSettle(app), "Marker search never settled")
+            XCTAssertFalse(libraryCard(app, titled: marker).exists,
+                           "Expected the deleted item to STILL be absent after a real pull-to-refresh " +
+                           "re-fetch — its reappearance here would mean the delete never actually landed server-side")
 
             // 3. Server-side proof, independent of anything this client believes: the row itself is
             // gone, not just absent from whatever this one session's store happens to hold.
@@ -883,14 +906,8 @@ final class StashUITests: XCTestCase {
         func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
         let searchField = app.textFields["library.search"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
-        searchField.tap()
-        searchField.typeText("note two")
-        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'note two'")
-        // Same fix as `testEditSmoke`/`testDetailSheets`: "note two" has real note content, so
-        // `card0()`'s own geometric-center tap now lands on `CardNoteView`'s `.highPriorityGesture`
-        // (plan 14 Task 1) instead of opening the detail sheet this test needs.
-        anyElement("card.typeChip").tap()
+        // Plan 15: by title after the server search settles, whole-card tap.
+        searchLibrary(app, for: "note two", cardTitled: "UITEST-FIXTURE: note two").tap()
 
         XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
 
@@ -1411,15 +1428,8 @@ final class StashUITests: XCTestCase {
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
         func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
-        let searchField = app.textFields["library.search"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
-        searchField.tap()
-        searchField.typeText(marker)
-        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for the seeded location item")
-        // Same fix as `testEditSmoke`/`testPublicSmoke`/`testDeleteSmoke`: this row's own `content`
-        // is the disposable marker text, real note content `card0()`'s geometric-center tap can
-        // land on instead of opening the detail sheet this test needs.
-        anyElement("card.typeChip").tap()
+        // Plan 15: by marker (the card's note preview) after the server search settles, whole-card tap.
+        searchLibrary(app, for: marker, cardTitled: marker).tap()
 
         XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
 
@@ -1931,11 +1941,7 @@ final class StashUITests: XCTestCase {
         func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
 
         let searchField = app.textFields["library.search"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
-        searchField.tap()
-        searchField.typeText("link one")
-        XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected a card for 'link one'")
-        card0().tap()
+        searchLibrary(app, for: "link one", cardTitled: "UITEST-FIXTURE: link one").tap()
 
         XCTAssertTrue(anyElement("detail.done").waitForExistence(timeout: 10), "Detail sheet did not present")
 
@@ -2171,32 +2177,24 @@ final class StashUITests: XCTestCase {
         let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
 
-        // Same narrow-assert-clear technique `testCardAnatomySmoke`'s `isolateAndCheck` already
-        // established: a unique local-search substring isolates one fixture card so
-        // `card.typeChip` (a shared identifier across every card in the grid) unambiguously
-        // refers to that one card's chip, never a sibling's.
-        func isolateAndCheck(search: String, assert: () -> Void) {
-            searchField.tap()
-            searchField.typeText(search)
-            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
-
-            assert()
-
-            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
-            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the grid back after clearing '\(search)'")
+        // Finds one fixture's card by title after the server search settles (plan 15), and reads
+        // `card.typeChip` (a shared identifier across every card in the grid) from INSIDE that
+        // card only, never a sibling's.
+        func isolateAndCheck(search: String, title: String, assert: (XCUIElement) -> Void) {
+            let card = searchLibrary(app, for: search, cardTitled: title)
+            assert(card.descendants(matching: .any)["card.typeChip"])
+            clearLibrarySearch(app)
         }
 
         // (a) Type chip present, correct label: audio fixture -> "voice note" (under the ten-
         // minute recording/voice-note threshold, CardChips.swift's `audioSubtype`), document
         // fixture -> "pdf" (lowercased extension, CardChips.swift's `typeChip(for:)`).
-        isolateAndCheck(search: "audio one") {
-            let chip = anyElement("card.typeChip")
+        isolateAndCheck(search: "audio one", title: "UITEST-FIXTURE: audio one") { chip in
             XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a type chip for the audio fixture")
             XCTAssertEqual(chip.label, "voice note", "Expected the audio fixture's type chip to read 'voice note', got '\(chip.label)'")
         }
 
-        isolateAndCheck(search: "document one") {
-            let chip = anyElement("card.typeChip")
+        isolateAndCheck(search: "document one", title: "UITEST-FIXTURE: document one") { chip in
             XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a type chip for the document fixture")
             XCTAssertEqual(chip.label, "pdf", "Expected the document fixture's type chip to read 'pdf', got '\(chip.label)'")
         }
@@ -2206,21 +2204,16 @@ final class StashUITests: XCTestCase {
         // tint for these), but `typeChip(for:)` now emits a neutral `MetaChip` carrying the
         // link's flavor label for every `.link`, so the repo-link and video-link fixtures (Task
         // 9's own link-flavor fixtures) each get a leading `card.typeChip` reading their flavor.
-        isolateAndCheck(search: "repo link") {
-            let chip = anyElement("card.typeChip")
+        isolateAndCheck(search: "repo link", title: "supabase/supabase-swift") { chip in
             XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a neutral type chip for the repo-link fixture")
             XCTAssertEqual(chip.label, "repo", "Expected the repo-link fixture's type chip to read 'repo', got '\(chip.label)'")
         }
 
-        isolateAndCheck(search: "video link") {
-            let chip = anyElement("card.typeChip")
+        isolateAndCheck(search: "video link", title: "Rick Astley") { chip in
             XCTAssertTrue(chip.waitForExistence(timeout: 10), "Expected a neutral type chip for the video-link fixture")
             XCTAssertEqual(chip.label, "video", "Expected the video-link fixture's type chip to read 'video', got '\(chip.label)'")
         }
-
-        // The pill field spawns no system Cancel button (unlike `.searchable`), so the keyboard
-        // would still be covering the tab bar here — same fix `testLibrarySmoke` documents.
-        searchField.typeText("\n")
+        // (`clearLibrarySearch` already dismissed the keyboard via the pill's clear button.)
 
         // (b) Composer card idle/active state (Add tab) — `ComposerCard`'s `accessibilityValue`
         // mirrors `isPanelActive` (editor focus OR non-empty draft; CaptureComposerView.swift).
@@ -2469,23 +2462,15 @@ final class StashUITests: XCTestCase {
                       "Expected to return to Settings after 'Skip'")
     }
 
-    // MARK: - Plan 14, Task 1: card notes (DESIGN.md §Components "Card note")
+    // MARK: - Plan 15, Task 3: whole-card taps (DESIGN.md §Components "Card note", iOS note)
 
-    /// Seeds `testCardNoteAddEditAndSaveAcknowledgment`'s own disposable `.text` item via a
-    /// DIRECT `items` insert, not the `add-note` edge function `seedDisposableNote` above uses:
-    /// confirmed live that `add-note` now 403s `{"error":"subscription_required"}` for this
-    /// account (its Stripe trial has been lapsed since 2026-08-16 — see `testCaptureSmoke`'s own
-    /// standing-failure doc comment; this is a NEWER gate than when `seedDisposableNote` was
-    /// written, since that helper's own call site — `testDeleteSmoke` — isn't in that standing-
-    /// failure set). Ordinary RLS on a plain PostgREST insert only requires `user_id ==
-    /// auth.uid()`, which a lapsed trial doesn't change — verified live (`add-note` → 403;
-    /// an identical row shape inserted directly → 201) — so this seeds the row that way instead,
-    /// with an explicit `title` (this task's own brief: prefix throwaway rows `UITEST-CARDNOTE:`
-    /// so they're identifiable and never confused with `UITEST-FIXTURE`/`UITEST-DELETE` rows) and
-    /// an explicit `content` seeded as an EXISTING TipTap document, so the card-note sheet
-    /// exercises its rich-append path rather than the plain-text one. Never touches the permanent
-    /// `UITEST-FIXTURE` rows.
-    private func seedCardNoteItem(title: String, content: String, email: String, password: String) async throws {
+    /// Inserts throwaway rows straight into `items` (PostgREST, RLS: `user_id == auth.uid()`),
+    /// in order, ~150 ms apart so each gets a later `created_at` than the one before — the LAST
+    /// row becomes the newest card. Direct inserts rather than `add-note`: this lapsed account's
+    /// `add-note` answers 403 `subscription_required` (see `testCaptureSmoke`'s standing-failure
+    /// note), and a plain insert triggers no enrichment, so titles stay exactly as seeded. Every
+    /// caller deletes what it inserts (`deleteRow(id:)`) on every exit path.
+    private func insertThrowawayItems(_ rows: [[String: Any]], email: String, password: String) async throws -> [String] {
         var authRequest = URLRequest(
             url: Self.fixtureRepairBaseURL.appending(path: "/auth/v1/token")
                 .appending(queryItems: [URLQueryItem(name: "grant_type", value: "password")]))
@@ -2500,240 +2485,122 @@ final class StashUITests: XCTestCase {
               let user = authObject["user"] as? [String: Any],
               let userId = user["id"] as? String
         else {
-            throw FixtureRepairError("test-account auth failed while seeding the card-note UI test's disposable row")
+            throw FixtureRepairError("test-account auth failed while seeding throwaway rows")
         }
 
-        var insertRequest = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items"))
-        insertRequest.httpMethod = "POST"
-        insertRequest.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
-        insertRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        insertRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        insertRequest.httpBody = try JSONSerialization.data(withJSONObject: [
-            "user_id": userId, "type": "text", "title": title, "content": content,
-            "is_public": false, "attributes": [String: Any](),
-        ])
-        let (_, response) = try await URLSession.shared.data(for: insertRequest)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw FixtureRepairError(
-                "direct items insert failed for the card-note UI test's disposable row (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
-        }
-    }
-
-    /// Polls for a row by exact `title` match — `pollForRow(matchingContent:...)` above matches on
-    /// `content` instead, which this test's seed deliberately sets to a non-marker TipTap JSON
-    /// document; this test's seed sets an explicit, unique `title` precisely so it can be found
-    /// this way regardless of what `content` holds.
-    private func pollForRow(matchingTitle marker: String, email: String, password: String,
-                            timeout: TimeInterval) async throws -> [String: Any] {
-        let token = try await fixtureRepairAccessToken(email: email, password: password)
-        var request = URLRequest(
-            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
-                .appending(queryItems: [
-                    URLQueryItem(name: "title", value: "eq.\(marker)"),
-                    URLQueryItem(name: "select", value: "id"),
-                ]))
-        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if let (data, response) = try? await URLSession.shared.data(for: request),
-               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-               let row = rows.first {
-                return row
+        var ids: [String] = []
+        for row in rows {
+            var body = row
+            body["user_id"] = userId
+            body["is_public"] = false
+            body["attributes"] = body["attributes"] ?? [String: Any]()
+            var request = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items"))
+            request.httpMethod = "POST"
+            request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("return=representation", forHTTPHeaderField: "Prefer")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let inserted = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let id = inserted.first?["id"] as? String
+            else {
+                for id in ids { try? await deleteRow(id: id, email: email, password: password) }
+                throw FixtureRepairError(
+                    "direct items insert failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
             }
-            try? await Task.sleep(for: .seconds(1))
-        } while Date() < deadline
-        throw FixtureRepairError("timed out waiting for the disposable card-note row '\(marker)' to appear via REST")
+            ids.append(id)
+            try await Task.sleep(for: .milliseconds(150))
+        }
+        return ids
     }
 
-    /// Direct REST read of the seeded card-note row's current `content` — the server-side proof
-    /// `testCardNoteAddEditAndSaveAcknowledgment` uses to confirm the sheet's save actually landed,
-    /// and that the append never flattened the pre-existing rich TipTap document to plain text.
-    private func fetchItemContent(matchingTitle marker: String, email: String, password: String) async throws -> String {
-        let token = try await fixtureRepairAccessToken(email: email, password: password)
-        var request = URLRequest(
-            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
-                .appending(queryItems: [
-                    URLQueryItem(name: "title", value: "eq.\(marker)"),
-                    URLQueryItem(name: "select", value: "content"),
-                ]))
-        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw FixtureRepairError("card-note content fetch failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
-        }
-        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-              let row = rows.first, let content = row["content"] as? String
-        else {
-            throw FixtureRepairError("card-note content fetch returned no rows")
-        }
-        return content
-    }
-
-    /// Card note add/edit + save acknowledgment (Task 1, plan 14) — DESIGN.md §Components "Card
-    /// note". Seeds TWO throwaway `.text` items (both title-prefixed `UITEST-CARDNOTE:`): one
-    /// with an EXISTING TipTap document (so the sheet exercises its rich-append path, never the
-    /// plain-text one) and one with empty content (so the empty-state affordance has something
-    /// real to assert against), then proves the whole loop:
-    ///   0. empty content renders the `card.addNote` affordance, never the populated `card.note`
-    ///      preview — the two are mutually exclusive.
-    ///   1. non-empty content renders as a tappable `card.note` (not the empty-state `card.addNote`
-    ///      affordance) — same mutual-exclusivity check, the other way round.
-    ///   2. tapping it opens `CardNoteEditorSheet` (`cardNote.editor`); typing and tapping
-    ///      `cardNote.save` closes the sheet and shows the `card.note.saved` acknowledgment.
-    ///   3. a whole-card tap AWAY from the note (the footer's `card.typeChip` — chosen specifically
-    ///      because, unlike `card.0`'s own geometric center, it can never overlap the note's own
-    ///      `.highPriorityGesture` hit area) still opens the detail sheet — gesture precedence.
-    ///   4. the detail sheet's read-only rich-notes render (`detail.notesText`) shows BOTH the
-    ///      original paragraph and the newly-appended one.
-    ///   5. a direct REST read confirms `content` is STILL valid TipTap JSON (starts with `{`,
-    ///      proving the append never flattened the existing document) and contains both texts.
-    /// Cleans up its own disposable row on every exit path; never touches `UITEST-FIXTURE` rows.
+    /// Will (plan 15): "when tapping the bottom of the first item in the list, it often chooses the
+    /// second item by mistake ... We should just make the entirety of the cards tappable". Root
+    /// cause: a `.fill`-scaled hero image — and the 1.25× blurred backdrop behind a portrait photo
+    /// — overflows its clipped zone; `.clipped()` clips drawing, not hit testing, and each card is
+    /// drawn above the one before it, so card N+1's hero swallowed taps on the bottom of card N.
+    /// Reproduced 5/5 on the pre-fix build (task-3 report).
+    ///
+    /// Seeds five throwaway rows (`UITEST-TAP:`) so the top five cards are, top to bottom: a text
+    /// card, a portrait photo (tall hero, backdrop overflows ~190pt up), a square photo (cover,
+    /// ~100pt overflow), a link with a portrait preview (cover, ~240pt overflow) and another
+    /// portrait photo — every card but the first sits under an overflowing neighbour. Waits for
+    /// every hero to finish loading (the overflow only exists once an image is drawn), then taps
+    /// 5pt above each card's bottom edge (inside its bottom 10pt: the footer's type chip + the
+    /// card's 24pt bottom padding) and asserts the detail sheet that opens is THAT card's, by
+    /// title. Deletes its rows on every exit path; never touches `UITEST-FIXTURE` rows.
     @MainActor
-    func testCardNoteAddEditAndSaveAcknowledgment() async throws {
+    func testCardBottomEdgeTapOpensThatCard() async throws {
         let (email, password) = try testCredentials()
         let epoch = Int(Date().timeIntervalSince1970)
-        let marker = "UITEST-CARDNOTE: card note \(epoch)"
-        let emptyMarker = "UITEST-CARDNOTE: empty note \(epoch)"
-        let originalParagraph = "Original rich line \(epoch)"
-        let seedDoc: [String: Any] = [
-            "type": "doc",
-            "content": [[
-                "type": "paragraph",
-                "content": [["type": "text", "text": originalParagraph]],
-            ]],
+        func title(_ index: Int) -> String { "UITEST-TAP: \(index) \(epoch)" }
+        // Existing public objects (never uploaded or deleted by this test): a 1200×1600 portrait
+        // JPEG, a 1024×1024 PNG, and a 361×640 portrait link preview.
+        let portrait = "0a0afaa8-0e11-47e9-887f-223816a9bb53/1758945584318.jpg"
+        let square = "edd5da6e-ef3d-4f6a-bb56-c0aa8ea7e800/3e3a5105-1be8-4324-81e2-85dc236cf4a1.png"
+        let portraitPreview = "0a0afaa8-0e11-47e9-887f-223816a9bb53/previews/preview_1788421925163.jpg"
+        // Oldest first: the last row inserted is card 0.
+        let rows: [[String: Any]] = [
+            ["type": "image", "title": title(4), "file_path": portrait, "mime_type": "image/jpeg"],
+            ["type": "link", "title": title(3), "file_path": portraitPreview, "url": "https://example.com/uitest-tap"],
+            ["type": "image", "title": title(2), "file_path": square, "mime_type": "image/png"],
+            ["type": "image", "title": title(1), "file_path": portrait, "mime_type": "image/jpeg"],
+            ["type": "text", "title": title(0), "content": ""],
         ]
-        let seedContent = String(data: try JSONSerialization.data(withJSONObject: seedDoc), encoding: .utf8)!
-        try await seedCardNoteItem(title: marker, content: seedContent, email: email, password: password)
-        // A second, EMPTY-content throwaway (own row, own title) — this task's checklist also
-        // wants a screenshot of the "Add a note" empty-state affordance, which the rich-content
-        // row above never shows.
-        try await seedCardNoteItem(title: emptyMarker, content: "", email: email, password: password)
-
-        let seededId: String?
-        do {
-            let row = try await pollForRow(matchingTitle: marker, email: email, password: password, timeout: 15)
-            seededId = row["id"] as? String
-        } catch {
-            seededId = nil
-        }
-        let emptySeededId: String?
-        do {
-            let row = try await pollForRow(matchingTitle: emptyMarker, email: email, password: password, timeout: 15)
-            emptySeededId = row["id"] as? String
-        } catch {
-            emptySeededId = nil
+        let ids = try await insertThrowawayItems(rows, email: email, password: password)
+        // A teardown block runs even when an assertion below stops the test (`continueAfterFailure
+        // = false` ends the method without unwinding into any Swift `catch`), so these rows can't
+        // leak the way plan 14's `UITEST-CARDNOTE:` rows did.
+        addTeardownBlock {
+            for id in ids { try? await self.deleteRow(id: id, email: email, password: password) }
         }
 
-        do {
-            let app = XCUIApplication()
-            XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
-                          "Expected the tab bar to appear after sign-in")
+        let app = XCUIApplication()
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+                      "Expected the tab bar to appear after sign-in")
 
-            func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
-            func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
+        func card(_ index: Int) -> XCUIElement { app.descendants(matching: .any)["card.\(index)"] }
+        for index in 0..<5 {
+            XCTAssertTrue(card(index).waitForExistence(timeout: 20), "Expected card.\(index)")
+            XCTAssertTrue(card(index).label.contains(title(index)),
+                          "Expected card.\(index) to be the seeded '\(title(index))', got '\(card(index).label)'")
+        }
+        // The overflow only exists once each hero is drawn — wait for all four.
+        for (index, hero) in [(1, "card.hero.tall"), (2, "card.hero.cover"), (3, "card.hero.cover"), (4, "card.hero.tall")] {
+            XCTAssertTrue(card(index).descendants(matching: .any)[hero].waitForExistence(timeout: 20),
+                          "Expected card.\(index)'s \(hero) to load")
+        }
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: tap-grid\n".data(using: .utf8)!)
+        sleep(2)
 
-            let searchField = app.textFields["library.search"]
-            XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
+        let tabBarTop = app.tabBars.firstMatch.frame.minY
+        for index in 0..<5 {
+            // 5pt above the card's bottom edge: its footer (type chip) + 24pt bottom padding.
+            func bottomTapY() -> CGFloat {
+                card(index).descendants(matching: .any)["card.typeChip"].frame.maxY + 24 - 5
+            }
+            // Scroll (slow drag, no fling) until that point is on screen above the tab bar.
+            for _ in 0..<5 where bottomTapY() > tabBarTop - 40 {
+                let start = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 200, dy: tabBarTop - 60))
+                let lift = min(bottomTapY() - (tabBarTop - 160), 360)
+                start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -lift)),
+                            withVelocity: .slow, thenHoldForDuration: 0.3)
+            }
+            let frame = card(index).frame
+            let tapY = bottomTapY()
+            XCTAssertTrue(tapY < frame.maxY && tapY > frame.maxY - 10,
+                          "Tap point \(tapY) should sit in card.\(index)'s bottom 10pt (frame \(frame))")
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: tapY)).tap()
 
-            // 0. Empty content renders the "Add a note" affordance, never the populated
-            // "card.note" preview.
-            searchField.tap()
-            searchField.typeText(emptyMarker)
-            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the seeded empty-note item to appear")
-            let addNoteButton = anyElement("card.addNote")
-            XCTAssertTrue(addNoteButton.waitForExistence(timeout: 10), "Expected the empty-state 'Add a note' affordance")
-            XCTAssertFalse(anyElement("card.note").exists,
-                           "Did not expect the populated card-note affordance for an empty note")
-
-            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-empty\n".data(using: .utf8)!)
-            sleep(2)
-
-            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: emptyMarker.count))
-            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the grid back after clearing the empty-note search")
-
-            searchField.tap()
-            searchField.typeText(marker)
-            XCTAssertTrue(card0().waitForExistence(timeout: 15), "Expected the seeded card-note item to appear")
-
-            // 1. Non-empty content renders as the tappable "card.note" affordance, never the
-            // empty-state "card.addNote" one.
-            let noteButton = anyElement("card.note")
-            XCTAssertTrue(noteButton.waitForExistence(timeout: 10), "Expected a tappable card note for existing content")
-            XCTAssertFalse(anyElement("card.addNote").exists,
-                           "Did not expect the empty-state affordance for a card with an existing note")
-
-            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-note\n".data(using: .utf8)!)
-            sleep(2)
-
-            noteButton.tap()
-
-            let sheetEditor = app.textViews["cardNote.editor"]
-            XCTAssertTrue(sheetEditor.waitForExistence(timeout: 10), "Expected the card note editor sheet to open")
-
-            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-note-sheet\n".data(using: .utf8)!)
-            sleep(2)
-
-            // Same tap-then-throwaway-keystroke warm-up `testEditSmoke`'s notes step established
-            // for this exact `TextEditor` shape (see that step's own doc comment) — the first
-            // couple characters otherwise land at the tap point before the rest jumps to the end.
-            let appendedLine = "Appended via UI test \(epoch)"
-            sheetEditor.tap()
-            sheetEditor.typeText("x")
-            sleep(1)
-            sheetEditor.typeText(appendedLine)
-
-            app.buttons["cardNote.save"].tap()
-
-            // 2. Save acknowledgment: wash + "Saved" badge briefly appear on the card (~2s
-            // window), right as the sheet dismisses — waited for directly (no fixed dead-time
-            // sleep first) so a slower real network round trip can't eat into the badge's own
-            // visible window before this even starts checking.
-            let savedBadge = anyElement("card.note.saved")
-            XCTAssertTrue(savedBadge.waitForExistence(timeout: 10),
-                          "Expected a 'Saved' acknowledgment after a confirmed save")
-
-            XCTAssertFalse(app.textViews["cardNote.editor"].exists,
-                           "Expected the card note editor sheet to dismiss after Save")
-
-            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: card-note-saved\n".data(using: .utf8)!)
-            sleep(1)
-
-            // 3. Whole-card tap AWAY from the note still opens the detail sheet — gesture
-            // precedence (this task's own brief: "check whole-card tap gesture precedence").
-            // `card.typeChip` sits in the footer, spatially clear of the note's own
-            // `.highPriorityGesture` hit area, unlike `card.0`'s own geometric center.
-            anyElement("card.typeChip").tap()
-            let detailNotesText = anyElement("detail.notesText")
-            XCTAssertTrue(detailNotesText.waitForExistence(timeout: 10),
-                          "Expected the detail sheet to open on a whole-card tap away from the note")
-            XCTAssertTrue(detailNotesText.label.contains(originalParagraph) && detailNotesText.label.contains(appendedLine),
-                          "Expected the detail sheet's rendered note to contain both the original and appended " +
-                          "text, got '\(detailNotesText.label)'")
-
+            let detailTitle = app.descendants(matching: .any)["detail.title"]
+            XCTAssertTrue(detailTitle.waitForExistence(timeout: 10), "No detail sheet after tapping card.\(index)'s bottom edge")
+            XCTAssertEqual(detailTitle.value as? String, title(index),
+                           "Tapping the bottom edge of card.\(index) opened a different card")
             app.buttons["detail.done"].tap()
-            XCTAssertTrue(searchField.waitForExistence(timeout: 10),
-                          "Expected the library after dismissing the detail sheet")
-
-            // 4. Server-side proof: `content` is STILL valid TipTap JSON (never flattened to
-            // plain text) and contains both the original paragraph and the newly-appended one.
-            let content = try await fetchItemContent(matchingTitle: marker, email: email, password: password)
-            XCTAssertTrue(content.hasPrefix("{"),
-                          "Expected the saved content to remain TipTap JSON, not be flattened to plain text")
-            XCTAssertTrue(content.contains(originalParagraph),
-                          "Expected the original rich paragraph to survive the append, got '\(content)'")
-            XCTAssertTrue(content.contains(appendedLine),
-                          "Expected the newly-typed note to have been appended, got '\(content)'")
-
-            if let seededId { try? await deleteRow(id: seededId, email: email, password: password) }
-            if let emptySeededId { try? await deleteRow(id: emptySeededId, email: email, password: password) }
-        } catch {
-            if let seededId { try? await deleteRow(id: seededId, email: email, password: password) }
-            if let emptySeededId { try? await deleteRow(id: emptySeededId, email: email, password: password) }
-            throw error
+            XCTAssertTrue(card(index).waitForExistence(timeout: 10), "Expected the grid back after closing the sheet")
+            sleep(1)
         }
     }
 
@@ -2761,14 +2628,10 @@ final class StashUITests: XCTestCase {
         let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
 
-        func card0() -> XCUIElement { app.descendants(matching: .any)["card.0"] }
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
 
         func openDetail(search: String) {
-            searchField.tap()
-            searchField.typeText(search)
-            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected a card for search '\(search)'")
-            anyElement("card.typeChip").tap()
+            searchLibrary(app, for: search, cardTitled: "UITEST-FIXTURE: \(search)").tap()
             XCTAssertTrue(app.buttons["detail.done"].waitForExistence(timeout: 10),
                           "Detail sheet did not present for '\(search)'")
         }
@@ -2776,9 +2639,7 @@ final class StashUITests: XCTestCase {
         func closeDetailAndClearSearch(_ search: String) {
             app.buttons["detail.done"].tap()
             XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
-            searchField.tap()
-            searchField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: search.count))
-            XCTAssertTrue(card0().waitForExistence(timeout: 10), "Expected the grid back after clearing search")
+            clearLibrarySearch(app)
         }
 
         // 1. "audio one" — a stored recording — shows the button, and the Notes editor's

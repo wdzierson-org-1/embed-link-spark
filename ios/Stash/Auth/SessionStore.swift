@@ -170,6 +170,10 @@ final class SessionStore {
         // locally without broadcast to other sessions — matches web's LogoutButton behavior.
         // Fixes zombie-session incident (see memory/supabase-log-forensics.md).
         try? await StashClient.shared.auth.signOut(scope: .local)
+        // Plan 15: the View tab's cached first page + hero images go with the session (StashApp's
+        // `.signedIn → .signedOut` handler also closes the store and purges again, which covers a
+        // session the server revoked, too).
+        LibraryCaches.purgeAll()
         state = .signedOut
     }
 
@@ -185,6 +189,7 @@ final class SessionStore {
     /// - **App Group cache**: `subscription.canAddContent` (`SubscriptionStore.gateCacheKey`) is
     ///   removed outright rather than left stale — a fresh sign-up/sign-in on this same device
     ///   must never briefly inherit a deleted account's last-cached gate value.
+    /// - **Library caches** (plan 15): the View tab's cached first page and hero images.
     /// - **Keychain session**: the SAME local-scope `auth.signOut(scope: .local)` `signOut()`
     ///   above already uses — the server-side account is already gone, so this only ever clears
     ///   this device's own session, never broadcasts anything.
@@ -200,6 +205,9 @@ final class SessionStore {
         for url in staging.pendingStaged() { staging.discard(url) }
 
         UserDefaults(suiteName: AppGroup.identifier)?.removeObject(forKey: SubscriptionStore.gateCacheKey)
+
+        // Plan 15: the View tab's cached first page (`Caches/StashItemCache`) and hero images.
+        LibraryCaches.purgeAll()
 
         try? await StashClient.shared.auth.signOut(scope: .local)
 

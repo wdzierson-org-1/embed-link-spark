@@ -92,23 +92,20 @@ struct TypeChip: View {
     }
 }
 
-/// Voice note vs. long recording — mirrors web `audioSubtype` (`CardBits.tsx`). Web reads
-/// `attributes.media.kind` first and only falls back to a duration threshold when that's absent;
-/// StashKit's `MediaAttributes` (`Models/ItemAttributes.swift`) has no `kind` field yet — an
-/// unrecognized key nested inside a known `attributes` sub-object is dropped, not preserved (that
-/// file's own doc comment) — so this build always takes web's fallback branch: under ten minutes
-/// reads as a voice note, at or over ten minutes as a recording.
+/// Voice note vs. long recording — mirrors web `audioSubtype` (`CardBits.tsx`) via StashKit's
+/// `ItemDisplay.audioKind`: enrichment's `attributes.media.kind` (`"voice_note"`/`"recording"`,
+/// preserved in `MediaAttributes.extra` since plan 15 Task 5) wins; only when it's absent does the
+/// duration fallback apply — under ten minutes reads as a voice note, at or over ten minutes as a
+/// recording.
 func audioSubtype(_ item: Item) -> StashColor.TypeTint {
-    let duration = item.attributes.media?.durationS ?? 0
-    return duration >= 600 ? .audio : .voice
+    ItemDisplay.audioKind(for: item) == .recording ? .audio : .voice
 }
 
-/// Screenshot vs. plain photo — mirrors web `isScreenshotItem` (`CardBits.tsx`). Same
-/// `attributes.media.kind` gap as `audioSubtype` above (the enrichment-written `kind` never
-/// survives StashKit's decode), so this always takes web's other signal: the vision-written
-/// title's own words.
+/// Screenshot vs. plain photo — mirrors web `isScreenshotItem` (`CardBits.tsx`) via
+/// `ItemDisplay.isScreenshot`: `attributes.media.kind == "screenshot"` (enrichment), else the
+/// vision-written title's own words ("Screenshot of …").
 func isScreenshotItem(_ item: Item) -> Bool {
-    item.title?.hasPrefix("Screenshot of") ?? false
+    ItemDisplay.isScreenshot(item)
 }
 
 /// `document`'s spreadsheet-vs-generic split — mirrors web `isSpreadsheetExt` (`CardBits.tsx`).

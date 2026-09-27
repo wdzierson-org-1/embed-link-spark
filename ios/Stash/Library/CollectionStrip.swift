@@ -63,9 +63,13 @@ private struct AttachmentTile: View {
     var body: some View {
         Group {
             if attachment.type == "image", let path = attachment.filePath {
-                AsyncImage(url: StashConfig.publicStorageURL(for: path)) { phase in
+                // Plan 15: same cached, downsampled loader as the card heroes; the fill-scaled
+                // tile image overflows its 72pt frame, so it never takes part in hit testing (the
+                // whole card is one tap target — see `CardHero.swift`'s header).
+                CachedImage(url: StashConfig.publicStorageURL(for: path), fit: .fill(CGSize(width: 72, height: 72))) { phase in
                     if case .success(let image) = phase {
-                        image.resizable().aspectRatio(contentMode: .fill)
+                        Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+                            .allowsHitTesting(false)
                     } else {
                         iconTile
                     }

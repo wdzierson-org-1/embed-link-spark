@@ -2,17 +2,24 @@ import SwiftUI
 import UIKit
 import StashKit
 
-/// The View tab: paginated card grid over the signed-in user's stash, with local search,
+/// The View tab: paginated card grid over the signed-in user's stash, with search,
 /// pull-to-refresh, and infinite scroll. Presentation follows the web's library (`Index.tsx` +
 /// `LibraryToolbar.tsx`): no wordmark/title (Will's call, plan 8) and no item count (plan 12 —
 /// "hide the total number of items"), one compact pill search, cards over the page-level
 /// animated gradient. No type chips and no tag filter — the chips never earned their space on a
 /// phone, and tags are being deprecated product-wide.
+///
+/// Plan 15 (Task 3, "Instant library"): the `ItemStore` is owned at app scope
+/// (`LibraryStoreProvider` → `MainTabView`), already hydrated from the disk cache and refreshed at
+/// sign-in / foreground, so this view never starts cold — appearing only re-fetches page 1 when the
+/// last refresh is more than 30 s old, and live changes arrive through the app-scope realtime feed.
+/// Search asks the server (`LibrarySearch` → `search-items`, web parity) and shows the instant
+/// local filter until it answers. Each card is ONE tap target (see `grid`).
 struct LibraryView: View {
-    let userId: UUID
+    let store: ItemStore
     var onSelect: (Item) -> Void = { _ in }
 
-    @State private var store: ItemStore
+    @State private var search: LibrarySearch
     @State private var query = ""
     @State private var selectedItem: Item?
     @FocusState private var searchFocused: Bool
@@ -29,24 +36,36 @@ struct LibraryView: View {
             : [GridItem(.flexible())]
     }
 
-    init(userId: UUID, onSelect: @escaping (Item) -> Void = { _ in }) {
-        self.userId = userId
+    init(store: ItemStore, onSelect: @escaping (Item) -> Void = { _ in }) {
+        self.store = store
         self.onSelect = onSelect
-        // Single source of truth for page size — the store's short-page "hasMore" check
-        // and the fetcher's SQL LIMIT must agree, or pagination silently breaks.
-        let stashPageSize = 50
-        _store = State(initialValue: ItemStore(
-            userId: userId,
-            fetcher: SupabaseItemsFetcher(pageSize: stashPageSize),
-            pageSize: stashPageSize
-        ))
+        _search = State(initialValue: LibrarySearch(store: store))
     }
 
-    private var filteredItems: [Item] {
-        query.isEmpty ? store.items : store.items.filter { $0.matches(searchQuery: query) }
+    private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// The whole library; the instant local filter while a search is typed/in flight (or if the
+    /// server can't be reached); and, once `search-items` answers, its results — literal matches
+    /// first (`rankedSearchResults`), reaching `page_body` and pages not loaded yet.
+    private var displayedItems: [Item] {
+        let query = trimmedQuery
+        guard !query.isEmpty else { return store.items }
+        if let ids = search.serverIds(for: query) {
+            return rankedSearchResults(query: query, rankedIds: ids, rowFor: store.item(withId:),
+                                       localPool: store.items)
+        }
+        return store.items.filter { $0.matches(searchQuery: query) }
+    }
+
+    /// True while the server search for the CURRENT query hasn't answered yet.
+    private var isAwaitingServerSearch: Bool {
+        let query = trimmedQuery
+        guard query.count >= LibrarySearch.minimumQueryLength else { return false }
+        return search.query != query || search.phase == .pending
     }
 
     var body: some View {
+        let items = displayedItems
         ZStack(alignment: .top) {
             Color(.systemBackground).ignoresSafeArea()
             // Page-level ambience, exactly like the web: the gradient lives behind the whole
@@ -56,13 +75,17 @@ struct LibraryView: View {
                 .ignoresSafeArea(edges: .top)
 
             VStack(spacing: 0) {
-                searchBar
-                stateBody
+                searchBar(fadeProgress: searchFadeProgress(hasItems: !items.isEmpty))
+                stateBody(items)
             }
         }
+        // Hero images decode for exactly this width (`CardHeroSizing`), the same request the
+        // app-scope prefetch makes — so a prefetched hero is drawn in the card's first frame.
+        .environment(\.cardWidth, CardHeroSizing.cardWidth(regularWidth: horizontalSizeClass == .regular))
         .refreshable { await store.refresh() }
-        .task { await store.refresh() }
-        .task { await RealtimeObserver().observeItems(userId: userId) { await store.refresh() } }
+        .task { await store.refreshIfStale() }
+        .onChange(of: query) { _, newValue in search.update(query: newValue) }
+        .onChange(of: store.refreshCount) { _, _ in search.invalidateCache() }
         .sheet(item: $selectedItem) { item in
             ItemDetailView(item: item, store: store)
         }
@@ -80,8 +103,8 @@ struct LibraryView: View {
     /// 0 at rest, 1 once the grid has scrolled `searchFadeDistance` points or more. Pinned to 0
     /// whenever there's no scrollable grid (`stateBody`'s empty/loading/error panes) so the bar
     /// never gets stuck faded from a stale offset carried over from a previous search.
-    private var searchFadeProgress: CGFloat {
-        guard !filteredItems.isEmpty else { return 0 }
+    private func searchFadeProgress(hasItems: Bool) -> CGFloat {
+        guard hasItems else { return 0 }
         return min(max(scrollOffset / searchFadeDistance, 0), 1)
     }
 
@@ -89,7 +112,7 @@ struct LibraryView: View {
     /// Deliberately NOT `.animation(value: scrollOffset)` — the fade must track the scroll
     /// gesture 1:1 (no lag behind the finger); only the Cancel button's appear/disappear
     /// (`searchFocused`) gets an explicit easing.
-    private var searchBar: some View {
+    private func searchBar(fadeProgress searchFadeProgress: CGFloat) -> some View {
         HStack(spacing: 8) {
             searchPill
             if searchFocused {
@@ -147,15 +170,34 @@ struct LibraryView: View {
         .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.hairline,
                                         lineWidth: 1))
         .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
+        // Which answer the grid is showing — "searching" (server pending), "results" (server
+        // answered) or "local" (short query / no query / server unreachable). Lets UI tests wait
+        // for a search to settle before reading the grid; the container itself isn't a VoiceOver
+        // stop (its children are).
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("library.search.pill")
+        .accessibilityValue(searchStateValue)
     }
 
-    @ViewBuilder private var stateBody: some View {
-        if filteredItems.isEmpty {
-            if store.isLoading && store.items.isEmpty {
-                // Avoids a "Nothing here yet" flash while the first page is still in flight.
+    private var searchStateValue: String {
+        if isAwaitingServerSearch { return "searching" }
+        return search.serverIds(for: trimmedQuery) != nil ? "results" : "local"
+    }
+
+    @ViewBuilder private func stateBody(_ items: [Item]) -> some View {
+        if items.isEmpty {
+            if store.isRefreshing && store.items.isEmpty {
+                // Avoids a "Nothing here yet" flash while the first page is still in flight — only
+                // on a first-ever launch now: a cached page shows instantly otherwise.
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("library.loading")
+            } else if isAwaitingServerSearch {
+                // Nothing matched locally, but the server (which also reads page_body and pages
+                // not loaded yet) hasn't answered — don't claim "No matches" before it has.
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("library.searching")
             } else if let error = store.loadError {
                 LibraryStatePane(systemImage: "exclamationmark.triangle", title: "Couldn't load your stash",
                                   message: error, identifier: "library.error")
@@ -171,27 +213,33 @@ struct LibraryView: View {
                 if let error = store.loadError {
                     LibraryErrorBanner(message: error) { Task { await store.refresh() } }
                 }
-                grid
+                grid(items)
             }
         }
     }
 
-    private var grid: some View {
+    private func grid(_ items: [Item]) -> some View {
         ScrollView {
             // DESIGN.md §Space "Library gutter: 24px/24pt" (plan 14, was 14pt) — natural-height
             // cards, no forced masonry redistribution needed on the phone's single column.
             LazyVGrid(columns: columns, spacing: 24) {
-                ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     Button {
                         // Device note 3/7: a card tap dismisses the keyboard before the sheet
                         // opens, rather than leaving it up behind the presented detail sheet.
                         searchFocused = false
                         selectedItem = item
                         onSelect(item)
-                    } label: { ItemCardView(item: item, store: store) }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("card.\(index)")
-                        .onAppear { Task { await store.loadMoreIfNeeded(current: item) } }
+                    } label: {
+                        // Plan 15: the card is ONE tap target and its hit area is exactly what's
+                        // drawn — without this shape, content that overflows a card (fill-scaled
+                        // hero imagery) could still take taps outside it; see `CardHero.swift`.
+                        ItemCardView(item: item)
+                            .contentShape(RoundedRectangle(cornerRadius: StashRadius.card))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("card.\(index)")
+                    .onAppear { Task { await store.loadMoreIfNeeded(current: item) } }
                 }
             }
             .padding(.horizontal, 16)
