@@ -82,6 +82,95 @@ description (`summary` mirrors `description` — no `page_body`). Realtime
 delivers the upgrades. `file_path` must sit inside the caller's own folder
 (403 otherwise).
 
+### `POST /capture` — idempotent capture (iOS)
+
+One entry point that wraps the three endpoints above and makes every capture
+safe to retry. The client generates a `capture_id` (UUID) once per capture and
+sends the same id on every attempt, from any process, at any time; the server
+never creates a second item for it. **iOS routes every capture through
+`capture`** (its Outbox entry id is the `capture_id`, so foreground sends,
+background transfers and later drains can all retry blindly). **Web, the
+browser extension and macOS still call `add-*` directly** — those endpoints are
+unchanged, and `capture` forwards to them with the caller's own JWT, so
+enrichment, paywall and every other server behavior are identical.
+
+Standard auth headers. The body is either `application/json` (the meta object)
+or `multipart/form-data` with a `meta` part (the JSON string) and a `file` part
+(the bytes). Meta:
+
+```json
+{ "capture_id": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "kind": "note | url | file",
+  "content": "optional", "title": "optional (note/file; ignored for url)",
+  "url": "required for url", "is_public": false,
+  "attributes": { }, "remind_at": "ISO-8601",
+  "mime_type": "required for file", "file_name": "IMG_0042.jpg", "file_size": 1234,
+  "file_path": "<uid>/… — file kind without a file part only" }
+```
+
+- `capture_id` is required and must be a UUID. Case doesn't matter (it's
+  normalized to lowercase), but always send the same id.
+- `note` needs non-blank `content`. `url` needs a parseable `url`. `file`
+  needs `mime_type` plus exactly one of a multipart `file` part or a
+  `file_path` inside the caller's own folder (`<uid>/…`, no empty/`..` segments).
+- `attributes` and `remind_at` are forwarded as-is and follow the `add-*`
+  rules above. A non-object `attributes`, a non-string `remind_at`, or a bad
+  `file_size` is dropped with a logged warning. Metadata never causes a 4xx, and
+  `attributes: {}` is never forwarded.
+- Forwarded bodies: url → `{url, content?, is_public, attributes?, remind_at?}`;
+  note → `{content, title?, is_public, attributes?, remind_at?}`; file →
+  `{file_path, mime_type, file_size?, content?, title?, is_public, attributes?, remind_at?}`.
+  `file_name` only picks the storage extension. The server doesn't turn it into a
+  title, so keep the original name in `attributes.media.file_name`.
+
+**Files: one-shot or two-step.** A file of up to **45 MiB (47,185,920 bytes)**
+goes in ONE multipart request. The server stores it at
+`stash-media/<uid>/<capture_id>.<ext>` (upsert, so a retry overwrites instead of
+piling up), with the object's content type set to `mime_type` whatever the
+part header says. `<ext>` comes from `file_name`'s extension, else from a MIME
+map, else `bin`. The server then calls `add-file`, and `file_size` defaults to
+the uploaded byte count. Put `meta` first. The `file` part **must** carry a
+`filename` in its `Content-Disposition` (any name), because a part without one
+is read as text and refused with 400. A multipart request whose
+`Content-Length` exceeds 46 MiB (the file limit plus 1 MiB for `meta` and
+boundaries) gets `413` without being parsed. Larger files use **two steps**:
+upload to Storage yourself at the same deterministic path
+(`POST /storage/v1/object/stash-media/<uid>/<capture_id>.<ext>` with
+`x-upsert: true`), then send JSON meta with that `file_path`. Measured
+2026-09-27: 45 MiB one-shot → 200 in ~16 s end-to-end on a ~24 Mbps uplink
+(~2.7 s in-function). The gateway buffers the whole request before the function
+runs, and Supabase caps edge-function requests at 150 s, so on a slow uplink a
+large file is safer in two steps.
+
+**Idempotency** (`capture_receipts`, one row per user + `capture_id`, owner RLS):
+
+| receipt state when a request arrives | result |
+|---|---|
+| none | reserve (`pending`), capture, then mark `done` with the item id |
+| `done` | `200 { item, duplicate: true }`. `item` is the row as it is now (`select *`), or `null` if the user deleted it. Nothing new is created |
+| `pending`, touched < 120 s ago | `409 { "error": "capture_in_progress" }`. A live attempt owns it and re-stamps it every 30 s while it waits on `add-*` |
+| `pending`, untouched ≥ 120 s | that attempt died, so this one takes over (compare-and-set) and proceeds |
+
+If the downstream call (or the multipart Storage upload) fails, the receipt is
+deleted, so a retry starts fresh. When `add-*` answers non-2xx, the server also
+removes the one-shot object it uploaded (a two-step object is the client's and
+stays put). The first response's `item` is exactly what `add-*` returned (normalized
+from `item` / `note`; `add-url` adds `metadata` + `previewImagePath`). A
+duplicate's `item` is the plain row.
+
+| status | body | meaning / client action |
+|---|---|---|
+| 200 | `{ "item": {…}, "duplicate": false }` | created now |
+| 200 | `{ "item": {…} \| null, "duplicate": true }` | already captured. Treat as success |
+| 400 | `{ "error": "invalid_request", "message": "…" }` | bad Content-Type, JSON, multipart, or meta. Don't retry unchanged |
+| 401 | gateway `{ "code": "UNAUTHORIZED_…", "message" }` or `{ "error": "Invalid or expired token" }` | refresh the session, then retry |
+| 403 | `{ "error": "Agent tokens are only accepted by the MCP endpoint" }` | agent (MCP) token |
+| 405 | `{ "error": "Method not allowed" }` | POST only |
+| 409 | `{ "error": "capture_in_progress" }` | retry later. Not a failure (don't count an attempt) |
+| 413 | `{ "error": "file_too_large", "max_bytes": 47185920 }` | switch to two-step |
+| 500 | `{ "error": "receipt_failed", "message" }` · `{ "error": "Internal server error" }` | transient, retry |
+| 502 | `{ "error": "storage_upload_failed" \| "downstream_unreachable", "message" }` | transient, retry |
+| any other | the `add-*` endpoint's status and body, **verbatim** | e.g. a lapsed account: `403 {"error":"subscription_required","message":"…","status":"paused"}` from `add-note` |
+
 ## Ask
 
 ### `POST /chat-with-all-content` — streaming Q&A over the user's stash
