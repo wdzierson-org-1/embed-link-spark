@@ -74,6 +74,36 @@ final class RankedSearchResultsTests: XCTestCase {
         XCTAssertEqual(results.map(\.id), [linkOne.id, otherLiteral.id, localOnly.id, linkTwo.id, video.id])
     }
 
+    /// A rich note's `content` is TipTap JSON: its markup ("doc", "type", "paragraph", "text") must
+    /// never make it a literal match — only the words the card shows.
+    func testRichNotesRankOnTheirTextNotTheirTipTapMarkup() {
+        let doc = #"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Buy persimmons"}]}]}"#
+        func note(_ title: String, content: String?) -> Item {
+            Item(id: UUID(), type: .text, title: title, content: content, url: nil, filePath: nil,
+                 description: nil, summary: nil, pageBody: nil, supplementalNote: nil, mimeType: nil,
+                 isPublic: false, createdAt: Date(timeIntervalSince1970: 1_790_000_000))
+        }
+        let richNote = note("Groceries", content: doc)
+        let realHit = note("Doc review checklist", content: nil)
+        let localRich = note("Errands", content: doc)            // only the markup says "doc"
+        let localPlain = note("Weekend", content: "docs to sign") // a plain-text note that does
+        let rows = [richNote.id: richNote, realHit.id: realHit]
+
+        let byMarkupWord = rankedSearchResults(query: "doc", rankedIds: [richNote.id, realHit.id],
+                                               rowFor: { rows[$0] }, localPool: [localRich, localPlain])
+        XCTAssertEqual(byMarkupWord.map(\.id), [realHit.id, localPlain.id, richNote.id],
+                       "the rich note stays a (semantic) server hit, never a literal one; the local rich note drops out")
+
+        for markup in ["type", "paragraph", "text", "content"] {
+            XCTAssertFalse(richNote.matchesCardText(searchQuery: markup), "'\(markup)' is TipTap markup, not note text")
+        }
+        XCTAssertTrue(richNote.matchesCardText(searchQuery: "  PERSIMMONS "), "the note's own words still match")
+
+        let byNoteText = rankedSearchResults(query: "persimmons", rankedIds: [realHit.id, richNote.id],
+                                             rowFor: { rows[$0] }, localPool: [localRich])
+        XCTAssertEqual(byNoteText.map(\.id), [richNote.id, localRich.id, realHit.id])
+    }
+
     func testPageBodyOnlyHitsKeepServerOrderAndUnknownIdsAreSkipped() {
         let deep = item("Analysis of results", pageBodyOnly: true)
         let second = item("Fruit notes", pageBodyOnly: true)

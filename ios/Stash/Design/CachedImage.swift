@@ -191,7 +191,9 @@ enum CachedImagePhase {
 
 /// `AsyncImage`'s shape (a phase-driven content closure) over `ImagePipeline`: draws a memory-
 /// cached image in the very first frame, and never shows a result that belongs to a URL/size the
-/// view has since moved on from.
+/// view has since moved on from. Once shown, the decoded image is held by the view itself
+/// (`result`), so the shared cache evicting it while the view is still on screen can't turn it
+/// back into a placeholder.
 struct CachedImage<Content: View>: View {
     let url: URL?
     let fit: ImageFit
@@ -209,7 +211,14 @@ struct CachedImage<Content: View>: View {
         let request = url.map { ImageRequest(url: $0, fit: fit, scale: displayScale) }
         content(phase(for: request))
             .task(id: request?.cacheKey) {
-                guard let request, ImagePipeline.shared.cachedImage(for: request) == nil else { return }
+                guard let request else { return }
+                // A memory hit is drawn synchronously by `phase(for:)`; keep it in `result` too.
+                if let hit = ImagePipeline.shared.cachedImage(for: request) {
+                    if result?.key != request.cacheKey || result?.image == nil {
+                        result = LoadedImage(key: request.cacheKey, image: hit)
+                    }
+                    return
+                }
                 let image = await ImagePipeline.shared.image(for: request)
                 guard !Task.isCancelled else { return }
                 result = LoadedImage(key: request.cacheKey, image: image)
@@ -218,10 +227,10 @@ struct CachedImage<Content: View>: View {
 
     private func phase(for request: ImageRequest?) -> CachedImagePhase {
         guard let request else { return .failure }
+        let own = result?.key == request.cacheKey ? result : nil
+        if let image = own?.image { return .success(image) }
         if let cached = ImagePipeline.shared.cachedImage(for: request) { return .success(cached) }
-        if let result, result.key == request.cacheKey {
-            return result.image.map(CachedImagePhase.success) ?? .failure
-        }
+        if own != nil { return .failure }   // this exact request already failed
         // Another size of the same image (e.g. the card's hero when the detail sheet opens) —
         // drawn now instead of a placeholder that would then jump to the image's aspect ratio.
         if let standIn = ImagePipeline.shared.anyCachedImage(for: request.url) { return .success(standIn) }

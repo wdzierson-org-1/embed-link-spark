@@ -46,29 +46,73 @@ struct SearchItemsResponse: Decodable, Sendable {
 
 /// What the View tab shows for a query once server results are in (plan 15, Task 3).
 ///
-/// Every server hit whose own card text (title/content/description/url/sticky note — the same
-/// five fields as the instant local filter, `Item.matches(searchQuery:)`) literally contains the
-/// query comes first, in server relevance order; then any loaded item the local filter matched
-/// that the server didn't return (a just-captured row not yet indexed, a partial word the keyword
-/// index doesn't stem to); then the server's remaining — semantic-only — hits, in relevance order.
+/// Every server hit whose own card text literally contains the query (`matchesCardText`: title,
+/// description, url, sticky note and the note as PLAIN text) comes first, in server relevance
+/// order; then any loaded item that literally matches but the server didn't return (a
+/// just-captured row not yet indexed, a partial word the keyword index doesn't stem to); then the
+/// server's remaining — semantic-only — hits, in relevance order.
 ///
-/// Why literal-first rather than the web's pure relevance order: `search-items` always returns
-/// its ~30 nearest neighbours, even for gibberish, and a sibling fixture can outrank the exact
-/// match ("link one" ranks "link two" first). Pinning literal matches to the top means the cards
-/// the instant local filter already showed never jump below semantic neighbours when the server
-/// answers — results only grow — while everything the server adds (page_body hits, older pages)
-/// still appears. `rowFor` resolves an id to a row (nil = unknown or deleted → skipped).
+/// Why literal-first rather than the web's pure relevance order (an intentional iOS divergence):
+/// `search-items` always returns its ~30 nearest neighbours, even for gibberish, and a sibling
+/// fixture can outrank the exact match ("link one" ranks "link two" first). Pinning literal matches
+/// to the top means the cards the instant local filter already showed never jump below semantic
+/// neighbours when the server answers — results only grow — while everything the server adds
+/// (page_body hits, older pages) still appears. `rowFor` resolves an id to a row (nil = unknown or
+/// deleted → skipped).
 public func rankedSearchResults(query: String, rankedIds: [UUID], rowFor: (UUID) -> Item?,
                                 localPool: [Item]) -> [Item] {
+    let needle = CardTextMatch.needle(query)
     var seen = Set<UUID>()
     var literal: [Item] = []
     var semantic: [Item] = []
     for id in rankedIds {
         guard seen.insert(id).inserted, let row = rowFor(id) else { continue }
-        if row.matches(searchQuery: query) { literal.append(row) } else { semantic.append(row) }
+        if CardTextMatch.contains(row, needle: needle) { literal.append(row) } else { semantic.append(row) }
     }
-    let localOnly = localPool.filter { !seen.contains($0.id) && $0.matches(searchQuery: query) }
+    let localOnly = localPool.filter { !seen.contains($0.id) && CardTextMatch.contains($0, needle: needle) }
     return literal + localOnly + semantic
+}
+
+public extension Item {
+    /// Case-insensitive substring match over the text this item's card actually shows: title,
+    /// description, url, sticky note, and `content` rendered to plain text. Unlike
+    /// `matches(searchQuery:)` (the web `itemSearch.ts` port, which reads `content` raw), a rich
+    /// note's TipTap JSON markup — "type", "doc", "paragraph", "text", "content" — never matches.
+    func matchesCardText(searchQuery: String) -> Bool {
+        CardTextMatch.contains(self, needle: CardTextMatch.needle(searchQuery))
+    }
+}
+
+enum CardTextMatch {
+    /// Plain text of rich (TipTap JSON) notes, keyed by the raw content: ranking runs on every
+    /// re-render of a searched grid (scrolling included), and parsing each note's JSON once is
+    /// enough.
+    private static let plainContent: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 1_000
+        return cache
+    }()
+
+    static func needle(_ query: String) -> String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// `needle` must already be `needle(_:)`-normalized; an empty needle matches everything
+    /// (same as `Item.matches(searchQuery:)`).
+    static func contains(_ item: Item, needle: String) -> Bool {
+        guard !needle.isEmpty else { return true }
+        return [item.title, item.description, item.url, item.supplementalNote, plainText(item.content)]
+            .contains { $0?.lowercased().contains(needle) ?? false }
+    }
+
+    /// Plain-text notes (valid platform-wide) pass through; only a JSON document is rendered.
+    static func plainText(_ content: String?) -> String? {
+        guard let content, content.hasPrefix("{") else { return content }
+        if let cached = plainContent.object(forKey: content as NSString) { return cached as String }
+        let plain = String(renderTipTap(content).characters)
+        plainContent.setObject(plain as NSString, forKey: content as NSString)
+        return plain
+    }
 }
 
 /// Debounced server search for the View tab — a port of `useServerSearch.ts` (300 ms debounce,
