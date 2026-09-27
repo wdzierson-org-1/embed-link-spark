@@ -2,7 +2,9 @@
 //
 // Pure logic for the idempotent `capture` endpoint (supabase/functions/capture;
 // contract: docs/PLATFORM_API.md → "POST /capture"). Import-free so it runs
-// under Deno and vitest — the handler owns every network and database call.
+// under Deno and vitest — the handler owns every network and database call;
+// the receipt-settlement logic reaches the database only through an injected
+// AttemptStore.
 //
 // capture wraps the existing add-note / add-url / add-file endpoints: the
 // client sends a client-generated `capture_id`, the handler reserves a
@@ -321,6 +323,8 @@ export interface ReceiptRow {
   status: string;
   item_id: string | null;
   updated_at: string;
+  /** The attempt that owns this receipt (null only on rows written before 20260927130000). */
+  attempt_id?: string | null;
 }
 
 export type ReceiptDecision =
@@ -362,8 +366,244 @@ export function requestBodyKind(contentType: string | null | undefined): Request
   return null;
 }
 
-/** True when a declared Content-Length is over the multipart limit; unknown lengths pass (the file part is re-checked after parsing). */
-export function exceedsMultipartBodyLimit(contentLength: string | null | undefined, limit = MULTIPART_BODY_LIMIT): boolean {
+/** Largest JSON meta accepted: the whole body of a JSON request, or the `meta` part of a multipart one. */
+export const META_BYTES_LIMIT = 1024 * 1024;
+
+/** True when a declared Content-Length is over `limit`; unknown or garbage lengths pass (the body is re-checked while reading). */
+export function exceedsDeclaredLength(contentLength: string | null | undefined, limit: number): boolean {
   if (!contentLength || !/^\d+$/.test(contentLength.trim())) return false;
   return Number(contentLength.trim()) > limit;
+}
+
+/** True when a declared Content-Length is over the multipart limit; unknown lengths pass (the file part is re-checked after parsing). */
+export function exceedsMultipartBodyLimit(contentLength: string | null | undefined, limit = MULTIPART_BODY_LIMIT): boolean {
+  return exceedsDeclaredLength(contentLength, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Body streams (Web Streams — the same API in Deno and Node)
+
+/** Read and discard a body, never holding more than one chunk, until it ends or `cap` bytes were seen. Returns the bytes seen. */
+export async function drainStream(stream: ReadableStream<Uint8Array> | null | undefined, cap: number): Promise<number> {
+  if (!stream) return 0;
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = stream.getReader();
+  } catch {
+    return 0; // locked or already consumed
+  }
+  let seen = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      seen += value?.byteLength ?? 0;
+      if (seen > cap) {
+        await reader.cancel().catch(() => {});
+        break;
+      }
+    }
+  } catch {
+    // the client went away
+  }
+  return seen;
+}
+
+export type CappedRead = { kind: 'ok'; bytes: Uint8Array } | { kind: 'tooLarge' } | { kind: 'failed' };
+
+/**
+ * Buffer a body only while it stays within `limit`. Past the limit nothing
+ * more is kept: the rest is drained (up to `drainCap`) and the answer is
+ * tooLarge — the gateway turns an answer to an unread body into a bare 502.
+ */
+export async function readCappedBytes(
+  stream: ReadableStream<Uint8Array> | null | undefined,
+  limit: number,
+  drainCap: number,
+): Promise<CappedRead> {
+  if (!stream) return { kind: 'ok', bytes: new Uint8Array(0) };
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = stream.getReader();
+  } catch {
+    return { kind: 'failed' };
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        chunks.length = 0;
+        while (total <= drainCap) {
+          const next = await reader.read();
+          if (next.done) return { kind: 'tooLarge' };
+          total += next.value.byteLength;
+        }
+        await reader.cancel().catch(() => {});
+        return { kind: 'tooLarge' };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { kind: 'failed' };
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { kind: 'ok', bytes };
+}
+
+// ---------------------------------------------------------------------------
+// Attempt fencing
+//
+// Every reservation and every takeover stamps the receipt with a fresh
+// attempt_id, and every later write by that attempt (heartbeat, finalize,
+// release) is filtered by it. An attempt that stalled and was taken over (a
+// "zombie") therefore can't overwrite or delete its successor's row: its
+// writes match zero rows, and that is how it learns it was superseded. The
+// settlement logic below talks to the database through an injected
+// AttemptStore, so it is unit-tested without one.
+
+/** One store call, normalized: rows affected, or an error (with the Postgres code when there is one). */
+export type WriteResult = { ok: true; rows: number } | { ok: false; code?: string; message: string };
+
+export type WriteVerdict = 'owned' | 'superseded' | 'itemGone' | 'error';
+
+/** ≥1 row → this attempt still owns the receipt; 0 rows → another attempt took it over (or it is gone); 23503 → the item vanished first. */
+export function interpretFencedWrite(result: WriteResult): WriteVerdict {
+  if (!result.ok) return result.code === '23503' ? 'itemGone' : 'error';
+  return result.rows > 0 ? 'owned' : 'superseded';
+}
+
+export interface AttemptStore {
+  /** UPDATE receipt SET status 'done', item_id WHERE user + capture + attempt_id = this attempt (no status filter, so a retried finalize is idempotent). */
+  finalize(itemId: string | null): Promise<WriteResult>;
+  /** DELETE receipt WHERE user + capture + attempt_id = this attempt AND status 'pending'. */
+  release(): Promise<WriteResult>;
+  /** UPDATE receipt SET updated_at WHERE user + capture + attempt_id = this attempt AND status 'pending'. */
+  touch(): Promise<WriteResult>;
+  /** DELETE the item (as the user). */
+  deleteItem(itemId: string): Promise<WriteResult>;
+  /** Remove a one-shot upload from storage. */
+  removeObject(path: string): Promise<WriteResult>;
+  sleep(ms: number): Promise<void>;
+  log(level: 'log' | 'warn' | 'error', message: string, fields?: Record<string, unknown>): void;
+}
+
+/** Bounded retry for every settlement write, with linear backoff (250 ms, 500 ms). */
+export const SETTLE_ATTEMPTS = 3;
+export const SETTLE_BACKOFF_MS = 250;
+
+const attemptWrite = async (op: () => Promise<WriteResult>): Promise<WriteResult> => {
+  try {
+    return await op();
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+};
+
+const failureFields = (result: WriteResult, extra: Record<string, unknown>) =>
+  result.ok ? extra : { ...extra, message: result.message, ...(result.code ? { code: result.code } : {}) };
+
+export type SuccessSettlement =
+  | { outcome: 'done'; recordedItemId: string | null }
+  | { outcome: 'superseded'; removedItemId: string | null }
+  | { outcome: 'unrecorded' };
+
+/**
+ * After add-* answered 2xx: mark this attempt's receipt done. Fenced out means
+ * another attempt owns the capture, so the item this attempt just created is
+ * a duplicate by definition — delete it (bounded retry) and report superseded
+ * (the handler answers 409). Persistent errors → unrecorded: the item stands
+ * and the receipt stays pending under this attempt's id.
+ */
+export async function settleSuccess(store: AttemptStore, itemId: string | null): Promise<SuccessSettlement> {
+  let recorded = itemId;
+  for (let attempt = 1; attempt <= SETTLE_ATTEMPTS; attempt++) {
+    const result = await attemptWrite(() => store.finalize(recorded));
+    const verdict = interpretFencedWrite(result);
+    if (verdict === 'owned') return { outcome: 'done', recordedItemId: recorded };
+    if (verdict === 'superseded') {
+      if (!itemId) {
+        store.log('error', 'capture: superseded, but the duplicate item could not be identified');
+        return { outcome: 'superseded', removedItemId: null };
+      }
+      return { outcome: 'superseded', removedItemId: await removeDuplicate(store, itemId) };
+    }
+    if (verdict === 'itemGone' && recorded !== null) {
+      recorded = null; // the user already deleted it — record the capture without it
+      continue;
+    }
+    store.log('error', 'capture: finalizing the receipt failed', failureFields(result, { attempt }));
+    if (attempt < SETTLE_ATTEMPTS) await store.sleep(SETTLE_BACKOFF_MS * attempt);
+  }
+  return { outcome: 'unrecorded' };
+}
+
+async function removeDuplicate(store: AttemptStore, itemId: string): Promise<string | null> {
+  for (let attempt = 1; attempt <= SETTLE_ATTEMPTS; attempt++) {
+    const result = await attemptWrite(() => store.deleteItem(itemId));
+    if (result.ok) {
+      store.log('warn', `capture: superseded, removed duplicate ${itemId}`, { rows: result.rows });
+      return itemId;
+    }
+    store.log('error', 'capture: removing a superseded duplicate failed', failureFields(result, { item_id: itemId, attempt }));
+    if (attempt < SETTLE_ATTEMPTS) await store.sleep(SETTLE_BACKOFF_MS * attempt);
+  }
+  return null;
+}
+
+export type FailureSettlement = {
+  receipt: 'released' | 'notOwned' | 'failed' | 'untouched';
+  upload: 'removed' | 'kept' | 'none';
+};
+
+/**
+ * After a capture failed without creating anything (storage upload failed,
+ * add-* unreachable or non-2xx): release this attempt's receipt so a retry can
+ * proceed. A one-shot upload is removed first, but only after a fenced touch
+ * proves the receipt is still ours — the object path is deterministic, so a
+ * successor may be using the very same object.
+ */
+export async function settleFailure(store: AttemptStore, uploadedPath?: string): Promise<FailureSettlement> {
+  let upload: FailureSettlement['upload'] = 'none';
+  if (uploadedPath) {
+    const touched = await attemptWrite(() => store.touch());
+    const verdict = interpretFencedWrite(touched);
+    if (verdict === 'superseded') {
+      store.log('warn', 'capture: superseded; leaving the receipt and the shared upload to the successor');
+      return { receipt: 'untouched', upload: 'kept' };
+    }
+    if (verdict === 'owned') {
+      const removed = await attemptWrite(() => store.removeObject(uploadedPath));
+      upload = removed.ok ? 'removed' : 'kept';
+      if (!removed.ok) store.log('warn', 'capture: removing the orphaned upload failed', failureFields(removed, {}));
+    } else {
+      upload = 'kept';
+      store.log('warn', 'capture: could not confirm ownership; keeping the upload', failureFields(touched, {}));
+    }
+  }
+  return { receipt: await releaseReceipt(store), upload };
+}
+
+async function releaseReceipt(store: AttemptStore): Promise<'released' | 'notOwned' | 'failed'> {
+  for (let attempt = 1; attempt <= SETTLE_ATTEMPTS; attempt++) {
+    const result = await attemptWrite(() => store.release());
+    const verdict = interpretFencedWrite(result);
+    if (verdict === 'owned') return 'released';
+    if (verdict === 'superseded') {
+      store.log('warn', 'capture: nothing to release — the receipt was taken over or is gone');
+      return 'notOwned';
+    }
+    const last = attempt === SETTLE_ATTEMPTS;
+    store.log(last ? 'error' : 'warn', 'capture: releasing the receipt failed', failureFields(result, { attempt }));
+    if (!last) await store.sleep(SETTLE_BACKOFF_MS * attempt);
+  }
+  return 'failed';
 }

@@ -3,12 +3,17 @@
 // ../_shared/capture.ts (vitest-covered); this file owns the I/O.
 //
 // Flow: authenticate → parse (JSON meta, or multipart meta + file) →
-// reserve a capture_receipts row for (user, capture_id) → [upload the file to
-// stash-media/<uid>/<capture_id>.<ext>] → forward to the unchanged add-note /
-// add-url / add-file with the caller's own JWT → mark the receipt done with
-// the item id (or delete it when the downstream call failed, so a retry can
-// proceed). A retry of a finished capture_id answers with the recorded item
-// and `duplicate: true` instead of creating another one.
+// reserve a capture_receipts row for (user, capture_id) under a fresh
+// attempt_id → [upload the file to stash-media/<uid>/<capture_id>.<ext>] →
+// forward to the unchanged add-note / add-url / add-file with the caller's own
+// JWT → mark the receipt done with the item id (or release it when the
+// downstream call failed, so a retry can proceed). A retry of a finished
+// capture_id answers with the recorded item and `duplicate: true`.
+//
+// Every receipt write after the reservation is fenced by this attempt's
+// attempt_id: an attempt that stalled and was taken over can no longer touch
+// its successor's row, and if it finishes anyway it deletes the duplicate item
+// it created and answers 409 (settleSuccess / settleFailure in _shared).
 //
 // Runs entirely as the caller (anon key + their JWT): RLS on capture_receipts,
 // items and storage applies. No service role.
@@ -16,19 +21,28 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { bearerToken, isAgentToken } from '../_shared/agentToken.ts';
 import {
+  META_BYTES_LIMIT,
   ONE_SHOT_FILE_LIMIT,
   RECEIPT_HEARTBEAT_MS,
   decideReceipt,
   downstreamBodyFor,
   downstreamPathFor,
+  drainStream,
+  exceedsDeclaredLength,
   exceedsMultipartBodyLimit,
   fileExtensionFor,
+  interpretFencedWrite,
   normalizeDownstreamItem,
   parseCaptureMeta,
+  readCappedBytes,
   requestBodyKind,
+  settleFailure,
+  settleSuccess,
   storedObjectPath,
+  type AttemptStore,
   type CaptureMeta,
   type ReceiptRow,
+  type WriteResult,
 } from '../_shared/capture.ts';
 
 const corsHeaders = {
@@ -44,26 +58,18 @@ const json = (status: number, body: unknown) =>
   });
 
 const invalid = (message: string) => json(400, { error: 'invalid_request', message });
-const tooLarge = () => json(413, { error: 'file_too_large', max_bytes: ONE_SHOT_FILE_LIMIT });
+const fileTooLarge = () => json(413, { error: 'file_too_large', max_bytes: ONE_SHOT_FILE_LIMIT });
+const metaTooLarge = () => json(413, { error: 'meta_too_large', max_bytes: META_BYTES_LIMIT });
+const inProgress = () => json(409, { error: 'capture_in_progress' });
 
 // The gateway buffers the whole request before invoking the function and
 // answers a bare 502 when the function responds without reading the body
 // (observed 2026-09-27 with a 47 MiB multipart). Every early response to a
-// request whose body is still unread goes through here: the body is read and
-// discarded chunk by chunk (never buffered), then the real answer is sent.
+// request whose body may still be unread goes through here: the body is read
+// and discarded chunk by chunk (never buffered), then the real answer is sent.
 const DRAIN_CAP_BYTES = 256 * 1024 * 1024;
 async function afterDraining(req: Request, response: Response): Promise<Response> {
-  if (req.body && !req.bodyUsed) {
-    let seen = 0;
-    try {
-      for await (const chunk of req.body) {
-        seen += chunk.byteLength;
-        if (seen > DRAIN_CAP_BYTES) break;
-      }
-    } catch {
-      // the client went away — nothing left to answer
-    }
-  }
+  if (!req.bodyUsed) await drainStream(req.body, DRAIN_CAP_BYTES);
   return response;
 }
 
@@ -86,26 +92,29 @@ type LogContext = { user_id: string; capture_id: string; kind: string };
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 type Reservation =
-  | { kind: 'reserved'; tookOver: boolean }
+  | { kind: 'reserved'; attemptId: string; tookOver: boolean }
   | { kind: 'duplicate'; itemId: string | null }
   | { kind: 'inProgress' }
   | { kind: 'failed'; message: string };
 
 // Insert-first: the primary key (user_id, capture_id) makes the reservation
 // atomic. On a unique violation, read the existing receipt and apply the
-// decision rules; a stale pending receipt is claimed with a compare-and-set on
-// updated_at so two retries can't both take it over.
+// decision rules. A stale pending receipt is claimed with a compare-and-set on
+// the (updated_at, attempt_id) we read, stamping our own fresh attempt_id — so
+// only one contender wins, and the dead attempt's later writes (fenced by its
+// old id) match nothing.
 async function reserveReceipt(db: SupabaseClient, userId: string, captureId: string): Promise<Reservation> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let round = 0; round < 3; round++) {
+    const attemptId = crypto.randomUUID();
     const { error: insertError } = await db
       .from(RECEIPTS)
-      .insert({ user_id: userId, capture_id: captureId, status: 'pending' });
-    if (!insertError) return { kind: 'reserved', tookOver: false };
+      .insert({ user_id: userId, capture_id: captureId, status: 'pending', attempt_id: attemptId });
+    if (!insertError) return { kind: 'reserved', attemptId, tookOver: false };
     if (insertError.code !== '23505') return { kind: 'failed', message: insertError.message };
 
     const { data: existing, error: readError } = await db
       .from(RECEIPTS)
-      .select('status, item_id, updated_at')
+      .select('status, item_id, updated_at, attempt_id')
       .eq('user_id', userId)
       .eq('capture_id', captureId)
       .maybeSingle<ReceiptRow>();
@@ -116,75 +125,104 @@ async function reserveReceipt(db: SupabaseClient, userId: string, captureId: str
     if (decision.action === 'duplicate') return { kind: 'duplicate', itemId: decision.itemId };
     if (decision.action === 'inProgress') return { kind: 'inProgress' };
 
-    const { data: claimed, error: claimError } = await db
+    let claim = db
       .from(RECEIPTS)
-      .update({ updated_at: new Date().toISOString() })
+      .update({ updated_at: new Date().toISOString(), attempt_id: attemptId })
       .eq('user_id', userId)
       .eq('capture_id', captureId)
       .eq('status', 'pending')
-      .eq('updated_at', existing.updated_at)
-      .select('capture_id');
+      .eq('updated_at', existing.updated_at);
+    claim = existing.attempt_id ? claim.eq('attempt_id', existing.attempt_id) : claim.is('attempt_id', null);
+    const { data: claimed, error: claimError } = await claim.select('capture_id');
     if (claimError) return { kind: 'failed', message: claimError.message };
-    if (claimed && claimed.length > 0) return { kind: 'reserved', tookOver: true };
-    // Someone else re-stamped or finished it first — decide again.
+    if (claimed && claimed.length > 0) return { kind: 'reserved', attemptId, tookOver: true };
+    // Someone else re-stamped, claimed or finished it first — decide again.
   }
   return { kind: 'inProgress' };
 }
 
-async function releaseReceipt(db: SupabaseClient, userId: string, captureId: string) {
-  try {
-    const { error } = await db
-      .from(RECEIPTS)
-      .delete()
-      .eq('user_id', userId)
-      .eq('capture_id', captureId)
-      .eq('status', 'pending');
-    if (error) console.error('capture: releasing the receipt failed', { capture_id: captureId, message: error.message });
-  } catch (e) {
-    console.error('capture: releasing the receipt failed', { capture_id: captureId, message: errorMessage(e) });
-  }
+type Rows = { data: unknown[] | null; error: { code?: string; message: string } | null };
+const toWrite = ({ data, error }: Rows): WriteResult =>
+  error ? { ok: false, code: error.code, message: error.message } : { ok: true, rows: data?.length ?? 0 };
+
+// The receipt writes this attempt may make, each filtered by its attempt_id.
+function attemptStore(db: SupabaseClient, userId: string, captureId: string, attemptId: string, log: LogContext): AttemptStore {
+  const receipt = () => db.from(RECEIPTS);
+  return {
+    finalize: async (itemId) =>
+      toWrite(
+        await receipt()
+          .update({ status: 'done', item_id: itemId, updated_at: new Date().toISOString() })
+          .eq('user_id', userId)
+          .eq('capture_id', captureId)
+          .eq('attempt_id', attemptId)
+          .select('capture_id'),
+      ),
+    release: async () =>
+      toWrite(
+        await receipt()
+          .delete()
+          .eq('user_id', userId)
+          .eq('capture_id', captureId)
+          .eq('attempt_id', attemptId)
+          .eq('status', 'pending')
+          .select('capture_id'),
+      ),
+    touch: async () =>
+      toWrite(
+        await receipt()
+          .update({ updated_at: new Date().toISOString() })
+          .eq('user_id', userId)
+          .eq('capture_id', captureId)
+          .eq('attempt_id', attemptId)
+          .eq('status', 'pending')
+          .select('capture_id'),
+      ),
+    deleteItem: async (itemId) => toWrite(await db.from('items').delete().eq('id', itemId).select('id')),
+    removeObject: async (path) => {
+      const { data, error } = await db.storage.from(BUCKET).remove([path]);
+      return error ? { ok: false, message: error.message } : { ok: true, rows: data?.length ?? 0 };
+    },
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    log: (level, message, fields) => console[level](message, { ...log, ...fields }),
+  };
 }
 
-async function finalizeReceipt(db: SupabaseClient, userId: string, captureId: string, itemId: string | null) {
-  let recordedItem = itemId;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const { error } = await db
-        .from(RECEIPTS)
-        .update({ status: 'done', item_id: recordedItem, updated_at: new Date().toISOString() })
-        .eq('user_id', userId)
-        .eq('capture_id', captureId);
-      if (!error) return;
-      if (error.code === '23503') {
-        // The item was deleted before we could record it — the capture still happened.
-        recordedItem = null;
-        continue;
-      }
-      console.error('capture: finalizing the receipt failed', { capture_id: captureId, attempt, message: error.message });
-    } catch (e) {
-      console.error('capture: finalizing the receipt failed', { capture_id: captureId, attempt, message: errorMessage(e) });
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
-  }
-}
+type Heartbeat = { stop: () => void; readonly superseded: boolean };
 
 // Keeps a live attempt's receipt fresh so a slow downstream call (add-url's
-// page fetch has no timeout) is never taken over by a retry.
-function startHeartbeat(db: SupabaseClient, userId: string, captureId: string): () => void {
+// page fetch has no timeout) is never taken over by a retry. Fenced like every
+// other write: finding the receipt taken over stops it.
+function startHeartbeat(store: AttemptStore): Heartbeat {
+  let stopped = false;
+  let superseded = false;
   const timer = setInterval(async () => {
+    let result: WriteResult;
     try {
-      const { error } = await db
-        .from(RECEIPTS)
-        .update({ updated_at: new Date().toISOString() })
-        .eq('user_id', userId)
-        .eq('capture_id', captureId)
-        .eq('status', 'pending');
-      if (error) console.warn('capture: heartbeat failed', { capture_id: captureId, message: error.message });
+      result = await store.touch();
     } catch (e) {
-      console.warn('capture: heartbeat failed', { capture_id: captureId, message: errorMessage(e) });
+      result = { ok: false, message: errorMessage(e) };
+    }
+    if (stopped) return;
+    const verdict = interpretFencedWrite(result);
+    if (verdict === 'superseded') {
+      superseded = true;
+      stopped = true;
+      clearInterval(timer);
+      store.log('warn', 'capture: heartbeat found the receipt taken over');
+    } else if (!result.ok) {
+      store.log('warn', 'capture: heartbeat failed', { message: result.message });
     }
   }, RECEIPT_HEARTBEAT_MS);
-  return () => clearInterval(timer);
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+    get superseded() {
+      return superseded;
+    },
+  };
 }
 
 async function currentItem(db: SupabaseClient, itemId: string | null, log: LogContext) {
@@ -195,15 +233,6 @@ async function currentItem(db: SupabaseClient, itemId: string | null, log: LogCo
     return null;
   }
   return data ?? null;
-}
-
-async function removeUpload(db: SupabaseClient, path: string, log: LogContext) {
-  try {
-    const { error } = await db.storage.from(BUCKET).remove([path]);
-    if (error) console.warn('capture: removing the orphaned upload failed', { ...log, message: error.message });
-  } catch (e) {
-    console.warn('capture: removing the orphaned upload failed', { ...log, message: errorMessage(e) });
-  }
 }
 
 Deno.serve(async (req) => {
@@ -233,26 +262,27 @@ Deno.serve(async (req) => {
     if (!bodyKind) {
       return await afterDraining(req, invalid('Content-Type must be application/json or multipart/form-data'));
     }
+    const declaredLength = req.headers.get('Content-Length');
 
     let raw: unknown;
     let file: File | null = null;
     let parseMemory: Record<string, number> | undefined;
     if (bodyKind === 'multipart') {
-      const declaredLength = req.headers.get('Content-Length');
       if (exceedsMultipartBodyLimit(declaredLength)) {
         // 413 without parsing: the body is drained, never held in memory.
         console.warn('capture: multipart body over the one-shot limit', { user_id: user.id, content_length: declaredLength });
-        return await afterDraining(req, tooLarge());
+        return await afterDraining(req, fileTooLarge());
       }
       let form: FormData;
       try {
         form = await req.formData();
       } catch {
-        return invalid('malformed multipart body');
+        return await afterDraining(req, invalid('malformed multipart body'));
       }
       parseMemory = memoryMb();
       const metaPart = form.get('meta');
       if (metaPart === null) return invalid('a multipart body needs a "meta" part');
+      if ((typeof metaPart === 'string' ? metaPart.length : metaPart.size) > META_BYTES_LIMIT) return metaTooLarge();
       try {
         raw = JSON.parse(typeof metaPart === 'string' ? metaPart : await metaPart.text());
       } catch {
@@ -262,13 +292,21 @@ Deno.serve(async (req) => {
       if (filePart !== null) {
         // Parts without a filename arrive as (lossily decoded) strings.
         if (typeof filePart === 'string') return invalid('the "file" part must carry a filename');
-        if (filePart.size > ONE_SHOT_FILE_LIMIT) return tooLarge();
+        if (filePart.size > ONE_SHOT_FILE_LIMIT) return fileTooLarge();
         if (filePart.size === 0) return invalid('the "file" part is empty');
         file = filePart;
       }
     } else {
+      if (exceedsDeclaredLength(declaredLength, META_BYTES_LIMIT)) {
+        console.warn('capture: JSON body over the meta limit', { user_id: user.id, content_length: declaredLength });
+        return await afterDraining(req, metaTooLarge());
+      }
+      // Undeclared or understated lengths are capped while reading.
+      const read = await readCappedBytes(req.body, META_BYTES_LIMIT, DRAIN_CAP_BYTES);
+      if (read.kind === 'tooLarge') return metaTooLarge();
+      if (read.kind === 'failed') return invalid('the body could not be read');
       try {
-        raw = await req.json();
+        raw = JSON.parse(new TextDecoder().decode(read.bytes));
       } catch {
         return invalid('body must be JSON');
       }
@@ -291,7 +329,7 @@ Deno.serve(async (req) => {
     }
     if (reservation.kind === 'inProgress') {
       console.log('capture: in progress elsewhere', log);
-      return json(409, { error: 'capture_in_progress' });
+      return inProgress();
     }
     if (reservation.kind === 'duplicate') {
       const item = await currentItem(db, reservation.itemId, log);
@@ -300,49 +338,61 @@ Deno.serve(async (req) => {
     }
     if (reservation.tookOver) console.warn('capture: took over a stale pending receipt', log);
 
-    // ---- the capture ----
-    const stopHeartbeat = startHeartbeat(db, user.id, meta.capture_id);
-    let settled = false; // receipt finalized or released
+    // ---- the capture (every receipt write from here on is fenced) ----
+    const store = attemptStore(db, user.id, meta.capture_id, reservation.attemptId, log);
+    const heartbeat = startHeartbeat(store);
+    let settled = false; // this attempt's receipt outcome has been decided
     let created = false; // downstream answered 2xx — the item exists
+    let storedPath: string | undefined;
     try {
-      let storedPath: string | undefined;
       let forwardMeta: CaptureMeta = meta;
       if (file) {
-        storedPath = storedObjectPath(user.id, meta.capture_id, fileExtensionFor(meta.file_name, meta.mime_type));
+        const path = storedObjectPath(user.id, meta.capture_id, fileExtensionFor(meta.file_name, meta.mime_type));
         // Re-typed so the stored object's content type is mime_type whatever the part said.
         const { error: uploadError } = await db.storage
           .from(BUCKET)
-          .upload(storedPath, new Blob([file], { type: meta.mime_type }), { upsert: true, contentType: meta.mime_type });
+          .upload(path, new Blob([file], { type: meta.mime_type }), { upsert: true, contentType: meta.mime_type });
         if (uploadError) {
-          await releaseReceipt(db, user.id, meta.capture_id);
+          heartbeat.stop();
+          await settleFailure(store);
           settled = true;
-          console.error('capture: storage upload failed', { ...log, message: uploadError.message });
+          store.log('error', 'capture: storage upload failed', { message: uploadError.message });
           return json(502, { error: 'storage_upload_failed', message: uploadError.message });
         }
+        storedPath = path;
         forwardMeta = { ...meta, file_size: meta.file_size ?? file.size };
       }
 
-      const path = downstreamPathFor(meta.kind);
+      if (heartbeat.superseded) {
+        // Taken over while we were uploading: the successor owns this capture.
+        heartbeat.stop();
+        settled = true;
+        store.log('warn', 'capture: superseded before forwarding; standing down');
+        return inProgress();
+      }
+
+      const downstream = downstreamPathFor(meta.kind);
       let res: Response;
       try {
-        res = await fetch(`${supabaseUrl}/functions/v1/${path}`, {
+        res = await fetch(`${supabaseUrl}/functions/v1/${downstream}`, {
           method: 'POST',
           headers: { Authorization: authorization, apikey: anonKey, 'Content-Type': 'application/json' },
           body: JSON.stringify(downstreamBodyFor(forwardMeta, storedPath)),
         });
       } catch (e) {
-        await releaseReceipt(db, user.id, meta.capture_id);
+        heartbeat.stop();
+        await settleFailure(store); // keep any upload: the item may exist after all
         settled = true;
-        console.error('capture: downstream unreachable', { ...log, path, message: errorMessage(e) });
+        store.log('error', 'capture: downstream unreachable', { path: downstream, message: errorMessage(e) });
         return json(502, { error: 'downstream_unreachable', message: errorMessage(e) });
       }
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        await releaseReceipt(db, user.id, meta.capture_id);
+        heartbeat.stop();
+        await settleFailure(store, storedPath);
         settled = true;
-        if (storedPath) await removeUpload(db, storedPath, log);
-        console.warn('capture: downstream refused', { ...log, path, status: res.status, ms: Date.now() - started });
+        store.log('warn', 'capture: downstream refused', { path: downstream, status: res.status, ms: Date.now() - started });
         return new Response(text, {
           status: res.status,
           headers: { ...corsHeaders, 'Content-Type': res.headers.get('Content-Type') ?? 'application/json' },
@@ -354,15 +404,18 @@ Deno.serve(async (req) => {
       try {
         body = JSON.parse(await res.text());
       } catch (e) {
-        console.error('capture: unreadable downstream body', { ...log, path, message: errorMessage(e) });
+        store.log('error', 'capture: unreadable downstream body', { path: downstream, message: errorMessage(e) });
       }
       const item = normalizeDownstreamItem(body);
       const itemId = typeof item?.id === 'string' ? item.id : null;
-      if (!itemId) console.error('capture: downstream answered 2xx without an item id', { ...log, path, status: res.status });
-      await finalizeReceipt(db, user.id, meta.capture_id, itemId);
+      if (!itemId) store.log('error', 'capture: downstream answered 2xx without an item id', { path: downstream, status: res.status });
+
+      heartbeat.stop();
+      const settlement = await settleSuccess(store, itemId);
       settled = true;
-      console.log('capture: saved', {
-        ...log,
+      if (settlement.outcome === 'superseded') return inProgress();
+      if (settlement.outcome === 'unrecorded') store.log('error', 'capture: saved, but the receipt could not be recorded', { item_id: itemId });
+      store.log('log', 'capture: saved', {
         item_id: itemId,
         bytes: file?.size ?? null,
         ms: Date.now() - started,
@@ -370,15 +423,16 @@ Deno.serve(async (req) => {
       });
       return json(200, { item, duplicate: false });
     } catch (e) {
+      heartbeat.stop();
       if (!settled) {
-        // Before the downstream answered: nothing was created, so let a retry
-        // proceed. After: the item exists — record the capture as done.
-        if (created) await finalizeReceipt(db, user.id, meta.capture_id, null);
-        else await releaseReceipt(db, user.id, meta.capture_id);
+        // Before the downstream answered nothing was created: release. After a
+        // 2xx the item exists: record the capture (id unknown here).
+        if (created) await settleSuccess(store, null);
+        else await settleFailure(store, storedPath);
       }
       throw e;
     } finally {
-      stopHeartbeat();
+      heartbeat.stop();
     }
   } catch (e) {
     console.error('capture: unexpected error', errorMessage(e));

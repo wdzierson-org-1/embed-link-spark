@@ -121,6 +121,10 @@ or `multipart/form-data` with a `meta` part (the JSON string) and a `file` part
   `{file_path, mime_type, file_size?, content?, title?, is_public, attributes?, remind_at?}`.
   `file_name` only picks the storage extension. The server doesn't turn it into a
   title, so keep the original name in `attributes.media.file_name`.
+- The meta is capped at **1 MiB**: the whole body of a JSON request, or the
+  `meta` part of a multipart one. Anything larger gets
+  `413 { "error": "meta_too_large", "max_bytes": 1048576 }`. That means the
+  request itself is too big (usually an enormous note), so don't switch to two-step.
 
 **Files: one-shot or two-step.** A file of up to **45 MiB (47,185,920 bytes)**
 goes in ONE multipart request. The server stores it at
@@ -148,14 +152,24 @@ large file is safer in two steps.
 | none | reserve (`pending`), capture, then mark `done` with the item id |
 | `done` | `200 { item, duplicate: true }`. `item` is the row as it is now (`select *`), or `null` if the user deleted it. Nothing new is created |
 | `pending`, touched < 120 s ago | `409 { "error": "capture_in_progress" }`. A live attempt owns it and re-stamps it every 30 s while it waits on `add-*` |
-| `pending`, untouched ≥ 120 s | that attempt died, so this one takes over (compare-and-set) and proceeds |
+| `pending`, untouched ≥ 120 s | that attempt stalled, so this one takes it over (compare-and-set, under a fresh `attempt_id`) and proceeds |
 
-If the downstream call (or the multipart Storage upload) fails, the receipt is
-deleted, so a retry starts fresh. When `add-*` answers non-2xx, the server also
-removes the one-shot object it uploaded (a two-step object is the client's and
-stays put). The first response's `item` is exactly what `add-*` returned (normalized
-from `item` / `note`; `add-url` adds `metadata` + `previewImagePath`). A
-duplicate's `item` is the plain row.
+**Fencing.** Every reservation and takeover stamps the receipt with a fresh
+`attempt_id`. That attempt's later receipt writes (heartbeat, done, release)
+are filtered by it. If a stalled attempt resumes after being taken over, its
+writes match nothing, so it can't overwrite or delete its successor's receipt.
+If it finishes anyway, the item it created is a duplicate: it deletes that item
+(as the user) and answers `409 capture_in_progress`. The client's next retry
+then gets the successor's result.
+
+If the downstream call (or the multipart Storage upload) fails, the attempt
+deletes its own receipt (with bounded retry), so a retry starts fresh. When
+`add-*` answers non-2xx, the server also removes the one-shot object it
+uploaded. It does that only after proving it still owns the receipt, because
+the path is shared with any successor. A two-step object is the client's and
+stays put. The first response's `item` is exactly what `add-*` returned
+(normalized from `item` / `note`; `add-url` adds `metadata` + `previewImagePath`).
+A duplicate's `item` is the plain row.
 
 | status | body | meaning / client action |
 |---|---|---|
@@ -165,11 +179,20 @@ duplicate's `item` is the plain row.
 | 401 | gateway `{ "code": "UNAUTHORIZED_…", "message" }` or `{ "error": "Invalid or expired token" }` | refresh the session, then retry |
 | 403 | `{ "error": "Agent tokens are only accepted by the MCP endpoint" }` | agent (MCP) token |
 | 405 | `{ "error": "Method not allowed" }` | POST only |
-| 409 | `{ "error": "capture_in_progress" }` | retry later. Not a failure (don't count an attempt) |
+| 409 | `{ "error": "capture_in_progress" }` | another attempt with this id is live, or this one was superseded and removed its duplicate. Retry later. Not a failure (don't count an attempt) |
 | 413 | `{ "error": "file_too_large", "max_bytes": 47185920 }` | switch to two-step |
+| 413 | `{ "error": "meta_too_large", "max_bytes": 1048576 }` | the meta itself is too big. Don't retry unchanged |
 | 500 | `{ "error": "receipt_failed", "message" }` · `{ "error": "Internal server error" }` | transient, retry |
 | 502 | `{ "error": "storage_upload_failed" \| "downstream_unreachable", "message" }` | transient, retry |
 | any other | the `add-*` endpoint's status and body, **verbatim** | e.g. a lapsed account: `403 {"error":"subscription_required","message":"…","status":"paused"}` from `add-note` |
+
+Known gateway quirk (measured 2026-09-27): `add-note` returns its
+`subscription_required` 403 before reading the request body. For bodies larger
+than about 0.5 MiB, Supabase's gateway then holds the request for ~160 s and
+answers `504` instead of the 403. Up to 512 KiB answered promptly; 900 KiB and
+1 MiB stalled. This hits direct `add-note` callers too, and the fix belongs in
+`add-note`. Through `capture`, only a lapsed account's very large note sees it,
+as a 504 (transient).
 
 ## Ask
 
