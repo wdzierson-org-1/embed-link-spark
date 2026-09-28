@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Supabase
 
 /// Plan 14 Task 2 ("Transcribe with speakers"): mirrors the web's `TranscriptContent.tsx`
@@ -39,6 +40,9 @@ public enum TranscriptionServiceError: Error, Equatable, Sendable {
     /// The transcript came back fine but the `items` PATCH failed — the OLD transcript is still
     /// the one live on the server; nothing was overwritten.
     case patchFailed(String)
+    /// A run for this item is already in progress (possibly started from a sheet that has since
+    /// been closed) — nothing new was started.
+    case alreadyRunning
 }
 
 /// Injection point for the `transcribe-audio` call — mirrors `AccountDeletionTransport`'s "stubbed
@@ -47,17 +51,71 @@ public protocol TranscriptionInvoking: Sendable {
     func invoke(audioUrl: String, fileName: String) async throws -> TranscriptionOutcome
 }
 
-/// Real network transport: `StashClient.shared.functions.invoke`, same call shape
-/// `SupabaseItemPatcher.suggestTags` and `SupabaseEmbeddingSyncer.replaceEmbeddings` already use
-/// elsewhere in StashKit for other edge functions.
+/// Real network transport. Plan 15 (M9): its OWN request and session, not
+/// `StashClient.shared.functions.invoke` — that goes through `URLSession.shared` with the default
+/// 60 s request timeout, but `transcribe-audio` is fully synchronous (download → diarized
+/// transcription → summary → respond), so the first response byte of a long memo can take minutes.
+/// At 60 s the client gave up with "Couldn't update the transcript" while the server finished and
+/// its (paid-for) result was thrown away.
 public struct FunctionsTranscriptionInvoker: TranscriptionInvoking {
+    /// How long to wait for `transcribe-audio`'s response (it sends nothing until it's done).
+    public static let requestTimeout: TimeInterval = 300
+
+    /// One session for every run, with the request and resource timeouts both covering a full
+    /// `requestTimeout` wait (the per-request `timeoutInterval` is set too, so neither the session
+    /// default nor the request default can cut it short).
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = requestTimeout + 60
+        return URLSession(configuration: configuration)
+    }()
+
     public init() {}
 
-    public func invoke(audioUrl: String, fileName: String) async throws -> TranscriptionOutcome {
-        let body: [String: AnyJSON] = ["audioUrl": .string(audioUrl), "fileName": .string(fileName)]
-        return try await StashClient.shared.functions
-            .invoke("transcribe-audio", options: FunctionInvokeOptions(body: body))
+    /// `POST <supabase>/functions/v1/transcribe-audio` with the platform's two auth headers and
+    /// `{audioUrl, fileName}` — the same body the web sends. Pure, for tests.
+    public static func request(audioUrl: String, fileName: String, accessToken: String) throws -> URLRequest {
+        var request = URLRequest(url: StashConfig.supabaseURL.appending(path: "/functions/v1/transcribe-audio"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = requestTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(StashConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["audioUrl": audioUrl, "fileName": fileName])
+        return request
     }
+
+    public func invoke(audioUrl: String, fileName: String) async throws -> TranscriptionOutcome {
+        let accessToken = try await StashClient.shared.auth.session.accessToken
+        let request = try Self.request(audioUrl: audioUrl, fileName: fileName, accessToken: accessToken)
+        let (data, response) = try await Self.session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard (200..<300).contains(status) else {
+            throw TranscriptionServiceError.invokeFailed("transcribe-audio answered HTTP \(status)")
+        }
+        return try JSONDecoder().decode(TranscriptionOutcome.self, from: data)
+    }
+}
+
+/// Which items have a "Transcribe with speakers" run in flight, app-wide (plan 15, M9). A run can
+/// take minutes and keeps going after its sheet is closed, so the busy state lives here rather than
+/// in the sheet: reopening the item still shows "Transcribing…", and a second (duplicate, paid)
+/// run for the same item can't be started.
+@MainActor @Observable
+public final class TranscriptionActivity {
+    public static let shared = TranscriptionActivity()
+
+    public private(set) var itemIds: Set<UUID> = []
+
+    public init() {}
+
+    public func isRunning(_ itemId: UUID) -> Bool { itemIds.contains(itemId) }
+
+    /// `false` when a run for `itemId` is already in progress.
+    func begin(_ itemId: UUID) -> Bool { itemIds.insert(itemId).inserted }
+
+    func end(_ itemId: UUID) { itemIds.remove(itemId) }
 }
 
 /// Injection point for the `page_body`/`description`-only PATCH — deliberately its OWN protocol,
@@ -101,13 +159,20 @@ public final class TranscriptionService {
     private let invoker: TranscriptionInvoking
     private let patcher: TranscriptPatching
     private let refresher: EmbeddingRefresher
+    private let activity: TranscriptionActivity
+    private let writeQueue: ItemWriteQueue
 
+    /// `activity`/`writeQueue` default to the app-wide shared instances (tests pass their own).
     public init(invoker: TranscriptionInvoking = FunctionsTranscriptionInvoker(),
                 patcher: TranscriptPatching = SupabaseTranscriptPatcher(),
-                refresher: EmbeddingRefresher) {
+                refresher: EmbeddingRefresher,
+                activity: TranscriptionActivity? = nil,
+                writeQueue: ItemWriteQueue? = nil) {
         self.invoker = invoker
         self.patcher = patcher
         self.refresher = refresher
+        self.activity = activity ?? .shared
+        self.writeQueue = writeQueue ?? .shared
     }
 
     public func retranscribe(item: Item) async throws -> Item {
@@ -118,6 +183,8 @@ public final class TranscriptionService {
         guard let filePath = item.filePath, !filePath.isEmpty, let audioURL = item.thumbnailURL else {
             throw TranscriptionServiceError.noStoredMedia
         }
+        guard activity.begin(item.id) else { throw TranscriptionServiceError.alreadyRunning }
+        defer { activity.end(item.id) }
         let fileName = filePath.split(separator: "/").last.map(String.init) ?? filePath
 
         let outcome: TranscriptionOutcome
@@ -136,8 +203,12 @@ public final class TranscriptionService {
 
         let updated: Item
         do {
-            updated = try await patcher.patchTranscript(itemId: item.id, pageBody: transcription,
-                                                          description: outcome.description)
+            // Same per-item write order as every detail-sheet save (`ItemWriteQueue`): this PATCH
+            // also writes `description`, so it must not overtake (or be overtaken by) a queued edit.
+            updated = try await writeQueue.enqueue(itemId: item.id) { [patcher] in
+                try await patcher.patchTranscript(itemId: item.id, pageBody: transcription,
+                                                  description: outcome.description)
+            }
         } catch {
             throw TranscriptionServiceError.patchFailed(error.localizedDescription)
         }

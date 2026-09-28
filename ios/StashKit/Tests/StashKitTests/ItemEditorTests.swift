@@ -16,6 +16,7 @@ final class RecordingPatcher: ItemPatching, @unchecked Sendable {
     var suggestCalls: [(title: String, content: String, description: String, available: [String])] = []
     var suggestResult: [String] = []
     func patch(itemId: UUID, patch: ItemPatch) async throws -> Item { patches.append((itemId, patch)); return patchResult }
+    func currentAttributes(itemId: UUID) async throws -> ItemAttributes? { ItemAttributes() }
     func deleteItemCascade(itemId: UUID) async throws {
         if let deleteError { throw deleteError }
         deleted.append(itemId)
@@ -248,5 +249,55 @@ final class ItemEditorTests: XCTestCase {
         XCTAssertEqual(patcher.suggestCalls.count, 1)
         XCTAssertEqual(patcher.suggestCalls.first?.title, "T")
         XCTAssertEqual(patcher.suggestCalls.first?.available, ["cooking", "travel", "work"])
+    }
+
+    // MARK: - Generate summary (plan 15)
+
+    func testGenerateSummaryReturnsTheServersSummary() async throws {
+        let invoker = StubSummaryInvoker(.success(SummarizeContentResponse(success: true, summary: "**Key points**", reason: nil)))
+        let itemId = UUID()
+
+        let summary = try await SummaryGenerator(invoker: invoker).generate(itemId: itemId)
+
+        XCTAssertEqual(summary, "**Key points**")
+        XCTAssertEqual(invoker.requested, [itemId])
+    }
+
+    func testGenerateSummaryReportsMissingSourceContent() async {
+        let invoker = StubSummaryInvoker(.success(SummarizeContentResponse(success: false, summary: nil, reason: "no_source_content")))
+        do {
+            _ = try await SummaryGenerator(invoker: invoker).generate(itemId: UUID())
+            XCTFail("expected noSourceContent")
+        } catch {
+            XCTAssertEqual(error as? SummaryGenerationError, .noSourceContent)
+        }
+    }
+
+    func testGenerateSummaryTreatsEverythingElseAsAFailure() async {
+        let cases: [Result<SummarizeContentResponse, Error>] = [
+            .success(SummarizeContentResponse(success: false, summary: nil, reason: "Summary generation failed")),
+            .success(SummarizeContentResponse(success: true, summary: "  \n", reason: nil)),
+            .failure(URLError(.notConnectedToInternet)),
+        ]
+        for outcome in cases {
+            do {
+                _ = try await SummaryGenerator(invoker: StubSummaryInvoker(outcome)).generate(itemId: UUID())
+                XCTFail("expected failed for \(outcome)")
+            } catch {
+                XCTAssertEqual(error as? SummaryGenerationError, .failed)
+            }
+        }
+    }
+}
+
+private final class StubSummaryInvoker: SummaryInvoking, @unchecked Sendable {
+    let outcome: Result<SummarizeContentResponse, Error>
+    private(set) var requested: [UUID] = []
+
+    init(_ outcome: Result<SummarizeContentResponse, Error>) { self.outcome = outcome }
+
+    func summarize(itemId: UUID) async throws -> SummarizeContentResponse {
+        requested.append(itemId)
+        return try outcome.get()
     }
 }

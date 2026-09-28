@@ -11,10 +11,9 @@ import StashKit
 /// which rendered the exact same resting "Changes saved automatically" caption a genuine success
 /// does — a failed save was silently indistinguishable from one that worked. `.failed` renders
 /// `detail.autosave.error` in `StashColor.destructive` instead; the unsaved draft (title/
-/// description/notes text — whichever field failed) is always left exactly as typed either way, so
-/// nothing is lost, and the NEXT successful save on any field clears it back to `.saved`. Applied
-/// to every save site here (field autosave, notes, attributes-on-success) for consistency, not just
-/// the notes path this fix round's brief called out by line number.
+/// description/notes text/location — whichever field failed) is always left exactly as typed, and
+/// (plan 15) it is already queued in `PendingEdits`, so closing the sheet can't lose it. The NEXT
+/// successful save on any field — or the queue delivering it — clears this back to `.saved`.
 enum SaveStatus: Equatable {
     case idle, saving, saved
     case failed(String)
@@ -32,6 +31,102 @@ enum DetailField: Hashable {
     case title, description, notes
 }
 
+/// The editor every detail-sheet save and every pending-edit flush goes through (the sheet's own
+/// and `MainTabView`'s app-scope flusher), so both share the UI-test stalled-network switch below.
+@MainActor
+enum DetailEditorFactory {
+    static func make() -> ItemEditor {
+        ItemEditor(patcher: patcher, refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
+    }
+
+    private static var patcher: ItemPatching {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--uitest-stall-item-writes") {
+            return StalledItemPatcher()
+        }
+        #endif
+        return SupabaseItemPatcher()
+    }
+}
+
+#if DEBUG
+/// `--uitest-stall-item-writes` (UI tests only, compiled out of Release): every item write hangs
+/// for 10 s and then times out — a stalled link, the worst case for "close waits on the network" —
+/// so `DetailUITests` can prove the sheet closes at once, the edit survives, and a later launch
+/// (without the flag) delivers it. Reads and deletes still work.
+private struct StalledItemPatcher: ItemPatching {
+    private let real = SupabaseItemPatcher()
+
+    func patch(itemId: UUID, patch: ItemPatch) async throws -> Item {
+        try? await Task.sleep(for: .seconds(10))
+        throw URLError(.timedOut)
+    }
+
+    func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
+        try? await Task.sleep(for: .seconds(10))
+        throw URLError(.timedOut)
+    }
+
+    func deleteItemCascade(itemId: UUID) async throws { try await real.deleteItemCascade(itemId: itemId) }
+    func itemTags(itemId: UUID) async throws -> [StashTag] { try await real.itemTags(itemId: itemId) }
+    func addTag(named: String, userId: UUID, itemId: UUID) async throws {
+        try await real.addTag(named: named, userId: userId, itemId: itemId)
+    }
+    func removeTag(tagId: UUID, itemId: UUID) async throws { try await real.removeTag(tagId: tagId, itemId: itemId) }
+    func suggestTags(title: String, content: String, description: String, available: [String]) async throws -> [String] {
+        try await real.suggestTags(title: title, content: content, description: description, available: available)
+    }
+}
+#endif
+
+/// Everything one open detail sheet saves through — built ONCE per sheet (plan 15, L9). These used
+/// to be separate `@State` initial values, and a `@State` initial value is evaluated on every
+/// re-init of the view (every re-render of the presenter — e.g. any `store.items` change while the
+/// sheet is open), constructing and discarding an editor, two embedding refreshers, a transcription
+/// service, a debouncer, a generation counter and a notes model (with a TipTap JSON parse) each
+/// time. `@StateObject`'s autoclosure runs once for the view's lifetime.
+@MainActor
+final class DetailSheetServices: ObservableObject {
+    let editor: ItemEditor
+    let fieldDebouncer = Debouncer(interval: .milliseconds(400))
+    /// Plan 14 Task 2 ("Transcribe with speakers"). Its OWN `EmbeddingRefresher` rather than
+    /// sharing `editor`'s: `ItemEditor` doesn't expose the refresher it was built with, and two
+    /// independent per-item debounce timers racing here is harmless.
+    let transcriptionService = TranscriptionService(refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
+    let summaryGenerator = SummaryGenerator()
+    /// The signed-in user's durable queue of unconfirmed edits — the same instance the app-scope
+    /// `ItemStore` lays over the library (`PendingEdits.shared(for:)`).
+    let pendingEdits: PendingEdits
+    /// Notes' own draft/debounce state (Plan 8 Task 5, hoisted out in fix round 1 — see
+    /// `NotesEditorModel`'s own doc comment).
+    let notesModel: NotesEditorModel
+    /// Guards the field-autosave (400ms) vs. notes-autosave (600ms) race (fix round 1, review
+    /// finding #2) — see `SaveGeneration`'s own doc comment (StashKit).
+    private let saveGeneration = SaveGeneration()
+    /// The newest generation handed out — lets the detail fetch tell whether a save started while
+    /// it was in flight (L4).
+    private(set) var latestGeneration = 0
+    /// Set when the sheet goes away: from then on its debounced autosaves stay quiet and the
+    /// dismiss-time journal + flush own anything unsaved (plan 15, H5).
+    var isClosed = false
+    /// A rich-note draft queued by `journalUnconfirmedEdits` (app backgrounded mid-draft): once the
+    /// server echoes that exact content back, the draft is in the document and leaves the field.
+    var journaledRichDraft: (typed: String, content: String)?
+
+    init(item: Item, userId: UUID) {
+        editor = DetailEditorFactory.make()
+        pendingEdits = PendingEdits.shared(for: userId)
+        notesModel = NotesEditorModel(item: item)
+    }
+
+    func nextGeneration() -> Int {
+        latestGeneration = saveGeneration.next()
+        return latestGeneration
+    }
+
+    func isLatest(_ generation: Int) -> Bool { saveGeneration.isLatest(generation) }
+}
+
 /// Detail sheet presented from a Library card tap, rebuilt to DESIGN.md's detail-panel anatomy
 /// (`§Components`, "Detail panel"): one scrolling flow surface — eyebrow (`DetailEyebrow`) →
 /// inline-editable title/description → contained media → URL bar (`DetailURLBar`, link items) →
@@ -41,89 +136,60 @@ enum DetailField: Hashable {
 /// the standalone `LocationRow` call that used to live here was removed rather than duplicating
 /// the fact) → Sharing (`SharingSection`) → a pinned footer bar (delete left, autosave right).
 /// Tags UI is retired (`DESIGN.md` — "No tag UI on cards or panel"); `tags` data itself is
-/// untouched, just no longer surfaced here. On appear, fetches the
-/// full row (adding `page_body`, which the grid's list query omits) for types whose tabs need it,
-/// then merges it back into `store` so the list stays current too.
+/// untouched, just no longer surfaced here.
+///
+/// **Saving (plan 15, H5).** Every autosave still PATCHes as the user types, but the values go
+/// into the user's durable `PendingEdits` queue first and leave it only once the server confirms
+/// them. Closing the sheet (X or swipe) never waits on the network: it dismisses at once, queues
+/// whatever the server hasn't confirmed yet (a save in flight, one that failed, one still in its
+/// debounce, a rich-note draft), and starts sending it. The library shows queued values until
+/// they land; every later refresh retries what's left.
+///
+/// **Loading (M5/L4/L6).** Only `page_body` is missing from a list row. The sheet fetches it only
+/// when it isn't already there (reopened items and citation sheets skip the round trip), never
+/// hides an already-present summary behind a spinner, and says "Couldn't load" (with a retry) if
+/// the fetch fails instead of showing misleading empty copy.
 struct ItemDetailView: View {
     @State private var item: Item
-    /// The last row we know is confirmed saved — either from the initial load, our own most
-    /// recent successful save, or an observed server update with no local edit in flight. This
-    /// is the diff baseline `changedFields` compares the live draft against; see `adopt(_:)`.
+    /// The last row the SERVER is known to hold — the initial row, our own confirmed saves, or an
+    /// observed server update. The diff baseline for everything still unsaved; see `adopt(_:)`.
     @State private var snapshot: Item
     @State private var saveStatus: SaveStatus = .idle
     @State private var showDeleteConfirm = false
     @State private var isDeleting = false
     @State private var deleteErrorMessage: String?
     @State private var isDeleted = false
-
-    // One editor (and its EmbeddingRefresher's per-item debounce state) per detail sheet, per
-    // the plan's interface contract. Declared @State, not a plain `let`: this View struct's
-    // `init` re-runs on every re-render of the presenting view (e.g. whenever `store.items`
-    // changes for ANY item while this sheet is open, since LibraryView's body — and hence the
-    // `.sheet(item:)` content closure — re-evaluates). A plain stored property would be silently
-    // reconstructed on every such pass, losing in-flight debounce state; @State's storage is
-    // preserved across re-renders for the lifetime of this view's identity. Same reasoning
-    // applies to `fieldDebouncer`.
-    @State private var editor = ItemEditor(patcher: SupabaseItemPatcher(),
-                                            refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
-    @State private var fieldDebouncer = Debouncer(interval: .milliseconds(400))
-    /// Plan 14 Task 2 ("Transcribe with speakers") — same one-per-sheet lifetime as `editor`
-    /// above and for the same reason (a plain stored property would be silently reconstructed,
-    /// along with its `EmbeddingRefresher`'s in-flight debounce state, on every re-render). Its
-    /// OWN `EmbeddingRefresher` instance rather than sharing `editor`'s: `ItemEditor` doesn't
-    /// expose the refresher it was built with, and two independent per-item debounce timers
-    /// racing here is harmless — both would ultimately schedule from the same merged row anyway.
-    @State private var transcriptionService = TranscriptionService(refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
-    @State private var isTranscribing = false
+    @StateObject private var services: DetailSheetServices
     @State private var transcriptionErrorMessage: String?
-    /// Notes' own draft/debounce state (Plan 8 Task 5, hoisted out in fix round 1 — see
-    /// `NotesEditorModel`'s own doc comment) — same one-per-sheet lifetime as `editor` above, built
-    /// once in `init` from the item's initial content.
-    @State private var notesModel: NotesEditorModel
-    /// Guards the field-autosave (400ms) vs. notes-autosave (600ms) race (fix round 1, review
-    /// finding #2): two independent debounced save paths can have their responses land out of
-    /// dispatch order, and without this, an older response landing last could revert whatever a
-    /// newer one already committed — see `SaveGeneration`'s own doc comment (StashKit) for the
-    /// full rationale and the established codebase precedent it mirrors.
-    @State private var saveGeneration = SaveGeneration()
+    @State private var isGeneratingSummary = false
+    @State private var summaryErrorMessage: String?
 
     let store: ItemStore
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: ContentTabKey
-    @State private var isLoadingDetail = false
-    /// One shared enum-keyed `@FocusState` for all three text inputs (final wave, item B — was
-    /// three independent `Bool`s, `titleFocused`/`descriptionFocused`/`notesFocused`; see
-    /// `DetailField`'s own doc comment for why unifying them was the fix). Declared here, not
-    /// inside `NotesEditor` itself, and threaded down through `ItemDetailContent` as a
-    /// `FocusState<DetailField?>.Binding` — originally so a `.toolbar(placement: .keyboard)`
-    /// accessory hoisted to this view's own top level (rather than several levels deep inside
-    /// `ItemDetailContent`'s tab-switch `@ViewBuilder`, where it never actually registered —
-    /// confirmed live) could defocus whichever field was active. Plan 12 feedback round 3, Task 1
-    /// retired that toolbar accessory entirely (iOS 26 renders it as an unreliable floating bar
-    /// inside a `.sheet(item:)` — sometimes never appearing at all) in favor of an in-content
-    /// control in `ItemDetailContent.sectionHead`'s own `trailing` slot, but the shared
-    /// `FocusState` this type owns is unchanged: that control still needs "is ANY of
-    /// title/description/notes focused" and "clear whichever one is", exactly as before.
+    /// The `page_body` read (M5/L6) — see `loadDetailIfNeeded`.
+    @State private var sourceLoad: DetailSourceLoad = .idle
+    /// One shared enum-keyed `@FocusState` for all three text inputs (final wave, item B — see
+    /// `DetailField`'s own doc comment). Threaded down through `ItemDetailContent` as a
+    /// `FocusState<DetailField?>.Binding`; the footer's hide-keyboard control needs "is ANY of
+    /// title/description/notes focused" and "clear whichever one is".
     @FocusState private var focusedField: DetailField?
 
     init(item: Item, store: ItemStore) {
         _item = State(initialValue: item)
-        _snapshot = State(initialValue: item)
+        // The card shows queued (unconfirmed) edits laid over the row; the diff baseline must be
+        // what the server actually holds, so a queued value still counts as unsaved here.
+        _snapshot = State(initialValue: store.serverRow(withId: item.id) ?? item)
         self.store = store
         _selectedTab = State(initialValue: contentTabsConfig(for: item.type).defaultTab)
-        _notesModel = State(initialValue: NotesEditorModel(item: item))
+        _services = StateObject(wrappedValue: DetailSheetServices(item: item, userId: store.userId))
     }
 
+    private var isTranscribing: Bool { TranscriptionActivity.shared.isRunning(item.id) }
+
     var body: some View {
-        // Plan 12 feedback round 3, Task 1: the `NavigationStack` wrap this used to live inside
-        // (Plan 8 Task 5) existed SOLELY so `.toolbar(placement: .keyboard)` could register an
-        // accessory inside a `.sheet(item:)` presentation — see `focusedField`'s doc comment
-        // above. That toolbar accessory is retired below (iOS 26 renders it as a floating bar
-        // that's unreliable inside a sheet — sometimes never appearing at all, confirmed live),
-        // so nothing here depends on `NavigationStack` any more: dropped along with
-        // `.toolbar(.hidden, for: .navigationBar)`, which only ever existed to hide the nav bar
-        // that wrap would otherwise have contributed.
         ZStack(alignment: .topTrailing) {
             // `footerBar` is a genuine VStack SIBLING below the ScrollView, not a
             // `.safeAreaInset`/overlay pinned on top of it. An inset never actually shrinks the
@@ -136,33 +202,18 @@ struct ItemDetailView: View {
             // frame stop exactly where the footer begins, so nothing can ever land behind it.
             VStack(spacing: 0) {
                 ScrollView {
-                    // Outer spacing 0 (was 18 — a value that belonged to neither this fix
-                    // round's `DetailLayout.gap`(14)/`.section`(24) tier): every child below
-                    // now carries its own explicit top gap instead, so the sheet's rhythm
-                    // reads as one deliberate 14/24 scale rather than a flat 18 throughout.
-                    // `ItemDetailContent`/`DetailsDrawer`/`SharingSection` need none here —
-                    // each opens with a `SectionHeader`, which already supplies its own
-                    // `DetailLayout.section` gap above itself.
+                    // Every child below carries its own explicit top gap (the sheet's 14/24
+                    // rhythm); `ItemDetailContent`/`DetailsDrawer`/`SharingSection` each open with
+                    // a `SectionHeader`, which supplies its own `DetailLayout.section` gap.
                     VStack(alignment: .leading, spacing: 0) {
                         DetailEyebrow(item: item)
                         titleField
                             .padding(.top, DetailLayout.gap)
                         descriptionField
                             .padding(.top, DetailLayout.gap)
-                        // Plan 12 feedback round 3, Task 1 root cause (Will, on-device:
-                        // "images are not showing up on the detail sheet on iOS at all"):
-                        // this gate was `item.type == .image` ONLY, so a `.link` item with a
-                        // scraped og-image preview — which the CARD already renders fine via
-                        // `LinkHeroZone`'s own `item.thumbnailURL` read — never got a hero
-                        // here at all, just `DetailURLBar`'s small favicon below. Web parity
-                        // (`EditItemSheet.tsx`'s `hasImage` gate, `useEditItemMedia.ts`'s
-                        // `checkForImage`): `(type === 'image' || type === 'link') &&
-                        // file_path` — `item.thumbnailURL` already IS that same "file_path
-                        // present, http-prefixed external URL or storage path either way"
-                        // check (`ItemRules.swift`), so this now matches it exactly. Native
-                        // `.image` items were never actually broken (confirmed live against
-                        // the sim's "image one" fixture, screenshotted both before and after
-                        // this change) — this fix is additive, widening the gate to `.link`.
+                        // Web parity (`EditItemSheet.tsx`'s `hasImage` gate): `(type === 'image'
+                        // || type === 'link') && file_path` — `item.thumbnailURL` is that same
+                        // "file_path present" check (`ItemRules.swift`).
                         if (item.type == .image || item.type == .link), let url = item.thumbnailURL {
                             heroImage(url)
                                 .padding(.top, DetailLayout.gap)
@@ -171,21 +222,23 @@ struct ItemDetailView: View {
                             DetailURLBar(urlString: urlString)
                                 .padding(.top, DetailLayout.gap)
                         }
-                        ItemDetailContent(item: item, selectedTab: $selectedTab, isLoadingDetail: isLoadingDetail,
-                                          notesModel: notesModel, notesFocused: $focusedField,
+                        ItemDetailContent(item: item, selectedTab: $selectedTab,
+                                          sourceLoad: sourceLoad,
+                                          onRetryDetail: { Task { await loadDetailIfNeeded() } },
+                                          notesModel: services.notesModel, notesFocused: $focusedField,
                                           scheduleNotesFlush: scheduleNotesFlush, flushNotesNow: flushNotesNow,
                                           isTranscribing: isTranscribing,
                                           transcriptionErrorMessage: transcriptionErrorMessage,
-                                          onTranscribeWithSpeakers: { Task { await retranscribe() } })
+                                          onTranscribeWithSpeakers: { Task { await retranscribe() } },
+                                          isGeneratingSummary: isGeneratingSummary,
+                                          summaryErrorMessage: summaryErrorMessage,
+                                          onGenerateSummary: { Task { await generateSummary() } })
 
-                        // No standalone divider here anymore — `DetailsDrawer`'s own
-                        // `SectionHeader` ("DETAILS") already draws the hairline that used to
-                        // live on this ad-hoc `Rectangle`, right above its own label at the
-                        // same `DetailLayout.section` gap every other section uses.
+                        // `DetailsDrawer`'s own `SectionHeader` ("DETAILS") draws the hairline.
                         DetailsDrawer(item: item, attributes: attributesBinding)
 
-                        SharingSection(item: item, editor: editor,
-                                        supplementalNote: supplementalNoteBinding, onSaved: handleSaved)
+                        SharingSection(item: item, supplementalNote: supplementalNoteBinding,
+                                       setPublic: setPublic)
                     }
                     .padding(.horizontal, DetailLayout.inset)
                     .padding(.top, 44)
@@ -199,35 +252,19 @@ struct ItemDetailView: View {
         }
         .presentationCornerRadius(StashRadius.sheet)
         .task { await loadDetailIfNeeded() }
-        .onChange(of: store.items) { _, items in
-            guard let updated = items.first(where: { $0.id == item.id }) else { return }
+        .onChange(of: store.items) { _, _ in
+            // The server's version, never the list's (which shows queued edits over it).
+            guard let updated = store.serverRow(withId: item.id), updated != snapshot else { return }
             adopt(updated)
         }
-        .onDisappear {
-            // Deleting already dismisses (and there's nothing left server-side to PATCH).
-            guard !isDeleted else { return }
-            // Belt-and-braces (fix round 1, review finding #1): `closeButton` already flushes
-            // notes before calling `dismiss()`, but `onDisappear` fires on ANY path out of this
-            // sheet (a system swipe-to-dismiss, not just the Done button), so notes gets the
-            // same explicit flush here too — same reasoning `saveChangedFields()` already
-            // covers fields with. `flushNotesNow` first: it's the one path that's new/hasn't
-            // already run once via `closeButton` in the tap-Done case (redundant-but-safe there
-            // — `NotesEditorModel`'s own guard makes a second flush with nothing new to save a
-            // no-op).
-            //
-            // `fieldDebouncer.cancel()` before the explicit `saveChangedFields()` (final wave,
-            // item E/7): without this, a still-pending 400ms field debounce from a keystroke
-            // typed just before dismiss could fire its OWN `saveChangedFields()` call after
-            // this one already ran — harmless in outcome (both diff against `snapshot`, so a
-            // second call with nothing left unsaved is a no-op), but it's a redundant network
-            // round trip and an unnecessary `saveGeneration` bump for no reason once this
-            // explicit call is about to cover the same save anyway.
-            Task {
-                await flushNotesNow()
-                await fieldDebouncer.cancel()
-                await saveChangedFields()
-            }
+        // App switcher / lock with the sheet still open: queue what's unsaved now, so even a kill
+        // from the switcher can't lose it (the next foreground refresh sends it).
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background, !isDeleted { journalUnconfirmedEdits() }
         }
+        .onAppear { services.isClosed = false }
+        // Fires on every way out — X, swipe, or a programmatic dismissal.
+        .onDisappear { handleDismiss() }
         .confirmationDialog("Delete this item? This can't be undone.", isPresented: $showDeleteConfirm,
                              titleVisibility: .visible) {
             Button("Delete", role: .destructive) { Task { await performDelete() } }
@@ -299,9 +336,7 @@ struct ItemDetailView: View {
 
     /// Contained hero, radius 16 + card shadow — `.image` items, and (plan 12 fix round 3) any
     /// `.link` item whose `thumbnailURL` resolves (a scraped og-image), matching web's `hasImage`
-    /// gate. Native `.video`/`.audio` players are still out of scope for this task ("as today" per
-    /// the brief, and today there are none) — this call site's own gate above never reaches them.
-    /// Plan 15: loaded through the app's `ImagePipeline` (memory + disk cache, decoded at the
+    /// gate. Plan 15: loaded through the app's `ImagePipeline` (memory + disk cache, decoded at the
     /// sheet's width instead of the original's full resolution) — a hero the card already showed
     /// comes straight off disk.
     private func heroImage(_ url: URL) -> some View {
@@ -324,16 +359,11 @@ struct ItemDetailView: View {
     }
 
     /// The iOS close affordance — a hairline circle × top-trailing, matching the web sheet's own
-    /// close button, in place of the former toolbar "Done". Flushes any pending notes edit BEFORE
-    /// dismissing (fix round 1, review finding #1) — the 600ms debounce alone can't be trusted to
-    /// have fired yet on a fast "type then tap Done" sequence, so this awaits the flush first
-    /// rather than relying solely on `onDisappear`'s own belt-and-braces call.
+    /// close button. Plan 15 (H5): closes at once, never waiting on a save — `handleDismiss` (via
+    /// `onDisappear`, which a swipe-to-dismiss reaches too) queues and sends anything unconfirmed.
     private var closeButton: some View {
         Button {
-            Task {
-                await flushNotesNow()
-                dismiss()
-            }
+            dismiss()
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 12, weight: .semibold))
@@ -349,18 +379,9 @@ struct ItemDetailView: View {
 
     /// Pinned footer bar (hairline top): "Delete item" left, autosave status + hide-keyboard
     /// right — port of `EditItemSheet.tsx`'s footer, plus (final wave, F7) the sheet's one
-    /// keyboard-dismiss control.
-    ///
-    /// `detail.dismissKeyboard` used to live in `ItemDetailContent.sectionHead` (the notes
-    /// section's own header) — reachable only when the notes tab's header happened to be on
-    /// screen, which put it ~400pt below the title/description fields on a typical item (whole-
-    /// branch review, F7). This footer is a pinned SIBLING below the ScrollView (see the doc
-    /// comment on this view's outer `ZStack`), so it's always on screen regardless of scroll
-    /// position or which of the three fields (`DetailField`) is focused — same identifier, same
-    /// "visible while any field is focused, clears the shared `focusedField`" contract, just
-    /// reachable from anywhere in the sheet now. 40pt (`CircleIcon`'s own default `size`,
-    /// matching the composer's equivalent control) rather than the notes header's smaller 32pt —
-    /// this is now a primary footer control, not an inline section accessory.
+    /// keyboard-dismiss control: a pinned SIBLING below the ScrollView, so it's reachable no
+    /// matter which of the three fields (`DetailField`) is focused or where the sheet is
+    /// scrolled.
     private var footerBar: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -440,9 +461,8 @@ struct ItemDetailView: View {
         })
     }
 
-    /// Sticky-note text (Task 9's `SharingSection`) rides the same debounced field-autosave
-    /// path as title/description — `saveChangedFields` already diffs `supplementalNote` against
-    /// `snapshot` (wired in Task 8, unused until now since nothing mutated it before this task).
+    /// Sticky-note text (`SharingSection`) rides the same debounced field-autosave path as
+    /// title/description — `saveChangedFields` diffs `supplementalNote` against `snapshot`.
     private var supplementalNoteBinding: Binding<String> {
         Binding(get: { item.supplementalNote ?? "" }, set: { newValue in
             item.supplementalNote = newValue
@@ -450,13 +470,10 @@ struct ItemDetailView: View {
         })
     }
 
-    /// Backs `LocationRow` (Task 8). Unlike title/description/supplementalNote, a location commit
-    /// is already a discrete, deliberate action (Enter/blur/remove-X — never per-keystroke), so
-    /// this saves immediately rather than routing through `fieldDebouncer`: there's no
-    /// "in-progress draft" worth debouncing here. The optimistic `item.attributes = newValue`
-    /// write (before the save's own await resolves) is exactly what `adopt(_:)`'s
-    /// `hasUnsavedLocation` flag protects from a racing realtime refresh — see
-    /// `mergePreservingDetail`'s doc comment.
+    /// Backs `LocationRow` (Task 8). A location commit is a discrete, deliberate action
+    /// (Enter/blur/remove-X — never per-keystroke), so it saves immediately rather than through
+    /// `fieldDebouncer`. The optimistic `item.attributes = newValue` write is what `adopt(_:)`'s
+    /// unsaved-location check protects from a racing refresh.
     private var attributesBinding: Binding<ItemAttributes> {
         Binding(get: { item.attributes }, set: { newValue in
             item.attributes = newValue
@@ -465,225 +482,299 @@ struct ItemDetailView: View {
     }
 
     private func scheduleFieldSave() {
-        Task { await fieldDebouncer.call { await saveChangedFields() } }
+        Task { await services.fieldDebouncer.call { await saveChangedFields() } }
     }
 
     // MARK: - Save / delete
 
-    /// The debounced field-autosave action (fires 400ms after the last keystroke, per field
-    /// binding above) AND the final save on sheet dismiss (`.onDisappear`) both call this
-    /// directly — it's naturally idempotent (an empty diff against `snapshot` is a no-op), so
-    /// there's no need to cancel one path when the other fires; whichever runs second just finds
-    /// nothing left to save.
-    ///
-    /// Marked @MainActor deliberately (unlike this view's other private methods): this is the
-    /// one call path reached through `Debouncer`, which is its own (non-Main) actor — its
-    /// internal `Task` inherits *that* actor's isolation, not whatever actor originally scheduled
-    /// the call. Without this annotation, the @State mutations below could run off the main
-    /// thread. Every other async entry point here (`performDelete`, `flushNotes`) is reached
-    /// directly from a SwiftUI event closure (Button action / onDisappear) or another already-
-    /// `@MainActor` method, so it's already MainActor-isolated with no intervening actor hop.
-    ///
-    /// `saveGeneration`-guarded (fix round 1, review finding #2): captures its own generation
-    /// before dispatching, and only applies the response — `handleSaved`/`saveStatus` alike — if
-    /// no NEWER save (this same field debounce firing again, OR a notes autosave) has started in
-    /// the meantime. See `SaveGeneration`'s own doc comment (StashKit) for the full race this
-    /// guards against.
+    /// The one path every autosave takes (fields, notes, location). The values go into
+    /// `PendingEdits` FIRST (write-ahead: a failure, a crash or a close mid-save can't lose them),
+    /// then the PATCH — sent through `ItemWriteQueue`, so it never overtakes an earlier write to
+    /// this item. On success the store gets the server's row, the queue forgets what the server
+    /// confirmed, and — when no newer save started meanwhile (`SaveGeneration`, fix round 1) — the
+    /// sheet adopts it. On failure the typed value stays on screen and in the queue, and the footer
+    /// says so. Returns the saved row, or nil when the save failed.
     @MainActor
-    private func saveChangedFields() async {
-        let titleNow = item.title ?? ""
-        let descriptionNow = item.description ?? ""
-        let patch = changedFields(from: snapshot, title: titleNow, description: descriptionNow,
-                                   supplementalNote: item.supplementalNote ?? "")
-        guard !patch.isEmpty else { return }
-        let gen = saveGeneration.next()
+    private func save(_ patch: ItemPatch) async -> Item? {
+        let capturedAt = Date()
+        let pendingEdits = services.pendingEdits
+        pendingEdits.record(itemId: item.id, patch: patch, capturedAt: capturedAt)
+        let generation = services.nextGeneration()
         saveStatus = .saving
         do {
-            let merged = try await editor.save(itemId: item.id, patch: patch)
-            guard saveGeneration.isLatest(gen) else { return }
-            handleSaved(merged)
-            saveStatus = .saved
+            let saved = try await services.editor.save(itemId: item.id, patch: patch)
+            store.applyDetail(saved)
+            pendingEdits.confirm(itemId: saved.id, patch: patch, capturedAt: capturedAt)
+            if services.isLatest(generation) {
+                adopt(saved)
+                saveStatus = .saved
+            }
+            return saved
         } catch {
-            guard saveGeneration.isLatest(gen) else { return }
-            // Final wave, item D: was `.idle`, which rendered the same resting "Changes saved
-            // automatically" caption a real success does — a failed field save was silently
-            // indistinguishable from one that worked. `item.title`/`item.description` are left
-            // exactly as typed (nothing here reverts them), so the draft itself is never lost;
-            // the next successful save on any field clears this back to `.saved`.
-            saveStatus = .failed("Couldn't save — try again.")
+            if services.isLatest(generation) {
+                saveStatus = .failed("Couldn't save — try again.")
+            }
+            return nil
         }
     }
 
-    /// `LocationRow`'s save path (via `attributesBinding` above): an attributes-only `ItemPatch`
-    /// is never `.isEmpty` (so `editor.save` never throws `.emptyPatch` here), and never schedules
-    /// an embedding refresh (`ItemPatch.touchesTextFields` deliberately excludes `attributes` —
-    /// web parity, `itemOperations.ts:100-101`). No dedicated error UI on failure, matching the
-    /// web's own fire-and-forget `catch { console.error(...) }` in `EditItemLocationSection.tsx`:
-    /// a failed save just means the next realtime/detail refresh's `adopt` shows whatever the
-    /// server actually has, rather than the optimistic local edit silently drifting from it — that
-    /// reasoning is unchanged by final wave item D/minor 5 below, so the catch here deliberately
-    /// stays silent rather than also switching to `.failed`.
-    /// `saveGeneration`-guarded on success same as every other save site here (fix round 1).
+    /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
+    /// Naturally idempotent — an empty diff against `snapshot` is a no-op. Marked @MainActor
+    /// deliberately: it's reached through `Debouncer`, its own (non-Main) actor, whose internal
+    /// `Task` doesn't inherit the main actor. Quiet once the sheet has closed — the dismiss-time
+    /// journal + flush own anything still unsaved then.
+    @MainActor
+    private func saveChangedFields() async {
+        guard !services.isClosed else { return }
+        let patch = changedFields(from: snapshot, title: item.title ?? "", description: item.description ?? "",
+                                  supplementalNote: item.supplementalNote ?? "")
+        guard !patch.isEmpty else { return }
+        _ = await save(patch)
+    }
+
+    /// `LocationRow`'s save (via `attributesBinding`). An attributes-only patch never schedules an
+    /// embedding refresh (`ItemPatch.touchesTextFields` excludes `attributes` — web parity). Plan
+    /// 15 (M8): a failure is no longer silent — the footer shows it, the new location stays on
+    /// screen, and it's queued like any other field (flushed onto the server's CURRENT attributes,
+    /// see `PendingEdits.flush`) instead of vanishing when the sheet closes.
     @MainActor
     private func saveAttributes(_ attributes: ItemAttributes) async {
-        let gen = saveGeneration.next()
+        guard !services.isClosed else { return }
+        _ = await save(ItemPatch(attributes: attributes))
+    }
+
+    /// L5: the Sharing toggle flips at once (optimistic) and bumps the save generation like every
+    /// other save; on failure it flips back (so the switch never claims a state the server doesn't
+    /// hold) and `SharingSection` shows its inline error. Not written ahead to `PendingEdits` —
+    /// a failed share while the sheet is open is reverted, not retried later. If the sheet closes
+    /// while this is still in flight, the dismiss journal queues the toggle the user last saw.
+    /// Un-sharing an item with a sticky note clears the note in the same PATCH (the section asks
+    /// first).
+    @MainActor
+    private func setPublic(_ isPublic: Bool) async -> Bool {
+        let before = (isPublic: item.isPublic, note: item.supplementalNote)
+        let patch = services.editor.togglePublic(item: item, to: isPublic)
+        let clearsNote = patch.supplementalNote == ""
+        item.isPublic = isPublic
+        if clearsNote { item.supplementalNote = nil }
+        let capturedAt = Date()
+        let generation = services.nextGeneration()
         do {
-            let merged = try await editor.save(itemId: item.id, patch: ItemPatch(attributes: attributes))
-            guard saveGeneration.isLatest(gen) else { return }
-            handleSaved(merged)
-            // Final wave, item E/minor 5: this path never set `saveStatus` at all before, so a
-            // location edit right after a `.failed` field/notes save left the destructive caption
-            // on screen even though the location save that just ran succeeded. Every other save
-            // site here already sets `.saved` on success; this just brings location in line.
-            saveStatus = .saved
+            let saved = try await services.editor.save(itemId: item.id, patch: patch)
+            store.applyDetail(saved)
+            services.pendingEdits.confirm(itemId: saved.id, patch: patch, capturedAt: capturedAt)
+            if services.isLatest(generation) {
+                adopt(saved)
+                saveStatus = .saved
+            }
+            return true
         } catch {
-            print("Location save failed (non-fatal): \(error)")
+            if item.isPublic == isPublic { item.isPublic = before.isPublic }
+            if clearsNote, item.supplementalNote == nil, snapshot.supplementalNote == before.note {
+                item.supplementalNote = before.note
+            }
+            return false
         }
     }
 
     /// Debounced (per-keystroke) notes flush trigger, handed to `NotesEditor` via
     /// `ItemDetailContent` — see `NotesEditorModel.scheduleSave`'s own doc comment.
     private func scheduleNotesFlush() {
-        notesModel.scheduleSave { await self.flushNotes() }
+        services.notesModel.scheduleSave { await self.flushNotes() }
     }
 
-    /// Explicit, immediate notes flush (fix round 1, review finding #1) — the Done button /
-    /// `onDisappear` path, and the blur handler `NotesEditor` itself installs for both modes now.
-    /// See `NotesEditorModel.flushNow`'s own doc comment for why this exists at all.
+    /// Explicit, immediate notes flush — the blur handler `NotesEditor` installs for both modes.
     private func flushNotesNow() async {
-        await notesModel.flushNow { await self.flushNotes() }
+        await services.notesModel.flushNow { await self.flushNotes() }
     }
 
-    /// The actual notes save (Plan 8 Task 5, split out of `NotesEditor` in fix round 1 so
-    /// `ItemDetailView` can trigger it directly — see `NotesEditorModel`'s own doc comment for
-    /// why): plain notes save the whole draft as-is; rich notes wrap the draft as a new paragraph
-    /// via `appendNoteParagraph` onto the CURRENT `item.content` (read live here, not a value
-    /// `NotesEditorModel` itself would otherwise have to keep re-synced — this is exactly why the
-    /// model doesn't own this method). `saveGeneration`-guarded like every other save site here.
+    /// The actual notes save: plain notes save the whole draft as-is; rich notes wrap the draft as
+    /// a new paragraph via `appendNoteParagraph` onto the CURRENT `item.content` (the TipTap JSON
+    /// itself never round-trips through the plain-text field).
     ///
-    /// Idempotence guard (final wave, item C / minor 6) right before the rich-mode append: with
-    /// rich appends now firing only on blur/Done/`onDisappear` (never per-keystroke — see
-    /// `NotesEditor`'s own doc comment), the only way a save response here can still get dropped
-    /// by `saveGeneration` is a genuinely-overlapping field/attributes save winning the race. On a
-    /// drop, this method returns before ever clearing `notesModel.draft` (draft is cleared ONLY on
-    /// confirmed — i.e. still-latest — success, unchanged from before this fix round), so the draft
-    /// is still sitting there ready to be re-appended on the NEXT flush. But that dropped save DID
-    /// reach the server; if a realtime/`adopt` refresh has folded it into `item.content` by the
-    /// time that next flush runs, blindly re-appending the same draft again would duplicate the
-    /// paragraph server-side. `tipTapLastParagraphText` (StashKit) checks for exactly that: if the
-    /// trimmed draft is already the document's trailing paragraph, this treats it as already saved
-    /// — clears the draft and returns without another network call — rather than trusting the
-    /// draft's local "still pending" state alone. DISCLOSED: not a complete fix — if that refresh
-    /// hasn't landed yet, `item.content` is still stale and the duplicate can still happen once;
-    /// closing that fully would need re-fetching the row before every append, which is more
-    /// round-trip cost than this rare double-save race justifies.
+    /// Idempotence guard (final wave, item C / minor 6): if the trimmed draft is already the
+    /// document's trailing paragraph (an earlier save of it landed and was folded back in), the
+    /// draft is treated as saved rather than appended twice.
+    ///
+    /// Plan 15: the draft bookkeeping runs on every successful save (the text WAS saved), not only
+    /// the newest one, and a rich draft the user kept typing into during the save keeps whatever
+    /// was typed after the saved part instead of being wiped.
     @MainActor
     private func flushNotes() async {
-        guard notesModel.draft != notesModel.savedDraft else { return }
-        let typed = notesModel.draft
+        guard !services.isClosed else { return }
+        let notes = services.notesModel
+        guard notes.draft != notes.savedDraft else { return }
+        let typed = notes.draft
         let newContent: String
-        if notesModel.isRich {
+        if notes.isRich {
             let note = typed.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !note.isEmpty else { return }
             if tipTapLastParagraphText(item.content) == note {
-                notesModel.draft = ""
-                notesModel.savedDraft = ""
+                notes.draft = ""
+                notes.savedDraft = ""
                 return
             }
             newContent = appendNoteParagraph(to: item.content, note: note)
         } else {
             newContent = typed
         }
-        let gen = saveGeneration.next()
-        saveStatus = .saving
-        do {
-            let merged = try await editor.save(itemId: item.id, patch: ItemPatch(content: newContent))
-            guard saveGeneration.isLatest(gen) else { return }
-            if notesModel.isRich {
-                notesModel.draft = ""
-                notesModel.savedDraft = ""
-            } else {
-                notesModel.savedDraft = typed
-            }
-            handleSaved(merged)
-            saveStatus = .saved
-        } catch {
-            guard saveGeneration.isLatest(gen) else { return }
-            // Final wave, item D: was `.idle` — see `saveChangedFields`'s matching catch above for
-            // the full rationale; applied here too since this was the exact case the brief called
-            // out ("failed notes save reads 'Changes saved automatically'"). The draft is never
-            // touched on this path, so nothing typed is lost.
-            saveStatus = .failed("Couldn't save — try again.")
+        guard await save(ItemPatch(content: newContent)) != nil else { return }
+        if notes.isRich {
+            notes.removeSavedPrefix(typed)
+        } else {
+            notes.savedDraft = typed
         }
     }
 
-    /// Shared by every successful `editor.save` call site (field autosave, location, notes):
-    /// folds the merged server row into local state and keeps the background grid in sync so it
-    /// doesn't wait on the next realtime broadcast to reflect the edit.
-    private func handleSaved(_ merged: Item) {
-        adopt(merged)
-        store.applyDetail(merged)
-    }
-
-    /// Plan 14 Task 2 ("Transcribe with speakers"): `ItemDetailContent`'s trigger for the
-    /// Transcript header's button. `TranscriptionService.retranscribe` already guarantees a
-    /// thrown error means nothing was written server-side — this method's own job is purely
-    /// UI-state bookkeeping (busy flag, inline error) plus folding a SUCCESSFUL result back into
-    /// local state through the exact same `handleSaved` every other save site here uses, so the
-    /// Transcript tab's `readOnlyBlock(item.pageBody...)` picks up the new Markdown immediately
-    /// with no extra plumbing.
-    ///
-    /// `saveGeneration`-guarded like every other save site (fix round 1's established pattern):
-    /// this call can legitimately take several seconds (a real transcription job), long enough for
-    /// an unrelated field/notes save to start and finish first — the guard just makes sure THIS
-    /// response, if it's now stale relative to a newer save, doesn't stomp on it. In practice
-    /// `mergePreservingDetail` already protects `description`/`content`/title from a stale
-    /// overwrite regardless; this is defense-in-depth, not the only thing standing between here
-    /// and a lost edit.
+    /// Plan 14 Task 2 ("Transcribe with speakers"). `TranscriptionService.retranscribe`
+    /// guarantees a thrown error means nothing was written server-side. Plan 15 (M9): the busy
+    /// state lives app-wide (`TranscriptionActivity`), so it lasts the whole run — up to the
+    /// request's 5-minute wait — even across closing and reopening this item, and a second run
+    /// can't be started meanwhile.
     @MainActor
     private func retranscribe() async {
         guard !isTranscribing else { return }
-        isTranscribing = true
         transcriptionErrorMessage = nil
-        let gen = saveGeneration.next()
+        let generation = services.nextGeneration()
         do {
-            let updated = try await transcriptionService.retranscribe(item: item)
-            if saveGeneration.isLatest(gen) {
-                handleSaved(updated)
-            }
+            let updated = try await services.transcriptionService.retranscribe(item: item)
+            store.applyDetail(updated)
+            if services.isLatest(generation) { adopt(updated) }
+        } catch TranscriptionServiceError.alreadyRunning {
+            // A run started earlier (maybe from a sheet since closed) is still going; its result
+            // reaches this sheet through the store.
         } catch {
-            // Web parity copy (`TranscriptContent.tsx`): the previous transcript is untouched —
-            // `item.pageBody` was never mutated on this path, so the Transcript tab still shows
-            // exactly what it did before this tap.
+            // Web parity copy (`TranscriptContent.tsx`): the previous transcript is untouched.
             transcriptionErrorMessage = "Couldn’t update the transcript. The original is preserved. Please try again."
         }
-        isTranscribing = false
     }
 
-    /// Detail-sheet realtime hygiene: `store.items` (and our own save responses) can bring a
-    /// fresher row for this item at any time — an enrichment pipeline finishing, another
-    /// device's edit, or our own PATCH echoing back. The actual merge is StashKit's
-    /// `mergePreservingDetail` (finding #2, final review — see its doc comment for the full
-    /// rationale, including why `pageBody` needs its own guard against list-row refreshes
-    /// nulling an already-loaded value): `title`/`description`/`supplementalNote`/`attributes`/
-    /// `content` (the last added fix round 1, review finding #2, alongside `SaveGeneration` — see
-    /// that type's own doc comment for how the two guards divide the work) are the fields under
-    /// active local editing in this build, so we compute "is there an unsaved edit in flight" for
-    /// each — has it already diverged from `snapshot`, our last confirmed-saved baseline? — and
-    /// hand those five flags in. `snapshot` itself always advances to `incoming` here, since its
-    /// only job is being the next diff baseline for `changedFields`.
+    /// "Generate summary" in an empty Summary tab (plan 15; web parity `useItemSourceContent`).
+    /// `summarize-content` writes `items.summary` (and refreshes embeddings) itself — the sheet just
+    /// shows the text and keeps the list in step.
+    @MainActor
+    private func generateSummary() async {
+        guard !isGeneratingSummary else { return }
+        isGeneratingSummary = true
+        summaryErrorMessage = nil
+        defer { isGeneratingSummary = false }
+        do {
+            let summary = try await services.summaryGenerator.generate(itemId: item.id)
+            item.summary = summary
+            snapshot.summary = summary
+            if var row = store.serverRow(withId: item.id) {
+                row.summary = summary
+                store.applyDetail(row)
+            }
+        } catch SummaryGenerationError.noSourceContent {
+            summaryErrorMessage = "There's no captured content to summarize yet."
+        } catch {
+            summaryErrorMessage = "Couldn't generate a summary. Please try again."
+        }
+    }
+
+    // MARK: - Close (plan 15, H5)
+
+    /// Everything on screen the server hasn't confirmed, as one patch: fields that differ from the
+    /// server's last row (in flight, failed, or still in a debounce), an optimistic Sharing flip,
+    /// a location edit, and the notes draft (a plain note whole; a rich draft appended as a new
+    /// paragraph — never flattened). Only what the user actually changed: a field another device
+    /// updated meanwhile matches `snapshot` and is left alone.
+    private func unconfirmedPatch() -> (patch: ItemPatch, richDraft: (typed: String, content: String)?) {
+        var patch = changedFields(from: snapshot, title: item.title ?? "", description: item.description ?? "",
+                                  supplementalNote: item.supplementalNote ?? "")
+        if item.isPublic != snapshot.isPublic { patch.isPublic = item.isPublic }
+        if item.attributes.location != snapshot.attributes.location { patch.attributes = item.attributes }
+        var richDraft: (typed: String, content: String)?
+        let notes = services.notesModel
+        if notes.draft != notes.savedDraft {
+            if notes.isRich {
+                let note = notes.draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !note.isEmpty, tipTapLastParagraphText(item.content) != note {
+                    let content = appendNoteParagraph(to: item.content, note: note)
+                    patch.content = content
+                    richDraft = (notes.draft, content)
+                }
+            } else {
+                patch.content = notes.draft
+            }
+        }
+        return (patch, richDraft)
+    }
+
+    /// Writes `unconfirmedPatch()` to the durable queue, synchronously.
+    private func journalUnconfirmedEdits() {
+        let (patch, richDraft) = unconfirmedPatch()
+        guard !patch.isEmpty else { return }
+        services.pendingEdits.record(itemId: item.id, patch: patch, capturedAt: Date())
+        if let richDraft { services.journaledRichDraft = richDraft }
+    }
+
+    /// The sheet is gone (X, swipe, or programmatic): queue whatever the server hasn't confirmed —
+    /// synchronously, before anything else can happen — and start sending it. Nothing here waits:
+    /// the send runs in its own task, after any of this sheet's saves still in flight
+    /// (`ItemWriteQueue`); if it fails, the entry stays queued for the next refresh.
+    private func handleDismiss() {
+        guard !isDeleted, !services.isClosed else { return }
+        services.isClosed = true
+        journalUnconfirmedEdits()
+        let itemId = item.id
+        let pendingEdits = services.pendingEdits
+        guard pendingEdits.edit(for: itemId) != nil else { return }
+        let editor = services.editor
+        let store = store
+        Task { @MainActor in
+            await pendingEdits.flush(editor: editor, itemIds: [itemId]) { store.applyDetail($0) }
+        }
+    }
+
+    /// Folds a fresher SERVER row into the sheet — an enrichment finishing, another device's edit,
+    /// our own save coming back, or the `page_body` fetch. The merge is StashKit's
+    /// `mergePreservingDetail`: every field the user has changed locally (differs from `snapshot`,
+    /// the last server row) keeps the local value; everything else takes the server's. `snapshot`
+    /// always advances to `incoming`.
+    ///
+    /// Plan 15: the location check compares `location` only — Task 5 made nested attributes
+    /// loss-less, so a whole-blob compare also tripped whenever the server rewrote e.g.
+    /// `media.transcript`, pinning the sheet to its stale blob. A pending location now keeps just
+    /// the location over the server's (fresh) attributes. An optimistic Sharing flip is kept the
+    /// same way (L5).
     private func adopt(_ incoming: Item) {
-        let next = mergePreservingDetail(
+        let unsavedLocation = item.attributes.location != snapshot.attributes.location
+        var next = mergePreservingDetail(
             local: item,
             incoming: incoming,
             hasUnsavedTitle: (item.title ?? "") != (snapshot.title ?? ""),
             hasUnsavedDescription: (item.description ?? "") != (snapshot.description ?? ""),
             hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? ""),
-            hasUnsavedLocation: item.attributes != snapshot.attributes,
+            hasUnsavedLocation: false,
             hasUnsavedContent: (item.content ?? "") != (snapshot.content ?? "")
         )
+        if unsavedLocation { next.attributes.location = item.attributes.location }
+        if item.isPublic != snapshot.isPublic { next.isPublic = item.isPublic }
         snapshot = incoming
         item = next
+        reconcileNotesDraft(with: incoming)
+        // A failed save the queue has since delivered (e.g. flushed on foreground) is no longer
+        // failed — the caption shouldn't keep saying so.
+        if case .failed = saveStatus, unconfirmedPatch().patch.isEmpty,
+           services.pendingEdits.edit(for: item.id) == nil {
+            saveStatus = .saved
+        }
+    }
+
+    /// Keeps the notes draft honest when the server's content catches up with it: a queued rich
+    /// draft leaves the field once the document contains it; a plain draft the server now holds
+    /// counts as saved.
+    private func reconcileNotesDraft(with incoming: Item) {
+        let notes = services.notesModel
+        if notes.isRich {
+            guard let journaled = services.journaledRichDraft, incoming.content == journaled.content else { return }
+            services.journaledRichDraft = nil
+            notes.removeSavedPrefix(journaled.typed)
+        } else if notes.draft != notes.savedDraft, (incoming.content ?? "") == notes.draft {
+            notes.savedDraft = notes.draft
+        }
     }
 
     @MainActor
@@ -692,33 +783,57 @@ struct ItemDetailView: View {
         defer { isDeleting = false }
         deleteErrorMessage = nil
         do {
-            try await editor.delete(itemId: item.id)
+            try await services.editor.delete(itemId: item.id)
+            services.pendingEdits.discard(itemId: item.id)
             isDeleted = true
             dismiss()
             // Fire-and-forget, matching the save paths' "closing never waits on the network"
-            // ethos — the grid will drop the row itself once this resolves (and, redundantly,
-            // via the realtime subscription's own broadcast of the delete).
+            // ethos — the grid will drop the row itself once this resolves.
             Task { await store.refresh() }
         } catch ItemEditorError.deleteMatchedNoRows {
             // Final wave (F6): a well-understood, non-transient shape (RLS/stale id) — "try
-            // again" would be actively wrong copy here, since retrying the same delete against
-            // the same non-existent/inaccessible row will just fail the same way again.
+            // again" would be actively wrong copy here.
             deleteErrorMessage = "Couldn't delete this item — it may not exist anymore or you may not have permission."
         } catch {
-            // Everything else (network failure, `.deleteResponseUnreadable`, any other thrown
-            // error) is plausibly transient — "try again" is still the right steer.
+            // Everything else (network failure, `.deleteResponseUnreadable`, …) is plausibly
+            // transient — "try again" is still the right steer.
             deleteErrorMessage = "Couldn't delete — try again."
         }
     }
 
-    /// list queries omit page_body (can be tens of KB/item); fetch the full row here instead.
+    /// `page_body` is the one column list reads leave out (tens of KB per item). Plan 15:
+    /// - M5: fetched only when the row doesn't already carry it — a reopened item keeps it from
+    ///   earlier in the session, and a citation sheet's row was just fetched with it.
+    /// - L4: the whole row is adopted only when no save started (or was in flight) while it was
+    ///   being read — otherwise it may predate that save, and only its `page_body` is used.
+    /// - L6: a failure is remembered, so the source tabs say "Couldn't load" with a retry instead
+    ///   of empty-state copy that reads as "there's nothing here".
+    @MainActor
     private func loadDetailIfNeeded() async {
-        guard needsSourceContent(item.type) else { return }
-        isLoadingDetail = true
-        defer { isLoadingDetail = false }
-        if let detail = try? await SupabaseItemsFetcher().fetchDetail(id: item.id) {
-            adopt(detail)
-            store.applyDetail(detail)
+        guard needsSourceContent(item.type), item.pageBody == nil, sourceLoad != .loading else { return }
+        sourceLoad = .loading
+        let itemId = item.id
+        let generationAtStart = services.latestGeneration
+        let writesInFlightAtStart = ItemWriteQueue.shared.isBusy(itemId)
+        do {
+            let detail = try await SupabaseItemsFetcher().fetchDetail(id: itemId)
+            let savedSinceStart = writesInFlightAtStart || ItemWriteQueue.shared.isBusy(itemId)
+                || services.latestGeneration != generationAtStart
+            if savedSinceStart {
+                item.pageBody = detail.pageBody
+                snapshot.pageBody = detail.pageBody
+                if var row = store.serverRow(withId: itemId) {
+                    row.pageBody = detail.pageBody
+                    store.applyDetail(row)
+                }
+            } else {
+                adopt(detail)
+                store.applyDetail(detail)
+            }
+            sourceLoad = .loaded
+        } catch {
+            // A read cancelled because the sheet went away isn't a failure worth showing.
+            sourceLoad = Task.isCancelled ? .idle : .failed
         }
     }
 }

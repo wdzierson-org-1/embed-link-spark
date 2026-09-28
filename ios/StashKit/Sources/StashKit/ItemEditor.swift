@@ -98,7 +98,12 @@ public func changedFields(from snapshot: Item, title: String, description: Strin
 // MARK: - ItemPatching
 
 public protocol ItemPatching: Sendable {
+    /// Throws `ItemEditorError.itemNotFound` when no row matched (deleted, or not this user's).
     func patch(itemId: UUID, patch: ItemPatch) async throws -> Item
+    /// The row's current `attributes` blob, or `nil` when the row no longer exists. Used by
+    /// `PendingEdits.flush` to apply a queued location onto whatever the server holds NOW instead
+    /// of writing back a blob that may be hours old (plan 15, H5/M8).
+    func currentAttributes(itemId: UUID) async throws -> ItemAttributes?
     func deleteItemCascade(itemId: UUID) async throws
     func itemTags(itemId: UUID) async throws -> [StashTag]
     func addTag(named: String, userId: UUID, itemId: UUID) async throws
@@ -112,13 +117,30 @@ public struct SupabaseItemPatcher: ItemPatching {
     public init() {}
 
     public func patch(itemId: UUID, patch: ItemPatch) async throws -> Item {
+        do {
+            let data = try await StashClient.shared.from("items")
+                .update(Self.jsonBody(patch.restBody))
+                .eq("id", value: itemId.uuidString)
+                .select(Item.detailColumns)
+                .single()
+                .execute().data
+            return try Item.decoder.decode(Item.self, from: data)
+        } catch let error as PostgrestError where error.code == "PGRST116" {
+            // `.single()` on zero matched rows: the item is gone (or RLS hides it). Distinct from a
+            // transport failure so a queued edit for a deleted item is dropped, not retried forever.
+            throw ItemEditorError.itemNotFound
+        }
+    }
+
+    public func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
+        struct Row: Decodable { let attributes: ItemAttributes? }
         let data = try await StashClient.shared.from("items")
-            .update(Self.jsonBody(patch.restBody))
+            .select("attributes")
             .eq("id", value: itemId.uuidString)
-            .select(Item.detailColumns)
-            .single()
+            .limit(1)
             .execute().data
-        return try Item.decoder.decode(Item.self, from: data)
+        guard let row = try JSONDecoder().decode([Row].self, from: data).first else { return nil }
+        return row.attributes ?? ItemAttributes()
     }
 
     /// Web order (itemOperations.ts:135-155): embeddings rows first, then the item row. The
@@ -275,6 +297,59 @@ public enum ItemEditorError: Error, Equatable {
     /// "matched zero rows" shape `deleteMatchedNoRows` covers (which decodes cleanly to `[]`).
     /// Kept distinct so the two never share misleading UI copy.
     case deleteResponseUnreadable
+    /// A PATCH matched no row: the item was deleted (here or on another device) or isn't visible
+    /// to this user. Plan 15: lets `PendingEdits` drop a queued edit for a deleted item instead of
+    /// retrying it on every refresh forever.
+    case itemNotFound
+}
+
+// MARK: - ItemWriteQueue
+
+/// Runs every write to one item strictly in call order, one at a time (plan 15, H5).
+///
+/// The detail sheet now closes without waiting on the network and hands anything unconfirmed to
+/// `PendingEdits`, whose flush can start while one of the sheet's own PATCHes for the same item is
+/// still in flight. Two concurrent PATCHes can land out of order, and the older value would then
+/// win on the server. With every writer (`ItemEditor` instances, `TranscriptionService`) going
+/// through the one shared queue, a later write is only sent once the earlier one has finished, so
+/// the server always ends with the newest value. Different items never wait on each other.
+///
+/// Work runs in unstructured tasks: a caller that goes away (a dismissed sheet) never cancels a
+/// write already queued.
+@MainActor
+public final class ItemWriteQueue {
+    public static let shared = ItemWriteQueue()
+
+    private var tails: [UUID: Task<Void, Never>] = [:]
+
+    public init() {}
+
+    /// Runs `operation` after every write to `itemId` enqueued before it has finished (whether it
+    /// succeeded or not), and returns its result.
+    public func enqueue<T: Sendable>(itemId: UUID, _ operation: @escaping @MainActor () async throws -> T) async throws -> T {
+        let previous = tails[itemId]
+        let work = Task<T, Error> { @MainActor in
+            _ = await previous?.value
+            return try await operation()
+        }
+        let tail = Task<Void, Never> { @MainActor in _ = await work.result }
+        tails[itemId] = tail
+        let result = await work.result
+        if tails[itemId] == tail { tails[itemId] = nil }
+        return try result.get()
+    }
+
+    /// True while a write to `itemId` is queued or running.
+    public func isBusy(_ itemId: UUID) -> Bool { tails[itemId] != nil }
+}
+
+/// What `ItemEditor.saveLatest` did: `item` is the saved row, or `nil` when the patch built at the
+/// write's turn turned out to be empty (nothing left to send). `context` is whatever the builder
+/// returned alongside the patch.
+public struct QueuedSave<Context: Sendable>: Sendable {
+    public let item: Item?
+    public let patch: ItemPatch
+    public let context: Context
 }
 
 /// Backs the item detail view: save/delete/public-toggle/tag operations, all delegating network
@@ -284,22 +359,54 @@ public enum ItemEditorError: Error, Equatable {
 public final class ItemEditor {
     private let patcher: ItemPatching
     private let refresher: EmbeddingRefresher
+    private let writeQueue: ItemWriteQueue
 
-    public init(patcher: ItemPatching, refresher: EmbeddingRefresher) {
+    /// `writeQueue` defaults to the app-wide `ItemWriteQueue.shared` (tests pass their own).
+    public init(patcher: ItemPatching, refresher: EmbeddingRefresher, writeQueue: ItemWriteQueue? = nil) {
         self.patcher = patcher
         self.refresher = refresher
+        self.writeQueue = writeQueue ?? .shared
     }
 
     /// Saves resolve on the PATCH alone; embedding regeneration is scheduled separately (from the
     /// full merged row so a partial patch can't wipe the rest of the item's searchable content)
-    /// and never awaited here — see EmbeddingRefresher.
+    /// and never awaited here — see EmbeddingRefresher. Plan 15: sent through `ItemWriteQueue`, so
+    /// it goes out only after every earlier write to the same item has finished.
     public func save(itemId: UUID, patch: ItemPatch) async throws -> Item {
         guard !patch.isEmpty else { throw ItemEditorError.emptyPatch }
-        let merged = try await patcher.patch(itemId: itemId, patch: patch)
-        if patch.touchesTextFields {
-            await refresher.schedule(merged)
+        return try await writeQueue.enqueue(itemId: itemId) { [patcher, refresher] in
+            let merged = try await patcher.patch(itemId: itemId, patch: patch)
+            if patch.touchesTextFields {
+                await refresher.schedule(merged)
+            }
+            return merged
         }
-        return merged
+    }
+
+    /// Like `save`, but the patch is built by `prepare` when this write's turn comes — after every
+    /// earlier write to the item has finished — so a queued flush always sends the newest values
+    /// rather than whatever was pending when it was scheduled. `prepare` returning `nil` means
+    /// "nothing to do" (the method returns `nil`); an empty patch is reported back without a
+    /// request (`QueuedSave.item == nil`).
+    public func saveLatest<Context: Sendable>(
+        itemId: UUID,
+        prepare: @escaping @MainActor () async throws -> (ItemPatch, Context)?
+    ) async throws -> QueuedSave<Context>? {
+        try await writeQueue.enqueue(itemId: itemId) { [patcher, refresher] in
+            guard let prepared = try await prepare() else { return nil }
+            let (patch, context) = prepared
+            guard !patch.isEmpty else { return QueuedSave(item: nil, patch: patch, context: context) }
+            let merged = try await patcher.patch(itemId: itemId, patch: patch)
+            if patch.touchesTextFields {
+                await refresher.schedule(merged)
+            }
+            return QueuedSave(item: merged, patch: patch, context: context)
+        }
+    }
+
+    /// The row's current `attributes`, or `nil` when it no longer exists.
+    public func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
+        try await patcher.currentAttributes(itemId: itemId)
     }
 
     /// Pure patch builder for the public/private toggle (useEditItemSheet.ts:128-141): sharing
@@ -337,5 +444,76 @@ public final class ItemEditor {
 
     public func suggestTags(title: String, content: String, description: String, available: [String]) async throws -> [String] {
         try await patcher.suggestTags(title: title, content: content, description: description, available: available)
+    }
+}
+
+// MARK: - Generate summary (plan 15)
+
+/// Why "Generate summary" produced no summary.
+public enum SummaryGenerationError: Error, Equatable, Sendable {
+    /// The item has no captured page text to summarize (`reason: "no_source_content"`).
+    case noSourceContent
+    /// Anything else: transport failure, non-2xx, `success: false`, or an empty summary.
+    case failed
+}
+
+/// The `summarize-content` response: `{ success: true, summary }` or `{ success: false, reason }`
+/// (soft failures come back as 200 — see the function).
+public struct SummarizeContentResponse: Decodable, Equatable, Sendable {
+    public let success: Bool?
+    public let summary: String?
+    public let reason: String?
+
+    public init(success: Bool?, summary: String?, reason: String?) {
+        self.success = success
+        self.summary = summary
+        self.reason = reason
+    }
+
+    /// The summary to show, or the typed reason there isn't one.
+    public func summaryOrThrow() throws -> String {
+        if success == true, let summary,
+           !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return summary
+        }
+        if reason == "no_source_content" { throw SummaryGenerationError.noSourceContent }
+        throw SummaryGenerationError.failed
+    }
+}
+
+public protocol SummaryInvoking: Sendable {
+    func summarize(itemId: UUID) async throws -> SummarizeContentResponse
+}
+
+public struct FunctionsSummaryInvoker: SummaryInvoking {
+    public init() {}
+
+    public func summarize(itemId: UUID) async throws -> SummarizeContentResponse {
+        try await StashClient.shared.functions.invoke(
+            "summarize-content",
+            options: FunctionInvokeOptions(body: ["itemId": itemId.uuidString.lowercased()]))
+    }
+}
+
+/// "Generate summary" in an empty Summary tab (plan 15 — the iOS spec's promised action, web parity
+/// with `useItemSourceContent.generateSummary`). `summarize-content` (deployed v7, identical to the
+/// repo) does everything server-side: it checks the caller owns the item, summarizes the item's own
+/// `page_body` (links and documents only), writes `items.summary`, and refreshes the embeddings
+/// itself. The client only shows the returned text.
+public struct SummaryGenerator: Sendable {
+    private let invoker: SummaryInvoking
+
+    public init(invoker: SummaryInvoking = FunctionsSummaryInvoker()) {
+        self.invoker = invoker
+    }
+
+    public func generate(itemId: UUID) async throws -> String {
+        let response: SummarizeContentResponse
+        do {
+            response = try await invoker.summarize(itemId: itemId)
+        } catch {
+            throw SummaryGenerationError.failed
+        }
+        return try response.summaryOrThrow()
     }
 }

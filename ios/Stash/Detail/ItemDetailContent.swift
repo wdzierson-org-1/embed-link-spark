@@ -1,6 +1,16 @@
 import SwiftUI
 import StashKit
 
+/// Where the sheet's `page_body` read stands (plan 15, M5/L6).
+enum DetailSourceLoad: Equatable {
+    /// Not read by the sheet — the row arrived with `page_body`, or nothing has started yet.
+    case idle
+    case loading
+    /// Read; whatever `item.pageBody` holds now is what the server has.
+    case loaded
+    case failed
+}
+
 /// The content section: DESIGN.md's panel-section grammar (uppercase micro-label — "NOTES &
 /// SUMMARY" / "NOTES & TRANSCRIPT" / "NOTES" per `contentTabsConfig(for:).title` — over a
 /// hairline rule) with `PillTabs` alongside it when the type has more than one tab, then the
@@ -20,7 +30,10 @@ import StashKit
 struct ItemDetailContent: View {
     let item: Item
     @Binding var selectedTab: ContentTabKey
-    let isLoadingDetail: Bool
+    /// The sheet's `page_body` read (M5: only the source tabs wait on it — a summary is a list
+    /// column and shows at once; L6: a failed read says so, with a retry).
+    let sourceLoad: DetailSourceLoad
+    var onRetryDetail: () -> Void
     let notesModel: NotesEditorModel
     var notesFocused: FocusState<DetailField?>.Binding
     var scheduleNotesFlush: () -> Void
@@ -34,6 +47,10 @@ struct ItemDetailContent: View {
     let isTranscribing: Bool
     let transcriptionErrorMessage: String?
     var onTranscribeWithSpeakers: () -> Void
+    /// "Generate summary" (plan 15) — owned by `ItemDetailView`, like the transcription trigger.
+    let isGeneratingSummary: Bool
+    let summaryErrorMessage: String?
+    var onGenerateSummary: () -> Void
 
     private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
     private var tabs: [ContentTab] { config.tabs.filter { $0.key != .notes } }
@@ -145,24 +162,113 @@ struct ItemDetailContent: View {
     }
 
     @ViewBuilder private func tabBody(for tab: ContentTabKey) -> some View {
-        if tab != .notes && isLoadingDetail {
+        switch tab {
+        case .summary:
+            summaryBody
+        case .original:
+            sourceBody(empty: "Nothing captured yet", id: "detail.originalText")
+        case .transcript:
+            sourceBody(empty: "Transcription in progress…", id: "detail.transcriptText")
+        case .notes:
+            NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
+                        scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
+        }
+    }
+
+    /// Original/Transcript — the tabs that actually wait on `page_body`.
+    @ViewBuilder private func sourceBody(empty: String, id: String) -> some View {
+        if let text = item.pageBody, !text.isEmpty {
+            readOnlyBlock(text, empty: empty, id: id)
+        } else if sourceLoad == .loading {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 120)
                 .accessibilityIdentifier("detail.loadingSource")
+        } else if sourceLoad == .failed {
+            loadFailedState(id: id)
         } else {
-            switch tab {
-            case .summary:
-                readOnlyBlock(item.summary, empty: "No summary yet — generate one on the web for now",
-                              id: "detail.summaryText")
-            case .original:
-                readOnlyBlock(item.pageBody, empty: "Nothing captured yet", id: "detail.originalText")
-            case .transcript:
-                readOnlyBlock(item.pageBody, empty: "Transcription in progress…", id: "detail.transcriptText")
-            case .notes:
-                NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
-                            scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
+            readOnlyBlock(nil, empty: empty, id: id)
+        }
+    }
+
+    private var isDocument: Bool { item.type == .document }
+    private var noSummaryYet: String { "No summary yet for this \(isDocument ? "document" : "link")." }
+
+    /// M5: a summary is a list column, so it's on screen the moment the sheet opens — never behind
+    /// the `page_body` spinner. An empty one offers "Generate summary" (web parity,
+    /// `EditItemContentSection.tsx`, same copy) once the item's captured text is known to exist.
+    @ViewBuilder private var summaryBody: some View {
+        if let summary = item.summary, !summary.isEmpty {
+            readOnlyBlock(summary, empty: "", id: "detail.summaryText")
+        } else if let pageBody = item.pageBody, !pageBody.isEmpty {
+            VStack(alignment: .leading, spacing: DetailLayout.tight) {
+                emptyText(noSummaryYet, id: "detail.summaryText")
+                generateSummaryButton
+                if let summaryErrorMessage {
+                    Text(summaryErrorMessage)
+                        .font(StashType.meta())
+                        .foregroundStyle(StashColor.destructive)
+                        .accessibilityIdentifier("detail.generateSummary.error")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            switch sourceLoad {
+            case .failed:
+                loadFailedState(id: "detail.summaryText")
+            case .loaded:
+                emptyText(isDocument ? "Content is still being extracted from this document."
+                                     : "We haven't been able to read this page's content yet.",
+                          id: "detail.summaryText")
+            case .idle, .loading:
+                emptyText(noSummaryYet, id: "detail.summaryText")
             }
         }
+    }
+
+    /// Same text-button treatment as "Transcribe with speakers": busy disables it and swaps the
+    /// label (an action keeps its name through the flow — DESIGN.md §Voice).
+    private var generateSummaryButton: some View {
+        Button {
+            onGenerateSummary()
+        } label: {
+            HStack(spacing: 6) {
+                if isGeneratingSummary {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+                Text(isGeneratingSummary ? "Generating summary…" : "Generate summary")
+                    .font(StashType.meta())
+            }
+        }
+        .foregroundStyle(isGeneratingSummary ? StashColor.faint : StashColor.violet600)
+        .disabled(isGeneratingSummary)
+        .accessibilityIdentifier("detail.generateSummary")
+    }
+
+    /// L6: the `page_body` fetch failed — say so, with a retry, instead of empty-state copy that
+    /// reads as "there's nothing here". Existing empty-state text styles; the retry is the same
+    /// text-button treatment as the section's other actions.
+    private func loadFailedState(id: String) -> some View {
+        VStack(alignment: .leading, spacing: DetailLayout.tight) {
+            emptyText("Couldn't load this content.", id: id)
+            Button {
+                onRetryDetail()
+            } label: {
+                Text("Try again")
+                    .font(StashType.meta())
+            }
+            .foregroundStyle(StashColor.violet600)
+            .accessibilityIdentifier("detail.loadFailed.retry")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func emptyText(_ text: String, id: String) -> some View {
+        Text(text)
+            .font(StashType.body())
+            .foregroundStyle(StashColor.faint)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier(id)
     }
 
     /// Shared by Summary/Original/Transcript: renders through `MarkdownBlocksView` when the text

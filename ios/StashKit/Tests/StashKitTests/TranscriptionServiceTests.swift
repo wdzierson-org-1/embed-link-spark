@@ -152,4 +152,86 @@ final class TranscriptionServiceTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertTrue(syncer.calls.isEmpty, "A failed patch must never schedule an embedding refresh")
     }
+
+    // MARK: - Plan 15 (M9)
+
+    /// Its own request with a 300 s timeout — never supabase-swift's default 60 s one, which gave up
+    /// on longer memos while the (synchronous) server was still working.
+    func testTranscribeRequestWaitsFiveMinutesAndCarriesTheWebBody() throws {
+        let request = try FunctionsTranscriptionInvoker.request(audioUrl: "https://x/audio.m4a",
+                                                                fileName: "audio.m4a", accessToken: "user-jwt")
+
+        XCTAssertEqual(request.timeoutInterval, 300)
+        XCTAssertEqual(FunctionsTranscriptionInvoker.requestTimeout, 300)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/functions/v1/transcribe-audio")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer user-jwt")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apikey"), StashConfig.supabaseAnonKey)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: String])
+        XCTAssertEqual(body, ["audioUrl": "https://x/audio.m4a", "fileName": "audio.m4a"])
+    }
+
+    /// The busy state lives app-wide for the whole run (a reopened sheet still shows it), and a
+    /// second run for the same item can't start while one is in flight.
+    func testARunIsTrackedAppWideAndNeverStartedTwice() async throws {
+        let gate = GatedInvoker()
+        let activity = TranscriptionActivity()
+        let service = TranscriptionService(invoker: gate, patcher: StubPatcher(),
+                                           refresher: EmbeddingRefresher(syncer: RecordingTranscriptionSyncer()),
+                                           activity: activity, writeQueue: ItemWriteQueue())
+        let item = Self.fixture()
+        let first = Task { try await service.retranscribe(item: item) }
+        while !activity.isRunning(item.id) { try await Task.sleep(for: .milliseconds(5)) }
+
+        do {
+            _ = try await service.retranscribe(item: item)
+            XCTFail("expected alreadyRunning")
+        } catch {
+            XCTAssertEqual(error as? TranscriptionServiceError, .alreadyRunning)
+        }
+
+        gate.release()
+        _ = try await first.value
+        XCTAssertFalse(activity.isRunning(item.id), "the busy state ends with the run")
+    }
+
+    func testTheBusyStateEndsWhenARunFails() async {
+        var invoker = StubInvoker()
+        invoker.result = .failure(StubError(message: "timed out"))
+        let activity = TranscriptionActivity()
+        let service = TranscriptionService(invoker: invoker, patcher: StubPatcher(),
+                                           refresher: EmbeddingRefresher(syncer: RecordingTranscriptionSyncer()),
+                                           activity: activity, writeQueue: ItemWriteQueue())
+        let item = Self.fixture()
+        _ = try? await service.retranscribe(item: item)
+        XCTAssertFalse(activity.isRunning(item.id))
+    }
+}
+
+/// Holds `invoke` until `release()` — a long-running transcription.
+private final class GatedInvoker: TranscriptionInvoking, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func invoke(audioUrl: String, fileName: String) async throws -> TranscriptionOutcome {
+        await withCheckedContinuation { continuation in
+            let resumeNow = lock.withLock { () -> Bool in
+                if released { return true }
+                self.continuation = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+        return TranscriptionOutcome(transcription: "Speaker 1: hi", description: "d")
+    }
+
+    func release() {
+        let waiting = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { continuation = nil }
+            return continuation
+        }
+        waiting?.resume()
+    }
 }

@@ -130,8 +130,18 @@ public struct SupabaseItemsFetcher: ItemsFetching {
 /// library (the pagination cursor is its last row). A row fetched from outside that window — a
 /// server-search hit on a page not loaded yet — is held as a *detached* row: resolvable through
 /// `item(withId:)`, kept fresh by realtime and detail saves, but never spliced into `items`.
+///
+/// **Pending edits (plan 15, H5).** Once `installPendingEdits(_:flusher:)` has run, every row that
+/// enters the store (cache, refresh, pages, realtime, detail saves) is shown with the user's
+/// not-yet-confirmed detail-sheet edits laid over it, so the list never reverts to the server's
+/// older copy while an edit waits in `PendingEdits`. The server's own version stays reachable
+/// through `serverRow(withId:)` (what a detail sheet diffs against), and is what the disk cache
+/// stores. `refresh()` flushes the queue before it fetches.
 @MainActor @Observable
 public final class ItemStore {
+    /// Sends queued edits; `apply` folds each saved row back into the store.
+    public typealias PendingEditsFlusher = @MainActor (_ apply: @escaping @MainActor @Sendable (Item) -> Void) async -> Void
+
     public private(set) var items: [Item] = []
     public private(set) var isRefreshing = false
     public private(set) var isLoadingMore = false
@@ -176,13 +186,24 @@ public final class ItemStore {
     @ObservationIgnored private var cacheDirty = false
     @ObservationIgnored private(set) var isClosed = false
 
+    /// The signed-in user's queue of unconfirmed detail-sheet edits (nil until installed).
+    @ObservationIgnored public private(set) var pendingEdits: PendingEdits?
+    @ObservationIgnored private var pendingEditsFlusher: PendingEditsFlusher?
+    /// The server's version of every row currently shown with pending edits laid over it.
+    @ObservationIgnored private var serverVersions: [UUID: Item] = [:]
+    /// How long a refresh waits for the flush it started before fetching page 1 anyway — a stalled
+    /// PATCH must never hold the library hostage (the overlay covers the gap).
+    @ObservationIgnored private let pendingFlushGrace: Duration
+
     public init(userId: UUID, fetcher: ItemsFetching, pageSize: Int = 50, cache: ItemCache? = nil,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                now: @escaping @Sendable () -> Date = { Date() },
+                pendingFlushGrace: Duration = .seconds(2)) {
         self.userId = userId
         self.fetcher = fetcher
         self.pageSize = pageSize
         self.cache = cache
         self.now = now
+        self.pendingFlushGrace = pendingFlushGrace
         if let cache {
             let cached = cache.load(userId: userId)
             if !cached.isEmpty {
@@ -200,6 +221,14 @@ public final class ItemStore {
     public func item(withId id: UUID) -> Item? {
         if let row = detachedItems[id] { return row }
         return items.first { $0.id == id }
+    }
+
+    /// The row as the SERVER last reported it — without pending edits laid over it. A detail sheet
+    /// diffs against this, so a queued value still counts as unsaved there. `nil` when the store
+    /// doesn't hold the row.
+    public func serverRow(withId id: UUID) -> Item? {
+        guard let shown = item(withId: id) else { return nil }
+        return serverVersions[id] ?? shown
     }
 
     /// True when no refresh has landed yet, or the last one is older than `staleInterval`.
@@ -228,14 +257,18 @@ public final class ItemStore {
     private func performRefresh() async {
         refreshGeneration += 1
         let generation = refreshGeneration
-        let startedAt = mutationClock
-        let key = filterKey
         isRefreshing = true
         loadError = nil
-        let page: [Item]
+        // Plan 15 (H5): queued detail-sheet edits go out first, so the page read next already has
+        // them — bounded, so a stalled PATCH can't delay the page (the overlay shows them anyway).
+        await flushPendingEditsBeforeFetch()
+        guard generation == refreshGeneration, !isClosed else { return }
+        let startedAt = mutationClock
+        let key = filterKey
+        let fetched: [Item]
         do {
-            page = try await fetcher.fetchPage(userId: userId, before: nil,
-                                               types: typeFilter.predicateTypes, tagIds: selectedTagIds)
+            fetched = try await fetcher.fetchPage(userId: userId, before: nil,
+                                                  types: typeFilter.predicateTypes, tagIds: selectedTagIds)
         } catch {
             if generation == refreshGeneration {
                 isRefreshing = false
@@ -245,6 +278,7 @@ public final class ItemStore {
         }
         guard generation == refreshGeneration, !isClosed else { return }
         isRefreshing = false
+        let page = fetched.map(overlaid)
 
         if key != loadedFilterKey {
             // A different filter: the old window is meaningless — replace, don't merge.
@@ -284,7 +318,7 @@ public final class ItemStore {
                                                    types: typeFilter.predicateTypes, tagIds: selectedTagIds)
             guard window == windowGeneration, !isClosed else { return }
             let known = Set(items.map(\.id))
-            let fresh = page.filter { !known.contains($0.id) && !tombstones.contains($0.id) }
+            let fresh = page.filter { !known.contains($0.id) && !tombstones.contains($0.id) }.map(overlaid)
             for row in fresh { detachedItems[row.id] = nil }   // a search hit now joins the window
             items += fresh
             hasMore = page.count == pageSize
@@ -296,15 +330,16 @@ public final class ItemStore {
 
     // MARK: - Incremental updates
 
-    /// Merge a full detail fetch (with page_body) or a detail-sheet save back into the list.
+    /// Merge a full detail fetch (with page_body) or a detail-sheet save back into the list. `item`
+    /// must be the server's row (a fetch or PATCH response); pending edits are laid over it here.
     public func applyDetail(_ item: Item) {
         guard !tombstones.contains(item.id) else { return }
         if let index = items.firstIndex(where: { $0.id == item.id }) {
-            items[index] = item
+            items[index] = overlaid(item)
             touch(item.id)
             if index < pageSize { scheduleCacheWrite() }
         } else if detachedItems[item.id] != nil {
-            detachedItems[item.id] = item
+            detachedItems[item.id] = overlaid(item)
             touch(item.id)
         }
     }
@@ -316,16 +351,28 @@ public final class ItemStore {
         upsert([item])
     }
 
+    /// A `.stashItemCaptured` delivery. Only this store's user's captures count — the poster tags
+    /// each one with `userInfo["userId"]`, and one without it (an older poster) is treated as
+    /// someone else's, so a late capture or drain for one account can never land in another's grid
+    /// or cache after an account switch. Insert-if-absent (`applyNew`): a capture-time snapshot
+    /// must never overwrite (or `touch`) a newer realtime/refresh row already shown.
+    public func applyCaptured(_ item: Item, ownerId: UUID?) {
+        guard ownerId == userId else { return }
+        applyNew(item)
+    }
+
     /// Insert or replace rows (realtime re-reads, captures, search hits). A row inside the loaded
     /// window (or newer than it) is placed by `created_at`; an older row is only kept as a
     /// detached row if it already was one. A list-column row never erases an already-loaded
     /// `page_body` (list reads don't select it — nil means "not fetched", not "cleared").
+    /// Incoming rows are the server's; pending edits are laid over them here.
     public func upsert(_ incoming: [Item]) {
         var touchedHead = false
         for var row in incoming where !tombstones.contains(row.id) {
             touch(row.id)
             if let index = items.firstIndex(where: { $0.id == row.id }) {
                 if row.pageBody == nil { row.pageBody = items[index].pageBody }
+                row = overlaid(row)
                 if !matchesFilter(row) {
                     items.remove(at: index)
                 } else if row.createdAt == items[index].createdAt {
@@ -337,6 +384,7 @@ public final class ItemStore {
                 touchedHead = touchedHead || index < pageSize
             } else if let existing = detachedItems[row.id] {
                 if row.pageBody == nil { row.pageBody = existing.pageBody }
+                row = overlaid(row)
                 if belongsInWindow(row), matchesFilter(row) {
                     detachedItems[row.id] = nil
                     insertSorted(row)
@@ -345,7 +393,7 @@ public final class ItemStore {
                     detachedItems[row.id] = row
                 }
             } else if belongsInWindow(row), matchesFilter(row), selectedTagIds.isEmpty {
-                insertSorted(row)
+                insertSorted(overlaid(row))
                 touchedHead = true
             }
         }
@@ -358,7 +406,10 @@ public final class ItemStore {
         tombstones.formUnion(ids)
         let before = items.count
         items.removeAll { ids.contains($0.id) }
-        for id in ids { detachedItems[id] = nil }
+        for id in ids {
+            detachedItems[id] = nil
+            serverVersions[id] = nil
+        }
         if items.count != before { scheduleCacheWrite() }
     }
 
@@ -391,7 +442,7 @@ public final class ItemStore {
             if belongsInWindow(row), matchesFilter(row) {
                 joined.append(row)
             } else {
-                detachedItems[row.id] = row
+                detachedItems[row.id] = overlaid(row)
             }
         }
         if !joined.isEmpty { upsert(joined) }
@@ -402,7 +453,7 @@ public final class ItemStore {
     /// Keeps the store live for the signed-in session: realtime row changes are applied
     /// incrementally, and every capture this app saves (`.stashItemCaptured`, posted by the capture
     /// pipeline with the saved `Item` — a composer save, a voice note, an Outbox drain, a background
-    /// share completing in-app) is upserted at once, before its realtime echo arrives. Runs until
+    /// share completing in-app) is shown at once, before its realtime echo arrives. Runs until
     /// the calling task is cancelled (sign-out tears down the owner).
     public func runLiveUpdates(changes: ItemChangeObserving, notifications: NotificationCenter = .default) async {
         let userId = userId
@@ -415,7 +466,7 @@ public final class ItemStore {
             group.addTask { [weak self] in
                 for await note in notifications.notifications(named: .stashItemCaptured) {
                     guard let item = note.userInfo?["item"] as? Item else { continue }
-                    await self?.upsert([item])
+                    await self?.applyCaptured(item, ownerId: note.userInfo?["userId"] as? UUID)
                 }
             }
             // Either feed ending (the task was cancelled, or the realtime observer gave up) ends both.
@@ -437,6 +488,89 @@ public final class ItemStore {
     /// on disk now).
     public func flushCacheWrites() async {
         while let task = cacheWriteTask { await task.value }
+    }
+
+    // MARK: - Pending detail-sheet edits (plan 15, H5)
+
+    /// Connects the user's `PendingEdits`: every shown row gets its queued values laid over it
+    /// (now, and whenever the queue changes), and `refresh()` runs `flusher` before each fetch.
+    /// Idempotent for the same queue (the app calls it from `MainTabView.init`, which re-runs).
+    public func installPendingEdits(_ pendingEdits: PendingEdits, flusher: @escaping PendingEditsFlusher) {
+        guard self.pendingEdits !== pendingEdits else { return }
+        self.pendingEdits = pendingEdits
+        pendingEditsFlusher = flusher
+        pendingEdits.onChange = { [weak self] ids in self?.reapplyPendingEdits(ids) }
+        reapplyPendingEdits(nil)
+    }
+
+    /// Sends every queued edit now and folds the saved rows in.
+    public func flushPendingEdits() async {
+        guard let flusher = pendingEditsFlusher, let pendingEdits, !pendingEdits.isEmpty else { return }
+        await flusher { [weak self] saved in self?.applyDetail(saved) }
+    }
+
+    private func flushPendingEditsBeforeFetch() async {
+        guard pendingEditsFlusher != nil, let pendingEdits, !pendingEdits.isEmpty else { return }
+        let flush = Task { await self.flushPendingEdits() }
+        await Self.wait(for: flush, atMost: pendingFlushGrace)
+    }
+
+    /// Resumes when `task` finishes or `limit` passes, whichever is first; `task` keeps running.
+    private static func wait(for task: Task<Void, Never>, atMost limit: Duration) async {
+        let gate = OneShotGate()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            gate.continuation = continuation
+            let timer = Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                gate.open()
+            }
+            Task { @MainActor in
+                await task.value
+                timer.cancel()
+                gate.open()
+            }
+        }
+    }
+
+    /// `row` (the server's version) with any queued edits laid over it; remembers the server's
+    /// version for `serverRow(withId:)` while an overlay is shown.
+    private func overlaid(_ row: Item) -> Item {
+        guard let edit = pendingEdits?.edit(for: row.id) else {
+            serverVersions[row.id] = nil
+            return row
+        }
+        serverVersions[row.id] = row
+        return edit.applied(to: row)
+    }
+
+    /// Re-lays the queue over the shown rows (`nil` = every row). A row whose entry is gone keeps
+    /// what it shows: the queue only forgets a value once the server has confirmed it (or the item
+    /// is gone), so the shown value IS the server's.
+    private func reapplyPendingEdits(_ ids: Set<UUID>?) {
+        guard let pendingEdits else { return }
+        func relaid(_ shown: Item) -> Item {
+            guard let edit = pendingEdits.edit(for: shown.id) else {
+                serverVersions[shown.id] = nil
+                return shown
+            }
+            let server = serverVersions[shown.id] ?? shown
+            serverVersions[shown.id] = server
+            return edit.applied(to: server)
+        }
+        var changedHead = false
+        for index in items.indices where ids?.contains(items[index].id) ?? true {
+            let next = relaid(items[index])
+            if next != items[index] {
+                items[index] = next
+                changedHead = changedHead || index < pageSize
+            }
+        }
+        for id in ids ?? Set(detachedItems.keys) {
+            guard let shown = detachedItems[id] else { continue }
+            let next = relaid(shown)
+            if next != shown { detachedItems[id] = next }
+        }
+        if changedHead { scheduleCacheWrite() }
     }
 
     // MARK: - Merge (pure)
@@ -546,12 +680,36 @@ public final class ItemStore {
             try? await Task.sleep(for: .milliseconds(250))
             while let self, self.cacheDirty, !self.isClosed {
                 self.cacheDirty = false
-                let snapshot = Array(self.items.prefix(self.pageSize))
+                let snapshot = self.cacheSnapshot()
                 _ = await Task.detached(priority: .utility) {
                     cache.save(snapshot, userId: userId)
                 }.value
             }
             self?.cacheWriteTask = nil
         }
+    }
+
+    /// What the disk cache holds: the first page as the SERVER has it (pending edits live in their
+    /// own durable queue and are laid over again at launch), without `page_body` — opened
+    /// articles/transcripts can be tens of KB each and the cache is decoded synchronously on every
+    /// launch; a detail sheet re-reads it on open.
+    func cacheSnapshot() -> [Item] {
+        items.prefix(pageSize).map { shown in
+            var row = serverVersions[shown.id] ?? shown
+            row.pageBody = nil
+            return row
+        }
+    }
+}
+
+/// Resumes a continuation exactly once — whichever of `ItemStore.wait(for:atMost:)`'s two racers
+/// gets there first.
+@MainActor
+private final class OneShotGate {
+    var continuation: CheckedContinuation<Void, Never>?
+
+    func open() {
+        continuation?.resume()
+        continuation = nil
     }
 }

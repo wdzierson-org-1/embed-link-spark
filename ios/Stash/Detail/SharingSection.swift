@@ -15,11 +15,14 @@ import UIKit
 /// `isPublic` flips true, which previously raced `username`'s async load and could copy a bare
 /// `gostash.it/feed/`. The URL formula itself moved to `PublicFeedURL.make(username:)`, shared
 /// with `AccountSection`'s identical Settings-tab row rather than kept as two copies.
+///
+/// Plan 15 (L5): the switch is optimistic — `setPublic` (owned by `ItemDetailView`, which flips
+/// `item.isPublic` at once, saves through the sheet's save generation, and flips back on failure)
+/// returns whether the save landed; this section only shows the inline error when it didn't.
 struct SharingSection: View {
     let item: Item
-    let editor: ItemEditor
     @Binding var supplementalNote: String
-    var onSaved: (Item) -> Void
+    var setPublic: (Bool) async -> Bool
 
     @State private var isToggling = false
     @State private var showUnshareConfirm = false
@@ -206,11 +209,7 @@ struct SharingSection: View {
         isToggling = true
         errorMessage = nil
         defer { isToggling = false }
-        let patch = editor.togglePublic(item: item, to: isPublic)
-        do {
-            let merged = try await editor.save(itemId: item.id, patch: patch)
-            onSaved(merged)
-        } catch {
+        if !(await setPublic(isPublic)) {
             errorMessage = "Couldn't update — try again."
         }
     }
@@ -235,9 +234,9 @@ struct SharingSection: View {
                 .execute().data
             username = try JSONDecoder().decode(ProfileRow.self, from: data).username
         } catch {
-            // Non-fatal, same fire-and-forget precedent as `saveAttributes` in ItemDetailView:
-            // `username` just stays `nil`, so `feedURL` stays `nil` and `feedLinkSection` simply
-            // renders nothing (see its own doc comment) rather than a broken partial URL.
+            // Non-fatal: `username` just stays `nil`, so `feedURL` stays `nil` and
+            // `feedLinkSection` simply renders nothing (see its own doc comment) rather than a
+            // broken partial URL.
         }
     }
 }

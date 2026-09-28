@@ -378,24 +378,76 @@ final class ItemStoreLiveTests: XCTestCase {
             }
         }
         let center = NotificationCenter()
+        let userId = UUID()
         let server = FakeItemsServer(rows: [row(1)], pageSize: 50)
-        let store = ItemStore(userId: UUID(), fetcher: server, pageSize: 50)
+        let store = ItemStore(userId: userId, fetcher: server, pageSize: 50)
         await store.refresh()
         let pageCalls = server.pageCalls
         let live = Task { await store.runLiveUpdates(changes: QuietFeed(), notifications: center) }
         try? await Task.sleep(for: .milliseconds(50))    // let both feeds subscribe
 
         let captured = row(0, title: "just captured")
-        center.post(name: .stashItemCaptured, object: nil, userInfo: ["item": captured, "duplicate": false])
+        center.post(name: .stashItemCaptured, object: nil,
+                     userInfo: ["item": captured, "duplicate": false, "userId": userId])
         await waitUntil { store.items.first?.id == captured.id }
         // An idempotent replay of the same capture posts the same row again — still one card.
-        center.post(name: .stashItemCaptured, object: nil, userInfo: ["item": captured, "duplicate": true])
-        try? await Task.sleep(for: .milliseconds(30))
+        center.post(name: .stashItemCaptured, object: nil,
+                     userInfo: ["item": captured, "duplicate": true, "userId": userId])
+        // Another account's capture (a late drain after an account switch) and an untagged one
+        // (an older poster) never reach this user's grid.
+        center.post(name: .stashItemCaptured, object: nil,
+                     userInfo: ["item": row(-1, title: "someone else's"), "duplicate": false, "userId": UUID()])
+        center.post(name: .stashItemCaptured, object: nil,
+                     userInfo: ["item": row(-2, title: "untagged"), "duplicate": false])
+        try? await Task.sleep(for: .milliseconds(60))
 
         XCTAssertEqual(store.items.map(\.id), [captured.id, server.rows[0].id])
         XCTAssertEqual(server.pageCalls, pageCalls, "no refresh needed")
         live.cancel()
         await live.value                                  // both feeds end with the task
+    }
+
+    /// Coordinator follow-up (View-tab review): a capture is shown only for its own user, and only
+    /// if the row isn't there yet — the capture-time snapshot never overwrites a newer row.
+    func testCapturedItemIsInsertIfAbsentForItsOwnUserOnly() async {
+        let userId = UUID()
+        let enriched = row(0, title: "Enriched title")
+        let server = FakeItemsServer(rows: [enriched, row(1)], pageSize: 50)
+        let store = ItemStore(userId: userId, fetcher: server, pageSize: 50)
+        await store.refresh()
+
+        var captureSnapshot = enriched
+        captureSnapshot.title = nil                     // what the capture endpoint returned earlier
+        store.applyCaptured(captureSnapshot, ownerId: userId)
+        XCTAssertEqual(store.item(withId: enriched.id)?.title, "Enriched title",
+                       "a capture-time snapshot must never overwrite the newer row already shown")
+
+        store.applyCaptured(row(-1, title: "other account"), ownerId: UUID())
+        store.applyCaptured(row(-2, title: "no owner"), ownerId: nil)
+        XCTAssertEqual(store.items.count, 2, "captures for another (or an unknown) user are ignored")
+
+        let fresh = row(-3, title: "mine")
+        store.applyCaptured(fresh, ownerId: userId)
+        XCTAssertEqual(store.items.first?.id, fresh.id, "this user's new capture shows at once")
+    }
+
+    /// Coordinator follow-up (View-tab review): the launch cache never carries `page_body`.
+    func testCacheNeverStoresPageBody() async {
+        let userId = UUID()
+        let cache = ItemCache(directory: cacheDirectory)
+        var opened = row(0)
+        let server = FakeItemsServer(rows: [opened, row(1)], pageSize: 50)
+        let store = ItemStore(userId: userId, fetcher: server, pageSize: 50, cache: cache)
+        await store.refresh()
+        opened.pageBody = String(repeating: "article text ", count: 2_000)
+        store.applyDetail(opened)
+        XCTAssertNotNil(store.item(withId: opened.id)?.pageBody, "the session keeps it in memory")
+
+        await store.flushCacheWrites()
+
+        let cached = cache.load(userId: userId)
+        XCTAssertEqual(cached.map(\.id), store.items.map(\.id))
+        XCTAssertTrue(cached.allSatisfy { $0.pageBody == nil }, "page_body must never be written to the cache")
     }
 
     func testUpsertPlacesRowsByDateAndIgnoresRowsOlderThanTheWindow() async {

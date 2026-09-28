@@ -23,11 +23,21 @@ public protocol EmbeddingSyncing: Sendable {
     func replaceEmbeddings(itemId: UUID, text: String) async throws
 }
 
+/// Asks `generate-embeddings` to rebuild the item's index. The client never deletes `embeddings`
+/// rows itself (plan 15, M10): the function replaces the item's rows on its own, so a client-side
+/// delete only opened a window where the index was gone and nothing had yet asked for a new one —
+/// a dropped connection or failed invoke between the two requests left the item unsearchable in
+/// Ask and semantic search until its next edit.
+///
+/// Verified against the DEPLOYED source (v119, 2026-08-26, downloaded read-only 2026-09-27): after
+/// chunking, it runs `supabase.from('embeddings').delete().eq('item_id', itemId)` with the service
+/// role ("Replace any existing embeddings for this item so re-embeds … never accumulate stale
+/// duplicate chunks"), then inserts the new chunks. The undeployed rewrite in the main checkout goes
+/// further (generate first, then compare-and-swap; ignores `textContent`), so dropping the client
+/// delete is right for both. `textContent` is still sent because v119 embeds exactly that text.
 public struct SupabaseEmbeddingSyncer: EmbeddingSyncing {
     public init() {}
     public func replaceEmbeddings(itemId: UUID, text: String) async throws {
-        try await StashClient.shared.from("embeddings").delete()
-            .eq("item_id", value: itemId.uuidString).execute()
         try await StashClient.shared.functions.invoke("generate-embeddings",
             options: FunctionInvokeOptions(body: ["itemId": itemId.uuidString, "textContent": text]))
     }

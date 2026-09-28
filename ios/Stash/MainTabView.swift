@@ -29,6 +29,17 @@ struct MainTabView: View {
             else if args.contains("--uitest-tab-settings") { .settings }
             else { .add }
         _selection = State(initialValue: initial)
+        // Plan 15 (H5): detail-sheet edits the server hasn't confirmed yet (`PendingEdits`) are
+        // shown over the library's rows and sent before every refresh fetches — sign-in/launch,
+        // foreground, View-tab appear, pull-to-refresh. Done here, before any child's `.task`
+        // can refresh; `store` is per signed-in user, so this runs once per session.
+        if store.pendingEdits == nil {
+            let pendingEdits = PendingEdits.shared(for: userId)
+            let editor = DetailEditorFactory.make()
+            store.installPendingEdits(pendingEdits) { apply in
+                await pendingEdits.flush(editor: editor, apply: apply)
+            }
+        }
     }
 
     var body: some View {

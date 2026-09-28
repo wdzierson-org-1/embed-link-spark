@@ -4,11 +4,11 @@ import StashKit
 
 /// Owns `NotesEditor`'s draft + debounce state (Plan 8 fix round 1, review finding #1) — hoisted
 /// out of the view itself into a small `@Observable` reference type, owned by `ItemDetailView`
-/// (`@State`, same one-per-sheet lifetime as `editor`), so the sheet can reach in and trigger an
-/// explicit flush from its Done button and `onDisappear`: a SwiftUI `View` is a value type,
-/// recreated on every render, so a parent has no way to call a method on a *specific* child view's
-/// own local `@State` — hoisting the stateful behavior into a shared reference type both sides
-/// read/write through is the standard SwiftUI fix for this.
+/// (through `DetailSheetServices`, built once per sheet), so the sheet can read the draft when it
+/// closes (plan 15: an unsaved draft is queued in `PendingEdits`) and trigger explicit flushes: a
+/// SwiftUI `View` is a value type, recreated on every render, so a parent has no way to call a
+/// method on a *specific* child view's own local `@State` — hoisting the stateful behavior into a
+/// shared reference type both sides read/write through is the standard SwiftUI fix for this.
 ///
 /// Deliberately thin: draft state + the debounce timer alone. The actual save/generation-guard/
 /// adopt logic lives on `ItemDetailView.flushNotes()` instead of here — it needs direct access to
@@ -19,7 +19,11 @@ final class NotesEditorModel {
     var draft: String
     var savedDraft: String
     let isRich: Bool
-    private var debouncer = Debouncer(interval: .milliseconds(600))
+    @ObservationIgnored private var debouncer = Debouncer(interval: .milliseconds(600))
+    /// The last `renderTipTap` result and the content it came from (plan 15, L9): the notes body
+    /// re-renders on every keystroke in any of the sheet's fields, and re-parsing the TipTap JSON
+    /// each time was pure waste while the document itself hadn't changed.
+    @ObservationIgnored private var rendered: (source: String, text: AttributedString)?
 
     init(item: Item) {
         self.isRich = Self.isTipTapJSON(item.content)
@@ -41,14 +45,33 @@ final class NotesEditorModel {
         Task { await debouncer.call { await perform() } }
     }
 
-    /// Explicit, immediate flush (fix round 1) — the Done button / `onDisappear` path: cancels any
-    /// pending debounce first so a fast "type then dismiss" sequence can't leave a stale debounced
-    /// save racing this explicit one, then runs `perform` directly, with no 600ms wait. Both
-    /// callers `await` this, so a dismiss genuinely waits for the save to land before the sheet
-    /// closes — the exact gap that used to lose a note typed right before tapping Done.
+    /// Explicit, immediate flush — the editor's blur path: cancels any pending debounce first so a
+    /// stale debounced save can't race this explicit one, then runs `perform` directly, with no
+    /// 600ms wait. (Closing the sheet no longer waits on this — plan 15: the dismiss queues the
+    /// draft in `PendingEdits` and sends it from there.)
     func flushNow(_ perform: @escaping () async -> Void) async {
         await debouncer.cancel()
         await perform()
+    }
+
+    /// `renderTipTap(content)`, re-parsed only when `content` changed (L9).
+    func renderedContent(_ content: String) -> AttributedString {
+        if let rendered, rendered.source == content { return rendered.text }
+        let text = renderTipTap(content)
+        rendered = (content, text)
+        return text
+    }
+
+    /// A rich draft whose text `saved` just landed in the document: drop that part from the field,
+    /// keeping anything typed after it while the save was in flight (plan 15 — the whole field used
+    /// to be wiped, losing those later keystrokes).
+    func removeSavedPrefix(_ saved: String) {
+        if draft == saved {
+            draft = ""
+        } else if draft.hasPrefix(saved) {
+            draft = String(draft.dropFirst(saved.count).drop(while: \.isWhitespace))
+        }
+        savedDraft = ""
     }
 
     /// Mirrors the inline `{"type":"doc"` detection `renderTipTap`/`appendNoteParagraph` already
@@ -112,7 +135,7 @@ struct NotesEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.isRich, let content = item.content, !content.isEmpty {
-                Text(renderTipTap(content))
+                Text(model.renderedContent(content))
                     .font(StashType.body())
                     .foregroundStyle(StashColor.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
