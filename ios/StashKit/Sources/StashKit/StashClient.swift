@@ -51,6 +51,23 @@ public enum StashClient {
         return URLSession(configuration: configuration)
     }()
 
+    /// The signed-in session's access token, but only when that session belongs to `userId` — the
+    /// owner of the per-user Outbox about to be sent (plan 15 final wave). Every drain and capture
+    /// send asks through here: a drain that started for one account (a launch sweep, a foreground
+    /// drain, a background transfer's follow-up) and reaches the token after a sign-out/sign-in
+    /// must skip, never deliver that account's queued captures into the account signed in now.
+    /// Throws `SessionOwnerMismatch` in that case, and whatever `auth.session` throws otherwise (no
+    /// session, a refresh that failed) — callers treat any throw as "leave it queued".
+    public static func accessToken(for userId: UUID) async throws -> String {
+        try ownerToken(of: try await shared.auth.session, for: userId)
+    }
+
+    /// The decision half of `accessToken(for:)`: `session`'s token when it belongs to `userId`.
+    static func ownerToken(of session: Session, for userId: UUID) throws -> String {
+        guard session.user.id == userId else { throw SessionOwnerMismatch() }
+        return session.accessToken
+    }
+
     #if DEBUG
     /// UI tests only (`--uitest-expire-session`, `SessionStore.start()`): marks the STORED session's
     /// access token as expired — what a relaunch more than an hour after the last refresh finds —
@@ -73,17 +90,32 @@ public enum StashClient {
     #endif
 }
 
-/// Plan 15 (H1). supabase-swift 2.54.1 attaches the user's token to PostgREST, Storage and
-/// Functions requests with `try? await auth.session.accessToken` (`SupabaseClient.adapt`): when the
-/// token can't be refreshed right now — the refresh timed out, the network dropped, Auth answered
-/// 5xx — the request still goes out, with the client's default `Authorization: Bearer <anon key>`.
-/// For a signed-in user that is never what the caller meant: under RLS an anonymous read of the
-/// user's own rows returns ZERO rows, which callers take for "the server has nothing" — an emptied
-/// View tab whose disk cache then gets overwritten, an item that looks deleted. Now that a launch
-/// with an expired token stays signed in (`SessionStore.start()`), that window is simply what an
+/// `StashClient.accessToken(for:)`: the signed-in session belongs to a different account than the
+/// Outbox (or capture) the token was asked for.
+public struct SessionOwnerMismatch: Error, Equatable {
+    public init() {}
+}
+
+/// Plan 15 (H1). supabase-swift 2.54.1 attaches the user's token to PostgREST and Storage requests
+/// with `try? await auth.session.accessToken` (`SupabaseClient.adapt`): when the token can't be
+/// refreshed right now — the refresh timed out, the network dropped, Auth answered 5xx — the
+/// request still goes out, with the client's default `Authorization: Bearer <anon key>`. For a
+/// signed-in user that is never what the caller meant: under RLS an anonymous read of the user's
+/// own rows returns ZERO rows, which callers take for "the server has nothing" — an emptied View
+/// tab whose disk cache then gets overwritten, an item that looks deleted. Now that a launch with
+/// an expired token stays signed in (`SessionStore.start()`), that window is simply what an
 /// offline or flaky launch looks like, so such a request fails HERE, before it is sent, with
 /// `URLError(.userAuthenticationRequired)` — an ordinary transient failure every caller already
-/// handles (the library keeps its cached page, a queued edit waits, a capture stays in the Outbox).
+/// handles (the library keeps its cached page, a queued edit waits).
+///
+/// Edge functions are a narrower case. `StashClient.shared.functions` requests go through the same
+/// `adapt`, but when it has no token they keep the Functions client's own bearer, which the SDK
+/// re-sets on every auth event to the session's latest access token (`functions.setAuth`) — so
+/// they normally carry that possibly-expired user token, which the gateway rejects with a 401 (a
+/// failure, not a silent anonymous answer); `/functions/v1/` is listed below only as a backstop
+/// for the anon default before the first auth event. Edge-function calls StashKit builds itself
+/// with an explicit token (`capture`, chat, transcription, account deletion) don't use this
+/// session at all — and never fall back: they need a token before they send.
 ///
 /// Only while a session is stored: signed out, anonymous requests are intended (sign-up's
 /// username/phone availability probes). Auth (`/auth/v1/…`, which carries the anon key by design)

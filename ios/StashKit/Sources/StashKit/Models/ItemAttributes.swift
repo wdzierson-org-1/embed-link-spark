@@ -290,9 +290,9 @@ public struct ItemAttributes: Codable, Equatable, Hashable, Sendable {
         }
     }
 
-    /// This attribute blob as a `JSONSerialization`-ready object, for building request bodies
-    /// (`[String: Any]`, matching `JSONPosting.post(path:body:accessToken:)`) without a second,
-    /// hand-written conversion that could drift from `encode(to:)`.
+    /// This attribute blob as a `JSONSerialization`-ready object, for building request bodies and
+    /// payloads (`[String: Any]` — `ItemEditor`'s PATCH bodies, the Outbox's `attributes_json`)
+    /// without a second, hand-written conversion that could drift from `encode(to:)`.
     ///
     /// Returns `nil` if `self` can't be encoded (e.g. `extra` holds a non-finite `Double`, which
     /// JSON has no representation for) — deliberately NOT `[:]`. This is a whole-column
@@ -307,9 +307,10 @@ public struct ItemAttributes: Codable, Equatable, Hashable, Sendable {
         return object
     }
 
-    /// `jsonObject()` filtered through the one gate every request-body call site needs (Task 5:
-    /// `CaptureAPI`'s three `add-*` bodies, `CaptureViewModel`'s Outbox `attributes_json`
-    /// payload): `nil` on an encode failure (`jsonObject()`'s own contract) and `nil` for a
+    /// `jsonObject()` filtered through the one gate every capture call site needs (the Outbox
+    /// `attributes_json` payloads `CaptureViewModel` and `ShareIntake` write — plan 15 sends them
+    /// through the `capture` endpoint — and `Outbox.attachLocation`'s late-location merge): `nil`
+    /// on an encode failure (`jsonObject()`'s own contract) and `nil` for a
     /// successfully-encoded-but-empty blob (nothing pinned, no media facts — `jsonObject()`
     /// returns `[:]`, not `nil`, for that case) collapse to the same single "don't send" signal,
     /// instead of every caller re-deriving `!object.isEmpty` for itself.

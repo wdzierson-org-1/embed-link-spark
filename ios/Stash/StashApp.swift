@@ -174,6 +174,10 @@ struct StashApp: App {
     /// Plan 15 Task 4: drains only when something is actually sendable — a `.pending` entry, or
     /// a `.transferring` one whose background transfer went stale (`Outbox.isEligibleForSend`;
     /// the server dedupes by capture id if it did land). A live transfer is left to its task.
+    ///
+    /// Every drain here sends with the Outbox OWNER's token (`StashClient.accessToken(for:)`, plan
+    /// 15 final wave): a drain that started for `userId` and reaches the token after a
+    /// sign-out/sign-in skips rather than sending `userId`'s captures into the new account.
     private func drainIfNeeded(userId: UUID) async {
         let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
         #if DEBUG
@@ -183,7 +187,7 @@ struct StashApp: App {
         #endif
         let now = Date()
         let sendable = await outbox.pending().contains { Outbox.isEligibleForSend($0, now: now) }
-        guard sendable, let token = try? await StashClient.shared.auth.session.accessToken else { return }
+        guard sendable, let token = try? await StashClient.accessToken(for: userId) else { return }
         _ = await outbox.drain(api: CaptureAPI(), accessToken: token, userId: userId,
                                upload: { fileURL, path, contentType in
                                    try await uploadToStorageFromFile(fileURL: fileURL, path: path,
@@ -201,11 +205,16 @@ struct StashApp: App {
     /// is parked, which is exactly "parked count > 0 and canAddContent is true" as a standalone
     /// condition, with no separate transition-tracking state needed. A re-park on a still-lapsed
     /// account just waits quietly for the NEXT refresh — never retried in a tight loop from here.
+    ///
+    /// Plan 15 final wave: only on the server's definitive yes (`statusKnown`). `canAddContent`
+    /// also reads open while the status is UNKNOWN (fail-open — the check failed or hasn't
+    /// answered), and unparking then would resend every parked capture into another 403 on each
+    /// foreground.
     private func unparkIfEligible(userId: UUID) async {
-        guard subscriptionStore.canAddContent else { return }
+        guard subscriptionStore.statusKnown, subscriptionStore.canAddContent else { return }
         let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
         let unparked = await outbox.unparkAll()
-        guard unparked > 0, let token = try? await StashClient.shared.auth.session.accessToken else { return }
+        guard unparked > 0, let token = try? await StashClient.accessToken(for: userId) else { return }
         _ = await outbox.drain(api: CaptureAPI(), accessToken: token, userId: userId,
                                upload: { fileURL, path, contentType in
                                    try await uploadToStorageFromFile(fileURL: fileURL, path: path,
@@ -237,7 +246,7 @@ struct StashApp: App {
         }
         #endif
 
-        guard let token = try? await StashClient.shared.auth.session.accessToken else { return }
+        guard let token = try? await StashClient.accessToken(for: userId) else { return }
         _ = await outbox.drain(api: CaptureAPI(), accessToken: token, userId: userId,
                                upload: { fileURL, path, contentType in
                                    try await uploadToStorageFromFile(fileURL: fileURL, path: path,
@@ -265,8 +274,9 @@ enum UITestHooks {
     /// App Group keys the DEBUG share extension reads (`ShareComposeView`). Every DEBUG launch
     /// writes exactly what its arguments ask for and removes the rest, so no test inherits them:
     /// - `--uitest-share-gate-open` → `uitest.shareGateOpen`: lets Save through on the lapsed
-    ///   test account. The server still enforces the subscription gate itself (URL and file
-    ///   captures are open to lapsed accounts; notes answer 403 and park).
+    ///   test account's CLIENT gate only. The server still enforces the subscription gate itself:
+    ///   since the 2026-09-29 production redeploy every capture kind — note, URL and file — answers
+    ///   a lapsed account 403 `subscription_required`, and the share parks in the Outbox.
     /// - `--uitest-share-exit-after-handoff=<ms>` → `uitest.shareExitAfterHandoffMs`: the
     ///   extension exits that long after handing the share to the background session, so the
     ///   upload can only finish through the transfer daemon and the app.

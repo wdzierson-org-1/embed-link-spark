@@ -471,6 +471,37 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "bounded by the timeout, not by the refresh")
     }
 
+    // MARK: - withDeadline (final wave: composer picks, background-wake token fetches)
+
+    func testWithDeadlineReturnsTheWorksResultWhenItFinishesInTime() async {
+        let value = await withDeadline(.seconds(2), fallback: "fallback") { "done" }
+        XCTAssertEqual(value, "done")
+    }
+
+    /// A stalled transfer (an iCloud photo that never arrives) must not hold its caller: the
+    /// fallback comes back at the deadline even though the work ignores cancellation.
+    func testWithDeadlineGivesUpAtTheDeadlineEvenIfTheWorkIgnoresCancellation() async {
+        let started = Date()
+        let value = await withDeadline(.milliseconds(200), fallback: "timed out") { () -> String in
+            let until = Date().addingTimeInterval(3)
+            while Date() < until { try? await Task.sleep(for: .milliseconds(50)) }
+            return "too late"
+        }
+        XCTAssertEqual(value, "timed out")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "bounded by the deadline, not by the work")
+    }
+
+    func testWithDeadlineCancelsTheWorkItGaveUpOn() async throws {
+        let cancelled = SnapshotCount()
+        _ = await withDeadline(.milliseconds(100), fallback: 0) { () -> Int in
+            try? await Task.sleep(for: .seconds(5))
+            if Task.isCancelled { cancelled.value = 1 }
+            return 1
+        }
+        for _ in 0..<100 where cancelled.value == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(cancelled.value, 1, "the abandoned work is told to stop")
+    }
+
     func testSendInForegroundSendsTheGivenEntriesOverTheIdempotentEndpoint() async throws {
         let server = FakeCaptureServer()
         let outbox = Outbox(directory: dir)

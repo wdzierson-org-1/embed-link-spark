@@ -344,7 +344,7 @@ final class StagedFileStoreTests: XCTestCase {
         let recordings = RecordingStore(userId: userId, directory: recordingsDir)
         let staging = StagedFileStore(userId: userId, directory: dir)
         let orphan = recordings.newRecordingURL()
-        try Data([0x01]).write(to: orphan)   // just written — younger than 60s under the real clock
+        try Data([0x01]).write(to: orphan)   // just written — inside the recording grace under the real clock
 
         let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging)
 
@@ -378,6 +378,91 @@ final class StagedFileStoreTests: XCTestCase {
         // -a-listing workaround (deviation #9) is no longer needed.
         XCTAssertEqual(pending[0].payload["local_file_path"], orphan.path)
         XCTAssertEqual(pending[0].payload["mime_type"], "image/png")
+    }
+
+    // MARK: - sweepOrphans: a share card may still be open on a staged file (plan 15 final wave)
+
+    /// A share card stages at load and leaves its files unreferenced until Save; a background app
+    /// launch can run the sweep meanwhile. Ten minutes into an open card, sweeping the file would
+    /// queue it a second time on Save (a duplicate) or capture a share the user then cancels.
+    func testSweepOrphansLeavesAStagedFileAloneWhileAShareCardCouldStillBeOpen() async throws {
+        let outboxDir = FileManager.default.temporaryDirectory.appending(path: "outbox-\(UUID().uuidString)")
+        let recordingsDir = FileManager.default.temporaryDirectory.appending(path: "recordings-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outboxDir)
+            try? FileManager.default.removeItem(at: recordingsDir)
+        }
+        let userId = UUID()
+        let outbox = Outbox(directory: outboxDir)
+        let recordings = RecordingStore(userId: userId, directory: recordingsDir)
+        let staging = StagedFileStore(userId: userId, directory: dir)
+        let source = try makeSourceFile()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let staged = try staging.stage(from: source, fileExtension: "jpg")
+        let tenMinutesOn: @Sendable () -> Date = { Date().addingTimeInterval(10 * 60) }
+
+        let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging,
+                                         now: tenMinutesOn)
+
+        XCTAssertEqual(created, 0, "a staged file inside its grace period may belong to an open share card")
+        let pending = await outbox.pending()
+        XCTAssertTrue(pending.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    /// Past the staged-file grace period the file is a real orphan (its process died between
+    /// staging and enqueueing) and is recovered.
+    func testSweepOrphansRecoversAStagedFileOnceItsGracePeriodHasPassed() async throws {
+        let outboxDir = FileManager.default.temporaryDirectory.appending(path: "outbox-\(UUID().uuidString)")
+        let recordingsDir = FileManager.default.temporaryDirectory.appending(path: "recordings-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outboxDir)
+            try? FileManager.default.removeItem(at: recordingsDir)
+        }
+        let userId = UUID()
+        let outbox = Outbox(directory: outboxDir)
+        let recordings = RecordingStore(userId: userId, directory: recordingsDir)
+        let staging = StagedFileStore(userId: userId, directory: dir)
+        let source = try makeSourceFile()
+        defer { try? FileManager.default.removeItem(at: source) }
+        let staged = try staging.stage(from: source, fileExtension: "jpg")
+        let pastTheGrace: @Sendable () -> Date = { Date().addingTimeInterval(stagedFileSweepGracePeriod + 1) }
+
+        let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging,
+                                         now: pastTheGrace)
+
+        XCTAssertEqual(created, 1)
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.first?.payload["local_file_path"], staged.path)
+        XCTAssertGreaterThanOrEqual(stagedFileSweepGracePeriod, 30 * 60, "the staged-file grace is at least 30 minutes")
+    }
+
+    /// Recordings keep the one-minute grace: at two minutes an orphaned recording is recovered
+    /// while a staged file of the same age is still left alone.
+    func testSweepOrphansStillRecoversARecordingAfterAMinuteButNotAStagedFileOfTheSameAge() async throws {
+        let outboxDir = FileManager.default.temporaryDirectory.appending(path: "outbox-\(UUID().uuidString)")
+        let recordingsDir = FileManager.default.temporaryDirectory.appending(path: "recordings-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outboxDir)
+            try? FileManager.default.removeItem(at: recordingsDir)
+        }
+        let userId = UUID()
+        let outbox = Outbox(directory: outboxDir)
+        let recordings = RecordingStore(userId: userId, directory: recordingsDir)
+        let staging = StagedFileStore(userId: userId, directory: dir)
+        let recording = recordings.newRecordingURL()
+        try Data([0x01]).write(to: recording)
+        let source = try makeSourceFile()
+        defer { try? FileManager.default.removeItem(at: source) }
+        _ = try staging.stage(from: source, fileExtension: "png")
+        let twoMinutesOn: @Sendable () -> Date = { Date().addingTimeInterval(2 * 60) }
+
+        let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging,
+                                         now: twoMinutesOn)
+
+        XCTAssertEqual(created, 1)
+        let pending = await outbox.pending()
+        XCTAssertEqual(pending.map { $0.payload["local_file_path"] }, [recording.path])
     }
 
     // Fix round 1 (Important review finding): `referencedPaths` (built from entry payloads written

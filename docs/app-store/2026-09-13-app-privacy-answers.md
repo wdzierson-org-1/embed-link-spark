@@ -102,24 +102,36 @@ additional third-party data-collection entries are needed for this reason.
 
 ## Required-reason API grep evidence (backs the manifests, not the ASC UI)
 
+Re-run 2026-09-29 (plan 15 final wave) over Release code paths, plus the linked
+packages (supabase-swift: only Storage's `attributesOfItem` file-size read;
+swift-crypto ships its own empty manifests). Plan 15 had briefly added a
+`ProcessInfo.systemUptime` call (Ask streaming) that would have drawn
+ITMS-91053; it was replaced with `ContinuousClock`, and
+`BootTimeAPIUsageTests` now fails the build's tests if either boot-time API
+comes back.
+
 ```
 $ grep -rn "UserDefaults" ios/Stash ios/StashShareExtension ios/StashKit/Sources
-Stash/Onboarding/OnboardingState.swift        UserDefaults.standard (app target)
-StashShareExtension/ShareComposeView.swift    UserDefaults(suiteName: AppGroup.identifier) (extension target)
+Stash/Onboarding/OnboardingState.swift             UserDefaults.standard (app target only)
+Stash/StashApp.swift, Stash/Auth/SessionStore.swift UserDefaults(suiteName: AppGroup.identifier) (app target)
+StashShareExtension/ShareComposeView.swift         UserDefaults(suiteName: AppGroup.identifier) (extension target)
 StashKit/Sources/StashKit/SubscriptionStore.swift  UserDefaults(suiteName: AppGroup.identifier) (linked into both targets)
-→ NSPrivacyAccessedAPICategoryUserDefaults, reason CA92.1, both manifests.
+→ NSPrivacyAccessedAPICategoryUserDefaults: app manifest CA92.1 (its own standard defaults)
+  + 1C8F.1 (the App Group suite it shares with its extension); extension manifest 1C8F.1 only
+  (nothing compiled into the extension touches UserDefaults.standard).
 
-$ grep -rnE "modificationDate|creationDate|contentModificationDateKey|attributesOfItem|\bstat\(" ios/Stash ios/StashShareExtension ios/StashKit/Sources
-StashKit/Sources/StashKit/StagedFileStore.swift:238   .contentModificationDateKey
-StashKit/Sources/StashKit/Outbox.swift:303,308        .contentModificationDateKey
-→ NSPrivacyAccessedAPICategoryFileTimestamp, reason C617.1, both manifests (StashKit links into
-  both the Stash app target and the StashShareExtension target).
+$ grep -rnE "modificationDate|creationDate|contentModificationDateKey|attributesOfItem|\bstat\(|fstat" ios/Stash ios/StashShareExtension ios/StashKit/Sources
+StashKit/Sources/StashKit/StagedFileStore.swift             .contentModificationDateKey (sweepOrphans)
+StashKit/Sources/StashKit/Outbox.swift                      .contentModificationDateKey (sweepOrphanClaims)
+StashKit/Sources/StashKit/BackgroundCaptureTransfers.swift  .contentModificationDateKey (sweepStaleBodyFiles)
+→ NSPrivacyAccessedAPICategoryFileTimestamp, reason C617.1 (files inside the App Group
+  container only), both manifests (StashKit links into both targets).
 
-$ grep -rnE "volumeAvailableCapacity|systemFreeSize" ios/Stash ios/StashShareExtension ios/StashKit/Sources
+$ grep -rnE "volumeAvailableCapacity|systemFreeSize|statfs|statvfs" ios/Stash ios/StashShareExtension ios/StashKit/Sources
 (no matches) → disk space API category omitted from both manifests.
 
 $ grep -rnE "systemUptime|mach_absolute_time" ios/Stash ios/StashShareExtension ios/StashKit/Sources
-(no matches) → system boot time API category omitted from both manifests.
+(no matches in code) → system boot time API category omitted from both manifests.
 
 $ grep -rnE "activeInputModes|UITextInputMode" ios/Stash ios/StashShareExtension ios/StashKit/Sources
 (no matches) → active keyboards omitted from both manifests.

@@ -67,6 +67,10 @@ struct CaptureComposerView: View {
     /// spinner chip says why, and its × lets the user save without it.
     private var isAddingAttachments: Bool { !pendingAttachments.isEmpty }
 
+    /// Plan 15 final wave: a pick still loading after this long (an iCloud or Photos transfer that
+    /// stalled) is given up on with a failure toast — Save must never stay disabled on it.
+    private static let pickTimeout: Duration = .seconds(60)
+
     var body: some View {
         ZStack(alignment: .top) {
             Color(.systemBackground).ignoresSafeArea()
@@ -223,7 +227,9 @@ struct CaptureComposerView: View {
         // actual shared state, so a second actor instance over it is safe, same as tests and
         // `StashApp`'s own launch sweep already rely on.
         .onChange(of: subscription.canAddContent) { _, canAddContent in
-            guard canAddContent else { return }
+            // Plan 15 final wave: only on the server's definitive yes — the gate also reads open
+            // while the status is unknown (fail-open), when unparking would just re-park.
+            guard canAddContent, subscription.statusKnown else { return }
             Task {
                 let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
                 let unparked = await outbox.unparkAll()
@@ -553,7 +559,9 @@ struct CaptureComposerView: View {
     /// Shows a pending chip per pick at once, then loads the picks one after another — so they
     /// attach in the order they were picked (the first carries the typed note, `CaptureViewModel`
     /// routing) — each replacing its chip the moment it's ready. A chip the user abandons (its ×)
-    /// is skipped, or its late result discarded. The batch's failures share one toast at the end.
+    /// is skipped, or its late result discarded. Each pick gets at most `pickTimeout`; one that
+    /// stalls past it fails (`.timedOut`) instead of holding Save and the picks behind it. The
+    /// batch's failures share one toast at the end.
     private func loadAttachments<Source: Sendable>(_ sources: [Source], noun: String,
                                                    load: @escaping @Sendable (Source) async -> AttachmentLoadResult) {
         guard !sources.isEmpty else { return }
@@ -563,7 +571,7 @@ struct CaptureComposerView: View {
             var failures: [AttachmentLoadFailure] = []
             for (source, placeholder) in zip(sources, placeholders) {
                 guard pendingAttachments.contains(placeholder) else { continue }
-                let result = await load(source)
+                let result = await withDeadline(Self.pickTimeout, fallback: .failure(.timedOut)) { await load(source) }
                 guard let index = pendingAttachments.firstIndex(of: placeholder) else { continue }
                 pendingAttachments.remove(at: index)
                 switch result {

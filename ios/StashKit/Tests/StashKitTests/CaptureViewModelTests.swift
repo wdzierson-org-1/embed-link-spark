@@ -584,4 +584,118 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
         XCTAssertNil(server.captures[0].meta["attributes"], "the stale location must be cleared")
     }
+
+    // MARK: - Plan 15 final wave: durable before the pin wait (mirrors the share sheet)
+
+    /// Save with the pin still resolving: the form clears and the capture is in the Outbox BEFORE
+    /// the ≤ 2.5 s pin wait starts — a kill during that wait loses nothing — and the location that
+    /// arrives within it is merged into the queued entry, so the capture still carries it.
+    func testSubmitWritesTheOutboxBeforeWaitingOnAResolvingPinThenAddsTheLateLocation() async throws {
+        let server = FakeCaptureServer()
+        let pin = ResolvingPin()
+        let vm = makeViewModel(server: server, awaitPendingLocation: { await pin.resolution(timeout: $0) })
+        vm.text = "saved while the pin resolves https://example.com/pin"
+        vm.attachments = [CaptureAttachment(data: Data([0x01]), fileExtension: "pdf", mimeType: "application/pdf",
+                                            kind: .file, fileName: "notes.pdf")]
+
+        let submission = Task { await vm.submit() }
+        for _ in 0..<300 where !pin.isWaiting { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(pin.isWaiting, "submit() should be waiting on the resolving pin")
+
+        XCTAssertEqual(vm.text, "", "the form cleared at Save")
+        let queued = await Outbox(directory: dir).pending()
+        XCTAssertEqual(queued.map(\.kind), [.url, .file], "every unit is on disk before the pin wait")
+        XCTAssertNil(queued[0].payload["attributes_json"], "no location yet on the URL")
+        XCTAssertFalse(queued[1].payload["attributes_json"]?.contains("location") ?? false)
+        XCTAssertTrue(server.captures.isEmpty, "nothing is sent before the pin had its chance")
+
+        pin.resolve(CapturedLocation(label: "Late Pin", source: "device-geolocation"))
+        let outcome = await submission.value
+
+        XCTAssertEqual(outcome, .saved(count: 2, dropped: 0))
+        XCTAssertEqual(server.captures.count, 2)
+        for call in server.captures {
+            XCTAssertEqual((call.attributes?["location"] as? [String: Any])?["label"] as? String, "Late Pin")
+        }
+        XCTAssertEqual((server.captures[1].attributes?["media"] as? [String: Any])?["file_name"] as? String,
+                       "notes.pdf", "the file's media facts survive the merge")
+    }
+
+    /// A pin that doesn't resolve within the wait leaves the queued capture exactly as it was
+    /// saved — still sent, just without a location.
+    func testSubmitSendsWithoutALocationWhenTheResolvingPinComesUpEmpty() async throws {
+        let server = FakeCaptureServer()
+        let pin = ResolvingPin()
+        let vm = makeViewModel(server: server, awaitPendingLocation: { await pin.resolution(timeout: $0) })
+        vm.text = "the pin never resolves"
+
+        let submission = Task { await vm.submit() }
+        for _ in 0..<300 where !pin.isWaiting { try await Task.sleep(for: .milliseconds(10)) }
+        let queued = await Outbox(directory: dir).pending()
+        XCTAssertEqual(queued.count, 1)
+        pin.resolve(nil)
+        let outcome = await submission.value
+
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
+        XCTAssertNil(server.captures[0].meta["attributes"])
+    }
+
+    /// The voice-note path is enqueue-first too: the recording's entry (with its visibility and
+    /// duration) exists before the pin wait, and the late location is merged in before the send.
+    func testSubmitVoiceNoteWritesItsEntryBeforeWaitingOnAResolvingPin() async throws {
+        let server = FakeCaptureServer()
+        let pin = ResolvingPin()
+        let vm = makeViewModel(server: server, awaitPendingLocation: { await pin.resolution(timeout: $0) })
+        let fileURL = FileManager.default.temporaryDirectory.appending(path: "voice-\(UUID().uuidString).m4a")
+        try Data([0x01, 0x02]).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let submission = Task { await vm.submitVoiceNote(fileURL: fileURL, durationS: 4) }
+        for _ in 0..<300 where !pin.isWaiting { try await Task.sleep(for: .milliseconds(10)) }
+        let queued = await Outbox(directory: dir).pending()
+        XCTAssertEqual(queued.count, 1, "the recording's entry is written before the pin wait")
+        XCTAssertEqual(queued.first?.payload["local_file_path"], fileURL.path)
+        XCTAssertTrue(server.captures.isEmpty)
+
+        pin.resolve(CapturedLocation(label: "Voice Late", source: "device-geolocation"))
+        let outcome = await submission.value
+
+        XCTAssertEqual(outcome, .saved(count: 1, dropped: 0))
+        let attributes = try XCTUnwrap(server.captures.first?.attributes)
+        XCTAssertEqual((attributes["location"] as? [String: Any])?["label"] as? String, "Voice Late")
+        XCTAssertEqual((attributes["media"] as? [String: Any])?["duration_s"] as? Double, 4)
+    }
+}
+
+/// A location pin that is still resolving when Save is tapped: an immediate look
+/// (`timeout == 0`) finds nothing, and a real wait parks until the test resolves it.
+private final class ResolvingPin: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<CapturedLocation?, Never>?
+    private var resolved = false
+    private var result: CapturedLocation?
+
+    var isWaiting: Bool { lock.withLock { continuation != nil } }
+
+    func resolution(timeout: TimeInterval) async -> CapturedLocation? {
+        guard timeout > 0 else { return nil }
+        return await withCheckedContinuation { continuation in
+            let answerNow = lock.withLock { () -> Bool in
+                if resolved { return true }
+                self.continuation = continuation
+                return false
+            }
+            if answerNow { continuation.resume(returning: lock.withLock { result }) }
+        }
+    }
+
+    func resolve(_ location: CapturedLocation?) {
+        let waiting = lock.withLock { () -> CheckedContinuation<CapturedLocation?, Never>? in
+            resolved = true
+            result = location
+            defer { continuation = nil }
+            return continuation
+        }
+        waiting?.resume(returning: location)
+    }
 }

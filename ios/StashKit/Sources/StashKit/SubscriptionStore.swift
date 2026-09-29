@@ -96,7 +96,9 @@ public final class SubscriptionStore {
 
     /// Plan 15 (snappiness): a successful check younger than this answers a non-forced `refresh()`
     /// without the network — so every `.active` (a Control Center pull, a system sheet, a quick
-    /// app switch) stops hitting `check-subscription`. Settings passes `force: true`.
+    /// app switch) stops hitting `check-subscription`. Settings passes `force: true`. Only an OPEN
+    /// answer is held this way (final wave): after a definitive "no subscription" every refresh
+    /// asks again, so someone who has just subscribed on the web isn't gated for minutes.
     public static let freshnessInterval: TimeInterval = 180
 
     private let checker: SubscriptionChecking
@@ -163,9 +165,11 @@ public final class SubscriptionStore {
     ///   check instead of sending another — a cold launch's "signed in" refresh and its first
     ///   `.active` refresh arrive together, and Settings appearing mid-check joins it too.
     /// - **Throttle.** A non-forced call returns at once when a check succeeded less than
-    ///   `freshnessInterval` ago. `force: true` (Settings' on-appear refresh and while-visible
-    ///   poll) always asks the server. A sign-out (`reset()`) forgets the last success, so the next
-    ///   account's first refresh always goes to the network.
+    ///   `freshnessInterval` ago AND its answer was open (subscribed or trialing). A definitive
+    ///   "no" is never held: the next launch/foreground refresh asks again, so a user who just
+    ///   subscribed on the web gets in on their next return to the app. `force: true` (Settings'
+    ///   on-appear refresh and while-visible poll) always asks the server. A sign-out (`reset()`)
+    ///   forgets the last success, so the next account's first refresh always goes to the network.
     /// - The check itself runs in its own task: a caller that goes away (Settings' `.task` is
     ///   cancelled on a tab switch) neither aborts it nor turns that into an error — the status
     ///   still lands.
@@ -184,7 +188,8 @@ public final class SubscriptionStore {
             await inFlight.task.value
             return
         }
-        if !force, let lastSuccessAt, now().timeIntervalSince(lastSuccessAt) < Self.freshnessInterval {
+        if !force, let lastSuccessAt, let status, status.onTrial || status.subscribed,
+           now().timeIntervalSince(lastSuccessAt) < Self.freshnessInterval {
             return
         }
         refreshGeneration += 1

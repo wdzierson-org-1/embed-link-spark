@@ -1,3 +1,4 @@
+import Supabase
 import XCTest
 @testable import StashKit
 
@@ -62,5 +63,28 @@ final class StashClientTests: XCTestCase {
         real.setValue("Bearer \(StashConfig.supabaseAnonKey)", forHTTPHeaderField: "Authorization")
         XCTAssertTrue(SignedInAnonFallbackGuard.blocks(real, hasStoredSession: { true }))
         XCTAssertFalse(SignedInAnonFallbackGuard.blocks(real, hasStoredSession: { false }))
+    }
+
+    // MARK: - Plan 15 final wave: drains send with the Outbox owner's token only
+
+    private func session(for userId: UUID, token: String) -> Session {
+        Session(accessToken: token, tokenType: "bearer", expiresIn: 3600,
+                expiresAt: Date().addingTimeInterval(3600).timeIntervalSince1970, refreshToken: "refresh",
+                user: User(id: userId, appMetadata: [:], userMetadata: [:], aud: "authenticated",
+                           createdAt: Date(), updatedAt: Date()))
+    }
+
+    func testTheOwnersSessionHandsOutItsToken() throws {
+        let owner = UUID()
+        XCTAssertEqual(try StashClient.ownerToken(of: session(for: owner, token: "owner-jwt"), for: owner), "owner-jwt")
+    }
+
+    /// A drain that started for one account and reaches the token after a sign-out/sign-in must
+    /// skip — never send that account's queued captures with the account signed in now.
+    func testAnotherAccountsSessionIsRefused() {
+        let owner = UUID()
+        XCTAssertThrowsError(try StashClient.ownerToken(of: session(for: UUID(), token: "other-jwt"), for: owner)) {
+            XCTAssertEqual($0 as? SessionOwnerMismatch, SessionOwnerMismatch())
+        }
     }
 }

@@ -1631,7 +1631,7 @@ final class StashUITests: XCTestCase {
             XCTAssertNotNil(confirmation, "Expected the 'Saved to Stash' confirmation right after Save")
             if let confirmation {
                 XCTAssertEqual(confirmation.text, "Saved to Stash")
-                XCTAssertLessThanOrEqual(confirmation.measuredMs ?? .max, 1500,
+                XCTAssertLessThanOrEqual(confirmation.measuredMs ?? .max, Self.instantConfirmationBudgetMs,
                                          "Save → confirmation took \(confirmation.measuredMs.map { "\($0) ms" } ?? "an unknown time")")
             }
             XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 15), "Expected the sheet to dismiss itself after the confirmation")
@@ -1641,12 +1641,20 @@ final class StashUITests: XCTestCase {
         }
     }
 
+    /// The extension's own Save → "Saved to Stash" measurement must stay within this (final wave,
+    /// T4 review carry: measured 26–76 ms on the simulators, so 500 ms still leaves room for a
+    /// loaded CI machine while catching any network round trip creeping back in).
+    static let instantConfirmationBudgetMs = 500
+
     /// Plan 15 Task 4 (Will: "the user should click the save button, see a confirmation, and then
     /// the stash should happen in the background seamlessly"): Save shows "Saved to Stash" within
-    /// ~1.5 s — no network round trip in between — and the sheet dismisses itself right after,
-    /// yet the share lands server-side exactly once: the background session finishes the upload
-    /// without the extension. The lapsed test account's client gate is opened for this run
-    /// (`--uitest-share-gate-open`, DEBUG); the server accepts URL captures from lapsed accounts.
+    /// `instantConfirmationBudgetMs` — no network round trip in between — and the sheet dismisses
+    /// itself right after, yet the share lands server-side exactly once: the background session
+    /// finishes the upload without the extension. The lapsed test account's CLIENT gate is opened
+    /// for this run (`--uitest-share-gate-open`, DEBUG). GATE-BLOCKED on that account since the
+    /// 2026-09-29 production redeploy: the server now answers every lapsed capture — URL ones
+    /// included — 403 `subscription_required`, so the confirmation half passes and the "lands
+    /// exactly once" assertion fails (the share parks in the Outbox) until the account is comped.
     /// The latency asserted is the extension's own Save → confirmation measurement: XCUITest only
     /// looks once Safari idles after the tap (0.4–1.4 s observed), so the confirmation is held 3 s
     /// here (`--uitest-share-confirmation-hold`, DEBUG) for it to be seen at all.
@@ -1673,7 +1681,7 @@ final class StashUITests: XCTestCase {
         if let confirmation {
             XCTAssertEqual(confirmation.text, "Saved to Stash")
             XCTAssertNotNil(confirmation.measuredMs, "Expected the extension's own latency on the confirmation (DEBUG)")
-            XCTAssertLessThanOrEqual(confirmation.measuredMs ?? .max, 1500,
+            XCTAssertLessThanOrEqual(confirmation.measuredMs ?? .max, Self.instantConfirmationBudgetMs,
                                      "Save → confirmation took \(confirmation.measuredMs.map { "\($0) ms" } ?? "an unknown time")")
             print("P15T4-TIMING: save→confirmation \(confirmation.measuredMs.map { "\($0) ms" } ?? "?") in the extension; seen by XCUITest after \(String(format: "%.2f", confirmation.seconds)) s")
         }
@@ -1697,6 +1705,9 @@ final class StashUITests: XCTestCase {
     /// The item must land before the app is opened again. Relaunching with a 1 s stale-transfer
     /// interval then makes the launch drain resend anything still marked in flight — which must
     /// still leave exactly one item (the capture id is the idempotency key) and nothing queued.
+    /// GATE-BLOCKED on the lapsed test account since the 2026-09-29 production redeploy (the server
+    /// answers its URL captures 403 `subscription_required`): the "landed" wait fails and the
+    /// share sits parked in the Outbox, until the account is comped.
     ///
     /// No note is typed: the unique shared URL is the marker. (Harness-only observation: after
     /// XCUITest has typed into the app's sign-in form and then killed the app, the share card's

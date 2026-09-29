@@ -65,9 +65,10 @@ struct VoiceRecorderSheet: View {
         // Forces an explicit Save/Cancel/Re-record decision once anything has been captured,
         // rather than letting a swipe-to-dismiss silently orphan a local recording file with no
         // Outbox entry pointing at it (that entry is only created on Save — see
-        // `submitVoiceNote`'s doc comment). Doesn't (and can't) cover a full app force-quit
-        // mid-recording; that's a disclosed, pre-existing gap, not something a view modifier can
-        // close — see task-6-report.md.
+        // `submitVoiceNote`'s doc comment). A full app force-quit mid-recording is beyond any view
+        // modifier; since plan 15's final wave the recorder finalizes the file on
+        // `willTerminateNotification` and the launch sweep recovers it (see
+        // `AudioRecorderController`).
         .interactiveDismissDisabled(recorder.recordingURL != nil)
         // Plan 15 H3: with the `audio` background mode a recording would otherwise outlive a
         // sheet that went away some unforeseen way (Close/Cancel/Save all end it first, so this is

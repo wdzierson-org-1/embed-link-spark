@@ -14,9 +14,12 @@ import UIKit
 /// down. The app declares `UIBackgroundModes: audio` (project.yml), so an active `.record`
 /// session keeps the app — and this recorder — running through a screen lock or an app switch;
 /// and while recording, the screen is kept awake (`isIdleTimerDisabled`, restored on every way a
-/// recording ends — Stop, Cancel, an interruption, the sheet going away), so the timer and Stop
-/// stay in view. Background eligibility comes from the category + the background mode; the
-/// session's options (`.duckOthers`, as in Apple's speech-recognition sample) don't affect it.
+/// recording ends — Stop, Cancel, an interruption, the recorder dying, the sheet going away), so
+/// the timer and Stop stay in view. Background eligibility comes from the category + the
+/// background mode; the session's options (`.duckOthers`, as in Apple's speech-recognition
+/// sample) don't affect it. Plan 15 final wave: the app being swiped away mid-recording finalizes
+/// the file too (`UIApplication.willTerminateNotification`), so the launch sweep uploads a
+/// playable recording.
 ///
 /// AUDIO SESSION CARE (per Task 5's own review fix to the Ask tab's since-removed
 /// `DictationController`, carried forward here deliberately, not reinvented): configures
@@ -68,6 +71,14 @@ final class AudioRecorderController {
     /// read, which by definition can't race anything else touching `self`.
     @ObservationIgnored
     nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
+
+    /// `UIApplication.willTerminateNotification`, registered for the duration of a recording only —
+    /// same lifetime and `nonisolated(unsafe)` reasoning as `interruptionObserver`. Plan 15 final
+    /// wave: swiping the app away mid-recording (it keeps running in the background with the
+    /// `audio` mode, so the system does deliver this) finalizes the file instead of leaving an
+    /// unplayable, header-less .m4a for the launch sweep to upload.
+    @ObservationIgnored
+    nonisolated(unsafe) private var terminationObserver: NSObjectProtocol?
 
     /// What `UIApplication.isIdleTimerDisabled` was before the current recording started — non-nil
     /// exactly while this controller is keeping the screen awake. Same `nonisolated(unsafe)`
@@ -133,6 +144,7 @@ final class AudioRecorderController {
         isRecording = true
         keepScreenAwake()
         registerInterruptionObserver()
+        registerTerminationObserver()
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
@@ -174,6 +186,9 @@ final class AudioRecorderController {
         if let interruptionObserver {
             NotificationCenter.default.removeObserver(interruptionObserver)
         }
+        if let terminationObserver {
+            NotificationCenter.default.removeObserver(terminationObserver)
+        }
         if let previous = idleTimerSettingBeforeRecording {
             Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = previous }
         }
@@ -181,6 +196,14 @@ final class AudioRecorderController {
 
     private func tick() {
         guard let recorder, isRecording else { return }
+        // Plan 15 final wave: the recorder stopped without us — it died, or the media services
+        // were reset (neither posts an interruption). Handled like an interruption, so the sheet
+        // lands on its preview with what was captured, and the session and screen auto-lock are
+        // handed back instead of the timer ticking over a dead recorder.
+        guard recorder.isRecording else {
+            finishAfterInterruption()
+            return
+        }
         recorder.updateMeters()
         elapsed = recorder.currentTime
         let db = recorder.averagePower(forChannel: 0)
@@ -195,6 +218,7 @@ final class AudioRecorderController {
         recorder = nil
         isRecording = false
         unregisterInterruptionObserver()
+        unregisterTerminationObserver()
         deactivateSession()
         restoreScreenIdleTimer()
     }
@@ -250,6 +274,28 @@ final class AudioRecorderController {
             NotificationCenter.default.removeObserver(interruptionObserver)
         }
         interruptionObserver = nil
+    }
+
+    /// The app is about to be terminated mid-recording (swiped away from the app switcher while
+    /// recording in the background): `stop()` finalizes the file right here, synchronously — the
+    /// process may exit as soon as this notification returns, so there is no hopping to another
+    /// task. The finished recording stays in `RecordingStore`, where the next launch's sweep
+    /// recovers it.
+    private func registerTerminationObserver() {
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stop() }
+        }
+    }
+
+    private func unregisterTerminationObserver() {
+        if let terminationObserver {
+            NotificationCenter.default.removeObserver(terminationObserver)
+        }
+        terminationObserver = nil
     }
 
     #if DEBUG

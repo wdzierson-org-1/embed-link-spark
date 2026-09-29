@@ -29,6 +29,9 @@ enum AttachmentLoadFailure: Error, Equatable {
     /// The transfer or the read failed (a revoked security scope, an iCloud download that
     /// failed, bytes the photo picker couldn't deliver…). `name` is `nil` for photo picks.
     case unreadable(name: String?)
+    /// Still not loaded after `CaptureComposerView`'s per-pick limit (plan 15 final wave) — an
+    /// iCloud or Photos transfer that stalled. Given up on, so it can't hold Save disabled.
+    case timedOut
 
     /// One toast for a batch's failures, or `nil` when there were none. `noun` names what was
     /// picked ("photo" / "file").
@@ -36,7 +39,9 @@ enum AttachmentLoadFailure: Error, Equatable {
         guard let first = failures.first else { return nil }
         guard failures.count == 1 else {
             let allTooLarge = failures.allSatisfy { if case .tooLarge = $0 { true } else { false } }
-            return "Couldn't add \(failures.count) \(noun)s" + (allTooLarge ? " — over the size limit" : "")
+            let allTimedOut = failures.allSatisfy { $0 == .timedOut }
+            return "Couldn't add \(failures.count) \(noun)s"
+                + (allTooLarge ? " — over the size limit" : allTimedOut ? " — they took too long to load" : "")
         }
         switch first {
         case .tooLarge(let name, let limitMB):
@@ -45,6 +50,8 @@ enum AttachmentLoadFailure: Error, Equatable {
             return "Couldn't add “\(name)”"
         case .unreadable(nil):
             return "Couldn't add that \(noun)"
+        case .timedOut:
+            return "Couldn't add that \(noun) — it took too long to load"
         }
     }
 }

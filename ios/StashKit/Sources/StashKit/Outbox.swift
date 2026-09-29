@@ -191,9 +191,10 @@ public actor Outbox {
     /// a claim whose entry is already gone entirely, so it only needs to outlast the ordinary,
     /// microseconds-wide gap between `drain` deleting an entry and releasing its claim — 60s is
     /// ample margin without waiting anywhere near as long as a genuine stale-drain reclaim does.
-    /// Deliberately the same NUMBER `sweepOrphans`'s own young-file skip uses, per the task brief —
-    /// not because the two share a mechanism, just because both are "give an in-flight local
-    /// operation a full minute before treating its leftovers as abandoned."
+    /// Deliberately the same NUMBER `sweepOrphans`'s young-RECORDING skip uses
+    /// (`recordingSweepGracePeriod`), per the task brief — not because the two share a mechanism,
+    /// just because both are "give an in-flight local operation a full minute before treating its
+    /// leftovers as abandoned." (Staged files get far longer — `stagedFileSweepGracePeriod`.)
     private static let orphanClaimGracePeriod: TimeInterval = 60
 
     /// Who this instance stamps its claims as (bundle id or process name, plus pid) — see
@@ -524,6 +525,27 @@ public actor Outbox {
         guard var entry = entry(id: id) else { return nil }
         entry.payload = transform(entry.payload)
         return persistIfPresent(entry) ? entry : nil
+    }
+
+    /// Adds a location that resolved AFTER the capture was saved (the pin was still resolving at
+    /// Save — share sheet and composer alike) to the entry's `attributes_json`, merged: a file's
+    /// `media` and every other key stay as they are. Returns the updated entry, or `nil` when it no
+    /// longer exists (already sent — its item simply has no location).
+    @discardableResult
+    public func attachLocation(_ location: CapturedLocation, to id: UUID) -> OutboxEntry? {
+        guard let locationJSON = ItemAttributes(location: location).nonEmptyJSONObject?["location"] else {
+            return entry(id: id)
+        }
+        return updatePayload(id: id) { payload in
+            var payload = payload
+            var attributes = CaptureTransport.attributesObject(from: payload["attributes_json"]) ?? [:]
+            attributes["location"] = locationJSON
+            if let data = try? JSONSerialization.data(withJSONObject: attributes),
+               let json = String(data: data, encoding: .utf8) {
+                payload["attributes_json"] = json
+            }
+            return payload
+        }
     }
 
     /// The capture reached the server: deletes the entry, its claim sidecar, and its local file

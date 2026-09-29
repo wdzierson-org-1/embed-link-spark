@@ -166,20 +166,9 @@ public struct ShareIntake: Sendable {
     /// returns the entries as now persisted, in order. An entry that no longer exists (already
     /// sent by the app) is left out; its item simply has no location.
     public func attachLocation(_ location: CapturedLocation, to entries: [OutboxEntry]) async -> [OutboxEntry] {
-        guard let locationJSON = ItemAttributes(location: location).nonEmptyJSONObject?["location"] else { return entries }
         var updated: [OutboxEntry] = []
         for entry in entries {
-            let rewritten = await outbox.updatePayload(id: entry.id) { payload in
-                var payload = payload
-                var attributes = CaptureTransport.attributesObject(from: payload["attributes_json"]) ?? [:]
-                attributes["location"] = locationJSON
-                if let data = try? JSONSerialization.data(withJSONObject: attributes),
-                   let json = String(data: data, encoding: .utf8) {
-                    payload["attributes_json"] = json
-                }
-                return payload
-            }
-            if let rewritten { updated.append(rewritten) }
+            if let rewritten = await outbox.attachLocation(location, to: entry.id) { updated.append(rewritten) }
         }
         return updated
     }
@@ -213,14 +202,7 @@ public struct ShareIntake: Sendable {
     /// waits for it).
     public static func refreshedTransferToken(timeout: TimeInterval = transferTokenRefreshTimeout,
                                               refresh: @escaping @Sendable () async throws -> String) async -> String? {
-        await withCheckedContinuation { continuation in
-            let gate = FirstResult(continuation)
-            let work = Task { gate.resume(returning: try? await refresh()) }
-            Task {
-                try? await Task.sleep(for: .seconds(timeout))
-                if gate.resume(returning: nil) { work.cancel() }
-            }
-        }
+        await withDeadline(.seconds(timeout), fallback: nil) { try? await refresh() }
     }
 
     /// The bounded foreground fallback: sends `ids` one by one (`Outbox.sendNow`, the same
@@ -309,9 +291,9 @@ public struct ShareIntake: Sendable {
     /// A shared `.text` object's own string already IS its content — unlike `.url`/`.file`, which
     /// have no free text of their own, so an attached note simply BECOMES their whole content
     /// (there's nothing else it could overwrite). A note attaching to a `.text` object instead
-    /// AUGMENTS it: `appendNoteParagraph` — the same helper `NotesAppendComposer`'s "append to an
-    /// existing item" flow uses — treats the shared text as the existing body and the typed note as
-    /// a new paragraph appended after it, so neither is ever silently dropped.
+    /// AUGMENTS it: `appendNoteParagraph` (TipTapAppend.swift — written for the since-retired
+    /// "append to an existing item" composer) treats the shared text as the existing body and the
+    /// typed note as a new paragraph appended after it, so neither is ever silently dropped.
     private func unit(for object: SharedObject, note: String?, location: CapturedLocation?) -> Unit {
         switch object {
         case .url(let url):
@@ -361,6 +343,24 @@ public struct ShareIntake: Sendable {
               let data = try? JSONSerialization.data(withJSONObject: object)
         else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+/// Runs `work` and returns its result — or `fallback` as soon as `timeout` passes first. Never
+/// waits on `work` past that: it is cancelled and left to end on its own, and whatever it returns
+/// later is dropped (unlike a task group, which would wait for a child that ignores cancellation).
+/// For waits nobody can afford to have held open by a stalled request: a token fetch during a
+/// background wake or the share sheet's confirmation window, a composer pick whose iCloud/Photos
+/// transfer never finishes.
+public func withDeadline<Value: Sendable>(_ timeout: Duration, fallback: Value,
+                                          _ work: @escaping @Sendable () async -> Value) async -> Value {
+    await withCheckedContinuation { continuation in
+        let gate = FirstResult(continuation)
+        let task = Task { gate.resume(returning: await work()) }
+        Task {
+            try? await Task.sleep(for: timeout)
+            if gate.resume(returning: fallback) { task.cancel() }
+        }
     }
 }
 

@@ -327,6 +327,30 @@ final class SubscriptionStoreTests: XCTestCase {
         XCTAssertEqual(checker.checkCalls, 2)
     }
 
+    /// 6C carry (final wave): only an open answer is throttled. After a definitive "no" the very
+    /// next foreground asks again — someone who just subscribed on the web gets in at once, not
+    /// `freshnessInterval` later.
+    func testADefinitiveNoIsNeverThrottled() async {
+        let clock = SubscriptionTestClock()
+        let checker = StubChecker()
+        checker.results = [.success(lapsed), .success(lapsed), .success(active)]
+        let store = SubscriptionStore(checker: checker, now: { clock.now })
+
+        await store.refresh()                 // lapsed, and the one-time self-heal re-check agrees
+        XCTAssertEqual(checker.checkCalls, 2)
+        XCTAssertFalse(store.canAddContent)
+
+        clock.now += 20                       // subscribed on the web, back in the app
+        await store.refresh()
+
+        XCTAssertEqual(checker.checkCalls, 3, "a closed gate is re-checked on every refresh")
+        XCTAssertTrue(store.canAddContent)
+
+        clock.now += 20                       // now open → the throttle applies again
+        await store.refresh()
+        XCTAssertEqual(checker.checkCalls, 3)
+    }
+
     func testForcedRefreshAlwaysAsksTheServer() async {
         let clock = SubscriptionTestClock()
         let checker = StubChecker()

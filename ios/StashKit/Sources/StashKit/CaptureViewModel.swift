@@ -91,7 +91,8 @@ public final class CaptureViewModel {
     /// (Global Constraints: "written to EVERY item in a batch"). `nil` (default) attaches nothing.
     /// Settable so Task 6's pin-toggle UI can assign it directly; `submit()`/`submitVoiceNote()`
     /// also assign it indirectly via `awaitPendingLocation(timeout:)` below, whenever the injected
-    /// resolver hook has something newer to offer.
+    /// resolver hook has something newer to offer — once with no wait before the capture is
+    /// written, and (for a pin still resolving) once more with the full budget right after.
     public var pendingLocation: CapturedLocation?
 
     private let userId: UUID
@@ -107,7 +108,9 @@ public final class CaptureViewModel {
 
     /// Global Constraints / Task 6 brief: "submit() waits ≤2.5s on .resolving … then proceeds with
     /// whatever resolved." Single source of truth for that budget, referenced at every call site
-    /// (`submit()`, `submitVoiceNote()`) so it can't drift between them.
+    /// (`submit()`, `submitVoiceNote()`) so it can't drift between them. Plan 15 final wave: the
+    /// wait happens AFTER the capture is in the Outbox (`captureLocationNow()` /
+    /// `attachLateLocation(to:)`), never between Save and the Outbox write.
     private static let locationAwaitTimeout: TimeInterval = 2.5
 
     /// - Parameters:
@@ -120,15 +123,18 @@ public final class CaptureViewModel {
     ///     staging and enqueue is still recovered on the next launch).
     ///   - upload: the Outbox's two-step Storage lane for files over the one-shot limit — `nil`
     ///     streams through `api.uploadFileToStorage` with the send's own token.
+    ///   - accessToken: `nil` (every call site but tests) = `StashClient.accessToken(for: userId)`:
+    ///     the signed-in session's token only while it is still `userId`'s — this view model's
+    ///     Outbox is `userId`'s, and a send that reaches the token after a sign-out/sign-in must
+    ///     leave the capture queued rather than deliver it into another account. `Optional`, not a
+    ///     closure with a default expression, because a default argument can't reference `userId`.
     public init(
         userId: UUID,
         api: CaptureAPI = CaptureAPI(),
         outbox: Outbox? = nil,
         staging: StagedFileStore? = nil,
         upload: (@Sendable (URL, String, String) async throws -> Void)? = nil,
-        accessToken: @escaping @Sendable () async throws -> String = {
-            try await StashClient.shared.auth.session.accessToken
-        },
+        accessToken: (@Sendable () async throws -> String)? = nil,
         // Bridges to the app's Task 6 `LocationCapture` (CLLocationManager/CLGeocoder plumbing —
         // deliberately kept out of StashKit, which has no CoreLocation dependency and never will).
         // `nil` (default: every StashKit test, and any future call site that never wires one up)
@@ -143,7 +149,7 @@ public final class CaptureViewModel {
         self.outbox = outbox ?? Outbox(directory: Outbox.defaultDirectory(userId: userId))
         self.staging = staging ?? StagedFileStore(userId: userId)
         self.upload = upload
-        self.accessToken = accessToken
+        self.accessToken = accessToken ?? { try await StashClient.accessToken(for: userId) }
         self.awaitPendingLocationHook = awaitPendingLocation
         capturedObserver = NotificationObserver(name: .stashItemCaptured) { [weak self] in
             Task { @MainActor [weak self] in await self?.refreshPendingCount() }
@@ -170,6 +176,29 @@ public final class CaptureViewModel {
         pendingLocation = await hook(timeout)
     }
 
+    /// The location a capture made RIGHT NOW carries: whatever the pin has already resolved
+    /// (`awaitPendingLocation(timeout: 0)` — no wait; `nil` while a pin is still resolving, or off).
+    private func captureLocationNow() async -> CapturedLocation? {
+        await awaitPendingLocation(timeout: 0)
+        return pendingLocation
+    }
+
+    /// Plan 15 final wave (mirrors the share sheet): a pin that was still resolving when the
+    /// capture was saved gets its `locationAwaitTimeout` now — with every unit ALREADY in the
+    /// Outbox, so a kill during the wait loses nothing — and a location that arrives in time is
+    /// merged into each still-queued entry (`Outbox.attachLocation`) before anything is sent.
+    /// Returns at once for a pin that is off, failed, or already resolved (nothing to wait for).
+    /// An entry a concurrent drain sent during the wait keeps its item location-less (rare; the
+    /// same accepted window as the share sheet's).
+    private func attachLateLocation(to entryIds: [UUID]) async {
+        guard !entryIds.isEmpty else { return }
+        await awaitPendingLocation(timeout: Self.locationAwaitTimeout)
+        guard let location = pendingLocation else { return }
+        for id in entryIds {
+            await outbox.attachLocation(location, to: id)
+        }
+    }
+
     // MARK: - Submit / drain
 
     public func submit() async -> CaptureOutcome {
@@ -182,20 +211,16 @@ public final class CaptureViewModel {
         text = ""
         attachments = []
 
-        // Task 6: give an in-flight pin resolution up to `locationAwaitTimeout` to finish before
-        // snapshotting — placed AFTER the immediate text/attachments clear above, so the "clear
-        // the form immediately" UX (web parity, noted above) isn't itself delayed by the wait.
-        await awaitPendingLocation(timeout: Self.locationAwaitTimeout)
+        // Snapshotted once, without waiting: every unit in THIS batch gets the same location
+        // (Global Constraints: "written to EVERY item in a batch"). A pin still resolving is
+        // given its time only once the batch is durable (step 2).
+        let location = await captureLocationNow()
 
-        // Snapshotted once: every unit in THIS batch gets the same location (Global Constraints:
-        // "written to EVERY item in a batch"), not whatever `pendingLocation` happens to read
-        // partway through an `await`-laced loop.
-        let location = pendingLocation
-
-        // 1. Persist the WHOLE batch before any network call (plan 15 review): the form is
-        //    already cleared, so from here on the Outbox is the only copy — a kill while unit 1
-        //    uploads must not lose units 2…N (links/notes would be gone for good; files would only
-        //    come back via `sweepOrphans`, without their note, location, or visibility).
+        // 1. Persist the WHOLE batch before any wait or network call (plan 15 review + final
+        //    wave): the form is already cleared, so from here on the Outbox is the only copy — a
+        //    kill during the pin wait, or while unit 1 uploads, must not lose anything (links/notes
+        //    would be gone for good; files would only come back via `sweepOrphans`, without their
+        //    note, location, or visibility).
         var entryIds: [UUID] = []
         var droppedCount = 0
         for unit in units {
@@ -219,12 +244,18 @@ public final class CaptureViewModel {
             }
         }
 
-        // 2. Only now the token — fetching it may itself refresh the session over the network.
+        // 2. A pin still resolving at Save: its ≤ 2.5 s, now that the batch is durable.
+        if location == nil {
+            await attachLateLocation(to: entryIds)
+        }
+
+        // 3. Only now the token — fetching it may itself refresh the session over the network.
         //    Once per batch: every unit sends under the same session snapshot. `try?` turns "no
-        //    session" into a nil token: the units stay queued for a later drain.
+        //    session" (or another account's) into a nil token: the units stay queued for a later
+        //    drain.
         let token = entryIds.isEmpty ? nil : try? await accessToken()
 
-        // 3. Send each (the capture id is the entry id, so any of these can be retried later).
+        // 4. Send each (the capture id is the entry id, so any of these can be retried later).
         var savedCount = 0
         var queuedCount = 0
         for id in entryIds {
@@ -267,10 +298,11 @@ public final class CaptureViewModel {
     /// - Parameter durationS: Recorder-elapsed seconds (`AudioRecorderController.elapsed` at Stop),
     ///   threaded into `attributes.media.duration_s` exactly like a picked file's `CaptureAttachment
     ///   .durationS` — `nil` (default) omits the media fact entirely. `pendingLocation` rides along
-    ///   too, including the same Task 6 `awaitPendingLocation` wait as `submit()`.
+    ///   too, the same way as in `submit()`: already resolved → straight into the entry; still
+    ///   resolving → its wait happens after the entry is written (`attachLateLocation(to:)`).
     public func submitVoiceNote(fileURL: URL, durationS: Double? = nil) async -> CaptureOutcome {
-        await awaitPendingLocation(timeout: Self.locationAwaitTimeout)
-        let attributes = buildAttributes(location: pendingLocation, media: buildMedia(fileName: nil, durationS: durationS))
+        let location = await captureLocationNow()
+        let attributes = buildAttributes(location: location, media: buildMedia(fileName: nil, durationS: durationS))
         var payload = [
             "local_file_path": fileURL.path,
             "mime_type": "audio/mp4",
@@ -284,6 +316,9 @@ public final class CaptureViewModel {
             // `sweepOrphans` re-enqueues it — so this is "will sync", not a loss.
             await refreshPendingCount()
             return .queued(count: 1, dropped: 0)
+        }
+        if location == nil {
+            await attachLateLocation(to: [entry.id])
         }
         guard let token = try? await accessToken() else {
             await refreshPendingCount()

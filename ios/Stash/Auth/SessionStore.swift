@@ -45,8 +45,8 @@ final class SessionStore {
     @ObservationIgnored private var profileTask: Task<Void, Never>?
 
     func start() async {
-        var startSignedOut = false
         #if DEBUG
+        var startSignedOut = false
         // UI-test repeatability: the Keychain session survives app uninstall/reinstall
         // on the Simulator, so a UI test that signs in once would silently skip the
         // sign-in screen on every subsequent run. Let the UI test force a clean slate.
@@ -92,7 +92,13 @@ final class SessionStore {
         // with a session-cleanup code (`refresh_token_not_found` — a deleted account or a revoked
         // session — `session_not_found`, …). Only a refresh that can't reach the server leaves it
         // in place, and that is exactly the offline case.
+        #if DEBUG
         let stored = startSignedOut ? nil : StashClient.shared.auth.currentSession
+        #else
+        // Release has no UI-test reset, so no "start signed out" branch (a constant-false one
+        // would be flagged "will never be executed").
+        let stored = StashClient.shared.auth.currentSession
+        #endif
         setState(stored.map { SessionState.signedIn(userId: $0.user.id) } ?? .signedOut)
         for await change in StashClient.shared.auth.authStateChanges {
             switch change.event {
@@ -369,10 +375,6 @@ final class SessionStore {
     /// any of it to ever be sent to or read back from — and hands off to the sign-in screen with
     /// the deleted banner armed:
     ///
-    /// - **Keychain session** first: the same local-scope `signOut(scope: .local)` `signOut()`
-    ///   uses (the server-side account is already gone, so this never broadcasts anything). With no
-    ///   token to be had, nothing queued for this account can be sent — or written back to disk —
-    ///   while the rest is removed.
     /// - **Per-user directories**, whole: the Outbox (entries + claims), recordings (an offline
     ///   voice note's audio), staged share/attachment files, and pending detail-sheet edits
     ///   (`PendingEdits`, plan 15). Every per-user `AppGroup.userScopedURL` store there is.
@@ -380,6 +382,17 @@ final class SessionStore {
     ///   this device never briefly inherits the deleted account's last answer.
     /// - **Library caches** (plan 15): the View tab's cached first page (`Caches/StashItemCache`)
     ///   and hero images (`Caches/StashImageCache`).
+    /// - **Keychain session**, last: the same local-scope `signOut(scope: .local)` `signOut()` uses.
+    ///
+    /// Plan 15 final wave — the purge comes FIRST, in one synchronous pass: `signOut` drops the
+    /// stored session and emits `.signedOut` at once, but then sends a logout request the SDK
+    /// retries with backoff — offline, that can take minutes. The device must not keep the deleted
+    /// account's files through that wait (a kill during it would leave them for good), and the
+    /// sign-in screen is already up by then. Nothing can recreate them meanwhile: the account is
+    /// gone server-side, so a send still in flight is refused, and a failed send only ever updates
+    /// an entry that still exists on disk. For the same reason the final `.signedOut` is skipped
+    /// when someone else has signed in on the sign-in screen while that request was still retrying
+    /// — it would sign THEM out.
     ///
     /// Not here: request bodies of this account's background share transfers still in flight
     /// (`StashTransfers/`, not per-user) — the transfer daemon may still be reading them; their
@@ -390,7 +403,6 @@ final class SessionStore {
         // Armed before the sign-out: that call emits `.signedOut` (and the sign-in screen can
         // appear) before its own network round trip returns.
         accountDeletedBannerVisible = true
-        try? await StashClient.shared.auth.signOut(scope: .local)
 
         let fileManager = FileManager.default
         let userDirectories = [
@@ -405,6 +417,9 @@ final class SessionStore {
         UserDefaults(suiteName: AppGroup.identifier)?.removeObject(forKey: SubscriptionStore.gateCacheKey)
         LibraryCaches.purgeAll()
 
+        try? await StashClient.shared.auth.signOut(scope: .local)
+
+        if case .signedIn(let current) = state, current != userId { return }
         setState(.signedOut)
     }
 }

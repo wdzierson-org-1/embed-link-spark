@@ -2,11 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Plan 14 Task 4: share-extension privacy manifest. Same required-reason APIs as the app
-	     target — StashKit (StagedFileStore.swift, Outbox.swift, SubscriptionStore.swift) links
-	     into this target too, and ShareComposeView.swift itself reads the App-Group UserDefaults
-	     gate cache directly. See docs/app-store/2026-09-13-app-privacy-answers.md for the grep
-	     evidence trail. Disk space, system boot time, and active-keyboard APIs are not used. -->
+	<!-- Plan 14 Task 4: share-extension privacy manifest. StashKit (StagedFileStore.swift,
+	     Outbox.swift, BackgroundCaptureTransfers.swift, SubscriptionStore.swift) links into this
+	     target too, and ShareComposeView.swift itself reads the App-Group UserDefaults gate cache
+	     directly. See docs/app-store/2026-09-13-app-privacy-answers.md for the grep evidence
+	     trail. Re-audited in plan 15's final wave (2026-09-29): this target's sources
+	     (StashShareExtension/*, plus the shared LocationCapture.swift, StashDesign.swift and
+	     StashType.swift) never touch UserDefaults.standard — only the App Group suite — so the
+	     one UserDefaults reason is 1C8F.1 (CA92.1 is the app's alone). Disk space, system boot
+	     time, and active-keyboard APIs are not used. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
@@ -118,18 +122,21 @@
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
-			<!-- ShareComposeView.swift (UserDefaults(suiteName: AppGroup.identifier), gate cache
-			     read) + StashKit's SubscriptionStore.swift, linked into this target. -->
+			<!-- 1C8F.1: the App Group suite, UserDefaults(suiteName: AppGroup.identifier), shared
+			     with the containing app only — ShareComposeView.swift reads the subscription gate
+			     cache the app writes (StashKit's SubscriptionStore.swift, linked into this target). -->
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<string>CA92.1</string>
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 		<dict>
-			<!-- StashKit's StagedFileStore.swift + Outbox.swift read .contentModificationDateKey,
-			     linked into this target. -->
+			<!-- C617.1: StashKit (linked into this target) reads .contentModificationDateKey of
+			     files inside the App Group container only — StagedFileStore.swift sweepOrphans,
+			     Outbox.swift sweepOrphanClaims, BackgroundCaptureTransfers.swift
+			     sweepStaleBodyFiles. -->
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>

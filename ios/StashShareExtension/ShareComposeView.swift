@@ -584,8 +584,11 @@ struct ShareComposeView: View {
     /// Bounded ImageIO thumbnail decode (the `CGImageSourceCreateThumbnailAtIndex` primitive
     /// `ImagePreparation` also builds on) — this card can preview up to 10 shared images at once,
     /// so decoding each at full size just to render a 44pt thumbnail would defeat the whole point
-    /// of staging/downscaling in the first place. `kCGImageSourceShouldCache: false`: ImageIO
-    /// keeps no decoded copy of the source around once the thumbnail exists. Never touches
+    /// of staging/downscaling in the first place. The source is opened with
+    /// `kCGImageSourceShouldCache: false` (no decoded copy of the full image is kept), while the
+    /// thumbnail itself is decoded right here — `kCGImageSourceShouldCacheImmediately`, with no
+    /// `ShouldCache: false` beside it to undo that (final wave, T4 review carry) — so this
+    /// detached task does the decoding and drawing on the main thread never has to. Never touches
     /// `Data`/`UIImage(contentsOfFile:)`.
     private nonisolated static func makeThumbnail(url: URL, maxPixel: CGFloat) -> UIImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
@@ -595,7 +598,6 @@ struct ShareComposeView: View {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceShouldCache: false,
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         return UIImage(cgImage: cgImage)
@@ -761,7 +763,7 @@ struct ShareComposeView: View {
         let intake = ShareIntake(
             userId: userId,
             staging: staging,
-            accessToken: { try await StashClient.shared.auth.session.accessToken }
+            accessToken: { try await StashClient.accessToken(for: userId) }
         )
         let pinResolving = locationCapture.state == .resolving
         var token = Self.currentTransferToken(for: userId)

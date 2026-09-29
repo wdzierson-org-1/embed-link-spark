@@ -3,9 +3,10 @@ import Foundation
 /// Tracks whether one share's staged files have been handed off to `ShareIntake.submit` — Fix
 /// round 1 (Important review finding): only an explicit Cancel button used to discard staged
 /// files, so an ABANDONED share sheet (swiped away — a normal iOS gesture, not just Cancel/Save)
-/// left them on disk with no Outbox entry pointing at them; `sweepOrphans`' 60s grace period would
-/// eventually auto-enqueue and upload them on the next app launch — a share the user quietly
-/// declined to send appearing in Stash anyway.
+/// left them on disk with no Outbox entry pointing at them; `sweepOrphans` would eventually
+/// auto-enqueue and upload them at a later app launch (once past its grace period — 60 s at the
+/// time; `stagedFileSweepGracePeriod`, 30 min, since plan 15's final wave) — a share the user
+/// quietly declined to send appearing in Stash anyway.
 ///
 /// DECISION (adopted): any dismissal without a completed Save = abandonment = discard.
 ///
@@ -37,8 +38,8 @@ import Foundation
 /// before `track` has recorded anything at all, so that call finds nothing to discard — and since
 /// `discardIfAbandoned()` was never going to be called again on its own, every file `load()` went
 /// on to stage (including ones staged BEFORE the swipe) would sit on disk with nothing ever
-/// discarding them, left for `sweepOrphans`' 60s grace period to auto-save a share the user
-/// actually abandoned. `discardHasRun` below closes this: it latches the instant
+/// discarding them, left for `sweepOrphans` to auto-save (once past its grace period) a share the
+/// user actually abandoned. `discardHasRun` below closes this: it latches the instant
 /// `discardIfAbandoned()` first runs, regardless of whether it found anything to act on, and a LATE
 /// `track()` call that arrives after that point immediately re-runs the discard logic against the
 /// objects it just received — catching every file `load()` ever staged, not just the ones staged

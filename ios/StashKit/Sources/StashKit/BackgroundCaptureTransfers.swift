@@ -214,6 +214,12 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     /// item row (page text included), and nothing past the capture's own JSON is ever needed.
     static let maxResponseBodyBytes = 2 * 1024 * 1024
 
+    /// Upper bound on one token fetch while applying a completion (final wave, T4 review carry):
+    /// the fetch may refresh the session over the network, and a background wake has only seconds
+    /// for ALL its events — completions are applied one after another, and the system's completion
+    /// handler waits behind them. On timeout the entry stays `.pending` for the app's next drain.
+    public static let completionTokenTimeout: TimeInterval = 10
+
     // Dependencies (injectable for tests).
     private let bodyDirectory: URL
     private let outboxForUser: @Sendable (UUID) -> Outbox
@@ -254,10 +260,11 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
             bodyDirectory: Self.defaultBodyDirectory,
             outboxForUser: { Outbox(directory: Outbox.defaultDirectory(userId: $0)) },
             accessTokenForUser: { userId in
-                // Never another account's token: a transfer finishing after a sign-out/sign-in
-                // must not be sent (or re-sent) as someone else.
-                guard let session = try? await StashClient.shared.auth.session, session.user.id == userId else { return nil }
-                return session.accessToken
+                // Never another account's token (a transfer finishing after a sign-out/sign-in must
+                // not be sent — or re-sent — as someone else), and never an unbounded wait.
+                await ShareIntake.refreshedTransferToken(timeout: BackgroundCaptureTransfers.completionTokenTimeout) {
+                    try await StashClient.accessToken(for: userId)
+                }
             },
             // The app observes `.stashItemCaptured`; the extension has nothing to update.
             postsCaptureNotifications: Bundle.main.bundleURL.pathExtension == "app",

@@ -211,12 +211,20 @@ public struct StagedFileStore: Sendable {
     }
 }
 
-/// Files younger than this are skipped by `sweepOrphans` — may still be mid-write (a recording in
-/// progress, a share-extension stage whose Outbox entry hasn't been enqueued yet) rather than
-/// truly orphaned. `Outbox.sweepOrphanClaims` uses the same duration for its own, unrelated
-/// young-file skip (stray `.claim` sidecars) — see that method's doc comment for why they're
-/// deliberately the same number without being the same mechanism.
-private let orphanSweepGracePeriod: TimeInterval = 60
+/// Recordings younger than this are skipped by `sweepOrphans` — one may still be mid-write (a
+/// recording in progress) rather than truly orphaned. `Outbox.sweepOrphanClaims` uses the same
+/// duration for its own, unrelated young-file skip (stray `.claim` sidecars) — see that method's
+/// doc comment for why they're the same number without being the same mechanism.
+let recordingSweepGracePeriod: TimeInterval = 60
+
+/// Staged files younger than this are skipped by `sweepOrphans` (plan 15 final wave). A share card
+/// stages its files the moment it loads and leaves them unreferenced until Save — for as long as
+/// the card stays open — and the app can run this sweep meanwhile (a background launch to deliver
+/// an earlier share's transfer). Sweeping such a file would queue it a second time (a duplicate on
+/// Save) or capture a share the user then cancels. A staged file only becomes a true orphan when
+/// its process died between staging and enqueueing (a composer save or a share's Save, a few
+/// milliseconds apart), and those are still recovered — at the first launch past this window.
+let stagedFileSweepGracePeriod: TimeInterval = 30 * 60
 
 /// Canonicalizes a file path so `sweepOrphans` can compare two INDEPENDENTLY-constructed spellings
 /// of the same file (Fix round 1, Important review finding). `FileManager.contentsOfDirectory`
@@ -261,21 +269,26 @@ private func canonicalPath(_ path: String) -> String {
 /// folded into this function's return value, since the documented contract here is "entries
 /// created," and deleting an inert claim file creates nothing.
 ///
+/// Young files are left alone — a recording for `recordingSweepGracePeriod` (it may still be
+/// recording), a staged file for `stagedFileSweepGracePeriod` (a share card may still be open on
+/// it).
+///
 /// - Parameter now: Injectable for tests (same pattern as `Outbox.init`/`drain`'s stale-claim
-///   clock — not part of the brief's literal printed signature; added because the 60s young-file
-///   skip below needs a controllable clock to test at all). Production call sites take the
-///   default, real `Date()`.
+///   clock — not part of the brief's literal printed signature; added because the young-file
+///   skips need a controllable clock to test at all). Production call sites take the default,
+///   real `Date()`.
 public func sweepOrphans(userId: UUID, outbox: Outbox, recordings: RecordingStore, staging: StagedFileStore,
                          now: @Sendable () -> Date = { Date() }) async -> Int {
     let referencedPaths = Set(await outbox.pending().compactMap { $0.payload["local_file_path"] }.map(canonicalPath))
-    let candidates = recordings.pendingRecordings() + staging.pendingStaged()
+    let candidates = recordings.pendingRecordings().map { (url: $0, grace: recordingSweepGracePeriod) }
+        + staging.pendingStaged().map { (url: $0, grace: stagedFileSweepGracePeriod) }
 
     var created = 0
-    for url in candidates {
+    for (url, grace) in candidates {
         let path = canonicalPath(url.path)
         guard !referencedPaths.contains(path) else { continue }
         guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-              now().timeIntervalSince(modified) >= orphanSweepGracePeriod else { continue }
+              now().timeIntervalSince(modified) >= grace else { continue }
 
         let payload = [
             "local_file_path": path,
