@@ -42,8 +42,9 @@ export const classifyLinkFlavor = (url: string): LinkFlavor => {
     return 'generic';
   }
 
+  if (hostMatches(['tiktok.com']) && /^\/@[^/]+\/?$/.test(parsed.pathname)) return 'social';
   if (hostMatches(VIDEO_HOSTS)) return 'video';
-  if (host.endsWith('instagram.com') && segments[0] && ['reel', 'reels', 'tv'].includes(segments[0])) return 'video';
+  if (hostMatches(['instagram.com']) && segments[0] && ['reel', 'reels', 'tv'].includes(segments[0])) return 'video';
 
   if (hostMatches(BOOK_HOSTS)) return 'book';
   if (host.startsWith('amazon.') || host.includes('.amazon.')) {

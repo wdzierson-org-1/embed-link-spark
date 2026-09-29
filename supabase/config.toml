@@ -82,3 +82,7 @@ verify_jwt = false
 # requires an admin_users row (docs/superpowers/specs/2026-09-08-admin-dashboard-design.md).
 [functions.admin-stats]
 verify_jwt = true
+
+# Shared cron secret is verified inside the bounded enrichment worker.
+[functions.enrichment-maintenance]
+verify_jwt = false

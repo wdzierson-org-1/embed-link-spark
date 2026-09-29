@@ -2,6 +2,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 import { unzipSync } from 'https://esm.sh/fflate@0.8.2';
+import { requireItemAccess } from '../_shared/enrichmentAuth.ts';
 import { generateSummary, stripPreamble, NO_PREAMBLE_RULES } from '../_shared/summarize.ts';
 import { capTitle, isPlaceholderTitle } from '../_shared/titlePolicy.ts';
 
@@ -125,7 +126,7 @@ serve(async (req) => {
   }
 
   try {
-    const { fileUrl, itemId, fileName, mimeType } = await req.json();
+    const { fileUrl, itemId, fileName, mimeType, extractOnly = false } = await req.json();
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -142,6 +143,7 @@ serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    await requireItemAccess(req, supabase, itemId, 'id,user_id');
 
     console.log('Extracting office text:', { itemId, kind, fileName });
 
@@ -251,6 +253,8 @@ serve(async (req) => {
         console.error('Office title generation failed (non-fatal):', titleError);
       }
     }
+
+    if (extractOnly) return new Response(JSON.stringify({ success: true, text: extractedText, description: aiDescription, summary }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
     // Store extraction in page_body and the summary in summary. content is the
     // user's own notes and is deliberately left untouched. Only overwrite the
