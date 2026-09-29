@@ -38,6 +38,43 @@ isn't going to load an unpacked folder from a git checkout.
   violet-600 on exactly one element, 1px hairlines, 16px tile radius, no
   emoji, reduced-motion guard). iOS/macOS: nothing to mirror — desktop-only.
 
+## 2026-09-15 · Logo refresh — "Stash" wordmark + first-S app icon on the wash
+
+Brand swap on every surface; no behavior or data-contract change. Will's call: the new wordmark
+is the five letters only (the two blue strokes and the tagline in the source art are dropped),
+and the app icon is the wordmark's first S in near-black on the purple/blue gradient.
+
+- **Sources.** `brand/stash-wordmark.svg` (viewBox `0 0 1003.84 306.57`, aspect 3.27:1 — the old
+  mark was 3.89:1, so at the same height the new one is ~16% narrower) and `brand/stash-s.svg`
+  (`0 0 222.77 294.3`). `brand/icon-src.html` composes the icon; `node brand/build.mjs` at the
+  repo root regenerates every derived file below — never hand-edit a PNG.
+- **Icon composition.** S in ink `#22262f`, 62% of the tile height, centred; gradient
+  `linear-gradient(45deg, #764ba2, #9d5fd8, #667eea, #4facfe)` (the page-wash palette minus the
+  magenta stop, drawn bottom-left → top-right like iOS `AnimatedGradient`). Square full-bleed
+  where the OS masks (`AppIcon-1024`, `apple-touch-icon`, PWA 192/512, onboarding tile); 20%
+  corner radius with transparent corners where nothing masks (`favicon.svg/.png/.ico`, Chrome
+  extension 16/32/48/128).
+- **Web.** `StashWordmark.tsx` carries the new paths (same `className`/`currentColor` contract,
+  `aspectRatio` updated); every caller keeps its height class. `public/` favicon set,
+  `apple-touch-icon`, `icon-192/512`, `favicon.ico` (16/32/48 PNG entries) regenerated; `og.jpg`
+  re-lettered in place (same art, new wordmark at the old one's spot and height, ink sampled
+  from the old lettering).
+- **Chrome extension.** `icons/` regenerated from the shared source (`icons/icon-src.html`
+  removed; README points at `brand/`). The sign-in page's `<h1>Stash</h1>` is now the wordmark
+  SVG at 26px (`h1.wordmark`).
+- **iOS.** `StashWordmark.imageset/stash-wordmark.svg` (app + share extension) replaced with the
+  new vector — still template-rendered with `preserves-vector-representation`, so `StashHeader`
+  (20pt), `SignInView` (28pt) and `SplashView` (40pt) need no code change; they just get
+  narrower. `AppIcon-1024.png` (app + share extension) and `onboarding.stashTile@2x/@3x` (the
+  share-sheet tutorial's tile, 180/270px) regenerated from the same source.
+- **Not in this change.** The macOS menubar app (separate `stash-mac` repo) still carries its
+  legacy icons — `brand/icon-src.html` at `#size=1024` is the master to hand it. App Store and
+  Chrome Web Store listing screenshots still show the old wordmark and need retakes.
+- **DESIGN.md.** "Brand elements are flat" rewritten as **Logo**: the wordmark stays
+  single-colour; the app icon is the one sanctioned gradient mark (2026-09-03 note superseded).
+- Review sheet: `docs/superpowers/prototypes/2026-09-15-logo-refresh.html` (+ `.png`) — every
+  shipped size old → new, three gradient reads (B chosen), S-scale and ink comparisons.
+
 ## 2026-09-14 · Search + Ask Stash surface and boost the user's notes
 
 Backend-only; nothing visual changes on any client, but every client that

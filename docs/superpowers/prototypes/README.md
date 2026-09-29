@@ -21,6 +21,12 @@ stays reachable in git history.
 - Prototypes are explorations, not specs. A chosen direction becomes a `DESIGN.md` and
   `docs/ui-changes.md` change before any code moves.
 
+## 2026-09-15
+
+| Prototype | Version | Status | What it shows | Related |
+|---|---|---|---|---|
+| [logo-refresh](2026-09-15-logo-refresh.html) | v0.1 | shipped (branch `worktree-logo-refresh`) | The new "Stash" wordmark (letters only, strokes dropped) beside the old stitched mark at every shipped size — web header, auth, pricing/legal, landing nav, iOS header/sign-in/splash, share-sheet header, extension sign-in — then the first-S app icon on the wash gradient: three gradient reads (A full six-stop, **B purple→blue chosen**, C three-stop), S scale 56/62/68%, ink #22262f/#0c0d0f/#000, and in-context Home Screen dark/light, onboarding share-sheet tile, browser tab + Chrome toolbar at 16/32, touch/PWA squares. Render: `2026-09-15-logo-refresh.png`. | DESIGN.md §Logo; ui-changes 2026-09-15 logo refresh; `brand/` |
+
 ## 2026-09-07
 
 | Prototype | Version | Status | What it shows | Related |
