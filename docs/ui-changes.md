@@ -408,9 +408,13 @@ Spec `docs/superpowers/specs/2026-09-06-reminders-design.md`; plans
   "Remind me…" (In 1 / 3 / 5 days), "Change reminder…" and "Remove reminder"
   when one is active. None of it renders in public views. One `NowProvider`
   clock per grid (60 s tick + visibilitychange) drives state.
-- **Backend:** `reminder-digest` edge function on a version-controlled
-  pg_cron schedule (13:00 UTC, secret from Vault). Today it only expires
-  stale reminders; the email step ships with plan 3.
+- **Backend + email (shipped):** `reminder-digest` runs 13:00 UTC; one email
+  per user per day listing due reminders (title → content excerpt → host →
+  type fallback; "Saved Sep 3 · reminder for today"; deep link per item);
+  signed opt-out link (confirmation page → POST; RFC 8058 one-click headers)
+  + Settings → Account "Email me when reminders are due" switch
+  (`user_preferences.reminder_emails`). Sent through Resend from
+  `reminders@mail.gostash.it`. Per-user timezone is a later refinement.
 - **iOS (plan 2):** share-sheet chips `1 day · 3 days · 5 days` above Save;
   View tab badge = due count; due block at the top of the grid; same footer
   chip + Due overlay + dismiss.

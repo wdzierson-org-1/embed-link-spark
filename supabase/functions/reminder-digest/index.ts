@@ -1,14 +1,136 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
+import { renderReminderDigest, type DigestItem } from '../_shared/reminderDigest.ts';
+import { signEmailLinkToken } from '../_shared/emailLinkToken.ts';
+import { DUE_WINDOW_MS } from '../_shared/reminders.ts';
 
 // Daily job (pg_cron 13:00 UTC → pg_net → here). Two steps:
 //  1. hygiene: materialise reminder_cleared_at for reminders past their 24h window
-//  2. digest:  email each user their due reminders (Plan 3; skipped until
-//              RESEND_API_KEY exists)
+//  2. digest:  email each user their due reminders via Resend, idempotent via
+//              reminder_notified_at
 // Auth is a shared secret, not a JWT: the caller is Postgres, not a person.
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+const UNSUB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const FROM = 'Stash <reminders@mail.gostash.it>';
+const PREFS_URL = `${Deno.env.get('SUPABASE_URL')}/functions/v1/reminder-email-prefs`;
+
+type Row = DigestItem & { user_id: string };
+
+// Attempts the Resend send once; on a thrown error or a 429/5xx response,
+// waits 2s and attempts exactly once more (transient rate-limit/outage), then
+// returns whatever the final attempt produced (or rethrows its error).
+async function sendWithRetry(resendKey: string, body: Record<string, unknown>): Promise<Response> {
+  const attempt = () =>
+    fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+  try {
+    const res = await attempt();
+    if (res.ok || (res.status !== 429 && res.status < 500)) return res;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return await attempt();
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    return await attempt();
+  }
+}
+
+async function runDigest(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  opts: { dryRun: boolean; now: Date; onlyUserId: string | null },
+) {
+  const resendKey = Deno.env.get('RESEND_API_KEY');
+  const linkSecret = Deno.env.get('EMAIL_LINK_SECRET');
+  if (!opts.dryRun && !resendKey) return { status: 'skipped', reason: 'RESEND_API_KEY unset', users: 0, items: 0, failures: 0 };
+  if (!linkSecret) return { status: 'skipped', reason: 'EMAIL_LINK_SECRET unset', users: 0, items: 0, failures: 0 };
+
+  const nowIso = opts.now.toISOString();
+  const windowStart = new Date(opts.now.getTime() - DUE_WINDOW_MS).toISOString();
+  let query = supabase
+    .from('items')
+    .select('id,user_id,title,content,url,type,created_at,remind_at')
+    .is('reminder_cleared_at', null)
+    .is('reminder_notified_at', null)
+    .lte('remind_at', nowIso)
+    .gt('remind_at', windowStart)
+    .order('remind_at', { ascending: true });
+  if (opts.onlyUserId) query = query.eq('user_id', opts.onlyUserId);
+  const { data: rows, error } = await query;
+  if (error) throw error;
+
+  const byUser = new Map<string, Row[]>();
+  for (const row of (rows ?? []) as Row[]) byUser.set(row.user_id, [...(byUser.get(row.user_id) ?? []), row]);
+  if (byUser.size === 0) return { status: opts.dryRun ? 'dry_run' : 'sent', users: 0, items: 0, failures: 0 };
+
+  const { data: prefs, error: prefsError } = await supabase
+    .from('user_preferences')
+    .select('user_id, reminder_emails')
+    .in('user_id', [...byUser.keys()]);
+  if (prefsError) throw prefsError;
+  const optedOut = new Set((prefs ?? []).filter((p: { reminder_emails: boolean }) => p.reminder_emails === false).map((p: { user_id: string }) => p.user_id));
+
+  let users = 0, items = 0, failures = 0;
+  const previews: Array<{ user_id: string; to: string; subject: string; text: string }> = [];
+
+  for (const [userId, userRows] of byUser) {
+    if (optedOut.has(userId)) continue;
+    try {
+      const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
+      const to = userData?.user?.email;
+      if (userError || !to) { console.warn('reminder-digest: no email for user', { userId }); continue; }
+
+      const token = await signEmailLinkToken(userId, linkSecret, new Date(opts.now.getTime() + UNSUB_TTL_MS));
+      const unsubscribeUrl = `${PREFS_URL}?token=${token}`;
+      const rendered = renderReminderDigest({ items: userRows, unsubscribeUrl, now: opts.now });
+
+      if (opts.dryRun) {
+        previews.push({ user_id: userId, to, subject: rendered.subject, text: rendered.text });
+        users += 1; items += userRows.length;
+        continue;
+      }
+
+      const res = await sendWithRetry(resendKey!, {
+        from: FROM,
+        to: [to],
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+        headers: {
+          'List-Unsubscribe': `<${unsubscribeUrl}>`,
+          'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        },
+      });
+      if (!res.ok) {
+        failures += 1;
+        console.error('reminder-digest: send failed', { userId, status: res.status, body: (await res.text()).slice(0, 300) });
+        continue;   // rows stay un-notified; under the daily cadence only a same-day manual re-run (?user_id=) retries them
+      }
+      const { error: markError } = await supabase
+        .from('items')
+        .update({ reminder_notified_at: nowIso })
+        .in('id', userRows.map((r) => r.id));
+      if (markError) console.error('reminder-digest: sent but failed to stamp', { userId, error: markError.message });
+      users += 1; items += userRows.length;
+    } catch (err) {
+      failures += 1;
+      console.error('reminder-digest: user failed', { userId, error: err instanceof Error ? err.message : String(err) });
+      continue;
+    }
+  }
+
+  // Response shape: { status: 'dry_run' | 'sent' | 'partial', users, items, failures, previews? }.
+  // 'partial' (still HTTP 200) means >=1 user's send failed; those users' rows
+  // stay un-notified and are picked up by the next scheduled or manual run.
+  const status = opts.dryRun ? 'dry_run' : failures > 0 ? 'partial' : 'sent';
+  return { status, users, items, failures, ...(opts.dryRun ? { previews } : {}) };
+}
 
 serve(async (req) => {
   const expected = Deno.env.get('CRON_SECRET');
@@ -25,7 +147,7 @@ serve(async (req) => {
 
   let expired = 0;
   if (dryRun) {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const cutoff = new Date(Date.now() - DUE_WINDOW_MS).toISOString();
     const { count, error } = await supabase
       .from('items')
       .select('id', { count: 'exact', head: true })
@@ -40,10 +162,7 @@ serve(async (req) => {
     expired = typeof data === 'number' ? data : 0;
   }
 
-  const digest = Deno.env.get('RESEND_API_KEY')
-    ? { status: 'skipped', reason: 'digest step lands in plan 3' }
-    : { status: 'skipped', reason: 'RESEND_API_KEY unset' };
-
-  console.log('reminder-digest', { dryRun, expired, digest });
+  const digest = await runDigest(supabase, { dryRun, now: new Date(), onlyUserId: url.searchParams.get('user_id') });
+  console.log('reminder-digest', { dryRun, expired, digest: { ...digest, previews: undefined } });
   return json(200, { expired, digest });
 });

@@ -38,6 +38,7 @@ Four deliverables, in order:
 | Dismiss vs delete the reminder | Dismiss sets `reminder_cleared_at`; the timestamp stays. | Keeps "set and cleared" history queryable (future taste-graph signal, spec A5) at zero cost. Re-setting a reminder resets both cleared and notified. |
 | Where can a reminder be set? | iOS share sheet (required), web card menu (cheap, and the only way to QA web end-to-end). In-app iOS composer and card-level "remind me" on iOS are **later**. | Scope discipline; the View tab work is already the largest iOS piece. |
 | MCP tools | Unchanged. | `remind_at` can be exposed through `get_item` later; not part of this cut. |
+| Opt-out link semantics | **Confirm-then-POST.** The email's "Turn off reminder emails" link opens a one-button confirmation page; the change applies on POST, and the email carries RFC 8058 List-Unsubscribe headers for mail clients' native one-click. | Mail-security scanners prefetch every link in inbound mail; a GET that applied the change would silently unsubscribe those users. One extra click for humans is the price. |
 
 ## Data model
 
