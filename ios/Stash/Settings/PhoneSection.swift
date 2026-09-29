@@ -118,12 +118,18 @@ struct PhoneSection: View {
 
     // MARK: - Network
 
+    /// Runs on every appearance (the list stays in place between visits, so only the very first
+    /// load shows a spinner; later ones refresh silently). Plan 15 (M6): leaving Settings while
+    /// the request is in flight cancels it — that is not a failure, so it neither shows "Couldn't
+    /// load phone numbers." nor ends the first-load spinner over an empty list; the next
+    /// appearance simply loads again.
     private func load() async {
-        defer { isLoading = false }
-        await reload()
+        if await reload() { isLoading = false }
     }
 
-    private func reload() async {
+    /// `false` only when the request was cancelled (nothing learned, nothing shown).
+    @discardableResult
+    private func reload() async -> Bool {
         do {
             let data = try await StashClient.shared.from("user_phone_numbers")
                 .select("id,phone_number,verified")
@@ -131,10 +137,17 @@ struct PhoneSection: View {
                 .order("created_at", ascending: true)
                 .execute().data
             numbers = try JSONDecoder().decode([PhoneNumberRow].self, from: data)
+            // A successful read retires an earlier "couldn't load" (M6 — it used to stick).
+            if errorMessage == Self.loadFailedMessage { errorMessage = nil }
+            return true
         } catch {
-            errorMessage = "Couldn't load phone numbers."
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            errorMessage = Self.loadFailedMessage
+            return true
         }
     }
+
+    private static let loadFailedMessage = "Couldn't load phone numbers."
 
     private func add() async {
         guard case .success(let clean) = normalizedInput else { return }

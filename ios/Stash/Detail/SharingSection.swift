@@ -19,17 +19,22 @@ import UIKit
 /// Plan 15 (L5): the switch is optimistic — `setPublic` (owned by `ItemDetailView`, which flips
 /// `item.isPublic` at once, saves through the sheet's save generation, and flips back on failure)
 /// returns whether the save landed; this section only shows the inline error when it didn't.
+///
+/// Plan 15 (snappiness): the feed link's username is `SessionStore`'s per-session profile, loaded
+/// once per signed-in session — not refetched every time a public item's sheet opens.
 struct SharingSection: View {
     let item: Item
     @Binding var supplementalNote: String
     var setPublic: (Bool) async -> Bool
 
+    @Environment(SessionStore.self) private var session
     @State private var isToggling = false
     @State private var showUnshareConfirm = false
     @State private var errorMessage: String?
-    @State private var username: String?
-    @State private var isLoadingUsername = false
     @State private var didCopyFeedLink = false
+
+    private var username: String? { session.profile?.username }
+    private var isLoadingUsername: Bool { session.profileLoad == .loading }
 
     /// `nil` until `username` has actually loaded (Fix round 1, review finding #2: the chip used
     /// to render — and be copyable — the instant `isPublic` flipped true, while `username` was
@@ -62,10 +67,7 @@ struct SharingSection: View {
             }
         }
         .task(id: item.isPublic) {
-            guard item.isPublic, username == nil else { return }
-            isLoadingUsername = true
-            await loadUsername()
-            isLoadingUsername = false
+            if item.isPublic { session.loadProfileIfNeeded() }
         }
         .confirmationDialog("Make private? The sticky note will be removed.",
                              isPresented: $showUnshareConfirm, titleVisibility: .visible) {
@@ -220,23 +222,6 @@ struct SharingSection: View {
         Task {
             try? await Task.sleep(for: .seconds(2))
             didCopyFeedLink = false
-        }
-    }
-
-    private func loadUsername() async {
-        guard let userId = StashClient.shared.auth.currentUser?.id else { return }
-        struct ProfileRow: Decodable { let username: String }
-        do {
-            let data = try await StashClient.shared.from("user_profiles")
-                .select("username")
-                .eq("id", value: userId.uuidString)
-                .single()
-                .execute().data
-            username = try JSONDecoder().decode(ProfileRow.self, from: data).username
-        } catch {
-            // Non-fatal: `username` just stays `nil`, so `feedURL` stays `nil` and
-            // `feedLinkSection` simply renders nothing (see its own doc comment) rather than a
-            // broken partial URL.
         }
     }
 }

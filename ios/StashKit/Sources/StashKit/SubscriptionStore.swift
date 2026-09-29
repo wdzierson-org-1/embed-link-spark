@@ -63,131 +63,146 @@ public struct SupabaseSubscriptionChecker: SubscriptionChecking {
 
 // MARK: - SubscriptionStore
 
-/// Port of `useSubscription.tsx`'s gate semantics (SubscriptionProvider, :37-216). One boolean —
-/// `loading || onTrial || subscribed` — drives every feature gate on the web
-/// (canAddContent/canUseAI/canSearch/canAccessFullFeatures all alias the same `hasAccess`,
-/// :188-192); this store keeps `canAddContent`/`canUseAI` as the two gates StashKit needs, both
-/// defined the same way.
+/// Port of `useSubscription.tsx`'s gate semantics (SubscriptionProvider). One boolean drives every
+/// feature gate on the web (canAddContent/canUseAI/canSearch/canAccessFullFeatures all alias the
+/// same `hasAccess`); this store keeps `canAddContent`/`canUseAI` as the two gates the app needs,
+/// both defined the same way.
 @MainActor
 @Observable
 public final class SubscriptionStore {
     public private(set) var status: SubscriptionStatus?
     /// Starts `true` — matching the web's `useState(true)` for `loading` — so a view that reads
-    /// the gates before the first `refresh()` completes fails open rather than blocking a
-    /// brand-new session's first save (useSubscription.tsx:48,188).
+    /// the gates before the first check settles fails open rather than blocking a brand-new
+    /// session's first save.
     public private(set) var isLoading = true
     public private(set) var lastError: String?
 
-    public var canAddContent: Bool { isLoading || status?.onTrial == true || status?.subscribed == true }
-    public var canUseAI: Bool { canAddContent }   // same boolean on web (useSubscription.tsx:188-192)
+    /// Web parity (`useSubscription.tsx` `statusKnown`): `true` once the server has given a
+    /// definitive answer this session — i.e. a check succeeded and `status` holds it — and `false`
+    /// again after `reset()`. A failed check (offline, a `check-subscription` 5xx, a Stripe hiccup)
+    /// never sets it: an errored check means "unknown", not "unsubscribed".
+    public var statusKnown: Bool { status != nil }
+
+    /// Plan 15 (H2), web parity (`hasAccess = loading || !statusKnown || trialing || active`): the
+    /// gates close only on a DEFINITIVE "neither subscribed nor trialing". Until the server has
+    /// answered — while the first check is in flight, or if every check so far has failed — they
+    /// stay open: blocking a paying user over a transient error (an offline launch, a 5xx) is worse
+    /// than letting a lapsed one through briefly, and the server enforces the paywall itself
+    /// (`add-*` answers 403 `subscription_required`, which parks the capture in the Outbox).
+    public var canAddContent: Bool {
+        isLoading || !statusKnown || status?.onTrial == true || status?.subscribed == true
+    }
+    public var canUseAI: Bool { canAddContent }   // same boolean on web
+
+    /// Plan 15 (snappiness): a successful check younger than this answers a non-forced `refresh()`
+    /// without the network — so every `.active` (a Control Center pull, a system sheet, a quick
+    /// app switch) stops hitting `check-subscription`. Settings passes `force: true`.
+    public static let freshnessInterval: TimeInterval = 180
 
     private let checker: SubscriptionChecking
-    /// Set the moment a self-heal is attempted (success or failure) — never reset — so it fires
-    /// at most once per store lifetime, matching `trialEnsuredRef` (useSubscription.tsx:49,68).
+    private let now: @Sendable () -> Date
+    /// Set the moment a self-heal is attempted (success or failure) — reset only by `reset()` — so
+    /// it fires at most once per signed-in session, matching `trialEnsuredRef`.
     private var triedTrial = false
 
-    /// Plan-4 named requirement (docs/superpowers/plans/2026-08-11-ios-plan-3-parity.md's
-    /// post-review addendum) — mirrors `ItemStore.loadGeneration`. Bumped at the start of every
-    /// `refresh()` and by `reset()`. Lets a `refresh()` still in flight recognize, once it
-    /// resolves, that a newer `refresh()` — or a `reset()` (cross-account sign-out/in) — has
-    /// since superseded it, so it can drop its own stale result instead of clobbering state a
-    /// fresher call or an intentional reset already wrote.
+    /// Bumped whenever a check starts and by `reset()`. A check compares its own generation with
+    /// this one before every write, so a check that a newer one or a `reset()` (cross-account
+    /// sign-out/in) has superseded drops its stale result instead of clobbering fresher state.
     private var refreshGeneration = 0
+    /// When the last check that settled with a definitive answer finished (`nil` after `reset()`).
+    private var lastSuccessAt: Date?
+    /// The check currently running, tagged with its generation — every `refresh()` that arrives
+    /// while it is still current waits for it instead of sending a second request.
+    private var inFlight: (generation: Int, task: Task<Void, Never>)?
 
-    /// Plan 5 Task 7: the key `gateCacheWrite`'s default writes into `UserDefaults(suiteName:
-    /// AppGroup.identifier)` — the share extension's ONLY window into this store's gate, since the
-    /// extension has no `SubscriptionStore` of its own and must never make a network call just to
-    /// decide whether Save is enabled (every extension flow in this plan's own "never block or
-    /// delay a save" constraint). `ShareComposeView`'s read side uses this exact same key. The
-    /// key's ABSENCE (never written yet — a fresh install, or an app that predates this task) is
-    /// the documented fail-open signal; a written `false` is a real, meaningful "closed" the
-    /// extension must honor, never mistaken for "missing".
+    /// The key `gateCacheWrite`'s default writes into `UserDefaults(suiteName: AppGroup.identifier)`
+    /// — the share extension's ONLY window into this store's gate, since the extension has no
+    /// `SubscriptionStore` of its own and must never make a network call just to decide whether
+    /// Save is enabled. `ShareComposeView` reads this exact key. Its ABSENCE (never answered yet, or
+    /// cleared by `reset()`/account deletion) is the documented fail-open signal; a stored `false`
+    /// is a real, definitive "closed" the extension honors.
     /// `nonisolated` — a plain immutable `String` is trivially `Sendable`, but `@MainActor` on the
-    /// enclosing class isolates its static members too by default; without this, the default
-    /// `gateCacheWrite` closure below (a `@Sendable` value, callable off the main actor) can't read
-    /// it (Swift 6 mode: hard error; today: warning). `ShareComposeView` (the extension, a
-    /// different module/target entirely) also reads this constant directly.
+    /// enclosing class isolates its static members too by default; the default `gateCacheWrite`
+    /// closure (callable off the main actor) and the extension both read it.
     public nonisolated static let gateCacheKey = "subscription.canAddContent"
 
-    /// Injectable (Task 7) so tests can observe every write without touching real `UserDefaults` —
-    /// same "app supplies the real platform touch point, tests inject a recorder" precedent as
-    /// `CaptureViewModel`'s `upload`/`downscale`/`awaitPendingLocation` closures. The default is
-    /// `#if os(iOS)`-gated for the SAME reason `AppGroup.containerURL()`/
-    /// `SharedKeychainStorage.resolvedAccessGroup` are (see their doc comments): an unsigned macOS
-    /// `swift test` host isn't sandboxed, so an ungated `UserDefaults(suiteName:)` write here would
-    /// silently create/mutate a real preferences file under the developer's own machine on every
-    /// test that doesn't inject a custom `gateCacheWrite` (i.e. every EXISTING `SubscriptionStoreTests`
-    /// case) — gating keeps `swift test` hermetic unconditionally, exactly like those two.
-    private let gateCacheWrite: @Sendable (Bool) -> Void
+    /// Plan 15 (H2): called with the definitive gate (`onTrial || subscribed`) after every check
+    /// that got an answer from the server, and with `nil` (remove the key — "unknown", which the
+    /// extension treats as open) by `reset()`. Never after a failed or cancelled check: those keep
+    /// whatever the last definitive answer cached, instead of writing a `false` no server ever
+    /// gave. Injectable so tests can observe every write without touching real `UserDefaults`; the
+    /// default is `#if os(iOS)`-gated so an unsandboxed macOS `swift test` host never writes a real
+    /// preferences file (same reasoning as `AppGroup.containerURL()`).
+    private let gateCacheWrite: @Sendable (Bool?) -> Void
 
     public init(
         checker: SubscriptionChecking,
-        gateCacheWrite: @escaping @Sendable (Bool) -> Void = { canAddContent in
+        now: @escaping @Sendable () -> Date = { Date() },
+        gateCacheWrite: @escaping @Sendable (Bool?) -> Void = { canAddContent in
             #if os(iOS)
-            UserDefaults(suiteName: AppGroup.identifier)?.set(canAddContent, forKey: SubscriptionStore.gateCacheKey)
+            let defaults = UserDefaults(suiteName: AppGroup.identifier)
+            if let canAddContent {
+                defaults?.set(canAddContent, forKey: SubscriptionStore.gateCacheKey)
+            } else {
+                defaults?.removeObject(forKey: SubscriptionStore.gateCacheKey)
+            }
             #endif
         }
     ) {
         self.checker = checker
+        self.now = now
         self.gateCacheWrite = gateCacheWrite
     }
 
-    /// useSubscription.tsx:51-108 — check, and if the account looks brand-new (neither subscribed
-    /// nor trialing) self-heal by creating a trial and re-checking, once per store lifetime, so a
-    /// first save is never blocked by the signup/Stripe race.
+    /// Checks the subscription (useSubscription.tsx `checkSubscription`), and if the account looks
+    /// brand-new (neither subscribed nor trialing) self-heals by creating a trial and re-checking,
+    /// once per session, so a first save is never blocked by the signup/Stripe race.
+    ///
+    /// Plan 15 (snappiness), all behind this one call so every call site gets it:
+    /// - **One check at a time.** A call made while a (current) check is running waits for that
+    ///   check instead of sending another — a cold launch's "signed in" refresh and its first
+    ///   `.active` refresh arrive together, and Settings appearing mid-check joins it too.
+    /// - **Throttle.** A non-forced call returns at once when a check succeeded less than
+    ///   `freshnessInterval` ago. `force: true` (Settings' on-appear refresh and while-visible
+    ///   poll) always asks the server. A sign-out (`reset()`) forgets the last success, so the next
+    ///   account's first refresh always goes to the network.
+    /// - The check itself runs in its own task: a caller that goes away (Settings' `.task` is
+    ///   cancelled on a tab switch) neither aborts it nor turns that into an error — the status
+    ///   still lands.
     ///
     /// Disclosure — two adaptations from the web:
     /// 1. Trigger condition: the web fires self-heal on `!data.subscriptionStatus`, `null` only
-    ///    for a customer with no subscription at all (not e.g. "canceled"/"past_due"). This port's
-    ///    minimal `SubscriptionStatus` doesn't carry `subscriptionStatus`, so the trigger here is
-    ///    `!subscribed && !onTrial` — also true for a lapsed subscriber. That's broader but
-    ///    harmless: `create-trial-subscription`'s own guard (index.ts:60-70) no-ops with a 200
-    ///    whenever any subscription has ever existed, so an extra attempt costs a network call and
-    ///    nothing else.
-    /// 2. Self-heal failure handling: if `createTrial()` or the post-trial re-check throws, this
-    ///    falls back to the already-fetched pre-heal `status` silently, rather than the web's
-    ///    behavior of resetting every field to closed/error defaults when specifically the
-    ///    post-trial re-check fails (useSubscription.tsx:67-73's reassigned `data`/`error` then
-    ///    flows into the `if (error)` reset branch, :75-84). No test exercises this branch; the
-    ///    softer fallback avoids flipping gates closed over what's likely a transient hiccup
-    ///    immediately after a successful initial check.
-    public func refresh() async {
-        // Generation token (plan-4 named requirement, mirrors `ItemStore.loadGeneration`): bump
-        // first, capture locally, guard every write below on the captured value still matching —
-        // so if a newer `refresh()` or a `reset()` supersedes this call before it resolves, its
-        // (stale) result is silently dropped instead of clobbering whatever the newer call or the
-        // reset already wrote.
+    ///    for a customer with no subscription at all. This port's minimal `SubscriptionStatus`
+    ///    doesn't carry `subscriptionStatus`, so the trigger is `!subscribed && !onTrial` — also
+    ///    true for a lapsed subscriber. Broader but harmless: `create-trial-subscription` no-ops
+    ///    with a 200 whenever any subscription has ever existed.
+    /// 2. Self-heal failure: if `createTrial()` or the post-trial re-check throws, this keeps the
+    ///    already-fetched pre-heal `status` (a definitive server answer) rather than the web's
+    ///    reset-to-closed defaults.
+    public func refresh(force: Bool = false) async {
+        if let inFlight, inFlight.generation == refreshGeneration {
+            await inFlight.task.value
+            return
+        }
+        if !force, let lastSuccessAt, now().timeIntervalSince(lastSuccessAt) < Self.freshnessInterval {
+            return
+        }
         refreshGeneration += 1
         let generation = refreshGeneration
+        let task = Task { await self.check(generation: generation) }
+        inFlight = (generation, task)
+        await task.value
+        if inFlight?.generation == generation { inFlight = nil }
+    }
 
-        // `isLoading` is a one-shot first-check flag (web parity: useSubscription's `loading`
-        // never re-arms) — later refreshes must not fail-open, so this must never set it back to
-        // `true` here; the initializer's `isLoading = true` plus this `defer` are the entire
-        // lifecycle. Re-arming it on every call would transiently open the gates for an
-        // unsubscribed user during each poll's network round-trip — a leak the web doesn't have.
-        //
-        // No extra cancellation guard needed on the flip itself: by the time any refresh
-        // *Settings' own polling* (SubscriptionSection, Task 7) could ever cancel mid-flight has
-        // run, `isLoading` is already `false` — StashApp's launch refresh (fires the moment
-        // `SessionStore.state` becomes `.signedIn`) always starts, and normally finishes, before
-        // the user can navigate to the Settings tab in the first place. A refresh cancelled
-        // before that very first flip would still leave `isLoading` true here — just not a path
-        // Settings' own polling can reach. The generation guard below still applies to this flip
-        // too, though: without it, a stale refresh resolving after `reset()` re-arms `isLoading`
-        // for the next account would flip it back to `false` under that account before its own
-        // first refresh ever lands.
+    private func check(generation: Int) async {
+        // `isLoading` is a one-shot first-check flag (web parity: `loading` never re-arms except
+        // on a session change, `reset()`): later checks must never set it back to `true` — that
+        // would transiently fail OPEN for a known-lapsed user during every poll's round trip. The
+        // generation guard keeps a stale check that resolves after `reset()` from flipping it for
+        // the next account before that account's own first check lands.
         defer {
-            if generation == refreshGeneration {
-                isLoading = false
-                // Task 7: fires on every settled resolve (success, self-heal, or a real —
-                // non-cancelled — failure) with the FINAL `canAddContent` for this call, computed
-                // AFTER the `isLoading` flip above so a fresh session's first resolve caches the
-                // real status, not the pre-flip fail-open `true`. The SAME generation guard as
-                // `isLoading`'s own flip excludes a superseded (stale-generation) resolve, so a
-                // slow refresh that's since been overtaken by a newer `refresh()` or a `reset()`
-                // can never overwrite the cache with a stale value.
-                gateCacheWrite(canAddContent)
-            }
+            if generation == refreshGeneration { isLoading = false }
         }
         do {
             var result = try await checker.check()
@@ -197,31 +212,22 @@ public final class SubscriptionStore {
                 if let healed = try? await selfHeal() {
                     result = healed
                 }
-                guard generation == refreshGeneration else { return }   // ...or while the self-heal re-check was in flight
+                guard generation == refreshGeneration else { return }   // ...or while the self-heal ran
             }
             status = result
             lastError = nil
+            lastSuccessAt = now()
+            gateCacheWrite(result.onTrial || result.subscribed)
         } catch {
-            // Review Critical (Task 7 fix round): a cancelled poll is not a failed check.
-            // Settings' while-visible 30s poll cancels an in-flight `refresh()` the instant the
-            // user switches tabs mid-network-call — treating that `CancellationError` like any
-            // other failure wiped `status` to `nil` here, closing every gate (composer Save, Ask)
-            // app-wide for an already-subscribed user, with no prompt recovery short of
-            // revisiting Settings or a foreground cycle. Leave `status`/`lastError` exactly as
-            // they were; only `isLoading` (via the `defer` above) still resolves either way.
-            //
-            // Plan-4 named requirement: widened to also match `URLError(.cancelled)` — Settings'
-            // poll cancels the `Task` running `refresh()`, but that cancellation can surface from
-            // underneath `checker.check()`'s network call as a transport-level `URLError` instead
-            // of (or in addition to) Swift's `CancellationError`, which `is CancellationError`
-            // alone does not catch.
+            // A cancelled check is not a failed check (`reset()` cancels a superseded one; a
+            // cancellation can surface from URLSession as `URLError(.cancelled)` rather than
+            // `CancellationError`). Nothing changes.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
             guard generation == refreshGeneration else { return }
-            // Web parity (plan-4 Task 6b, commit 42c2e67: "fail-open subscription errors"): a
-            // transient error checking subscription status does NOT wipe the last known status —
-            // an errored check means unknown, not unsubscribed. Keep gates open on a prior
-            // success while connection hiccups or other transient failures resolve. Only set
-            // `lastError` for UI reporting; never nil `status`.
+            // Web parity ("fail-open subscription errors"): a failed check never wipes the last
+            // known status, never writes the extension's cache, and — with no prior answer at all —
+            // leaves the gates open (`statusKnown` stays false). Only `lastError` records it, for
+            // Settings to show.
             lastError = "Couldn't check your subscription status."
         }
     }
@@ -231,38 +237,26 @@ public final class SubscriptionStore {
         return try await checker.check()
     }
 
-    /// Cross-account gate-bleed fix (final review, plan 3): call this the instant a session
-    /// ends (StashApp's session `.onChange`, on `.signedOut`). This store is app-lifetime —
-    /// constructed once in `StashApp` and handed down via environment — so without a reset,
-    /// user A's `status` (and any gates A left open) would otherwise persist verbatim into
-    /// user B's session until B's own first `refresh()` landed, and indefinitely if that
-    /// refresh was ever cancelled. (Web clears its equivalent state the moment `user` goes
-    /// `null`: useSubscription.tsx:53-58.)
+    /// Cross-account gate-bleed fix: call this the instant a session ends (StashApp's session
+    /// `.onChange`, on `.signedOut`). This store is app-lifetime, so without a reset user A's
+    /// `status` — and any gates A left open or closed — would carry into user B's session until
+    /// B's own first check landed. (Web clears its equivalent state the moment `user` goes `null`.)
     ///
-    /// Resets `status`/`lastError` to their initializer defaults and re-arms both per-session
-    /// flags: `triedTrial = false`, so the next account — a genuinely different account,
-    /// possibly itself brand-new — gets its own one-time trial self-heal rather than
-    /// inheriting A's already-spent attempt; and `isLoading = true`, putting the store back in
-    /// the exact pre-first-refresh state the initializer starts in (see that property's doc
-    /// comment above), so the next account's first `refresh()` fails open exactly like a fresh
-    /// launch instead of inheriting A's last resolved `canAddContent` value — open *or*
-    /// closed — for however long B's own check takes.
-    ///
-    /// Plan-4 named requirement (post-review addendum to the plan-3 doc above): also bumps
-    /// `refreshGeneration`, so a `refresh()` that was already in flight for account A when this
-    /// fires can't land its (now-stale) result over account B's freshly-reset state — the narrow
-    /// same-device-account-switch race the unconditional resets alone didn't cover.
+    /// Puts the store back in its exact pre-first-check state: `status`/`lastError` cleared,
+    /// `isLoading` re-armed (fail open until B's first answer), `triedTrial` re-armed (B gets its
+    /// own one-time self-heal), the throttle forgotten (B's first refresh always asks the server),
+    /// and the generation bumped + any running check cancelled, so A's in-flight answer can never
+    /// land on B's state. The extension's cached gate is REMOVED (unknown → open) rather than left
+    /// holding A's last answer.
     public func reset() {
         status = nil
         lastError = nil
         triedTrial = false
         isLoading = true
+        lastSuccessAt = nil
         refreshGeneration += 1
-        // Task 7: re-opens the CACHE the instant a session ends, matching `isLoading`'s own
-        // re-arm-to-fail-open above — without this, a share extension launched between this
-        // sign-out and the next account's first `refresh()` landing would still read WHATEVER the
-        // prior account last cached (open or closed), rather than the fail-open state a fresh,
-        // not-yet-checked session is supposed to present.
-        gateCacheWrite(canAddContent)
+        inFlight?.task.cancel()
+        inFlight = nil
+        gateCacheWrite(nil)
     }
 }

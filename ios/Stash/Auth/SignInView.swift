@@ -148,6 +148,12 @@ struct SignInView: View {
 
     // MARK: - Fields
 
+    /// Plan 15 (L8): Return walks the form in the order it's drawn — email → password, then submit
+    /// (sign in), or on through username → phone → submit (sign up; the phone pad itself has no
+    /// Return key, but a hardware keyboard does). Sign-up's password is `.newPassword`, so iOS
+    /// offers a strong password and saves the new credential; sign-in's stays `.password`. The
+    /// email field is the credential's `.username` in both modes. (Web-password AutoFill via an
+    /// associated domain is a separate, not-yet-done change.)
     @ViewBuilder
     private var fields: some View {
         TextField("Email", text: $email)
@@ -156,12 +162,18 @@ struct SignInView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .focused($focusedField, equals: .email)
+            .submitLabel(.next)
+            .onSubmit { focusedField = .password }
             .modifier(QuietFieldStyle(focused: focusedField == .email))
             .accessibilityIdentifier("signin.email")
 
         SecureField("Password", text: $password)
-            .textContentType(.password)
+            .textContentType(passwordContentType)
             .focused($focusedField, equals: .password)
+            .submitLabel(mode == .signUp ? .next : .go)
+            .onSubmit {
+                if mode == .signUp { focusedField = .username } else { submitFromKeyboard() }
+            }
             .modifier(QuietFieldStyle(focused: focusedField == .password))
             .accessibilityIdentifier("signin.password")
 
@@ -177,6 +189,8 @@ struct SignInView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($focusedField, equals: .username)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .phone }
                         .modifier(QuietFieldStyle(focused: focusedField == .username, error: usernameError != nil, leadingPadding: 28))
                         .accessibilityIdentifier("auth.username")
                         .onChange(of: username) { _, newValue in scheduleUsernameCheck(newValue) }
@@ -188,12 +202,30 @@ struct SignInView: View {
                 TextField("Phone number (optional)", text: $phone)
                     .keyboardType(.phonePad)
                     .focused($focusedField, equals: .phone)
+                    .submitLabel(.join)
+                    .onSubmit { submitFromKeyboard() }
                     .modifier(QuietFieldStyle(focused: focusedField == .phone, error: phoneError != nil))
                     .accessibilityIdentifier("auth.phone")
                     .onChange(of: phone) { _, newValue in schedulePhoneCheck(newValue) }
                 phoneHelper
             }
         }
+    }
+
+    /// Sign-up's password is a NEW credential (`.newPassword`: iOS offers a strong password and
+    /// saves it); sign-in's is the saved one (`.password`).
+    private var passwordContentType: UITextContentType {
+        guard mode == .signUp else { return .password }
+        #if DEBUG
+        // UI tests type their own sign-up password (`AccountUITests` creates throwaway accounts),
+        // but on the simulator `.newPassword` hands the field to iOS's Automatic Strong Password
+        // UI even without an associated domain, and the typed text never lands — the sign-up then
+        // fails with "Password should be at least 6 characters" (plan 15 Task 6C, screenshot in its
+        // report). UI-test launches keep the pre-plan-15 `.password`; every other build uses
+        // `.newPassword`.
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--uitest-") }) { return .password }
+        #endif
+        return .newPassword
     }
 
     /// Web parity (`Auth.tsx`): error text when taken, else — once `username.count >= 3` — the
@@ -321,6 +353,15 @@ struct SignInView: View {
                 && usernameError == nil && phoneError == nil
                 && !usernameChecking && !phoneChecking
         }
+    }
+
+    /// Return on the last field: the same action as the button, under the same `canSubmit` gate
+    /// (a half-filled form, or one whose username check is still running, just stays put). The
+    /// keyboard goes down so the progress and any error are visible.
+    private func submitFromKeyboard() {
+        guard canSubmit, !busy else { return }
+        focusedField = nil
+        Task { await submit() }
     }
 
     private func submit() async {

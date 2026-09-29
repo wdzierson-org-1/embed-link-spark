@@ -19,10 +19,11 @@ import StashKit
 /// interaction, and the unified log showed UIKit's
 /// "Attempt to present ... while a presentation is in progress" right at that instant. Root cause:
 /// a **second** List-hosted presentation attempt colliding with this row's own — `AccountSection`
-/// above it in the same `List` runs a real network `.task { await loadUsername() }` that, on a
-/// brand-new account (this test's own shape: sign up → straight to Settings → straight to Delete,
-/// so the fetch is still in flight), flips a loading spinner into 2-3 real rows moments later,
-/// reflowing the whole `List` (UICollectionView-backed under SwiftUI) at just the wrong instant.
+/// above it in the same `List` loads the profile over the network on first appearance (plan 15:
+/// `SessionStore.loadProfileIfNeeded()`, once per session) and, on a brand-new account (this
+/// test's own shape: sign up → straight to Settings → straight to Delete, so the fetch is still in
+/// flight), flips a loading spinner into 2-3 real rows moments later, reflowing the whole `List`
+/// (UICollectionView-backed under SwiftUI) at just the wrong instant.
 ///
 /// The fix: this row no longer owns any presentation state at all — `showSheet` is a `@Binding`
 /// the PARENT (`SettingsView`) owns and presents from at its own List root, alongside the
@@ -56,16 +57,17 @@ struct DeleteAccountSection: View {
 /// presentation TRIGGER lives there — only the boolean that opens/closes the sheet does.
 ///
 /// Unlike web (an `AlertDialog` that keeps the whole page underneath), this uses a `.medium`
-/// sheet — consistent with this app's other confirm-with-typed-text flow
-/// (`CardNoteEditorSheet`'s own detent) and roomy enough for the longer consequence copy on a
-/// phone-width screen.
+/// sheet — roomy enough for the longer consequence copy on a phone-width screen.
 ///
-/// Success routes through `SessionStore.completeAccountDeletion(userId:)` — which purges this
-/// device's local state (Outbox, staged files, the App Group subscription-gate cache, and the
-/// Keychain session) and lands on the sign-in screen with the "Your account was deleted." banner
-/// — never this view's own job to know about any of that. Failure keeps the sheet open with an
-/// inline error and the account fully intact (the edge function's own contract: every step before
-/// the final `auth.admin.deleteUser` is safe to retry).
+/// The deletion itself runs in `SessionStore.deleteAccount(userId:)` (plan 15, L7), which outlives
+/// this sheet: on a confirmed deletion it purges this device's state (session, Outbox, recordings,
+/// staged files, pending edits, the App Group subscription-gate cache, the library caches) and
+/// lands on the sign-in screen with the "Your account was deleted." banner — which also takes this
+/// sheet away. A request that times out (up to 120 s) or otherwise ends without a clear answer is
+/// followed by asking the server whether the account still exists, so a deletion that finished
+/// after the app stopped waiting is still recognized. Otherwise the sheet stays open with an inline
+/// message saying what's known, and the user can try again (the edge function's own contract:
+/// every step before the final `auth.admin.deleteUser` is safe to retry).
 struct DeleteAccountConfirmSheet: View {
     let userId: UUID
 
@@ -139,34 +141,18 @@ struct DeleteAccountConfirmSheet: View {
     }
 
     private func performDelete() async {
+        // Read while this sheet is still installed: a confirmed deletion signs the app out, and
+        // the root swaps this sheet's whole hierarchy for the sign-in screen before this returns.
+        let session = self.session
+        let dismiss = self.dismiss
         isDeleting = true
         errorMessage = nil
         defer { isDeleting = false }
-        guard let accessToken = try? await StashClient.shared.auth.session.accessToken else {
-            errorMessage = "Your session expired. Sign out and back in, then try again."
-            return
-        }
-        do {
-            _ = try await AccountDeleter().delete(using: FunctionsAccountDeletionTransport(), accessToken: accessToken)
+        switch await session.deleteAccount(userId: userId) {
+        case .deleted:
             dismiss()
-            await session.completeAccountDeletion(userId: userId)
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    private static func message(for error: Error) -> String {
-        switch error {
-        case AccountDeletionError.unauthorized:
-            return "Your session expired. Sign out and back in, then try again."
-        case AccountDeletionError.forbidden(let message):
-            return message
-        case AccountDeletionError.serverError(let message):
-            return message
-        case AccountDeletionError.transport:
-            return "Couldn't reach Stash. Check your connection and try again."
-        default:
-            return "Nothing was removed. Please try again."
+        case .failed(let message):
+            errorMessage = message
         }
     }
 }

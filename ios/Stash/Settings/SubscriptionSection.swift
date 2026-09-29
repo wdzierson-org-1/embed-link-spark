@@ -15,6 +15,11 @@ import StashKit
 /// whole app session — `.task`'s built-in cancel-on-disappear (proven already in this codebase:
 /// `AskView.onDisappear` lets go of an explicit session on the same TabView appear/disappear cycle) is all
 /// that's needed; no extra Timer/cleanup plumbing.
+///
+/// Plan 15: both pass `force: true` — the app's own launch/foreground refreshes are throttled
+/// (`SubscriptionStore.freshnessInterval`), but opening Settings (e.g. right after subscribing on
+/// the web) should always show the server's current answer. A check already in flight is joined,
+/// not duplicated.
 struct SubscriptionSection: View {
     @Environment(SubscriptionStore.self) private var subscription
 
@@ -33,11 +38,11 @@ struct SubscriptionSection: View {
             .accessibilityIdentifier("settings.subscription.manage")
         }
         .task {
-            await subscription.refresh()
+            await subscription.refresh(force: true)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled else { break }
-                await subscription.refresh()
+                await subscription.refresh(force: true)
             }
         }
     }

@@ -10,18 +10,25 @@ import UIKit
 /// `email` reads `StashClient.shared.auth.currentUser` synchronously rather than threading it in
 /// — same precedent `ItemTagsSection` already established: this view is only ever reachable once
 /// `SessionStore` has resolved a signed-in session, so the non-throwing `currentUser` accessor is
-/// safe here. `username` mirrors `useProfile.ts`'s query (`user_profiles`, not a `profiles`
-/// table — the brief's own prose said "profiles table" loosely; the web's actual query is the
-/// source of truth) — `.eq("id", value: userId)`, single row.
+/// safe here.
+///
+/// Plan 15: the username comes from `SessionStore`'s per-session profile (`user_profiles` by id,
+/// web `useProfile.ts`'s query) — fetched once per signed-in session, not on every visit, so the
+/// row is instant after the first. The store owns that request, so leaving Settings mid-load can't
+/// cancel it into a sticky "Couldn't load your profile." (M6); the message shows only for a real
+/// failure and goes away as soon as a later visit's retry succeeds.
 struct AccountSection: View {
     let userId: UUID
 
-    @State private var username: String?
-    @State private var isLoading = true
-    @State private var errorMessage: String?
+    @Environment(SessionStore.self) private var session
     @State private var didCopy = false
 
     private var email: String { StashClient.shared.auth.currentUser?.email ?? "" }
+    private var load: ProfileLoad { session.profileLoad(for: userId) }
+    private var username: String? {
+        if case .loaded(let profile) = load { return profile.username }
+        return nil
+    }
     /// `nil` while `username` hasn't loaded (or loaded empty) — `feedURLRow` gates on this so the
     /// row/copy button never renders a bare `gostash.it/feed/` (final wave, item D2).
     private var feedURL: String? { PublicFeedURL.make(username: username) }
@@ -36,9 +43,10 @@ struct AccountSection: View {
                     .truncationMode(.middle)
                     .accessibilityIdentifier("settings.account.email")
             }
-            if isLoading {
+            switch load {
+            case .idle, .loading:
                 ProgressView()
-            } else {
+            case .loaded, .failed:
                 HStack {
                     Text("Username").foregroundStyle(StashColor.muted)
                     Spacer()
@@ -46,15 +54,15 @@ struct AccountSection: View {
                         .accessibilityIdentifier("settings.account.username")
                 }
                 feedURLRow
-                if let errorMessage {
-                    Text(errorMessage)
+                if load == .failed {
+                    Text("Couldn't load your profile.")
                         .font(StashType.meta())
                         .foregroundStyle(StashColor.destructive)
                         .accessibilityIdentifier("settings.account.error")
                 }
             }
         }
-        .task { await loadUsername() }
+        .onAppear { session.loadProfileIfNeeded() }
     }
 
     /// Gated on `feedURL` (item D2) — `PublicFeedURL.make` returns `nil` for a `nil`/empty
@@ -89,21 +97,6 @@ struct AccountSection: View {
         Task {
             try? await Task.sleep(for: .seconds(2))
             didCopy = false
-        }
-    }
-
-    private func loadUsername() async {
-        defer { isLoading = false }
-        struct ProfileRow: Decodable { let username: String }
-        do {
-            let data = try await StashClient.shared.from("user_profiles")
-                .select("username")
-                .eq("id", value: userId.uuidString)
-                .single()
-                .execute().data
-            username = try JSONDecoder().decode(ProfileRow.self, from: data).username
-        } catch {
-            errorMessage = "Couldn't load your profile."
         }
     }
 }
