@@ -363,7 +363,7 @@ public actor Outbox {
             }
             removeEntryAndLocalFile(entry)
             if let item = result.item {
-                await postStashItemCaptured(item, duplicate: result.duplicate)
+                await postStashItemCaptured(item, duplicate: result.duplicate, userId: userId)
             }
             return .sent(result)
         } catch CaptureError.subscriptionRequired {

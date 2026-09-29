@@ -30,7 +30,10 @@ final class ShareViewController: UIViewController {
         // the UIKit trait level as a belt-and-suspenders match to the app's rule.
         view.overrideUserInterfaceStyle = .light
 
-        let compose = ShareComposeView(extensionContext: extensionContext, abandonTracker: abandonTracker)
+        // Plan 15 Task 4: once Save is tapped the share is being handed off (≤ ~1 s, a few more
+        // only in the rare foreground fallback) — the sheet can't be swiped away mid-hand-off.
+        let compose = ShareComposeView(extensionContext: extensionContext, abandonTracker: abandonTracker,
+                                       onSaveStarted: { [weak self] in self?.isModalInPresentation = true })
         let hosting = UIHostingController(rootView: compose)
         hosting.view.overrideUserInterfaceStyle = .light
         addChild(hosting)

@@ -273,7 +273,7 @@ final class CaptureViewModelTests: XCTestCase {
 
         let item = try XCTUnwrap(try CaptureTransport.result(
             status: 200, body: JSONSerialization.data(withJSONObject: ["item": FakeCaptureServer.row(kind: "note", meta: [:])])).item)
-        await postStashItemCaptured(item, duplicate: false)
+        await postStashItemCaptured(item, duplicate: false, userId: UUID())
 
         for _ in 0..<100 where vm.pendingOutboxCount != 1 { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(vm.pendingOutboxCount, 1, "the badge re-reads the Outbox when a capture lands")

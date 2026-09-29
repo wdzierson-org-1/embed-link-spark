@@ -1,8 +1,25 @@
 import SwiftUI
 import StashKit
+import UIKit
+
+/// Plan 15 Task 4: the share extension hands its captures to a background `URLSession` shared with
+/// the app (`BackgroundCaptureTransfers`) and quits. When a transfer finishes and no process is
+/// connected to that session, the system launches or resumes the APP to deliver the events —
+/// this is where they arrive. The app never connects to the session otherwise.
+final class StashAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard BackgroundCaptureTransfers.shared.handleEvents(forBackgroundURLSession: identifier,
+                                                             completionHandler: completionHandler) else {
+            completionHandler()   // not a session this app uses
+            return
+        }
+    }
+}
 
 @main
 struct StashApp: App {
+    @UIApplicationDelegateAdaptor(StashAppDelegate.self) private var appDelegate
     @State private var session = SessionStore()
     // Constructed once here and handed down via environment (Task 5's scope: the plumbing +
     // launch/foreground refresh). Settings' own 30s while-visible polling is Task 7's addition on
@@ -44,6 +61,11 @@ struct StashApp: App {
                         .transition(.opacity)
                         .zIndex(1)
                 }
+                #if DEBUG
+                if UITestHooks.outboxProbeEnabled, case .signedIn(let userId) = session.state {
+                    OutboxProbe(userId: userId)
+                }
+                #endif
             }
             .fullScreenCover(isPresented: $showHowToStash) {
                 HowToStashView()
@@ -68,7 +90,12 @@ struct StashApp: App {
                     showHowToStash = true
                 }
             }
-            .task { await session.start() }
+            .task {
+                #if DEBUG
+                UITestHooks.applyShareExtensionOverrides()
+                #endif
+                await session.start()
+            }
             // "Launch refresh": fires once the session actually resolves to signed-in, whether
             // that's a cold launch restoring a Keychain session or a fresh sign-in from
             // SignInView — both are "the start of a signed-in session" for gate purposes.
@@ -137,7 +164,39 @@ struct StashApp: App {
                 await subscriptionStore.refresh()
                 await unparkIfEligible(userId: userId)
             }
+            // Plan 15 Task 4: shares the extension left in the Outbox (no token in time, a
+            // transfer that failed, one that went stale) go out as soon as the app is back —
+            // not only once the Add tab's composer happens to appear.
+            Task { await drainIfNeeded(userId: userId) }
         }
+    }
+
+    /// Plan 15 Task 4: drains only when something is actually sendable — a `.pending` entry, or
+    /// a `.transferring` one whose background transfer went stale (`Outbox.staleTransferInterval`;
+    /// the server dedupes by capture id if it did land). A fresh transfer is left to its task.
+    private func drainIfNeeded(userId: UUID) async {
+        let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
+        #if DEBUG
+        if let interval = UITestHooks.staleTransferInterval {
+            await BackgroundCaptureTransfers.releaseStaleTransfers(in: outbox, olderThan: interval)
+        }
+        #endif
+        let now = Date()
+        let sendable = await outbox.pending().contains { entry in
+            switch entry.status {
+            case .pending: return true
+            case .parked: return false
+            case .transferring:
+                guard let started = entry.transferStartedAt else { return true }
+                return now.timeIntervalSince(started) > Outbox.staleTransferInterval
+            }
+        }
+        guard sendable, let token = try? await StashClient.shared.auth.session.accessToken else { return }
+        _ = await outbox.drain(api: CaptureAPI(), accessToken: token, userId: userId,
+                               upload: { fileURL, path, contentType in
+                                   try await uploadToStorageFromFile(fileURL: fileURL, path: path,
+                                                                     contentType: contentType, accessToken: token)
+                               })
     }
 
     /// Plan 14 fix wave B (#11): parked entries (Plan 14 T3 Outbox park-on-403) previously only
@@ -175,6 +234,16 @@ struct StashApp: App {
         let recordings = RecordingStore(userId: userId)
         let staging = StagedFileStore(userId: userId)
         _ = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging)
+        // Plan 15 Task 4: request bodies a killed process left behind in the App Group
+        // (`StashTransfers/`, older than any live background task could be). The drain below also
+        // resends `.transferring` entries whose background transfer went stale — the app never
+        // connects to the extension's background session just to find out.
+        BackgroundCaptureTransfers.sweepStaleBodyFiles()
+        #if DEBUG
+        if let interval = UITestHooks.staleTransferInterval {
+            await BackgroundCaptureTransfers.releaseStaleTransfers(in: outbox, olderThan: interval)
+        }
+        #endif
 
         guard let token = try? await StashClient.shared.auth.session.accessToken else { return }
         _ = await outbox.drain(api: CaptureAPI(), accessToken: token, userId: userId,
@@ -184,3 +253,73 @@ struct StashApp: App {
                                })
     }
 }
+
+#if DEBUG
+/// UI-test launch arguments for the plan-15 share/background-transfer smokes (DEBUG builds only).
+enum UITestHooks {
+    private static var arguments: [String] { ProcessInfo.processInfo.arguments }
+
+    /// `--uitest-stale-transfer-seconds=<n>`: treat a background transfer as stale after `n`
+    /// seconds instead of `Outbox.staleTransferInterval` (600 s), so a relaunch resends it now.
+    static var staleTransferInterval: TimeInterval? {
+        let prefix = "--uitest-stale-transfer-seconds="
+        return arguments.first { $0.hasPrefix(prefix) }.flatMap { TimeInterval($0.dropFirst(prefix.count)) }
+    }
+
+    /// `--uitest-outbox-probe`: shows `OutboxProbe` (the signed-in user's Outbox as an
+    /// accessibility label) so a UI test can assert what is still queued.
+    static var outboxProbeEnabled: Bool { arguments.contains("--uitest-outbox-probe") }
+
+    /// App Group keys the DEBUG share extension reads (`ShareComposeView`). Every DEBUG launch
+    /// writes exactly what its arguments ask for and removes the rest, so no test inherits them:
+    /// - `--uitest-share-gate-open` → `uitest.shareGateOpen`: lets Save through on the lapsed
+    ///   test account. The server still enforces the subscription gate itself (URL and file
+    ///   captures are open to lapsed accounts; notes answer 403 and park).
+    /// - `--uitest-share-exit-after-handoff=<ms>` → `uitest.shareExitAfterHandoffMs`: the
+    ///   extension exits that long after handing the share to the background session, so the
+    ///   upload can only finish through the transfer daemon and the app.
+    static func applyShareExtensionOverrides() {
+        let defaults = UserDefaults(suiteName: AppGroup.identifier)
+        if arguments.contains("--uitest-share-gate-open") {
+            defaults?.set(true, forKey: "uitest.shareGateOpen")
+        } else {
+            defaults?.removeObject(forKey: "uitest.shareGateOpen")
+        }
+        let exitPrefix = "--uitest-share-exit-after-handoff="
+        if let value = arguments.first(where: { $0.hasPrefix(exitPrefix) }).flatMap({ Int($0.dropFirst(exitPrefix.count)) }) {
+            defaults?.set(value, forKey: "uitest.shareExitAfterHandoffMs")
+        } else {
+            defaults?.removeObject(forKey: "uitest.shareExitAfterHandoffMs")
+        }
+    }
+}
+
+/// `debug.outbox`: the signed-in user's Outbox, re-read every second, as
+/// `count=<n>;<status>:<content, or the url when there's no note>;…` — a 1 pt, non-interactive
+/// element for UI tests only.
+private struct OutboxProbe: View {
+    let userId: UUID
+    @State private var summary = "count=?"
+
+    var body: some View {
+        Text(summary)
+            .font(.system(size: 1))
+            .frame(width: 1, height: 1)
+            .opacity(0.02)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("debug.outbox")
+            .accessibilityLabel(summary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .task(id: userId) {
+                while !Task.isCancelled {
+                    let entries = await Outbox(directory: Outbox.defaultDirectory(userId: userId)).pending()
+                    summary = (["count=\(entries.count)"] + entries.map { entry in
+                        let content = entry.payload["content"] ?? ""
+                        return "\(entry.status.rawValue):\(content.isEmpty ? entry.payload["url"] ?? "" : content)"
+                    }).joined(separator: ";")
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+    }
+}
+#endif

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 import StashKit
 import UniformTypeIdentifiers
 
@@ -44,12 +45,32 @@ struct ProviderLoader {
         let providers = items.flatMap { $0.attachments ?? [] }
 
         var objects: [SharedObject] = []
-        for provider in providers {
-            if let object = await loadOne(provider) {
+        for (index, provider) in providers.enumerated() {
+            // Plan 15 Task 4: the load phase (image preparation included) runs while the card is
+            // showing, before Save — logged per provider so a slow one stands out.
+            let started = ContinuousClock.now
+            let object = await loadOne(provider)
+            let elapsed = ContinuousClock.now - started
+            let ms = elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000
+            let offered = provider.registeredTypeIdentifiers.joined(separator: ",")
+            Self.log.notice("load: provider \(index) (\(offered, privacy: .public)) → \(Self.kind(of: object), privacy: .public) in \(ms) ms")
+            if let object {
                 objects.append(object)
             }
         }
         return (ShareIntake.reorderURLFirst(objects), providers.count - objects.count)
+    }
+
+    private static let log = Logger(subsystem: "it.gostash.stash", category: "share")
+
+    /// A log-safe label (never the URL, text, or file name — those are the user's).
+    private static func kind(of object: SharedObject?) -> String {
+        switch object {
+        case .url: "url"
+        case .text: "text"
+        case .file(_, let mimeType, _, _): "file \(mimeType)"
+        case nil: "dropped"
+        }
     }
 
     // MARK: - One provider

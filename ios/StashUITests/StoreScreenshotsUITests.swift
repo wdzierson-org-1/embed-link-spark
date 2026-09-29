@@ -410,8 +410,18 @@ final class StoreScreenshotsUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Search field not found")
         searchField.tap()
         searchField.typeText("nasa.gov")
-        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 10), "Expected a card for the nasa.gov link")
-        anyElement("card.typeChip").tap()
+        // Plan 15: search asks the server (relevance-ranked, several result cards — so a shared
+        // child identifier like `card.typeChip` no longer names ONE card) and a card is a single
+        // whole-card tap target. Wait for the answer, then tap the nasa.gov card itself, found by
+        // its label (the kicker shows the domain).
+        let searchPill = anyElement("library.search.pill")
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", "searching"), object: searchPill)
+        _ = XCTWaiter().wait(for: [settled], timeout: 20)
+        let nasaCard = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier MATCHES %@ AND label CONTAINS[c] %@", #"card\.[0-9]+"#, "nasa.gov"))
+            .firstMatch
+        XCTAssertTrue(nasaCard.waitForExistence(timeout: 15), "Expected a card for the nasa.gov link")
+        nasaCard.tap()
         let done = app.buttons["detail.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present")
         sleep(2)

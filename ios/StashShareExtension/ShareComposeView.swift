@@ -1,7 +1,9 @@
 import CoreGraphics
 import CoreLocation
 import ImageIO
+import os
 import StashKit
+import Supabase
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -9,14 +11,21 @@ import UniformTypeIdentifiers
 /// The real share-extension compose card (Task 7) — replaces Task 5's placeholder. Compact,
 /// type-appropriate preview, an optional note, an optional location pin (reusing the app's own
 /// `LocationCapture` state machine — see `project.yml`'s doc comment on why that file is shared
-/// into this target rather than re-implemented), and a Save button that always resolves to a
-/// visible outcome ("Saved to Stash" / "Saved — will sync") before auto-dismissing — Global
-/// Constraints: the user ALWAYS sees success, never an error, never a stuck spinner.
+/// into this target rather than re-implemented), and a Save button.
+///
+/// Plan 15 Task 4: Save no longer waits on the network. It writes the share to the Outbox, hands
+/// it to the shared background `URLSession` (`BackgroundCaptureTransfers`), shows "Saved to Stash"
+/// at once, and dismisses ~0.8 s later; the upload finishes in the background (the system wakes
+/// the app for it if the extension is gone). The user always sees a confirmation, never an
+/// error, never a spinner longer than that window.
 struct ShareComposeView: View {
     let extensionContext: NSExtensionContext?
     /// Owned by `ShareViewController` (persists across this struct's own re-creations) — see
     /// `ShareAbandonTracker`'s own doc comment for the abandon/discard contract this implements.
     let abandonTracker: ShareAbandonTracker
+    /// Called the moment Save is tapped: the host view controller stops the sheet from being
+    /// swiped away while the share is handed off (a second at most).
+    var onSaveStarted: () -> Void = {}
 
     private enum Phase: Equatable {
         case loading
@@ -49,14 +58,9 @@ struct ShareComposeView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // Plan 15 (Will: "let's also ditch the gradient background"): plain paper. The
+            // wordmark header below is still the titling convention every app surface uses.
             StashColor.paper.ignoresSafeArea()
-            // Same page-level gradient ambience as the app's own composer (CaptureComposerView) —
-            // the share card is a pocket edition of that surface, not an OS-default form. Replaces
-            // the previous NavigationStack + inline "Stash" title; the wordmark header below is
-            // the titling convention every app surface already uses.
-            GradientBackdrop(opacity: 0.25)
-                .frame(height: 240)
-                .ignoresSafeArea(edges: .top)
 
             VStack(alignment: .leading, spacing: 0) {
                 StashHeader {
@@ -72,6 +76,8 @@ struct ShareComposeView: View {
                         .accessibilityIdentifier("share.cancel")
                     }
                 }
+                .padding(.top, Self.headerExtraInset.top)
+                .padding(.horizontal, Self.headerExtraInset.horizontal)
                 Group {
                     switch phase {
                     case .loading:
@@ -102,6 +108,19 @@ struct ShareComposeView: View {
             }
         }
         .task { await load() }
+    }
+
+    /// Plan 15 (Will: "the share sheet looks a little strange with the logo cut off slightly"):
+    /// iOS 26 presents the share sheet with much rounder top corners, and `StashHeader`'s 16/8 pt
+    /// insets leave the wordmark (and the round X) right at the corner curves. The extra inset
+    /// (header at 26/22 pt) keeps both clear of a corner radius up to ~60 pt, whatever radius the
+    /// device's sheet uses. Earlier systems use small sheet corners, so they keep the header
+    /// exactly where it was.
+    private static var headerExtraInset: (top: CGFloat, horizontal: CGFloat) {
+        if #available(iOS 26, *) {
+            return (top: 14, horizontal: 10)
+        }
+        return (top: 0, horizontal: 0)
     }
 
     private var showsCancel: Bool {
@@ -136,6 +155,7 @@ struct ShareComposeView: View {
         let neueMontrealFamilies = UIFont.familyNames.filter { $0.contains("PP Neue Montreal") }
         print("StashShareExtension font families: \(neueMontrealFamilies)")
         #endif
+        let loadStarted = ContinuousClock.now
         guard let resolvedUserId = StashClient.shared.auth.currentSession?.user.id else {
             phase = .noSession
             return
@@ -150,13 +170,59 @@ struct ShareComposeView: View {
         canAddContent = readGateCache()
         pinHidden = CLLocationManager().authorizationStatus == .notDetermined
         phase = .ready
+        Self.log.notice("load: \(result.objects.count) object(s), \(result.droppedCount) dropped, ready after \(Self.ms(since: loadStarted)) ms")
+        #if DEBUG
+        Self.logMemory("after load")
+        #endif
     }
 
+    #if DEBUG
+    /// DEBUG measurement aid (plan 15 Task 4): this process's physical footprint and its peak so
+    /// far — the number the extension's ~120 MB memory limit is enforced against.
+    private static func logMemory(_ moment: String) {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return }
+        let footprint = Double(info.phys_footprint) / 1_048_576
+        let peak = Double(info.ledger_phys_footprint_peak) / 1_048_576
+        log.notice("memory \(moment, privacy: .public): footprint \(String(format: "%.1f", footprint), privacy: .public) MB, peak \(String(format: "%.1f", peak), privacy: .public) MB")
+    }
+
+    /// DEBUG UI-test hook: when the app was launched with `--uitest-share-exit-after-handoff=<ms>`
+    /// (it writes this App Group key; every other DEBUG launch removes it), the extension exits
+    /// that long after handing the share to the background session — standing in for the system
+    /// reclaiming the extension before the upload answers, so the upload can only finish through
+    /// the transfer daemon and the app.
+    private static var uiTestExitAfterHandoff: Duration? {
+        let milliseconds = UserDefaults(suiteName: AppGroup.identifier)?.integer(forKey: "uitest.shareExitAfterHandoffMs") ?? 0
+        return milliseconds > 0 ? .milliseconds(milliseconds) : nil
+    }
+    #endif
+
     private func readGateCache() -> Bool {
-        guard let defaults = UserDefaults(suiteName: AppGroup.identifier),
-              defaults.object(forKey: SubscriptionStore.gateCacheKey) != nil
-        else { return true }   // missing cache -> fail open (plan-1 spec)
+        guard let defaults = UserDefaults(suiteName: AppGroup.identifier) else { return true }
+        #if DEBUG
+        // UI tests only: the app's DEBUG `--uitest-share-gate-open` launch argument writes this
+        // key (and every other DEBUG launch removes it) so the share smokes can exercise Save on
+        // the lapsed test account. The server still enforces the gate itself.
+        if defaults.bool(forKey: "uitest.shareGateOpen") { return true }
+        #endif
+        guard defaults.object(forKey: SubscriptionStore.gateCacheKey) != nil else {
+            return true   // missing cache -> fail open (plan-1 spec)
+        }
         return defaults.bool(forKey: SubscriptionStore.gateCacheKey)
+    }
+
+    private static let log = Logger(subsystem: "it.gostash.stash", category: "share")
+
+    private static func ms(since start: ContinuousClock.Instant) -> Int {
+        let elapsed = ContinuousClock.now - start
+        return Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
     }
 
     // MARK: - No session (Task 7 disclosed behavior)
@@ -482,8 +548,8 @@ struct ShareComposeView: View {
         }
     }
 
-    /// Bounded ImageIO thumbnail decode (same `CGImageSourceCreateThumbnailAtIndex` primitive
-    /// `StagedFileStore.stageDownscaledImage` uses) — this card can preview up to 10 shared images
+    /// Bounded ImageIO thumbnail decode (the `CGImageSourceCreateThumbnailAtIndex` primitive
+    /// `ImagePreparation` also builds on) — this card can preview up to 10 shared images
     /// at once, so decoding each at full size just to render a 44pt thumbnail would defeat the
     /// whole point of staging/downscaling in the first place. Never touches `Data`/`UIImage(contentsOfFile:)`.
     private func makeThumbnail(url: URL, maxPixel: CGFloat) -> UIImage? {
@@ -601,63 +667,127 @@ struct ShareComposeView: View {
     /// exposed as new StashKit surface for one more call site).
     private static let locationAwaitTimeout: TimeInterval = 2.5
 
+    /// How long the confirmation stays up before the sheet dismisses itself.
+    private static let confirmationWindow: Duration = .milliseconds(800)
+
+    static let savedMessage = "Saved to Stash"
+    static let failedMessage = "Couldn't save — try again"
+
+    /// Plan 15 Task 4 — Save never waits on the network:
+    /// 1. every shared object is written to the Outbox as `.transferring` (`enqueueForTransfer`);
+    /// 2. with a token valid ≥ 5 min (the common case: a synchronous keychain read), the entries
+    ///    go to the shared background session at once (`BackgroundCaptureTransfers.start` —
+    ///    request bodies written, tasks started, nothing awaited);
+    /// 3. "Saved to Stash" shows (in the rare refresh case it shows first and the refresh —
+    ///    bounded to 2.5 s — runs under it; on timeout the entries stay in the Outbox for the app);
+    /// 4. ~0.8 s later, anything the background session couldn't take (another process was
+    ///    connected, or a task failed at once) gets one bounded (≤ 6 s) foreground send;
+    /// 5. `completeRequest`. Whatever is left, the app's drain sends — idempotently.
     private func save() async {
         // Fix round 2 (Important review finding): `markConsumed()` is the FIRST statement here,
-        // before any `await` — including `awaitResolution` below, which can itself suspend for up
-        // to `locationAwaitTimeout`. The Save TAP is the intent boundary, not whatever
-        // `ShareIntake.submit` does internally afterward: a swipe-to-dismiss landing during that
-        // suspension used to find `consumed` still `false`, so `viewDidDisappear` discarded the
-        // staged files out from under this still-running `save()` Task — which then found its own
-        // file missing (`StagedFileStore.fileSize(of:)` -> nil -> treated as 0 -> passed the
-        // direct-send-limit check -> the upload itself threw), fell back to a queued Outbox entry
-        // pointing at a path that no longer existed (permanently un-drainable), and still reported
-        // "Saved — will sync" to the user. Calling this before any suspension point closes that
-        // window entirely: from here on, EITHER `ShareIntake` owns every staged file's lifecycle
-        // (discards on a successful direct send, deliberately RETAINS a file it queues) OR — if
-        // this process dies before `submit` finishes — the files are left on disk with no Outbox
-        // entry, which `sweepOrphans` recovers on next launch. Both outcomes match the user's
-        // already-expressed intent to save; `abandonTracker` must never discard out from under
-        // either one, including during the 0.8s outcome window below and the `viewDidDisappear`
-        // teardown `completeRequest` triggers afterward. See `ShareAbandonTracker`'s own doc
-        // comment.
+        // before any `await` — see `ShareAbandonTracker`'s "Consumed boundary": from the Save tap
+        // on, the Outbox owns every staged file (a swipe during a suspension must not discard
+        // them), and if this process dies before the Outbox write, `sweepOrphans` recovers them.
         abandonTracker.markConsumed()
+        onSaveStarted()
         guard let userId, let staging else { return }
+        let tapped = ContinuousClock.now
         phase = .saving
 
         let location = await locationCapture.awaitResolution(timeout: Self.locationAwaitTimeout)
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-
         let intake = ShareIntake(
             userId: userId,
             staging: staging,
             accessToken: { try await StashClient.shared.auth.session.accessToken }
         )
-        let result = await intake.submit(objects, note: trimmedNote.isEmpty ? nil : trimmedNote, location: location)
 
-        let message: String
-        if result.queued > 0 {
-            message = "Saved — will sync"
-        } else if result.saved > 0 {
-            message = "Saved to Stash"
-        } else {
-            message = "Couldn't save — try again"
+        // 1. Durable first.
+        let entries = await intake.enqueueForTransfer(objects, note: trimmedNote.isEmpty ? nil : trimmedNote,
+                                                      location: location)
+        guard !entries.isEmpty else {
+            // Nothing could be written (a full or unwritable disk): the one outcome that isn't a
+            // success. The staged copies go too, so the message stays true — no later sweep
+            // quietly saves a share the user was told didn't save.
+            for object in objects {
+                if case .file(let url, _, _, _) = object { staging.discard(url) }
+            }
+            phase = .done(Self.failedMessage)
+            Self.log.error("save: no object could be written to the Outbox")
+            try? await Task.sleep(for: Self.confirmationWindow)
+            extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            return
         }
-        phase = .done(message)
-        try? await Task.sleep(for: .seconds(0.8))
+        let persisted = Self.ms(since: tapped)
+
+        // 2–3. Hand off, then confirm (or confirm, then refresh + hand off).
+        let transfers = BackgroundCaptureTransfers.shared
+        var token = Self.currentTransferToken(for: userId)
+        var batch: BackgroundTransferBatch?
+        if let token {
+            batch = await transfers.start(entries: entries, userId: userId, accessToken: token)
+        }
+        phase = .done(Self.savedMessage)
+        let confirmed = ContinuousClock.now
+        Self.log.notice("save: \(entries.count) of \(objects.count) persisted after \(persisted) ms; confirmation after \(Self.ms(since: tapped)) ms (token refresh needed: \(token == nil))")
+        if token == nil {
+            token = await ShareIntake.refreshedTransferToken {
+                let session = try await StashClient.shared.auth.refreshSession()
+                // Never hand one account's captures another account's token.
+                guard session.user.id == userId else { throw CaptureError.badStatus(401) }
+                return session.accessToken
+            }
+            if let token {
+                batch = await transfers.start(entries: entries, userId: userId, accessToken: token)
+            } else {
+                Self.log.notice("save: no token in time — \(entries.count) entries left for the app")
+                await intake.returnToQueue(entries.map(\.id))
+            }
+        }
+        #if DEBUG
+        Self.logMemory("after hand-off")
+        if let exitAfter = Self.uiTestExitAfterHandoff {
+            Self.log.notice("save: UI-test hook — the extension exits \(String(describing: exitAfter), privacy: .public) after the hand-off")
+            try? await Task.sleep(for: exitAfter)
+            exit(0)
+        }
+        #endif
+
+        // 4. Hold the confirmation, then catch anything the background session won't deliver.
+        try? await Task.sleep(until: confirmed + Self.confirmationWindow, clock: .continuous)
+        if let token, let batch {
+            let fallback = await transfers.entriesNeedingForegroundSend(in: batch)
+            if !fallback.isEmpty {
+                let result = await intake.sendInForeground(fallback, accessToken: token)
+                Self.log.notice("save: foreground fallback for \(fallback.count) entries — saved \(result.saved), queued \(result.queued), failed \(result.failed)")
+            }
+            Self.log.notice("save: \(batch.started.count) handed to the background session")
+        }
+        // 5.
+        Self.log.notice("save: completeRequest after \(Self.ms(since: tapped)) ms")
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    }
+
+    /// The shared session's access token when it belongs to `userId` and stays valid ≥ 5 minutes
+    /// (a synchronous keychain read — no network); `nil` means "refresh first".
+    private static func currentTransferToken(for userId: UUID) -> String? {
+        guard let session = StashClient.shared.auth.currentSession, session.user.id == userId else { return nil }
+        return ShareIntake.usableTransferToken(session.accessToken,
+                                               expiresAt: Date(timeIntervalSince1970: session.expiresAt))
     }
 
     private func doneView(_ message: String) -> some View {
         VStack(spacing: 12) {
             // Will's note: "make the background color of the 'will save' / 'saved' icon
-            // purple / green." Saved (direct send) is `success` (green); queued/will-sync is
-            // `violet-600` — an active/in-progress state, not a distinct intent, so it reuses the
-            // interactive color rather than minting another token.
-            Image(systemName: message == "Saved to Stash" ? "checkmark" : "clock.arrow.circlepath")
+            // purple / green." Saved is `success` (green). Plan 15: every persisted share is
+            // "Saved to Stash" now (the upload finishes in the background), so the violet
+            // clock only remains for the one failure — nothing could be written at all.
+            let saved = message == Self.savedMessage
+            Image(systemName: saved ? "checkmark" : "clock.arrow.circlepath")
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 64, height: 64)
-                .background(message == "Saved to Stash" ? StashColor.success : StashColor.violet600, in: Circle())
+                .background(saved ? StashColor.success : StashColor.violet600, in: Circle())
                 .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
             // Identifier lives on this LEAF `Text`, not the container. First attempt put
             // `.accessibilityElement(children: .ignore)` + an explicit label on the VStack instead

@@ -609,9 +609,11 @@ final class OutboxTests: XCTestCase {
         let box = Outbox(directory: dir)
         let entry = try await box.enqueue(.note, payload: ["content": "hello", "is_public": "false"])
         let server = FakeCaptureServer()
+        let expectedUserId = userId
         let captured = expectation(forNotification: .stashItemCaptured, object: nil) { note in
             guard let item = note.userInfo?["item"] as? Item else { return false }
             return item.content == "hello" && (note.userInfo?["duplicate"] as? Bool) == false
+                && (note.userInfo?["userId"] as? UUID) == expectedUserId
         }
 
         let result = await box.sendNow(id: entry.id, api: api(server), userId: userId, accessToken: "jwt")

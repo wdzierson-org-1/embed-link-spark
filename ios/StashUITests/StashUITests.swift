@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Drives the real sign-in screen against production Supabase (test account creds are
@@ -1259,13 +1260,12 @@ final class StashUITests: XCTestCase {
         }
     }
 
-    /// One-shot existence check for `testShareExtensionURLSmoke`'s gate-CLOSED branch. Unlike
+    /// One-shot existence check by `content` (written for the share smoke's gate-CLOSED branch,
+    /// which now uses `itemsWithNote` — a URL share's note lives in `supplemental_note`). Unlike
     /// `pollForRow` above (which retries until a row APPEARS — correct for "this save should have
-    /// landed eventually"), a gate-blocked Save must never create a row AT ALL, so there is nothing
-    /// to wait for: the correct check for an expected ABSENCE is a single fetch, taken only after
-    /// the caller has already given the (non-)event a generous settle window — polling-until-absent
-    /// would just race a save that was never going to happen, and could only ever time out, not
-    /// confirm anything sooner.
+    /// landed eventually"), an expected ABSENCE has nothing to wait for: the correct check is a
+    /// single fetch, taken only after the caller has already given the (non-)event a generous
+    /// settle window — polling-until-absent could only ever time out, not confirm anything sooner.
     private func rowExists(matchingContent marker: String, email: String, password: String) async throws -> Bool {
         let token = try await fixtureRepairAccessToken(email: email, password: password)
         var request = URLRequest(
@@ -1631,9 +1631,15 @@ final class StashUITests: XCTestCase {
         XCTAssertEqual(fontStatus.label, "font:neue-montreal",
                        "Expected PP Neue Montreal to load in the share-extension target, not fall back to SF Pro")
 
-        let marker = "UITEST-SHARE: \(Int(Date().timeIntervalSince1970))"
+        let marker = "UITEST-P15-T4: smoke \(Int(Date().timeIntervalSince1970))"
         noteField.tap()
         noteField.typeText(marker)
+        // Whatever branch runs, nothing this test creates may outlive it.
+        addTeardownBlock {
+            for row in (try? await self.itemsWithNote(marker, email: email, password: password)) ?? [] {
+                if let id = row["id"] as? String { try? await self.deleteSharedItem(id: id, email: email, password: password) }
+            }
+        }
 
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-compose\n".data(using: .utf8)!)
         sleep(3)
@@ -1651,30 +1657,126 @@ final class StashUITests: XCTestCase {
 
             // Generous settle window before the REST check — this is an ABSENCE assertion, so
             // there's nothing to poll-until; a fixed wait then a single check is the correct shape
-            // (see `rowExists`'s own doc comment).
+            // (see `rowExists`'s own doc comment). Both note columns: a URL share's note is
+            // stored in `supplemental_note`.
             sleep(5)
-            let exists = try await rowExists(matchingContent: marker, email: email, password: password)
-            XCTAssertFalse(exists, "Expected NO item to be created while the share-extension gate was showing")
+            let rows = try await itemsWithNote(marker, email: email, password: password)
+            XCTAssertTrue(rows.isEmpty, "Expected NO item to be created while the share-extension gate was showing")
         } else {
-            // --- Gate absent (fail-open / a post-comp future): Save, REST-verify, clean up. ---
+            // --- Gate absent (fail-open / a post-comp future): Save → instant confirmation → the
+            // upload finishes in the background → exactly one item. ---
             XCTAssertTrue(saveButton.isEnabled, "Expected Save to be enabled while the gate is absent")
-            saveButton.tap()
-
+            let confirmation = tapSaveAndTimeConfirmation(saveButton, in: safari)
             FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-gate-open-saving\n".data(using: .utf8)!)
-
-            // Do NOT assert on the transient "share.outcome" text — T7's own disclosed ~0.8s
-            // window is too narrow to reliably catch (task-7-report.md's own Concerns section).
-            // Assert on the durable REST effect instead, with a generous poll.
-            let row = try await pollForRow(matchingContent: marker, email: email, password: password, timeout: 20)
-            XCTAssertNotNil(row["id"], "Expected the shared URL to have landed as a real item")
-            if let id = row["id"] as? String {
-                try await deleteRow(id: id, email: email, password: password)
+            // Plan 15: the confirmation no longer waits on the network.
+            XCTAssertNotNil(confirmation, "Expected the 'Saved to Stash' confirmation right after Save")
+            if let confirmation {
+                XCTAssertEqual(confirmation.text, "Saved to Stash")
+                XCTAssertLessThanOrEqual(confirmation.seconds, 1.5, "Save → confirmation took \(confirmation.seconds) s")
             }
+            XCTAssertTrue(shareButton.waitForExistence(timeout: 15), "Expected the sheet to dismiss itself after the confirmation")
 
-            // The extension auto-dismisses ~0.8s after a successful save and hands focus back to
-            // Safari — belt confirmation, not the primary assertion (which is the REST check above).
-            _ = shareButton.waitForExistence(timeout: 15)
+            let rows = try await waitForItemsWithNote(marker, email: email, password: password, timeout: 20)
+            XCTAssertEqual(rows.count, 1, "Expected the shared URL to land exactly once")
         }
+    }
+
+    /// Plan 15 Task 4 (Will: "the user should click the save button, see a confirmation, and then
+    /// the stash should happen in the background seamlessly"): Save shows "Saved to Stash" within
+    /// ~1.5 s — no network round trip in between — and the sheet dismisses itself right after,
+    /// yet the share lands server-side exactly once: the background session finishes the upload
+    /// without the extension. The lapsed test account's client gate is opened for this run
+    /// (`--uitest-share-gate-open`, DEBUG); the server accepts URL captures from lapsed accounts.
+    @MainActor
+    func testShareSaveConfirmsInstantlyAndLandsOnceInTheBackground() async throws {
+        let (email, password) = try testCredentials()
+        let epoch = Int(Date().timeIntervalSince1970)
+        let marker = "UITEST-P15-T4: instant \(epoch)"
+        addTeardownBlock {
+            for row in (try? await self.itemsWithNote(marker, email: email, password: password)) ?? [] {
+                if let id = row["id"] as? String { try? await self.deleteSharedItem(id: id, email: email, password: password) }
+            }
+        }
+        let app = XCUIApplication()
+        launchSignedIn(app, arguments: ["--uitest-share-gate-open"], email: email, password: password)
+
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        let saveButton = openStashComposeCard(in: safari, url: "example.com/?p15t4=instant-\(epoch)", note: marker,
+                                              checkpoint: "p15t4-compose")
+        XCTAssertTrue(saveButton.isEnabled, "Expected Save to be enabled (gate opened for this test)")
+        let confirmation = tapSaveAndTimeConfirmation(saveButton, in: safari, screenshot: "p15t4-confirmation")
+        XCTAssertNotNil(confirmation, "Expected the 'Saved to Stash' confirmation right after Save")
+        if let confirmation {
+            XCTAssertEqual(confirmation.text, "Saved to Stash")
+            XCTAssertLessThanOrEqual(confirmation.seconds, 1.5, "Save → confirmation took \(confirmation.seconds) s")
+            print("P15T4-TIMING: save→confirmation observed after \(String(format: "%.2f", confirmation.seconds)) s")
+        }
+        XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 10),
+                      "Expected the sheet to dismiss itself right after the confirmation")
+
+        let rows = try await waitForItemsWithNote(marker, email: email, password: password, timeout: 20)
+        XCTAssertEqual(rows.count, 1, "Expected the share to land server-side exactly once")
+        XCTAssertEqual(rows.first?["type"] as? String, "link")
+        // No late second copy from a retry.
+        try await Task.sleep(for: .seconds(4))
+        let settled = try await itemsWithNote(marker, email: email, password: password)
+        XCTAssertEqual(settled.count, 1, "Expected still exactly one item")
+    }
+
+    /// Plan 15 Task 4: neither the app nor the share extension is running when the upload
+    /// answers. The app is terminated before the share, and the extension exits 150 ms after
+    /// handing the share to the background session (`--uitest-share-exit-after-handoff=150`,
+    /// DEBUG) — before the server can answer — so the upload can only be carried by the system's
+    /// transfer daemon (which then launches the app in the background to deliver the result).
+    /// The item must land before the app is opened again. Relaunching with a 1 s stale-transfer
+    /// interval then makes the launch drain resend anything still marked in flight — which must
+    /// still leave exactly one item (the capture id is the idempotency key) and nothing queued.
+    ///
+    /// No note is typed: the unique shared URL is the marker. (Harness-only observation: after
+    /// XCUITest has typed into the app's sign-in form and then killed the app, the share card's
+    /// text view doesn't take keyboard focus, while Safari's own fields do. With the app running,
+    /// terminated, or relaunched otherwise, the card focuses normally — see task-4-report.md.)
+    @MainActor
+    func testShareSaveWithTheAppTerminatedLandsOnceAndLeavesNothingQueued() async throws {
+        let (email, password) = try testCredentials()
+        let marker = "p15t4-terminated-\(Int(Date().timeIntervalSince1970))"
+        addTeardownBlock {
+            for row in (try? await self.itemsWithURL(containing: marker, email: email, password: password)) ?? [] {
+                if let id = row["id"] as? String { try? await self.deleteSharedItem(id: id, email: email, password: password) }
+            }
+        }
+        let app = XCUIApplication()
+        launchSignedIn(app, arguments: ["--uitest-share-gate-open", "--uitest-share-exit-after-handoff=150"],
+                       email: email, password: password)
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.terminate()
+
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        let saveButton = openStashComposeCard(in: safari, url: "example.com/?q=\(marker)", note: nil)
+        XCTAssertTrue(saveButton.isEnabled, "Expected Save to be enabled (gate opened for this test)")
+        saveButton.tap()
+        XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 10),
+                      "Expected the share sheet to be gone right after Save")
+
+        // Landed with neither process running: carried by the background session.
+        let landed = try await waitForItemsWithURL(containing: marker, email: email, password: password, timeout: 45)
+        XCTAssertEqual(landed.count, 1, "Expected the share to land exactly once with the app and the extension gone")
+
+        // Relaunch (stored session, no sign-in) with a 1 s stale-transfer interval: the launch
+        // drain resends whatever is still marked in flight — never a second item.
+        app.launchArguments = ["--uitest-stale-transfer-seconds=1", "--uitest-outbox-probe"]
+        app.launch()
+        let probe = app.descendants(matching: .any)["debug.outbox"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 20), "Expected the Outbox probe after relaunch")
+        let drained = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label BEGINSWITH 'count=' AND NOT (label CONTAINS %@)", marker), object: probe)
+        XCTAssertEqual(XCTWaiter().wait(for: [drained], timeout: 30), .completed,
+                       "Expected nothing left queued for this share, got '\(probe.label)'")
+        try await Task.sleep(for: .seconds(4))
+        XCTAssertFalse(probe.label.contains(marker), "Expected the Outbox to stay clear of this share")
+        let settled = try await itemsWithURL(containing: marker, email: email, password: password)
+        XCTAssertEqual(settled.count, 1, "Expected still exactly one item after the relaunch's drain")
     }
 
     /// Conversations navigation (2026-08-29 sessions model): the Ask header's history button
@@ -2516,6 +2618,298 @@ final class StashUITests: XCTestCase {
         return ids
     }
 
+    /// Password-grant session for the test account: its access token and user id (for REST
+    /// calls that need the owner's folder or id, e.g. Storage paths `<uid>/…`).
+    private func testAccountSession(email: String, password: String) async throws -> (token: String, userId: String) {
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/auth/v1/token")
+                .appending(queryItems: [URLQueryItem(name: "grant_type", value: "password")]))
+        request.httpMethod = "POST"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = object["access_token"] as? String,
+              let user = object["user"] as? [String: Any], let userId = user["id"] as? String
+        else {
+            throw FixtureRepairError("test-account auth failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        return (token, userId)
+    }
+
+    /// A `width`×`height` image (a two-tone diagonal, so a hero isn't a flat block) as JPEG or PNG.
+    private func generatedImage(width: Int, height: Int, png: Bool) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
+        let image = renderer.image { context in
+            UIColor(red: 0.42, green: 0.36, blue: 0.91, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            UIColor(red: 0.96, green: 0.62, blue: 0.35, alpha: 1).setFill()
+            let path = UIBezierPath()
+            path.move(to: .zero)
+            path.addLine(to: CGPoint(x: width, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: height))
+            path.close()
+            path.fill()
+        }
+        return (png ? image.pngData() : image.jpegData(compressionQuality: 0.8)) ?? Data()
+    }
+
+    /// Uploads `images` to `stash-media/<test-uid>/<folder>/<name>` (the test account's own
+    /// storage folder — RLS allows the owner to write and delete there) and returns their paths.
+    /// Callers delete them with `deleteStorageObjects` in a teardown block.
+    private func uploadThrowawayImages(_ images: [(name: String, data: Data, contentType: String)], folder: String,
+                                       email: String, password: String) async throws -> [String] {
+        let (token, userId) = try await testAccountSession(email: email, password: password)
+        var paths: [String] = []
+        for image in images {
+            let path = "\(userId)/\(folder)/\(image.name)"
+            var request = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/storage/v1/object/stash-media/\(path)"))
+            request.httpMethod = "POST"
+            request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(image.contentType, forHTTPHeaderField: "Content-Type")
+            request.setValue("true", forHTTPHeaderField: "x-upsert")
+            let (_, response) = try await URLSession.shared.upload(for: request, from: image.data)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                try? await deleteStorageObjects(paths, email: email, password: password)
+                throw FixtureRepairError("test image upload failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+            }
+            paths.append(path)
+        }
+        return paths
+    }
+
+    private func deleteStorageObjects(_ paths: [String], email: String, password: String) async throws {
+        guard !paths.isEmpty else { return }
+        let (token, _) = try await testAccountSession(email: email, password: password)
+        var request = URLRequest(url: Self.fixtureRepairBaseURL.appending(path: "/storage/v1/object/stash-media"))
+        request.httpMethod = "DELETE"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["prefixes": paths])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("test image cleanup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+    }
+
+    // MARK: - Share-extension helpers (plan 15, Task 4)
+
+    /// Every item whose note is `marker`: a URL share stores its note in `supplemental_note`
+    /// (`add-url`), other kinds in `content` — both are checked.
+    private func itemsWithNote(_ marker: String, email: String, password: String) async throws -> [[String: Any]] {
+        let (token, _) = try await testAccountSession(email: email, password: password)
+        var rows: [String: [String: Any]] = [:]
+        for column in ["supplemental_note", "content"] {
+            var request = URLRequest(
+                url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                    .appending(queryItems: [URLQueryItem(name: column, value: "eq.\(marker)"),
+                                            URLQueryItem(name: "select", value: "id,url,type")]))
+            request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw FixtureRepairError("note lookup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+            }
+            for row in (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? [] {
+                if let id = row["id"] as? String { rows[id] = row }
+            }
+        }
+        return Array(rows.values)
+    }
+
+    /// Polls `itemsWithNote` until at least one row exists (or `timeout`), then returns them all.
+    private func waitForItemsWithNote(_ marker: String, email: String, password: String,
+                                      timeout: TimeInterval) async throws -> [[String: Any]] {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let rows = try await itemsWithNote(marker, email: email, password: password)
+            if !rows.isEmpty { return rows }
+            try? await Task.sleep(for: .seconds(1))
+        } while Date() < deadline
+        return []
+    }
+
+    /// Deletes a shared item AND its `capture_receipts` row (the receipt is the capture's other
+    /// server-side trace; its `item_id` would be nulled, not removed, by deleting the item first).
+    private func deleteSharedItem(id: String, email: String, password: String) async throws {
+        let (token, _) = try await testAccountSession(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/capture_receipts")
+                .appending(queryItems: [URLQueryItem(name: "item_id", value: "eq.\(id)")]))
+        request.httpMethod = "DELETE"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("receipt cleanup failed for \(id)")
+        }
+        try await deleteRow(id: id, email: email, password: password)
+    }
+
+    /// Opens `url` in Safari, shares it to Stash and types `note` into the compose card; returns
+    /// the card's Save button. (Same recipe as `testShareExtensionURLSmoke`.) With `checkpoint`,
+    /// the card is held for a screenshot (`SCREENSHOT_CHECKPOINT: <checkpoint>`) before the note
+    /// field takes focus and the keyboard covers it.
+    @MainActor
+    private func openStashComposeCard(in safari: XCUIApplication, url: String, note: String?,
+                                      checkpoint: String? = nil) -> XCUIElement {
+        safari.launch()
+        let addressBar = safari.textFields["TabBarItemTitle"]
+        XCTAssertTrue(addressBar.waitForExistence(timeout: 10), "Safari address bar not found")
+        addressBar.tap()
+        let urlField = safari.textFields["URL"]
+        XCTAssertTrue(urlField.waitForExistence(timeout: 5), "Safari URL edit field not found after tapping the address bar")
+        urlField.typeText("\(url)\n")
+        // Newer Safari toolbars (wider phones, iOS 26) fold Share into the "•••" More menu — try
+        // the bare button first, then the menu (same fallback as StoreScreenshotsUITests).
+        let shareButton = safari.buttons["ShareButton"]
+        if !shareButton.waitForExistence(timeout: 8) {
+            let moreButton = safari.buttons["MoreMenuButton"]
+            XCTAssertTrue(moreButton.waitForExistence(timeout: 10), "Neither Safari's Share button nor its More menu appeared")
+            // iOS 26 Safari's first launch shows a "… in the ••• menu" tip over the toolbar: the
+            // first tap on ••• only dismisses it, so tap until the menu (and Share) shows.
+            for _ in 0..<3 where !shareButton.exists {
+                moreButton.tap()
+                _ = shareButton.waitForExistence(timeout: 4)
+            }
+            XCTAssertTrue(shareButton.exists, "Expected a Share entry inside Safari's More menu")
+        }
+        shareButton.tap()
+        let stashCell = safari.cells["Stash"]
+        XCTAssertTrue(stashCell.waitForExistence(timeout: 20), "Stash did not appear in the share sheet")
+        stashCell.tap()
+        XCTAssertTrue(safari.staticTexts["share.preview.url"].waitForExistence(timeout: 20),
+                      "Compose card's URL preview did not render")
+        // The vertical-axis note field surfaces as a TextView on iOS 17 and a TextField on iOS 26.
+        let noteAsTextView = safari.textViews["share.note"], noteAsTextField = safari.textFields["share.note"]
+        let noteDeadline = Date().addingTimeInterval(10)
+        while Date() < noteDeadline, !noteAsTextView.exists, !noteAsTextField.exists { usleep(250_000) }
+        let noteField = noteAsTextView.exists ? noteAsTextView : noteAsTextField
+        XCTAssertTrue(noteField.exists, "Compose card's note field did not render")
+        let saveButton = safari.buttons["share.save"]
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 10), "Compose card's Save button did not render")
+        if let checkpoint {
+            sleep(1)
+            attachScreenshot(named: checkpoint)
+            FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: \(checkpoint)\n".data(using: .utf8)!)
+        }
+        guard let note else { return saveButton }
+        // The card's text view sits in a remote (extension) view: tapped too soon after the card
+        // appears (observed: ~1 s) it never takes keyboard focus, even on re-taps; after ~3 s it
+        // does on the first tap (the original smoke's path spends that long on other checks).
+        sleep(3)
+        tapUntilFocused(noteField)
+        noteField.typeText(note)
+        return saveButton
+    }
+
+    /// Waits until the Stash compose card (its Save button and its confirmation) is gone.
+    @MainActor
+    private func waitForShareCardGone(in safari: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !safari.buttons["share.save"].exists, !safari.staticTexts["share.outcome"].exists { return true }
+            usleep(250_000)
+        }
+        return false
+    }
+
+    /// A full-screen screenshot kept in the test's result bundle (exported for reports).
+    @MainActor
+    private func attachScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// Every item whose `url` contains `fragment` (a URL share without a note).
+    private func itemsWithURL(containing fragment: String, email: String, password: String) async throws -> [[String: Any]] {
+        let (token, _) = try await testAccountSession(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [URLQueryItem(name: "url", value: "like.*\(fragment)*"),
+                                        URLQueryItem(name: "select", value: "id,url,type")]))
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("url lookup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        return (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]) ?? []
+    }
+
+    /// Polls `itemsWithURL` until at least one row exists (or `timeout`), then returns them all.
+    private func waitForItemsWithURL(containing fragment: String, email: String, password: String,
+                                     timeout: TimeInterval) async throws -> [[String: Any]] {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let rows = try await itemsWithURL(containing: fragment, email: email, password: password)
+            if !rows.isEmpty { return rows }
+            try? await Task.sleep(for: .seconds(1))
+        } while Date() < deadline
+        return []
+    }
+
+    /// Taps `field` until it has keyboard focus (a tap can land on an overlay that is still
+    /// fading out — the launch splash — or on a remote view that isn't ready yet).
+    @MainActor
+    private func tapUntilFocused(_ field: XCUIElement, attempts: Int = 5) {
+        for _ in 0..<attempts {
+            field.tap()
+            let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
+            if XCTWaiter().wait(for: [focused], timeout: 1.5) == .completed { return }
+        }
+    }
+
+    /// Launches the app with `arguments` (plus `--uitest-reset-auth`) and signs the test account
+    /// in. Tolerates a launch that restores the (same) stored session instead of showing sign-in —
+    /// the reset occasionally loses a race with the auth client's initial-session refresh.
+    @MainActor
+    private func launchSignedIn(_ app: XCUIApplication, arguments: [String], email: String, password: String) {
+        app.launchArguments = ["--uitest-reset-auth"] + arguments
+        app.launch()
+        let emailField = app.textFields["signin.email"]
+        let viewTab = app.tabBars.buttons["View"]
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline, !emailField.exists, !viewTab.exists { usleep(250_000) }
+        if emailField.exists {
+            tapUntilFocused(emailField)
+            emailField.typeText(email)
+            let passwordField = app.secureTextFields["signin.password"]
+            tapUntilFocused(passwordField)
+            passwordField.typeText(password)
+            app.buttons["signin.submit"].tap()
+        }
+        XCTAssertTrue(viewTab.waitForExistence(timeout: 15), "Expected to be signed in")
+    }
+
+    /// Taps Save and measures how long the confirmation takes to appear, polling as tightly as
+    /// XCUITest allows (it is only on screen ~0.8 s). Returns the seconds from just before the
+    /// tap to the first snapshot that showed it, and its text — or `nil` if never seen.
+    @MainActor
+    private func tapSaveAndTimeConfirmation(_ saveButton: XCUIElement, in safari: XCUIApplication,
+                                            within timeout: TimeInterval = 3,
+                                            screenshot: String? = nil) -> (seconds: TimeInterval, text: String)? {
+        let outcome = safari.staticTexts["share.outcome"]
+        let tapped = Date()
+        saveButton.tap()
+        while Date().timeIntervalSince(tapped) < timeout {
+            if outcome.exists {
+                let seconds = Date().timeIntervalSince(tapped)
+                if let screenshot { attachScreenshot(named: screenshot) }
+                return (seconds, outcome.label)
+            }
+        }
+        return nil
+    }
+
     /// Will (plan 15): "when tapping the bottom of the first item in the list, it often chooses the
     /// second item by mistake ... We should just make the entirety of the cards tappable". Root
     /// cause: a `.fill`-scaled hero image — and the 1.25× blurred backdrop behind a portrait photo
@@ -2536,11 +2930,18 @@ final class StashUITests: XCTestCase {
         let (email, password) = try testCredentials()
         let epoch = Int(Date().timeIntervalSince1970)
         func title(_ index: Int) -> String { "UITEST-TAP: \(index) \(epoch)" }
-        // Existing public objects (never uploaded or deleted by this test): a 1200×1600 portrait
-        // JPEG, a 1024×1024 PNG, and a 361×640 portrait link preview.
-        let portrait = "0a0afaa8-0e11-47e9-887f-223816a9bb53/1758945584318.jpg"
-        let square = "edd5da6e-ef3d-4f6a-bb56-c0aa8ea7e800/3e3a5105-1be8-4324-81e2-85dc236cf4a1.png"
-        let portraitPreview = "0a0afaa8-0e11-47e9-887f-223816a9bb53/previews/preview_1788421925163.jpg"
+        // The hero images this test needs, generated here and uploaded to the TEST account's own
+        // storage folder (deleted again in teardown): a 1200×1600 portrait JPEG, a 1024×1024 PNG,
+        // and a 361×640 portrait link preview — only their shapes matter.
+        let images = try await uploadThrowawayImages([
+            ("portrait.jpg", generatedImage(width: 1200, height: 1600, png: false), "image/jpeg"),
+            ("square.png", generatedImage(width: 1024, height: 1024, png: true), "image/png"),
+            ("preview.jpg", generatedImage(width: 361, height: 640, png: false), "image/jpeg"),
+        ], folder: "uitest-tap-\(epoch)", email: email, password: password)
+        addTeardownBlock {
+            try? await self.deleteStorageObjects(images, email: email, password: password)
+        }
+        let portrait = images[0], square = images[1], portraitPreview = images[2]
         // Oldest first: the last row inserted is card 0.
         let rows: [[String: Any]] = [
             ["type": "image", "title": title(4), "file_path": portrait, "mime_type": "image/jpeg"],
@@ -2552,7 +2953,8 @@ final class StashUITests: XCTestCase {
         let ids = try await insertThrowawayItems(rows, email: email, password: password)
         // A teardown block runs even when an assertion below stops the test (`continueAfterFailure
         // = false` ends the method without unwinding into any Swift `catch`), so these rows can't
-        // leak the way plan 14's `UITEST-CARDNOTE:` rows did.
+        // leak the way plan 14's `UITEST-CARDNOTE:` rows did. (Teardown blocks run last-added
+        // first: the rows go before the images they point at.)
         addTeardownBlock {
             for id in ids { try? await self.deleteRow(id: id, email: email, password: password) }
         }
@@ -2564,8 +2966,13 @@ final class StashUITests: XCTestCase {
         func card(_ index: Int) -> XCUIElement { app.descendants(matching: .any)["card.\(index)"] }
         for index in 0..<5 {
             XCTAssertTrue(card(index).waitForExistence(timeout: 20), "Expected card.\(index)")
-            XCTAssertTrue(card(index).label.contains(title(index)),
-                          "Expected card.\(index) to be the seeded '\(title(index))', got '\(card(index).label)'")
+            // Plan 15: the View tab first shows the disk-cached page (whatever the previous run
+            // left), then the refreshed one — wait for the refreshed page to put the seeded row
+            // here rather than reading the label once.
+            let seeded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", title(index)),
+                                                   object: card(index))
+            XCTAssertEqual(XCTWaiter().wait(for: [seeded], timeout: 30), .completed,
+                           "Expected card.\(index) to be the seeded '\(title(index))', got '\(card(index).label)'")
         }
         // The overflow only exists once each hero is drawn — wait for all four.
         for (index, hero) in [(1, "card.hero.tall"), (2, "card.hero.cover"), (3, "card.hero.cover"), (4, "card.hero.tall")] {

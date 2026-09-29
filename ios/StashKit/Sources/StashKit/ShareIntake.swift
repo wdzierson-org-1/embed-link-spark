@@ -15,8 +15,10 @@ public enum SharedObject: Equatable, Sendable {
     case file(stagedURL: URL, mimeType: String, fileName: String?, durationS: Double?)
 }
 
-/// Tally `ShareIntake.submit` hands back so the extension's compose card can pick the right
-/// outcome line ("Saved to Stash" vs "Saved — will sync") without inspecting individual units.
+/// Tally of a foreground send — `ShareIntake.submit`, or the share sheet's bounded fallback
+/// (`sendInForeground`) — without inspecting individual units. (Plan 15 Task 4: the share sheet
+/// itself no longer waits on sends, so it always confirms "Saved to Stash" once every unit is
+/// in the Outbox; these counts are for callers and logs.)
 ///
 /// Unlike `CaptureViewModel.CaptureOutcome`, there is no `.rejected`/`dropped` case here: every
 /// `SharedObject.file` already has its bytes durably on local disk by the time `submit` ever sees
@@ -44,9 +46,10 @@ public struct ShareIntakeResult: Equatable, Sendable {
 ///
 /// Plan 15 — outbox-first: every object is written to the Outbox FIRST (its entry id is the
 /// idempotency key the `capture` endpoint dedupes on), then either sent right away in the
-/// foreground (`submit`, `Outbox.sendNow`) or handed to a background `URLSession` by the extension
-/// (`enqueueForTransfer`, Task 4). A failed or skipped send never drops data and never blocks the
-/// share sheet: the entry just stays queued for the app's next drain.
+/// foreground (`submit`, `Outbox.sendNow`) or — what the share sheet does since Task 4 — handed
+/// to the shared background `URLSession` (`enqueueForTransfer` → `BackgroundCaptureTransfers`,
+/// with `sendInForeground` as its bounded fallback). A failed or skipped send never drops data
+/// and never blocks the share sheet: the entry just stays queued for the app's next drain.
 public struct ShareIntake: Sendable {
     private let userId: UUID
     private let capture: CaptureAPI
@@ -152,6 +155,89 @@ public struct ShareIntake: Sendable {
         return entries
     }
 
+    // MARK: - Background hand-off (plan 15, Task 4)
+    //
+    // The share sheet's Save: `enqueueForTransfer` (every unit on disk first) → a token →
+    // `BackgroundCaptureTransfers.start` → the confirmation → ~0.8 s later `completeRequest`. The
+    // helpers below are the pieces of that flow that decide something; each is bounded so the
+    // sheet never waits on the network for longer than its confirmation window allows.
+
+    /// A token that expires sooner than this is refreshed before transfers start: a background
+    /// transfer can take a while to reach the server on a slow network, and the server checks
+    /// the token when the request arrives.
+    public static let transferTokenMinimumValidity: TimeInterval = 5 * 60
+    /// Upper bound on that refresh; on timeout the entries wait in the Outbox for the app.
+    public static let transferTokenRefreshTimeout: TimeInterval = 2.5
+    /// Upper bound on the foreground fallback when the background session can't take the share.
+    public static let foregroundFallbackTimeout: TimeInterval = 6
+
+    /// `accessToken` when it stays valid for at least `minimumValidity` from `now`, else `nil`
+    /// (the caller refreshes — `refreshedTransferToken`).
+    public static func usableTransferToken(_ accessToken: String, expiresAt: Date, now: Date = Date(),
+                                           minimumValidity: TimeInterval = transferTokenMinimumValidity) -> String? {
+        expiresAt.timeIntervalSince(now) >= minimumValidity ? accessToken : nil
+    }
+
+    /// Runs `refresh` for at most `timeout` seconds: its token, or `nil` if it failed or didn't
+    /// answer in time (the refresh is cancelled and left to finish on its own — the caller never
+    /// waits for it).
+    public static func refreshedTransferToken(timeout: TimeInterval = transferTokenRefreshTimeout,
+                                              refresh: @escaping @Sendable () async throws -> String) async -> String? {
+        await withCheckedContinuation { continuation in
+            let gate = FirstResult(continuation)
+            let work = Task { gate.resume(returning: try? await refresh()) }
+            Task {
+                try? await Task.sleep(for: .seconds(timeout))
+                if gate.resume(returning: nil) { work.cancel() }
+            }
+        }
+    }
+
+    /// Puts entries whose background transfer can't start (no token in time) back to `.pending`,
+    /// attempts unchanged — the app's next drain sends them.
+    public func returnToQueue(_ ids: [UUID]) async {
+        for id in ids {
+            await outbox.markPending(id: id, incrementAttempts: false)
+        }
+    }
+
+    /// The bounded foreground fallback: sends `ids` one by one (`Outbox.sendNow`, the same
+    /// idempotent path as `submit`) for at most `timeout` seconds, then stops — an in-flight
+    /// request is cancelled (that entry stays pending with its attempt counted, its claim
+    /// released) and the rest are left untouched for the app. Files over `directSendLimit` are
+    /// left for the app too, as in `submit`.
+    public func sendInForeground(_ ids: [UUID], accessToken: String,
+                                 timeout: TimeInterval = foregroundFallbackTimeout) async -> ShareIntakeResult {
+        guard !ids.isEmpty else { return ShareIntakeResult() }
+        let work = Task { () -> ShareIntakeResult in
+            var result = ShareIntakeResult()
+            for id in ids {
+                guard !Task.isCancelled else {
+                    result.queued += 1
+                    continue
+                }
+                if let entry = await outbox.entry(id: id), entry.payload["file_path"] == nil,
+                   let size = CaptureTransport.localFileSize(of: entry), size > directSendLimit {
+                    result.queued += 1
+                    continue
+                }
+                switch await outbox.sendNow(id: id, api: capture, userId: userId, accessToken: accessToken, upload: upload) {
+                case .sent, .notFound: result.saved += 1
+                case .parked, .pending, .inFlight: result.queued += 1
+                case .dropped: result.failed += 1
+                }
+            }
+            return result
+        }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(timeout))
+            work.cancel()
+        }
+        let result = await work.value
+        deadline.cancel()
+        return result
+    }
+
     // MARK: - Ordering (Task 7, T6-review carry: adopted ordering decision)
 
     /// Moves the first `.url` case (if any) to index 0, preserving the relative order of
@@ -253,5 +339,26 @@ public struct ShareIntake: Sendable {
               let data = try? JSONSerialization.data(withJSONObject: object)
         else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+/// Resumes a continuation with whichever result arrives first; later ones are ignored.
+private final class FirstResult<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    init(_ continuation: CheckedContinuation<Value, Never>) {
+        self.continuation = continuation
+    }
+
+    /// `true` if this call delivered the result.
+    @discardableResult
+    func resume(returning value: Value) -> Bool {
+        let first = lock.withLock { () -> CheckedContinuation<Value, Never>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        first?.resume(returning: value)
+        return first != nil
     }
 }

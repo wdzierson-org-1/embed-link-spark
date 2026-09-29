@@ -5,16 +5,18 @@ public extension Notification.Name {
     /// save, a voice note, an Outbox drain, or a background transfer completion handled in-app.
     /// `userInfo["item"]` is the created (or, for an idempotent replay, the already-existing)
     /// `Item`; `userInfo["duplicate"]` is a `Bool` (`true` when the server recognized the capture id
-    /// from an earlier attempt and created nothing new). Observers upsert by `item.id`.
+    /// from an earlier attempt and created nothing new); `userInfo["userId"]` is the `UUID` of the
+    /// account the capture belongs to (a background transfer can finish after a sign-out/sign-in,
+    /// so observers ignore captures for any other user). Observers upsert by `item.id`.
     static let stashItemCaptured = Notification.Name("it.gostash.stash.itemCaptured")
 }
 
 /// Posts `.stashItemCaptured` on the main actor (observers are UI state). Public so the
 /// background-transfer completion handler (plan 15 Task 4) posts exactly the same shape.
-public func postStashItemCaptured(_ item: Item, duplicate: Bool) async {
+public func postStashItemCaptured(_ item: Item, duplicate: Bool, userId: UUID) async {
     await MainActor.run {
         NotificationCenter.default.post(name: .stashItemCaptured, object: nil,
-                                        userInfo: ["item": item, "duplicate": duplicate])
+                                        userInfo: ["item": item, "duplicate": duplicate, "userId": userId])
     }
 }
 

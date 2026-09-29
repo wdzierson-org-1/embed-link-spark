@@ -439,6 +439,105 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertEqual(sentNow, 0)
     }
 
+    // MARK: - Background hand-off helpers (plan 15, Task 4)
+
+    func testUsableTransferTokenNeedsFiveMinutesOfValidityLeft() {
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        XCTAssertEqual(ShareIntake.usableTransferToken("t", expiresAt: now.addingTimeInterval(3600), now: now), "t")
+        XCTAssertEqual(ShareIntake.usableTransferToken("t", expiresAt: now.addingTimeInterval(300), now: now), "t")
+        XCTAssertNil(ShareIntake.usableTransferToken("t", expiresAt: now.addingTimeInterval(299), now: now))
+        XCTAssertNil(ShareIntake.usableTransferToken("t", expiresAt: now.addingTimeInterval(-10), now: now), "already expired")
+    }
+
+    func testRefreshedTransferTokenReturnsTheRefreshedToken() async {
+        let token = await ShareIntake.refreshedTransferToken(timeout: 2) { "refreshed" }
+        XCTAssertEqual(token, "refreshed")
+    }
+
+    func testRefreshedTransferTokenIsNilWhenTheRefreshFails() async {
+        let token = await ShareIntake.refreshedTransferToken(timeout: 2) { throw CaptureError.badStatus(400) }
+        XCTAssertNil(token)
+    }
+
+    func testRefreshedTransferTokenGivesUpAtTheTimeoutEvenIfTheRefreshIgnoresCancellation() async {
+        let started = Date()
+        let token = await ShareIntake.refreshedTransferToken(timeout: 0.2) {
+            // Ignores cancellation on purpose: the caller must not wait for it anyway.
+            let until = Date().addingTimeInterval(3)
+            while Date() < until { try? await Task.sleep(for: .milliseconds(50)) }
+            return "too late"
+        }
+        XCTAssertNil(token)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "bounded by the timeout, not by the refresh")
+    }
+
+    func testReturnToQueueFlipsTransferringEntriesToPendingWithoutCountingAnAttempt() async throws {
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: FakeCaptureServer(), outbox: outbox)
+        let entries = await intake.enqueueForTransfer([.url("https://example.com"), .text("x")], note: nil, location: nil)
+
+        await intake.returnToQueue(entries.map(\.id))
+
+        let stored = await outbox.pending()
+        XCTAssertEqual(stored.map(\.status), [.pending, .pending])
+        XCTAssertEqual(stored.map(\.attempts), [0, 0])
+        XCTAssertTrue(stored.allSatisfy { $0.transferStartedAt == nil })
+    }
+
+    func testSendInForegroundSendsTheGivenEntriesOverTheIdempotentEndpoint() async throws {
+        let server = FakeCaptureServer()
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: server, outbox: outbox)
+        let entries = await intake.enqueueForTransfer([.url("https://example.com/a"), .url("https://example.com/b")],
+                                                      note: nil, location: nil)
+        await intake.returnToQueue(entries.map(\.id))
+
+        let result = await intake.sendInForeground(entries.map(\.id), accessToken: "jwt", timeout: 5)
+
+        XCTAssertEqual(result, ShareIntakeResult(saved: 2))
+        XCTAssertEqual(server.captures.map(\.captureId), entries.map { $0.id.uuidString.lowercased() })
+        let left = await outbox.pending()
+        XCTAssertTrue(left.isEmpty)
+    }
+
+    func testSendInForegroundStopsAtItsDeadlineAndLeavesTheRestForTheApp() async throws {
+        let transport = SlowTransport(delay: .milliseconds(500))
+        let outbox = Outbox(directory: dir)
+        let intake = ShareIntake(userId: userId, capture: CaptureAPI(transport: transport), outbox: outbox,
+                                 staging: StagedFileStore(userId: userId, directory: stagingDir), accessToken: { "jwt" })
+        let entries = await intake.enqueueForTransfer(
+            [.url("https://example.com/1"), .url("https://example.com/2"), .url("https://example.com/3")], note: nil, location: nil)
+        await intake.returnToQueue(entries.map(\.id))
+        let started = Date()
+
+        let result = await intake.sendInForeground(entries.map(\.id), accessToken: "jwt", timeout: 0.75)
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "never runs past its bound")
+        XCTAssertEqual(result, ShareIntakeResult(saved: 1, queued: 2))
+        let second = await outbox.entry(id: entries[1].id)
+        XCTAssertEqual(second?.status, .pending, "the request cut off at the deadline stays queued")
+        XCTAssertEqual(second?.attempts, 1)
+        let third = await outbox.entry(id: entries[2].id)
+        XCTAssertEqual(third?.attempts, 0, "never tried — left untouched for the app")
+        XCTAssertEqual(transport.completedCount, 1)
+    }
+
+    func testSendInForegroundLeavesFilesOverTheDirectSendLimitForTheApp() async throws {
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let staged = try stageFile(store: store, bytes: Data(repeating: 0x01, count: 64), ext: "mov")
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: server, outbox: outbox, staging: store, directSendLimit: 16)
+        let entries = await intake.enqueueForTransfer(
+            [.file(stagedURL: staged, mimeType: "video/quicktime", fileName: nil, durationS: nil)], note: nil, location: nil)
+        await intake.returnToQueue(entries.map(\.id))
+
+        let result = await intake.sendInForeground(entries.map(\.id), accessToken: "jwt")
+
+        XCTAssertEqual(result, ShareIntakeResult(queued: 1))
+        XCTAssertTrue(server.calls.isEmpty)
+    }
+
     // MARK: - `ProviderLoader` ordering decision — `reorderURLFirst`
 
     func testReorderURLFirstMovesURLToFront() {
@@ -459,5 +558,24 @@ final class ShareIntakeTests: XCTestCase {
     func testReorderURLFirstOnEmptyOrURLOnlyObjectsIsANoOp() {
         XCTAssertEqual(ShareIntake.reorderURLFirst([]), [])
         XCTAssertEqual(ShareIntake.reorderURLFirst([.url("https://example.com")]), [.url("https://example.com")])
+    }
+}
+
+/// A capture transport where every request takes `delay` and honors cancellation (like
+/// `URLSession`'s async API): a request cancelled mid-flight throws, a finished one answers 200.
+private final class SlowTransport: CaptureTransporting, @unchecked Sendable {
+    private let delay: Duration
+    private let lock = NSLock()
+    private var _completed = 0
+    var completedCount: Int { lock.withLock { _completed } }
+
+    init(delay: Duration) { self.delay = delay }
+
+    func upload(_ request: URLRequest, fromFile bodyFile: URL) async throws -> (status: Int, body: Data) {
+        try await Task.sleep(for: delay)
+        lock.withLock { _completed += 1 }
+        let body = try JSONSerialization.data(withJSONObject: ["item": FakeCaptureServer.row(kind: "url", meta: [:]),
+                                                               "duplicate": false])
+        return (200, body)
     }
 }
