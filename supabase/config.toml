@@ -92,3 +92,7 @@ verify_jwt = false
 # pg_cron sends no JWT, so the gateway check must stay off.
 [functions.transcribe-audio]
 verify_jwt = false
+
+# Shared cron secret is verified inside the bounded enrichment worker.
+[functions.enrichment-maintenance]
+verify_jwt = false

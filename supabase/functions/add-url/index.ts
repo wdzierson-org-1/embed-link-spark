@@ -4,6 +4,8 @@ import { cleanMetaText, cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtm
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
+import { isPlaceholderMetadata } from '../_shared/enrichmentQuality.ts';
+import { applyCandidate, ENRICHMENT_COLUMNS } from '../_shared/enrichmentStore.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
 
 const corsHeaders = {
@@ -316,7 +318,7 @@ Deno.serve(async (req) => {
           // A bot wall's page ("Client Challenge", "Just a moment…") is worse
           // than no metadata: null it so the fallbacks and the deep enrichment
           // pass (which can rescue the real title) take over
-          if (isBlockedPageTitle(metadata.title)) {
+          if (isBlockedPageTitle(metadata.title) || isPlaceholderMetadata(metadata.title, url)) {
             console.log('Quick fetch hit a challenge page; discarding its metadata');
             metadata = { title: null, description: null, image: null, siteName: metadata.siteName };
           }
@@ -340,7 +342,7 @@ Deno.serve(async (req) => {
             metadata = extractMetaFromHtml(html);
             console.log('Extracted metadata via proxy:', metadata);
 
-            if (isBlockedPageTitle(metadata.title)) {
+            if (isBlockedPageTitle(metadata.title) || isPlaceholderMetadata(metadata.title, url)) {
               console.log('Proxy fetch hit a challenge page; discarding its metadata');
               metadata = { title: null, description: null, image: null, siteName: metadata.siteName };
             }
@@ -392,7 +394,7 @@ Deno.serve(async (req) => {
         file_path: previewImagePath,
         is_public: is_public,
         visibility: is_public ? 'public' : 'private',
-        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString() } },
+        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString(), ...(customTitle ? { protected_fields: { title: true } } : {}) } },
         remind_at: remindAt
       })
       .select()
@@ -455,12 +457,14 @@ Deno.serve(async (req) => {
         });
         if (deepError) throw deepError;
         if (deepMeta) {
+          const { data: current, error: currentError } = await supabase.from('items').select(ENRICHMENT_COLUMNS).eq('id', item.id).single();
+          if (currentError) throw currentError;
           const updates: Record<string, string> = {};
-          if (!customTitle && !metadata.title && deepMeta.title && !isBlockedPageTitle(deepMeta.title)) {
+          if (!customTitle && isPlaceholderMetadata(current.title, url) && deepMeta.title && !isPlaceholderMetadata(deepMeta.title, url) && !isBlockedPageTitle(deepMeta.title)) {
             const deepTitle = cleanOptionalMetaTitle(deepMeta.title, deepMeta.description);
             if (deepTitle) updates.title = deepTitle;
           }
-          if (!metadata.description && deepMeta.description) {
+          if (isPlaceholderMetadata(current.description, url) && deepMeta.description && !isPlaceholderMetadata(deepMeta.description, url)) {
             updates.description = cleanMetaText(deepMeta.description);
           }
           // Prefer the copy we stored in our own bucket; a raw external URL is
@@ -469,12 +473,11 @@ Deno.serve(async (req) => {
           if (!bestImage && deepMeta.image && await verifyRemoteImage(deepMeta.image)) {
             bestImage = deepMeta.image;
           }
-          if (!previewImagePath && bestImage) {
+          if (!current.file_path && bestImage) {
             updates.file_path = bestImage;
           }
           if (Object.keys(updates).length > 0) {
-            const { error: updateError } = await supabase.from('items').update(updates).eq('id', item.id);
-            if (updateError) throw updateError;
+            await applyCandidate(supabase, current, updates, 'capture-metadata');
           }
         }
       } catch (enrichError) {
