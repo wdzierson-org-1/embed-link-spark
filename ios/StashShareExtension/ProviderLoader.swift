@@ -40,8 +40,7 @@ struct ProviderLoader {
     ///   failure, or a staging throw all look identical to the user (nothing renders for that
     ///   attachment) unless the caller surfaces the count. `ShareComposeView` shows a one-line
     ///   "N item(s) couldn't be read" whenever this is non-zero.
-    func load(from extensionContext: NSExtensionContext?) async -> (objects: [SharedObject], droppedCount: Int) {
-        let items = extensionContext?.inputItems as? [NSExtensionItem] ?? []
+    func load(from items: [NSExtensionItem]) async -> (objects: [SharedObject], droppedCount: Int) {
         let providers = items.flatMap { $0.attachments ?? [] }
 
         var objects: [SharedObject] = []

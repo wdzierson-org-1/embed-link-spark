@@ -19,13 +19,14 @@ import UniformTypeIdentifiers
 /// the app for it if the extension is gone). The user always sees a confirmation, never an
 /// error, never a spinner longer than that window.
 struct ShareComposeView: View {
-    let extensionContext: NSExtensionContext?
+    /// What was shared (`NSExtensionContext.inputItems`). Plan 15 review: the card never holds the
+    /// context itself — see `ShareViewController`'s doc comment.
+    let inputItems: [NSExtensionItem]
     /// Owned by `ShareViewController` (persists across this struct's own re-creations) — see
     /// `ShareAbandonTracker`'s own doc comment for the abandon/discard contract this implements.
     let abandonTracker: ShareAbandonTracker
-    /// Called the moment Save is tapped: the host view controller stops the sheet from being
-    /// swiped away while the share is handed off (a second at most).
-    var onSaveStarted: () -> Void = {}
+    /// Ends the share (`completeRequest`), through a weak reference to the host controller.
+    let finish: () -> Void
 
     private enum Phase: Equatable {
         case loading
@@ -55,6 +56,13 @@ struct ShareComposeView: View {
     /// cache fails open (`true`) — matches `SubscriptionStore.canAddContent`'s own pre-first-check
     /// fail-open default; a present `false` closes Save and shows the inline explainer.
     @State private var canAddContent = true
+    /// Plan 15 review: preview bitmaps, decoded once when the share loads (off the main thread,
+    /// without ImageIO keeping the full decode) — never in `body`, which re-runs on every
+    /// keystroke in the note field.
+    @State private var heroThumbnail: UIImage?
+    @State private var thumbnails: [URL: UIImage] = [:]
+    /// Save → "Saved to Stash", measured here (logged; DEBUG also exposes it to the UI tests).
+    @State private var confirmationLatencyMs: Int?
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -64,17 +72,20 @@ struct ShareComposeView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 StashHeader {
-                    if showsCancel {
-                        // Still one tappable button under the SAME "share.cancel" identifier the
-                        // UI tests drive — only the visual changed (round icon vs. bar text).
-                        Button(action: cancel) {
-                            // Will's note: "remove the gray stroke from the X button."
-                            CircleIcon(systemImage: "xmark", size: 36, bordered: false)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Cancel")
-                        .accessibilityIdentifier("share.cancel")
+                    // Still one tappable button under the SAME "share.cancel" identifier the UI
+                    // tests drive — only the visual changed (round icon vs. bar text). Plan 15
+                    // review: hidden (not removed) while saving, so the header keeps its height and
+                    // the wordmark doesn't jump when the confirmation appears.
+                    Button(action: cancel) {
+                        // Will's note: "remove the gray stroke from the X button."
+                        CircleIcon(systemImage: "xmark", size: 36, bordered: false)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Cancel")
+                    .accessibilityIdentifier("share.cancel")
+                    .opacity(showsCancel ? 1 : 0)
+                    .disabled(!showsCancel)
+                    .accessibilityHidden(!showsCancel)
                 }
                 .padding(.top, Self.headerExtraInset.top)
                 .padding(.horizontal, Self.headerExtraInset.horizontal)
@@ -163,7 +174,10 @@ struct ShareComposeView: View {
         userId = resolvedUserId
         let store = StagedFileStore(userId: resolvedUserId)
         staging = store
-        let result = await ProviderLoader(staging: store).load(from: extensionContext)
+        let result = await ProviderLoader(staging: store).load(from: inputItems)
+        let previews = await Self.decodePreviews(for: result.objects)
+        heroThumbnail = previews.hero
+        thumbnails = previews.tiles
         objects = result.objects
         droppedCount = result.droppedCount
         abandonTracker.track(objects: result.objects, staging: store)
@@ -274,6 +288,7 @@ struct ShareComposeView: View {
             // it never shifts the compose card's real layout.
             Text(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
                 .font(StashType.regular(size: 1))
+                .foregroundStyle(.clear)
                 .frame(height: 0)
                 .accessibilityIdentifier("share.fontStatus")
                 .accessibilityLabel(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
@@ -469,7 +484,7 @@ struct ShareComposeView: View {
         }
         return VStack(alignment: .leading, spacing: 10) {
             if let first = fileObjects.first, first.mimeType.hasPrefix("image/") {
-                heroImage(url: first.url)
+                heroImage
                 let rest = Array(fileObjects.dropFirst())
                 if !rest.isEmpty {
                     compactFileRow(rest)
@@ -481,22 +496,21 @@ struct ShareComposeView: View {
         .accessibilityIdentifier("share.preview.files")
     }
 
-    /// The bounded pixel budget for the hero decode below — same `CGImageSourceCreateThumbnailAtIndex`
-    /// primitive as `makeThumbnail`'s 88pt compact tiles, just requested at a bigger target size.
-    /// ImageIO's thumbnail generator downsamples DURING decode, so memory stays bounded to this
-    /// requested size regardless of the source file's own resolution — a 12MP photo costs the same
-    /// as a 1200x1200 one here. 900px covers the widest current device at 3x scale with headroom;
-    /// the extension's ~120MB budget holds even for several of these in a row (900² × 4 bytes ≈
-    /// 3.2MB per decode, released once `UIImage` goes out of scope).
-    private static let heroMaxPixel: CGFloat = 900
+    /// The bounded pixel budget for the hero decode — same `CGImageSourceCreateThumbnailAtIndex`
+    /// primitive as the 88 px compact tiles, just requested at a bigger target size. ImageIO's
+    /// thumbnail generator downsamples DURING decode, so memory stays bounded to this requested
+    /// size regardless of the source file's own resolution — a 12MP photo costs the same as a
+    /// 1200x1200 one here. 900px covers the widest current device at 3x scale with headroom
+    /// (900² × 4 bytes ≈ 3.2MB).
+    private nonisolated static let heroMaxPixel: CGFloat = 900
+    private nonisolated static let tileMaxPixel: CGFloat = 88
 
     /// Full-content-width, aspect-fit hero for the first staged image — mirrors the detail sheet's
     /// own hero treatment (`StashRadius.card` + `.stashCardShadow()`, no hairline/fill card behind
-    /// it; the image itself is the whole surface). Never decodes the original file whole — see
-    /// `heroMaxPixel`'s doc comment.
+    /// it; the image itself is the whole surface). Decoded once in `load()` (`decodePreviews`).
     @ViewBuilder
-    private func heroImage(url: URL) -> some View {
-        if let thumbnail = makeThumbnail(url: url, maxPixel: Self.heroMaxPixel) {
+    private var heroImage: some View {
+        if let thumbnail = heroThumbnail {
             Image(uiImage: thumbnail)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
@@ -530,7 +544,7 @@ struct ShareComposeView: View {
 
     @ViewBuilder
     private func fileThumb(url: URL, mimeType: String, fileName: String?) -> some View {
-        if mimeType.hasPrefix("image/"), let thumbnail = makeThumbnail(url: url, maxPixel: 88) {
+        if mimeType.hasPrefix("image/"), let thumbnail = thumbnails[url] {
             Image(uiImage: thumbnail)
                 .resizable()
                 .scaledToFill()
@@ -548,16 +562,40 @@ struct ShareComposeView: View {
         }
     }
 
+    /// The preview bitmaps `filesPreview` shows, decoded once, off the main thread: a 900 px hero
+    /// for the first file when it's an image, and 88 px tiles for the images among the files the
+    /// compact row shows (the first four after the hero, or the first four).
+    private static func decodePreviews(for objects: [SharedObject]) async -> (hero: UIImage?, tiles: [URL: UIImage]) {
+        let files: [(url: URL, isImage: Bool)] = objects.compactMap {
+            if case .file(let url, let mimeType, _, _) = $0 { return (url, mimeType.hasPrefix("image/")) }
+            return nil
+        }
+        guard !files.isEmpty else { return (nil, [:]) }
+        let heroURL = files[0].isImage ? files[0].url : nil
+        let tileURLs = files.dropFirst(heroURL == nil ? 0 : 1).prefix(4).filter(\.isImage).map(\.url)
+        return await Task.detached(priority: .userInitiated) {
+            let hero = heroURL.flatMap { makeThumbnail(url: $0, maxPixel: heroMaxPixel) }
+            var tiles: [URL: UIImage] = [:]
+            for url in tileURLs { tiles[url] = makeThumbnail(url: url, maxPixel: tileMaxPixel) }
+            return (hero, tiles)
+        }.value
+    }
+
     /// Bounded ImageIO thumbnail decode (the `CGImageSourceCreateThumbnailAtIndex` primitive
-    /// `ImagePreparation` also builds on) — this card can preview up to 10 shared images
-    /// at once, so decoding each at full size just to render a 44pt thumbnail would defeat the
-    /// whole point of staging/downscaling in the first place. Never touches `Data`/`UIImage(contentsOfFile:)`.
-    private func makeThumbnail(url: URL, maxPixel: CGFloat) -> UIImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+    /// `ImagePreparation` also builds on) — this card can preview up to 10 shared images at once,
+    /// so decoding each at full size just to render a 44pt thumbnail would defeat the whole point
+    /// of staging/downscaling in the first place. `kCGImageSourceShouldCache: false`: ImageIO
+    /// keeps no decoded copy of the source around once the thumbnail exists. Never touches
+    /// `Data`/`UIImage(contentsOfFile:)`.
+    private nonisolated static func makeThumbnail(url: URL, maxPixel: CGFloat) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixel,
             kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceShouldCache: false,
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         return UIImage(cgImage: cgImage)
@@ -667,44 +705,72 @@ struct ShareComposeView: View {
     /// exposed as new StashKit surface for one more call site).
     private static let locationAwaitTimeout: TimeInterval = 2.5
 
-    /// How long the confirmation stays up before the sheet dismisses itself.
-    private static let confirmationWindow: Duration = .milliseconds(800)
+    /// How long the confirmation stays up before the sheet dismisses itself. DEBUG: a UI test can
+    /// hold it longer (`--uitest-share-confirmation-hold=<ms>` → `uitest.shareConfirmationHoldMs`)
+    /// — XCUITest only looks once the host app idles after the tap, which can take longer than
+    /// 800 ms on a busy machine.
+    private static var confirmationWindow: Duration {
+        #if DEBUG
+        let held = UserDefaults(suiteName: AppGroup.identifier)?.integer(forKey: "uitest.shareConfirmationHoldMs") ?? 0
+        if held > 0 { return .milliseconds(held) }
+        #endif
+        return .milliseconds(800)
+    }
 
     static let savedMessage = "Saved to Stash"
     static let failedMessage = "Couldn't save — try again"
 
-    /// Plan 15 Task 4 — Save never waits on the network:
-    /// 1. every shared object is written to the Outbox as `.transferring` (`enqueueForTransfer`);
-    /// 2. with a token valid ≥ 5 min (the common case: a synchronous keychain read), the entries
-    ///    go to the shared background session at once (`BackgroundCaptureTransfers.start` —
-    ///    request bodies written, tasks started, nothing awaited);
-    /// 3. "Saved to Stash" shows (in the rare refresh case it shows first and the refresh —
-    ///    bounded to 2.5 s — runs under it; on timeout the entries stay in the Outbox for the app);
-    /// 4. ~0.8 s later, anything the background session couldn't take (another process was
-    ///    connected, or a task failed at once) gets one bounded (≤ 6 s) foreground send;
+    /// Plan 15 Task 4 — Save never waits on the network (nor, since the review, on the pin):
+    /// 1. every shared object is written to the Outbox (`enqueueForTransfer`) — `.transferring`
+    ///    when it can be handed off right away, else `.pending` (without its location if the pin
+    ///    is still resolving), so the app sends it as is should this process die first;
+    /// 2. with a token valid ≥ 5 min (the common case: a synchronous keychain read) and no pin to
+    ///    wait for, the entries go to the shared background session at once
+    ///    (`BackgroundCaptureTransfers.start` — request bodies written, tasks started, nothing
+    ///    awaited);
+    /// 3. "Saved to Stash" shows. Under it, when needed: the pin gets ≤ 2.5 s and its location is
+    ///    written into the saved entries; the token is refreshed (≤ 2.5 s); then the hand-off.
+    ///    Without a token in time the entries stay in the Outbox for the app;
+    /// 4. ~0.8 s after the confirmation, anything the background session couldn't take (another
+    ///    process was connected, or a task failed at once) gets one bounded (≤ 6 s) foreground
+    ///    send;
     /// 5. `completeRequest`. Whatever is left, the app's drain sends — idempotently.
+    /// All of it runs inside an expiring-activity assertion, so the extension isn't suspended
+    /// mid-way (a token refresh that rotates the refresh token must reach the keychain).
     private func save() async {
-        // Fix round 2 (Important review finding): `markConsumed()` is the FIRST statement here,
+        // Plan 15 review: the guard comes before any side effect — a Save that can't run (or a
+        // second one) must not touch the card's state.
+        guard phase == .ready, let userId, let staging else { return }
+        // Fix round 2 (Important review finding): `markConsumed()` runs right after the guard,
         // before any `await` — see `ShareAbandonTracker`'s "Consumed boundary": from the Save tap
         // on, the Outbox owns every staged file (a swipe during a suspension must not discard
         // them), and if this process dies before the Outbox write, `sweepOrphans` recovers them.
         abandonTracker.markConsumed()
-        onSaveStarted()
-        guard let userId, let staging else { return }
         let tapped = ContinuousClock.now
         phase = .saving
+        await Self.keepingProcessAwake("Handing the share to Stash") {
+            await handOff(userId: userId, staging: staging, tapped: tapped)
+        }
+        Self.log.notice("save: completeRequest after \(Self.ms(since: tapped)) ms")
+        finish()
+    }
 
-        let location = await locationCapture.awaitResolution(timeout: Self.locationAwaitTimeout)
+    /// Steps 1–4 of `save()`.
+    private func handOff(userId: UUID, staging: StagedFileStore, tapped: ContinuousClock.Instant) async {
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let intake = ShareIntake(
             userId: userId,
             staging: staging,
             accessToken: { try await StashClient.shared.auth.session.accessToken }
         )
+        let pinResolving = locationCapture.state == .resolving
+        var token = Self.currentTransferToken(for: userId)
+        let handOffNow = !pinResolving && token != nil
 
         // 1. Durable first.
-        let entries = await intake.enqueueForTransfer(objects, note: trimmedNote.isEmpty ? nil : trimmedNote,
-                                                      location: location)
+        var entries = await intake.enqueueForTransfer(objects, note: trimmedNote.isEmpty ? nil : trimmedNote,
+                                                      location: pinResolving ? nil : locationCapture.currentLocation,
+                                                      status: handOffNow ? .transferring : .pending)
         guard !entries.isEmpty else {
             // Nothing could be written (a full or unwritable disk): the one outcome that isn't a
             // success. The staged copies go too, so the message stays true — no later sweep
@@ -715,33 +781,38 @@ struct ShareComposeView: View {
             phase = .done(Self.failedMessage)
             Self.log.error("save: no object could be written to the Outbox")
             try? await Task.sleep(for: Self.confirmationWindow)
-            extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
             return
         }
         let persisted = Self.ms(since: tapped)
 
-        // 2–3. Hand off, then confirm (or confirm, then refresh + hand off).
+        // 2–3. Hand off, then confirm — or confirm, then pin/refresh and hand off.
         let transfers = BackgroundCaptureTransfers.shared
-        var token = Self.currentTransferToken(for: userId)
         var batch: BackgroundTransferBatch?
-        if let token {
+        if handOffNow, let token {
             batch = await transfers.start(entries: entries, userId: userId, accessToken: token)
         }
         phase = .done(Self.savedMessage)
         let confirmed = ContinuousClock.now
-        Self.log.notice("save: \(entries.count) of \(objects.count) persisted after \(persisted) ms; confirmation after \(Self.ms(since: tapped)) ms (token refresh needed: \(token == nil))")
-        if token == nil {
-            token = await ShareIntake.refreshedTransferToken {
-                let session = try await StashClient.shared.auth.refreshSession()
-                // Never hand one account's captures another account's token.
-                guard session.user.id == userId else { throw CaptureError.badStatus(401) }
-                return session.accessToken
+        confirmationLatencyMs = Self.ms(since: tapped)
+        Self.log.notice("save: \(entries.count) of \(objects.count) persisted after \(persisted) ms; confirmation after \(Self.ms(since: tapped)) ms (pin resolving: \(pinResolving), token refresh needed: \(token == nil))")
+        if pinResolving, let location = await locationCapture.awaitResolution(timeout: Self.locationAwaitTimeout) {
+            entries = await intake.attachLocation(location, to: entries)
+            Self.log.notice("save: location added under the confirmation after \(Self.ms(since: tapped)) ms")
+        }
+        if batch == nil, !entries.isEmpty {
+            if token == nil {
+                token = await ShareIntake.refreshedTransferToken {
+                    let session = try await StashClient.shared.auth.refreshSession()
+                    // Never hand one account's captures another account's token.
+                    guard session.user.id == userId else { throw CaptureError.badStatus(401) }
+                    return session.accessToken
+                }
             }
             if let token {
                 batch = await transfers.start(entries: entries, userId: userId, accessToken: token)
             } else {
+                // They were saved `.pending`: the app sends them the next time it runs.
                 Self.log.notice("save: no token in time — \(entries.count) entries left for the app")
-                await intake.returnToQueue(entries.map(\.id))
             }
         }
         #if DEBUG
@@ -763,9 +834,19 @@ struct ShareComposeView: View {
             }
             Self.log.notice("save: \(batch.started.count) handed to the background session")
         }
-        // 5.
-        Self.log.notice("save: completeRequest after \(Self.ms(since: tapped)) ms")
-        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    }
+
+    /// Keeps this extension process from being suspended while `work` runs (bounded by `limit`):
+    /// the expiring activity's block holds the assertion until `work` finishes.
+    private static func keepingProcessAwake(_ reason: String, limit: TimeInterval = 15,
+                                            _ work: () async -> Void) async {
+        let finished = DispatchSemaphore(value: 0)
+        ProcessInfo.processInfo.performExpiringActivity(withReason: reason) { expired in
+            guard !expired else { return }
+            _ = finished.wait(timeout: .now() + limit)
+        }
+        await work()
+        finished.signal()
     }
 
     /// The shared session's access token when it belongs to `userId` and stays valid ≥ 5 minutes
@@ -803,6 +884,11 @@ struct ShareComposeView: View {
             Text(message)
                 .font(StashType.bodySemibold())
                 .accessibilityIdentifier("share.outcome")
+                #if DEBUG
+                // UI tests: Save → confirmation as measured in this process (XCUITest's own view
+                // of it includes waiting for the host app to idle).
+                .accessibilityValue(confirmationLatencyMs.map { "\($0) ms" } ?? "")
+                #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -829,7 +915,7 @@ struct ShareComposeView: View {
     /// safe, idempotent no-op once this method has run.
     private func cancel() {
         abandonTracker.discardIfAbandoned()
-        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        finish()
     }
 }
 

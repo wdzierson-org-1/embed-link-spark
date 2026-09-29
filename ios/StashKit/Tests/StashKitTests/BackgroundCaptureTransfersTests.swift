@@ -227,7 +227,7 @@ final class BackgroundCaptureTransfersTests: XCTestCase {
     }
 
     func testDecisionOther4xxAnd5xxRetryCountingAnAttempt() {
-        for status in [400, 401, 404, 422, 429, 500, 502, 503, 504] {
+        for status in [400, 404, 422, 429, 500, 502, 503, 504] {
             XCTAssertEqual(decide(status, #"{"error":"x"}"#), .retry(countsAsAttempt: true), "status \(status)")
             XCTAssertEqual(decide(.storage, status, #"{"error":"x"}"#), .retry(countsAsAttempt: true), "storage status \(status)")
         }
@@ -821,6 +821,291 @@ final class BackgroundCaptureTransfersTests: XCTestCase {
         XCTAssertTrue(configuration.sessionSendsLaunchEvents)
         #endif
         XCTAssertEqual(configuration.timeoutIntervalForResource, 3600)
+    }
+
+    // MARK: - Review fixes: rejected tokens (a task can outlive its token)
+
+    func testDescriptorCarriesTheOneRefreshMarker() {
+        let entryId = UUID()
+        let refreshed = BackgroundTransferDescriptor(userId: userId, entryId: entryId, phase: .storage, refreshed: true)
+        XCTAssertEqual(refreshed.taskDescription,
+                       "\(userId.uuidString.lowercased())|\(entryId.uuidString.lowercased())|storage|refreshed")
+        XCTAssertEqual(BackgroundTransferDescriptor(taskDescription: refreshed.taskDescription), refreshed)
+        XCTAssertEqual(BackgroundTransferDescriptor(taskDescription: "\(userId.uuidString)|\(entryId.uuidString)|capture")?.refreshed,
+                       false, "a task started by the first build (3 parts) still parses")
+        XCTAssertNil(BackgroundTransferDescriptor(taskDescription: "\(userId.uuidString)|\(entryId.uuidString)|capture|other"))
+    }
+
+    func testDecisionA401RefreshesTheTokenOnceThenCountsAnAttempt() {
+        XCTAssertEqual(decide(401, #"{"code":401,"message":"Invalid JWT"}"#), .refreshTokenAndRetry)
+        XCTAssertEqual(decide(.storage, 401), .refreshTokenAndRetry)
+        XCTAssertEqual(BackgroundTransferDecision.decide(phase: .capture, statusCode: 401, body: Data(), error: nil,
+                                                         afterTokenRefresh: true),
+                       .retry(countsAsAttempt: true), "only one refresh retry per phase")
+    }
+
+    func testDecisionStorageJWTExpiredRefreshesTheTokenAnyOtherStorageRefusalDoesNot() {
+        XCTAssertEqual(decide(.storage, 400, #"{"statusCode":"403","error":"Unauthorized","message":"jwt expired"}"#),
+                       .refreshTokenAndRetry)
+        XCTAssertEqual(decide(.storage, 403, #"{"statusCode":"400","error":"InvalidJWT","message":"invalid JWT"}"#),
+                       .refreshTokenAndRetry)
+        XCTAssertEqual(decide(.storage, 403, #"{"statusCode":"403","error":"Unauthorized","message":"new row violates row-level security policy"}"#),
+                       .retry(countsAsAttempt: true))
+        XCTAssertEqual(decide(403, #"{"error":"jwt looks odd"}"#), .retry(countsAsAttempt: true),
+                       "the capture endpoint only signals a bad token with 401")
+    }
+
+    func testRejectedTokenRestartsTheSamePhaseOnceWithAFreshTokenWithoutCountingAnAttempt() async throws {
+        let harness = makeHarness(token: "fresh")
+        let entry = try await enqueueURL(harness.outbox)
+        _ = await harness.transfers.start(entries: [entry], userId: userId, accessToken: "expired")
+        XCTAssertEqual(harness.session.uploads[0].request.value(forHTTPHeaderField: "Authorization"), "Bearer expired")
+
+        await finish(harness, upload: harness.session.uploads[0], taskIdentifier: 1, status: 401,
+                     body: Data(#"{"code":401,"message":"Invalid JWT"}"#.utf8))
+
+        XCTAssertEqual(harness.session.uploads.count, 2, "the same phase is restarted in the same session")
+        let retry = harness.session.uploads[1]
+        XCTAssertEqual(retry.descriptor, BackgroundTransferDescriptor(userId: userId, entryId: entry.id, phase: .capture,
+                                                                      refreshed: true))
+        XCTAssertEqual(retry.request.value(forHTTPHeaderField: "Authorization"), "Bearer fresh")
+        XCTAssertEqual(retry.meta["capture_id"] as? String, entry.id.uuidString.lowercased(), "same idempotency key")
+        let restarted = await harness.outbox.entry(id: entry.id)
+        XCTAssertEqual(restarted?.status, .transferring)
+        XCTAssertEqual(restarted?.attempts, 0, "a rejected token isn't a failed attempt")
+        XCTAssertEqual(bodyFiles().count, 1, "only the retry's body is on disk")
+
+        // The retry is rejected too: no third try — back to the Outbox, attempt counted.
+        await finish(harness, upload: retry, taskIdentifier: 2, status: 401)
+        XCTAssertEqual(harness.session.uploads.count, 2)
+        let pending = await harness.outbox.entry(id: entry.id)
+        XCTAssertEqual(pending?.status, .pending)
+        XCTAssertEqual(pending?.attempts, 1)
+        XCTAssertTrue(bodyFiles().isEmpty)
+    }
+
+    func testAnExpiredTokenOnAStorageUploadRestartsTheUploadThenTheCaptureFollows() async throws {
+        let harness = makeHarness(token: "fresh", oneShotLimit: 8)
+        let staged = try stageFile(bytes: Data(repeating: 0x07, count: 40), ext: "mov")
+        let entry = try await enqueueFile(harness.outbox, at: staged, mime: "video/quicktime", name: "v.mov")
+        _ = await harness.transfers.start(entries: [entry], userId: userId, accessToken: "expired")
+
+        await finish(harness, upload: harness.session.uploads[0], taskIdentifier: 1, status: 400,
+                     body: Data(#"{"statusCode":"403","error":"Unauthorized","message":"jwt expired"}"#.utf8))
+
+        let retry = harness.session.uploads[1]
+        XCTAssertEqual(retry.descriptor?.phase, .storage)
+        XCTAssertEqual(retry.descriptor?.refreshed, true)
+        XCTAssertEqual(retry.request.value(forHTTPHeaderField: "Authorization"), "Bearer fresh")
+        XCTAssertEqual(retry.file.standardizedFileURL, staged.standardizedFileURL)
+        let restarted = await harness.outbox.entry(id: entry.id)
+        XCTAssertEqual(restarted?.transferPhase, .storage)
+
+        await finish(harness, upload: retry, taskIdentifier: 2, status: 200)
+        let followUp = harness.session.uploads[2]
+        XCTAssertEqual(followUp.descriptor, BackgroundTransferDescriptor(userId: userId, entryId: entry.id, phase: .capture),
+                       "the capture phase gets its own refresh retry if it needs one")
+        XCTAssertNotNil(followUp.meta["file_path"])
+    }
+
+    func testARejectedTokenWithNoSessionLeftGoesBackToTheOutboxUncounted() async throws {
+        let harness = makeHarness(token: nil)
+        let entry = try await enqueueURL(harness.outbox)
+        _ = await harness.transfers.start(entries: [entry], userId: userId, accessToken: "expired")
+
+        await finish(harness, upload: harness.session.uploads[0], status: 401)
+
+        XCTAssertEqual(harness.session.uploads.count, 1)
+        let stored = await harness.outbox.entry(id: entry.id)
+        XCTAssertEqual(stored?.status, .pending)
+        XCTAssertEqual(stored?.attempts, 0)
+    }
+
+    func testARejectedTokenWhileWindingDownIsSentInTheForegroundWithTheFreshToken() async throws {
+        let server = FakeCaptureServer()
+        let harness = makeHarness(token: "fresh", server: server)
+        let entry = try await enqueueURL(harness.outbox)
+        let handled = expectation(description: "handler")
+        harness.transfers.handleEvents(forBackgroundURLSession: BackgroundCaptureTransfers.sessionIdentifier) { handled.fulfill() }
+        harness.transfers.didFinishEvents(for: harness.session)
+        await fulfillment(of: [handled], timeout: 2)
+
+        let task = BackgroundTransferDescriptor(userId: userId, entryId: entry.id, phase: .capture).taskDescription
+        harness.transfers.didComplete(taskIdentifier: 3, taskDescription: task, statusCode: 401, error: nil)
+        await harness.transfers.waitForIdle()
+
+        XCTAssertEqual(server.captures.count, 1)
+        XCTAssertEqual(server.captures.first?.header("Authorization"), "Bearer fresh")
+        let done = await harness.outbox.entry(id: entry.id)
+        XCTAssertNil(done)
+    }
+
+    // MARK: - Review fixes: bounded response bodies
+
+    func testAnOversizedSuccessBodyStillCompletesTheCapture() async throws {
+        let harness = makeHarness()
+        let entry = try await enqueueURL(harness.outbox)
+        _ = await harness.transfers.start(entries: [entry], userId: userId, accessToken: "jwt")
+        // A `duplicate: true` answer with a huge row: 3 MiB in 1 MiB chunks, over the 2 MiB cap.
+        let chunk = Data(repeating: 0x61, count: 1 << 20)
+        for _ in 0..<3 { harness.transfers.didReceive(chunk, forTask: 9) }
+        harness.transfers.didComplete(taskIdentifier: 9, taskDescription: harness.session.uploads[0].taskDescription,
+                                      statusCode: 200, error: nil)
+        await harness.transfers.waitForIdle()
+
+        let done = await harness.outbox.entry(id: entry.id)
+        XCTAssertNil(done, "2xx: the server has it, even if its row can't be read back")
+        XCTAssertEqual(BackgroundTransferDecision.decide(phase: .capture, statusCode: 200, body: Data("{".utf8), error: nil,
+                                                         bodyTruncated: true),
+                       .complete(CaptureResult(item: nil, duplicate: false)))
+    }
+
+    func testALostConnectionAlsoDeletesTheBatchsRequestBodies() async throws {
+        let harness = makeHarness()
+        let entry = try await enqueueURL(harness.outbox)
+        let batch = await harness.transfers.start(entries: [entry], userId: userId, accessToken: "jwt")
+        XCTAssertEqual(bodyFiles().count, 1)
+
+        harness.transfers.sessionDidBecomeInvalid(harness.session, error: URLError(.backgroundSessionInUseByAnotherProcess))
+        _ = await harness.transfers.entriesNeedingForegroundSend(in: batch)
+
+        XCTAssertTrue(bodyFiles().isEmpty, "the foreground send writes its own body")
+    }
+
+    // MARK: - Review fixes: stale bounds, checkpoints and drains
+
+    func testStartRecordsEachTransfersPhase() async throws {
+        let harness = makeHarness(oneShotLimit: 8)
+        let url = try await enqueueURL(harness.outbox)
+        let staged = try stageFile(bytes: Data(repeating: 1, count: 20), ext: "mov")
+        let big = try await enqueueFile(harness.outbox, at: staged, mime: "video/quicktime", name: "b.mov")
+        _ = await harness.transfers.start(entries: [url, big], userId: userId, accessToken: "jwt")
+        let urlNow = await harness.outbox.entry(id: url.id)
+        let bigNow = await harness.outbox.entry(id: big.id)
+        XCTAssertEqual(urlNow?.transferPhase, .capture)
+        XCTAssertEqual(bigNow?.transferPhase, .storage)
+    }
+
+    func testAnUncheckpointedStorageUploadGetsTheLongStaleBound() {
+        let started = Date(timeIntervalSince1970: 1_900_000_000)
+        var entry = OutboxEntry(id: UUID(), kind: .file, payload: ["local_file_path": "/x.mov"], createdAt: started,
+                                attempts: 0, status: .transferring, transferStartedAt: started, transferPhase: .storage)
+        XCTAssertFalse(Outbox.isEligibleForSend(entry, now: started.addingTimeInterval(700)),
+                       "a big upload can legitimately run for the whole resource timeout")
+        XCTAssertFalse(Outbox.isEligibleForSend(entry, now: started.addingTimeInterval(3600)))
+        XCTAssertTrue(Outbox.isEligibleForSend(entry, now: started.addingTimeInterval(Outbox.staleStorageTransferInterval + 1)))
+        XCTAssertGreaterThanOrEqual(Outbox.staleStorageTransferInterval, BackgroundCaptureTransfers.makeConfiguration().timeoutIntervalForResource)
+
+        entry.payload["file_path"] = "\(userId.uuidString.lowercased())/x.mov"
+        XCTAssertTrue(Outbox.isEligibleForSend(entry, now: started.addingTimeInterval(700)),
+                      "once checkpointed only the JSON capture is left: the short bound applies")
+        entry.transferPhase = .capture
+        entry.payload["file_path"] = nil
+        XCTAssertTrue(Outbox.isEligibleForSend(entry, now: started.addingTimeInterval(700)))
+        XCTAssertFalse(Outbox.isEligibleForSend(entry, now: started.addingTimeInterval(500)))
+    }
+
+    func testAnEntryWrittenByTheFirstPlan15BuildDecodesWithoutAPhase() throws {
+        let json = #"{"id":"\#(UUID().uuidString)","kind":"url","payload":{"url":"https://example.com"},"createdAt":0,"attempts":0,"status":"transferring","transferStartedAt":0}"#
+        let entry = try JSONDecoder().decode(OutboxEntry.self, from: Data(json.utf8))
+        XCTAssertEqual(entry.status, .transferring)
+        XCTAssertNil(entry.transferPhase)
+        let roundTripped = try JSONDecoder().decode(OutboxEntry.self, from: JSONEncoder().encode(entry))
+        XCTAssertEqual(roundTripped, entry)
+    }
+
+    func testPendingAndParkClearThePhase() async throws {
+        let outbox = Outbox(directory: outboxDir)
+        let entry = try await enqueueURL(outbox)
+        await outbox.markTransferring(ids: [entry.id], phase: .storage)
+        let marked = await outbox.entry(id: entry.id)
+        XCTAssertEqual(marked?.transferPhase, .storage)
+        await outbox.markPending(id: entry.id, incrementAttempts: false)
+        let pending = await outbox.entry(id: entry.id)
+        XCTAssertNil(pending?.transferPhase)
+        await outbox.markTransferring(ids: [entry.id], phase: .capture)
+        await outbox.park(id: entry.id)
+        let parked = await outbox.entry(id: entry.id)
+        XCTAssertNil(parked?.transferPhase)
+    }
+
+    /// The data-loss sequence from the review: a drain resends a big file whose background Storage
+    /// upload is still running; the background upload lands and checkpoints (deleting the local
+    /// copy) while the drain's own upload is in flight; the drain's upload then fails. Its failure
+    /// write-back must not restore its older copy of the entry (no `file_path`, a local path that
+    /// no longer exists), or the next drain drops an entry whose bytes are safely in Storage.
+    func testADrainFailureKeepsACheckpointABackgroundUploadWroteMeanwhile() async throws {
+        let server = FakeCaptureServer()
+        let outbox = Outbox(directory: outboxDir)
+        let staged = try stageFile(bytes: Data(repeating: 0x05, count: 32), ext: "mov")
+        let entry = try await outbox.enqueue(.file, payload: ["local_file_path": staged.path, "mime_type": "video/quicktime",
+                                                              "file_name": "clip.mov", "is_public": "false"])
+        let path = "\(userId.uuidString.lowercased())/\(entry.id.uuidString.lowercased()).mov"
+        let directory = outboxDir!
+        server.onRequest = { call in
+            // The background task's completion, applied by another process, mid-drain.
+            if call.isStorage { await Outbox(directory: directory).checkpoint(id: entry.id, filePath: path) }
+        }
+        server.storageBehaviors = [.fail(URLError(.networkConnectionLost))]
+        let api = CaptureAPI(transport: server, oneShotLimit: 8)
+
+        _ = await outbox.drain(api: api, accessToken: "jwt", userId: userId)
+
+        let afterFailure = await outbox.entry(id: entry.id)
+        XCTAssertEqual(afterFailure?.payload["file_path"], path, "the checkpoint survives the drain's failure write-back")
+        XCTAssertEqual(afterFailure?.status, .pending)
+        XCTAssertEqual(afterFailure?.attempts, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
+
+        server.onRequest = nil
+        let sent = await outbox.drain(api: api, accessToken: "jwt", userId: userId)
+        XCTAssertEqual(sent, 1, "the next drain sends the JSON capture instead of dropping the entry")
+        XCTAssertEqual(server.captures.last?.meta["file_path"] as? String, path)
+        XCTAssertEqual(server.createdItemCount, 1)
+        let gone = await outbox.entry(id: entry.id)
+        XCTAssertNil(gone)
+    }
+
+    /// A process killed between a background Storage upload's checkpoint and its follow-up
+    /// capture: the entry is still `.transferring` (storage phase), but checkpointed — the drain
+    /// sends its JSON capture after the short bound, not the one-hour one.
+    func testAKillBetweenCheckpointAndFollowUpIsResentAfterTheShortBound() async throws {
+        let server = FakeCaptureServer()
+        let clock = TestClock(Date(timeIntervalSince1970: 1_900_000_000))
+        let outbox = Outbox(directory: outboxDir, now: { clock.now })
+        let staged = try stageFile(bytes: Data(repeating: 0x09, count: 32), ext: "mov")
+        let entry = try await outbox.enqueue(.file, payload: ["local_file_path": staged.path, "mime_type": "video/quicktime",
+                                                              "file_name": "k.mov", "is_public": "false"], status: .transferring)
+        await outbox.markTransferring(ids: [entry.id], phase: .storage)
+        let path = "\(userId.uuidString.lowercased())/\(entry.id.uuidString.lowercased()).mov"
+        await outbox.checkpoint(id: entry.id, filePath: path)   // …and the process dies here
+        let api = CaptureAPI(transport: server, oneShotLimit: 8)
+
+        clock.now = clock.now.addingTimeInterval(Outbox.staleTransferInterval - 1)
+        let early = await outbox.drain(api: api, accessToken: "jwt", userId: userId)
+        XCTAssertEqual(early, 0)
+
+        clock.now = clock.now.addingTimeInterval(2)
+        let sent = await outbox.drain(api: api, accessToken: "jwt", userId: userId)
+        XCTAssertEqual(sent, 1)
+        XCTAssertTrue(server.storageUploads.isEmpty, "never re-uploaded")
+        XCTAssertEqual(server.captures.first?.meta["file_path"] as? String, path)
+    }
+
+    func testAStorageCompletionMakesTheEntrySendableBeforeTheFollowUpStarts() async throws {
+        // With no token, the follow-up can't start — the checkpointed entry must already be
+        // `.pending` (drain-eligible now), not stuck `.transferring` behind a stale bound.
+        let harness = makeHarness(token: nil, oneShotLimit: 8)
+        let staged = try stageFile(bytes: Data(repeating: 0x03, count: 24), ext: "mov")
+        let entry = try await enqueueFile(harness.outbox, at: staged, mime: "video/quicktime", name: "p.mov")
+        _ = await harness.transfers.start(entries: [entry], userId: userId, accessToken: "jwt")
+
+        await finish(harness, upload: harness.session.uploads[0], status: 200)
+
+        let stored = try await XCTUnwrapAsync(await harness.outbox.entry(id: entry.id))
+        XCTAssertEqual(stored.status, .pending)
+        XCTAssertNil(stored.transferPhase)
+        XCTAssertTrue(Outbox.isEligibleForSend(stored, now: Date()))
     }
 }
 

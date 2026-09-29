@@ -22,40 +22,44 @@ import Supabase
 
 // MARK: - Task description
 
-/// Which half of a capture one background task carries.
-public enum BackgroundTransferPhase: String, Sendable, CaseIterable {
-    /// The `capture` endpoint request (JSON, or one multipart body for a small file).
-    case capture
-    /// The two-step lane's Storage upsert of a big file; a JSON `capture` task follows it.
-    case storage
-}
+/// Which half of a capture one background task carries: `capture` — the `capture` endpoint
+/// request (JSON, or one multipart body for a small file); `storage` — the two-step lane's
+/// Storage upsert of a big file (a JSON `capture` task follows it). The same enum the Outbox
+/// records on a `.transferring` entry.
+public typealias BackgroundTransferPhase = OutboxEntry.TransferPhase
 
-/// A background task's `taskDescription`: `"<userId>|<entryId>|<phase>"`, ids lowercased. It is
-/// the only state that reaches whichever process the system wakes with the task's events, so it
-/// names everything the completion needs: whose Outbox, which entry, which half of the capture.
+/// A background task's `taskDescription`: `"<userId>|<entryId>|<phase>"`, ids lowercased, plus an
+/// optional fourth component `refreshed` once the task was restarted with a freshly refreshed
+/// token. It is the only state that reaches whichever process the system wakes with the task's
+/// events, so it names everything the completion needs: whose Outbox, which entry, which half of
+/// the capture, and whether the one token-refresh retry was already spent.
 public struct BackgroundTransferDescriptor: Hashable, Sendable {
     public let userId: UUID
     public let entryId: UUID
     public let phase: BackgroundTransferPhase
+    /// `true` for a task restarted after a 401 with a refreshed token (it gets no second retry).
+    public let refreshed: Bool
 
-    public init(userId: UUID, entryId: UUID, phase: BackgroundTransferPhase) {
+    public init(userId: UUID, entryId: UUID, phase: BackgroundTransferPhase, refreshed: Bool = false) {
         self.userId = userId
         self.entryId = entryId
         self.phase = phase
+        self.refreshed = refreshed
     }
 
     public var taskDescription: String {
         "\(userId.uuidString.lowercased())|\(entryId.uuidString.lowercased())|\(phase.rawValue)"
+            + (refreshed ? "|refreshed" : "")
     }
 
     /// `nil` for anything that isn't exactly this format (a task this code didn't create).
     public init?(taskDescription: String?) {
         guard let parts = taskDescription?.split(separator: "|", omittingEmptySubsequences: false),
-              parts.count == 3,
+              parts.count == 3 || (parts.count == 4 && parts[3] == "refreshed"),
               let userId = UUID(uuidString: String(parts[0])),
               let entryId = UUID(uuidString: String(parts[1])),
               let phase = BackgroundTransferPhase(rawValue: String(parts[2])) else { return nil }
-        self.init(userId: userId, entryId: entryId, phase: phase)
+        self.init(userId: userId, entryId: entryId, phase: phase, refreshed: parts.count == 4)
     }
 }
 
@@ -78,11 +82,19 @@ public enum BackgroundTransferDecision: Equatable, Sendable {
     /// 413 `file_too_large`: back to `.pending` (attempt counted) with the next send forced
     /// through the two-step Storage lane.
     case retryTwoStep
+    /// The token was rejected (401, or Storage's "jwt expired"): a background task can sit in the
+    /// system's queue — no signal — longer than a token lives. Restart the SAME phase in the
+    /// session once with a freshly refreshed token, without counting an attempt.
+    case refreshTokenAndRetry
 
     /// Maps one finished task. `error` is the task's transport error (a transport error always
     /// wins over a partial response — the body may be cut off); `statusCode` its HTTP status.
+    /// `bodyTruncated`: the response body went over the accumulation cap (a 2xx capture then
+    /// still completes — the server has it; only its row can't be read back).
+    /// `afterTokenRefresh`: the task already was the one token-refresh retry.
     public static func decide(phase: BackgroundTransferPhase, statusCode: Int?, body: Data,
-                              error: Error?) -> BackgroundTransferDecision {
+                              error: Error?, bodyTruncated: Bool = false,
+                              afterTokenRefresh: Bool = false) -> BackgroundTransferDecision {
         if let error {
             if (error as? URLError)?.code == .backgroundSessionInUseByAnotherProcess {
                 return .retry(countsAsAttempt: false)
@@ -95,6 +107,7 @@ public enum BackgroundTransferDecision: Equatable, Sendable {
             case .storage:
                 return .checkpointThenCapture
             case .capture:
+                if bodyTruncated { return .complete(CaptureResult(item: nil, duplicate: false)) }
                 // A 2xx that isn't the endpoint's JSON (a proxy page, a cut-off body) is treated
                 // like the foreground lane treats it: a failed attempt. The resend is harmless —
                 // if the capture did land, the server answers `duplicate: true`.
@@ -104,12 +117,24 @@ public enum BackgroundTransferDecision: Equatable, Sendable {
                 return .complete(result)
             }
         }
+        if isRejectedToken(phase: phase, statusCode: statusCode, body: body) {
+            return afterTokenRefresh ? .retry(countsAsAttempt: true) : .refreshTokenAndRetry
+        }
         switch captureErrorForFailedResponse(status: statusCode, body: body) {
         case .subscriptionRequired: return .park
         case .inProgress: return .retry(countsAsAttempt: false)
         case .fileTooLarge: return .retryTwoStep
         default: return .retry(countsAsAttempt: true)
         }
+    }
+
+    /// A token rejection: any 401 (the gateway's "Invalid JWT", the endpoint's own auth check),
+    /// or — Storage only — a 400/403 whose body names the JWT (Storage answers an expired token
+    /// with e.g. `{"statusCode":"403","error":"Unauthorized","message":"jwt expired"}`).
+    static func isRejectedToken(phase: BackgroundTransferPhase, statusCode: Int, body: Data) -> Bool {
+        if statusCode == 401 { return true }
+        guard phase == .storage, statusCode == 400 || statusCode == 403 else { return false }
+        return String(decoding: body.prefix(4096), as: UTF8.self).lowercased().contains("jwt")
     }
 
     /// A log-safe summary (never the item itself — that's user content).
@@ -120,6 +145,7 @@ public enum BackgroundTransferDecision: Equatable, Sendable {
         case .park: "park"
         case .retry(let countsAsAttempt): "retry (attempt counted: \(countsAsAttempt))"
         case .retryTwoStep: "retry two-step"
+        case .refreshTokenAndRetry: "refresh the token and retry once"
         }
     }
 }
@@ -184,6 +210,10 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     /// an hour); `sweepStaleBodyFiles` removes them.
     public static let staleBodyFileAge: TimeInterval = 3 * 3600
 
+    /// At most this much of one response is kept: a `duplicate: true` answer carries the whole
+    /// item row (page text included), and nothing past the capture's own JSON is ever needed.
+    static let maxResponseBodyBytes = 2 * 1024 * 1024
+
     // Dependencies (injectable for tests).
     private let bodyDirectory: URL
     private let outboxForUser: @Sendable (UUID) -> Outbox
@@ -214,6 +244,8 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     /// process was connected) — their tasks will never report back here.
     private var lostGenerations: Set<Int> = []
     private var responseBodies: [Int: Data] = [:]
+    /// Tasks whose response went over `maxResponseBodyBytes` (the rest was dropped).
+    private var truncatedResponses: Set<Int> = []
     private var eventsCompletionHandlers: [() -> Void] = []
     private var workTail: Task<Void, Never>?
 
@@ -288,7 +320,7 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
                 notStarted.append(entry.id)
                 continue
             }
-            guard !(await outbox.markTransferring(ids: [entry.id])).isEmpty else {
+            guard !(await outbox.markTransferring(ids: [entry.id], phase: upload.phase)).isEmpty else {
                 // Parked or gone in the meantime — nothing to send.
                 upload.discardBody()
                 continue
@@ -319,6 +351,7 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
                 ids.append(id)
             case .transferring where connectionLost:
                 await outbox.markPending(id: id, incrementAttempts: false)
+                discardBodyFiles(for: id)
                 ids.append(id)
             case .transferring, .parked:
                 break
@@ -395,7 +428,13 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     }
 
     private func prepareUpload(for entry: OutboxEntry, userId: UUID, accessToken: String) throws -> PreparedUpload {
-        if CaptureTransport.requiresTwoStep(entry, oneShotLimit: oneShotLimit) {
+        let phase: BackgroundTransferPhase = CaptureTransport.requiresTwoStep(entry, oneShotLimit: oneShotLimit) ? .storage : .capture
+        return try prepareUpload(for: entry, phase: phase, userId: userId, accessToken: accessToken)
+    }
+
+    private func prepareUpload(for entry: OutboxEntry, phase: BackgroundTransferPhase, userId: UUID,
+                               accessToken: String) throws -> PreparedUpload {
+        if phase == .storage {
             let storage = try CaptureTransport.storageUpload(for: entry, userId: userId, accessToken: accessToken)
             guard FileManager.default.fileExists(atPath: storage.fileURL.path) else {
                 throw CaptureError.invalidEntry("the staged file is missing")
@@ -453,7 +492,21 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
             let path = CaptureTransport.storagePath(userId: descriptor.userId, entryId: entry.id,
                                                     fileExtension: CaptureTransport.storageFileExtension(for: entry))
             guard let checkpointed = await outbox.checkpoint(id: entry.id, filePath: path), !parked else { return }
-            await startFollowUpCapture(checkpointed, userId: descriptor.userId, outbox: outbox)
+            // Pending first: if this process dies before the follow-up starts, the next drain
+            // sends the (small) JSON capture right away instead of waiting out a stale bound.
+            await outbox.markPending(id: entry.id, incrementAttempts: false)
+            guard let token = await accessTokenForUser(descriptor.userId) else { return }
+            await restartTransfer(checkpointed, phase: .capture, userId: descriptor.userId, token: token,
+                                  refreshed: false, outbox: outbox)
+        case .refreshTokenAndRetry:
+            guard !parked else { return }
+            guard let token = await accessTokenForUser(descriptor.userId) else {
+                // No session for that user any more (signed out) — the app sends it when it has one.
+                await outbox.markPending(id: entry.id, incrementAttempts: false)
+                return
+            }
+            await restartTransfer(entry, phase: descriptor.phase, userId: descriptor.userId, token: token,
+                                  refreshed: true, outbox: outbox)
         case .park:
             await outbox.park(id: entry.id)
         case .retry(let countsAsAttempt):
@@ -465,28 +518,28 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
         }
     }
 
-    /// The two-step lane's second half, after its Storage upsert landed: a JSON capture carrying
-    /// `file_path`, as a task in the same session. When this process's session is already
-    /// winding down (the app handles events, then invalidates), that small request goes out in
-    /// the foreground instead; with no token for the entry's user it waits for the next drain.
-    private func startFollowUpCapture(_ entry: OutboxEntry, userId: UUID, outbox: Outbox) async {
-        guard let token = await accessTokenForUser(userId) else {
-            await outbox.markPending(id: entry.id, incrementAttempts: false)
-            return
-        }
+    /// Starts `phase` for `entry` as a new task in this process's session, with `token`: the
+    /// two-step lane's second half (a JSON capture carrying `file_path`, after the Storage upsert
+    /// landed) or the one retry of a phase whose token was rejected (`refreshed`). When this
+    /// process's session is already winding down (the app handles events, then invalidates), the
+    /// entry is sent in the foreground instead. Nothing here counts an attempt.
+    private func restartTransfer(_ entry: OutboxEntry, phase: BackgroundTransferPhase, userId: UUID, token: String,
+                                 refreshed: Bool, outbox: Outbox) async {
         guard let session = lock.withLock({ self.session }) else {
             await outbox.markPending(id: entry.id, incrementAttempts: false)
             await foregroundSend(outbox, entry.id, userId, token)
             return
         }
         do {
-            let prepared = try CaptureTransport.captureRequest(for: entry, accessToken: token, bodyDirectory: bodyDirectory)
-            guard !(await outbox.markTransferring(ids: [entry.id])).isEmpty else {
-                try? FileManager.default.removeItem(at: prepared.bodyFile)
+            let upload = try prepareUpload(for: entry, phase: phase, userId: userId, accessToken: token)
+            guard !(await outbox.markTransferring(ids: [entry.id], phase: phase)).isEmpty else {
+                upload.discardBody()
                 return
             }
-            let descriptor = BackgroundTransferDescriptor(userId: userId, entryId: entry.id, phase: .capture)
-            session.startUpload(prepared.urlRequest, fromFile: prepared.bodyFile, taskDescription: descriptor.taskDescription)
+            let descriptor = BackgroundTransferDescriptor(userId: userId, entryId: entry.id, phase: phase,
+                                                          refreshed: refreshed)
+            session.startUpload(upload.request, fromFile: upload.file, taskDescription: descriptor.taskDescription)
+            log.notice("restart: entry \(entry.id.uuidString, privacy: .public) phase \(phase.rawValue, privacy: .public) (token refreshed: \(refreshed))")
         } catch {
             await outbox.markPending(id: entry.id, incrementAttempts: false)
         }
@@ -542,6 +595,9 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     /// process that is connected, or wake the app again later.
     func sessionDidBecomeInvalid(_ invalid: BackgroundUploadSession, error: Error?) {
         let orphanedHandlers = lock.withLock { () -> [() -> Void] in
+            // One session at a time, so every body still kept belonged to this one.
+            responseBodies = [:]
+            truncatedResponses = []
             if windingDownSession === invalid { windingDownSession = nil }
             guard session === invalid else { return [] }
             session = nil
@@ -590,13 +646,28 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     // MARK: Delegate bridging (testable without a real task)
 
     func didReceive(_ data: Data, forTask taskIdentifier: Int) {
-        lock.withLock { responseBodies[taskIdentifier, default: Data()].append(data) }
+        lock.withLock {
+            var body = responseBodies[taskIdentifier, default: Data()]
+            let room = Self.maxResponseBodyBytes - body.count
+            if data.count > room {
+                body.append(data.prefix(max(0, room)))
+                truncatedResponses.insert(taskIdentifier)
+            } else {
+                body.append(data)
+            }
+            responseBodies[taskIdentifier] = body
+        }
     }
 
     func didComplete(taskIdentifier: Int, taskDescription: String?, statusCode: Int?, error: Error?) {
-        let body = lock.withLock { responseBodies.removeValue(forKey: taskIdentifier) } ?? Data()
-        let phase = BackgroundTransferDescriptor(taskDescription: taskDescription)?.phase ?? .capture
-        let decision = BackgroundTransferDecision.decide(phase: phase, statusCode: statusCode, body: body, error: error)
+        let (body, truncated) = lock.withLock {
+            (responseBodies.removeValue(forKey: taskIdentifier) ?? Data(),
+             truncatedResponses.remove(taskIdentifier) != nil)
+        }
+        let descriptor = BackgroundTransferDescriptor(taskDescription: taskDescription)
+        let decision = BackgroundTransferDecision.decide(phase: descriptor?.phase ?? .capture, statusCode: statusCode,
+                                                         body: body, error: error, bodyTruncated: truncated,
+                                                         afterTokenRefresh: descriptor?.refreshed ?? false)
         enqueue { [weak self] in
             await self?.handleCompletion(taskDescription: taskDescription, decision: decision)
         }

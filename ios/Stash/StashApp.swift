@@ -172,8 +172,8 @@ struct StashApp: App {
     }
 
     /// Plan 15 Task 4: drains only when something is actually sendable — a `.pending` entry, or
-    /// a `.transferring` one whose background transfer went stale (`Outbox.staleTransferInterval`;
-    /// the server dedupes by capture id if it did land). A fresh transfer is left to its task.
+    /// a `.transferring` one whose background transfer went stale (`Outbox.isEligibleForSend`;
+    /// the server dedupes by capture id if it did land). A live transfer is left to its task.
     private func drainIfNeeded(userId: UUID) async {
         let outbox = Outbox(directory: Outbox.defaultDirectory(userId: userId))
         #if DEBUG
@@ -182,15 +182,7 @@ struct StashApp: App {
         }
         #endif
         let now = Date()
-        let sendable = await outbox.pending().contains { entry in
-            switch entry.status {
-            case .pending: return true
-            case .parked: return false
-            case .transferring:
-                guard let started = entry.transferStartedAt else { return true }
-                return now.timeIntervalSince(started) > Outbox.staleTransferInterval
-            }
-        }
+        let sendable = await outbox.pending().contains { Outbox.isEligibleForSend($0, now: now) }
         guard sendable, let token = try? await StashClient.shared.auth.session.accessToken else { return }
         _ = await outbox.drain(api: CaptureAPI(), accessToken: token, userId: userId,
                                upload: { fileURL, path, contentType in
@@ -278,6 +270,8 @@ enum UITestHooks {
     /// - `--uitest-share-exit-after-handoff=<ms>` → `uitest.shareExitAfterHandoffMs`: the
     ///   extension exits that long after handing the share to the background session, so the
     ///   upload can only finish through the transfer daemon and the app.
+    /// - `--uitest-share-confirmation-hold=<ms>` → `uitest.shareConfirmationHoldMs`: the
+    ///   extension holds "Saved to Stash" that long (instead of 800 ms) so XCUITest sees it.
     static func applyShareExtensionOverrides() {
         let defaults = UserDefaults(suiteName: AppGroup.identifier)
         if arguments.contains("--uitest-share-gate-open") {
@@ -285,11 +279,13 @@ enum UITestHooks {
         } else {
             defaults?.removeObject(forKey: "uitest.shareGateOpen")
         }
-        let exitPrefix = "--uitest-share-exit-after-handoff="
-        if let value = arguments.first(where: { $0.hasPrefix(exitPrefix) }).flatMap({ Int($0.dropFirst(exitPrefix.count)) }) {
-            defaults?.set(value, forKey: "uitest.shareExitAfterHandoffMs")
-        } else {
-            defaults?.removeObject(forKey: "uitest.shareExitAfterHandoffMs")
+        for (prefix, key) in [("--uitest-share-exit-after-handoff=", "uitest.shareExitAfterHandoffMs"),
+                              ("--uitest-share-confirmation-hold=", "uitest.shareConfirmationHoldMs")] {
+            if let value = arguments.first(where: { $0.hasPrefix(prefix) }).flatMap({ Int($0.dropFirst(prefix.count)) }) {
+                defaults?.set(value, forKey: key)
+            } else {
+                defaults?.removeObject(forKey: key)
+            }
         }
     }
 }

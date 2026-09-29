@@ -471,26 +471,12 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "bounded by the timeout, not by the refresh")
     }
 
-    func testReturnToQueueFlipsTransferringEntriesToPendingWithoutCountingAnAttempt() async throws {
-        let outbox = Outbox(directory: dir)
-        let intake = makeIntake(server: FakeCaptureServer(), outbox: outbox)
-        let entries = await intake.enqueueForTransfer([.url("https://example.com"), .text("x")], note: nil, location: nil)
-
-        await intake.returnToQueue(entries.map(\.id))
-
-        let stored = await outbox.pending()
-        XCTAssertEqual(stored.map(\.status), [.pending, .pending])
-        XCTAssertEqual(stored.map(\.attempts), [0, 0])
-        XCTAssertTrue(stored.allSatisfy { $0.transferStartedAt == nil })
-    }
-
     func testSendInForegroundSendsTheGivenEntriesOverTheIdempotentEndpoint() async throws {
         let server = FakeCaptureServer()
         let outbox = Outbox(directory: dir)
         let intake = makeIntake(server: server, outbox: outbox)
         let entries = await intake.enqueueForTransfer([.url("https://example.com/a"), .url("https://example.com/b")],
-                                                      note: nil, location: nil)
-        await intake.returnToQueue(entries.map(\.id))
+                                                      note: nil, location: nil, status: .pending)
 
         let result = await intake.sendInForeground(entries.map(\.id), accessToken: "jwt", timeout: 5)
 
@@ -506,8 +492,8 @@ final class ShareIntakeTests: XCTestCase {
         let intake = ShareIntake(userId: userId, capture: CaptureAPI(transport: transport), outbox: outbox,
                                  staging: StagedFileStore(userId: userId, directory: stagingDir), accessToken: { "jwt" })
         let entries = await intake.enqueueForTransfer(
-            [.url("https://example.com/1"), .url("https://example.com/2"), .url("https://example.com/3")], note: nil, location: nil)
-        await intake.returnToQueue(entries.map(\.id))
+            [.url("https://example.com/1"), .url("https://example.com/2"), .url("https://example.com/3")], note: nil,
+            location: nil, status: .pending)
         let started = Date()
 
         let result = await intake.sendInForeground(entries.map(\.id), accessToken: "jwt", timeout: 0.75)
@@ -529,13 +515,70 @@ final class ShareIntakeTests: XCTestCase {
         let outbox = Outbox(directory: dir)
         let intake = makeIntake(server: server, outbox: outbox, staging: store, directSendLimit: 16)
         let entries = await intake.enqueueForTransfer(
-            [.file(stagedURL: staged, mimeType: "video/quicktime", fileName: nil, durationS: nil)], note: nil, location: nil)
-        await intake.returnToQueue(entries.map(\.id))
+            [.file(stagedURL: staged, mimeType: "video/quicktime", fileName: nil, durationS: nil)], note: nil,
+            location: nil, status: .pending)
 
         let result = await intake.sendInForeground(entries.map(\.id), accessToken: "jwt")
 
         XCTAssertEqual(result, ShareIntakeResult(queued: 1))
         XCTAssertTrue(server.calls.isEmpty)
+    }
+
+    // MARK: - Late location (plan 15 review: the confirmation never waits on the pin)
+
+    func testEnqueueForTransferCanPersistPendingForTheApp() async throws {
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: FakeCaptureServer(), outbox: outbox)
+
+        let entries = await intake.enqueueForTransfer([.url("https://example.com")], note: "n", location: nil, status: .pending)
+
+        XCTAssertEqual(entries.map(\.status), [.pending])
+        XCTAssertNil(entries.first?.transferStartedAt)
+    }
+
+    func testAttachLocationMergesIntoEveryEntrysAttributesKeepingTheRest() async throws {
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let staged = try stageFile(store: store, bytes: Data([0x01, 0x02]), ext: "jpg")
+        let outbox = Outbox(directory: dir)
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server, outbox: outbox, staging: store)
+        let entries = await intake.enqueueForTransfer(
+            [.url("https://example.com"), .file(stagedURL: staged, mimeType: "image/jpeg", fileName: "IMG_7.jpg", durationS: nil)],
+            note: "late pin", location: nil, status: .pending)
+        XCTAssertNil(entries[0].payload["attributes_json"], "no location yet")
+
+        let updated = await intake.attachLocation(CapturedLocation(label: "Testville", source: "device-geolocation"),
+                                                  to: entries)
+
+        XCTAssertEqual(updated.map(\.id), entries.map(\.id))
+        for entry in updated {
+            let attributes = try XCTUnwrap(CaptureTransport.attributesObject(from: entry.payload["attributes_json"]))
+            XCTAssertEqual((attributes["location"] as? [String: Any])?["label"] as? String, "Testville")
+        }
+        let fileAttributes = try XCTUnwrap(CaptureTransport.attributesObject(from: updated[1].payload["attributes_json"]))
+        XCTAssertEqual((fileAttributes["media"] as? [String: Any])?["file_name"] as? String, "IMG_7.jpg", "media kept")
+        XCTAssertEqual(updated[0].payload["content"], "late pin", "the rest of the payload untouched")
+        let persisted = await outbox.entry(id: entries[1].id)
+        XCTAssertEqual(persisted?.payload["attributes_json"], updated[1].payload["attributes_json"], "written to disk")
+
+        // What the server then receives carries the location.
+        _ = await intake.sendInForeground(updated.map(\.id), accessToken: "jwt")
+        XCTAssertEqual((server.captures.first?.attributes?["location"] as? [String: Any])?["label"] as? String, "Testville")
+    }
+
+    func testAttachLocationSkipsAnEntryTheAppAlreadySent() async throws {
+        let outbox = Outbox(directory: dir)
+        let intake = makeIntake(server: FakeCaptureServer(), outbox: outbox)
+        let entries = await intake.enqueueForTransfer([.url("https://example.com/a"), .url("https://example.com/b")],
+                                                      note: nil, location: nil, status: .pending)
+        await outbox.complete(id: entries[0].id)
+
+        let updated = await intake.attachLocation(CapturedLocation(label: "Testville", source: "device-geolocation"),
+                                                  to: entries)
+
+        XCTAssertEqual(updated.map(\.id), [entries[1].id])
+        let resurrected = await outbox.entry(id: entries[0].id)
+        XCTAssertNil(resurrected, "never re-created")
     }
 
     // MARK: - `ProviderLoader` ordering decision — `reorderURLFirst`

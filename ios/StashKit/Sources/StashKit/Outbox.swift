@@ -23,6 +23,9 @@ public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
     ///   `Outbox.staleTransferInterval` (or missing), then resends it — safe, because the server
     ///   dedupes by capture id if the transfer actually landed.
     public enum Status: String, Codable, Sendable { case pending, parked, transferring }
+    /// Which half of a capture a background transfer is carrying (plan 15 Task 4): the `capture`
+    /// request itself, or the two-step lane's Storage upload of a big file.
+    public enum TransferPhase: String, Codable, Sendable, CaseIterable { case capture, storage }
     public var id: UUID
     public var kind: Kind
     public var payload: [String: String]
@@ -30,9 +33,13 @@ public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
     public var attempts: Int
     public var status: Status
     public var transferStartedAt: Date?
+    /// The phase of the background transfer that owns a `.transferring` entry (`nil` when not
+    /// known — e.g. between enqueue and the transfer's start). A Storage upload gets a longer
+    /// stale bound (`Outbox.staleInterval(for:)`).
+    public var transferPhase: TransferPhase?
 
     public init(id: UUID, kind: Kind, payload: [String: String], createdAt: Date, attempts: Int,
-                status: Status = .pending, transferStartedAt: Date? = nil) {
+                status: Status = .pending, transferStartedAt: Date? = nil, transferPhase: TransferPhase? = nil) {
         self.id = id
         self.kind = kind
         self.payload = payload
@@ -40,15 +47,18 @@ public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
         self.attempts = attempts
         self.status = status
         self.transferStartedAt = transferStartedAt
+        self.transferPhase = transferPhase
     }
 
-    private enum CodingKeys: String, CodingKey { case id, kind, payload, createdAt, attempts, status, transferStartedAt }
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, payload, createdAt, attempts, status, transferStartedAt, transferPhase
+    }
 
     /// Custom `Decodable` so an entry written to disk by an OLDER build still decodes: no `status`
-    /// key (pre-plan-14) → `.pending`; no `transferStartedAt` (pre-plan-15) → `nil`. Entry ids were
-    /// always UUIDs, so every old entry already carries a valid idempotency key — no migration.
-    /// `encode(to:)` stays compiler-synthesized, so a re-persisted entry always carries an explicit
-    /// `status` (and `transferStartedAt` whenever set).
+    /// key (pre-plan-14) → `.pending`; no `transferStartedAt`/`transferPhase` (pre-plan-15) →
+    /// `nil`. Entry ids were always UUIDs, so every old entry already carries a valid idempotency
+    /// key — no migration. `encode(to:)` stays compiler-synthesized, so a re-persisted entry always
+    /// carries an explicit `status` (and `transferStartedAt`/`transferPhase` whenever set).
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
@@ -58,6 +68,7 @@ public struct OutboxEntry: Codable, Identifiable, Sendable, Equatable {
         attempts = try container.decode(Int.self, forKey: .attempts)
         status = try container.decodeIfPresent(Status.self, forKey: .status) ?? .pending
         transferStartedAt = try container.decodeIfPresent(Date.self, forKey: .transferStartedAt)
+        transferPhase = try container.decodeIfPresent(TransferPhase.self, forKey: .transferPhase)
     }
 }
 
@@ -146,6 +157,32 @@ public actor Outbox {
     /// resends it itself. A resend is always safe — the server dedupes by capture id — this only
     /// bounds how long a transfer that silently died (or never started) can delay a capture.
     public static let staleTransferInterval: TimeInterval = 600
+
+    /// Plan 15 review: the bound for a background Storage upload of a big file that hasn't been
+    /// checkpointed yet. Such an upload can legitimately run for the background session's whole
+    /// resource timeout (3600 s) on a slow network; resending it after 10 minutes would upload the
+    /// same file twice. Once its bytes are checkpointed (`file_path`), only the short JSON capture
+    /// is left and `staleTransferInterval` applies again.
+    public static let staleStorageTransferInterval: TimeInterval = 3600 + 300
+
+    /// The stale bound for `entry`'s background transfer (see the two intervals above).
+    public static func staleInterval(for entry: OutboxEntry) -> TimeInterval {
+        entry.transferPhase == .storage && entry.payload["file_path"] == nil
+            ? staleStorageTransferInterval : staleTransferInterval
+    }
+
+    /// Whether `drain`/`sendNow` would send `entry` at `now`: `.pending` always; `.transferring`
+    /// once its transfer is stale (or was never stamped); `.parked` never. Public so the app can
+    /// decide whether a drain is worth starting at all.
+    public static func isEligibleForSend(_ entry: OutboxEntry, now: Date) -> Bool {
+        switch entry.status {
+        case .pending: return true
+        case .parked: return false
+        case .transferring:
+            guard let started = entry.transferStartedAt else { return true }
+            return now.timeIntervalSince(started) > staleInterval(for: entry)
+        }
+    }
 
     /// How long a claim sidecar with NO matching entry is left alone before `sweepOrphanClaims`
     /// (Task 4) treats it as inert clutter rather than a claim mid-cleanup by its own owning
@@ -315,15 +352,9 @@ public actor Outbox {
     }
 
     /// `.pending` always; `.transferring` once its background transfer is stale (or was never
-    /// stamped); `.parked` never.
+    /// stamped); `.parked` never — see `Outbox.isEligibleForSend(_:now:)`.
     private func isEligibleForSend(_ entry: OutboxEntry) -> Bool {
-        switch entry.status {
-        case .pending: return true
-        case .parked: return false
-        case .transferring:
-            guard let started = entry.transferStartedAt else { return true }
-            return now().timeIntervalSince(started) > Self.staleTransferInterval
-        }
+        Self.isEligibleForSend(entry, now: now())
     }
 
     private func resolvedUpload(_ upload: (@Sendable (URL, String, String) async throws -> Void)?, api: CaptureAPI,
@@ -340,13 +371,20 @@ public actor Outbox {
         var entry = claimed
         if entry.kind == .file, entry.payload["file_path"] == nil, let localPath = entry.payload["local_file_path"],
            !FileManager.default.fileExists(atPath: localPath) {
-            // Permanent failure: the local bytes are gone (e.g. the app's on-disk state was
-            // cleared before this entry was ever sent). Unlike every other failure below — each
-            // retried, never dropped — retrying can never succeed here, so the entry is dropped.
-            print("Outbox: dropping entry \(entry.id) — its local file is missing, it can never be sent")
-            try? FileManager.default.removeItem(at: fileURL(for: entry.id))
-            releaseClaim(for: entry.id)
-            return .dropped
+            // Plan 15 review: re-read before dropping — a background Storage upload may have
+            // checkpointed this entry (`file_path`) and deleted the local copy since the snapshot;
+            // such an entry only needs its JSON capture.
+            if let fresh = self.entry(id: entry.id), fresh.payload["file_path"] != nil {
+                entry = fresh
+            } else {
+                // Permanent failure: the local bytes are gone (e.g. the app's on-disk state was
+                // cleared before this entry was ever sent). Unlike every other failure below — each
+                // retried, never dropped — retrying can never succeed here, so the entry is dropped.
+                print("Outbox: dropping entry \(entry.id) — its local file is missing, it can never be sent")
+                try? FileManager.default.removeItem(at: fileURL(for: entry.id))
+                releaseClaim(for: entry.id)
+                return .dropped
+            }
         }
         do {
             if CaptureTransport.requiresTwoStep(entry, oneShotLimit: api.oneShotLimit) {
@@ -369,31 +407,37 @@ public actor Outbox {
         } catch CaptureError.subscriptionRequired {
             // Plan 14 T3: the account can't add content right now, which no retry of this send can
             // fix — park it (attempts untouched: not a failure of the send itself).
-            entry.status = .parked
-            entry.transferStartedAt = nil
-            persistIfPresent(entry)
+            updateStatusIfPresent(entry.id, to: .parked, countingAttempt: false)
             releaseClaim(for: entry.id)
             return .parked
         } catch CaptureError.inProgress {
             // Plan 15: another attempt with this capture id is mid-flight server-side (e.g. a
             // background transfer). Not a failure: stays pending, attempts unchanged; the next
             // pass gets the finished receipt back as `duplicate: true`.
-            entry.status = .pending
-            entry.transferStartedAt = nil
-            persistIfPresent(entry)
+            updateStatusIfPresent(entry.id, to: .pending, countingAttempt: false)
             releaseClaim(for: entry.id)
             return .pending
         } catch {
-            entry.status = .pending
-            entry.transferStartedAt = nil
-            entry.attempts += 1
-            persistIfPresent(entry)
+            updateStatusIfPresent(entry.id, to: .pending, countingAttempt: true)
             // Release even on failure (attempts still increments above) so the entry is
             // re-eligible immediately on the very next pass — by this process or another —
             // rather than waiting out `staleClaimInterval` for no reason.
             releaseClaim(for: entry.id)
             return .pending
         }
+    }
+
+    /// Plan 15 review: a failed or deferred send updates only the entry's status fields, on the
+    /// entry as it is on disk NOW — never by writing back this send's older copy, which could
+    /// undo a checkpoint a background Storage upload wrote meanwhile (the local copy is then gone,
+    /// and the next pass would drop an entry whose bytes are safely in Storage).
+    private func updateStatusIfPresent(_ id: UUID, to status: OutboxEntry.Status, countingAttempt: Bool) {
+        guard var current = entry(id: id) else { return }
+        current.status = status
+        current.transferStartedAt = nil
+        current.transferPhase = nil
+        if countingAttempt { current.attempts += 1 }
+        persistIfPresent(current)
     }
 
     /// The two-step lane's first half: streams the local file to the entry's deterministic Storage
@@ -436,14 +480,16 @@ public actor Outbox {
     // MARK: - Transitions for the background-transfer delegate (plan 15, Task 4)
 
     /// Marks existing, non-parked entries `.transferring` from now (`transferStartedAt = now`) —
-    /// e.g. when a follow-up task is started for them. Returns the entries as persisted.
+    /// e.g. when a follow-up task is started for them — recording the transfer's `phase` (it
+    /// picks the stale bound, `staleInterval(for:)`). Returns the entries as persisted.
     @discardableResult
-    public func markTransferring(ids: [UUID]) -> [OutboxEntry] {
+    public func markTransferring(ids: [UUID], phase: OutboxEntry.TransferPhase? = nil) -> [OutboxEntry] {
         var marked: [OutboxEntry] = []
         for id in ids {
             guard var entry = entry(id: id), entry.status != .parked else { continue }
             entry.status = .transferring
             entry.transferStartedAt = now()
+            entry.transferPhase = phase
             persistIfPresent(entry)
             marked.append(entry)
         }
@@ -456,6 +502,7 @@ public actor Outbox {
         guard var entry = entry(id: id) else { return }
         entry.status = .pending
         entry.transferStartedAt = nil
+        entry.transferPhase = nil
         if incrementAttempts { entry.attempts += 1 }
         persistIfPresent(entry)
     }
@@ -465,7 +512,18 @@ public actor Outbox {
         guard var entry = entry(id: id) else { return }
         entry.status = .parked
         entry.transferStartedAt = nil
+        entry.transferPhase = nil
         persistIfPresent(entry)
+    }
+
+    /// Plan 15 review: rewrites an entry's payload in place (read fresh from disk, `transform`
+    /// applied, persisted only if the entry still exists) — the share sheet adds a location that
+    /// resolved after the entry was saved. Returns the updated entry, or `nil` for an unknown id.
+    @discardableResult
+    public func updatePayload(id: UUID, _ transform: ([String: String]) -> [String: String]) -> OutboxEntry? {
+        guard var entry = entry(id: id) else { return nil }
+        entry.payload = transform(entry.payload)
+        return persistIfPresent(entry) ? entry : nil
     }
 
     /// The capture reached the server: deletes the entry, its claim sidecar, and its local file

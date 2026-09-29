@@ -1566,62 +1566,34 @@ final class StashUITests: XCTestCase {
     func testShareExtensionURLSmoke() async throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
-        app.launchArguments = ["--uitest-reset-auth"]
-        app.launch()
-
-        let emailField = app.textFields["signin.email"]
-        XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
-        emailField.tap()
-        emailField.typeText(email)
-        let passwordField = app.secureTextFields["signin.password"]
-        passwordField.tap()
-        passwordField.typeText(password)
-        app.buttons["signin.submit"].tap()
+        // The confirmation is held 3 s (DEBUG) so XCUITest, which looks only once Safari idles
+        // after the tap, reliably sees it; the latency itself is the extension's own measurement.
+        launchSignedIn(app, arguments: ["--uitest-share-confirmation-hold=3000"], email: email, password: password)
 
         // Let SubscriptionStore.refresh() resolve + write the gate cache before switching to
-        // Safari — see doc comment above.
-        app.tabBars.buttons["Settings"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["settings.subscription.status"].waitForExistence(timeout: 15),
-                      "Subscription status line not found")
+        // Safari — see doc comment above. Best effort: both gate branches below are valid
+        // outcomes, and on iOS 26 a tab button's identifier is its symbol name, so it's found by
+        // its label.
+        let settingsTab = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", "Settings")).firstMatch
+        if settingsTab.waitForExistence(timeout: 5) { settingsTab.tap() }
+        _ = app.descendants(matching: .any)["settings.subscription.status"].waitForExistence(timeout: 15)
         sleep(3)
 
-        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        safari.launch()
-
-        let addressBar = safari.textFields["TabBarItemTitle"]
-        XCTAssertTrue(addressBar.waitForExistence(timeout: 10), "Safari address bar not found")
-        addressBar.tap()
-        let urlField = safari.textFields["URL"]
-        XCTAssertTrue(urlField.waitForExistence(timeout: 5),
-                      "Safari URL edit field not found after tapping the address bar")
-        urlField.typeText("example.com\n")
-
-        let shareButton = safari.buttons["ShareButton"]
-        XCTAssertTrue(shareButton.waitForExistence(timeout: 15), "Safari's Share button did not appear")
-        shareButton.tap()
-
-        // Springboard/activity-sheet timing is the finicky part (brief) — budgeted generously.
-        // Stash appeared in the first row with no "More" step in every prior live check (T5/T7).
-        let stashCell = safari.cells["Stash"]
-        XCTAssertTrue(stashCell.waitForExistence(timeout: 20), "Stash did not appear in the share sheet")
-
-        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-sheet\n".data(using: .utf8)!)
-        sleep(2)
-
-        stashCell.tap()
-
         // --- Unconditional pre-gate flow: the compose card renders with the URL preview + note
-        // field, regardless of gate state. ---
+        // field, regardless of gate state (plan 15: the shared helper also copes with iOS 26
+        // Safari — Share inside the ••• menu, the note field surfacing as a TextField). ---
+        let marker = "UITEST-P15-T4: smoke \(Int(Date().timeIntervalSince1970))"
+        // Whatever branch runs, nothing this test creates may outlive it.
+        addTeardownBlock {
+            for row in (try? await self.itemsWithNote(marker, email: email, password: password)) ?? [] {
+                if let id = row["id"] as? String { try? await self.deleteSharedItem(id: id, email: email, password: password) }
+            }
+        }
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        let saveButton = openStashComposeCard(in: safari, url: "example.com", note: marker, checkpoint: "share-compose")
         let urlPreview = safari.staticTexts["share.preview.url"]
-        XCTAssertTrue(urlPreview.waitForExistence(timeout: 20), "Compose card's URL preview did not render")
         XCTAssertTrue(urlPreview.label.contains("example.com"),
                       "Expected the URL preview to reference example.com, got '\(urlPreview.label)'")
-
-        let noteField = safari.textViews["share.note"]
-        XCTAssertTrue(noteField.waitForExistence(timeout: 10), "Compose card's note field did not render")
-
-        let saveButton = safari.buttons["share.save"]
-        XCTAssertTrue(saveButton.waitForExistence(timeout: 10), "Compose card's Save button did not render")
 
         // Plan 7 Task 2: the extension-side font proof — an appex has its own bundle (separate
         // from the host app's), so this is the only way to confirm PP Neue Montreal actually
@@ -1630,19 +1602,6 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(fontStatus.waitForExistence(timeout: 5), "share.fontStatus label not found in the compose card")
         XCTAssertEqual(fontStatus.label, "font:neue-montreal",
                        "Expected PP Neue Montreal to load in the share-extension target, not fall back to SF Pro")
-
-        let marker = "UITEST-P15-T4: smoke \(Int(Date().timeIntervalSince1970))"
-        noteField.tap()
-        noteField.typeText(marker)
-        // Whatever branch runs, nothing this test creates may outlive it.
-        addTeardownBlock {
-            for row in (try? await self.itemsWithNote(marker, email: email, password: password)) ?? [] {
-                if let id = row["id"] as? String { try? await self.deleteSharedItem(id: id, email: email, password: password) }
-            }
-        }
-
-        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: share-compose\n".data(using: .utf8)!)
-        sleep(3)
 
         if safari.staticTexts["share.gate"].waitForExistence(timeout: 3) {
             // --- Gate visible (this account's current lapsed-trial state): Save disabled, no item
@@ -1653,7 +1612,7 @@ final class StashUITests: XCTestCase {
             sleep(3)
 
             safari.buttons["share.cancel"].tap()
-            XCTAssertTrue(shareButton.waitForExistence(timeout: 15), "Expected to return to Safari after Cancel")
+            XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 15), "Expected to return to Safari after Cancel")
 
             // Generous settle window before the REST check — this is an ABSENCE assertion, so
             // there's nothing to poll-until; a fixed wait then a single check is the correct shape
@@ -1672,9 +1631,10 @@ final class StashUITests: XCTestCase {
             XCTAssertNotNil(confirmation, "Expected the 'Saved to Stash' confirmation right after Save")
             if let confirmation {
                 XCTAssertEqual(confirmation.text, "Saved to Stash")
-                XCTAssertLessThanOrEqual(confirmation.seconds, 1.5, "Save → confirmation took \(confirmation.seconds) s")
+                XCTAssertLessThanOrEqual(confirmation.measuredMs ?? .max, 1500,
+                                         "Save → confirmation took \(confirmation.measuredMs.map { "\($0) ms" } ?? "an unknown time")")
             }
-            XCTAssertTrue(shareButton.waitForExistence(timeout: 15), "Expected the sheet to dismiss itself after the confirmation")
+            XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 15), "Expected the sheet to dismiss itself after the confirmation")
 
             let rows = try await waitForItemsWithNote(marker, email: email, password: password, timeout: 20)
             XCTAssertEqual(rows.count, 1, "Expected the shared URL to land exactly once")
@@ -1687,6 +1647,9 @@ final class StashUITests: XCTestCase {
     /// yet the share lands server-side exactly once: the background session finishes the upload
     /// without the extension. The lapsed test account's client gate is opened for this run
     /// (`--uitest-share-gate-open`, DEBUG); the server accepts URL captures from lapsed accounts.
+    /// The latency asserted is the extension's own Save → confirmation measurement: XCUITest only
+    /// looks once Safari idles after the tap (0.4–1.4 s observed), so the confirmation is held 3 s
+    /// here (`--uitest-share-confirmation-hold`, DEBUG) for it to be seen at all.
     @MainActor
     func testShareSaveConfirmsInstantlyAndLandsOnceInTheBackground() async throws {
         let (email, password) = try testCredentials()
@@ -1698,7 +1661,8 @@ final class StashUITests: XCTestCase {
             }
         }
         let app = XCUIApplication()
-        launchSignedIn(app, arguments: ["--uitest-share-gate-open"], email: email, password: password)
+        launchSignedIn(app, arguments: ["--uitest-share-gate-open", "--uitest-share-confirmation-hold=3000"],
+                       email: email, password: password)
 
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         let saveButton = openStashComposeCard(in: safari, url: "example.com/?p15t4=instant-\(epoch)", note: marker,
@@ -1708,11 +1672,13 @@ final class StashUITests: XCTestCase {
         XCTAssertNotNil(confirmation, "Expected the 'Saved to Stash' confirmation right after Save")
         if let confirmation {
             XCTAssertEqual(confirmation.text, "Saved to Stash")
-            XCTAssertLessThanOrEqual(confirmation.seconds, 1.5, "Save → confirmation took \(confirmation.seconds) s")
-            print("P15T4-TIMING: save→confirmation observed after \(String(format: "%.2f", confirmation.seconds)) s")
+            XCTAssertNotNil(confirmation.measuredMs, "Expected the extension's own latency on the confirmation (DEBUG)")
+            XCTAssertLessThanOrEqual(confirmation.measuredMs ?? .max, 1500,
+                                     "Save → confirmation took \(confirmation.measuredMs.map { "\($0) ms" } ?? "an unknown time")")
+            print("P15T4-TIMING: save→confirmation \(confirmation.measuredMs.map { "\($0) ms" } ?? "?") in the extension; seen by XCUITest after \(String(format: "%.2f", confirmation.seconds)) s")
         }
         XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 10),
-                      "Expected the sheet to dismiss itself right after the confirmation")
+                      "Expected the sheet to dismiss itself once the confirmation has been shown")
 
         let rows = try await waitForItemsWithNote(marker, email: email, password: password, timeout: 20)
         XCTAssertEqual(rows.count, 1, "Expected the share to land server-side exactly once")
@@ -1763,11 +1729,22 @@ final class StashUITests: XCTestCase {
         let landed = try await waitForItemsWithURL(containing: marker, email: email, password: password, timeout: 45)
         XCTAssertEqual(landed.count, 1, "Expected the share to land exactly once with the app and the extension gone")
 
+        // The transfer daemon now wakes the app in the background to hand it the result. A
+        // relaunch that lands in the same instant as that wake can bring up the system-launched
+        // process, which has none of this test's arguments — so let the wake settle first, and
+        // relaunch once more if the probe still doesn't show.
+        let woke = app.wait(for: .runningBackgroundSuspended, timeout: 10)
+        print("P15T4-WAKE: app woken in the background for the result: \(woke) (state \(app.state.rawValue))")
+
         // Relaunch (stored session, no sign-in) with a 1 s stale-transfer interval: the launch
         // drain resends whatever is still marked in flight — never a second item.
         app.launchArguments = ["--uitest-stale-transfer-seconds=1", "--uitest-outbox-probe"]
         app.launch()
         let probe = app.descendants(matching: .any)["debug.outbox"]
+        if !probe.waitForExistence(timeout: 10) {
+            app.terminate()
+            app.launch()
+        }
         XCTAssertTrue(probe.waitForExistence(timeout: 20), "Expected the Outbox probe after relaunch")
         let drained = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label BEGINSWITH 'count=' AND NOT (label CONTAINS %@)", marker), object: probe)
@@ -2628,7 +2605,7 @@ final class StashUITests: XCTestCase {
         request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password])
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.restData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let token = object["access_token"] as? String,
@@ -2637,6 +2614,23 @@ final class StashUITests: XCTestCase {
             throw FixtureRepairError("test-account auth failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
         }
         return (token, userId)
+    }
+
+    /// `URLSession.shared.data(for:)` for the tests' own REST bookkeeping, retried (3 tries, 1 s
+    /// apart) on a transport error: a one-off network blip (seen: -1017 "cannot parse response")
+    /// must not fail the test it serves. Every request routed here is idempotent (auth, reads,
+    /// deletes).
+    private static func restData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        var tries = 1
+        while true {
+            do {
+                return try await URLSession.shared.data(for: request)
+            } catch let error as URLError where tries < 3 {
+                print("REST retry after URLError \(error.code.rawValue)")
+                tries += 1
+                try await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 
     /// A `width`×`height` image (a two-tone diagonal, so a hero isn't a flat block) as JPEG or PNG.
@@ -2692,7 +2686,7 @@ final class StashUITests: XCTestCase {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["prefixes": paths])
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await Self.restData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw FixtureRepairError("test image cleanup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
         }
@@ -2712,7 +2706,7 @@ final class StashUITests: XCTestCase {
                                             URLQueryItem(name: "select", value: "id,url,type")]))
             request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await Self.restData(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 throw FixtureRepairError("note lookup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
             }
@@ -2745,7 +2739,7 @@ final class StashUITests: XCTestCase {
         request.httpMethod = "DELETE"
         request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await Self.restData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw FixtureRepairError("receipt cleanup failed for \(id)")
         }
@@ -2838,7 +2832,7 @@ final class StashUITests: XCTestCase {
                                         URLQueryItem(name: "select", value: "id,url,type")]))
         request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await Self.restData(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw FixtureRepairError("url lookup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
         }
@@ -2895,16 +2889,19 @@ final class StashUITests: XCTestCase {
     /// tap to the first snapshot that showed it, and its text — or `nil` if never seen.
     @MainActor
     private func tapSaveAndTimeConfirmation(_ saveButton: XCUIElement, in safari: XCUIApplication,
-                                            within timeout: TimeInterval = 3,
-                                            screenshot: String? = nil) -> (seconds: TimeInterval, text: String)? {
+                                            within timeout: TimeInterval = 4,
+                                            screenshot: String? = nil)
+        -> (seconds: TimeInterval, text: String, measuredMs: Int?)? {
         let outcome = safari.staticTexts["share.outcome"]
         let tapped = Date()
         saveButton.tap()
         while Date().timeIntervalSince(tapped) < timeout {
             if outcome.exists {
                 let seconds = Date().timeIntervalSince(tapped)
+                // The DEBUG extension's own Save → confirmation measurement ("<n> ms").
+                let measured = (outcome.value as? String)?.split(separator: " ").first.flatMap { Int($0) }
                 if let screenshot { attachScreenshot(named: screenshot) }
-                return (seconds, outcome.label)
+                return (seconds, outcome.label, measured)
             }
         }
         return nil

@@ -143,16 +143,45 @@ public struct ShareIntake: Sendable {
     /// anything — the caller hands them to the shared background session and dismisses. Same
     /// payload rules as `submit` (note on the first object, `.text` + note merge, location on
     /// every unit). An object whose Outbox write fails is left out of the result (its staged file,
-    /// if any, stays for `sweepOrphans`). If the transfer can't start, the caller flips the
-    /// returned entries back with `Outbox.markPending(id:incrementAttempts: false)`.
-    public func enqueueForTransfer(_ objects: [SharedObject], note: String?, location: CapturedLocation?) async -> [OutboxEntry] {
+    /// if any, stays for `sweepOrphans`).
+    ///
+    /// Plan 15 review: `status: .pending` persists the share for the app to send as is — the share
+    /// sheet does that when it can't hand off at once (a location pin still resolving, a token to
+    /// refresh), then `attachLocation`s it if needed and hands the entries to the background
+    /// session (`start` re-stamps them `.transferring`). Should the hand-off never happen, the app's
+    /// drain sends them.
+    public func enqueueForTransfer(_ objects: [SharedObject], note: String?, location: CapturedLocation?,
+                                   status: OutboxEntry.Status = .transferring) async -> [OutboxEntry] {
         var entries: [OutboxEntry] = []
         for unit in units(for: objects, note: note, location: location) {
-            if let entry = try? await outbox.enqueue(unit.kind, payload: unit.payload, status: .transferring) {
+            if let entry = try? await outbox.enqueue(unit.kind, payload: unit.payload, status: status) {
                 entries.append(entry)
             }
         }
         return entries
+    }
+
+    /// Plan 15 review: adds a location that resolved after the share was saved to each entry's
+    /// `attributes_json` (merged — a file's `media` and any other key stay as they are) and
+    /// returns the entries as now persisted, in order. An entry that no longer exists (already
+    /// sent by the app) is left out; its item simply has no location.
+    public func attachLocation(_ location: CapturedLocation, to entries: [OutboxEntry]) async -> [OutboxEntry] {
+        guard let locationJSON = ItemAttributes(location: location).nonEmptyJSONObject?["location"] else { return entries }
+        var updated: [OutboxEntry] = []
+        for entry in entries {
+            let rewritten = await outbox.updatePayload(id: entry.id) { payload in
+                var payload = payload
+                var attributes = CaptureTransport.attributesObject(from: payload["attributes_json"]) ?? [:]
+                attributes["location"] = locationJSON
+                if let data = try? JSONSerialization.data(withJSONObject: attributes),
+                   let json = String(data: data, encoding: .utf8) {
+                    payload["attributes_json"] = json
+                }
+                return payload
+            }
+            if let rewritten { updated.append(rewritten) }
+        }
+        return updated
     }
 
     // MARK: - Background hand-off (plan 15, Task 4)
@@ -166,7 +195,8 @@ public struct ShareIntake: Sendable {
     /// transfer can take a while to reach the server on a slow network, and the server checks
     /// the token when the request arrives.
     public static let transferTokenMinimumValidity: TimeInterval = 5 * 60
-    /// Upper bound on that refresh; on timeout the entries wait in the Outbox for the app.
+    /// Upper bound on that refresh; on timeout the entries (saved `.pending`) wait in the Outbox
+    /// for the app.
     public static let transferTokenRefreshTimeout: TimeInterval = 2.5
     /// Upper bound on the foreground fallback when the background session can't take the share.
     public static let foregroundFallbackTimeout: TimeInterval = 6
@@ -190,14 +220,6 @@ public struct ShareIntake: Sendable {
                 try? await Task.sleep(for: .seconds(timeout))
                 if gate.resume(returning: nil) { work.cancel() }
             }
-        }
-    }
-
-    /// Puts entries whose background transfer can't start (no token in time) back to `.pending`,
-    /// attempts unchanged — the app's next drain sends them.
-    public func returnToQueue(_ ids: [UUID]) async {
-        for id in ids {
-            await outbox.markPending(id: id, incrementAttempts: false)
         }
     }
 
