@@ -10,8 +10,10 @@ import Supabase
 /// never `content`, which is the user's own notes and this flow must never touch. Web parity:
 /// `supabase.from('items').update({ page_body, description })`.
 ///
-/// Decoded success body of `transcribe-audio` (deployed v27: `gpt-4o-transcribe-diarize`,
-/// diarized Markdown in `transcription`). Both fields are optional on the wire — a malformed or
+/// Decoded success body of `transcribe-audio`. The wire shape is unchanged, but as of
+/// 2026-09-29 the server no longer diarizes: `transcription` is plain transcript text, not
+/// speaker-labelled Markdown. (It did diarize when this was written.) Both fields are
+/// optional on the wire — a malformed or
 /// empty response is a legitimate failure mode this type has to detect itself, not something the
 /// JSON decoder can reject up front.
 public struct TranscriptionOutcome: Sendable, Decodable {

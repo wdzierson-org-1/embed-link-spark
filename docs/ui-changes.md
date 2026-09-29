@@ -97,9 +97,20 @@ affect every platform's summaries, and a correction to a commit message.
   preserving the previous transcript on failure. Only the promise was wrong.
   Web `src/components/TranscriptContent.tsx`: idle "Transcribe again", busy
   "Transcribing…", helper copy unchanged. iOS `ItemDetailContent.swift`: idle
-  string only — "Transcribing…" already matched. **Supersedes the 2026-09-14 entry
-  below**, whose "labels come from the server's diarization" parenthetical no
-  longer holds; ignore that clause when mirroring. Accessibility identifier
+  string only — "Transcribing…" already matched. **Supersedes the "Transcribe with
+  speakers" bullet in the 2026-09-13 plan-14 entry below** — only that bullet; the
+  rest of that entry is unrelated and stands. Two things in it no longer hold: the
+  button name itself, which advertises speaker separation as the feature's purpose,
+  and the parenthetical "labels come from the server's diarization", which the
+  merged `transcribe-audio` does not do at all. Note what was NOT wrong: that
+  bullet states the copy "never claims real speaker names", and it did not — the
+  old copy deliberately disclaimed them. The defect was advertising speaker
+  separation as the button's purpose and documenting a diarization premise that no
+  longer exists, not inventing speaker identities. Everything else that bullet
+  describes — the media-URL resolution, the `{audioUrl, fileName}` body, patching
+  only `page_body` + `description`, never touching `content`, preserving the
+  previous transcript on failure, the busy state disabling the button — is still
+  accurate. Accessibility identifier
   `detail.transcribeSpeakers` is deliberately unchanged (stable test contract, now
   a mild misnomer). Whether diarization returns is an open decision — if it does,
   re-advertising speakers is a deliberate copy change, not a revert.
