@@ -37,9 +37,10 @@ const UNTRUSTED_SOURCE_RULE =
 // Kinds whose source is a transcript, and so may run far past a page's length.
 const TRANSCRIPT_KINDS = new Set<SummaryInput['kind']>(['recording', 'audio', 'video']);
 
-// Hand-written tasks for the kinds that earn one. Kinds absent here fall back to
-// genericTask below — deliberately, so adding a kind can never yield an
-// undefined prompt.
+// Hand-written tasks keyed on DB type, for the kinds that earn one. Kinds absent
+// here fall back to genericTask below — deliberately, so adding a kind can never
+// yield an undefined prompt. Transcript sources are NOT keyed here: they are
+// selected by TRANSCRIPT_KINDS instead, so capture and repair cannot disagree.
 const SUMMARY_TASK: Partial<Record<SummaryInput['kind'], string>> = {
   link:
     'You summarize a saved web page for the user\'s personal library. ' +
@@ -51,20 +52,29 @@ const SUMMARY_TASK: Partial<Record<SummaryInput['kind'], string>> = {
     'Produce a faithful, well-organized summary of the source: main points, key details, ' +
     'and conclusions, in plain direct prose (short paragraphs; use "-" bullets only when the ' +
     'source is list-like). Length proportional to the source, at most ~250 words. ',
-  recording:
-    "You summarize the transcript of a saved recording (a conversation, meeting, interview, lecture, " +
-    "or voice memo) for the user's personal library. Write a faithful summary: what the recording " +
-    'is about; the main topics in the order they came up; and, when the transcript contains them, ' +
-    'decisions made, action items with who owns them, and open questions — each of those three as a ' +
-    'short "-" bullet list under a one-line label. Refer to speakers only by names or roles the ' +
-    'transcript itself makes clear; never invent names. Plain direct prose, at most ~300 words. ',
 };
+
+// Applies to every transcript source, whatever DB type it arrived as. Handles
+// absent speaker data explicitly ("never invent names"), so it is correct
+// whether or not the transcriber diarizes.
+const RECORDING_TASK =
+  "You summarize the transcript of a saved recording (a conversation, meeting, interview, lecture, " +
+  "or voice memo) for the user's personal library. Write a faithful summary: what the recording " +
+  'is about; the main topics in the order they came up; and, when the transcript contains them, ' +
+  'decisions made, action items with who owns them, and open questions — each of those three as a ' +
+  'short "-" bullet list under a one-line label. Refer to speakers only by names or roles the ' +
+  'transcript itself makes clear; never invent names. Plain direct prose, at most ~300 words. ';
 
 const genericTask = (kind: SummaryInput['kind']): string =>
   `You summarize a saved ${kind === 'link' ? 'web page' : kind} for the user's personal library. ` +
   'Produce a faithful, well-organized summary of the source: main points, key details, ' +
   'and conclusions, in plain direct prose (short paragraphs; use "-" bullets only when the ' +
   'source is list-like). Length proportional to the source, at most ~250 words. ';
+
+// One predicate for prompt, input cap and output budget: a transcript is a
+// transcript no matter which path is summarizing it.
+const taskFor = (kind: SummaryInput['kind']): string =>
+  TRANSCRIPT_KINDS.has(kind) ? RECORDING_TASK : SUMMARY_TASK[kind] ?? genericTask(kind);
 
 export const generateSummary = async (
   openAIApiKey: string,
@@ -88,14 +98,14 @@ export const generateSummary = async (
         {
           role: 'system',
           content:
-            (SUMMARY_TASK[kind] ?? genericTask(kind)) + UNTRUSTED_SOURCE_RULE + NO_PREAMBLE_RULES,
+            taskFor(kind) + UNTRUSTED_SOURCE_RULE + NO_PREAMBLE_RULES,
         },
         {
           role: 'user',
           content: `${context ? context + '\n\n' : ''}Source content:\n\n${sourceText.slice(0, maxChars)}`,
         },
       ],
-      max_tokens: kind === 'recording' ? 700 : 600,
+      max_tokens: TRANSCRIPT_KINDS.has(kind) ? 700 : 600,
       temperature: 0.2,
     }),
     signal: AbortSignal.timeout(20_000),
