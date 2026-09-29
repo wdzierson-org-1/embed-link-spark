@@ -86,3 +86,9 @@ verify_jwt = true
 # Signed-link opt-out from the reminder digest; the token is the auth.
 [functions.reminder-email-prefs]
 verify_jwt = false
+
+# Transcription job (spec 2026-09-09). Auth is in-function: x-cron-secret
+# (sweep + continuation), the service role (add-file), or the item owner's JWT —
+# pg_cron sends no JWT, so the gateway check must stay off.
+[functions.transcribe-audio]
+verify_jwt = false

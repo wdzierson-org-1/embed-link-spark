@@ -477,6 +477,38 @@ describe("chip-analysis reuse at save", () => {
     expect(inserted.file_path).toBe("user-1/staging/2-def.m4a");
   });
 
+  it("inserts audio without chip results at once and starts the server transcription job", async () => {
+    await processAndInsertContent(
+      "audio",
+      {
+        file: new File(["a"], "meeting.m4a", { type: "audio/x-m4a" }),
+        uploadedFilePath: "user-1/staging/9-xyz.m4a",
+        title: "meeting.m4a",
+        attributes: { media: { duration_s: 2673, file_name: "meeting.m4a" } },
+      },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+    await vi.runOnlyPendingTimersAsync();
+
+    const inserted = itemsInsertPayloads.at(-1);
+    // Nothing guessed from the filename, nothing awaited before insert
+    expect(inserted.description).toBeNull();
+    expect(inserted.page_body).toBeNull();
+    expect(inserted.title).toBe("meeting.m4a");
+    expect(inserted.attributes.media.duration_s).toBe(2673);
+    expect(inserted.attributes.media.transcript.status).toBe("pending");
+
+    const previewCalls = invokeMock.mock.calls.filter(([name, opts]) => name === "transcribe-audio" && opts?.body?.audioUrl);
+    expect(previewCalls).toHaveLength(0);
+    const jobCall = invokeMock.mock.calls.find(([name, opts]) => name === "transcribe-audio" && opts?.body?.itemId);
+    expect(jobCall?.[1].body).toEqual({ itemId: "item-media-1" });
+    expect(invokeMock.mock.calls.filter(([name]) => name === "generate-description")).toHaveLength(0);
+    expect(invokeMock.mock.calls.filter(([name]) => name === "generate-title")).toHaveLength(0);
+  });
+
   it("passes precomputed vision results to analyze-image instead of re-running vision", async () => {
     await processAndInsertContent(
       "image",

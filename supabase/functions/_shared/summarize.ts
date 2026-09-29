@@ -18,18 +18,43 @@ export const stripPreamble = (text: string): string =>
 
 interface SummaryInput {
   sourceText: string;
-  kind: 'link' | 'document';
+  kind: 'link' | 'document' | 'recording';
   title?: string | null;
   url?: string | null;
 }
 
 const MAX_SOURCE_CHARS = 48_000;
+// Transcripts run long (≈ 900 chars per minute of speech); gpt-4o-mini's
+// context takes an hour or two whole, and a summary that saw the whole
+// meeting is the point.
+const MAX_TRANSCRIPT_CHARS = 160_000;
+
+// What the model is asked to produce, per source kind
+const SUMMARY_TASK: Record<SummaryInput['kind'], string> = {
+  link:
+    'You summarize a saved web page for the user\'s personal library. ' +
+    'Produce a faithful, well-organized summary of the source: main points, key details, ' +
+    'and conclusions, in plain direct prose (short paragraphs; use "-" bullets only when the ' +
+    'source is list-like). Length proportional to the source, at most ~250 words. ',
+  document:
+    'You summarize a saved document for the user\'s personal library. ' +
+    'Produce a faithful, well-organized summary of the source: main points, key details, ' +
+    'and conclusions, in plain direct prose (short paragraphs; use "-" bullets only when the ' +
+    'source is list-like). Length proportional to the source, at most ~250 words. ',
+  recording:
+    "You summarize the transcript of a saved recording (a conversation, meeting, interview, lecture, " +
+    "or voice memo) for the user's personal library. Write a faithful summary: what the recording " +
+    'is about; the main topics in the order they came up; and, when the transcript contains them, ' +
+    'decisions made, action items with who owns them, and open questions — each of those three as a ' +
+    'short "-" bullet list under a one-line label. Refer to speakers only by names or roles the ' +
+    'transcript itself makes clear; never invent names. Plain direct prose, at most ~300 words. ',
+};
 
 export const generateSummary = async (
   openAIApiKey: string,
   { sourceText, kind, title, url }: SummaryInput,
 ): Promise<string | null> => {
-  const sourceLabel = kind === 'link' ? 'a saved web page' : 'a saved document';
+  const maxChars = kind === 'recording' ? MAX_TRANSCRIPT_CHARS : MAX_SOURCE_CHARS;
   const context = [
     title ? `Title: ${title}` : null,
     url ? `URL: ${url}` : null,
@@ -46,19 +71,14 @@ export const generateSummary = async (
       messages: [
         {
           role: 'system',
-          content:
-            `You summarize ${sourceLabel} for the user's personal library. ` +
-            'Produce a faithful, well-organized summary of the source: main points, key details, ' +
-            'and conclusions, in plain direct prose (short paragraphs; use "-" bullets only when the ' +
-            'source is list-like). Length proportional to the source, at most ~250 words. ' +
-            NO_PREAMBLE_RULES,
+          content: SUMMARY_TASK[kind] + NO_PREAMBLE_RULES,
         },
         {
           role: 'user',
-          content: `${context ? context + '\n\n' : ''}Source content:\n\n${sourceText.slice(0, MAX_SOURCE_CHARS)}`,
+          content: `${context ? context + '\n\n' : ''}Source content:\n\n${sourceText.slice(0, maxChars)}`,
         },
       ],
-      max_tokens: 600,
+      max_tokens: kind === 'recording' ? 700 : 600,
       temperature: 0.2,
     }),
   });

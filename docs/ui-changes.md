@@ -239,6 +239,59 @@ Progress ledger with every decision: `.superpowers/sdd/plan-14/progress.md`.
 
 ---
 
+## 2026-09-09 · Long recordings transcribe fully, asynchronously (all platforms)
+
+Spec `docs/superpowers/specs/2026-09-09-long-audio-transcription-design.md`.
+Root cause: OpenAI caps transcription uploads at 25 MiB. A 44-minute m4a
+(37.7 MB) was rejected twice and the web wrote a description guessed from
+the filename; no audio/video item has ever had a `summary`. Now every
+audio/video item gets a transcript, summary, card blurb and AI title
+regardless of length — asynchronously, with visible status.
+
+- **Contract — `attributes.media.transcript`** (additive; whole-blob
+  read-merge-write, preserve unknown keys):
+  `{ status: 'pending' | 'processing' | 'done' | 'failed',
+  source?: 'openai:<model>', chunks_total?, chunks_done?, attempts?,
+  updated_at?, error?: 'download_failed' | 'no_audio_track' |
+  'unsupported_container' | 'transcription_failed' | 'no_speech' }`.
+  Written by the server (`transcribe-audio`, `add-file`) and, for the
+  initial `pending`, by the web save path. Lanes unchanged: transcript →
+  `page_body` (fills in chunk by chunk; cap 200,000 chars); card blurb →
+  `description` (**null until the transcript exists — never a filename
+  guess**); long AI summary → `summary` (new for recordings: topics in
+  order, decisions, action items, open questions; ≤ ~300 words). Title:
+  filename-shaped titles are replaced from the transcript by the job
+  (existing 2026-08-26 policy, `KEEP_FILENAME` respected).
+- **Endpoint — `POST /transcribe-audio`** (gateway `verify_jwt` off; auth
+  in-function). `{ itemId }` with the owner's JWT or the service role →
+  `202 { accepted: true, itemId }`; the work continues server-side and lands
+  via realtime. Files over 24 MiB are split **without re-encoding** by
+  reading the m4a/mp4/mov sample tables (`_shared/mp4Audio.ts`) into
+  ≤ 24 MiB / ≤ 20-minute chunks; other containers over the cap fail with
+  `unsupported_container`. `{ sweep: true }` + `x-cron-secret` (pg_cron,
+  every 10 min) resumes stalled jobs and retries failures, 3 attempts max.
+  The chip's preview call `{ audioUrl, fileName }` → `{ transcription,
+  description }` is unchanged for files ≤ 24 MiB; larger files answer
+  `{ deferred: true }`.
+- **`add-file`** now writes `media.kind`, `media.file_name`,
+  `transcript.status = 'pending'` and a baseline embedding, then starts the
+  job. iOS / extension callers change nothing.
+- **Web:** save inserts audio/video immediately (description null, status
+  pending) and starts the job fire-and-forget, like `analyze-image`; the
+  chip skips the inline preview above 24 MiB. Detail sheet Transcript tab
+  (`src/utils/transcriptStatus.ts` for the copy): "Transcribing… part N of
+  M" above the partial text as chunks land, "Transcribing… long recordings
+  can take a few minutes." before the first chunk, a per-`error` reason when
+  failed (with "It will be retried automatically." while attempts remain),
+  else the existing "No transcript available". Cards keep expecting
+  `description` for audio/video; the assembling chip retires honestly at
+  its 2.5-minute window for long recordings.
+- **iOS to mirror:** decode `media.transcript` (StashKit `MediaAttributes`
+  drops unknown *nested* keys on a round trip today — add the field so a
+  media edit can't erase job state), render the same Transcript-tab states
+  with the copy above, and don't treat a missing description as a stalled
+  capture for long recordings.
+
 ## 2026-09-08 · Admin dashboard (web-only, temporary)
 
 Spec `docs/superpowers/specs/2026-09-08-admin-dashboard-design.md`. Internal

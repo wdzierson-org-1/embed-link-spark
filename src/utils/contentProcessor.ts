@@ -7,7 +7,6 @@ import { uploadFile } from '@/utils/fileUploader';
 import { generateTitle } from '@/utils/titleGenerator';
 import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
 import { plainTitleFromContent, sanitizeItemTitle } from '@/utils/itemTitle';
-import { KEEP_FILENAME_TOKEN, capTitle, isPlaceholderTitle } from '@/utils/titlePolicy';
 import type { Database } from '@/integrations/supabase/types';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
@@ -433,60 +432,18 @@ export const processAndInsertContent = async (
 
   // Handle media processing and AI description generation
   let aiDescription = data.description;
-  let transcription = '';
-  
+  // Audio/video without chip-time results: the server-side transcribe-audio
+  // job produces the transcript (chunked for long files), description,
+  // summary and AI title after insert — capture never waits on it, and
+  // nothing is guessed from the filename (spec 2026-09-09).
+  let transcriptJobPending = false;
+
   if (!aiDescription && !data.isProcessing) {
     console.log('processAndInsertContent: Processing media and generating AI description');
 
-    // Handle audio/video transcription (Whisper accepts common video containers
-    // too; if it can't, we fall back to a filename-based description)
     if ((type === 'audio' || type === 'video') && (filePath || data.uploadedFilePath)) {
-      try {
-        const mediaPath = filePath || data.uploadedFilePath;
-        const { data: mediaUrl } = supabase.storage.from('stash-media').getPublicUrl(mediaPath);
-
-        const { data: transcriptionResult, error: transcriptionError } = await supabase.functions.invoke('transcribe-audio', {
-          body: {
-            audioUrl: mediaUrl.publicUrl,
-            fileName: data.file?.name || (type === 'video' ? 'video.mp4' : 'audio.webm')
-          }
-        });
-
-        if (transcriptionError) {
-          console.error('Transcription failed:', transcriptionError);
-        } else {
-          transcription = transcriptionResult.transcription || '';
-          aiDescription = transcriptionResult.description || 'Transcription available';
-          console.log('Media transcribed successfully:', { transcription: transcription.substring(0, 100) + '...' });
-        }
-      } catch (error) {
-        console.error('Media transcription error:', error);
-      }
-
-      // Title policy (titlePolicy.ts): media uploads arrive titled with their
-      // filename. When the title is still placeholder-shaped, derive a real
-      // one from the transcript before insert (this path already waits on
-      // Whisper, so the title lands with the item and rides into the
-      // embeddings text below). generate-title's transcript mode returns
-      // KEEP_FILENAME for deeply personal content — the filename title stays.
-      if (transcription.trim() && isPlaceholderTitle(title, filePath || data.uploadedFilePath)) {
-        try {
-          const { data: titleResult, error: titleError } = await supabase.functions.invoke('generate-title', {
-            body: { content: transcription.slice(0, 6000), kind: 'transcript' },
-          });
-          const candidate = !titleError && typeof titleResult?.title === 'string' ? titleResult.title.trim() : '';
-          if (candidate && candidate !== KEEP_FILENAME_TOKEN && candidate !== 'Untitled Note') {
-            title = capTitle(candidate);
-          }
-        } catch (titleGenError) {
-          console.error('Media title generation failed (non-fatal):', titleGenError);
-        }
-      }
-
-      if (!aiDescription) {
-        aiDescription = await generateDescription(type, { content: data.file?.name, url: data.url })
-          || `${type === 'video' ? 'Video' : 'Audio'} uploaded — transcription unavailable`;
-      }
+      aiDescription = undefined;
+      transcriptJobPending = true;
     }
     // Images and text notes get described asynchronously after insert
     // (analyze-image / enrichTextItemAsync), so capture never waits on a model
@@ -508,19 +465,34 @@ export const processAndInsertContent = async (
   // Prepare the item data. content is the user's own notes; captured source
   // material (like a transcript) lives in page_body
   const itemContent = data.content;
+  const baseAttributes: ItemAttributes = data.attributes ?? {};
+  const attributes: ItemAttributes = transcriptJobPending
+    ? {
+        ...baseAttributes,
+        media: {
+          ...(baseAttributes.media ?? {}),
+          transcript: { status: 'pending', updated_at: new Date().toISOString() },
+        },
+      }
+    : baseAttributes;
   const itemData = {
     user_id: userId,
     type: type as ItemType,
     title: title || data.title,
     content: itemContent,
-    page_body: transcription || data.page_body || null,
+    page_body: data.page_body || null,
     description: aiDescription || null,
     url: data.url,
     file_path: filePath || data.uploadedFilePath,
     file_size: data.file?.size,
     mime_type: data.file?.type,
     is_public: data.is_public ?? false,
-    attributes: { ...data.attributes, ...((type === 'link' || ((type === 'image' || type === 'document') && (filePath || data.uploadedFilePath))) ? { enrichment: { status: 'pending', updated_at: new Date().toISOString() } } : {}) },
+    attributes: {
+      ...attributes,
+      ...((type === 'link' || ((type === 'image' || type === 'document') && (filePath || data.uploadedFilePath)))
+        ? { enrichment: { status: 'pending', updated_at: new Date().toISOString() } }
+        : {}),
+    },
   };
 
   console.log('processAndInsertContent: Inserting item data:', itemData);
@@ -566,6 +538,17 @@ export const processAndInsertContent = async (
     setTimeout(() => {
       void enrichTextItemAsync(insertedItem.id, itemContent, insertedItem.title, fetchItems);
     }, 0);
+  }
+
+  // Start the server-side transcription job for audio/video saved without
+  // chip-time results. It answers 202 at once; transcript, blurb, summary and
+  // title land via realtime, and the pg_cron sweep finishes the job even if
+  // this tab goes away.
+  if (transcriptJobPending) {
+    supabase.functions
+      .invoke('transcribe-audio', { body: { itemId: insertedItem.id } })
+      .then(() => fetchItems())
+      .catch((err) => console.error('Transcription job start failed (non-fatal):', err));
   }
 
   // Fire Vision analysis for images (non-blocking; overwrites placeholder description)
@@ -723,11 +706,12 @@ export const processAndInsertContent = async (
       }
     }, 1000);
   } else {
-    // Generate embeddings for textual content (including transcriptions and descriptions)
+    // Generate embeddings for textual content (chip-time transcripts ride in
+    // page_body; the transcription job re-embeds when a server transcript lands)
     const textForEmbedding = [
       title || data.title,
       data.content ? extractPlainTextFromNovelContent(data.content) : undefined,
-      transcription || data.page_body,
+      data.page_body,
       aiDescription,
       data.url
     ].filter(Boolean).join(' ');
