@@ -38,6 +38,41 @@ isn't going to load an unpacked folder from a git checkout.
   violet-600 on exactly one element, 1px hairlines, 16px tile radius, no
   emoji, reduced-motion guard). iOS/macOS: nothing to mirror — desktop-only.
 
+## 2026-09-14 · Search + Ask Stash surface and boost the user's notes
+
+Backend-only; nothing visual changes on any client, but every client that
+renders search results or builds an Ask-style agent should know about the
+new field. Diagnosis: a note ("potential investor for Stash") on a long
+LinkedIn link WAS indexed, but each search result carries one snippet = the
+best-matching chunk, so a page-body chunk about other investors took the
+slot and the model never saw the note. Fix, three parts:
+
+- **Contract:** `POST /search-items` (and MCP `search_stash`) results gain
+  `notes` — the user's note as plain text (Novel/TipTap JSON and legacy HTML
+  rendered to words; ≤280 chars; `null` when empty), independent of
+  `snippet`. Existing fields unchanged; additive. iOS decoders that ignore
+  unknown keys need nothing; a client showing server results may render it.
+- **Ranking:** `hybrid_search_content` v4 (migration
+  `20260914000000_hybrid_search_v4_notes.sql`) returns `item_content` and
+  adds a third RRF list over the notes alone (`notes_weight`, default 1.5),
+  so an item whose note matches outranks items that merely mention the words
+  in captured text. New SQL helper `notes_plain_text(text)` turns the JSON
+  document into words so its keys never become search lexemes.
+- **Ask Stash (`chat-with-all-content`):** each `search_stash` result block
+  now carries a `Notes:` line; `get_item` renders notes as words instead of
+  raw JSON and is logged to `retrieval_log` (tool `get_item`, filters
+  `{id}`); the system prompt tells the model to search with the user's own
+  words before browsing the catalog and to treat a matching note as decisive.
+- **Shared helper:** `supabase/functions/_shared/notes.ts` (`plainNotes`,
+  `notesSnippet`) mirrors the web's `contentExtractor.ts`; iOS has the same
+  logic in `renderTipTap` — keep the three in step.
+- **Also fixed while verifying:** the model regularly sends `types:["note"]`
+  (not a storage type) and the RPC failed with an enum error, costing an
+  agent round. `coerceSearchTypes` (`_shared/search.ts`) maps model
+  vocabulary onto storage types (`note` → text+audio, `photo` → image,
+  `pdf`/`file` → document, `url`/`article` → link) and drops the rest;
+  failed searches are now logged to `retrieval_log` with `filters.error`.
+
 ## 2026-09-13 · iOS housekeeping mirror + App Store readiness (plan 14)
 
 Mirrors the 2026-09-13 web housekeeping changes (`docs/2026-09-13-housekeeping-handoff.md`)

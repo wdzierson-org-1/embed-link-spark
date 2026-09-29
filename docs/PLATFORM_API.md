@@ -135,7 +135,12 @@ INVOKER, RLS-scoped) returns the history list with counts and previews.
 All fields optional. With `query`: hybrid relevance-ranked search (one result
 per item, `snippet` = best matching chunk). Without: newest-first listing
 under the same filters. Returns
-`{ "results": [{ id, title, type, url, created_at, description, snippet, score }] }`.
+`{ "results": [{ id, title, type, url, created_at, description, notes, snippet, score }] }`.
+`notes` (2026-09-14) is the user's own note on the item as plain text (Novel
+JSON and HTML rendered to words, ≤280 chars, `null` when empty) — always
+present alongside `snippet` because on long links the best-matching chunk is
+usually page body and would hide the note. Ranking also boosts items whose
+note matches the query (`hybrid_search_content` v4, `notes_weight` 1.5).
 This is the canonical search surface — library search boxes, future MCP
 tools, and Siri/Shortcuts should all call it rather than hitting the DB.
 
