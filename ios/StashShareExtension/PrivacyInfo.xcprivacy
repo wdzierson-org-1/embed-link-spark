@@ -9,8 +9,11 @@
 	     trail. Re-audited in plan 15's final wave (2026-09-29): this target's sources
 	     (StashShareExtension/*, plus the shared LocationCapture.swift, StashDesign.swift and
 	     StashType.swift) never touch UserDefaults.standard — only the App Group suite — so the
-	     one UserDefaults reason is 1C8F.1 (CA92.1 is the app's alone). Disk space, system boot
-	     time, and active-keyboard APIs are not used. -->
+	     one UserDefaults reason is 1C8F.1 (CA92.1 is the app's alone). Disk space and
+	     active-keyboard APIs are not used. System boot time is omitted on the same terms as the
+	     app manifest: it REQUIRES plan 15 final wave B's ChatStore.swift change (StashKit, linked
+	     here, timed the Ask stream with systemUptime); verified absent from the combined Release
+	     build's extension binary. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
@@ -136,7 +139,8 @@
 			<!-- C617.1: StashKit (linked into this target) reads .contentModificationDateKey of
 			     files inside the App Group container only — StagedFileStore.swift sweepOrphans,
 			     Outbox.swift sweepOrphanClaims, BackgroundCaptureTransfers.swift
-			     sweepStaleBodyFiles. -->
+			     sweepStaleBodyFiles — and StagedFileStore.stage(from:) sets a staged copy's
+			     modification date to the moment of staging (same container). -->
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>

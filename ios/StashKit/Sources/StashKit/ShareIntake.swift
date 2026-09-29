@@ -349,38 +349,64 @@ public struct ShareIntake: Sendable {
 /// Runs `work` and returns its result — or `fallback` as soon as `timeout` passes first. Never
 /// waits on `work` past that: it is cancelled and left to end on its own, and whatever it returns
 /// later is dropped (unlike a task group, which would wait for a child that ignores cancellation).
+/// Whichever side answers first cancels the other, so the timer doesn't outlive a quick answer.
 /// For waits nobody can afford to have held open by a stalled request: a token fetch during a
 /// background wake or the share sheet's confirmation window, a composer pick whose iCloud/Photos
 /// transfer never finishes.
 public func withDeadline<Value: Sendable>(_ timeout: Duration, fallback: Value,
                                           _ work: @escaping @Sendable () async -> Value) async -> Value {
+    await withDeadline(fallback: fallback, deadline: { try? await Task.sleep(for: timeout) }, work)
+}
+
+/// `withDeadline(_:fallback:_:)` with the timer injectable (tests): `deadline` returns when time is
+/// up — or early, once it is cancelled because `work` answered first.
+func withDeadline<Value: Sendable>(fallback: Value, deadline: @escaping @Sendable () async -> Void,
+                                   _ work: @escaping @Sendable () async -> Value) async -> Value {
     await withCheckedContinuation { continuation in
         let gate = FirstResult(continuation)
-        let task = Task { gate.resume(returning: await work()) }
-        Task {
-            try? await Task.sleep(for: timeout)
-            if gate.resume(returning: fallback) { task.cancel() }
+        let worker = Task<Void, Never> { gate.resume(returning: await work()) }
+        let timer = Task<Void, Never> {
+            await deadline()
+            gate.resume(returning: fallback)   // a no-op once the work has answered
         }
+        gate.cancelOnResult([worker, timer])
     }
 }
 
-/// Resumes a continuation with whichever result arrives first; later ones are ignored.
+/// Resumes a continuation with whichever result arrives first; later ones are ignored. Racing
+/// tasks registered with `cancelOnResult` are cancelled the moment a result is in.
 private final class FirstResult<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, Never>?
+    private var racers: [Task<Void, Never>] = []
 
     init(_ continuation: CheckedContinuation<Value, Never>) {
         self.continuation = continuation
     }
 
+    /// Cancels `tasks` once a result is in — at once, if one already is (a racer that answered
+    /// before this registration couldn't reach the others).
+    func cancelOnResult(_ tasks: [Task<Void, Never>]) {
+        let resolved = lock.withLock { () -> Bool in
+            guard continuation != nil else { return true }
+            racers += tasks
+            return false
+        }
+        if resolved { tasks.forEach { $0.cancel() } }
+    }
+
     /// `true` if this call delivered the result.
     @discardableResult
     func resume(returning value: Value) -> Bool {
-        let first = lock.withLock { () -> CheckedContinuation<Value, Never>? in
-            defer { continuation = nil }
-            return continuation
+        let (first, racers) = lock.withLock { () -> (CheckedContinuation<Value, Never>?, [Task<Void, Never>]) in
+            defer {
+                continuation = nil
+                self.racers = []
+            }
+            return (continuation, continuation == nil ? [] : self.racers)
         }
         first?.resume(returning: value)
+        racers.forEach { $0.cancel() }
         return first != nil
     }
 }

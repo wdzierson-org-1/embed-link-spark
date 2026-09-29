@@ -47,9 +47,16 @@ public struct StagedFileStore: Sendable {
     /// which is the whole point (a shared file handed to the extension via
     /// `NSItemProvider.loadFileRepresentation` must move straight from its temp URL onto durable
     /// local disk without ever being fully read into memory).
+    ///
+    /// Final wave review: the copy's modification date is then set to NOW. `copyItem` keeps the
+    /// SOURCE's (a PDF saved two days ago stages as a two-day-old file), and `sweepOrphans`' staged
+    /// file grace is measured from it — without this, a share card open on an older file would be
+    /// past the grace the moment it staged. Best effort: a copy whose date can't be set is still
+    /// staged (only its sweep grace is shorter).
     public func stage(from source: URL, fileExtension: String) throws -> URL {
         let destination = directory.appending(path: "\(UUID().uuidString).\(fileExtension.lowercased())")
         try FileManager.default.copyItem(at: source, to: destination)
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
         return destination
     }
 
@@ -224,6 +231,8 @@ let recordingSweepGracePeriod: TimeInterval = 60
 /// Save) or capture a share the user then cancels. A staged file only becomes a true orphan when
 /// its process died between staging and enqueueing (a composer save or a share's Save, a few
 /// milliseconds apart), and those are still recovered — at the first launch past this window.
+/// "Younger" is the staged file's modification date, which every staging path sets to the moment
+/// of staging (a copy is re-stamped — see `StagedFileStore.stage(from:fileExtension:)`).
 let stagedFileSweepGracePeriod: TimeInterval = 30 * 60
 
 /// Canonicalizes a file path so `sweepOrphans` can compare two INDEPENDENTLY-constructed spellings

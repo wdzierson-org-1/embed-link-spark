@@ -104,11 +104,14 @@ additional third-party data-collection entries are needed for this reason.
 
 Re-run 2026-09-29 (plan 15 final wave) over Release code paths, plus the linked
 packages (supabase-swift: only Storage's `attributesOfItem` file-size read;
-swift-crypto ships its own empty manifests). Plan 15 had briefly added a
-`ProcessInfo.systemUptime` call (Ask streaming) that would have drawn
-ITMS-91053; it was replaced with `ContinuousClock`, and
-`BootTimeAPIUsageTests` now fails the build's tests if either boot-time API
-comes back.
+swift-crypto ships its own empty manifests). Plan 15 had added a
+`ProcessInfo.systemUptime` call (Ask streaming, `ChatStore.swift`) that would
+draw ITMS-91053 undeclared. Omitting the boot-time category REQUIRES final wave
+B's `ChatStore.swift` change (that timing moves to `ContinuousClock`, guarded by
+wave B's `BootTimeAPIUsageTests`); with it, the combined Release build's app and
+extension binaries contain no `systemUptime`/`mach_absolute_time` reference.
+Without it, declare `NSPrivacyAccessedAPICategorySystemBootTime` (35F9.1) in
+both manifests.
 
 ```
 $ grep -rn "UserDefaults" ios/Stash ios/StashShareExtension ios/StashKit/Sources
@@ -121,7 +124,8 @@ StashKit/Sources/StashKit/SubscriptionStore.swift  UserDefaults(suiteName: AppGr
   (nothing compiled into the extension touches UserDefaults.standard).
 
 $ grep -rnE "modificationDate|creationDate|contentModificationDateKey|attributesOfItem|\bstat\(|fstat" ios/Stash ios/StashShareExtension ios/StashKit/Sources
-StashKit/Sources/StashKit/StagedFileStore.swift             .contentModificationDateKey (sweepOrphans)
+StashKit/Sources/StashKit/StagedFileStore.swift             .contentModificationDateKey (sweepOrphans);
+                                                            .modificationDate set on a staged copy (stage(from:))
 StashKit/Sources/StashKit/Outbox.swift                      .contentModificationDateKey (sweepOrphanClaims)
 StashKit/Sources/StashKit/BackgroundCaptureTransfers.swift  .contentModificationDateKey (sweepStaleBodyFiles)
 → NSPrivacyAccessedAPICategoryFileTimestamp, reason C617.1 (files inside the App Group
@@ -131,7 +135,8 @@ $ grep -rnE "volumeAvailableCapacity|systemFreeSize|statfs|statvfs" ios/Stash io
 (no matches) → disk space API category omitted from both manifests.
 
 $ grep -rnE "systemUptime|mach_absolute_time" ios/Stash ios/StashShareExtension ios/StashKit/Sources
-(no matches in code) → system boot time API category omitted from both manifests.
+(no matches in code once final wave B's ChatStore.swift change is in) → system boot time API
+category omitted from both manifests — see the dependency note above.
 
 $ grep -rnE "activeInputModes|UITextInputMode" ios/Stash ios/StashShareExtension ios/StashKit/Sources
 (no matches) → active keyboards omitted from both manifests.

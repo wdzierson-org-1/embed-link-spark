@@ -8,9 +8,12 @@
 	     plan 15's final wave (2026-09-29), Release code paths plus the linked packages
 	     (supabase-swift uses no required-reason API beyond Storage's attributesOfItem file-size
 	     read; swift-crypto ships its own empty manifests): disk space (volumeAvailableCapacity*,
-	     systemFreeSize, statfs), system boot time (systemUptime, mach_absolute_time — the Ask
-	     tab's stream timing uses ContinuousClock) and active-keyboard APIs are not used anywhere
-	     and are deliberately omitted. -->
+	     systemFreeSize, statfs) and active-keyboard APIs are not used anywhere and are
+	     deliberately omitted. System boot time is omitted too, which REQUIRES plan 15 final
+	     wave B's ChatStore.swift change (the Ask stream's systemUptime timing replaced with
+	     ContinuousClock); verified absent from the combined Release build's app and extension
+	     binaries. Without that change, declare NSPrivacyAccessedAPICategorySystemBootTime
+	     (35F9.1). -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
@@ -143,7 +146,9 @@
 			     files inside the App Group container only, to age out its own leftovers:
 			     StagedFileStore.swift sweepOrphans (StashStaging / recordings), Outbox.swift
 			     sweepOrphanClaims (StashOutbox claim sidecars), BackgroundCaptureTransfers.swift
-			     sweepStaleBodyFiles (StashTransfers request bodies). -->
+			     sweepStaleBodyFiles (StashTransfers request bodies); StagedFileStore.stage(from:)
+			     also sets a staged copy's modification date to the moment of staging (same
+			     container). -->
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>

@@ -84,7 +84,8 @@ final class BackgroundCaptureTransfersTests: XCTestCase {
 
     /// A `BackgroundCaptureTransfers` over this test's directories, a fake session, and (for the
     /// foreground fallback) `server`.
-    func makeHarness(outbox: Outbox? = nil, token: String? = "jwt", postsNotifications: Bool = true,
+    func makeHarness(outbox: Outbox? = nil, token: String? = "jwt", tokenFetches: Counter? = nil,
+                     postsNotifications: Bool = true,
                      oneShotLimit: Int = CaptureAPI.oneShotFileLimit,
                      server: FakeCaptureServer = FakeCaptureServer()) -> Harness {
         let outbox = outbox ?? Outbox(directory: outboxDir)
@@ -93,7 +94,10 @@ final class BackgroundCaptureTransfersTests: XCTestCase {
         let transfers = BackgroundCaptureTransfers(
             bodyDirectory: bodyDir,
             outboxForUser: { _ in outbox },
-            accessTokenForUser: { _ in token },
+            accessTokenForUser: { _ in
+                tokenFetches?.increment()
+                return token
+            },
             postsCaptureNotifications: postsNotifications,
             oneShotLimit: oneShotLimit,
             sessionFactory: { _ in
@@ -919,6 +923,58 @@ final class BackgroundCaptureTransfersTests: XCTestCase {
         let stored = await harness.outbox.entry(id: entry.id)
         XCTAssertEqual(stored?.status, .pending)
         XCTAssertEqual(stored?.attempts, 0)
+    }
+
+    // MARK: - Final wave review: one token deadline per wake
+
+    /// Completions are applied one after another; each fetching its own (up to 10 s) token would
+    /// hold a background wake for N × 10 s. The first completion's fetch serves the whole wake.
+    func testEveryCompletionOfAWakeSharesOneTokenFetch() async throws {
+        let fetches = Counter()
+        let harness = makeHarness(token: "fresh", tokenFetches: fetches)
+        let first = try await enqueueURL(harness.outbox)
+        let second = try await enqueueURL(harness.outbox)
+        _ = await harness.transfers.start(entries: [first, second], userId: userId, accessToken: "expired")
+
+        await finish(harness, upload: harness.session.uploads[0], taskIdentifier: 1, status: 401)
+        await finish(harness, upload: harness.session.uploads[1], taskIdentifier: 2, status: 401)
+
+        XCTAssertEqual(fetches.value, 1, "one token fetch for the wake")
+        let retries = harness.session.uploads.dropFirst(2)
+        XCTAssertEqual(retries.map { $0.request.value(forHTTPHeaderField: "Authorization") }, ["Bearer fresh", "Bearer fresh"])
+    }
+
+    /// A fetch that came up empty isn't waited on again for every later completion of the wake:
+    /// those entries go straight back to the Outbox for the app's drain.
+    func testATokenFetchThatCameUpEmptyIsNotRepeatedWithinTheWake() async throws {
+        let fetches = Counter()
+        let harness = makeHarness(token: nil, tokenFetches: fetches)
+        let first = try await enqueueURL(harness.outbox)
+        let second = try await enqueueURL(harness.outbox)
+        _ = await harness.transfers.start(entries: [first, second], userId: userId, accessToken: "expired")
+
+        await finish(harness, upload: harness.session.uploads[0], taskIdentifier: 1, status: 401)
+        await finish(harness, upload: harness.session.uploads[1], taskIdentifier: 2, status: 401)
+
+        XCTAssertEqual(fetches.value, 1)
+        let pending = await harness.outbox.pending().map(\.status)
+        XCTAssertEqual(pending, [.pending, .pending])
+    }
+
+    /// The next wake fetches afresh: a token is only reused within the wake it was fetched for.
+    func testTheNextWakeFetchesItsOwnToken() async throws {
+        let fetches = Counter()
+        let harness = makeHarness(token: "fresh", tokenFetches: fetches)
+        let first = try await enqueueURL(harness.outbox)
+        let second = try await enqueueURL(harness.outbox)
+        _ = await harness.transfers.start(entries: [first, second], userId: userId, accessToken: "expired")
+
+        await finish(harness, upload: harness.session.uploads[0], taskIdentifier: 1, status: 401)
+        harness.transfers.didFinishEvents(for: harness.session)   // this wake's events are done
+        await harness.transfers.waitForIdle()
+        await finish(harness, upload: harness.session.uploads[1], taskIdentifier: 2, status: 401)
+
+        XCTAssertEqual(fetches.value, 2)
     }
 
     func testARejectedTokenWhileWindingDownIsSentInTheForegroundWithTheFreshToken() async throws {

@@ -214,11 +214,18 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     /// item row (page text included), and nothing past the capture's own JSON is ever needed.
     static let maxResponseBodyBytes = 2 * 1024 * 1024
 
-    /// Upper bound on one token fetch while applying a completion (final wave, T4 review carry):
+    /// Upper bound on the token fetch while applying completions (final wave, T4 review carry):
     /// the fetch may refresh the session over the network, and a background wake has only seconds
     /// for ALL its events — completions are applied one after another, and the system's completion
-    /// handler waits behind them. On timeout the entry stays `.pending` for the app's next drain.
+    /// handler waits behind them. So there is ONE bounded fetch per user per wake
+    /// (`completionToken(for:)`), whatever the number of completions. On timeout the entries stay
+    /// `.pending` for the app's next drain.
     public static let completionTokenTimeout: TimeInterval = 10
+
+    /// How long one completion-token answer is reused (final wave review) — a whole wake's events
+    /// arrive well within it. A wake's end (`finishEvents`) forgets it sooner; this bound covers the
+    /// share extension, whose process can stay alive (and be reused) without an end-of-events call.
+    static let completionTokenReuseInterval: TimeInterval = 60
 
     // Dependencies (injectable for tests).
     private let bodyDirectory: URL
@@ -254,6 +261,8 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     private var truncatedResponses: Set<Int> = []
     private var eventsCompletionHandlers: [() -> Void] = []
     private var workTail: Task<Void, Never>?
+    /// This wake's token fetch per user (see `completionToken(for:)`), with when it started.
+    private var completionTokens: [UUID: (fetch: Task<String?, Never>, startedAt: Date)] = [:]
 
     public override convenience init() {
         self.init(
@@ -502,12 +511,12 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
             // Pending first: if this process dies before the follow-up starts, the next drain
             // sends the (small) JSON capture right away instead of waiting out a stale bound.
             await outbox.markPending(id: entry.id, incrementAttempts: false)
-            guard let token = await accessTokenForUser(descriptor.userId) else { return }
+            guard let token = await completionToken(for: descriptor.userId) else { return }
             await restartTransfer(checkpointed, phase: .capture, userId: descriptor.userId, token: token,
                                   refreshed: false, outbox: outbox)
         case .refreshTokenAndRetry:
             guard !parked else { return }
-            guard let token = await accessTokenForUser(descriptor.userId) else {
+            guard let token = await completionToken(for: descriptor.userId) else {
                 // No session for that user any more (signed out) — the app sends it when it has one.
                 await outbox.markPending(id: entry.id, incrementAttempts: false)
                 return
@@ -523,6 +532,26 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
             guard !parked else { return }
             await flagForTwoStep(entry.id, in: outbox)
         }
+    }
+
+    /// The token completions of this wake use for `userId`: fetched once (`accessTokenForUser`,
+    /// bounded by `completionTokenTimeout` in the app/extension) by the first completion that
+    /// needs one, then reused by every later one — `nil` included, so a fetch that came up empty
+    /// isn't waited on again for each entry (they stay `.pending` for the app's drain). Final wave
+    /// review: one deadline per wake, not one per completion.
+    private func completionToken(for userId: UUID) async -> String? {
+        let now = Date()
+        let fetch = lock.withLock { () -> Task<String?, Never> in
+            if let cached = completionTokens[userId],
+               now.timeIntervalSince(cached.startedAt) < Self.completionTokenReuseInterval {
+                return cached.fetch
+            }
+            let fetchToken = self.accessTokenForUser
+            let fetch = Task { await fetchToken(userId) }
+            completionTokens[userId] = (fetch, now)
+            return fetch
+        }
+        return await fetch.value
     }
 
     /// Starts `phase` for `entry` as a new task in this process's session, with `token`: the
@@ -581,6 +610,8 @@ public final class BackgroundCaptureTransfers: NSObject, @unchecked Sendable {
     /// (the extension), stay connected: invalidating there could strand a `start` in progress.
     func finishEvents(for finished: BackgroundUploadSession) async {
         let (handlers, invalidate) = lock.withLock { () -> ([() -> Void], Bool) in
+            // The wake is over: its token answer isn't reused by the next one.
+            completionTokens = [:]
             let handlers = eventsCompletionHandlers
             eventsCompletionHandlers = []
             guard !handlers.isEmpty, let session, session === finished else { return (handlers, false) }

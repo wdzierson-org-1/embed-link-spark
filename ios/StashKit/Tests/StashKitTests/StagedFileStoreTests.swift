@@ -437,6 +437,64 @@ final class StagedFileStoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(stagedFileSweepGracePeriod, 30 * 60, "the staged-file grace is at least 30 minutes")
     }
 
+    /// Final wave review: `copyItem` keeps the SOURCE's modification date, and the grace is
+    /// measured from the staged file's — so a share of a two-day-old file (a PDF, a video, a
+    /// passthrough photo…) must be stamped at staging, or it is "past the grace" the moment the card
+    /// opens.
+    func testACopiedStageOfAnOldFileStillGetsTheFullGrace() async throws {
+        let outboxDir = FileManager.default.temporaryDirectory.appending(path: "outbox-\(UUID().uuidString)")
+        let recordingsDir = FileManager.default.temporaryDirectory.appending(path: "recordings-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: outboxDir)
+            try? FileManager.default.removeItem(at: recordingsDir)
+        }
+        let userId = UUID()
+        let outbox = Outbox(directory: outboxDir)
+        let recordings = RecordingStore(userId: userId, directory: recordingsDir)
+        let staging = StagedFileStore(userId: userId, directory: dir)
+        let source = try makeSourceFile(bytes: Data("%PDF-1.4 two days old".utf8))
+        defer { try? FileManager.default.removeItem(at: source) }
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-2 * 24 * 3600)],
+                                              ofItemAtPath: source.path)
+
+        let staged = try staging.stage(from: source, fileExtension: "pdf")
+
+        let stagedAt = try XCTUnwrap(staged.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+        XCTAssertLessThan(abs(stagedAt.timeIntervalSinceNow), 60, "the copy is stamped at staging, not with the source's date")
+        let tenMinutesOn: @Sendable () -> Date = { Date().addingTimeInterval(10 * 60) }
+        let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging,
+                                         now: tenMinutesOn)
+        XCTAssertEqual(created, 0, "an open card's copy of an old file is still inside its grace")
+    }
+
+    /// The same for the image path that copies: a small, GPS-free JPEG passes through byte for byte.
+    func testAPassthroughPhotoFromAnOldSourceStillGetsTheFullGrace() async throws {
+        let outboxDir = FileManager.default.temporaryDirectory.appending(path: "outbox-\(UUID().uuidString)")
+        let recordingsDir = FileManager.default.temporaryDirectory.appending(path: "recordings-\(UUID().uuidString)")
+        let source = FileManager.default.temporaryDirectory.appending(path: "old-photo-\(UUID().uuidString).jpg")
+        defer {
+            try? FileManager.default.removeItem(at: outboxDir)
+            try? FileManager.default.removeItem(at: recordingsDir)
+            try? FileManager.default.removeItem(at: source)
+        }
+        let userId = UUID()
+        let outbox = Outbox(directory: outboxDir)
+        let recordings = RecordingStore(userId: userId, directory: recordingsDir)
+        let staging = StagedFileStore(userId: userId, directory: dir)
+        try encodeImages([makeSplitImage(width: 640, height: 480, left: (1, 0, 0), right: (0, 1, 0))], as: .jpeg)
+            .write(to: source)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-2 * 24 * 3600)],
+                                              ofItemAtPath: source.path)
+
+        let staged = try staging.stagePreparedImage(from: source)
+
+        XCTAssertFalse(staged.wasReencoded, "fixture: this is the copying passthrough path")
+        let tenMinutesOn: @Sendable () -> Date = { Date().addingTimeInterval(10 * 60) }
+        let created = await sweepOrphans(userId: userId, outbox: outbox, recordings: recordings, staging: staging,
+                                         now: tenMinutesOn)
+        XCTAssertEqual(created, 0)
+    }
+
     /// Recordings keep the one-minute grace: at two minutes an orphaned recording is recovered
     /// while a staged file of the same age is still left alone.
     func testSweepOrphansStillRecoversARecordingAfterAMinuteButNotAStagedFileOfTheSameAge() async throws {

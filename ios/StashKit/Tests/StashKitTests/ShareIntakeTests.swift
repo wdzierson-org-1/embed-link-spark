@@ -491,6 +491,19 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "bounded by the deadline, not by the work")
     }
 
+    /// Final wave review: the timer doesn't outlive a quick answer (it used to sleep out the whole
+    /// deadline — up to 60 s for a composer pick).
+    func testWithDeadlineStopsItsTimerOnceTheWorkAnswers() async throws {
+        let timerCancelled = SnapshotCount()
+        let value = await withDeadline(fallback: "fallback", deadline: {
+            try? await Task.sleep(for: .seconds(30))
+            if Task.isCancelled { timerCancelled.value = 1 }
+        }) { "done" }
+        XCTAssertEqual(value, "done")
+        for _ in 0..<200 where timerCancelled.value == nil { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(timerCancelled.value, 1, "the timer is cancelled as soon as the work has answered")
+    }
+
     func testWithDeadlineCancelsTheWorkItGaveUpOn() async throws {
         let cancelled = SnapshotCount()
         _ = await withDeadline(.milliseconds(100), fallback: 0) { () -> Int in
