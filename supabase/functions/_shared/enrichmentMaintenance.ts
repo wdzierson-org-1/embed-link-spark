@@ -2,7 +2,7 @@ import { assessEnrichment, reviewCadence, nextReviewHours, QUALITY_VERSION, type
 import { prepareRepair, selectRepairAdapter, type RepairCandidate } from './enrichmentRepair.ts';
 import { recoverSocial } from './socialEnrichment.ts';
 import { applyCandidate, ENRICHMENT_COLUMNS, searchFingerprint } from './enrichmentStore.ts';
-import { deriveTitleFromContent, generateSummary } from './summarize.ts';
+import { deriveTitleFromContent, generateSummary, summaryKindFor } from './summarize.ts';
 import { searchItems, normalizeSearchRequest, openAiEmbedder } from './search.ts';
 
 interface Config {
@@ -85,7 +85,7 @@ export async function runEnrichmentMaintenance(deps: Deps) {
           counts.deferred++; continue;
         }
         const itemStart = now(); let spent = false; let state = job.provider_state || {}; let delay = 24;
-        let failure: string | null = null; let item: EnrichmentItem | null = null;
+        let failure: string | null = null; let item: EnrichmentItem | null = null; let unmappedType: string | null = null;
         let strategy = 'assessment'; let beforeScore = 0;
         try {
           item = checked<EnrichmentItem | null>(await db.from('items').select(ENRICHMENT_COLUMNS).eq('id', job.item_id).maybeSingle());
@@ -110,8 +110,18 @@ export async function runEnrichmentMaintenance(deps: Deps) {
                 if (title) prepared.patch.title = title;
               }
               if (config.openAiKey && prepared.needsSummary && !result.candidate.summary) {
-                const summary = await generateSummary(config.openAiKey, { sourceText: prepared.sourceText, kind: item.type as any, title: prepared.patch.title || item.title, url: item.url });
-                if (summary) { prepared.patch.summary = summary; prepared.patch.description = summary.slice(0, 350); }
+                // Narrow the storage type explicitly; never hand a raw DB type to
+                // the prompt selector. null is a known type we must NOT summarize
+                // (legacy read-only collections); undefined is an unknown type,
+                // which is recorded as a failed attempt below rather than guessing
+                // a prompt — a wrong guess writes a bad summary into someone's
+                // library, and skipping is always recoverable.
+                const summaryKind = summaryKindFor(item.type);
+                if (summaryKind === undefined) unmappedType = item.type;
+                if (summaryKind) {
+                  const summary = await generateSummary(config.openAiKey, { sourceText: prepared.sourceText, kind: summaryKind, title: prepared.patch.title || item.title, url: item.url });
+                  if (summary) { prepared.patch.summary = summary; prepared.patch.description = summary.slice(0, 350); }
+                }
               }
               if (Object.keys(prepared.patch).length || Object.keys(prepared.evidence).length) {
                 const applied = await applyCandidate(db, item, prepared.patch, strategy, prepared.evidence, job.lease_token);
@@ -126,6 +136,10 @@ export async function runEnrichmentMaintenance(deps: Deps) {
               outcome = quality.score > before.score || (quality.status === 'ready' && before.status !== 'ready') ? 'improved' : result.candidate.pending ? 'deferred' : result.candidate.reason && !unavailable ? 'failed' : 'unchanged';
               if (result.candidate.pending) delay = 1;
               if (result.candidate.reason) quality.reasons = [...new Set([...quality.reasons, result.candidate.reason])];
+              // Surfaces in enrichment_attempts (outcome 'failed') and in
+              // enrichment_review_candidates, same as every other enrichment
+              // failure, with the offending type named.
+              if (unmappedType) { outcome = 'failed'; quality.reasons = [...new Set([...quality.reasons, `unmapped_item_type:${unmappedType}`])]; }
               if (outcome === 'improved') counts.repaired++;
             } else { outcome = 'deferred'; counts.deferred++; }
           } else if (wantsRepair) { outcome = 'deferred'; counts.deferred++; }

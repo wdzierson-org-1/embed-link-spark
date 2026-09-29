@@ -73,6 +73,45 @@ const genericTask = (kind: SummaryInput['kind']): string =>
   'and conclusions, in plain direct prose (short paragraphs; use "-" bullets only when the ' +
   'source is list-like). Length proportional to the source, at most ~250 words. ';
 
+// Storage types an item can actually have in the DB. Kept separate from
+// SummaryInput['kind'] on purpose: the two vocabularies are not the same, and
+// conflating them is what let a raw DB type reach the prompt selector.
+export type ItemStorageType =
+  | 'link' | 'text' | 'image' | 'audio' | 'video' | 'document' | 'collection';
+
+// Explicit, exhaustive map from storage type to summary kind. Because it is a
+// full Record over ItemStorageType, adding a storage type FAILS TO COMPILE until
+// a decision is recorded here — which is the point. null means "this type must
+// never be summarized".
+const SUMMARY_KIND: Record<ItemStorageType, SummaryInput['kind'] | null> = {
+  link: 'link',
+  document: 'document',
+  text: 'text',
+  image: 'image',
+  // Capture labels every recording 'recording'; repair sees the storage type.
+  // Both must land on the same summary kind or the two paths diverge.
+  audio: 'audio',
+  video: 'video',
+  // Legacy read-only (see CLAUDE.md): never summarized, never patched.
+  collection: null,
+};
+
+// The Record above makes exhaustiveness a COMPILE-time property — but note that
+// supabase/functions/ is outside tsconfig.app.json's program and deno check is not
+// run here, so nothing in `npm test` enforces it. MAPPED_ITEM_TYPES exists so a
+// runtime test can assert the key set too, which is what actually guards this
+// repo today.
+export const MAPPED_ITEM_TYPES = Object.keys(SUMMARY_KIND) as ItemStorageType[];
+
+/**
+ * null      -> a known type that must not be summarized; skip it.
+ * undefined -> an UNKNOWN type. Callers must record a visible failure rather
+ *              than guessing a prompt, because a wrong guess silently writes a
+ *              bad summary into the user's library.
+ */
+export const summaryKindFor = (type: string): SummaryInput['kind'] | null | undefined =>
+  (SUMMARY_KIND as Record<string, SummaryInput['kind'] | null | undefined>)[type];
+
 // One predicate for prompt, input cap and output budget: a transcript is a
 // transcript no matter which path is summarizing it.
 const taskFor = (kind: SummaryInput['kind']): string =>
