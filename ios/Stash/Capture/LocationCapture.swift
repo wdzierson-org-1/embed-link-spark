@@ -7,7 +7,7 @@ import StashKit
 /// `CLGeocoder`, assembled into a `CapturedLocation` by StashKit's pure `LocationBuild` builders.
 /// App-side (not StashKit) by design — CLLocationManager/CLGeocoder are platform APIs StashKit
 /// deliberately stays free of, same "app owns the platform touch point" precedent as
-/// `CaptureViewModel`'s injected `upload`/`downscale` closures.
+/// `CaptureViewModel`'s injected `awaitPendingLocation` hook (which is how this type reaches it).
 ///
 /// Web port: `useCaptureLocation.ts`. `state` mirrors its `status` (`idle`/`locating`/`ready`/
 /// `error`) with an explicit `.off` standing in for the web's separate `enabled` flag — nothing
@@ -44,7 +44,7 @@ final class LocationCapture: NSObject {
     private var cache: (location: CapturedLocation, at: Date)?
 
     /// Generation token (same idiom as `SubscriptionStore.refreshGeneration`/
-    /// `ItemStore.loadGeneration`): bumped every time a FRESH resolution starts, captured locally
+    /// `ItemStore.refreshGeneration`): bumped every time a FRESH resolution starts, captured locally
     /// at the start of `resolve(generation:)`, and checked before every `state` write inside it —
     /// belt-and-suspenders alongside `Task.isCancelled` (below): a resolution superseded by a
     /// later cycle can't clobber whatever that later cycle already decided.
@@ -281,9 +281,10 @@ private enum LocationCaptureError: Error {
 }
 
 extension LocationCapture: CLLocationManagerDelegate {
-    // CoreLocation calls delegate methods on an arbitrary (non-main) queue/thread — same
-    // `nonisolated` + `Task { @MainActor in … }` hop `AudioRecorderController` already uses for
-    // its own NotificationCenter callbacks, applied here to CLLocationManager's.
+    // CoreLocation calls delegate methods on the run loop of the thread that created the manager
+    // (the main thread here), but the protocol's requirements are nonisolated, so the compiler
+    // can't know that — same `nonisolated` + `Task { @MainActor in … }` hop
+    // `AudioRecorderController` uses for its own NotificationCenter callbacks.
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }

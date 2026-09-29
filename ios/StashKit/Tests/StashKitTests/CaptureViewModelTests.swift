@@ -396,6 +396,38 @@ final class CaptureViewModelTests: XCTestCase {
         XCTAssertTrue(pending.isEmpty)
     }
 
+    /// Plan 15 6D: the composer refuses an oversized pick from its file size alone, with this same
+    /// helper, before reading the bytes — so the helper must be the exact rule `submit()` applies.
+    func testByteLimitIsPerKindAndPhotosHaveNone() {
+        let mb = 1_048_576
+        XCTAssertNil(CaptureAttachment.byteLimit(kind: .photo, mimeType: "image/heic"))
+        XCTAssertNil(CaptureAttachment.byteLimit(kind: .photo, mimeType: "video/quicktime"),
+                     "kind decides, not the MIME type: a photo is always prepared, never size-rejected")
+        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "video/quicktime"), 100 * mb)
+        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "audio/mp4"), 100 * mb)
+        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "application/pdf"), 20 * mb)
+        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "application/octet-stream"), 20 * mb)
+    }
+
+    func testSubmitAcceptsAFileAtExactlyItsByteLimitAndRejectsOneByteMore() async throws {
+        let limit = try XCTUnwrap(CaptureAttachment.byteLimit(kind: .file, mimeType: "application/pdf"))
+
+        let atLimit = FakeCaptureServer()
+        let vmAtLimit = makeViewModel(server: atLimit)
+        vmAtLimit.attachments = [CaptureAttachment(data: Data(count: limit), fileExtension: "pdf",
+                                                   mimeType: "application/pdf", kind: .file)]
+        let accepted = await vmAtLimit.submit()
+        XCTAssertEqual(accepted, .saved(count: 1, dropped: 0))
+
+        let overLimit = FakeCaptureServer()
+        let vmOverLimit = makeViewModel(server: overLimit)
+        vmOverLimit.attachments = [CaptureAttachment(data: Data(count: limit + 1), fileExtension: "pdf",
+                                                     mimeType: "application/pdf", kind: .file)]
+        let rejected = await vmOverLimit.submit()
+        XCTAssertEqual(rejected, .rejected(dropped: 1))
+        XCTAssertTrue(overLimit.calls.isEmpty)
+    }
+
     func testThreeAttachmentsWithOneOversizedSavesTwoAndDropsOne() async {
         let server = FakeCaptureServer()
         let vm = makeViewModel(server: server)

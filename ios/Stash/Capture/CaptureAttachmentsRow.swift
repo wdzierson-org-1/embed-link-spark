@@ -2,15 +2,32 @@ import SwiftUI
 import StashKit
 
 /// Horizontal strip of staged attachments below the composer's text editor: a thumbnail for
-/// photos (`UIImage(data:)`), a doc icon + extension label for files, and an X to remove either.
+/// photos, a doc icon + filename for files, a spinner chip for a pick that is still loading, and
+/// an X to remove (or abandon) any of them.
+///
+/// Plan 15 6D (M7): thumbnails arrive pre-decoded at the chip's pixel size
+/// (`AttachmentThumbnail`, made once per pick off the main thread) — this row never decodes an
+/// attachment's bytes itself, so re-rendering it while the user types costs nothing.
 struct CaptureAttachmentsRow: View {
+    /// Chip edge in points — also what the composer sizes thumbnails for.
+    static let chipSize: CGFloat = 64
+
     @Binding var attachments: [CaptureAttachment]
+    /// Keyed by `CaptureAttachment.id`. A photo without one (ImageIO couldn't read it) falls back
+    /// to the file chip.
+    var thumbnails: [UUID: UIImage] = [:]
+    /// Picks still loading, shown after the ready chips in the order they were picked.
+    var pending: [PendingAttachment] = []
+    var cancelPending: (PendingAttachment) -> Void = { _ in }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
                 ForEach(attachments) { attachment in
                     chip(for: attachment)
+                }
+                ForEach(pending) { placeholder in
+                    pendingChip(placeholder)
                 }
             }
             // The remove ×, offset (6, -6) off each chip's top-trailing corner, used to clip
@@ -27,29 +44,51 @@ struct CaptureAttachmentsRow: View {
     private func chip(for attachment: CaptureAttachment) -> some View {
         ZStack(alignment: .topTrailing) {
             thumbnail(for: attachment)
-                .frame(width: 64, height: 64)
+                .frame(width: Self.chipSize, height: Self.chipSize)
                 .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            Button {
+            removeButton {
                 attachments.removeAll { $0.id == attachment.id }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.6))
-                    .font(.system(size: 18))
             }
-            .offset(x: 6, y: -6)
             .accessibilityIdentifier("capture.attachment.remove")
         }
     }
 
+    /// Same footprint as a ready chip, so the row doesn't shift when the pick lands.
+    private func pendingChip(_ placeholder: PendingAttachment) -> some View {
+        ZStack(alignment: .topTrailing) {
+            ProgressView()
+                .frame(width: Self.chipSize, height: Self.chipSize)
+                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Adding attachment")
+                .accessibilityIdentifier("capture.attachment.pending")
+
+            removeButton { cancelPending(placeholder) }
+                .accessibilityLabel("Cancel adding attachment")
+                .accessibilityIdentifier("capture.attachment.cancelPending")
+        }
+    }
+
+    private func removeButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, .black.opacity(0.6))
+                .font(.system(size: 18))
+        }
+        .offset(x: 6, y: -6)
+    }
+
     @ViewBuilder
     private func thumbnail(for attachment: CaptureAttachment) -> some View {
-        if attachment.kind == .photo, let uiImage = UIImage(data: attachment.data) {
-            Image(uiImage: uiImage)
+        if attachment.kind == .photo, let thumbnail = thumbnails[attachment.id] {
+            Image(uiImage: thumbnail)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
+                .accessibilityLabel(attachment.fileName ?? "Photo")
+                .accessibilityIdentifier("capture.attachment.thumbnail")
         } else {
             VStack(spacing: 4) {
                 Image(systemName: "doc.fill")
@@ -63,6 +102,8 @@ struct CaptureAttachmentsRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("capture.attachment.file")
         }
     }
 }

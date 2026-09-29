@@ -69,6 +69,16 @@ struct VoiceRecorderSheet: View {
         // mid-recording; that's a disclosed, pre-existing gap, not something a view modifier can
         // close — see task-6-report.md.
         .interactiveDismissDisabled(recorder.recordingURL != nil)
+        // Plan 15 H3: with the `audio` background mode a recording would otherwise outlive a
+        // sheet that went away some unforeseen way (Close/Cancel/Save all end it first, so this is
+        // normally a no-op) — finalize it instead, which also hands back the audio session and the
+        // screen's auto-lock. The file stays in `RecordingStore`, where the launch sweep recovers it.
+        .onDisappear { recorder.stop() }
+        #if DEBUG
+        .overlay(alignment: .bottomTrailing) {
+            if CaptureTestHooks.showsVoiceProbe { IdleTimerProbe() }
+        }
+        #endif
     }
 
     // MARK: - Phases
@@ -120,10 +130,21 @@ struct VoiceRecorderSheet: View {
             Image(systemName: "waveform")
                 .font(.system(size: 40))
                 .foregroundStyle(StashColor.muted)
-            // Same monospace exception as the recording timer above.
-            Text(formattedElapsed)
-                .font(StashType.mono(28))
-                .accessibilityIdentifier("capture.voice.duration")
+            VStack(spacing: 8) {
+                // Same monospace exception as the recording timer above.
+                Text(formattedElapsed)
+                    .font(StashType.mono(28))
+                    .accessibilityIdentifier("capture.voice.duration")
+                // Plan 15 H3: a phone call, Siri, or another app taking the microphone finalized
+                // the take — say where it was cut before the user decides to Save or Re-record.
+                if let interruptedAt = recorder.interruptedAt {
+                    Text("Recording was interrupted at \(Self.minutesAndSeconds(interruptedAt))")
+                        .font(StashType.body())
+                        .foregroundStyle(StashColor.muted)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("capture.voice.interrupted")
+                }
+            }
             HStack(spacing: 16) {
                 Button("Re-record") { reRecord() }
                     .buttonStyle(.bordered)
@@ -196,6 +217,12 @@ struct VoiceRecorderSheet: View {
         return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
+    /// "m:ss" — e.g. 0:42, 12:05.
+    private static func minutesAndSeconds(_ interval: TimeInterval) -> String {
+        let total = Int(interval.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
     // MARK: - Actions
 
     private func save() async {
@@ -235,3 +262,28 @@ struct VoiceRecorderSheet: View {
         recorder.start()
     }
 }
+
+#if DEBUG
+/// `debug.idleTimer` (`--uitest-voice-probe`, UI tests only): "disabled" while the screen is being
+/// kept awake (`UIApplication.isIdleTimerDisabled`), else "enabled" — re-read 4× a second. A 1 pt,
+/// non-interactive element, the same shape as `StashApp`'s `OutboxProbe`.
+private struct IdleTimerProbe: View {
+    @State private var state = "unknown"
+
+    var body: some View {
+        Text(state)
+            .font(.system(size: 1))
+            .frame(width: 1, height: 1)
+            .opacity(0.02)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("debug.idleTimer")
+            .accessibilityLabel(state)
+            .task {
+                while !Task.isCancelled {
+                    state = UIApplication.shared.isIdleTimerDisabled ? "disabled" : "enabled"
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+    }
+}
+#endif

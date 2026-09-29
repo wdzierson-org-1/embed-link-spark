@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import Observation
 import StashKit
+import UIKit
 
 /// Owns the record side of a voice note: an `AVAudioSession` record category, an
 /// `AVAudioRecorder` writing straight into a fresh `RecordingStore` url (the file exists on disk
@@ -9,22 +10,32 @@ import StashKit
 /// `RecordingStore`'s own doc comment describes), a 10Hz timer driving `elapsed`/`averagePower`
 /// for the sheet's timer + level meter, and start/stop/cancel.
 ///
+/// LONG RECORDINGS (plan 15 H3): a meeting or a lecture keeps recording when the phone is put
+/// down. The app declares `UIBackgroundModes: audio` (project.yml), so an active `.record`
+/// session keeps the app — and this recorder — running through a screen lock or an app switch;
+/// and while recording, the screen is kept awake (`isIdleTimerDisabled`, restored on every way a
+/// recording ends — Stop, Cancel, an interruption, the sheet going away), so the timer and Stop
+/// stay in view. Background eligibility comes from the category + the background mode; the
+/// session's options (`.duckOthers`, as in Apple's speech-recognition sample) don't affect it.
+///
 /// AUDIO SESSION CARE (per Task 5's own review fix to the Ask tab's since-removed
 /// `DictationController`, carried forward here deliberately, not reinvented): configures
 /// `.record` on `start()` and deactivates with `.notifyOthersOnDeactivation` on every
 /// stop/cancel; registers the same `AVAudioSession.interruptionNotification` teardown pattern.
 /// One deliberate difference from that dictation controller: an interruption there just
 /// discarded a live, never-sent transcript, so it tore down exactly like a user-initiated stop.
-/// Here, `stop()` FINALIZES the audio file
-/// (`AVAudioRecorder.stop()` closes and completes it) rather than discarding anything — so an
-/// interruption (phone call, alarm, Siri, another app taking the mic) preserves whatever was
-/// captured so far via `RecordingStore`, and the sheet naturally lands on its preview state
-/// (Save / Re-record / Cancel) once the user returns to the app. That matches the plan's own rule:
-/// "a recording is never destroyed until the server confirms."
+/// Here, an interruption (phone call, alarm, Siri, another app taking the mic) FINALIZES the audio
+/// file (`AVAudioRecorder.stop()` closes and completes it) rather than discarding anything, so
+/// whatever was captured so far is preserved via `RecordingStore`, and the sheet lands on its
+/// preview state (Save / Re-record / Cancel) with "Recording was interrupted at m:ss" once the
+/// user returns (`interruptedAt`). That matches the plan's own rule: "a recording is never
+/// destroyed until the server confirms."
 ///
-/// Cross-tab note: since the Ask tab's dictation was removed (2026-09-07) this recorder is the
-/// app's only microphone client, so nothing else contends for `AVAudioSession` and no cross-tab
-/// plumbing (shared actor, notification, etc.) is needed.
+/// Cross-tab note: this recorder is the app's only microphone client. The Ask tab's read-aloud
+/// (plan 15 6A) also uses the shared session — `.playback` while speaking — but never at the same
+/// time: the recorder is a modal sheet on the Add tab, and read-aloud stops when the Ask tab goes
+/// away. Read-aloud only hands the session back while it's still in its own `.playback` category,
+/// so it can't deactivate a recording that took the session over.
 @MainActor
 @Observable
 final class AudioRecorderController {
@@ -40,6 +51,10 @@ final class AudioRecorderController {
     /// Set the instant a recording starts, stays set through `stop()` (the sheet's preview state
     /// reads the file at this URL to preview/submit it), and is only ever cleared by `cancel()`.
     private(set) var recordingURL: URL?
+    /// Where an interruption cut the recording (plan 15 H3) — set when a system interruption
+    /// finalized it rather than the user's Stop, for the sheet's "Recording was interrupted at
+    /// m:ss" notice. Cleared by the next `start()` and by `cancel()`.
+    private(set) var interruptedAt: TimeInterval?
 
     private let recordingStore: RecordingStore
     private var recorder: AVAudioRecorder?
@@ -53,6 +68,12 @@ final class AudioRecorderController {
     /// read, which by definition can't race anything else touching `self`.
     @ObservationIgnored
     nonisolated(unsafe) private var interruptionObserver: NSObjectProtocol?
+
+    /// What `UIApplication.isIdleTimerDisabled` was before the current recording started — non-nil
+    /// exactly while this controller is keeping the screen awake. Same `nonisolated(unsafe)`
+    /// reasoning as `interruptionObserver`: mutated on the main actor only, read once by `deinit`.
+    @ObservationIgnored
+    nonisolated(unsafe) private var idleTimerSettingBeforeRecording: Bool?
 
     init(recordingStore: RecordingStore) {
         self.recordingStore = recordingStore
@@ -79,6 +100,8 @@ final class AudioRecorderController {
 
         let session = AVAudioSession.sharedInstance()
         do {
+            // `.record` keeps recording in the background and through a screen lock, given the
+            // app's `audio` background mode — see the type doc.
             try session.setCategory(.record, mode: .default, options: [.duckOthers])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
@@ -106,17 +129,25 @@ final class AudioRecorderController {
         recordingURL = url
         elapsed = 0
         averagePower = 0
+        interruptedAt = nil
         isRecording = true
+        keepScreenAwake()
         registerInterruptionObserver()
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
+        #if DEBUG
+        scheduleSimulatedInterruptionIfRequested()
+        #endif
     }
 
     /// Finalizes the file — `recordingURL` stays set so the caller (the sheet) can move to its
     /// preview state and decide from there. Never deletes anything; that's `cancel()`'s job.
     func stop() {
         guard isRecording else { return }
+        // The exact length, not the last 10 Hz tick's (it becomes `media.duration_s`). `max`
+        // keeps the tick's value if an interruption already reset the recorder's clock.
+        if let recorder { elapsed = max(elapsed, recorder.currentTime) }
         recorder?.stop()
         teardown()
     }
@@ -132,15 +163,19 @@ final class AudioRecorderController {
             recordingStore.discard(recordingURL)
         }
         recordingURL = nil
+        interruptedAt = nil
     }
 
     deinit {
         // Safety net for the (already unlikely — the sheet's owner calls `cancel()`/`stop()`
-        // through the normal dismiss paths) case of deallocation while still recording. Reads the
-        // stored token directly (not the `@MainActor`-isolated helper below) since `deinit` isn't
-        // guaranteed to run on the main actor.
+        // through the normal dismiss paths, and `stop()` again on disappear) case of deallocation
+        // while still recording. Reads the stored values directly (not the `@MainActor`-isolated
+        // helpers below) since `deinit` isn't guaranteed to run on the main actor.
         if let interruptionObserver {
             NotificationCenter.default.removeObserver(interruptionObserver)
+        }
+        if let previous = idleTimerSettingBeforeRecording {
+            Task { @MainActor in UIApplication.shared.isIdleTimerDisabled = previous }
         }
     }
 
@@ -161,15 +196,32 @@ final class AudioRecorderController {
         isRecording = false
         unregisterInterruptionObserver()
         deactivateSession()
+        restoreScreenIdleTimer()
     }
 
     private func deactivateSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
+    /// Keeps the screen from auto-locking for as long as this recording runs (plan 15 H3).
+    private func keepScreenAwake() {
+        guard idleTimerSettingBeforeRecording == nil else { return }
+        idleTimerSettingBeforeRecording = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+    }
+
+    /// Puts the setting back the way it was before the recording — on every way a recording ends
+    /// (`teardown()` runs for Stop, Cancel and an interruption; the sheet stops on disappear).
+    private func restoreScreenIdleTimer() {
+        guard let previous = idleTimerSettingBeforeRecording else { return }
+        idleTimerSettingBeforeRecording = nil
+        UIApplication.shared.isIdleTimerDisabled = previous
+    }
+
     /// A begin-type interruption (phone call, alarm, Siri, another app taking the microphone)
     /// stops (finalizing, not discarding) exactly like `stop()` — see the header doc comment for
-    /// why that's the right behavior here, unlike the former `DictationController`'s equivalent.
+    /// why that's the right behavior here, unlike the former `DictationController`'s equivalent —
+    /// and records where the recording was cut, for the sheet's notice.
     private func registerInterruptionObserver() {
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
@@ -182,9 +234,15 @@ final class AudioRecorderController {
                   type == .began
             else { return }
             // `queue: .main` only promises the callback runs on the main thread at runtime; the
-            // compiler still sees a nonisolated closure, so hop explicitly to call `stop()`.
-            Task { @MainActor in self.stop() }
+            // compiler still sees a nonisolated closure, so hop explicitly.
+            Task { @MainActor in self.finishAfterInterruption() }
         }
+    }
+
+    private func finishAfterInterruption() {
+        guard isRecording else { return }
+        stop()
+        interruptedAt = elapsed
     }
 
     private func unregisterInterruptionObserver() {
@@ -193,4 +251,21 @@ final class AudioRecorderController {
         }
         interruptionObserver = nil
     }
+
+    #if DEBUG
+    /// `--uitest-voice-interrupt-after=<s>` (`CaptureTestHooks`): posts exactly what the system
+    /// posts when a phone call or Siri takes the session, so `ComposerUITests` can drive the
+    /// interruption path on a simulator.
+    private func scheduleSimulatedInterruptionIfRequested() {
+        guard let delay = CaptureTestHooks.voiceInterruptionDelay else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            NotificationCenter.default.post(
+                name: AVAudioSession.interruptionNotification,
+                object: AVAudioSession.sharedInstance(),
+                userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+            )
+        }
+    }
+    #endif
 }

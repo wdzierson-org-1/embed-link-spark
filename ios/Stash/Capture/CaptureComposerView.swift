@@ -3,7 +3,6 @@ import StashKit
 import PhotosUI
 import UniformTypeIdentifiers
 import AVFoundation
-import CoreTransferable
 
 /// The Add tab (plan 2's launch tab): a resident capture composer — text, detected URLs,
 /// photos, camera, and files, all routed through `CaptureViewModel` with an offline Outbox
@@ -25,6 +24,11 @@ struct CaptureComposerView: View {
     @State private var showCameraPicker = false
     @State private var showFileImporter = false
     @State private var showVoiceRecorder = false
+    /// Plan 15 6D (M7): picks still loading off the main thread, each shown as a spinner chip.
+    @State private var pendingAttachments: [PendingAttachment] = []
+    /// Chip thumbnails, decoded once per pick (keyed by `CaptureAttachment.id`; pruned as
+    /// attachments leave).
+    @State private var thumbnails: [UUID: UIImage] = [:]
     @FocusState private var editorFocused: Bool
     // Task 2 (plan 10 round 2): the tab's own container height, captured from a keyboard-blind
     // measuring layer below — never the height SwiftUI proposes to the composer's own content,
@@ -33,6 +37,7 @@ struct CaptureComposerView: View {
     @State private var containerHeight: CGFloat = 0
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.displayScale) private var displayScale
     @Environment(SubscriptionStore.self) private var subscription
 
     init(userId: UUID, switchToView: @escaping () -> Void = {}) {
@@ -57,6 +62,10 @@ struct CaptureComposerView: View {
     private var canSubmit: Bool {
         !viewModel.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !viewModel.attachments.isEmpty
     }
+
+    /// Save waits while a pick is still loading, so a capture never silently leaves it behind; the
+    /// spinner chip says why, and its × lets the user save without it.
+    private var isAddingAttachments: Bool { !pendingAttachments.isEmpty }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -140,15 +149,21 @@ struct CaptureComposerView: View {
                 // `hasAnyContent` (`!editorIsEmpty || inputItems.length > 0`) — a non-empty draft
                 // OR at least one staged attachment, exactly mirroring the web's boolean shape
                 // (fix round 1: a prior version omitted the attachments half of this OR).
-                ComposerCard(active: editorFocused || !viewModel.text.isEmpty || !viewModel.attachments.isEmpty) {
+                ComposerCard(active: editorFocused || !viewModel.text.isEmpty || !viewModel.attachments.isEmpty
+                                     || isAddingAttachments) {
                     VStack(alignment: .leading, spacing: 0) {
                         editor
                         VStack(alignment: .leading, spacing: 10) {
                             if let url = detectFirstURL(in: viewModel.text) {
                                 urlChip(url)
                             }
-                            if !viewModel.attachments.isEmpty {
-                                CaptureAttachmentsRow(attachments: $viewModel.attachments)
+                            if !viewModel.attachments.isEmpty || isAddingAttachments {
+                                CaptureAttachmentsRow(
+                                    attachments: $viewModel.attachments,
+                                    thumbnails: thumbnails,
+                                    pending: pendingAttachments,
+                                    cancelPending: { placeholder in pendingAttachments.removeAll { $0 == placeholder } }
+                                )
                             }
                             if !subscription.canAddContent {
                                 subscriptionGateMessage
@@ -188,7 +203,12 @@ struct CaptureComposerView: View {
             }
         }
         .overlay(alignment: .bottom) { toastView }
-        .task { await viewModel.drainOutbox() }
+        .task {
+            // UI-test hook only (`--uitest-import-file=`; always empty in Release builds).
+            let syntheticImports = CaptureTestHooks.takeSyntheticImports()
+            if !syntheticImports.isEmpty { handleFileImport(.success(syntheticImports)) }
+            await viewModel.drainOutbox()
+        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { Task { await viewModel.drainOutbox() } }
         }
@@ -232,27 +252,23 @@ struct CaptureComposerView: View {
         }
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
-            Task { await loadPhotos(items) }
+            // The picks are captured here, so the selection resets at once and the picker opens
+            // fresh next time.
+            selectedPhotoItems = []
+            loadPhotos(items)
+        }
+        // Thumbnails leave with their attachments (the ×, or a submit clearing the form).
+        .onChange(of: viewModel.attachments.map(\.id)) { _, ids in
+            thumbnails = thumbnails.filter { ids.contains($0.key) }
         }
         .fileImporter(isPresented: $showFileImporter,
                       allowedContentTypes: [.pdf, .plainText, .movie, .audio, .image],
                       allowsMultipleSelection: true) { result in
-            // `handleFileImport` is async now (Task 5's AVAsset duration probe for audio/video) —
-            // `fileImporter`'s completion itself can't be, so hop into a `Task`.
-            Task { await handleFileImport(result) }
+            handleFileImport(result)
         }
         .fullScreenCover(isPresented: $showCameraPicker) {
-            CameraPicker { image in
-                if let data = image.jpegData(compressionQuality: 0.9) {
-                    // A fresh camera capture has no source filename to carry forward (Task 5:
-                    // "camera → nil") — `fileName`/`durationS` stay at their `nil` defaults.
-                    // `jpegData` records the UIImage orientation as EXIF; `ImagePreparation`
-                    // applies it (and resizes) when the capture is saved (plan 15).
-                    viewModel.attachments.append(
-                        CaptureAttachment(data: data, fileExtension: "jpg", mimeType: "image/jpeg", kind: .photo))
-                }
-            }
-            .ignoresSafeArea()
+            CameraPicker { image in addCameraPhoto(image) }
+                .ignoresSafeArea()
         }
         .sheet(isPresented: $showVoiceRecorder) {
             VoiceRecorderSheet(userId: userId, viewModel: viewModel) { outcome in
@@ -396,7 +412,7 @@ struct CaptureComposerView: View {
                 // capability check this `if` is already gated on) so it reads consistently with
                 // Save's own visible-but-disabled treatment; the inline message above already
                 // explains why.
-                .disabled(!subscription.canAddContent)
+                .disabled(!subscription.canAddContent && !CaptureTestHooks.opensVoiceGate)
                 .accessibilityIdentifier("capture.voice")
             }
 
@@ -453,10 +469,10 @@ struct CaptureComposerView: View {
             editorFocused = false
             Task { await submit() }
         } label: {
-            CircleSubmitIcon(hot: canSubmit && subscription.canAddContent && !isSubmitting,
+            CircleSubmitIcon(hot: canSubmit && subscription.canAddContent && !isSubmitting && !isAddingAttachments,
                              busy: isSubmitting)
         }
-        .disabled(isSubmitting || !canSubmit || !subscription.canAddContent)
+        .disabled(isSubmitting || !canSubmit || !subscription.canAddContent || isAddingAttachments)
         .accessibilityIdentifier("capture.save")
     }
 
@@ -503,61 +519,65 @@ struct CaptureComposerView: View {
         }
     }
 
-    private func loadPhotos(_ items: [PhotosPickerItem]) async {
-        for item in items {
-            // `Data.self` stays the proven path for the bytes themselves — unchanged from before
-            // Task 5, and must keep working even if the filename probe below doesn't.
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first
-            let ext = type?.preferredFilenameExtension ?? "jpg"
-            let mime = type?.preferredMIMEType ?? "image/jpeg"
-            // Best-effort ONLY (Task 5): `Data.self` alone carries no filename, and
-            // `PickedPhotoFile`'s file-based `FileRepresentation` transfer is a materially
-            // different (out-of-process file copy, not in-memory bytes) code path than the
-            // proven one above — its failure must never block the attach itself, only leave
-            // `fileName` gracefully nil, same philosophy as the AVAsset duration probe below.
-            let picked = try? await item.loadTransferable(type: PickedPhotoFile.self)
-            if let picked { try? FileManager.default.removeItem(at: picked.url) }
-            // This picker only ever matches `.images` (see `bottomBar`'s `PhotosPicker`), so
-            // there's never a duration to probe here — only `handleFileImport`'s audio/video
-            // branch below does that.
-            viewModel.attachments.append(CaptureAttachment(data: data, fileExtension: ext, mimeType: mime,
-                                                            kind: .photo, fileName: picked?.suggestedFileName))
-        }
-        selectedPhotoItems = []
+    // MARK: - Attachments (plan 15 6D, M7)
+    //
+    // Every pick shows a spinner chip at once and loads off the main thread
+    // (`ComposerAttachmentLoader`): one transfer per photo, file bytes read in a detached task, the
+    // camera's JPEG encoded off-main, and the chip thumbnail decoded once at the chip's pixel size.
+    // A pick that fails is reported in a toast — never dropped silently.
+
+    /// Pixel edge the chip thumbnails are decoded at: the chip's point size at this screen's scale.
+    private var chipPixels: Int { Int((CaptureAttachmentsRow.chipSize * displayScale).rounded(.up)) }
+
+    private func loadPhotos(_ items: [PhotosPickerItem]) {
+        let chipPixels = chipPixels
+        loadAttachments(items, noun: "photo") { await ComposerAttachmentLoader.photo($0, chipPixels: chipPixels) }
     }
 
-    private func handleFileImport(_ result: Result<[URL], Error>) async {
-        guard case .success(let urls) = result else { return }
-        for url in urls {
-            guard url.startAccessingSecurityScopedResource() else { continue }
-            defer { url.stopAccessingSecurityScopedResource() }
-            guard let data = try? Data(contentsOf: url) else { continue }
-            let ext = url.pathExtension.isEmpty ? "bin" : url.pathExtension
-            let type = UTType(filenameExtension: ext)
-            let mime = type?.preferredMIMEType ?? "application/octet-stream"
-            let kind: CaptureAttachment.Kind = (type?.conforms(to: .image) ?? false) ? .photo : .file
-            // Probed BEFORE the `defer` above can fire: `stopAccessingSecurityScopedResource()`
-            // only runs once this loop iteration's scope exits, which is after this `await`
-            // returns — so the security scope is still open for the whole probe, and there's no
-            // need to copy the bytes to a temp file first.
-            let isAudioOrVideo = type?.conforms(to: .audiovisualContent) ?? false
-            let durationS = isAudioOrVideo ? await probeDuration(url: url) : nil
-            viewModel.attachments.append(CaptureAttachment(data: data, fileExtension: ext, mimeType: mime,
-                                                            kind: kind, fileName: url.lastPathComponent,
-                                                            durationS: durationS))
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            let chipPixels = chipPixels
+            loadAttachments(urls, noun: "file") { await ComposerAttachmentLoader.file(at: $0, chipPixels: chipPixels) }
+        case .failure(let error):
+            guard (error as? CocoaError)?.code != .userCancelled else { return }
+            show(.rejected(message: "Couldn't open that file"))
         }
     }
 
-    /// `AVAsset` duration probe for a picked audio/video file (Task 5) — `try?` collapses any
-    /// failure (corrupt file, an asset AVFoundation can't actually parse) into a graceful `nil`
-    /// rather than blocking the attach; `durationS` is optional everywhere downstream for exactly
-    /// this reason. Deviation from the brief's literal `AVAsset(url:)`: the initializer that takes
-    /// a URL is declared on `AVURLAsset` (a concrete `AVAsset` subclass) — the base class has none.
-    private func probeDuration(url: URL) async -> Double? {
-        guard let duration = try? await AVURLAsset(url: url).load(.duration) else { return nil }
-        let seconds = duration.seconds
-        return seconds.isFinite && seconds > 0 ? seconds : nil
+    private func addCameraPhoto(_ image: UIImage) {
+        let chipPixels = chipPixels
+        loadAttachments([image], noun: "photo") { await ComposerAttachmentLoader.cameraPhoto($0, chipPixels: chipPixels) }
+    }
+
+    /// Shows a pending chip per pick at once, then loads the picks one after another — so they
+    /// attach in the order they were picked (the first carries the typed note, `CaptureViewModel`
+    /// routing) — each replacing its chip the moment it's ready. A chip the user abandons (its ×)
+    /// is skipped, or its late result discarded. The batch's failures share one toast at the end.
+    private func loadAttachments<Source: Sendable>(_ sources: [Source], noun: String,
+                                                   load: @escaping @Sendable (Source) async -> AttachmentLoadResult) {
+        guard !sources.isEmpty else { return }
+        let placeholders = sources.map { _ in PendingAttachment() }
+        pendingAttachments += placeholders
+        Task {
+            var failures: [AttachmentLoadFailure] = []
+            for (source, placeholder) in zip(sources, placeholders) {
+                guard pendingAttachments.contains(placeholder) else { continue }
+                let result = await load(source)
+                guard let index = pendingAttachments.firstIndex(of: placeholder) else { continue }
+                pendingAttachments.remove(at: index)
+                switch result {
+                case .success(let loaded):
+                    thumbnails[loaded.attachment.id] = loaded.thumbnail
+                    viewModel.attachments.append(loaded.attachment)
+                case .failure(let failure):
+                    failures.append(failure)
+                }
+            }
+            if let message = AttachmentLoadFailure.toastMessage(for: failures, noun: noun) {
+                show(.rejected(message: message))
+            }
+        }
     }
 
     // MARK: - Toast
@@ -614,29 +634,6 @@ private enum CaptureToast: Equatable {
         switch self {
         case .saved(_, let hadDrops): hadDrops ? .orange : StashColor.success
         case .queued, .rejected: .orange
-        }
-    }
-}
-
-/// A `Transferable` wrapper (Task 5) that surfaces the ORIGINAL filename PhotosPicker suggests for
-/// a picked asset — `loadTransferable(type: Data.self)` alone carries bytes only, no name.
-/// `FileRepresentation`'s file-based import hands back a `ReceivedTransferredFile` whose `.file`
-/// URL's last path component is that suggested name (e.g. "IMG_1234.HEIC"). `received.file` is
-/// only guaranteed valid for the duration of the `importing` closure, so `url` copies it to a
-/// fresh temp path just to keep that name reachable afterward — `loadPhotos` reads only
-/// `suggestedFileName` from the result (the bytes it actually attaches come from its own,
-/// separate `Data.self` load) and deletes this copy immediately without opening it.
-private struct PickedPhotoFile: Transferable {
-    let url: URL
-    let suggestedFileName: String?
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .item) { SentTransferredFile($0.url) } importing: { received in
-            let destination = URL.temporaryDirectory.appending(path: UUID().uuidString)
-                .appendingPathExtension(received.file.pathExtension)
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.copyItem(at: received.file, to: destination)
-            return Self(url: destination, suggestedFileName: received.file.lastPathComponent)
         }
     }
 }
