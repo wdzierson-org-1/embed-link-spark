@@ -35,7 +35,9 @@ const UNTRUSTED_SOURCE_RULE =
   'Preserve specific names, models, places and cited resources. ';
 
 // Kinds whose source is a transcript, and so may run far past a page's length.
-const TRANSCRIPT_KINDS = new Set<SummaryInput['kind']>(['recording', 'audio', 'video']);
+// Exported so the test can iterate the REAL set: adding a kind here must
+// automatically extend the prompt/cap/budget invariant, not silently skip it.
+export const TRANSCRIPT_KINDS = new Set<SummaryInput['kind']>(['recording', 'audio', 'video']);
 
 // Hand-written tasks keyed on DB type, for the kinds that earn one. Kinds absent
 // here fall back to genericTask below — deliberately, so adding a kind can never
