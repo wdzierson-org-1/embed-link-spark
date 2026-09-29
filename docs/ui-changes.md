@@ -88,6 +88,22 @@ affect every platform's summaries, and a correction to a commit message.
   repository, merge `b66b0ca6` did leave `formatDiarizedTranscript` with a passing
   test and no production caller. That is a source-level fact and stands.)
 
+- **"Transcribe with speakers" is now "Transcribe again" (web + iOS).** The server
+  no longer diarizes: `formatDiarizedTranscript` survives in
+  `supabase/functions/_shared/transcript.ts` but has NO production caller, and
+  `transcribe-audio` contains no speaker handling at all. The button's behaviour is
+  UNCHANGED and still worth offering — it re-invokes `transcribe-audio` on the
+  original media and patches only `page_body` + `description`, never `content`,
+  preserving the previous transcript on failure. Only the promise was wrong.
+  Web `src/components/TranscriptContent.tsx`: idle "Transcribe again", busy
+  "Transcribing…", helper copy unchanged. iOS `ItemDetailContent.swift`: idle
+  string only — "Transcribing…" already matched. **Supersedes the 2026-09-14 entry
+  below**, whose "labels come from the server's diarization" parenthetical no
+  longer holds; ignore that clause when mirroring. Accessibility identifier
+  `detail.transcribeSpeakers` is deliberately unchanged (stable test contract, now
+  a mild misnomer). Whether diarization returns is an open decision — if it does,
+  re-advertising speakers is a deliberate copy change, not a revert.
+
 
 ## 2026-09-18 · Chrome extension install page + hosted zip refresh
 

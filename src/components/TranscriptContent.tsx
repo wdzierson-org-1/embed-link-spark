@@ -36,7 +36,7 @@ export default function TranscriptContent({ itemId, filePath, transcript }: {
     <div className="space-y-4">
       {filePath && <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" size="sm" disabled={working} onClick={() => void retranscribe()}>
-          {working ? 'Separating speakers…' : 'Transcribe with speakers'}
+          {working ? 'Transcribing…' : 'Transcribe again'}
         </Button>
         <span className="text-xs text-muted-foreground">{working ? 'You can keep reading while this runs.' : 'Rebuild from the original recording.'}</span>
       </div>}

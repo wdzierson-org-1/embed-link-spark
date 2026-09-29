@@ -124,12 +124,14 @@ struct ItemDetailContent: View {
                     ProgressView()
                         .controlSize(.mini)
                 }
-                Text(isTranscribing ? "Transcribing…" : "Transcribe with speakers")
+                Text(isTranscribing ? "Transcribing…" : "Transcribe again")
                     .font(StashType.meta())
             }
         }
         .foregroundStyle(isTranscribing ? StashColor.faint : StashColor.violet600)
         .disabled(isTranscribing)
+        // Identifier deliberately unchanged: stable UI-test contract. A mild misnomer
+        // since the server no longer diarizes — renaming churns StashUITests for no user benefit.
         .accessibilityIdentifier("detail.transcribeSpeakers")
     }
 
