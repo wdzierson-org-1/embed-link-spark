@@ -8,6 +8,87 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-29 · Enrichment quality loop on main · transcript summaries unified · one correction
+
+Housekeeping wave, mostly server-side. Five completed-but-unmerged branches were
+merged into `main` (reminders email, Ask-Stash notes in search, logo refresh,
+long-audio transcription, enrichment quality loop). The first four already had
+their own entries below — this entry covers the fifth, two behaviour changes that
+affect every platform's summaries, and a correction to a commit message.
+
+- **Enrichment quality loop (server-only; was ALREADY LIVE before this merge).**
+  `main` had no source for infrastructure that has been running in production on
+  an hourly cron. It does now. Nothing for a client to call and no UI, but two
+  facts clients should know: it writes `attributes.enrichment.*` (status,
+  evidence, protected_fields) and `attributes.media.*` on items it repairs, so
+  the usual `attributes` rule matters more than before — **whole-blob writes must
+  preserve keys you do not model**, or you will erase enrichment state. And
+  repairs are currently DISABLED in production (`ENRICHMENT_REPAIR_ENABLED`
+  unset): the loop assesses and defers, it does not yet rewrite anyone's items.
+  Source: `supabase/functions/_shared/enrichment*.ts`,
+  `supabase/functions/enrichment-maintenance/`, migrations `20260923120000` and
+  `20260923121000`.
+
+- **DO NOT set `ENRICHMENT_REPAIR_ENABLED=true` yet — read this first.** The
+  enrichment loop currently ASSESSES ONLY. That one environment variable is the
+  switch between "looks at your items" and "rewrites your items", and two known
+  issues sit behind it. (1) Legacy `type='collection'` rows are in the pipeline:
+  the `enqueue_enrichment_assessment` trigger has no type predicate, so all 14
+  legacy collections in production are queued, assessed and counted (~1.4% of
+  `enrichment_quality` rows, so metrics from that table include them). Collections
+  are legacy read-only per `CLAUDE.md` and must never be patched. They are
+  currently double-guarded — `assessEnrichment` returns `unsupported` for them and
+  the repair gate skips `unsupported`, and since 2026-09-29 the summary path also
+  refuses to map that type — but nothing stops them ENTERING the queue, and the
+  clean fix (excluding the type in the trigger) has not been made. (2) The repair
+  path is the only caller that reaches `generateSummary` with a raw DB item type,
+  so it is the path where a type-vocabulary mistake becomes a written summary; an
+  unmapped type is now recorded as a failed attempt with
+  `unmapped_item_type:<type>` rather than guessing a prompt. Before enabling
+  repairs: decide the collection exclusion, and watch `enrichment_attempts` for
+  `unmapped_item_type:` reasons. Turning it on is a release, not a config tweak.
+
+- **Transcript summaries: one prompt, one budget, whichever path produced them.**
+  Behaviour change worth mirroring in expectations, not code. Summary prompts were
+  selected by DB type, and the two callers label the same thing differently —
+  capture sends `recording` for every audio/video, while the new repair path sent
+  the raw type (`audio`/`video`). The result was that repairing a recording
+  DEGRADED a summary the capture path got right: generic prompt instead of the
+  transcript prompt, a 600-token instead of 700-token budget. All three notions of
+  "is this a transcript" (prompt, input cap, output budget) now share one set, so
+  capture and repair agree by construction. A voice memo gets the same summary
+  whichever path last touched it. Source: `supabase/functions/_shared/summarize.ts`,
+  locked by `summarize.test.ts`.
+
+- **Every summary prompt now says the source is untrusted.** Applies to links,
+  documents and recordings, which previously did not carry it: the model is told
+  to treat captured source text as data and never as instructions, and to
+  preserve specific names, models, places and cited resources. Captured pages are
+  third-party text; a page that says "ignore your instructions" is a page, not an
+  instruction. Expect slightly more literal, less paraphrased summaries.
+
+- **CORRECTION — commit `b66b0ca6` contains a claim that is DISPROVEN.** That
+  merge commit's message has a section headed "RELATED PROD FINDING" asserting
+  that production runs the older diarized synchronous `transcribe-audio` rather
+  than the asynchronous job version, and that the `transcribe-audio-sweep` cron
+  had been firing every 10 minutes against an endpoint unable to service it.
+  **Both claims are false and there is no broken-cron defect.** `transcribe-audio`
+  was deployed as v28 on 2026-09-29 05:50:18 UTC, and `net._http_response` shows
+  the sweep returning `200 {"due":0,"started":[]}` — a response shape only the job
+  version can produce. The cron is being serviced correctly.
+  The reasoning error, recorded because it generalizes: current deployment state
+  was inferred from item rows created on 2026-09-10 and 2026-09-17. **Item rows
+  are creation-time artifacts — they evidence what was deployed when they were
+  written, not what is deployed now.** Production had churned between the two
+  designs. To answer "what is running", read the Management API function list and
+  `net._http_response`, not stored data.
+  Still **OPEN in both directions**: whether the deployed v28 also diarizes the
+  synchronous preview path. It has not been established either way — do not
+  assume diarization is absent. (Separately and NOT retracted: within this
+  repository, merge `b66b0ca6` did leave `formatDiarizedTranscript` with a passing
+  test and no production caller. That is a source-level fact and stands.)
+
+
 ## 2026-09-18 · Chrome extension install page + hosted zip refresh
 
 Unlisted install instructions for the zip-distributed extension, for anyone who
