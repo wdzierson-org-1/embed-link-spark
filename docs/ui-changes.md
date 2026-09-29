@@ -104,6 +104,38 @@ affect every platform's summaries, and a correction to a commit message.
   a mild misnomer). Whether diarization returns is an open decision — if it does,
   re-advertising speakers is a deliberate copy change, not a revert.
 
+- **CORRECTION — a reported defect in `summarize-content` was RAISED, REVIEWED AND
+  WITHDRAWN. It was never real.** Commit `2c4f9a4d`'s message claims that before the
+  enrichment merge an image/audio/video/text item could reach `generateSummary`
+  through `summarize-content` and produce a system prompt containing the literal
+  string `undefined`, calling it a reachable defect in a deployed function. A HIGH
+  review finding was then raised on top of that claim, arguing a legacy
+  `type='collection'` row could have a summary generated and written by the same
+  path. **Both are false.** `summarize-content/index.ts:65` carries an allowlist —
+  `if (item.type !== 'link' && item.type !== 'document')` returns early — and it
+  precedes that function's single `generateSummary` call and its
+  `update({ summary })` write. It was introduced in `f311b95a` and never changed, so
+  the guard held at every point in this history. Only `link` and `document` reach
+  the summarizer there, which are exactly the two kinds with hand-written prompts,
+  so neither a generic-fallback prompt, nor an `undefined` prompt, nor a summary
+  write onto a collection row was ever reachable from that endpoint. The finding was
+  withdrawn in full; the false claim remains inside `2c4f9a4d`'s commit message,
+  which cannot be rewritten.
+  The reasoning error, recorded because it generalizes: the call site was read and
+  reasoned about without reading the guard clauses nineteen lines above it. **A type
+  that is unnarrowed AT a call site can still be constrained BY control flow —
+  proving a path is reachable means reading the path, not the line.**
+  This does NOT weaken the change `2c4f9a4d` made. The enrichment repair path is the
+  only caller that hands `generateSummary` a raw DB item type, and merge 5 widened
+  the transcript vocabulary to `audio`/`video`; the explicit mapping makes that
+  widened vocabulary safe **by construction** rather than by a behavioural status
+  check that could later change. All six callers are constrained, which is the
+  evidence that there is no seventh door: `transcribe-audio:372` and
+  `scrape-page-content:33` pass the literals `'recording'` and `'link'`;
+  `extract-pdf-text` and `extract-office-text` pass `'document'`;
+  `summarize-content` is allowlisted at `:65`; and
+  `_shared/enrichmentMaintenance.ts` narrows through `summaryKindFor`.
+
 
 ## 2026-09-18 · Chrome extension install page + hosted zip refresh
 
