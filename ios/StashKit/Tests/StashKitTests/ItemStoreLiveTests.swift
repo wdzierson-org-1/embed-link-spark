@@ -204,6 +204,43 @@ final class ItemStoreLiveTests: XCTestCase {
                        "list reads never select page_body — nil means not fetched, not cleared")
     }
 
+    /// Plan 15 review: a realtime change can mean a new `page_body` (re-scrape / re-transcription),
+    /// which list re-reads never return — the loaded copy is dropped so the next open fetches it.
+    func testARealtimeChangeDropsTheLoadedPageBody() async {
+        var detail = row(1)
+        let server = FakeItemsServer(rows: [row(0), detail], pageSize: 50)
+        let store = ItemStore(userId: UUID(), fetcher: server, pageSize: 50)
+        await store.refresh()
+        detail.pageBody = "the old transcript"
+        store.applyDetail(detail)
+
+        var batch = ItemChangeBatch()
+        batch.add(.upsert(detail.id))
+        await store.applyRemoteChanges(batch)
+
+        XCTAssertNil(store.item(withId: detail.id)?.pageBody, "the next detail open must read it fresh")
+    }
+
+    /// …and a refresh keeps it only for rows that didn't change.
+    func testRefreshKeepsPageBodyOnlyForUnchangedRows() async {
+        var unchanged = row(0)
+        var changed = row(1)
+        let server = FakeItemsServer(rows: [unchanged, changed], pageSize: 50)
+        let store = ItemStore(userId: UUID(), fetcher: server, pageSize: 50)
+        await store.refresh()
+        unchanged.pageBody = "still good"
+        changed.pageBody = "stale"
+        store.applyDetail(unchanged)
+        store.applyDetail(changed)
+        server.rows = server.rows.map { $0.id == changed.id ? { var r = $0; r.summary = "re-scraped"; return r }($0) : $0 }
+
+        await store.refresh()
+
+        XCTAssertEqual(store.item(withId: unchanged.id)?.pageBody, "still good")
+        XCTAssertNil(store.item(withId: changed.id)?.pageBody)
+        XCTAssertEqual(store.item(withId: changed.id)?.summary, "re-scraped")
+    }
+
     func testInFlightRefreshNeverOverwritesNewerLocalChanges() async {
         let original = row(1, title: "old title")
         let doomed = row(2)

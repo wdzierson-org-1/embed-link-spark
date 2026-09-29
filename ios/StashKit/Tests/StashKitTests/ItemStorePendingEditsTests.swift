@@ -32,7 +32,7 @@ final class ItemStorePendingEditsTests: XCTestCase {
 
     private func makeQueue(_ userId: UUID) -> PendingEdits {
         PendingEdits(userId: userId, directory: root.appendingPathComponent("pending", isDirectory: true),
-                     sessionUserId: { userId })
+                     session: FakeSession(signedIn: userId))
     }
 
     private var cache: ItemCache { ItemCache(directory: root.appendingPathComponent("cache", isDirectory: true)) }

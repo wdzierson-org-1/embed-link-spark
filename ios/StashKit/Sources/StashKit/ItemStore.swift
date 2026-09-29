@@ -367,11 +367,19 @@ public final class ItemStore {
     /// `page_body` (list reads don't select it — nil means "not fetched", not "cleared").
     /// Incoming rows are the server's; pending edits are laid over them here.
     public func upsert(_ incoming: [Item]) {
+        upsert(incoming, changedOnServer: false)
+    }
+
+    /// `changedOnServer`: the rows were re-read because a realtime event said they changed — maybe
+    /// in `page_body` (a re-scrape or re-transcription), which list reads never return. The
+    /// in-memory `page_body` is dropped rather than carried over, so the next detail open reads it
+    /// fresh instead of showing the old text (plan 15 review; an open sheet keeps what it shows).
+    private func upsert(_ incoming: [Item], changedOnServer: Bool) {
         var touchedHead = false
         for var row in incoming where !tombstones.contains(row.id) {
             touch(row.id)
             if let index = items.firstIndex(where: { $0.id == row.id }) {
-                if row.pageBody == nil { row.pageBody = items[index].pageBody }
+                if row.pageBody == nil, !changedOnServer { row.pageBody = items[index].pageBody }
                 row = overlaid(row)
                 if !matchesFilter(row) {
                     items.remove(at: index)
@@ -383,7 +391,7 @@ public final class ItemStore {
                 }
                 touchedHead = touchedHead || index < pageSize
             } else if let existing = detachedItems[row.id] {
-                if row.pageBody == nil { row.pageBody = existing.pageBody }
+                if row.pageBody == nil, !changedOnServer { row.pageBody = existing.pageBody }
                 row = overlaid(row)
                 if belongsInWindow(row), matchesFilter(row) {
                     detachedItems[row.id] = nil
@@ -424,7 +432,7 @@ public final class ItemStore {
         do {
             let rows = try await fetcher.fetchItems(ids: Array(ids))
             guard !isClosed else { return }
-            upsert(rows)
+            upsert(rows, changedOnServer: true)
             remove(ids: ids.subtracting(rows.map(\.id)))
         } catch {
             lastRefreshedAt = nil
@@ -593,7 +601,10 @@ public final class ItemStore {
             if let local = currentById[row.id] {
                 if keepLocal.contains(row.id) {
                     row = local
-                } else if row.pageBody == nil {
+                } else if row.pageBody == nil, Self.sameListColumns(local, row) {
+                    // Unchanged row: the loaded page_body is still good. A row that changed may
+                    // have a new page_body (re-scrape / re-transcription) — dropped, so the next
+                    // detail open reads it fresh (plan 15 review).
                     row.pageBody = local.pageBody
                 }
             }
@@ -617,6 +628,14 @@ public final class ItemStore {
             lhs.createdAt != rhs.createdAt ? lhs.createdAt > rhs.createdAt : order[lhs.id]! < order[rhs.id]!
         }
         return MergeResult(items: result, keptOlderRows: keptOlderRows)
+    }
+
+    /// Equal in every column a list read returns (i.e. ignoring `page_body`).
+    static func sameListColumns(_ lhs: Item, _ rhs: Item) -> Bool {
+        var lhs = lhs, rhs = rhs
+        lhs.pageBody = nil
+        rhs.pageBody = nil
+        return lhs == rhs
     }
 
     // MARK: - Private

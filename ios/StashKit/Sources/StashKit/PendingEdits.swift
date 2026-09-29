@@ -1,4 +1,5 @@
 import Foundation
+import os.log
 import Supabase
 
 /// One field of a queued edit: the value the user left, and when it was read from the editor.
@@ -31,8 +32,11 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public var supplementalNote: PendingField<String>?
     public var isPublic: PendingField<Bool>?
     public var attributes: PendingField<ItemAttributes>?
-    /// Failed flushes so far.
+    /// Sends the SERVER refused so far (reset by a successful send). Transport failures — offline,
+    /// timed out — don't count: they must never delay or drop an edit (`PendingEdits.flush`).
     public var attempts: Int
+    /// Not sent again before this — the exponential backoff after a refused send (nil = due now).
+    public var nextAttemptAt: Date?
     /// Bumped by every `PendingEdits.record` that changed something — a flush compares it to tell
     /// whether newer values arrived while it was sending.
     public var revision: Int
@@ -54,6 +58,19 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     public var isEmpty: Bool {
         title == nil && description == nil && content == nil && supplementalNote == nil
             && isPublic == nil && attributes == nil
+    }
+
+    /// Whether a flush may send this now (its backoff, if any, has passed).
+    public func isDue(at date: Date) -> Bool {
+        nextAttemptAt.map { $0 <= date } ?? true
+    }
+
+    /// The queued columns' names — for logs; never their values (the user's words stay private).
+    public var fieldNames: [String] {
+        [(title != nil, "title"), (description != nil, "description"), (content != nil, "content"),
+         (supplementalNote != nil, "supplemental_note"), (isPublic != nil, "is_public"),
+         (attributes != nil, "attributes.location")]
+            .filter(\.0).map(\.1)
     }
 
     /// The queued title/description/content/sticky/sharing values as a patch. `attributes` is left
@@ -139,15 +156,24 @@ public struct PendingEdit: Codable, Equatable, Sendable {
 ///   replace a newer one, and a confirmed save never drops a newer value typed after it.
 /// - **Flush** (`flush(editor:)`) PATCHes each queued item through `ItemEditor.saveLatest` — after
 ///   any write to that item already in flight, with the newest queued values — and forgets what the
-///   server confirmed. A failure keeps the entry (`attempts + 1`); an item that no longer exists
-///   drops it. `ItemStore.refresh()` flushes before it fetches, so launch, foreground, View-tab
-///   appear and pull-to-refresh all retry; a closing sheet flushes its own item at once.
+///   server confirmed. Only ever as the queue's own user with a valid token (`PendingEditsSession`),
+///   and "the item is gone" is concluded only from a verified read. Offline/timeouts keep the entry
+///   as it is (retried on the next flush, never backed off); a send the SERVER refuses backs off
+///   exponentially and, after `maxRejections`, is dropped with an error log. `ItemStore.refresh()`
+///   flushes before it fetches, so launch, foreground, View-tab appear and pull-to-refresh all
+///   retry; a closing sheet flushes its own item at once.
 /// - **Overlay.** `ItemStore` lays queued values over the rows it shows (`PendingEdit.applied(to:)`)
 ///   until they're confirmed, so the list never reverts to the server's older copy; `onChange`
-///   tells it when to re-apply.
+///   tells it when to re-apply. A detail sheet starts from the same overlay (`sheetStart`).
 @MainActor
 public final class PendingEdits {
     public static let formatVersion = 1
+    /// Refused sends before an edit is given up (with an error log).
+    public static let maxRejections = 20
+    /// Backoff after the n-th refused send: min(30 s × 2^(n−1), 6 h).
+    public static func backoff(afterRejections rejections: Int) -> TimeInterval {
+        min(30 * pow(2, Double(max(rejections - 1, 0))), 6 * 60 * 60)
+    }
 
     public let userId: UUID
     public let directory: URL
@@ -156,14 +182,9 @@ public final class PendingEdits {
     public var onChange: (@MainActor (Set<UUID>) -> Void)?
 
     private let now: () -> Date
-    /// Who the app is signed in as at send time. A queued edit only ever goes out under its own
-    /// user's session: a flush still waiting behind a stalled request when the account switches
-    /// would otherwise be sent with the NEW account's token, match no row (RLS) and be dropped as
-    /// if the item had been deleted.
-    private let sessionUserId: @MainActor () -> UUID?
+    /// Who a send goes out as, and how "the item is gone" is proven — see `PendingEditsSession`.
+    private let session: PendingEditsSession
     private var flushing: Set<UUID> = []
-
-    private struct NotSignedInAsOwner: Error {}
 
     private static var instances: [UUID: PendingEdits] = [:]
 
@@ -180,13 +201,13 @@ public final class PendingEdits {
         AppGroup.userScopedURL("StashPendingEdits", userId: userId)
     }
 
-    /// `sessionUserId` defaults to the app's signed-in user (tests pass their own).
+    /// `session` defaults to the app's own Supabase session (tests pass a stub).
     public init(userId: UUID, directory: URL, now: @escaping () -> Date = Date.init,
-                sessionUserId: (@MainActor () -> UUID?)? = nil) {
+                session: PendingEditsSession = SupabasePendingEditsSession()) {
         self.userId = userId
         self.directory = directory
         self.now = now
-        self.sessionUserId = sessionUserId ?? { StashClient.shared.auth.currentUser?.id }
+        self.session = session
         load()
     }
 
@@ -201,16 +222,29 @@ public final class PendingEdits {
         entries[item.id]?.applied(to: item) ?? item
     }
 
+    /// Where a detail sheet opened on `row` starts: `shown` — the row as the user last left it, with
+    /// queued values laid over it (the sheet's fields and notes editor are seeded from this, so a
+    /// new edit builds on a queued, undelivered note instead of silently replacing it) — and
+    /// `server`, the server's own copy (the diff baseline, so queued values still count as
+    /// unsaved). `row` may already be overlaid (a library card) or raw (an Ask citation, fetched
+    /// straight from the server); `serverRow` is the store's server copy when it holds one.
+    public func sheetStart(for row: Item, serverRow: Item?) -> (shown: Item, server: Item) {
+        let server = serverRow ?? row
+        return (overlay(server), server)
+    }
+
     // MARK: - Writing
 
     /// Queues `patch`'s fields for `itemId`, latest-wins per field, and writes the entry to disk
-    /// before returning.
+    /// before returning. A changed entry is due again at once (a new value gets a fresh send even
+    /// while an older one was backing off).
     public func record(itemId: UUID, patch: ItemPatch, capturedAt: Date) {
         guard !patch.isEmpty else { return }
         var edit = entries[itemId] ?? PendingEdit(itemId: itemId, updatedAt: now())
         guard edit.merge(patch, capturedAt: capturedAt) else { return }
         edit.revision += 1
         edit.updatedAt = now()
+        edit.nextAttemptAt = nil
         store(edit)
     }
 
@@ -232,18 +266,31 @@ public final class PendingEdits {
 
     // MARK: - Flush
 
-    /// PATCHes every queued item (or just `itemIds`) with its newest values and forgets what the
-    /// server confirmed; `apply` receives each saved row (to fold into a store) before its entry is
-    /// updated. Items are sent concurrently; one already being flushed is skipped.
+    /// PATCHes every queued item that is due (or just those of `itemIds`) with its newest values and
+    /// forgets what the server confirmed; `apply` receives each saved row (to fold into a store)
+    /// before its entry is updated. Items are sent concurrently; one already being flushed, or still
+    /// backing off after a refused send, is skipped.
     ///
-    /// A queued location is applied onto the row's CURRENT `attributes` (read inside the same
-    /// per-item write slot), never written back as the stored blob — see `PendingEdit`.
-    /// Failures keep the entry with `attempts + 1`; `ItemEditorError.itemNotFound` (the row is
-    /// gone) drops it. Embeddings refresh after a text change through `ItemEditor`'s own
-    /// `EmbeddingRefresher`.
+    /// - A send goes out only as the queue's own user with a currently valid token, checked inside
+    ///   the item's write slot right before the PATCH (`PendingEditsSession.accessToken`). Signed
+    ///   out or another account: the entry waits, untouched. No valid token right now (e.g. the
+    ///   refresh can't reach the server): an ordinary failure — kept, not counted.
+    /// - A queued location is applied onto the row's CURRENT `attributes` (read inside the same
+    ///   slot), never written back as the stored blob — see `PendingEdit`.
+    /// - Zero matched rows is NOT taken at its word: supabase-swift falls back to the anon key when
+    ///   a token refresh fails, and RLS answers that with zero rows too. The entry is dropped as
+    ///   "deleted" only when a read made with a verified token of this user finds no row.
+    /// - Offline/timeouts keep the entry exactly as it is — never backed off, never counted —
+    ///   so an edit goes out on the first flush after the network returns. A send the server
+    ///   refuses counts: backoff min(30 s × 2^(n−1), 6 h), dropped with an error log after
+    ///   `maxRejections`.
+    /// - Embeddings refresh after a text change through `ItemEditor`'s own `EmbeddingRefresher`.
     public func flush(editor: ItemEditor, itemIds: [UUID]? = nil,
                       apply: @escaping @MainActor @Sendable (Item) -> Void = { _ in }) async {
-        let ids = (itemIds ?? Array(entries.keys)).filter { entries[$0] != nil && !flushing.contains($0) }
+        let due = now()
+        let ids = (itemIds ?? Array(entries.keys)).filter {
+            (entries[$0]?.isDue(at: due) ?? false) && !flushing.contains($0)
+        }
         guard !ids.isEmpty else { return }
         flushing.formUnion(ids)
         defer { flushing.subtract(ids) }
@@ -261,7 +308,7 @@ public final class PendingEdits {
             do {
                 outcome = try await editor.saveLatest(itemId: id) { [weak self] in
                     guard let self, let edit = self.entries[id], !edit.isEmpty else { return nil }
-                    guard self.sessionUserId() == self.userId else { throw NotSignedInAsOwner() }
+                    _ = try await self.session.accessToken(for: self.userId)
                     var patch = edit.fieldPatch
                     if let pending = edit.attributes {
                         guard let current = try await editor.currentAttributes(itemId: id) else {
@@ -275,16 +322,13 @@ public final class PendingEdits {
                     }
                     return (patch, edit)
                 }
-            } catch is NotSignedInAsOwner {
+            } catch PendingEditsSessionError.notSignedInAsOwner {
                 return   // kept, untouched, for its own user's next session
-            } catch ItemEditorError.itemNotFound where sessionUserId() == userId {
-                discard(itemId: id)
+            } catch ItemEditorError.itemNotFound {
+                await settleNoMatchingRow(id)
                 return
             } catch {
-                if var edit = entries[id] {
-                    edit.attempts += 1
-                    store(edit, notify: false)
-                }
+                if !Self.isTransient(error) { recordRejection(id) }
                 return
             }
             guard let outcome else { return }
@@ -293,9 +337,45 @@ public final class PendingEdits {
             guard var edit = entries[id] else { return }
             edit.removeSent(sent)
             edit.attempts = 0
+            edit.nextAttemptAt = nil
             store(edit)
             guard let remaining = entries[id], remaining.revision != sent.revision else { return }
         }
+    }
+
+    /// A send (or the attributes read) matched no row. Dropped as deleted only when a read made with
+    /// a verified token of this queue's user agrees; if that can't be established, nothing is
+    /// concluded — the entry stays exactly as it is.
+    private func settleNoMatchingRow(_ id: UUID) async {
+        do {
+            let token = try await session.accessToken(for: userId)
+            if try await session.rowExists(itemId: id, accessToken: token) {
+                recordRejection(id)   // the row is there, yet the send matched nothing: refused
+            } else {
+                discard(itemId: id)
+            }
+        } catch {
+            // Offline, signed out, or unverifiable: keep it for a later flush.
+        }
+    }
+
+    /// The server refused a send: back off, and give up after `maxRejections`.
+    private func recordRejection(_ id: UUID) {
+        guard var edit = entries[id] else { return }
+        edit.attempts += 1
+        if edit.attempts >= Self.maxRejections {
+            os_log(.error, "PendingEdits: dropping the queued edit for item %{public}@ after %d refused sends (fields: %{public}@)",
+                   id.uuidString, edit.attempts, edit.fieldNames.joined(separator: ", "))
+            discard(itemId: id)
+            return
+        }
+        edit.nextAttemptAt = now().addingTimeInterval(Self.backoff(afterRejections: edit.attempts))
+        store(edit, notify: false)
+    }
+
+    /// Couldn't reach the server (or gave up waiting): says nothing about the edit itself.
+    static func isTransient(_ error: Error) -> Bool {
+        error is URLError || error is CancellationError
     }
 
     // MARK: - Disk
@@ -348,5 +428,64 @@ public final class PendingEdits {
             else { continue }
             entries[id] = envelope.edit
         }
+    }
+}
+
+// MARK: - Session guard (plan 15 review)
+
+public enum PendingEditsSessionError: Error, Equatable, Sendable {
+    /// Signed out, or signed in as another account: the entry waits, untouched, for its owner.
+    case notSignedInAsOwner
+    /// The verifying read got no clear answer (not a 200) — nothing may be concluded from it.
+    case unverifiable
+}
+
+/// Who `PendingEdits` sends as, and how it proves an item is really gone.
+///
+/// Why this exists: supabase-swift 2.54.1's `SupabaseClient.adapt` fetches the token with
+/// `try? await auth.session.accessToken`, so when a token refresh fails the request still goes out
+/// — with the default `Authorization: Bearer <anon key>`. Under RLS an anon PATCH matches zero rows
+/// (`PGRST116`), which looks exactly like "the item was deleted"; `auth.currentUser` doesn't help
+/// (it returns the stored user even when that session can no longer be refreshed).
+public protocol PendingEditsSession: Sendable {
+    /// A currently valid access token for `userId` — refreshed if needed; `auth.session` only ever
+    /// returns a token with ≥ 30 s left. Throws `.notSignedInAsOwner` when signed out or signed in
+    /// as someone else, or the refresh's own transport error when no valid token can be had now.
+    func accessToken(for userId: UUID) async throws -> String
+    /// Whether the item's row exists for the holder of `accessToken` — asked with exactly that
+    /// token (never a fallback), so a `false` really means "not there for this user".
+    func rowExists(itemId: UUID, accessToken: String) async throws -> Bool
+}
+
+public struct SupabasePendingEditsSession: PendingEditsSession {
+    public init() {}
+
+    public func accessToken(for userId: UUID) async throws -> String {
+        do {
+            let session = try await StashClient.shared.auth.session
+            guard session.user.id == userId else { throw PendingEditsSessionError.notSignedInAsOwner }
+            return session.accessToken
+        } catch let error as URLError {
+            throw error                  // the refresh couldn't reach the server: transient
+        } catch let error as PendingEditsSessionError {
+            throw error
+        } catch {
+            // No session (signed out), or the refresh was refused (the SDK then signs out).
+            throw PendingEditsSessionError.notSignedInAsOwner
+        }
+    }
+
+    /// A direct PostgREST read — deliberately not through `StashClient`, whose `adapt` would swap
+    /// in (or, on a failed refresh, fall back from) the token this check must use.
+    public func rowExists(itemId: UUID, accessToken: String) async throws -> Bool {
+        var request = URLRequest(url: StashConfig.supabaseURL.appending(path: "/rest/v1/items")
+            .appending(queryItems: [URLQueryItem(name: "id", value: "eq.\(itemId.uuidString.lowercased())"),
+                                    URLQueryItem(name: "select", value: "id")]))
+        request.setValue(StashConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw PendingEditsSessionError.unverifiable }
+        struct Row: Decodable { let id: UUID }
+        return !(try JSONDecoder().decode([Row].self, from: data)).isEmpty
     }
 }

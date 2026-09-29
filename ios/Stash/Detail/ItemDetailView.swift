@@ -106,6 +106,11 @@ final class DetailSheetServices: ObservableObject {
     /// The newest generation handed out — lets the detail fetch tell whether a save started while
     /// it was in flight (L4).
     private(set) var latestGeneration = 0
+    /// Autosaves (fields, notes, location) still in flight, and whether the one that finished last
+    /// failed — the footer caption follows these, not the save generation, so a newer Sharing
+    /// toggle or transcription (which bump the generation) can never leave "Saving…" stuck.
+    var savesInFlight = 0
+    var lastSaveFailed = false
     /// Set when the sheet goes away: from then on its debounced autosaves stay quiet and the
     /// dismiss-time journal + flush own anything unsaved (plan 15, H5).
     var isClosed = false
@@ -178,13 +183,18 @@ struct ItemDetailView: View {
     @FocusState private var focusedField: DetailField?
 
     init(item: Item, store: ItemStore) {
-        _item = State(initialValue: item)
-        // The card shows queued (unconfirmed) edits laid over the row; the diff baseline must be
-        // what the server actually holds, so a queued value still counts as unsaved here.
-        _snapshot = State(initialValue: store.serverRow(withId: item.id) ?? item)
+        // Start from the row as the user last left it — queued (unconfirmed) edits laid over it —
+        // whether it came from a library card (already overlaid) or an Ask citation (a raw server
+        // read, plan 15 review): seeding the fields and the notes editor from the server's copy
+        // would let a new edit silently replace a queued, undelivered note. The diff baseline stays
+        // the server's copy, so queued values still count as unsaved here.
+        let start = PendingEdits.shared(for: store.userId)
+            .sheetStart(for: item, serverRow: store.serverRow(withId: item.id))
+        _item = State(initialValue: start.shown)
+        _snapshot = State(initialValue: start.server)
         self.store = store
         _selectedTab = State(initialValue: contentTabsConfig(for: item.type).defaultTab)
-        _services = StateObject(wrappedValue: DetailSheetServices(item: item, userId: store.userId))
+        _services = StateObject(wrappedValue: DetailSheetServices(item: start.shown, userId: store.userId))
     }
 
     private var isTranscribing: Bool { TranscriptionActivity.shared.isRunning(item.id) }
@@ -257,10 +267,11 @@ struct ItemDetailView: View {
             guard let updated = store.serverRow(withId: item.id), updated != snapshot else { return }
             adopt(updated)
         }
-        // App switcher / lock with the sheet still open: queue what's unsaved now, so even a kill
-        // from the switcher can't lose it (the next foreground refresh sends it).
+        // Leaving the foreground with the sheet still open (app switcher, lock, Control Center):
+        // queue what's unsaved now. `.inactive` too — a kill from the app switcher isn't
+        // guaranteed to deliver `.background` first. The next foreground refresh sends it.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background, !isDeleted { journalUnconfirmedEdits() }
+            if phase != .active, !isDeleted { journalUnconfirmedEdits() }
         }
         .onAppear { services.isClosed = false }
         // Fires on every way out — X, swipe, or a programmatic dismissal.
@@ -492,30 +503,34 @@ struct ItemDetailView: View {
     /// then the PATCH — sent through `ItemWriteQueue`, so it never overtakes an earlier write to
     /// this item. On success the store gets the server's row, the queue forgets what the server
     /// confirmed, and — when no newer save started meanwhile (`SaveGeneration`, fix round 1) — the
-    /// sheet adopts it. On failure the typed value stays on screen and in the queue, and the footer
-    /// says so. Returns the saved row, or nil when the save failed.
+    /// sheet adopts it. On failure the typed value stays on screen and in the queue. The footer
+    /// says "Saving…" while any autosave is in flight and then reports how the last one ended
+    /// (writes to one item finish in order, so that's the newest). Returns the saved row, or nil
+    /// when the save failed.
     @MainActor
     private func save(_ patch: ItemPatch) async -> Item? {
         let capturedAt = Date()
         let pendingEdits = services.pendingEdits
         pendingEdits.record(itemId: item.id, patch: patch, capturedAt: capturedAt)
         let generation = services.nextGeneration()
+        services.savesInFlight += 1
         saveStatus = .saving
+        var saved: Item?
         do {
-            let saved = try await services.editor.save(itemId: item.id, patch: patch)
-            store.applyDetail(saved)
-            pendingEdits.confirm(itemId: saved.id, patch: patch, capturedAt: capturedAt)
-            if services.isLatest(generation) {
-                adopt(saved)
-                saveStatus = .saved
-            }
-            return saved
+            let result = try await services.editor.save(itemId: item.id, patch: patch)
+            store.applyDetail(result)
+            pendingEdits.confirm(itemId: result.id, patch: patch, capturedAt: capturedAt)
+            if services.isLatest(generation) { adopt(result) }
+            saved = result
         } catch {
-            if services.isLatest(generation) {
-                saveStatus = .failed("Couldn't save — try again.")
-            }
-            return nil
+            saved = nil
         }
+        services.lastSaveFailed = saved == nil
+        services.savesInFlight -= 1
+        if services.savesInFlight == 0 {
+            saveStatus = services.lastSaveFailed ? .failed("Couldn't save — try again.") : .saved
+        }
+        return saved
     }
 
     /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
@@ -549,7 +564,8 @@ struct ItemDetailView: View {
     /// a failed share while the sheet is open is reverted, not retried later. If the sheet closes
     /// while this is still in flight, the dismiss journal queues the toggle the user last saw.
     /// Un-sharing an item with a sticky note clears the note in the same PATCH (the section asks
-    /// first).
+    /// first). The footer caption is left to the autosaves (`save(_:)`) — this toggle reports in
+    /// its own section, and never sets or strands "Saving…" (plan 15 review).
     @MainActor
     private func setPublic(_ isPublic: Bool) async -> Bool {
         let before = (isPublic: item.isPublic, note: item.supplementalNote)
@@ -563,10 +579,7 @@ struct ItemDetailView: View {
             let saved = try await services.editor.save(itemId: item.id, patch: patch)
             store.applyDetail(saved)
             services.pendingEdits.confirm(itemId: saved.id, patch: patch, capturedAt: capturedAt)
-            if services.isLatest(generation) {
-                adopt(saved)
-                saveStatus = .saved
-            }
+            if services.isLatest(generation) { adopt(saved) }
             return true
         } catch {
             if item.isPublic == isPublic { item.isPublic = before.isPublic }
@@ -628,9 +641,11 @@ struct ItemDetailView: View {
 
     /// Plan 14 Task 2 ("Transcribe with speakers"). `TranscriptionService.retranscribe`
     /// guarantees a thrown error means nothing was written server-side. Plan 15 (M9): the busy
-    /// state lives app-wide (`TranscriptionActivity`), so it lasts the whole run — up to the
-    /// request's 5-minute wait — even across closing and reopening this item, and a second run
-    /// can't be started meanwhile.
+    /// state lives app-wide (`TranscriptionActivity`), so it lasts the whole run, even across
+    /// closing and reopening this item, and a second run can't be started meanwhile. The client
+    /// allows 300 s, but the Supabase gateway answers 504 after ~150 s without a response byte, so
+    /// a memo whose diarization takes longer still fails here — that needs the server's async
+    /// transcription job (follow-up).
     @MainActor
     private func retranscribe() async {
         guard !isTranscribing else { return }
@@ -757,8 +772,9 @@ struct ItemDetailView: View {
         reconcileNotesDraft(with: incoming)
         // A failed save the queue has since delivered (e.g. flushed on foreground) is no longer
         // failed — the caption shouldn't keep saying so.
-        if case .failed = saveStatus, unconfirmedPatch().patch.isEmpty,
+        if case .failed = saveStatus, services.savesInFlight == 0, unconfirmedPatch().patch.isEmpty,
            services.pendingEdits.edit(for: item.id) == nil {
+            services.lastSaveFailed = false
             saveStatus = .saved
         }
     }

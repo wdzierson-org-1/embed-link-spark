@@ -10,7 +10,16 @@ final class FakeRowServer: ItemPatching, @unchecked Sendable {
     private var sent: [(UUID, ItemPatch)] = []
     private var failure: Error?
     private var isGated = false
+    private var hidesRows = false
     private var gates: [CheckedContinuation<Void, Never>] = []
+
+    /// The anon-key fallback: a send that went out without the user's token. RLS hides every row,
+    /// so a PATCH matches nothing (`itemNotFound`) and an attributes read finds nothing — although
+    /// the rows exist.
+    var rlsHidesRows: Bool {
+        get { lock.withLock { hidesRows } }
+        set { lock.withLock { hidesRows = newValue } }
+    }
 
     init(rows: [Item]) {
         self.rows = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
@@ -51,7 +60,7 @@ final class FakeRowServer: ItemPatching, @unchecked Sendable {
         }
         return try lock.withLock {
             if let failure { throw failure }
-            guard var row = rows[itemId] else { throw ItemEditorError.itemNotFound }
+            guard !hidesRows, var row = rows[itemId] else { throw ItemEditorError.itemNotFound }
             if let title = patch.title { row.title = title }
             if let description = patch.description { row.description = description }
             if let content = patch.content { row.content = content }
@@ -66,7 +75,7 @@ final class FakeRowServer: ItemPatching, @unchecked Sendable {
     func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
         try lock.withLock {
             if let failure { throw failure }
-            return rows[itemId]?.attributes
+            return hidesRows ? nil : rows[itemId]?.attributes
         }
     }
 
@@ -83,6 +92,53 @@ final class AppliedRows {
     var rows: [Item] = []
 }
 
+/// Session stand-in: who's signed in (nil = signed out), an optional "no valid token right now"
+/// error (e.g. a refresh that can't reach the server), and the verifying read — made with a
+/// verified token, so it sees the real rows even when a send's RLS view didn't.
+final class FakeSession: PendingEditsSession, @unchecked Sendable {
+    private let lock = NSLock()
+    private var user: UUID?
+    private var error: Error?
+    private var reads = 0
+    private let server: FakeRowServer?
+
+    init(signedIn user: UUID?, server: FakeRowServer? = nil) {
+        self.user = user
+        self.server = server
+    }
+
+    var signedIn: UUID? {
+        get { lock.withLock { user } }
+        set { lock.withLock { user = newValue } }
+    }
+    var tokenError: Error? {
+        get { lock.withLock { error } }
+        set { lock.withLock { error = newValue } }
+    }
+    var verifyingReads: Int { lock.withLock { reads } }
+
+    func accessToken(for userId: UUID) async throws -> String {
+        let (user, error) = lock.withLock { (self.user, self.error) }
+        if let error { throw error }
+        guard user == userId else { throw PendingEditsSessionError.notSignedInAsOwner }
+        return "valid-token"
+    }
+
+    func rowExists(itemId: UUID, accessToken: String) async throws -> Bool {
+        lock.withLock { reads += 1 }
+        return server?.row(itemId) != nil
+    }
+}
+
+/// A send the server answered and refused (not a transport failure).
+struct ServerRefusal: Error {}
+
+/// A clock a test can move.
+final class TestClock {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+}
+
 @MainActor
 final class PendingEditsTests: XCTestCase {
     private var directory: URL!
@@ -97,10 +153,13 @@ final class PendingEditsTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    /// Signed in as the queue's own user unless `sessionUserId` says otherwise.
-    private func makeQueue(userId: UUID = UUID(), sessionUserId: UUID?? = nil) -> PendingEdits {
-        let session = sessionUserId ?? userId
-        return PendingEdits(userId: userId, directory: directory, sessionUserId: { session })
+    /// Signed in as the queue's own user (verifying reads answered from `server`) unless a
+    /// `session` is passed; the real clock unless `clock` is.
+    private func makeQueue(userId: UUID = UUID(), server: FakeRowServer? = nil, session: FakeSession? = nil,
+                           clock: TestClock? = nil) -> PendingEdits {
+        let now: () -> Date = clock.map { clock in { clock.now } } ?? Date.init
+        return PendingEdits(userId: userId, directory: directory, now: now,
+                            session: session ?? FakeSession(signedIn: userId, server: server))
     }
 
     private func makeItem(title: String = "Server title", content: String? = "server note",
@@ -263,22 +322,25 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertEqual(syncer.calls.count, 1, "a flushed text change refreshes the item's embeddings")
     }
 
-    func testFailedFlushKeepsTheEditAndCountsTheAttempt() async throws {
+    /// Offline (or timed out): the edit stays exactly as it was — not counted, not backed off — so
+    /// the first flush after the network returns sends it.
+    func testTransportFailuresKeepTheEditWithoutCountingOrBackingOff() async throws {
         let row = makeItem()
         let server = FakeRowServer(rows: [row])
         server.error = URLError(.notConnectedToInternet)
         let userId = UUID()
-        let queue = makeQueue(userId: userId)
+        let queue = makeQueue(userId: userId, server: server)
         queue.record(itemId: row.id, patch: ItemPatch(content: "typed offline"), capturedAt: t0)
         let editor = makeEditor(server)
 
         await queue.flush(editor: editor)
+        server.error = URLError(.timedOut)
+        await queue.flush(editor: editor)
 
+        XCTAssertEqual(server.patches.count, 2, "no backoff after a transport failure")
         XCTAssertEqual(queue.edit(for: row.id)?.content?.value, "typed offline")
-        XCTAssertEqual(queue.edit(for: row.id)?.attempts, 1)
-        let reloaded = PendingEdits(userId: userId, directory: directory)
-        XCTAssertEqual(reloaded.edit(for: row.id)?.attempts, 1, "the attempt count is on disk too")
-        XCTAssertEqual(reloaded.edit(for: row.id)?.content?.value, "typed offline")
+        XCTAssertEqual(queue.edit(for: row.id)?.attempts, 0)
+        XCTAssertNil(queue.edit(for: row.id)?.nextAttemptAt)
 
         server.error = nil                                   // the network is back
         await queue.flush(editor: editor)
@@ -286,15 +348,133 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertEqual(server.row(row.id)?.content, "typed offline")
     }
 
+    func testARefusedSendIsCountedAndBacksOffExponentially() async throws {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.error = ServerRefusal()
+        let clock = TestClock(t0)
+        let userId = UUID()
+        let queue = makeQueue(userId: userId, server: server, clock: clock)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "refused"), capturedAt: t0)
+        let editor = makeEditor(server)
+
+        await queue.flush(editor: editor)
+        XCTAssertEqual(queue.edit(for: row.id)?.attempts, 1)
+        XCTAssertEqual(queue.edit(for: row.id)?.nextAttemptAt, t0.addingTimeInterval(30))
+        XCTAssertEqual(PendingEdits(userId: userId, directory: directory).edit(for: row.id)?.attempts, 1,
+                       "the count and the backoff are on disk too")
+
+        await queue.flush(editor: editor)
+        XCTAssertEqual(server.patches.count, 1, "not sent again before its backoff passes")
+
+        clock.now = t0.addingTimeInterval(31)
+        await queue.flush(editor: editor)
+        XCTAssertEqual(server.patches.count, 2)
+        XCTAssertEqual(queue.edit(for: row.id)?.nextAttemptAt, clock.now.addingTimeInterval(60), "doubles")
+        XCTAssertEqual(PendingEdits.backoff(afterRejections: 12), 6 * 60 * 60, "capped at 6 h")
+
+        server.error = nil
+        clock.now = clock.now.addingTimeInterval(61)
+        await queue.flush(editor: editor)
+        XCTAssertNil(queue.edit(for: row.id), "delivered once the server accepts it")
+    }
+
+    func testANewValueIsDueAtOnceEvenWhileAnOlderOneBacksOff() async {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.error = ServerRefusal()
+        let clock = TestClock(t0)
+        let queue = makeQueue(server: server, clock: clock)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "too long?"), capturedAt: t0)
+        await queue.flush(editor: makeEditor(server))
+        XCTAssertNotNil(queue.edit(for: row.id)?.nextAttemptAt)
+
+        server.error = nil
+        queue.record(itemId: row.id, patch: ItemPatch(title: "fixed"), capturedAt: t0.addingTimeInterval(1))
+        await queue.flush(editor: makeEditor(server))
+
+        XCTAssertEqual(server.row(row.id)?.title, "fixed")
+        XCTAssertNil(queue.edit(for: row.id))
+    }
+
+    func testAnEditRefusedTwentyTimesIsDropped() async {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.error = ServerRefusal()
+        let clock = TestClock(t0)
+        let queue = makeQueue(server: server, clock: clock)
+        queue.record(itemId: row.id, patch: ItemPatch(content: "never accepted"), capturedAt: t0)
+        let editor = makeEditor(server)
+
+        for round in 1...PendingEdits.maxRejections {
+            await queue.flush(editor: editor)
+            XCTAssertEqual(server.patches.count, round)
+            clock.now = clock.now.addingTimeInterval(7 * 60 * 60)   // past any backoff
+        }
+
+        XCTAssertNil(queue.edit(for: row.id), "given up after \(PendingEdits.maxRejections) refusals")
+        XCTAssertFalse(fileExists(queue, row.id))
+    }
+
     func testFlushDropsTheEditOfADeletedItem() async {
-        let queue = makeQueue()
+        let server = FakeRowServer(rows: [])
+        let owner = UUID()
+        let session = FakeSession(signedIn: owner, server: server)
+        let queue = makeQueue(userId: owner, session: session)
         let id = UUID()
         queue.record(itemId: id, patch: ItemPatch(title: "edited, then deleted elsewhere"), capturedAt: t0)
 
-        await queue.flush(editor: makeEditor(FakeRowServer(rows: [])))
+        await queue.flush(editor: makeEditor(server))
 
+        XCTAssertEqual(session.verifyingReads, 1, "dropped only after a verified read found no row")
         XCTAssertNil(queue.edit(for: id), "a row that no longer exists can't take the edit — never retried")
         XCTAssertFalse(fileExists(queue, id))
+    }
+
+    /// The review's case: a token refresh fails and supabase-swift sends the anon key instead, so
+    /// RLS makes the PATCH match zero rows although the item exists. That must never read as
+    /// "deleted" — the verified read finds the row, and the note stays queued.
+    func testAZeroRowAnswerFromAFallbackTokenNeverDropsTheEdit() async {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.rlsHidesRows = true
+        let owner = UUID()
+        let session = FakeSession(signedIn: owner, server: server)
+        let queue = makeQueue(userId: owner, session: session)
+        queue.record(itemId: row.id, patch: ItemPatch(content: "my queued note"), capturedAt: t0)
+
+        await queue.flush(editor: makeEditor(server))
+
+        XCTAssertEqual(server.patches.count, 1, "the send went out and matched nothing")
+        XCTAssertEqual(session.verifyingReads, 1)
+        XCTAssertEqual(queue.edit(for: row.id)?.content?.value, "my queued note", "never discarded unsent")
+        XCTAssertTrue(fileExists(queue, row.id))
+
+        // The same for a queued location, whose current-attributes read comes back empty.
+        var located = row.attributes
+        located.location = CapturedLocation(label: "Lisbon", source: "manual")
+        queue.record(itemId: row.id, patch: ItemPatch(attributes: located), capturedAt: t0.addingTimeInterval(1))
+        await queue.flush(editor: makeEditor(server))
+        XCTAssertNotNil(queue.edit(for: row.id)?.attributes)
+    }
+
+    /// No valid token right now (the refresh can't reach the server): nothing is sent — not even as
+    /// anon — and nothing is concluded or counted.
+    func testNoValidTokenMeansNothingIsSent() async {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        let owner = UUID()
+        let session = FakeSession(signedIn: owner, server: server)
+        session.tokenError = URLError(.notConnectedToInternet)
+        let queue = makeQueue(userId: owner, session: session)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "waiting"), capturedAt: t0)
+
+        await queue.flush(editor: makeEditor(server))
+
+        XCTAssertTrue(server.patches.isEmpty)
+        XCTAssertEqual(queue.edit(for: row.id)?.title?.value, "waiting")
+        XCTAssertEqual(queue.edit(for: row.id)?.attempts, 0)
+        XCTAssertNil(queue.edit(for: row.id)?.nextAttemptAt)
     }
 
     /// After an account switch, a flush still around for the previous user must neither send under
@@ -303,7 +483,7 @@ final class PendingEditsTests: XCTestCase {
         let row = makeItem()
         let server = FakeRowServer(rows: [row])
         let owner = UUID()
-        let queue = makeQueue(userId: owner, sessionUserId: .some(UUID()))
+        let queue = makeQueue(userId: owner, session: FakeSession(signedIn: UUID(), server: server))
         queue.record(itemId: row.id, patch: ItemPatch(title: "the owner's edit"), capturedAt: t0)
 
         await queue.flush(editor: makeEditor(server))
@@ -312,10 +492,29 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertEqual(queue.edit(for: row.id)?.title?.value, "the owner's edit")
         XCTAssertEqual(queue.edit(for: row.id)?.attempts, 0)
 
-        let signedOut = makeQueue(userId: owner, sessionUserId: .some(nil))
+        let signedOut = makeQueue(userId: owner, session: FakeSession(signedIn: nil))
         await signedOut.flush(editor: makeEditor(FakeRowServer(rows: [])))
         XCTAssertEqual(signedOut.edit(for: row.id)?.title?.value, "the owner's edit",
                        "signed out: kept for the owner's next session, not dropped as deleted")
+    }
+
+    // MARK: - Sheet start
+
+    /// The review's case: an Ask citation opens the sheet on a raw server row. The sheet must start
+    /// from the queued note (so a new edit builds on it) while diffing against the server's copy.
+    func testASheetOpenedOnARawCitationRowStartsFromTheQueuedNote() {
+        let queue = makeQueue()
+        let raw = makeItem(content: "server's older note")
+        queue.record(itemId: raw.id, patch: ItemPatch(content: "queued, undelivered note"), capturedAt: t0)
+
+        let citation = queue.sheetStart(for: raw, serverRow: nil)
+        XCTAssertEqual(citation.shown.content, "queued, undelivered note")
+        XCTAssertEqual(citation.server, raw, "the diff baseline stays the server's copy")
+
+        // A library card is already overlaid; the store supplies the server's copy.
+        let card = queue.sheetStart(for: queue.overlay(raw), serverRow: raw)
+        XCTAssertEqual(card.shown.content, "queued, undelivered note")
+        XCTAssertEqual(card.server, raw)
     }
 
     func testQueuedLocationLandsOnTheServersCurrentAttributes() async throws {

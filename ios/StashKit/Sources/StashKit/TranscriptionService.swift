@@ -57,8 +57,14 @@ public protocol TranscriptionInvoking: Sendable {
 /// transcription → summary → respond), so the first response byte of a long memo can take minutes.
 /// At 60 s the client gave up with "Couldn't update the transcript" while the server finished and
 /// its (paid-for) result was thrown away.
+///
+/// The client now allows 300 s, so it is never the one to give up first — but the Supabase
+/// gateway itself answers 504 after ~150 s with no response byte, so a memo whose diarization takes
+/// longer than that still fails (and its result is still lost). Fixing that needs the server's
+/// async transcription job (the server PATCHes, the client observes) — a follow-up, not built here.
 public struct FunctionsTranscriptionInvoker: TranscriptionInvoking {
-    /// How long to wait for `transcribe-audio`'s response (it sends nothing until it's done).
+    /// How long the client waits for `transcribe-audio`'s response (it sends nothing until it's
+    /// done). The gateway's own ~150 s limit is the effective ceiling today.
     public static let requestTimeout: TimeInterval = 300
 
     /// One session for every run, with the request and resource timeouts both covering a full
