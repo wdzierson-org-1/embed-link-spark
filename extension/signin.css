@@ -26,10 +26,16 @@ body {
   padding: 40px 8px 56px;
 }
 
-h1 {
-  font-size: 28px;
-  letter-spacing: -0.02em;
-  margin: 0 0 6px;
+/* The Stash wordmark (brand/stash-wordmark.svg), same 28px cap height the old text h1 had. */
+h1.wordmark {
+  margin: 0 0 10px;
+  line-height: 0;
+}
+
+h1.wordmark svg {
+  height: 26px;
+  width: auto;
+  color: var(--ink);
 }
 
 .sub {

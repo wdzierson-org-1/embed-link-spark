@@ -87,7 +87,7 @@ Neutrals (chrome):
 | chip bg | `rgba(20,22,30,.05)` | neutral chips, icon tiles |
 | page wash | grey base `#f7f7f9` + faint spectrum tint (see `src/index.css`) | app background |
 
-**Page wash gradient** (the only sanctioned gradient; page backdrops + splash):
+**Page wash gradient** (the only sanctioned gradient; page backdrops, splash, and the app icon — see Logo):
 `linear-gradient(-45deg, #667eea, #764ba2, #9d5fd8, #c2418f, #4facfe, #38bdf8)` — web `.animated-gradient`
 (400% canvas, 15s ease drift; static under reduced motion). iOS: `StashColor.gradientStops` in the same
 order, drawn bottom-leading → top-trailing over a 2× canvas with a 40pt blur so no stop banding shows;
@@ -182,13 +182,26 @@ regardless of system appearance; web ships no dark stylesheet to toggle.
 1:1 analog exists (lock, globe, play); otherwise ship the Lucide asset. Never
 emoji, never mixed icon sets on one surface.
 
-**Brand elements are flat.** No gradients in buttons, icons, favicons, or
-marks — flat iconography on flat color (the favicon and the iOS app icon are
-the stitched second-S in ink `#22262f` on white, all five glyph paths). The
-splash gradient lives only in page washes.
+**Logo.** The wordmark is the five letters "Stash" from
+`brand/stash-wordmark.svg` (no strokes, no tagline), always one flat colour via
+`currentColor` / template rendering: ink `#22262f` on app surfaces,
+`text-gray-900` in the web header, `#666666` on the landing nav. Shipped heights:
+web header + auth 24px, pricing/legal/landing 20px; iOS header 20pt, sign-in
+28pt, splash 40pt; extension sign-in 26px. Never set the name in type instead.
 
-*2026-09-03: iOS app icon exception revoked (Will) — icon now matches the
-favicon.*
+**The app icon is the wordmark's first S** (`brand/stash-s.svg`) in ink
+`#22262f` at 62% of the tile, centred on the purple→blue stops of the page-wash
+gradient (`#764ba2 → #9d5fd8 → #667eea → #4facfe`, bottom-left → top-right) —
+the one brand mark that sits on a gradient. `brand/icon-src.html` is the source;
+`node brand/build.mjs` regenerates the favicon set, PWA icons, extension icons,
+iOS AppIcon and the onboarding tile. Square where the OS masks (iOS, touch/PWA),
+20% radius with transparent corners where it doesn't (favicon, extension). Every
+other brand element stays flat: no gradients in buttons, chips, or marks.
+
+*2026-09-15: icon moved from the flat stitched second-S on white to the first S
+on the wash, and the wordmark replaced with the "Stash" lettering (Will);
+the 2026-09-03 "icon matches the favicon" note is superseded — they still match,
+both are now the S on the wash.*
 
 ## Components
 

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import Supabase
 
-/// "Transcribe with speakers" (plan 14 Task 2) runs as the SERVER's transcription job (final wave
+/// "Transcribe again" (formerly "Transcribe with speakers", plan 14 Task 2) runs as the SERVER's transcription job (final wave
 /// B). Deployed `transcribe-audio` v28 (verified against its source) has two modes:
 ///
 /// - **Preview** `{ audioUrl, fileName }` — synchronous, what this used to call. It now answers
@@ -19,6 +19,9 @@ import Supabase
 /// iOS uses the job for every file. The client starts it, watches `media.transcript.status`
 /// (`TranscriptJobState`, kept loss-lessly in `MediaAttributes.extra`) until the job settles, then
 /// reads the finished row. It never writes the item itself.
+///
+/// As of 2026-09-29 the server no longer diarizes: the transcript is plain text, not
+/// speaker-labelled Markdown (the button is labelled "Transcribe again" on web and iOS).
 
 /// Where the server's transcription job for an audio/video item stands: `attributes.media.transcript`
 /// (spec 2026-09-09 "long audio transcription"), written only by `transcribe-audio` and `add-file`.
@@ -209,7 +212,7 @@ public final class TranscriptionService {
         self.sleep = sleep
     }
 
-    /// "Transcribe with speakers": rebuilds the item's transcript from its recording on the server
+    /// "Transcribe again": rebuilds the item's transcript from its recording on the server
     /// and waits for the result. Throws before anything starts for `.noStoredMedia`/
     /// `.alreadyRunning`/`.startFailed`; `.stoppedWatching` when no outcome came by `maxWait`.
     public func retranscribe(item: Item) async throws -> TranscriptionOutcome {

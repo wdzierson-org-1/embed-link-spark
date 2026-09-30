@@ -8,6 +8,145 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-29 · Enrichment quality loop on main · transcript summaries unified · one correction
+
+Housekeeping wave, mostly server-side. Five completed-but-unmerged branches were
+merged into `main` (reminders email, Ask-Stash notes in search, logo refresh,
+long-audio transcription, enrichment quality loop). The first four already had
+their own entries below — this entry covers the fifth, two behaviour changes that
+affect every platform's summaries, and a correction to a commit message.
+
+- **Enrichment quality loop (server-only; was ALREADY LIVE before this merge).**
+  `main` had no source for infrastructure that has been running in production on
+  an hourly cron. It does now. Nothing for a client to call and no UI, but two
+  facts clients should know: it writes `attributes.enrichment.*` (status,
+  evidence, protected_fields) and `attributes.media.*` on items it repairs, so
+  the usual `attributes` rule matters more than before — **whole-blob writes must
+  preserve keys you do not model**, or you will erase enrichment state. And
+  repairs are currently DISABLED in production (`ENRICHMENT_REPAIR_ENABLED`
+  unset): the loop assesses and defers, it does not yet rewrite anyone's items.
+  Source: `supabase/functions/_shared/enrichment*.ts`,
+  `supabase/functions/enrichment-maintenance/`, migrations `20260923120000` and
+  `20260923121000`.
+
+- **DO NOT set `ENRICHMENT_REPAIR_ENABLED=true` yet — read this first.** The
+  enrichment loop currently ASSESSES ONLY. That one environment variable is the
+  switch between "looks at your items" and "rewrites your items", and two known
+  issues sit behind it. (1) Legacy `type='collection'` rows are in the pipeline:
+  the `enqueue_enrichment_assessment` trigger has no type predicate, so all 14
+  legacy collections in production are queued, assessed and counted (~1.4% of
+  `enrichment_quality` rows, so metrics from that table include them). Collections
+  are legacy read-only per `CLAUDE.md` and must never be patched. They are
+  currently double-guarded — `assessEnrichment` returns `unsupported` for them and
+  the repair gate skips `unsupported`, and since 2026-09-29 the summary path also
+  refuses to map that type — but nothing stops them ENTERING the queue, and the
+  clean fix (excluding the type in the trigger) has not been made. (2) The repair
+  path is the only caller that reaches `generateSummary` with a raw DB item type,
+  so it is the path where a type-vocabulary mistake becomes a written summary; an
+  unmapped type is now recorded as a failed attempt with
+  `unmapped_item_type:<type>` rather than guessing a prompt. Before enabling
+  repairs: decide the collection exclusion, and watch `enrichment_attempts` for
+  `unmapped_item_type:` reasons. Turning it on is a release, not a config tweak.
+
+- **Transcript summaries: one prompt, one budget, whichever path produced them.**
+  Behaviour change worth mirroring in expectations, not code. Summary prompts were
+  selected by DB type, and the two callers label the same thing differently —
+  capture sends `recording` for every audio/video, while the new repair path sent
+  the raw type (`audio`/`video`). The result was that repairing a recording
+  DEGRADED a summary the capture path got right: generic prompt instead of the
+  transcript prompt, a 600-token instead of 700-token budget. All three notions of
+  "is this a transcript" (prompt, input cap, output budget) now share one set, so
+  capture and repair agree by construction. A voice memo gets the same summary
+  whichever path last touched it. Source: `supabase/functions/_shared/summarize.ts`,
+  locked by `summarize.test.ts`.
+
+- **Every summary prompt now says the source is untrusted.** Applies to links,
+  documents and recordings, which previously did not carry it: the model is told
+  to treat captured source text as data and never as instructions, and to
+  preserve specific names, models, places and cited resources. Captured pages are
+  third-party text; a page that says "ignore your instructions" is a page, not an
+  instruction. Expect slightly more literal, less paraphrased summaries.
+
+- **CORRECTION — commit `b66b0ca6` contains a claim that is DISPROVEN.** That
+  merge commit's message has a section headed "RELATED PROD FINDING" asserting
+  that production runs the older diarized synchronous `transcribe-audio` rather
+  than the asynchronous job version, and that the `transcribe-audio-sweep` cron
+  had been firing every 10 minutes against an endpoint unable to service it.
+  **Both claims are false and there is no broken-cron defect.** `transcribe-audio`
+  was deployed as v28 on 2026-09-29 05:50:18 UTC, and `net._http_response` shows
+  the sweep returning `200 {"due":0,"started":[]}` — a response shape only the job
+  version can produce. The cron is being serviced correctly.
+  The reasoning error, recorded because it generalizes: current deployment state
+  was inferred from item rows created on 2026-09-10 and 2026-09-17. **Item rows
+  are creation-time artifacts — they evidence what was deployed when they were
+  written, not what is deployed now.** Production had churned between the two
+  designs. To answer "what is running", read the Management API function list and
+  `net._http_response`, not stored data.
+  Still **OPEN in both directions**: whether the deployed v28 also diarizes the
+  synchronous preview path. It has not been established either way — do not
+  assume diarization is absent. (Separately and NOT retracted: within this
+  repository, merge `b66b0ca6` did leave `formatDiarizedTranscript` with a passing
+  test and no production caller. That is a source-level fact and stands.)
+
+- **"Transcribe with speakers" is now "Transcribe again" (web + iOS).** The server
+  no longer diarizes: `formatDiarizedTranscript` survives in
+  `supabase/functions/_shared/transcript.ts` but has NO production caller, and
+  `transcribe-audio` contains no speaker handling at all. The button's behaviour is
+  UNCHANGED and still worth offering — it re-invokes `transcribe-audio` on the
+  original media and patches only `page_body` + `description`, never `content`,
+  preserving the previous transcript on failure. Only the promise was wrong.
+  Web `src/components/TranscriptContent.tsx`: idle "Transcribe again", busy
+  "Transcribing…", helper copy unchanged. iOS `ItemDetailContent.swift`: idle
+  string only — "Transcribing…" already matched. **Supersedes the "Transcribe with
+  speakers" bullet in the 2026-09-13 plan-14 entry below** — only that bullet; the
+  rest of that entry is unrelated and stands. Two things in it no longer hold: the
+  button name itself, which advertises speaker separation as the feature's purpose,
+  and the parenthetical "labels come from the server's diarization", which the
+  merged `transcribe-audio` does not do at all. Note what was NOT wrong: that
+  bullet states the copy "never claims real speaker names", and it did not — the
+  old copy deliberately disclaimed them. The defect was advertising speaker
+  separation as the button's purpose and documenting a diarization premise that no
+  longer exists, not inventing speaker identities. Everything else that bullet
+  describes — the media-URL resolution, the `{audioUrl, fileName}` body, patching
+  only `page_body` + `description`, never touching `content`, preserving the
+  previous transcript on failure, the busy state disabling the button — is still
+  accurate. Accessibility identifier
+  `detail.transcribeSpeakers` is deliberately unchanged (stable test contract, now
+  a mild misnomer). Whether diarization returns is an open decision — if it does,
+  re-advertising speakers is a deliberate copy change, not a revert.
+
+- **CORRECTION — a reported defect in `summarize-content` was RAISED, REVIEWED AND
+  WITHDRAWN. It was never real.** Commit `2c4f9a4d`'s message claims that before the
+  enrichment merge an image/audio/video/text item could reach `generateSummary`
+  through `summarize-content` and produce a system prompt containing the literal
+  string `undefined`, calling it a reachable defect in a deployed function. A HIGH
+  review finding was then raised on top of that claim, arguing a legacy
+  `type='collection'` row could have a summary generated and written by the same
+  path. **Both are false.** `summarize-content/index.ts:65` carries an allowlist —
+  `if (item.type !== 'link' && item.type !== 'document')` returns early — and it
+  precedes that function's single `generateSummary` call and its
+  `update({ summary })` write. It was introduced in `f311b95a` and never changed, so
+  the guard held at every point in this history. Only `link` and `document` reach
+  the summarizer there, which are exactly the two kinds with hand-written prompts,
+  so neither a generic-fallback prompt, nor an `undefined` prompt, nor a summary
+  write onto a collection row was ever reachable from that endpoint. The finding was
+  withdrawn in full; the false claim remains inside `2c4f9a4d`'s commit message,
+  which cannot be rewritten.
+  The reasoning error, recorded because it generalizes: the call site was read and
+  reasoned about without reading the guard clauses nineteen lines above it. **A type
+  that is unnarrowed AT a call site can still be constrained BY control flow —
+  proving a path is reachable means reading the path, not the line.**
+  This does NOT weaken the change `2c4f9a4d` made. The enrichment repair path is the
+  only caller that hands `generateSummary` a raw DB item type, and merge 5 widened
+  the transcript vocabulary to `audio`/`video`; the explicit mapping makes that
+  widened vocabulary safe **by construction** rather than by a behavioural status
+  check that could later change. All six callers are constrained, which is the
+  evidence that there is no seventh door: `transcribe-audio:372` and
+  `scrape-page-content:33` pass the literals `'recording'` and `'link'`;
+  `extract-pdf-text` and `extract-office-text` pass `'document'`;
+  `summarize-content` is allowlisted at `:65`; and
+  `_shared/enrichmentMaintenance.ts` narrows through `summaryKindFor`.
+
 ## 2026-09-27 · iOS background share, instant library, functional tune-up (plan 15)
 
 Will's on-device feedback (share sheet too slow on cellular, View-tab taps opening the
@@ -84,8 +223,8 @@ finishes; the client no longer writes `page_body`/`description` itself, so the n
 recordings over 24 MiB work the same way. An empty Transcript tab reads that same
 status: a job that ended `failed` says "No speech was detected in this recording."
 (`error: no_speech`) or "Couldn't transcribe this recording." (any other code) instead of
-"Transcription in progress…" forever; the header's "Transcribe with speakers" is the
-retry. (Web's empty transcript reads "No transcript available for this recording."
+"Transcription in progress…" forever; the header's "Transcribe again" button (relabelled
+from "Transcribe with speakers" on 2026-09-29) is the retry. (Web's empty transcript reads "No transcript available for this recording."
 whatever the job status — web could adopt the status-aware copy.)
 
 **Attributes.** `location`, `link` and `media` now round-trip unknown nested keys, so
@@ -120,15 +259,13 @@ thread with a pending chip and a toast on failure.
 Share extension: UserDefaults (1C8F.1) and file timestamps (C617.1). No system-boot-time
 API anywhere (`BootTimeAPIUsageTests` guards it).
 
-**Production state observed 2026-09-29** (redeployed 05:50–05:57Z by another session from
-code that wasn't on `origin/main`): `add-url`, `add-file` and `chat-with-all-content` now
+**Production state as of 2026-09-29** (deployed 05:50–05:57Z from the branches merged to
+`main` in the 2026-09-29 entry above): `add-url`, `add-file` and `chat-with-all-content` now
 also return 403 `subscription_required` for lapsed accounts (`docs/PLATFORM_API.md`
 previously named only `add-note`); `transcribe-audio` v28 defers files over 24 MiB to its
 job mode; `generate-embeddings` v120 checks item ownership and replaces rows by
 compare-and-swap; new `items` triggers `protect_enrichment_edits` and
 `enqueue_enrichment_assessment` mark user-edited fields and queue enrichment.
-
----
 
 ## 2026-09-18 · Chrome extension install page + hosted zip refresh
 
@@ -159,6 +296,78 @@ isn't going to load an unpacked folder from a git checkout.
 - Design: DESIGN.md tokens copied inline (Montreal only, ink/muted/faint,
   violet-600 on exactly one element, 1px hairlines, 16px tile radius, no
   emoji, reduced-motion guard). iOS/macOS: nothing to mirror — desktop-only.
+
+## 2026-09-15 · Logo refresh — "Stash" wordmark + first-S app icon on the wash
+
+Brand swap on every surface; no behavior or data-contract change. Will's call: the new wordmark
+is the five letters only (the two blue strokes and the tagline in the source art are dropped),
+and the app icon is the wordmark's first S in near-black on the purple/blue gradient.
+
+- **Sources.** `brand/stash-wordmark.svg` (viewBox `0 0 1003.84 306.57`, aspect 3.27:1 — the old
+  mark was 3.89:1, so at the same height the new one is ~16% narrower) and `brand/stash-s.svg`
+  (`0 0 222.77 294.3`). `brand/icon-src.html` composes the icon; `node brand/build.mjs` at the
+  repo root regenerates every derived file below — never hand-edit a PNG.
+- **Icon composition.** S in ink `#22262f`, 62% of the tile height, centred; gradient
+  `linear-gradient(45deg, #764ba2, #9d5fd8, #667eea, #4facfe)` (the page-wash palette minus the
+  magenta stop, drawn bottom-left → top-right like iOS `AnimatedGradient`). Square full-bleed
+  where the OS masks (`AppIcon-1024`, `apple-touch-icon`, PWA 192/512, onboarding tile); 20%
+  corner radius with transparent corners where nothing masks (`favicon.svg/.png/.ico`, Chrome
+  extension 16/32/48/128).
+- **Web.** `StashWordmark.tsx` carries the new paths (same `className`/`currentColor` contract,
+  `aspectRatio` updated); every caller keeps its height class. `public/` favicon set,
+  `apple-touch-icon`, `icon-192/512`, `favicon.ico` (16/32/48 PNG entries) regenerated; `og.jpg`
+  re-lettered in place (same art, new wordmark at the old one's spot and height, ink sampled
+  from the old lettering).
+- **Chrome extension.** `icons/` regenerated from the shared source (`icons/icon-src.html`
+  removed; README points at `brand/`). The sign-in page's `<h1>Stash</h1>` is now the wordmark
+  SVG at 26px (`h1.wordmark`).
+- **iOS.** `StashWordmark.imageset/stash-wordmark.svg` (app + share extension) replaced with the
+  new vector — still template-rendered with `preserves-vector-representation`, so `StashHeader`
+  (20pt), `SignInView` (28pt) and `SplashView` (40pt) need no code change; they just get
+  narrower. `AppIcon-1024.png` (app + share extension) and `onboarding.stashTile@2x/@3x` (the
+  share-sheet tutorial's tile, 180/270px) regenerated from the same source.
+- **Not in this change.** The macOS menubar app (separate `stash-mac` repo) still carries its
+  legacy icons — `brand/icon-src.html` at `#size=1024` is the master to hand it. App Store and
+  Chrome Web Store listing screenshots still show the old wordmark and need retakes.
+- **DESIGN.md.** "Brand elements are flat" rewritten as **Logo**: the wordmark stays
+  single-colour; the app icon is the one sanctioned gradient mark (2026-09-03 note superseded).
+- Review sheet: `docs/superpowers/prototypes/2026-09-15-logo-refresh.html` (+ `.png`) — every
+  shipped size old → new, three gradient reads (B chosen), S-scale and ink comparisons.
+
+## 2026-09-14 · Search + Ask Stash surface and boost the user's notes
+
+Backend-only; nothing visual changes on any client, but every client that
+renders search results or builds an Ask-style agent should know about the
+new field. Diagnosis: a note ("potential investor for Stash") on a long
+LinkedIn link WAS indexed, but each search result carries one snippet = the
+best-matching chunk, so a page-body chunk about other investors took the
+slot and the model never saw the note. Fix, three parts:
+
+- **Contract:** `POST /search-items` (and MCP `search_stash`) results gain
+  `notes` — the user's note as plain text (Novel/TipTap JSON and legacy HTML
+  rendered to words; ≤280 chars; `null` when empty), independent of
+  `snippet`. Existing fields unchanged; additive. iOS decoders that ignore
+  unknown keys need nothing; a client showing server results may render it.
+- **Ranking:** `hybrid_search_content` v4 (migration
+  `20260914000000_hybrid_search_v4_notes.sql`) returns `item_content` and
+  adds a third RRF list over the notes alone (`notes_weight`, default 1.5),
+  so an item whose note matches outranks items that merely mention the words
+  in captured text. New SQL helper `notes_plain_text(text)` turns the JSON
+  document into words so its keys never become search lexemes.
+- **Ask Stash (`chat-with-all-content`):** each `search_stash` result block
+  now carries a `Notes:` line; `get_item` renders notes as words instead of
+  raw JSON and is logged to `retrieval_log` (tool `get_item`, filters
+  `{id}`); the system prompt tells the model to search with the user's own
+  words before browsing the catalog and to treat a matching note as decisive.
+- **Shared helper:** `supabase/functions/_shared/notes.ts` (`plainNotes`,
+  `notesSnippet`) mirrors the web's `contentExtractor.ts`; iOS has the same
+  logic in `renderTipTap` — keep the three in step.
+- **Also fixed while verifying:** the model regularly sends `types:["note"]`
+  (not a storage type) and the RPC failed with an enum error, costing an
+  agent round. `coerceSearchTypes` (`_shared/search.ts`) maps model
+  vocabulary onto storage types (`note` → text+audio, `photo` → image,
+  `pdf`/`file` → document, `url`/`article` → link) and drops the rest;
+  failed searches are now logged to `retrieval_log` with `filters.error`.
 
 ## 2026-09-13 · iOS housekeeping mirror + App Store readiness (plan 14)
 
@@ -288,6 +497,59 @@ Spec: `docs/superpowers/plans/2026-09-13-ios-plan-14-housekeeping-mirror-and-app
 Progress ledger with every decision: `.superpowers/sdd/plan-14/progress.md`.
 
 ---
+
+## 2026-09-09 · Long recordings transcribe fully, asynchronously (all platforms)
+
+Spec `docs/superpowers/specs/2026-09-09-long-audio-transcription-design.md`.
+Root cause: OpenAI caps transcription uploads at 25 MiB. A 44-minute m4a
+(37.7 MB) was rejected twice and the web wrote a description guessed from
+the filename; no audio/video item has ever had a `summary`. Now every
+audio/video item gets a transcript, summary, card blurb and AI title
+regardless of length — asynchronously, with visible status.
+
+- **Contract — `attributes.media.transcript`** (additive; whole-blob
+  read-merge-write, preserve unknown keys):
+  `{ status: 'pending' | 'processing' | 'done' | 'failed',
+  source?: 'openai:<model>', chunks_total?, chunks_done?, attempts?,
+  updated_at?, error?: 'download_failed' | 'no_audio_track' |
+  'unsupported_container' | 'transcription_failed' | 'no_speech' }`.
+  Written by the server (`transcribe-audio`, `add-file`) and, for the
+  initial `pending`, by the web save path. Lanes unchanged: transcript →
+  `page_body` (fills in chunk by chunk; cap 200,000 chars); card blurb →
+  `description` (**null until the transcript exists — never a filename
+  guess**); long AI summary → `summary` (new for recordings: topics in
+  order, decisions, action items, open questions; ≤ ~300 words). Title:
+  filename-shaped titles are replaced from the transcript by the job
+  (existing 2026-08-26 policy, `KEEP_FILENAME` respected).
+- **Endpoint — `POST /transcribe-audio`** (gateway `verify_jwt` off; auth
+  in-function). `{ itemId }` with the owner's JWT or the service role →
+  `202 { accepted: true, itemId }`; the work continues server-side and lands
+  via realtime. Files over 24 MiB are split **without re-encoding** by
+  reading the m4a/mp4/mov sample tables (`_shared/mp4Audio.ts`) into
+  ≤ 24 MiB / ≤ 20-minute chunks; other containers over the cap fail with
+  `unsupported_container`. `{ sweep: true }` + `x-cron-secret` (pg_cron,
+  every 10 min) resumes stalled jobs and retries failures, 3 attempts max.
+  The chip's preview call `{ audioUrl, fileName }` → `{ transcription,
+  description }` is unchanged for files ≤ 24 MiB; larger files answer
+  `{ deferred: true }`.
+- **`add-file`** now writes `media.kind`, `media.file_name`,
+  `transcript.status = 'pending'` and a baseline embedding, then starts the
+  job. iOS / extension callers change nothing.
+- **Web:** save inserts audio/video immediately (description null, status
+  pending) and starts the job fire-and-forget, like `analyze-image`; the
+  chip skips the inline preview above 24 MiB. Detail sheet Transcript tab
+  (`src/utils/transcriptStatus.ts` for the copy): "Transcribing… part N of
+  M" above the partial text as chunks land, "Transcribing… long recordings
+  can take a few minutes." before the first chunk, a per-`error` reason when
+  failed (with "It will be retried automatically." while attempts remain),
+  else the existing "No transcript available". Cards keep expecting
+  `description` for audio/video; the assembling chip retires honestly at
+  its 2.5-minute window for long recordings.
+- **iOS to mirror:** decode `media.transcript` (StashKit `MediaAttributes`
+  drops unknown *nested* keys on a round trip today — add the field so a
+  media edit can't erase job state), render the same Transcript-tab states
+  with the copy above, and don't treat a missing description as a stalled
+  capture for long recordings.
 
 ## 2026-09-08 · Admin dashboard (web-only, temporary)
 
@@ -530,9 +792,13 @@ Spec `docs/superpowers/specs/2026-09-06-reminders-design.md`; plans
   "Remind me…" (In 1 / 3 / 5 days), "Change reminder…" and "Remove reminder"
   when one is active. None of it renders in public views. One `NowProvider`
   clock per grid (60 s tick + visibilitychange) drives state.
-- **Backend:** `reminder-digest` edge function on a version-controlled
-  pg_cron schedule (13:00 UTC, secret from Vault). Today it only expires
-  stale reminders; the email step ships with plan 3.
+- **Backend + email (shipped):** `reminder-digest` runs 13:00 UTC; one email
+  per user per day listing due reminders (title → content excerpt → host →
+  type fallback; "Saved Sep 3 · reminder for today"; deep link per item);
+  signed opt-out link (confirmation page → POST; RFC 8058 one-click headers)
+  + Settings → Account "Email me when reminders are due" switch
+  (`user_preferences.reminder_emails`). Sent through Resend from
+  `reminders@mail.gostash.it`. Per-user timezone is a later refinement.
 - **iOS (plan 2):** share-sheet chips `1 day · 3 days · 5 days` above Save;
   View tab badge = due count; due block at the top of the grid; same footer
   chip + Due overlay + dismiss.

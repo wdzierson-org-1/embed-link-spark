@@ -73,8 +73,9 @@ Upload to Storage first (`stash-media/<userId>/<name>.<ext>`), then:
 
 Returns `{ success, item }` fast. Type derives from MIME (image/audio/video,
 else document). Enrichment continues server-side after the response: vision
-description + OCR for images, Whisper transcript into `page_body` for
-audio/video, embeddings for all. Documents branch by exact MIME: `application/
+description + OCR for images; for audio/video the `transcribe-audio` job
+below (transcript into `page_body`, blurb, summary, AI title, media kind);
+embeddings for all. Documents branch by exact MIME: `application/
 pdf` gets quick summary + full text extraction into `page_body`; Office Open
 XML (`.pptx`/`.docx`/`.xlsx`) gets text extraction via the same page_body/
 summary/description contract; anything else settles immediately with an AI
@@ -204,6 +205,26 @@ for notes, links and files alike; iOS parks the Outbox entry until the
 entitlement returns. `chat-with-all-content` (see Ask) refuses a lapsed account
 with the same 403 before streaming. Before 2026-09-29 only `add-note` did.
 
+### `POST /transcribe-audio` — transcription job for audio/video items
+
+```json
+{ "itemId": "<uuid>" }
+```
+
+Returns `202 { accepted: true, itemId }` at once (owner JWT or service role;
+`add-file` starts it for you, so most clients never call it). The job splits
+files over 24 MiB without re-encoding (m4a / mp4 / mov; other containers over
+the cap fail with `unsupported_container`), transcribes ≤ 20-minute chunks
+with OpenAI, and writes `page_body` progressively, then `description`,
+`summary`, an AI title when the title is still filename-shaped,
+`attributes.media.kind`, embeddings, and `attributes.media.transcript`
+(`status: pending | processing | done | failed`, `chunks_done` /
+`chunks_total`, `attempts`, `error`). A pg_cron sweep (`{ "sweep": true }`
+with `x-cron-secret`, every 10 minutes) resumes stalled jobs and retries
+failures up to 3 attempts. Preview mode `{ "audioUrl", "fileName" }` (a
+`stash-media` URL, ≤ 24 MiB) still returns `{ transcription, description }`
+synchronously; larger files return `{ deferred: true }`.
+
 ## Ask
 
 ### `POST /chat-with-all-content` — streaming Q&A over the user's stash
@@ -257,7 +278,12 @@ INVOKER, RLS-scoped) returns the history list with counts and previews.
 All fields optional. With `query`: hybrid relevance-ranked search (one result
 per item, `snippet` = best matching chunk). Without: newest-first listing
 under the same filters. Returns
-`{ "results": [{ id, title, type, url, created_at, description, snippet, score }] }`.
+`{ "results": [{ id, title, type, url, created_at, description, notes, snippet, score }] }`.
+`notes` (2026-09-14) is the user's own note on the item as plain text (Novel
+JSON and HTML rendered to words, ≤280 chars, `null` when empty) — always
+present alongside `snippet` because on long links the best-matching chunk is
+usually page body and would hide the note. Ranking also boosts items whose
+note matches the query (`hybrid_search_content` v4, `notes_weight` 1.5).
 This is the canonical search surface — library search boxes, future MCP
 tools, and Siri/Shortcuts should all call it rather than hitting the DB.
 
@@ -398,10 +424,16 @@ normal chronological list; a server search's relevance order wins while
 active.
 
 Daily job: `reminder-digest` (pg_cron 13:00 UTC → pg_net → edge function,
-`x-cron-secret` header). Step 1 (expire stale reminders) is live. Step 2 —
-one email per user per day listing their due, un-notified reminders (never
-one per reminder), then stamping `reminder_notified_at` — is specified but
-not yet built: it ships with plan 3 and is currently skipped.
+`x-cron-secret`). Step 1 expires stale reminders (`reminders_expire()`).
+Step 2 selects due, uncleared, un-notified rows for users with
+`user_preferences.reminder_emails` not false, sends **one** email per user
+via Resend (`Stash <reminders@mail.gostash.it>`), then stamps
+`reminder_notified_at`. Each item links to `/home#item=<id>`. The footer's
+"Turn off reminder emails" link is `/reminder-email-prefs?token=<signed,
+30-day>` — no session needed; `GET` shows a confirmation page and `POST`
+(same URL; also RFC 8058 one-click) applies the opt-out. Clients that want
+their own toggle write `user_preferences.reminder_emails` directly (owner
+RLS).
 
 ## Live updates
 
@@ -427,5 +459,6 @@ supabase.channel(`items-${userId}`)
 - Menubar widget / extension: `add-url` + `add-note` are sufficient for v1
   capture; JWT can be obtained via a one-time device sign-in with supabase-js.
 - Voice: the web app uses the Web Speech API client-side and sends the final
-  transcript through the normal chat routing; `/transcribe-audio`
-  (Whisper) exists for platforms without native speech recognition.
+  transcript through the normal chat routing; `/transcribe-audio` preview
+  mode (OpenAI, ≤ 24 MiB) exists for platforms without native speech
+  recognition.

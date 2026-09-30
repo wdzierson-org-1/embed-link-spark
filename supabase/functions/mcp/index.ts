@@ -13,6 +13,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { authenticateAgent, type AgentGrant } from '../_shared/agentAuth.ts';
+import { plainNotes } from '../_shared/notes.ts';
 import {
   SUPPORTED_PROTOCOL_VERSIONS, errorResult, handleMcpMessage, parseJsonRpcBody, textResult,
   type McpServerSpec, type McpToolAnnotations, type McpToolDefinition, type McpToolResult,
@@ -95,8 +96,6 @@ const challenge = (status: 401 | 403, error: string, description: string) => {
   }
   return json(status, { error, error_description: description }, { 'WWW-Authenticate': `Bearer ${params.join(', ')}` });
 };
-
-const stripHtml = (text: string): string => text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 // Every tool is read-only; the Claude directory groups tools by these hints
 // and rejects tools without a title or the read-only/destructive hint.
@@ -235,7 +234,9 @@ const runSearchStash = async (admin: Admin, userId: string, grant: AgentGrant, a
   const lines = results.map((r, i) => {
     const saved = r.created_at ? ` · saved ${String(r.created_at).slice(0, 10)}` : '';
     const snippet = (r.snippet || r.description || '').replace(/\s+/g, ' ').trim();
-    return `[${i + 1}] ${r.title || 'Untitled'} (${r.type}${saved}) id:${r.id}${snippet ? `\n${snippet}` : ''}`;
+    return `[${i + 1}] ${r.title || 'Untitled'} (${r.type}${saved}) id:${r.id}`
+      + (r.notes ? `\nNotes: ${r.notes}` : '')
+      + (snippet ? `\n${snippet}` : '');
   });
   return textResult(lines.join('\n\n'), { results, count: results.length });
 };
@@ -276,7 +277,7 @@ const readItem = async (admin: Admin, userId: string, grant: AgentGrant, rawId: 
 
   const flavor: string | null = item.attributes?.link?.flavor ?? null;
   const location: string | null = item.attributes?.location?.label ?? null;
-  const notes = item.content ? stripHtml(item.content).slice(0, ITEM_NOTES_CHARS) : null;
+  const notes = plainNotes(item.content).slice(0, ITEM_NOTES_CHARS) || null;
   const fullBody = item.page_body ? String(item.page_body) : '';
   const body = fullBody ? fullBody.slice(0, ITEM_BODY_CHARS) : null;
   const truncated = fullBody.length > ITEM_BODY_CHARS;

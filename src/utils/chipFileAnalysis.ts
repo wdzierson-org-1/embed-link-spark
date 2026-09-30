@@ -30,6 +30,9 @@ export interface ChipAnalysisHandle {
   abort: () => void;
 }
 
+// Mirrors transcribe-audio's INLINE_MAX_BYTES (24 MiB, under OpenAI's 25 MiB)
+export const PREVIEW_MAX_BYTES = 24 * 1024 * 1024;
+
 const getPublicUrl = (path: string): string =>
   supabase.storage.from('stash-media').getPublicUrl(path).data.publicUrl;
 
@@ -58,10 +61,13 @@ const analyzeUploadedFile = async (
   }
 
   if (kind === 'audio') {
+    // The inline preview only fits under OpenAI's upload cap; bigger files
+    // are transcribed by the server-side job after save (chunked, async)
+    if (file.size > PREVIEW_MAX_BYTES) return null;
     const { data, error } = await supabase.functions.invoke('transcribe-audio', {
       body: { audioUrl: getPublicUrl(uploadedPath), fileName: file.name },
     });
-    if (error || !data) return null;
+    if (error || !data || data.deferred) return null;
     return { description: data.description, transcription: data.transcription };
   }
 

@@ -130,9 +130,9 @@ struct ItemDetailContent: View {
     /// Text button (DESIGN.md's "muted text + glyph" affordance family, same spirit as the card's
     /// "Add a note") — mirrors the web's `TranscriptContent.tsx` outline button 1:1 in behavior,
     /// just native's own plain-text-button chrome rather than a bordered pill: busy disables the
-    /// button and swaps the label to "Transcribing…" with a small spinner alongside it; copy never
-    /// claims real speaker identities ("Speaker 1/2…" is the server's own labeling, this button
-    /// just triggers the rebuild).
+    /// button and swaps the label to "Transcribing…" with a small spinner alongside it. The copy
+    /// never claimed real speaker identities and no longer mentions speakers at all: as of
+    /// 2026-09-29 the server does not diarize, so the button only promises a rebuild.
     private var transcribeButton: some View {
         Button {
             onTranscribeWithSpeakers()
@@ -142,12 +142,14 @@ struct ItemDetailContent: View {
                     ProgressView()
                         .controlSize(.mini)
                 }
-                Text(isTranscribing ? "Transcribing…" : "Transcribe with speakers")
+                Text(isTranscribing ? "Transcribing…" : "Transcribe again")
                     .font(StashType.meta())
             }
         }
         .foregroundStyle(isTranscribing ? StashColor.faint : StashColor.violet600)
         .disabled(isTranscribing)
+        // Identifier deliberately unchanged: stable UI-test contract. A mild misnomer
+        // since the server no longer diarizes — renaming churns StashUITests for no user benefit.
         .accessibilityIdentifier("detail.transcribeSpeakers")
     }
 

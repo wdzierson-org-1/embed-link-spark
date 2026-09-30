@@ -51,12 +51,39 @@ export type LinkAttributes = {
  */
 export type MediaKind = 'voice_note' | 'recording' | 'music' | 'screenshot' | 'video';
 
+export type TranscriptStatus = 'pending' | 'processing' | 'done' | 'failed';
+
+export type TranscriptError =
+  | 'download_failed'
+  | 'no_audio_track'
+  | 'unsupported_container'
+  | 'transcription_failed'
+  | 'no_speech';
+
+/**
+ * Progress of the server-side transcription job for audio/video
+ * (`transcribe-audio`, spec 2026-09-09). The transcript itself lives in
+ * `page_body` and fills in chunk by chunk; this is only the status clients
+ * render while it runs or when it fails.
+ */
+export type TranscriptState = {
+  status: TranscriptStatus;
+  /** e.g. "openai:gpt-4o-transcribe" once a chunk has succeeded */
+  source?: string;
+  chunks_total?: number;
+  chunks_done?: number;
+  attempts?: number;
+  updated_at?: string;
+  error?: TranscriptError;
+};
+
 export type MediaAttributes = {
   /** From chip-time local analysis (HTMLMediaElement metadata) */
   duration_s?: number;
   /** Original filename — titles are AI-derived; the filename is metadata */
   file_name?: string;
   kind?: MediaKind;
+  transcript?: TranscriptState;
 };
 
 export type ItemAttributes = {

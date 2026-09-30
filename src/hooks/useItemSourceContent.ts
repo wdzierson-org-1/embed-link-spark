@@ -3,8 +3,10 @@ import { supabase } from '@/integrations/supabase/client';
 
 // Loads the heavyweight per-item fields (summary, page_body) that the item
 // list query deliberately leaves out, and exposes on-demand summary generation
-// for items captured before summaries existed.
-export const useItemSourceContent = (itemId: string | undefined, enabled: boolean) => {
+// for items captured before summaries existed. `refreshKey` re-runs the load
+// when the caller knows the source changed server-side (a transcript job
+// landing another chunk) — the list's realtime refetch carries the key.
+export const useItemSourceContent = (itemId: string | undefined, enabled: boolean, refreshKey?: string) => {
   const [summary, setSummary] = useState<string | null>(null);
   const [pageBody, setPageBody] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -41,7 +43,7 @@ export const useItemSourceContent = (itemId: string | undefined, enabled: boolea
     return () => {
       cancelled = true;
     };
-  }, [itemId, enabled]);
+  }, [itemId, enabled, refreshKey]);
 
   const generateSummary = useCallback(async () => {
     if (!itemId || isGenerating) return;

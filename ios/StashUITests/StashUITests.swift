@@ -3021,7 +3021,7 @@ final class StashUITests: XCTestCase {
 
     // MARK: - Transcribe with speakers + Notes editor footprint (Plan 14 Task 2)
 
-    /// "Transcribe with speakers" only appears in the Transcript section header for items with a
+    /// "Transcribe again" only appears in the Transcript section header for items with a
     /// stored media file — asserted against the two permanent UITEST-FIXTURE rows `testDetailSheets`
     /// already relies on (`audio one`/`link one`, found by the same unique-substring search, never
     /// grid position), so this never seeds or mutates any row. Also asserts the Notes editor's own
@@ -3063,8 +3063,8 @@ final class StashUITests: XCTestCase {
 
         let transcribeButton = app.buttons["detail.transcribeSpeakers"]
         XCTAssertTrue(transcribeButton.waitForExistence(timeout: 10),
-                      "Expected 'Transcribe with speakers' on an audio item with a stored media file")
-        XCTAssertEqual(transcribeButton.label, "Transcribe with speakers",
+                      "Expected 'Transcribe again' on an audio item with a stored media file")
+        XCTAssertEqual(transcribeButton.label, "Transcribe again",
                        "Expected the idle label — this test never taps the button, so it should never read 'Transcribing…'")
 
         let notesEditor = anyElement("detail.notes.editor")
@@ -3083,7 +3083,7 @@ final class StashUITests: XCTestCase {
         // 2. "link one" — no stored media file at all — never shows the button.
         openDetail(search: "link one")
         XCTAssertFalse(app.buttons["detail.transcribeSpeakers"].exists,
-                       "Did not expect 'Transcribe with speakers' on a link item")
+                       "Did not expect 'Transcribe again' on a link item")
         closeDetailAndClearSearch("link one")
     }
 

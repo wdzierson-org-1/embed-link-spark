@@ -106,6 +106,30 @@ describe("analyzeDroppedFile", () => {
     expect(result.description).toBe("Voice memo about a contract");
   });
 
+  it("skips the transcription preview for audio over 24 MiB and still resolves ready", async () => {
+    const { updates, onUpdate } = collectUpdates();
+    const big = new File(["a"], "meeting.m4a", { type: "audio/x-m4a" });
+    Object.defineProperty(big, "size", { value: 40 * 1024 * 1024 });
+
+    const result = await analyzeDroppedFile(big, "audio", "user-1", onUpdate).done;
+
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(result.transcription).toBeUndefined();
+    expect(result.uploadedFilePath).toBe("user-1/staging/123-abc.pdf");
+    expect(updates.at(-1)?.analysisState).toBe("ready");
+  });
+
+  it("treats a deferred preview as no result", async () => {
+    invokeMock.mockResolvedValue({ data: { transcription: "", description: "", deferred: true }, error: null });
+
+    const result = await analyzeDroppedFile(
+      new File(["a"], "memo.m4a", { type: "audio/mp4" }), "audio", "user-1", vi.fn()
+    ).done;
+
+    expect(result.transcription).toBeUndefined();
+    expect(result.description).toBeUndefined();
+  });
+
   it("skips server analysis for video and still resolves ready", async () => {
     const { updates, onUpdate } = collectUpdates();
     await analyzeDroppedFile(new File(["v"], "clip.mp4", { type: "video/mp4" }), "video", "user-1", onUpdate).done;
