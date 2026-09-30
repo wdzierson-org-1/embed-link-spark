@@ -1,14 +1,15 @@
 import XCTest
 @testable import StashKit
 
-/// Plan 16, Task 4 review I-1: a title the user typed that was then sent (or queued) must stay
-/// cleared when the user clears the field. `DetailFieldEdits` is the one rule the detail sheet's
-/// autosave, dismiss journal and `adopt` share; these tests drive it against a real `PendingEdits`
-/// queue, in the order `ItemDetailView` makes its calls:
+/// Plan 16, Task 4 review I-1 and Task 4c (re-review §9, m-3): a title, description or sticky note
+/// the user changed after a value of it was sent (or queued) must keep the user's value — a clear
+/// or a revert included. `DetailFieldEdits` is the one rule the detail sheet's autosave, dismiss
+/// journal and `adopt` share; these tests drive it against a real `PendingEdits` queue, in the
+/// order `ItemDetailView` makes its calls:
 ///
 /// - an autosave records `textPatch` BEFORE sending it (`save(_:)`);
-/// - when a save lands, `superseding(sent)` is recorded, then the sent patch is confirmed, then the
-///   row is adopted (directly when it's the newest save, otherwise through the store's change);
+/// - when a save lands, the sheet calls `DetailFieldEdits.landing` (supersede, confirm, adopt) —
+///   the same function these tests call, so its order is pinned here;
 /// - closing records `textPatch` (`handleDismiss` → `unconfirmedPatch`).
 ///
 /// `LibraryDetailUITests` drives the same scenarios through the real sheet (slow and stalled links).
@@ -50,6 +51,13 @@ final class DetailFieldEditsTests: XCTestCase {
              isPublic: false, createdAt: t0, attributes: ItemAttributes(media: MediaAttributes(durationS: 5)))
     }
 
+    /// A text item with a real title, so only the field under test is in play.
+    private func textRow(description: String = "", note: String? = nil, isPublic: Bool = false) -> Item {
+        Item(id: UUID(), type: .text, title: "Standup", content: "", url: nil, filePath: nil,
+             description: description, summary: nil, pageBody: nil, supplementalNote: note, mimeType: nil,
+             isPublic: isPublic, createdAt: t0, attributes: ItemAttributes())
+    }
+
     /// Opens a sheet on `server` the way `ItemDetailView.init` does: queued values laid over the
     /// server's row, then shown as the fields show it.
     private func open(_ server: Item) -> Sheet {
@@ -77,17 +85,17 @@ final class DetailFieldEditsTests: XCTestCase {
         if let title = patch.title { next.title = title }
         if let description = patch.description { next.description = description }
         if let note = patch.supplementalNote { next.supplementalNote = note.isEmpty ? nil : note }
+        if let isPublic = patch.isPublic { next.isPublic = isPublic }
         return next
     }
 
-    /// `save` came back as `response`: supersede, confirm, adopt — `ItemDetailView.save(_:)`'s order.
+    /// `save` came back as `response` in the open sheet: `DetailFieldEdits.landing`, exactly as
+    /// `ItemDetailView.save(_:)` calls it (supersede, confirm, adopt), then the sheet adopts.
     private func land(_ save: Save, as response: Item, in sheet: inout Sheet, at time: TimeInterval) {
-        let superseding = edits(sheet).superseding(save.patch)
-        if !superseding.isEmpty {
-            queue.record(itemId: sheet.local.id, patch: superseding, capturedAt: t0.addingTimeInterval(time))
-        }
-        queue.confirm(itemId: sheet.local.id, patch: save.patch, capturedAt: save.capturedAt)
-        adopt(response, in: &sheet)
+        sheet.local = DetailFieldEdits.landing(save.patch, capturedAt: save.capturedAt, as: response,
+                                               local: sheet.local, baseline: ItemDisplay.editableRow(sheet.snapshot),
+                                               queue: queue, sheetIsOpen: true, at: t0.addingTimeInterval(time))
+        sheet.snapshot = response
     }
 
     private func adopt(_ incoming: Item, in sheet: inout Sheet) {
@@ -105,6 +113,22 @@ final class DetailFieldEditsTests: XCTestCase {
     /// What a flush of the queue would send for the item (`PendingEdit.fieldPatch`).
     private func queuedTitle(_ sheet: Sheet) -> String? {
         queue.edit(for: sheet.local.id)?.fieldPatch.title
+    }
+
+    private func queuedDescription(_ sheet: Sheet) -> String? {
+        queue.edit(for: sheet.local.id)?.fieldPatch.description
+    }
+
+    /// "" is a queued clear (`ItemPatch.restBody` sends it as null).
+    private func queuedNote(_ sheet: Sheet) -> String? {
+        queue.edit(for: sheet.local.id)?.fieldPatch.supplementalNote
+    }
+
+    /// Delivers the queue to `server` the way the close's (or the app's) flush does.
+    private func deliverQueue(to server: FakeRowServer) async {
+        await queue.flush(editor: ItemEditor(patcher: server,
+                                             refresher: EmbeddingRefresher(syncer: RecordingSyncer(), idle: .milliseconds(10)),
+                                             writeQueue: ItemWriteQueue()))
     }
 
     // MARK: - Opening, typing, saving
@@ -290,9 +314,9 @@ final class DetailFieldEditsTests: XCTestCase {
         XCTAssertTrue(edits(sheet).textPatch.isEmpty)
     }
 
-    // MARK: - Every other field keeps its plain comparison with the server's row
+    // MARK: - The description and the sticky note (Task 4c, re-review §9)
 
-    func testNonTitleFieldsKeepTheirCurrentBehaviour() throws {
+    func testTheDescriptionAndStickyNoteSendOnlyWhatTheUserChanged() throws {
         let server = audioRow(title: objectName, description: "Server description")
         var sheet = open(server)
 
@@ -313,13 +337,385 @@ final class DetailFieldEditsTests: XCTestCase {
         note.local.supplementalNote = "For you"
         XCTAssertEqual(edits(note).textPatch, ItemPatch(supplementalNote: "For you"))
 
-        // Plan 16 scope: only the title reads the queue. A description the queue still holds while
-        // the field is back at the server's value is not re-sent (unchanged pre-plan-16 behaviour).
+        // Task 4c: the description reads the queue too. The field back at the server's value while
+        // the queue still holds another description is a revert that must supersede it — sent.
         var reverted = open(server)
         queue.record(itemId: server.id, patch: ItemPatch(description: "Queued description"), capturedAt: t0)
         reverted.local.description = "Server description"
-        XCTAssertNil(edits(reverted).textPatch.description)
+        XCTAssertEqual(edits(reverted).textPatch, ItemPatch(description: "Server description"))
     }
+
+    /// Re-review §9 scenario A, non-empty baseline: " x" is appended and sent, then deleted again —
+    /// a revert to the server's own value — and the revert's autosave runs before " x" lands. The
+    /// revert is sent (latest wins), the " x" response never refills the field, and the server ends
+    /// with the original.
+    func testADescriptionRevertedWhileItsEditIsInFlightSupersedesIt() throws {
+        let server = textRow(description: "Meeting notes")
+        var sheet = open(server)
+        sheet.local.description = "Meeting notes x"
+        let sendX = try XCTUnwrap(autosave(sheet, at: 1))
+        XCTAssertEqual(sendX.patch, ItemPatch(description: "Meeting notes x"))
+
+        sheet.local.description = "Meeting notes"
+        let revert = autosave(sheet, at: 2)
+        XCTAssertEqual(revert?.patch, ItemPatch(description: "Meeting notes"),
+                       "The revert must be sent: \" x\" is still on its way to the server")
+        XCTAssertEqual(queuedDescription(sheet), "Meeting notes", "The revert replaces \" x\" in the queue (latest wins)")
+
+        let xRow = applying(sendX.patch, to: server)
+        land(sendX, as: xRow, in: &sheet, at: 3)
+        XCTAssertEqual(sheet.local.description, "Meeting notes", "The \" x\" response must not refill the reverted field")
+        XCTAssertEqual(queuedDescription(sheet), "Meeting notes", "The revert is still queued after \" x\" is confirmed")
+
+        let revertSave = try XCTUnwrap(revert)
+        land(revertSave, as: applying(revertSave.patch, to: xRow), in: &sheet, at: 4)
+        XCTAssertEqual(sheet.local.description, "Meeting notes")
+        XCTAssertEqual(sheet.snapshot.description, "Meeting notes", "The server ends with the original")
+        XCTAssertNil(queue.edit(for: server.id))
+        XCTAssertTrue(edits(sheet).textPatch.isEmpty)
+    }
+
+    /// A′: the revert is typed and " x" lands before the revert's autosave has run. The landing
+    /// queues the revert before it confirms " x", so the field stays reverted and it still goes out.
+    func testADescriptionRevertedJustBeforeItsSentEditLandsIsQueuedBeforeTheConfirm() throws {
+        let server = textRow(description: "Meeting notes")
+        var sheet = open(server)
+        sheet.local.description = "Meeting notes x"
+        let sendX = try XCTUnwrap(autosave(sheet, at: 1))
+
+        sheet.local.description = "Meeting notes"   // its autosave is still in the debounce
+        XCTAssertEqual(edits(sheet).superseding(sendX.patch), ItemPatch(description: "Meeting notes"),
+                       "\" x\" landed after the user reverted it: the revert is the newest word")
+        let xRow = applying(sendX.patch, to: server)
+        land(sendX, as: xRow, in: &sheet, at: 2)
+        XCTAssertEqual(sheet.local.description, "Meeting notes", "The \" x\" response must not refill the reverted field")
+        XCTAssertEqual(queuedDescription(sheet), "Meeting notes", "The revert is queued (a close now would send it)")
+
+        let revert = try XCTUnwrap(autosave(sheet, at: 3))
+        XCTAssertEqual(revert.patch, ItemPatch(description: "Meeting notes"), "The debounced autosave then sends it")
+        land(revert, as: applying(revert.patch, to: xRow), in: &sheet, at: 4)
+        XCTAssertEqual(sheet.snapshot.description, "Meeting notes", "The server ends with the original")
+        XCTAssertNil(queue.edit(for: server.id))
+    }
+
+    /// B: " x" failed to send (offline) and stays queued; the user reverts and closes. The queue
+    /// delivers the revert, never " x"; the list and a reopened sheet show the original.
+    func testADescriptionRevertedAfterAFailedSendIsWhatTheQueueDelivers() async throws {
+        let server = textRow(description: "Meeting notes")
+        var sheet = open(server)
+        sheet.local.description = "Meeting notes x"
+        _ = try XCTUnwrap(autosave(sheet, at: 1))   // the PATCH fails: never confirmed
+
+        sheet.local.description = "Meeting notes"
+        XCTAssertEqual(autosave(sheet, at: 2)?.patch, ItemPatch(description: "Meeting notes"),
+                       "The revert must be sent over the queued \" x\"")   // fails too: queued
+        dismiss(sheet, at: 3)
+        XCTAssertEqual(queuedDescription(sheet), "Meeting notes", "A flush sends the revert")
+        XCTAssertEqual(queue.overlay(server).description, "Meeting notes", "The list shows the original")
+        XCTAssertEqual(open(server).local.description, "Meeting notes", "Reopening shows the revert, not \" x\"")
+
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.patches.map(\.1), [ItemPatch(description: "Meeting notes")], "Never \" x\"")
+        XCTAssertEqual(online.row(server.id)?.description, "Meeting notes")
+        XCTAssertNil(queue.edit(for: server.id))
+    }
+
+    /// C: the user reverts and closes at once while " x" is in flight — the close's journal (not an
+    /// autosave) supersedes " x", and the flush after it puts the original back on the server.
+    func testADescriptionRevertedThenAnInstantCloseWhileItsEditIsInFlight() async throws {
+        let server = textRow(description: "Meeting notes")
+        var sheet = open(server)
+        sheet.local.description = "Meeting notes x"
+        let sendX = try XCTUnwrap(autosave(sheet, at: 1))
+
+        sheet.local.description = "Meeting notes"
+        dismiss(sheet, at: 2)   // closed inside the revert's debounce
+        XCTAssertEqual(queuedDescription(sheet), "Meeting notes", "The close must queue the revert over the in-flight \" x\"")
+
+        // " x" lands after the close (the sheet is gone: only its confirm runs).
+        let online = FakeRowServer(rows: [applying(sendX.patch, to: server)])
+        queue.confirm(itemId: server.id, patch: sendX.patch, capturedAt: sendX.capturedAt)
+        XCTAssertEqual(queuedDescription(sheet), "Meeting notes", "Confirming \" x\" leaves the newer revert queued")
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.description, "Meeting notes", "The server ends with the original")
+        XCTAssertNil(queue.edit(for: server.id))
+    }
+
+    /// Empty baseline, A: a description typed and sent, then cleared while it's in flight.
+    func testADescriptionClearedWhileItsTextIsInFlightSupersedesIt() throws {
+        let server = textRow(description: "")
+        var sheet = open(server)
+        sheet.local.description = "Idea"
+        let sendIdea = try XCTUnwrap(autosave(sheet, at: 1))
+
+        sheet.local.description = ""
+        let clear = try XCTUnwrap(autosave(sheet, at: 2))
+        XCTAssertEqual(clear.patch, ItemPatch(description: ""), "The clear must be sent: \"Idea\" is still on its way")
+
+        let ideaRow = applying(sendIdea.patch, to: server)
+        land(sendIdea, as: ideaRow, in: &sheet, at: 3)
+        XCTAssertEqual(sheet.local.description, "", "The \"Idea\" response must not refill the cleared field")
+        land(clear, as: applying(clear.patch, to: ideaRow), in: &sheet, at: 4)
+        XCTAssertEqual(sheet.snapshot.description, "", "The server ends empty")
+        XCTAssertNil(queue.edit(for: server.id))
+    }
+
+    /// Empty baseline, C: cleared, then closed at once while the text is in flight.
+    func testADescriptionClearedThenAnInstantCloseWhileItsTextIsInFlight() async throws {
+        let server = textRow(description: "")
+        var sheet = open(server)
+        sheet.local.description = "Idea"
+        let sendIdea = try XCTUnwrap(autosave(sheet, at: 1))
+
+        sheet.local.description = ""
+        dismiss(sheet, at: 2)
+        XCTAssertEqual(queuedDescription(sheet), "", "The close must queue the clear over the in-flight \"Idea\"")
+        let online = FakeRowServer(rows: [applying(sendIdea.patch, to: server)])
+        queue.confirm(itemId: server.id, patch: sendIdea.patch, capturedAt: sendIdea.capturedAt)
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.description, "", "The server ends empty")
+    }
+
+    /// Enrichment (or a transcription) writing the description while the sheet is open: an untouched
+    /// field takes it; while a revert of the user's is still queued, the field keeps the revert (and
+    /// still sends it); once the revert has landed, the next one is taken again.
+    func testAServerDescriptionIsTakenUnlessARevertIsStillQueued() throws {
+        let server = textRow(description: "Meeting notes")
+        var untouched = open(server)
+        adopt(applying(ItemPatch(description: "Enrichment's description"), to: server), in: &untouched)
+        XCTAssertEqual(untouched.local.description, "Enrichment's description", "An untouched field takes it")
+
+        var sheet = open(server)
+        sheet.local.description = "Meeting notes x"
+        let sendX = try XCTUnwrap(autosave(sheet, at: 1))
+        sheet.local.description = "Meeting notes"
+        let revert = try XCTUnwrap(autosave(sheet, at: 2))
+        adopt(applying(ItemPatch(description: "Enrichment's description"), to: server), in: &sheet)
+        XCTAssertEqual(sheet.local.description, "Meeting notes", "The queued revert is kept")
+        XCTAssertEqual(edits(sheet).textPatch.description, "Meeting notes", "…and still sent")
+
+        let xRow = applying(sendX.patch, to: sheet.snapshot)
+        land(sendX, as: xRow, in: &sheet, at: 3)
+        land(revert, as: applying(revert.patch, to: xRow), in: &sheet, at: 4)
+        XCTAssertNil(queue.edit(for: server.id))
+        adopt(applying(ItemPatch(description: "A later enrichment"), to: sheet.snapshot), in: &sheet)
+        XCTAssertEqual(sheet.local.description, "A later enrichment", "Once the revert landed, the server's is taken again")
+    }
+
+    /// The sticky note, A: a public item whose server note is nil; a note is typed and sent, then
+    /// cleared while it is in flight. The clear is sent ("" — null on the wire), the note's response
+    /// never refills the field, and the server ends with no note.
+    func testAStickyNoteClearedWhileItsTextIsInFlightSupersedesIt() throws {
+        let server = textRow(isPublic: true)
+        var sheet = open(server)
+        sheet.local.supplementalNote = "For you"
+        let sendNote = try XCTUnwrap(autosave(sheet, at: 1))
+        XCTAssertEqual(sendNote.patch, ItemPatch(supplementalNote: "For you"))
+
+        sheet.local.supplementalNote = ""   // what the field's binding writes once the text is deleted
+        XCTAssertEqual(edits(sheet).textPatch.supplementalNote, "", "The clear must be sent: the note is still on its way")
+        let clear = try XCTUnwrap(autosave(sheet, at: 2))
+        XCTAssertNil(queue.overlay(server).supplementalNote, "The list shows no note")
+
+        let noteRow = applying(sendNote.patch, to: server)
+        land(sendNote, as: noteRow, in: &sheet, at: 3)
+        XCTAssertEqual(sheet.local.supplementalNote ?? "", "", "The note's response must not refill the cleared field")
+        land(clear, as: applying(clear.patch, to: noteRow), in: &sheet, at: 4)
+        XCTAssertNil(sheet.snapshot.supplementalNote, "The server ends with no note")
+        XCTAssertNil(queue.edit(for: server.id))
+        XCTAssertEqual(open(sheet.snapshot).local.supplementalNote ?? "", "", "Reopened: no note")
+    }
+
+    /// The sticky note, B: the note failed to send (offline); the user clears it and closes. The
+    /// queue delivers the clear, never the note; the list and a reopened sheet show no note.
+    func testAStickyNoteClearedAfterAFailedSendIsWhatTheQueueDelivers() async throws {
+        let server = textRow(isPublic: true)
+        var sheet = open(server)
+        sheet.local.supplementalNote = "For you"
+        _ = try XCTUnwrap(autosave(sheet, at: 1))   // fails: queued
+
+        sheet.local.supplementalNote = ""
+        XCTAssertEqual(edits(sheet).textPatch.supplementalNote, "", "The clear must be sent over the queued note")
+        _ = try XCTUnwrap(autosave(sheet, at: 2))   // fails too: queued
+        dismiss(sheet, at: 3)
+        XCTAssertEqual(queuedNote(sheet), "", "A flush sends the clear")
+        XCTAssertNil(queue.overlay(server).supplementalNote, "The list shows no note")
+        XCTAssertEqual(open(server).local.supplementalNote ?? "", "", "Reopening shows no note, not \"For you\"")
+
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.patches.map(\.1), [ItemPatch(supplementalNote: "")], "Only the clear goes out — never the note")
+        XCTAssertNil(online.row(server.id)?.supplementalNote)
+    }
+
+    /// The sticky note, C: cleared, then closed at once while the note is in flight.
+    func testAStickyNoteClearedThenAnInstantCloseWhileItsTextIsInFlight() async throws {
+        let server = textRow(isPublic: true)
+        var sheet = open(server)
+        sheet.local.supplementalNote = "For you"
+        let sendNote = try XCTUnwrap(autosave(sheet, at: 1))
+
+        sheet.local.supplementalNote = ""
+        dismiss(sheet, at: 2)
+        XCTAssertEqual(queuedNote(sheet), "", "The close must queue the clear over the in-flight note")
+        XCTAssertNil(queue.overlay(server).supplementalNote, "The list shows no note")
+
+        let online = FakeRowServer(rows: [applying(sendNote.patch, to: server)])
+        queue.confirm(itemId: server.id, patch: sendNote.patch, capturedAt: sendNote.capturedAt)
+        XCTAssertEqual(queuedNote(sheet), "", "Confirming the note leaves the newer clear queued")
+        await deliverQueue(to: online)
+        XCTAssertNil(online.row(server.id)?.supplementalNote, "The server ends with no note")
+        XCTAssertEqual(open(server).local.supplementalNote ?? "", "", "Reopened: no note")
+    }
+
+    /// Making a public item private clears its sticky note in the same PATCH (`togglePublic`). A
+    /// note still queued when that succeeds is gone for good: the confirm drops it (it was captured
+    /// before the un-share) and nothing sends it again.
+    func testASuccessfulUnshareDropsAQueuedNoteForGood() throws {
+        let server = textRow(isPublic: true)
+        var sheet = open(server)
+        sheet.local.supplementalNote = "For you"
+        _ = try XCTUnwrap(autosave(sheet, at: 1))   // fails: queued, undelivered
+
+        let unshare = ItemPatch(supplementalNote: "", isPublic: false)
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil   // optimistic, as `setPublic` does
+        queue.confirm(itemId: server.id, patch: unshare, capturedAt: t0.addingTimeInterval(2))
+        adopt(applying(unshare, to: server), in: &sheet)
+        XCTAssertNil(queuedNote(sheet), "The un-share confirmed the note's removal")
+        XCTAssertNil(edits(sheet).textPatch.supplementalNote, "Nothing sends the note again")
+        XCTAssertNil(sheet.local.supplementalNote)
+        XCTAssertNil(queue.overlay(sheet.snapshot).supplementalNote)
+    }
+
+    /// An un-share that FAILS must change nothing. Its optimistic clear of the field would otherwise
+    /// read as the user clearing a queued, undelivered note — now that the field reads the queue,
+    /// that is a clear the next autosave or the close would send. The note goes back in the field
+    /// (`DetailFieldEdits.undoingFailedUnshare`), and the sheet sends exactly what it would have.
+    func testAFailedUnshareRestoresAQueuedNote() throws {
+        let server = textRow(isPublic: true)
+        var sheet = open(server)
+        sheet.local.supplementalNote = "For you"
+        _ = try XCTUnwrap(autosave(sheet, at: 1))   // fails: queued, undelivered
+        let sendsBefore = edits(sheet).textPatch
+        let queuedBefore = queue.edit(for: server.id)
+
+        let noteBefore = sheet.local.supplementalNote
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil   // optimistic
+        XCTAssertEqual(edits(sheet).textPatch.supplementalNote, "",
+                       "Left like this, the empty field is a clear of the queued note")
+
+        sheet.local.isPublic = true   // the un-share failed: `setPublic` flips the switch back
+        sheet.local = DetailFieldEdits.undoingFailedUnshare(noteBefore: noteBefore, local: sheet.local,
+                                                            baseline: ItemDisplay.editableRow(sheet.snapshot),
+                                                            queue: queue, at: t0.addingTimeInterval(3))
+        XCTAssertEqual(sheet.local.supplementalNote, "For you", "The queued note is back in the field")
+        XCTAssertEqual(edits(sheet).textPatch, sendsBefore, "The sheet sends what it would have before — never a clear")
+        XCTAssertEqual(queue.edit(for: server.id), queuedBefore, "The queue is exactly as it was")
+    }
+
+    /// A save of the note that lands while the un-share is in flight queues the field's value — the
+    /// optimistic clear (the landing's supersede step). If the un-share then fails, the note goes
+    /// back in the queue as well as the field, so that clear is never sent.
+    func testAFailedUnshareRequeuesANoteWhoseSaveLandedDuringIt() throws {
+        let server = textRow(isPublic: true)
+        var sheet = open(server)
+        sheet.local.supplementalNote = "For you"
+        let sendNote = try XCTUnwrap(autosave(sheet, at: 1))   // in flight
+
+        let noteBefore = sheet.local.supplementalNote
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil   // the un-share goes out behind the note's save
+        land(sendNote, as: applying(sendNote.patch, to: server), in: &sheet, at: 2)
+        XCTAssertEqual(queuedNote(sheet), "", "The note's landing queued the optimistic clear")
+
+        sheet.local.isPublic = true   // the un-share failed
+        sheet.local = DetailFieldEdits.undoingFailedUnshare(noteBefore: noteBefore, local: sheet.local,
+                                                            baseline: ItemDisplay.editableRow(sheet.snapshot),
+                                                            queue: queue, at: t0.addingTimeInterval(3))
+        XCTAssertEqual(sheet.local.supplementalNote, "For you", "The note (now on the server) is back in the field")
+        XCTAssertEqual(queuedNote(sheet), "For you", "…and in the queue: nothing ever sends that clear")
+        XCTAssertEqual(queue.overlay(sheet.snapshot).supplementalNote, "For you", "The list shows the note")
+    }
+
+    /// The same for a note the server already holds (the pre-plan-16 case), and nothing put back
+    /// when the note before the un-share is neither the server's nor a queued one.
+    func testAFailedUnshareRestoresOnlyANoteTheServerOrTheQueueStillHolds() {
+        let server = textRow(note: "On the server", isPublic: true)
+        var sheet = open(server)
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil
+        XCTAssertEqual(edits(sheet).noteAfterFailedUnshare(noteBefore: "On the server"), "On the server")
+        XCTAssertNil(edits(sheet).noteAfterFailedUnshare(noteBefore: "Neither"),
+                     "A note that is neither the server's nor queued isn't put back")
+        XCTAssertNil(edits(sheet).noteAfterFailedUnshare(noteBefore: nil), "No note: nothing to put back")
+
+        sheet.local.supplementalNote = "Typed since"
+        XCTAssertNil(edits(sheet).noteAfterFailedUnshare(noteBefore: "On the server"),
+                     "A field that isn't empty any more is left as it is")
+    }
+
+    /// Supersede only what moved on: a save that sent the title and the description, where only the
+    /// description changed since, re-queues just the description.
+    func testSupersedingReturnsOnlyTheFieldsThatMovedOn() throws {
+        let server = textRow(description: "Meeting notes")
+        var sheet = open(server)
+        sheet.local.title = "Standup notes"
+        sheet.local.description = "Meeting notes x"
+        let save = try XCTUnwrap(autosave(sheet, at: 1))
+        XCTAssertEqual(save.patch, ItemPatch(title: "Standup notes", description: "Meeting notes x"))
+
+        sheet.local.description = "Meeting notes"
+        XCTAssertEqual(edits(sheet).superseding(save.patch), ItemPatch(description: "Meeting notes"))
+        sheet.local.supplementalNote = "For you"   // a field the save never sent isn't superseded
+        XCTAssertEqual(edits(sheet).superseding(save.patch), ItemPatch(description: "Meeting notes"))
+    }
+
+    // MARK: - The landing sequence is StashKit's (re-review m-3)
+
+    /// `ItemDetailView.save` hands every landed save to `DetailFieldEdits.landing`, so this fails if
+    /// its supersede step goes: "Gro" lands after the user cleared the field inside the next
+    /// debounce — the clear is queued before "Gro" is confirmed, and the adopted fields keep it.
+    func testALandingQueuesWhatTheFieldMovedOnToBeforeItConfirms() throws {
+        let server = audioRow(title: objectName)
+        var sheet = open(server)
+        sheet.local.title = "Gro"
+        let sendGro = try XCTUnwrap(autosave(sheet, at: 1))
+        sheet.local.title = ""   // its autosave is still in the debounce
+
+        let adopted = DetailFieldEdits.landing(sendGro.patch, capturedAt: sendGro.capturedAt,
+                                               as: applying(sendGro.patch, to: server), local: sheet.local,
+                                               baseline: ItemDisplay.editableRow(sheet.snapshot), queue: queue,
+                                               sheetIsOpen: true, at: t0.addingTimeInterval(2))
+        XCTAssertEqual(adopted.title, "", "The adopted fields keep the clear")
+        XCTAssertEqual(queuedTitle(sheet), "", "The clear was queued before \"Gro\" was confirmed")
+    }
+
+    /// Once the sheet has closed, its journal has already queued what the fields held, and a landing
+    /// must not queue them again: they may be older than an edit made since in a newly opened sheet.
+    func testALandingInAClosedSheetNeverQueuesItsFields() throws {
+        let server = audioRow(title: objectName)
+        let sheet = open(server)
+        var typed = sheet
+        typed.local.title = "Gro"
+        let sendGro = try XCTUnwrap(autosave(typed, at: 1))
+        typed.local.title = ""
+        dismiss(typed, at: 2)   // the journal queues the clear
+
+        var reopened = open(server)
+        reopened.local.title = "Groceries"
+        _ = try XCTUnwrap(autosave(reopened, at: 3))   // a newer edit, in a new sheet
+
+        _ = DetailFieldEdits.landing(sendGro.patch, capturedAt: sendGro.capturedAt,
+                                     as: applying(sendGro.patch, to: server), local: typed.local,
+                                     baseline: ItemDisplay.editableRow(typed.snapshot), queue: queue,
+                                     sheetIsOpen: false, at: t0.addingTimeInterval(4))
+        XCTAssertEqual(queuedTitle(reopened), "Groceries", "The closed sheet's old fields never replace the newer edit")
+    }
+
+    // MARK: - Every other field keeps its plain comparison with the server's row
 
     /// The rest of `adopt`'s merge, unchanged: a location the user just set and an optimistic
     /// Sharing flip are kept over a row that predates them; the server's other columns are taken.

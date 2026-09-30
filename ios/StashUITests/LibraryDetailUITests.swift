@@ -14,6 +14,10 @@ import XCTest
 /// clear — stays cleared: the field never refills, and the server gets the clear, never the typed
 /// text.
 ///
+/// Task 4c (re-review P-1, §9): the same on the slow link for a title retyped after its clear was
+/// sent (the server ends with the retyped title), a description reverted to its server value while
+/// the edit is in flight, and a plain note cleared and closed while its text is in flight.
+///
 /// Self-contained like `DetailUITests` (its own sign-in and REST helpers). Seeded rows carry a
 /// `UITEST-P16-` marker and are deleted in teardown blocks, so a failed assertion can't leak them
 /// (a failed delete is reported, never swallowed); `UITEST-FIXTURE` rows are never touched.
@@ -219,6 +223,146 @@ final class LibraryDetailUITests: XCTestCase {
         let closingCardNow = libraryCard(app, containing: closingMarker)
         XCTAssertTrue(closingCardNow.waitForExistence(timeout: 10))
         XCTAssertTrue(closingCardNow.label.contains("Voice note"), "Expected the card's type label, got '\(closingCardNow.label)'")
+    }
+
+    // MARK: - The edit queue never drops the user's last value (plan 16, Task 4c)
+
+    /// Review P-1 (E-2), on a slow link: "Gro" is typed and sent, cleared and the clear sent, then
+    /// "Gro" is typed again and the sheet closed at once — inside its debounce, so only the close's
+    /// journal holds it, with both earlier saves still in flight. The first "Gro" landing must not
+    /// drop it (equal, but older), so once the clear has landed the close's flush still delivers the
+    /// user's last word.
+    ///
+    /// The close journals from `onDisappear`, after the dismiss animation — later than 400 ms after
+    /// XCUITest's last keystroke, so with the shipping debounce the retyped title's own autosave
+    /// always went first (and delivered it). The DEBUG timing switches open the window: a 1.5 s
+    /// field debounce to close inside, and a 6 s link so the first "Gro" is still in flight then.
+    @MainActor
+    func testATitleRetypedAfterASentClearIsWhatTheServerEndsWith() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-retyped"
+        let id = try await rest.insertItem(["type": "audio", "title": "\(UUID().uuidString.lowercased()).m4a",
+                                            "content": "", "description": "\(marker) seeded audio"],
+                                           attributes: ["media": ["duration_s": 5]])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password,
+               extraArguments: ["--uitest-slow-item-writes", "--uitest-slow-item-write-seconds", "6",
+                                "--uitest-field-debounce-seconds", "1.5"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded voice note's card")
+        tapWhenHittable(card)
+        let titleField = app.textFields["detail.title"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
+        tapUntilFocused(titleField)
+        titleField.typeText("Gro")
+        sleep(2)   // past the 1.5 s autosave: "Gro" is on its 6 s way
+        titleField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
+        XCTAssertEqual(titleField.value as? String, "Voice note", "Expected the field empty again (placeholder showing)")
+        sleep(2)   // the clear's autosave has gone out too, queued behind "Gro"
+        titleField.typeText("Gro")
+        closeSheet(app)   // inside the retyped title's 1.5 s debounce; the first "Gro" still in flight
+
+        // "Gro" lands ~6 s after it was sent and the clear ~6 s after that; writes to one item never
+        // overtake each other, so the close's flush goes out only then, and lands ~6 s later.
+        let clearLanded = try await rest.waitFor("title", of: id, equalTo: "", timeout: 30)
+        XCTAssertTrue(clearLanded, "Expected the clear (sent before the close) to land first")
+        let delivered = try await rest.waitFor("title", of: id, equalTo: "Gro", timeout: 30)
+        let serverTitle = try await rest.title(of: id)
+        XCTAssertTrue(delivered, "Expected the retyped \"Gro\" to be what the server ends with, got '\(serverTitle ?? "nil")'")
+        let cardNow = libraryCard(app, containing: marker)
+        XCTAssertTrue(cardNow.waitForExistence(timeout: 10))
+        XCTAssertTrue(cardNow.label.hasPrefix("Gro"), "Expected the card titled \"Gro\", got '\(cardNow.label)'")
+    }
+
+    /// Review §9, scenario A for the description, on the slow link: " x" is typed into the seeded
+    /// description and its autosave sent; the user deletes it again while it is in flight — a revert
+    /// to the server's own value, which the old rule saw as "nothing to save". The edit's response
+    /// must not refill the field, and the server must end with the original description.
+    @MainActor
+    func testADescriptionRevertedWhileItsEditIsStillSendingSticks() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-description"
+        let original = "Meeting notes"
+        // A text item: its sheet opens on Notes (no `page_body` read racing the edit).
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": "", "description": original])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password, extraArguments: ["--uitest-slow-item-writes"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let description = descriptionField(app)
+        XCTAssertTrue(description.waitForExistence(timeout: 10), "Description field not found")
+        tapUntilFocused(description)
+        // Where the caret lands in this multi-line field isn't reliable (seen: the start of the
+        // text), so the edit is " x" wherever it went — typed as one piece, and deleted again with
+        // two backspaces from right after it.
+        description.typeText(" x")
+        let edited = (description.value as? String) ?? ""
+        XCTAssertEqual(edited.replacingOccurrences(of: " x", with: ""), original,
+                       "Expected \" x\" typed into the description as one piece, got '\(edited)'")
+        sleep(1)   // past the 400 ms autosave: the edit is in flight
+        description.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2))
+        XCTAssertEqual(description.value as? String, original, "Expected the description back to its original")
+
+        // The edit's response lands ~2.5 s from here and the revert's ~3 s after it: watch both.
+        var sawEditOnServer = false
+        let watchUntil = Date().addingTimeInterval(8)
+        while Date() < watchUntil {
+            let shown = (description.value as? String) ?? ""
+            XCTAssertEqual(shown, original, "The reverted description refilled with '\(shown)' while the edit was in flight")
+            if !sawEditOnServer, (try? await rest.column("description", of: id)) == edited {
+                sawEditOnServer = true
+            }
+            usleep(250_000)
+        }
+        XCTAssertTrue(sawEditOnServer, "Expected the edit to land while the field was watched (so its response was seen)")
+        let reverted = try await rest.waitFor("description", of: id, equalTo: original, timeout: 20)
+        let serverDescription = try await rest.column("description", of: id)
+        XCTAssertTrue(reverted, "Expected the server to end with the original description, got '\(serverDescription ?? "nil")'")
+        closeSheet(app)
+    }
+
+    /// A plain note (not TipTap), on the slow link: text is typed and its autosave sent, then the
+    /// note is cleared and the sheet closed at once, with the text still in flight. Whatever sends
+    /// the clear — the editor's blur flush, its debounce or the close's journal — must see that the
+    /// cleared draft differs from the text still queued (the draft reads the edit queue, not only
+    /// what has landed), so once the text lands the clear follows it: the server ends empty. The old
+    /// check (`draft != savedDraft`: "" == "") sent nothing on every one of those paths.
+    @MainActor
+    func testAPlainNoteClearedAndClosedWhileItsTextIsStillSendingSticks() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-plainnote"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password, extraArguments: ["--uitest-slow-item-writes"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let notes = app.textViews["detail.notes.editor"]
+        XCTAssertTrue(notes.waitForExistence(timeout: 10), "Notes editor not found")
+        tapUntilFocused(notes)
+        notes.typeText("plain note text")
+        let typed = (notes.value as? String) ?? ""
+        XCTAssertTrue(typed.lowercased().contains("plain note text"), "Expected the typed note, got '\(typed)'")
+        sleep(2)   // past the 600 ms notes autosave: the text is in flight
+        notes.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: typed.count + 2))
+        XCTAssertEqual(notes.value as? String, "", "Expected the note cleared")
+        closeSheet(app)   // at once, the text still in flight
+
+        let textLanded = try await rest.waitFor("content", of: id, equalTo: typed, timeout: 25)
+        XCTAssertTrue(textLanded, "Expected the typed note (sent before the clear) to land first")
+        let cleared = try await rest.waitFor("content", of: id, equalTo: "", timeout: 25)
+        let serverContent = try await rest.column("content", of: id)
+        XCTAssertTrue(cleared, "Expected the clear to be what the server ends with, got '\(serverContent ?? "nil")'")
     }
 
     // MARK: - Search pill
@@ -454,6 +598,17 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertEqual(field.value as? String, "Voice note", "Expected the field empty again (placeholder showing)")
     }
 
+    /// The detail sheet's description: a vertical-axis `TextField`, which XCUITest may report as a
+    /// text view rather than a text field.
+    @MainActor
+    private func descriptionField(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND (elementType == %d OR elementType == %d)",
+                                  "detail.description", Int(XCUIElement.ElementType.textView.rawValue),
+                                  Int(XCUIElement.ElementType.textField.rawValue)))
+            .firstMatch
+    }
+
     /// Taps `field` until it has keyboard focus (a tap can land while a sheet is still settling).
     @MainActor
     private func tapUntilFocused(_ field: XCUIElement, attempts: Int = 5) {
@@ -555,14 +710,19 @@ private struct P16Rest: Sendable {
     }
 
     func title(of id: String) async throws -> String? {
+        try await column("title", of: id)
+    }
+
+    /// One text column of a seeded row (`title`, `description`, `content`, …); nil when it is null.
+    func column(_ name: String, of id: String) async throws -> String? {
         let (data, response) = try await Self.send(request("/rest/v1/items", query: [
             URLQueryItem(name: "id", value: "eq.\(id)"),
-            URLQueryItem(name: "select", value: "title"),
+            URLQueryItem(name: "select", value: name),
         ]))
         guard Self.succeeded(response),
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], let row = rows.first
-        else { throw Failure(description: "title read failed for \(id)") }
-        return row["title"] as? String
+        else { throw Failure(description: "\(name) read failed for \(id)") }
+        return row[name] as? String
     }
 
     /// A title write from outside the app — what the server's transcription job does when it
@@ -587,9 +747,14 @@ private struct P16Rest: Sendable {
     }
 
     func waitForTitle(of id: String, equalTo expected: String, timeout: TimeInterval) async throws -> Bool {
+        try await waitFor("title", of: id, equalTo: expected, timeout: timeout)
+    }
+
+    /// Polls a seeded row's text column (about once a second) until it equals `expected`.
+    func waitFor(_ name: String, of id: String, equalTo expected: String, timeout: TimeInterval) async throws -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if let title = try? await title(of: id), title == expected { return true }
+            if let value = try? await column(name, of: id), value == expected { return true }
             try await Task.sleep(for: .seconds(1))
         } while Date() < deadline
         return false

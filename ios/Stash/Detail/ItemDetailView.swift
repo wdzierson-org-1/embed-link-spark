@@ -46,7 +46,7 @@ enum DetailEditorFactory {
             return StalledItemPatcher()
         }
         if arguments.contains("--uitest-slow-item-writes") {
-            return SlowItemPatcher()
+            return SlowItemPatcher(delay: .seconds(UITestTiming.seconds(after: "--uitest-slow-item-write-seconds") ?? 3))
         }
         #endif
         return SupabaseItemPatcher()
@@ -54,6 +54,15 @@ enum DetailEditorFactory {
 }
 
 #if DEBUG
+/// Numeric UI-test launch arguments (`--flag <seconds>`), compiled out of Release.
+private enum UITestTiming {
+    static func seconds(after flag: String) -> Double? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }
+        return Double(arguments[index + 1])
+    }
+}
+
 /// `--uitest-stall-item-writes` (UI tests only, compiled out of Release): every item write hangs
 /// for 10 s and then times out — a stalled link, the worst case for "close waits on the network" —
 /// so `DetailUITests` can prove the sheet closes at once, the edit survives, and a later launch
@@ -83,14 +92,16 @@ private struct StalledItemPatcher: ItemPatching {
 }
 
 /// `--uitest-slow-item-writes` (UI tests only, compiled out of Release): every item write waits
-/// 3 s and then really goes out — a slow link that still succeeds, so `LibraryDetailUITests` can
-/// edit a field while an earlier save of it is in flight and watch that save's response land
-/// (plan 16 review I-1). Reads, deletes and tags are untouched.
+/// 3 s (`--uitest-slow-item-write-seconds <s>` to change it) and then really goes out — a slow link
+/// that still succeeds, so `LibraryDetailUITests` can edit a field while an earlier save of it is
+/// in flight and watch that save's response land (plan 16 review I-1). Reads, deletes and tags are
+/// untouched.
 private struct SlowItemPatcher: ItemPatching {
     private let real = SupabaseItemPatcher()
+    let delay: Duration
 
     func patch(itemId: UUID, patch: ItemPatch) async throws -> Item {
-        try? await Task.sleep(for: .seconds(3))
+        try? await Task.sleep(for: delay)
         return try await real.patch(itemId: itemId, patch: patch)
     }
 
@@ -119,7 +130,7 @@ private struct SlowItemPatcher: ItemPatching {
 @MainActor
 final class DetailSheetServices: ObservableObject {
     let editor: ItemEditor
-    let fieldDebouncer = Debouncer(interval: .milliseconds(400))
+    let fieldDebouncer = Debouncer(interval: DetailSheetServices.fieldDebounceInterval)
     /// Plan 14 Task 2 ("Transcribe with speakers"), final wave B: starts and watches the server's
     /// transcription job — the job writes the item (and its embeddings) itself.
     let transcriptionService = TranscriptionService()
@@ -152,6 +163,19 @@ final class DetailSheetServices: ObservableObject {
         editor = DetailEditorFactory.make()
         pendingEdits = PendingEdits.shared(for: userId)
         notesModel = NotesEditorModel(item: item)
+    }
+
+    /// 400 ms after the last title/description/sticky keystroke. `--uitest-field-debounce-seconds
+    /// <s>` (UI tests only, compiled out of Release) lengthens it, so a UI test can close the sheet
+    /// INSIDE it: the close journals from `onDisappear`, which runs after the dismiss animation —
+    /// later than 400 ms after XCUITest's last keystroke, so the autosave always went first.
+    nonisolated private static var fieldDebounceInterval: Duration {
+        #if DEBUG
+        if let seconds = UITestTiming.seconds(after: "--uitest-field-debounce-seconds") {
+            return .milliseconds(Int(seconds * 1000))
+        }
+        #endif
+        return .milliseconds(400)
     }
 
     func nextGeneration() -> Int {
@@ -238,12 +262,22 @@ struct ItemDetailView: View {
     private var baseline: Item { ItemDisplay.editableRow(snapshot) }
 
     /// The fields measured against `baseline` AND this item's durable queue — the one rule the
-    /// autosave, the dismiss journal and `adopt` share (`DetailFieldEdits`). Plan 16 review I-1:
-    /// against `baseline` alone, clearing a title after it was sent (in flight, or failed and
-    /// queued) looked like no edit — the sent title then came back into the field and onto the
+    /// autosave, the dismiss journal and `adopt` share (`DetailFieldEdits`). Plan 16 review I-1 and
+    /// Task 4c: against `baseline` alone, putting the title, the description or the sticky note back
+    /// after another value of it was sent (in flight, or failed and queued) — a clear, or deleting
+    /// " x" again — looked like no edit, and the sent value came back into the field and onto the
     /// server. The queue holds every save from the moment it starts until the server confirms it.
     private var fieldEdits: DetailFieldEdits {
         DetailFieldEdits(local: item, baseline: baseline, queued: services.pendingEdits.edit(for: item.id))
+    }
+
+    /// A plain note's draft measured against what the server confirmed AND the queue (Task 4c,
+    /// `PlainNoteDraft`): cleared after its text was sent, it still has to be sent. Rich notes are
+    /// append-only and keep their own `draft != savedDraft` check.
+    private var plainNote: PlainNoteDraft {
+        let notes = services.notesModel
+        return PlainNoteDraft(draft: notes.draft, saved: notes.savedDraft,
+                              queued: services.pendingEdits.edit(for: item.id)?.content?.value)
     }
 
     /// "Transcribing…" while this app watches a job for the item (`TranscriptionActivity`, app-wide)
@@ -541,7 +575,7 @@ struct ItemDetailView: View {
     }
 
     /// Sticky-note text (`SharingSection`) rides the same debounced field-autosave path as
-    /// title/description — `saveChangedFields` diffs `supplementalNote` against `baseline`.
+    /// title/description — `saveChangedFields` measures it against `baseline` and the queue.
     private var supplementalNoteBinding: Binding<String> {
         Binding(get: { item.supplementalNote ?? "" }, set: { newValue in
             item.supplementalNote = newValue
@@ -579,10 +613,12 @@ struct ItemDetailView: View {
     /// `send` replaces the plain PATCH of `patch` — a location edit is written onto the server's
     /// current attributes instead (`saveAttributes`); `patch` is still what gets queued.
     ///
-    /// Plan 16 (review I-1): when the save lands after the user changed a title it sent — e.g.
+    /// Plan 16 (review I-1, Task 4c m-3): the landing is StashKit's `DetailFieldEdits.landing`, in
+    /// its one safe order. When the save lands after the user changed a field it sent — e.g.
     /// cleared "Gro" inside the next debounce, so no newer save has queued the clear yet — the
-    /// field's value is queued first (`DetailFieldEdits.superseding`). The confirm then keeps it,
-    /// `adopt` keeps the field as it is, and the next autosave (or the close) sends it.
+    /// field's value is queued before `adopt` reads the queue (not once the sheet has closed: its
+    /// journal already did). The confirm then keeps it, `adopt` keeps the field as it is, and the
+    /// next autosave (or the close) sends it.
     @MainActor
     private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> Item? {
         let capturedAt = Date()
@@ -596,14 +632,11 @@ struct ItemDetailView: View {
             let itemId = item.id
             let editor = services.editor
             let result = try await (send ?? { try await editor.save(itemId: itemId, patch: patch) })()
-            // Once closed, the dismiss journal has already queued whatever the fields held.
-            if !services.isClosed {
-                let superseding = fieldEdits.superseding(patch)
-                if !superseding.isEmpty { pendingEdits.record(itemId: result.id, patch: superseding, capturedAt: Date()) }
-            }
+            let landed = DetailFieldEdits.landing(patch, capturedAt: capturedAt, as: result, local: item,
+                                                  baseline: baseline, queue: pendingEdits,
+                                                  sheetIsOpen: !services.isClosed, at: Date())
             store.applyDetail(result)
-            pendingEdits.confirm(itemId: result.id, patch: patch, capturedAt: capturedAt)
-            if services.isLatest(generation) { adopt(result) }
+            if services.isLatest(generation) { adopt(result, fields: landed) }
             saved = result
         } catch {
             saved = nil
@@ -657,8 +690,11 @@ struct ItemDetailView: View {
     /// a failed share while the sheet is open is reverted, not retried later. If the sheet closes
     /// while this is still in flight, the dismiss journal queues the toggle the user last saw.
     /// Un-sharing an item with a sticky note clears the note in the same PATCH (the section asks
-    /// first). The footer caption is left to the autosaves (`save(_:)`) — this toggle reports in
-    /// its own section, and never sets or strands "Saving…" (plan 15 review).
+    /// first); if that fails, the note comes back — whether the server holds it or the queue still
+    /// has to deliver it (Task 4c, `DetailFieldEdits.undoingFailedUnshare`: the field reads the
+    /// queue, so an empty field under a queued note would otherwise be sent as a clear). The footer
+    /// caption is left to the autosaves (`save(_:)`) — this toggle reports in its own section, and
+    /// never sets or strands "Saving…" (plan 15 review).
     @MainActor
     private func setPublic(_ isPublic: Bool) async -> Bool {
         let before = (isPublic: item.isPublic, note: item.supplementalNote)
@@ -676,8 +712,9 @@ struct ItemDetailView: View {
             return true
         } catch {
             if item.isPublic == isPublic { item.isPublic = before.isPublic }
-            if clearsNote, item.supplementalNote == nil, snapshot.supplementalNote == before.note {
-                item.supplementalNote = before.note
+            if clearsNote {
+                item = DetailFieldEdits.undoingFailedUnshare(noteBefore: before.note, local: item, baseline: baseline,
+                                                             queue: services.pendingEdits, at: Date())
             }
             return false
         }
@@ -705,11 +742,15 @@ struct ItemDetailView: View {
     /// Plan 15: the draft bookkeeping runs on every successful save (the text WAS saved), not only
     /// the newest one, and a rich draft the user kept typing into during the save keeps whatever
     /// was typed after the saved part instead of being wiped.
+    ///
+    /// Task 4c: a plain draft is measured against the queue too (`plainNote`) — cleared while its
+    /// text was still in flight (or queued after a failed send), it is back at `savedDraft` yet
+    /// still has to be sent.
     @MainActor
     private func flushNotes() async {
         guard !services.isClosed else { return }
         let notes = services.notesModel
-        guard notes.draft != notes.savedDraft else { return }
+        guard notes.isRich ? notes.draft != notes.savedDraft : plainNote.needsSave else { return }
         let typed = notes.draft
         let newContent: String
         if notes.isRich {
@@ -832,29 +873,29 @@ struct ItemDetailView: View {
     // MARK: - Close (plan 15, H5)
 
     /// Everything on screen the server hasn't confirmed, as one patch: fields that differ from the
-    /// server's last row (in flight, failed, or still in a debounce) — and a title that differs
-    /// from a value still queued for it (plan 16, I-1: a clear closed straight after "Gro" was
-    /// sent) — an optimistic Sharing flip, a location edit, and the notes draft (a plain note
-    /// whole; a rich draft appended as a new paragraph — never flattened). Only what the user
-    /// actually changed: a field another device updated meanwhile matches `baseline` and is left
-    /// alone.
+    /// server's last row (in flight, failed, or still in a debounce) — and a title, description or
+    /// sticky note that differs from a value still queued for it (plan 16, I-1 and Task 4c: a clear
+    /// or a revert closed straight after the other value was sent) — an optimistic Sharing flip, a
+    /// location edit, and the notes draft (a plain note whole, measured against the queue too; a
+    /// rich draft appended as a new paragraph — never flattened). Only what the user actually
+    /// changed: a field another device updated meanwhile matches `baseline` and is left alone.
     private func unconfirmedPatch() -> (patch: ItemPatch, richDraft: (typed: String, content: String)?) {
         var patch = fieldEdits.textPatch
         if item.isPublic != baseline.isPublic { patch.isPublic = item.isPublic }
         if item.attributes.location != baseline.attributes.location { patch.attributes = item.attributes }
         var richDraft: (typed: String, content: String)?
         let notes = services.notesModel
-        if notes.draft != notes.savedDraft {
-            if notes.isRich {
+        if notes.isRich {
+            if notes.draft != notes.savedDraft {
                 let note = notes.draft.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !note.isEmpty, tipTapLastParagraphText(item.content) != note {
                     let content = appendNoteParagraph(to: item.content, note: note)
                     patch.content = content
                     richDraft = (notes.draft, content)
                 }
-            } else {
-                patch.content = notes.draft
             }
+        } else if plainNote.needsSave {
+            patch.content = notes.draft
         }
         return (patch, richDraft)
     }
@@ -890,6 +931,8 @@ struct ItemDetailView: View {
     /// `DetailFieldEdits.adopting` (over `mergePreservingDetail`): every field the user has changed
     /// locally (differs from `baseline`, the last server row as the fields show it) keeps the local
     /// value; everything else takes the server's. `snapshot` always advances to `incoming`.
+    /// `fields` is that merge when the caller already made it — a landed save's, which
+    /// `DetailFieldEdits.landing` returns.
     ///
     /// Plan 15: the location check compares `location` only — Task 5 made nested attributes
     /// loss-less, so a whole-blob compare also tripped whenever the server rewrote e.g.
@@ -899,11 +942,12 @@ struct ItemDetailView: View {
     ///
     /// Plan 16: the title is compared and merged as the field shows it (`ItemDisplay.editableRow`)
     /// — an untouched empty placeholder field takes a server title that arrives meanwhile (the
-    /// transcription job's AI title, via realtime), and a new object name still reads as empty —
-    /// and it is kept while a write of it is still queued (review I-1): a "Gro" response can't
-    /// refill a field the user cleared after sending "Gro".
-    private func adopt(_ incoming: Item) {
-        let next = fieldEdits.adopting(incoming)
+    /// transcription job's AI title, via realtime), and a new object name still reads as empty.
+    /// The title, the description and the sticky note are each kept while a write of them is
+    /// still queued (review I-1, Task 4c): a "Gro" response can't refill a field the user cleared
+    /// after sending "Gro", nor a " x" response a description the user put back.
+    private func adopt(_ incoming: Item, fields: Item? = nil) {
+        let next = fields ?? fieldEdits.adopting(incoming)
         snapshot = incoming
         item = next
         reconcileNotesDraft(with: incoming)

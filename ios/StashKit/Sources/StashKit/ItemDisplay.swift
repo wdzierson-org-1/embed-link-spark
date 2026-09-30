@@ -68,12 +68,13 @@ public enum ItemDisplay {
     // Will's device screenshot: a voice note's detail sheet was titled with its raw object name
     // (`f200ad94-32d7-4b39-bcfc-313b…`) — the card's fallback didn't reach the sheet. The sheet's
     // title field now starts EMPTY for such a title, with the card's type label as its placeholder.
-    // The sheet seeds its fields from `editableRow(server)` and diffs every save against
-    // `editableRow(snapshot)` (`DetailFieldEdits`), so the untouched empty field is not an edit:
-    // opening and closing the sheet never writes a title (the object name stays, for the server's
-    // jobs to replace with an AI title), typing one saves it, clearing a title that was sent writes
-    // "" (still read as the type label, M-6), and an AI title arriving while the sheet is open
-    // replaces the placeholder.
+    // The sheet seeds its fields from `editableRow(sheetStart.shown)` — the server's row with any
+    // queued, undelivered edits laid over it (`PendingEdits.sheetStart`) — and diffs every save
+    // against `editableRow(snapshot)`, the server's own row, and the queue (`DetailFieldEdits`), so
+    // the untouched empty field is not an edit: opening and closing the sheet never writes a title
+    // (the object name stays, for the server's jobs to replace with an AI title), typing one saves
+    // it, clearing a title that was sent writes "" (still read as the type label, M-6), and an AI
+    // title arriving while the sheet is open replaces the placeholder.
 
     /// The detail title field's placeholder: what the card shows once the field is left empty — the
     /// type label on an audio, image, video or file item (M-6; the subtype as the row is WITHOUT
