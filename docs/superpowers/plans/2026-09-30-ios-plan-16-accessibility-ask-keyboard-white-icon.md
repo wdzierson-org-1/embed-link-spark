@@ -4,7 +4,7 @@
 
 **Goal:** Fix the Ask tab's stuck keyboard / missing composer after picking a previous conversation, give Ask the same "Cancel" affordance as the Add tab, bring every control and text style up to Apple's Human Interface Guidelines and accessibility expectations (Dynamic Type, 44 pt targets, contrast), make the icon's S white on every surface, fix two visual bugs seen in Will's device screenshots, then ship TestFlight build 10.
 
-**Architecture:** Round 1 runs three file-disjoint tasks in parallel (Ask keyboard; icon pipeline; detail title + View-tab search bar). Round 2 is one cross-cutting accessibility sweep that owns every UI file (it must run alone). Then a whole-branch review, a fix wave, and the wrap (docs, suites, build 10 upload, TestFlight, App Store record).
+**Architecture:** Round 1 runs three file-disjoint tasks in parallel (Ask keyboard; icon pipeline; detail title + View-tab search bar). Round 2 is the accessibility sweep: a foundation task that runs alone (type roles, tokens, shared controls, DESIGN.md), then two parallel surface passes on disjoint files (Detail + View; everything else). Then a whole-branch review, a fix wave, and the wrap (docs, suites, build 10 upload, TestFlight, App Store record).
 
 **Tech Stack:** SwiftUI (iOS 17 floor, Will's phone on iOS 26), StashKit, XCUITest, `xcrun simctl ui … content_size` for Dynamic Type screenshots, `brand/build.mjs` (headless Chrome) for icons, `ios/scripts/release.sh` + `ios/scripts/asc-api.sh`.
 
@@ -51,16 +51,36 @@
 - [ ] Tests: detail placeholder title (unit + UI), search bar never overlaps the first card while visible (UI, frames), existing library/detail smokes green.
 - [ ] Commit `fix(ios): placeholder titles show the type label in the detail sheet; search bar scrolls away cleanly`.
 
-### Task 2: HIG + accessibility sweep (runs alone, after round 1)
+### Task 2: HIG + accessibility sweep (round 2, after round 1 is closed)
 
-**Files:** every UI file in `ios/Stash/**` and `ios/StashShareExtension/**`, `ios/Stash/Design/*`, `DESIGN.md`, UI tests that assert sizes.
+Split by the coordinator (2026-09-30) into a foundation task and two parallel, file-disjoint surface passes. The UI layer is ~12.5k lines; one serial sweep would have had to hold all of it at once. The contracts in Global Constraints bind all three.
 
-- [ ] Typography contract (table above) in `StashType`, applied through every call site; detail sheet reading text at 17.
-- [ ] Controls contract: 44 pt targets everywhere (audit list in the report), `StashCancelButton` adopted by the Add tab and View-tab search, fixed heights → `minHeight`, overflow scrolls.
-- [ ] Contrast contract + Bold Text + VoiceOver labels.
-- [ ] Screenshot matrix → `.superpowers/sdd/plan-16/a11y-<screen>-<size>.png` for Add, View, detail (link + audio), Ask (with an answer), Settings, share sheet, onboarding at Large (default), xxxLarge, and accessibility3; READ them all; fix clipping/overlap.
-- [ ] All suites green (update size-asserting tests to the new contract).
-- [ ] Commit(s) `feat(ios): HIG + accessibility pass — Dynamic Type everywhere, 44 pt targets, WCAG AA text contrast, Bold Text`.
+#### Task 2a: Foundation (runs alone)
+
+**Files:** `ios/Stash/Design/*` (`StashType`, `StashDesign`/`StashColor`, `PillTabs`, `CachedImage` untouched unless needed), `ios/Stash/StashApp.swift` (DEBUG launch hooks only), `DESIGN.md`, a NEW `ios/StashUITests/A11yScreenshotSupport.swift` (shared helpers for the screenshot matrix).
+
+- [ ] `StashType` role API that scales with Dynamic Type: every role is `Font.custom(_:size:relativeTo:)` at the contract's default size, and the fallback scales too (e.g. the matching text style). Arbitrary-size helpers take `relativeTo:`, defaulting to the nearest text style for the size. `mono` scales. A clearly named non-scaling helper exists for DECORATIVE art only (miniature illustrations/plates that are `accessibilityHidden`). The old fixed-size helpers are marked `@available(*, deprecated, message:)` so the build's warnings become the surface passes' migration checklist; Task 5 deletes them.
+- [ ] Bold Text: verify empirically whether SwiftUI emboldens the bundled custom faces under `legibilityWeight == .bold`. If it doesn't, ship the least-invasive mechanism that updates live (no root `.id` rebuild that would drop drafts or navigation). A DEBUG launch argument forces `legibilityWeight = .bold` for screenshots.
+- [ ] `StashColor`: a WCAG-AA informational meta-text token, or a documented decision to use `muted`. Include a computed contrast table on the real backgrounds (white, page wash, chip bg, the type tints). `faint` is documented as decorative/disabled only.
+- [ ] Shared controls reach ≥ 44×44 pt hit areas without moving their visuals (e.g. `CircleIcon`/`CircleSubmitIcon`, `PillTabs`). Prove it with a UI test that taps just outside the visual edge.
+- [ ] DESIGN.md: the iOS typography table (role → pt → text style → where used), controls rules, contrast rules (with the table), Bold Text. The web keeps its own scale and can adopt the contrast fix.
+- [ ] Commit `feat(ios): accessibility foundation — Dynamic Type type roles, AA meta token, 44 pt shared controls, Bold Text`.
+
+#### Task 2b: Detail + View surfaces (parallel with 2c)
+
+**Files:** `ios/Stash/Detail/*`, `ios/Stash/Library/*`, `ios/StashUITests/{StashUITests,DetailUITests,LibraryDetailUITests}.swift`, a NEW `ios/StashUITests/A11yDetailLibraryUITests.swift`.
+
+#### Task 2c: Ask, Add, Settings, onboarding, sign-in, tab bar, share sheet (parallel with 2b)
+
+**Files:** `ios/Stash/{Ask,Capture,Settings,Onboarding,Auth}/*`, `ios/Stash/MainTabView.swift`, `ios/StashShareExtension/*`, `ios/StashUITests/{AskUITests,ComposerUITests,AccountUITests,SessionUITests,StoreScreenshotsUITests}.swift`, a NEW `ios/StashUITests/A11yAppUITests.swift`.
+
+Both surface passes do the following, in their own files only:
+- [ ] Migrate every call site to a role; the build shows zero `StashType` deprecation warnings in their files. Detail reading text renders at 17. Replace every `.system(size:)` with a scaled equivalent, or with the decorative helper plus `accessibilityHidden`.
+- [ ] Controls contract: 44 pt targets (audit list in the report). `StashCancelButton` adopted: the Add tab (2c) and the View-tab search (2b). Fixed text heights become `minHeight`; overflow scrolls; at accessibility sizes, rows that can't fit reflow (e.g. HStack→VStack) instead of truncating critical text.
+- [ ] Contrast contract on informational text. VoiceOver labels on icon-only controls. Bold Text honoured.
+- [ ] Screenshot matrix → `.superpowers/sdd/plan-16/a11y-<screen>-<size>.png` at Large, xxxLarge and accessibility-extra-large (AX3), plus Bold Text at Large. 2b covers View, detail (link + audio). 2c covers Add, Ask with an answer, Conversations, Settings, share sheet, onboarding, sign-in. READ every shot and fix clipping and overlap.
+- [ ] Update the size-asserting tests in their own files. Their UI tests pass on iOS 17.5, and a smoke run passes on 26.5.
+- [ ] Commit `feat(ios): HIG + accessibility pass — <surfaces>`.
 
 ### Task 5: Wrap + build 10
 
