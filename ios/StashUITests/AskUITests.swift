@@ -8,8 +8,14 @@ import XCTest
 ///
 /// A standalone file (`StashUITests.swift` belongs to another task this round), so it carries its
 /// own small sign-in helper — the same recipe as `StashUITests.signInAndReachLibrary`, plus the
-/// iOS 26 "Save Password?" sheet dismissal and a tab switch that survives a swallowed tap.
+/// iOS 26 "Save Password?" sheet dismissal, and a tab switch that fails on a swallowed tap unless
+/// that sheet is still to come.
 final class AskUITests: XCTestCase {
+    /// iOS 26's "Save Password?" prompt may still turn up and take a tap — set by `signIn` from
+    /// `dismissSavePasswordPrompt`, read by `openAskTab`. Per test (XCTest makes an instance per
+    /// test method).
+    private var savePasswordPromptPending = false
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -103,8 +109,15 @@ final class AskUITests: XCTestCase {
     /// answer has started once its read-aloud button exists (content arrived) and has finished
     /// once `ask.newChat` is enabled again (disabled exactly while an answer streams) — a signal
     /// that doesn't depend on where the thread is scrolled; an answer's own thumbs can be
-    /// scrolled out of the lazily built thread. (Plan 16: `ask` puts the keyboard away before each
-    /// send, since New chat is replaced by Cancel while the composer is focused.)
+    /// scrolled out of the lazily built thread.
+    ///
+    /// Plan 16: (a) and (b) send with the keyboard up, as a user sends, so each answer starts
+    /// streaming under a live keyboard, and (b)'s drag runs against it
+    /// (`.scrollDismissesKeyboard(.interactively)`). While the composer is focused, New chat gives
+    /// way to Cancel. So the keyboard is put away with Cancel once the answer is under way, and in
+    /// (b) only after the drag. Each Cancel asserts that the keyboard is on screen and logs its
+    /// frame; (a)'s also asserts that the answer is still streaming. (c) sends with the keyboard
+    /// down; see the note there.
     func testThreadFollowsTheStreamUntilTheUserScrollsAway() throws {
         let app = XCUIApplication()
         try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat"])
@@ -116,10 +129,12 @@ final class AskUITests: XCTestCase {
         XCTAssertTrue(thread.waitForExistence(timeout: 5), "Ask thread did not appear")
         let newChat = app.buttons["ask.newChat"]
 
-        // (a) Send and keep hands off: the view keeps up with every burst and settles on the
-        // finished answer's last line and actions row.
+        // (a) Send and keep hands off: the view keeps up with every burst, with the keyboard up
+        // and after it goes mid-answer, and settles on the finished answer's last line and
+        // actions row.
         ask(app, "Scripted question one")
         XCTAssertTrue(element(app, "ask.bubble.1.speak").waitForExistence(timeout: 10), "Answer 1 never started")
+        putKeyboardAway(app, streamingAnswer: 1, "mid-answer 1")
         XCTAssertTrue(waitUntilEnabled(newChat, timeout: 20), "Answer 1 never completed")
         sleep(1)
         XCTAssertTrue(isVisible(lastLine(app, "Scripted question one"), in: thread),
@@ -129,11 +144,15 @@ final class AskUITests: XCTestCase {
 
         // (b) Send, then drag the thread up while the answer is still streaming: it must stay
         // where the user put it — no yank back down, not even the settle scroll at completion.
+        // The drag goes with the keyboard still up; Cancel only after it.
         ask(app, "Scripted question two")
         XCTAssertTrue(element(app, "ask.bubble.3.speak").waitForExistence(timeout: 10), "Answer 2 never started")
         sleep(2)   // a couple of screens of answer 2 have streamed in
-        XCTAssertFalse(newChat.isEnabled, "The drag must happen mid-stream")
+        // New chat, the enabled-state signal, is behind Cancel while the keyboard is up.
+        XCTAssertTrue(isStreaming(app, answer: 3), "The drag must happen mid-stream")
+        assertKeyboardOnScreen(app, "for the mid-stream drag")
         thread.swipeDown()
+        putKeyboardAway(app, "after the mid-stream drag")
         XCTAssertTrue(waitUntilEnabled(newChat, timeout: 20), "Answer 2 never completed")
         sleep(1)
         XCTAssertFalse(isVisible(lastLine(app, "Scripted question two"), in: thread),
@@ -141,8 +160,12 @@ final class AskUITests: XCTestCase {
         XCTAssertFalse(isVisible(element(app, "ask.bubble.3.thumbsUp"), in: thread),
                        "After a user drag the thread must not be pulled back to the answer's actions row")
 
-        // (c) A new send follows again, from wherever the user had scrolled to.
-        ask(app, "Scripted question three")
+        // (c) A new send follows again, from wherever the user had scrolled to. Sent with the
+        // keyboard down. With the keyboard up, this send hits an app bug on the iOS 17.5
+        // simulator in about half of runs: the follow-jump from far up the thread lands past the
+        // last row (the lazy thread has overestimated its height), and the thread stays blank for
+        // the whole answer, with no rows built. Go back to a keyboard-up send once that's fixed.
+        ask(app, "Scripted question three", keyboardDown: true)
         XCTAssertTrue(element(app, "ask.bubble.5.speak").waitForExistence(timeout: 10), "Answer 3 never started")
         XCTAssertTrue(waitUntilEnabled(newChat, timeout: 20), "Answer 3 never completed")
         sleep(1)
@@ -275,20 +298,61 @@ final class AskUITests: XCTestCase {
         add(shot)
     }
 
-    /// Types `question`, puts the keyboard away with Cancel (the draft stays), then sends. Plan 16:
-    /// while the composer is focused the header has Cancel instead of New chat — whose enabled
-    /// state is these tests' "answer finished" signal — so the keyboard goes before the send,
-    /// leaving the timeline after the send as it always was.
-    private func ask(_ app: XCUIApplication, _ question: String) {
+    /// Types `question` and sends it the way a user does: the composer keeps focus, so the answer
+    /// streams with the keyboard up, and with Cancel where New chat was (plan 16), until the test
+    /// puts the keyboard away (`putKeyboardAway`). With `keyboardDown`, Cancel goes first (the
+    /// typed text stays), so the question is sent with the keyboard down.
+    private func ask(_ app: XCUIApplication, _ question: String, keyboardDown: Bool = false) {
         let input = element(app, "ask.input")
         input.tap()
         input.typeText(question)
-        let cancel = app.buttons["ask.dismissKeyboard"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Cancel not found while composing")
-        cancel.tap()
+        if keyboardDown { putKeyboardAway(app, "before sending") }
         let send = app.buttons["ask.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Send button not found")
         send.tap()
+    }
+
+    /// Answer `n` is still streaming: its actions row is built (read-aloud shows once content has
+    /// arrived), but its thumbs aren't there yet (they show only on a finished answer). This works
+    /// with the keyboard up, when New chat, whose enabled state is the "finished" signal, has given
+    /// way to Cancel. It's only meaningful while the answer's row is on screen, since the thread is
+    /// built lazily.
+    private func isStreaming(_ app: XCUIApplication, answer n: Int) -> Bool {
+        element(app, "ask.bubble.\(n).speak").exists && !element(app, "ask.bubble.\(n).thumbsUp").exists
+    }
+
+    /// The software keyboard is up and on screen, not just present in the tree: on a simulator with a
+    /// hardware keyboard attached it sits below the screen until XCUITest types. Its frame goes in
+    /// the test's activity log.
+    private func assertKeyboardOnScreen(_ app: XCUIApplication, _ context: String,
+                                        file: StaticString = #filePath, line: UInt = #line) {
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.exists, "Expected the keyboard up \(context)", file: file, line: line)
+        let frame = keyboard.frame
+        let screen = app.frame
+        XCTContext.runActivity(named: "Keyboard \(context): \(frame) (screen \(screen))") { _ in }
+        XCTAssertLessThan(frame.minY, screen.maxY,
+                          "Expected the keyboard on screen \(context) (keyboard \(frame), screen \(screen))",
+                          file: file, line: line)
+    }
+
+    /// Puts the keyboard away with the header's Cancel. While the composer is focused, Cancel stands
+    /// where New chat (the "answer finished" signal) sits. Asserts first that the keyboard is on
+    /// screen (its frame is logged). When `streamingAnswer` is given, also asserts that that answer
+    /// is still streaming: together they show the answer streamed with the keyboard up.
+    private func putKeyboardAway(_ app: XCUIApplication, streamingAnswer: Int? = nil, _ context: String,
+                                 file: StaticString = #filePath, line: UInt = #line) {
+        let cancel = app.buttons["ask.dismissKeyboard"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Expected Cancel while composing \(context)",
+                      file: file, line: line)
+        assertKeyboardOnScreen(app, "at Cancel \(context)", file: file, line: line)
+        if let n = streamingAnswer {
+            XCTAssertTrue(isStreaming(app, answer: n), "Expected the answer still streaming at Cancel \(context)",
+                          file: file, line: line)
+        }
+        cancel.tap()
+        XCTAssertTrue(app.buttons["ask.newChat"].waitForExistence(timeout: 5),
+                      "New chat should be back once the keyboard is away \(context)", file: file, line: line)
     }
 
     /// True when no keyboard is up — waiting out one still animating away — and none has come back
@@ -312,8 +376,13 @@ final class AskUITests: XCTestCase {
         XCTAssertTrue(app.buttons["ask.history"].exists, "History should be back \(context)", file: file, line: line)
     }
 
-    /// Whenever a keyboard is up, the composer sits wholly above it (on a simulator with a hardware
-    /// keyboard attached the software keyboard stays off screen, which passes trivially).
+    /// `ChatComposerBar`'s vertical padding around the text. `ask.input`'s accessibility frame is
+    /// the text line only, and the visible field (the pill) reaches this far beyond it on each side
+    /// (`StashUITests.testAskComposerLayout` measures the same).
+    private static let composerPillPadding: CGFloat = 10
+
+    /// Whenever a keyboard is up, the composer's pill sits wholly above it (on a simulator with a
+    /// hardware keyboard attached the software keyboard stays off screen, which passes trivially).
     private func assertComposerAboveKeyboard(_ app: XCUIApplication, _ context: String,
                                              file: StaticString = #filePath, line: UInt = #line) {
         let keyboard = app.keyboards.firstMatch
@@ -321,8 +390,9 @@ final class AskUITests: XCTestCase {
         sleep(1)   // keyboard animation + avoidance
         let input = element(app, "ask.input")
         XCTAssertTrue(input.isHittable, "The composer should be reachable \(context)", file: file, line: line)
-        XCTAssertLessThanOrEqual(input.frame.maxY, keyboard.frame.minY,
-                                 "The composer should sit above the keyboard \(context) (composer bottom \(input.frame.maxY), keyboard top \(keyboard.frame.minY))",
+        let pillBottom = input.frame.maxY + Self.composerPillPadding
+        XCTAssertLessThanOrEqual(pillBottom, keyboard.frame.minY,
+                                 "The composer's pill should sit above the keyboard \(context) (pill bottom \(pillBottom), keyboard top \(keyboard.frame.minY))",
                                  file: file, line: line)
     }
 
@@ -366,16 +436,17 @@ final class AskUITests: XCTestCase {
         passwordField.typeText(password)
         app.buttons["signin.submit"].tap()
         XCTAssertTrue(app.tabBars.buttons["Ask"].waitForExistence(timeout: 15), "Expected the tab bar after sign-in")
-        dismissSavePasswordPrompt(app)
+        savePasswordPromptPending = dismissSavePasswordPrompt(app)
     }
 
     /// iOS 26 offers "Save Password?" a moment after the sign-in form submits; left up, it swallows
     /// the test's next tap (the Ask tab switch, or a header button). "Not Now" when it shows.
-    private func dismissSavePasswordPrompt(_ app: XCUIApplication) {
+    /// Returns whether it could still be in the way: iOS 26, and not seen and dismissed yet.
+    private func dismissSavePasswordPrompt(_ app: XCUIApplication) -> Bool {
         // Only ever seen on iOS 26, where it's an in-app sheet that can take several seconds.
-        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 else { return }
+        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 else { return false }
         let notNow = app.buttons["Not Now"]
-        guard notNow.waitForExistence(timeout: 12) else { return }
+        guard notNow.waitForExistence(timeout: 12) else { return true }
         // A tap while the sheet is still animating in (or out) is ignored — settle, tap, and
         // check it actually went away.
         for _ in 0..<3 {
@@ -386,15 +457,34 @@ final class AskUITests: XCTestCase {
             if XCTWaiter().wait(for: [gone], timeout: 3) == .completed { break }
         }
         sleep(1)
+        return notNow.exists
     }
 
-    /// Switches to the Ask tab, re-tapping if a late system sheet swallowed the first tap.
+    /// Switches to the Ask tab. The tap has to land: a swallowed tab tap is a real regression
+    /// (something over the tab bar), so it fails the test. The one exception is iOS 26's "Save
+    /// Password?" prompt while it's still pending (`dismissSavePasswordPrompt` hasn't seen it go),
+    /// the one known thing that takes this tap. Then there's one retry, recorded in the test's
+    /// activity log with a screenshot. Allowing the retry "once the prompt was seen" would be
+    /// backwards: the prompt shows on every iOS 26 sign-in and is confirmed gone by then, so every
+    /// iOS 26 run could retry, just when the prompt can no longer be the cause.
     private func openAskTab(_ app: XCUIApplication) {
+        let askTab = app.tabBars.buttons["Ask"]
         let input = element(app, "ask.input")
-        for _ in 0..<3 {
-            app.tabBars.buttons["Ask"].tap()
-            if input.waitForExistence(timeout: 4) { return }
+        askTab.tap()
+        if input.waitForExistence(timeout: 10) { return }
+        guard savePasswordPromptPending else {
+            attachScreenshot(app, named: "ask-tab-tap-swallowed")
+            XCTFail("The Ask tab tap was swallowed with no Save Password prompt pending")
+            return
         }
-        XCTFail("Could not switch to the Ask tab")
+        XCTContext.runActivity(named: "Ask tab tap swallowed while the Save Password prompt was pending: dismissing it, retrying once") { activity in
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "ask-tab-retry"
+            shot.lifetime = .keepAlways
+            activity.add(shot)
+            savePasswordPromptPending = dismissSavePasswordPrompt(app)
+            askTab.tap()
+        }
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "Could not switch to the Ask tab")
     }
 }

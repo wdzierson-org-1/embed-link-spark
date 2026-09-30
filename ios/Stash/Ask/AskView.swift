@@ -529,17 +529,26 @@ struct AskView: View {
 
     // MARK: - Citations
 
-    /// Puts the keyboard away first (plan 16), as for an earlier conversation: the source opens to
-    /// be read, and the composer isn't left holding the keyboard behind the sheet.
+    /// Puts the keyboard away (plan 16), as for an earlier conversation: the source opens to be
+    /// read, and the composer mustn't hold the keyboard while the sheet is up. A sheet presented over
+    /// a focused composer is the same kind of transition as the Conversations push, which handed the
+    /// keyboard back when it went away on iOS 26 (see the type doc). Focus is cleared twice, because
+    /// the fetch leaves a window:
+    /// - at the tap, ahead of the one-load-at-a-time guard, so a second tap while a source loads
+    ///   still puts the keyboard away;
+    /// - again in the same transaction that presents the sheet, in case the composer was tapped
+    ///   while the fetch was in flight.
     private func openCitation(_ id: UUID) {
-        guard loadingSourceId == nil else { return }
         inputFocused = false
+        guard loadingSourceId == nil else { return }
         loadingSourceId = id
         citationErrorMessage = nil
         Task {
             defer { loadingSourceId = nil }
             do {
-                citationItem = try await SupabaseItemsFetcher().fetchDetail(id: id)
+                let item = try await SupabaseItemsFetcher().fetchDetail(id: id)
+                inputFocused = false
+                citationItem = item
             } catch {
                 citationErrorMessage = "Couldn't load that item — try again."
             }
