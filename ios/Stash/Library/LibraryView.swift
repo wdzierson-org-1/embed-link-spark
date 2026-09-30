@@ -17,7 +17,7 @@ import StashKit
 /// local filter until it answers. Each card is ONE tap target (see `grid`).
 ///
 /// Plan 16: every state scrolls in one scroll view whose first element is the search row — see
-/// `libraryScroll`.
+/// `libraryScroll` and `LibrarySearchRow`.
 struct LibraryView: View {
     let store: ItemStore
     var onSelect: (Item) -> Void = { _ in }
@@ -26,19 +26,28 @@ struct LibraryView: View {
     @State private var query = ""
     @State private var selectedItem: Item?
     @FocusState private var searchFocused: Bool
-    /// How much of the search row is still in view below the scroll view's top edge — 1 at rest
-    /// (and while the list is pulled down), 0 once it has scrolled all the way under that edge.
-    /// Measured by `LibraryScrollVisibilityObserver`, planted behind the row; drives its fade
-    /// (plan-12 device note 6, rebuilt in plan 16).
-    @State private var searchVisibility: CGFloat = 1
-    /// The search row's laid-out height and the tab's own height: a state pane (loading, empty, no
-    /// matches, error) fills what the row leaves, as it did when the row sat above it.
+    /// How far the search row has scrolled away (`LibrarySearchFade`). Only the row and the
+    /// status-bar scrim read it — never this view's `body` — so a frame in the fade band doesn't
+    /// re-run the tab (its search results, the grid's diff) (plan 16 review M-4).
+    @State private var searchFade = LibrarySearchFade()
+    /// The search row's laid-out height: the band the scroll snaps out of (`LibrarySearchRowSnap`),
+    /// and what a state pane (loading, empty, no matches, error) leaves above itself, as when the row
+    /// sat above it. 60 is its height at the default text size.
     @State private var searchRowHeight: CGFloat = 60
-    @State private var viewportHeight: CGFloat = 0
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    private static let searchRowID = "library.searchRow"
+    fileprivate static let searchRowID = "library.searchRow"
+
+    /// `--uitest-search-no-snap` (UI tests only, compiled out of Release) turns the search row's snap
+    /// off, so `LibraryDetailUITests` can sample the row part-way out between slow drags.
+    private static let snapsSearchRow: Bool = {
+        #if DEBUG
+        return !ProcessInfo.processInfo.arguments.contains("--uitest-search-no-snap")
+        #else
+        return true
+        #endif
+    }()
 
     // Single column on phones (compact width); two-up only where there's real room (iPad).
     private var columns: [GridItem] {
@@ -89,8 +98,8 @@ struct LibraryView: View {
                 .ignoresSafeArea(edges: .top)
 
             libraryScroll(items)
+            LibraryStatusBarScrim(fade: searchFade)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
         // Hero images decode for exactly this width (`CardHeroSizing`), the same request the
         // app-scope prefetch makes — so a prefetched hero is drawn in the card's first frame.
         .environment(\.cardWidth, CardHeroSizing.cardWidth(regularWidth: horizontalSizeClass == .regular))
@@ -113,107 +122,32 @@ struct LibraryView: View {
     /// overlap it, and once it's gone the list runs to the top of the screen. One scroll view for
     /// every state also keeps the row (and its field's focus) the same view while typing flips the
     /// body between cards and a state pane.
+    ///
+    /// Plan 16 review: the row never RESTS part-way out (`LibrarySearchRowSnap`, M-2), the status
+    /// bar never sits over scrolled content (`LibraryStatusBarScrim`, M-1), and the row owns its
+    /// fade (`LibrarySearchRow`, M-4).
     private func libraryScroll(_ items: [Item]) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
-                    searchRow
+                    LibrarySearchRow(query: $query, focused: $searchFocused, proxy: proxy, fade: searchFade,
+                                     searchState: searchStateValue)
                         .id(Self.searchRowID)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { searchRowHeight = $0 }
                     stateBody(items)
                 }
             }
+            .scrollTargetBehavior(LibrarySearchRowSnap(rowHeight: searchRowHeight, isEnabled: Self.snapsSearchRow))
             // `library.grid` names the scroll view while it shows cards (UI tests scroll and
             // pull to refresh through it), as when only the grid scrolled.
             .accessibilityIdentifier(items.isEmpty ? "library.scroll" : "library.grid")
             .scrollDismissesKeyboard(.immediately)
-            // Never part-way out while its field has focus: a tap into a half-scrolled pill brings
-            // it all the way back, and a scroll drops the keyboard (and the focus) before it moves
-            // the row (`.scrollDismissesKeyboard`) — so typing always happens in full view.
-            .onChange(of: searchFocused) { _, focused in
-                guard focused, searchVisibility < 1 else { return }
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.searchRowID, anchor: .top) }
-            }
         }
     }
 
-    // MARK: - Search (web LibraryToolbar's rounded-full pill, violet-tinted while focused)
-
-    /// The pill plus its Cancel affordance (device note 7) as one row, fading as it scrolls up
-    /// under the top edge — by its OWN position (`searchVisibility`), 1:1 with the gesture:
-    /// deliberately no `.animation` on the fade, so it never lags the finger; only the Cancel
-    /// button's appear/disappear (`searchFocused`) gets an explicit easing. Fully opaque while
-    /// focused. The observer sits behind the fade, so it keeps measuring at any opacity.
-    private var searchRow: some View {
-        HStack(spacing: 8) {
-            searchPill
-            if searchFocused {
-                Button("Cancel") {
-                    query = ""
-                    searchFocused = false
-                }
-                .font(StashType.bodyMedium())
-                .foregroundStyle(StashColor.violet600)
-                .accessibilityIdentifier("library.search.cancel")
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        // Never quite 0: SwiftUI drops a fully transparent view from the accessibility tree
-        // (measured: the field vanished from it the moment the row's fade hit 0), and the search
-        // field should stay reachable from anywhere in the list like any other scrolled-away
-        // content — VoiceOver scrolls it back into view. 1% is invisible.
-        .opacity(searchFocused ? 1 : max(Double(searchVisibility), 0.01))
-        // Stop stealing taps once it's effectively invisible; still interactive at any opacity
-        // above that so it stays usable while merely dimming, not just at full strength.
-        .allowsHitTesting(searchFocused || searchVisibility > 0.01)
-        .animation(.easeOut(duration: 0.2), value: searchFocused)
-        .background(LibraryScrollVisibilityObserver { searchVisibility = $0 })
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { searchRowHeight = $0 }
-    }
-
-    private var searchPill: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 15))
-                .foregroundStyle(searchFocused ? StashColor.violet600 : StashColor.faint)
-            TextField("Search your stash", text: $query)
-                .focused($searchFocused)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-                // Device note 7: submitting a search must be able to dismiss the keyboard too.
-                .onSubmit { searchFocused = false }
-                .accessibilityIdentifier("library.search")
-            if !query.isEmpty {
-                Button {
-                    // Device note 7: clearing the query with no smart way to also drop the
-                    // keyboard was the gap — clear AND dismiss in one tap.
-                    query = ""
-                    searchFocused = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(StashColor.faint)
-                }
-                .accessibilityIdentifier("library.search.clear")
-            }
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 42)
-        .background(Color(.systemBackground), in: Capsule())
-        .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.hairline,
-                                        lineWidth: 1))
-        .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
-        // Which answer the grid is showing — "searching" (server pending), "results" (server
-        // answered) or "local" (short query / no query / server unreachable). Lets UI tests wait
-        // for a search to settle before reading the grid; the container itself isn't a VoiceOver
-        // stop (its children are).
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("library.search.pill")
-        .accessibilityValue(searchStateValue)
-    }
-
+    /// Which answer the grid is showing — "searching" (server pending), "results" (server answered)
+    /// or "local" (short query / no query / server unreachable); the search pill's
+    /// `accessibilityValue`, so UI tests can wait for a search to settle before reading the grid.
     private var searchStateValue: String {
         if isAwaitingServerSearch { return "searching" }
         return search.serverIds(for: trimmedQuery) != nil ? "results" : "local"
@@ -223,9 +157,16 @@ struct LibraryView: View {
 
     @ViewBuilder private func stateBody(_ items: [Item]) -> some View {
         if items.isEmpty {
-            statePane
-                // The rest of the tab below the search row, as when the row sat above the pane.
-                .frame(maxWidth: .infinity, minHeight: max(viewportHeight - searchRowHeight, 0))
+            // The rest of the tab below the search row, as when the row sat above the pane — at
+            // least the scroll view's height less the row, measured by the container itself (so
+            // the first frame is already centred: no viewport height that starts at 0, review
+            // N-2), and taller when the pane's text needs it.
+            ZStack {
+                Color.clear
+                    .containerRelativeFrame(.vertical) { length, _ in max(length - searchRowHeight, 0) }
+                statePane
+            }
+            .frame(maxWidth: .infinity)
         } else {
             if let error = store.loadError {
                 LibraryErrorBanner(message: error) { Task { await store.refresh() } }
@@ -283,6 +224,162 @@ struct LibraryView: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 12)
+    }
+}
+
+// MARK: - Search row (plan 16)
+
+/// How much of the View tab's search row is still in view below the scroll view's top edge — 1 at
+/// rest (and while the list is pulled down), 0 once it has scrolled all the way under that edge.
+/// Written by the row's `LibraryScrollVisibilityObserver`; read only by the row (its fade) and the
+/// status-bar scrim. `LibraryView` holds it but never reads it, so a change re-renders those two
+/// small views and nothing else (review M-4).
+@MainActor @Observable
+private final class LibrarySearchFade {
+    var visibility: CGFloat = 1
+}
+
+/// The search pill (web LibraryToolbar's rounded-full pill, violet-tinted while focused) plus its
+/// Cancel affordance (device note 7) as one row — the first element of the View tab's scroll
+/// content — fading as it scrolls up under the top edge by its OWN position (`fade`), 1:1 with the
+/// gesture: deliberately no `.animation` on the fade, so it never lags the finger; only the Cancel
+/// button's appear/disappear gets an explicit easing. Fully opaque while focused. The observer
+/// sits behind the fade, so it keeps measuring at any opacity.
+///
+/// Its own view (review M-4): the fade is read here, not in `LibraryView.body`, so a frame in the
+/// fade band re-renders this row — not the tab's search results or the grid.
+private struct LibrarySearchRow: View {
+    @Binding var query: String
+    var focused: FocusState<Bool>.Binding
+    /// Scrolls the row back to rest when its field is focused part-way out.
+    let proxy: ScrollViewProxy
+    let fade: LibrarySearchFade
+    /// `LibraryView.searchStateValue` — the pill's `accessibilityValue`.
+    let searchState: String
+
+    var body: some View {
+        let isFocused = focused.wrappedValue
+        let visibility = fade.visibility
+        HStack(spacing: 8) {
+            pill(isFocused: isFocused)
+            if isFocused {
+                Button("Cancel") {
+                    query = ""
+                    focused.wrappedValue = false
+                }
+                .font(StashType.bodyMedium())
+                .foregroundStyle(StashColor.violet600)
+                .accessibilityIdentifier("library.search.cancel")
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        // Never quite 0: SwiftUI drops a fully transparent view from the accessibility tree
+        // (measured: the field vanished from it the moment the row's fade hit 0), and the search
+        // field should stay reachable from anywhere in the list like any other scrolled-away
+        // content — VoiceOver scrolls it back into view. 1% is invisible.
+        .opacity(isFocused ? 1 : max(Double(visibility), 0.01))
+        // Stop stealing taps once it's effectively invisible; still interactive at any opacity
+        // above that so it stays usable while merely dimming, not just at full strength.
+        .allowsHitTesting(isFocused || visibility > 0.01)
+        .animation(.easeOut(duration: 0.2), value: isFocused)
+        .background(LibraryScrollVisibilityObserver { [fade] in fade.visibility = $0 })
+        // Never part-way out while its field has focus: a tap into a part-way pill (only a list
+        // barely taller than the screen can leave it there — see `LibrarySearchRowSnap`) brings it
+        // all the way back, and a scroll drops the keyboard (and the focus) before it moves the
+        // row (`.scrollDismissesKeyboard`) — so typing always happens in full view.
+        .onChange(of: isFocused) { _, nowFocused in
+            guard nowFocused, fade.visibility < 1 else { return }
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(LibraryView.searchRowID, anchor: .top) }
+        }
+    }
+
+    private func pill(isFocused: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15))
+                .foregroundStyle(isFocused ? StashColor.violet600 : StashColor.faint)
+            TextField("Search your stash", text: $query)
+                .focused(focused)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+                // Device note 7: submitting a search must be able to dismiss the keyboard too.
+                .onSubmit { focused.wrappedValue = false }
+                .accessibilityIdentifier("library.search")
+            if !query.isEmpty {
+                Button {
+                    // Device note 7: clearing the query with no smart way to also drop the
+                    // keyboard was the gap — clear AND dismiss in one tap.
+                    query = ""
+                    focused.wrappedValue = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(StashColor.faint)
+                }
+                .accessibilityIdentifier("library.search.clear")
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 42)
+        .background(Color(.systemBackground), in: Capsule())
+        .overlay(Capsule().strokeBorder(isFocused ? StashColor.violet300 : StashColor.hairline, lineWidth: 1))
+        .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
+        // The container itself isn't a VoiceOver stop (its children are).
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("library.search.pill")
+        .accessibilityValue(searchState)
+    }
+}
+
+/// Review M-2: the search row never comes to REST part-way out — half faded, partly under the
+/// clock. A scroll that would come to rest inside the row goes to the nearer end instead: all the
+/// way back, or all the way out (clamped to how far the content can scroll, so a list barely taller
+/// than the screen can still reach its end). Any other resting place, a fling that carries past
+/// the row, and a pull to refresh are left alone — as UIKit's hide-on-scroll search bar behaves.
+///
+/// `ScrollTarget` coordinates are measured from the resting position (0 at rest, measured on the
+/// iOS 17.2 simulator: a release 14 pt down reported `minY` 14 while UIKit's `contentOffset` was
+/// −45 under a 59 pt inset), and `contentSize − containerSize` is the furthest the list scrolls.
+private struct LibrarySearchRowSnap: ScrollTargetBehavior {
+    var rowHeight: CGFloat
+    var isEnabled: Bool
+
+    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+        guard isEnabled, rowHeight > 0 else { return }
+        let resting = target.rect.minY
+        guard resting > 0, resting < rowHeight else { return }
+        let furthest = max(context.contentSize.height - context.containerSize.height, 0)
+        target.rect.origin.y = min(resting < rowHeight / 2 ? 0 : rowHeight, furthest)
+    }
+}
+
+/// Review M-1: once the search row scrolls away, cards run on up under the status bar — the clock
+/// and battery would sit on whatever scrolled there (unreadable over a dark hero image), and the
+/// pill itself faded out right under them. This fills the top safe area with the page's own
+/// background colour, fading in as the row fades out (opacity 1 − visibility): invisible at rest,
+/// opaque once the row is gone, so the status bar always sits on paper once content is under it —
+/// identical on iOS 17 and 26 (this tab has no bar at the top for iOS 26's scroll-edge effect). A
+/// short ramp of the same colour below the band lets content fade into it instead of being cut.
+private struct LibraryStatusBarScrim: View {
+    let fade: LibrarySearchFade
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // A zero-height view on the safe area's top edge whose background extends into the top
+            // safe area (`ignoresSafeAreaEdges`) — exactly the band the status bar occupies.
+            Color.clear
+                .frame(height: 0)
+                .background(Color(.systemBackground), ignoresSafeAreaEdges: .top)
+            LinearGradient(colors: [Color(.systemBackground), Color(.systemBackground).opacity(0)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 12)
+        }
+        .opacity(1 - Double(fade.visibility))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -403,8 +500,12 @@ private struct LibraryScrollVisibilityObserver: UIViewRepresentable {
         /// update may be running now — coalescing a burst into one write and skipping a value that
         /// didn't change (so once the row is fully out, scrolling on writes nothing at all). That
         /// turn normally comes before the next frame is drawn, so the fade still tracks the finger.
+        ///
+        /// Review N-1: with nothing scheduled, an unchanged value is dropped right here, so deep in
+        /// the list a scroll frame costs one rect conversion and no main-queue hop at all.
         private func report(_ value: CGFloat) {
             let alreadyScheduled = pending != nil
+            if !alreadyScheduled, value == lastReported { return }
             pending = value
             guard !alreadyScheduled else { return }
             DispatchQueue.main.async { [weak self] in

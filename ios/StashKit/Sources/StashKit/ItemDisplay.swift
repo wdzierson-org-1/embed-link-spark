@@ -31,16 +31,26 @@ public enum ItemDisplay {
         return item.title?.hasPrefix("Screenshot of") ?? false
     }
 
-    /// The card's title. The trimmed title when it means something; "Untitled" when empty; and a
-    /// type label ("Voice note", "Recording", "Photo", "Screenshot", "Video", "File") when the title
-    /// is only a storage object name (`isObjectName`), which carries no meaning to a person
-    /// scanning their library. The detail sheet shows such a title as an empty field with this same
-    /// label as its placeholder (`editableRow`/`titlePlaceholder`).
+    /// The card's title. The trimmed title when it means something; a type label ("Voice note",
+    /// "Recording", "Photo", "Screenshot", "Video", "File") when the title is only a storage object
+    /// name (`isObjectName`), which carries no meaning to a person scanning their library — or when
+    /// it is EMPTY on an audio, image, video or file item (plan 16, M-6: clearing such an item's
+    /// title in the detail sheet writes "" and it reads as its type, exactly as an object name
+    /// does); "Untitled" for any other empty title. The detail sheet shows an object-name title as
+    /// an empty field with this same label as its placeholder (`editableRow`/`titlePlaceholder`).
     public static func displayTitle(for item: Item) -> String {
         let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if trimmed.isEmpty { return "Untitled" }
+        if trimmed.isEmpty { return labelsEmptyTitle(item.type) ? typeLabel(for: item) : "Untitled" }
         if isObjectName(trimmed) { return typeLabel(for: item) }
         return trimmed
+    }
+
+    /// The types whose empty title reads as their type label (M-6): the ones captured as a file.
+    private static func labelsEmptyTitle(_ type: ItemType) -> Bool {
+        switch type {
+        case .audio, .image, .video, .document: true
+        case .text, .link, .collection, .unknown: false
+        }
     }
 
     /// Whether a stored title is only a storage object name — a UUID (`72322570-….m4a`, iOS share/
@@ -59,16 +69,21 @@ public enum ItemDisplay {
     // (`f200ad94-32d7-4b39-bcfc-313b…`) — the card's fallback didn't reach the sheet. The sheet's
     // title field now starts EMPTY for such a title, with the card's type label as its placeholder.
     // The sheet seeds its fields from `editableRow(server)` and diffs every save against
-    // `editableRow(snapshot)`, so the empty field is not an edit: opening and closing the sheet
-    // never writes a title (an empty one would turn the card's "Voice note" into "Untitled"; the
-    // object name stays, for the server's jobs to replace with an AI title), typing one saves it,
-    // and an AI title arriving while the sheet is open replaces the placeholder
-    // (`mergePreservingDetail` sees no unsaved title).
+    // `editableRow(snapshot)` (`DetailFieldEdits`), so the untouched empty field is not an edit:
+    // opening and closing the sheet never writes a title (the object name stays, for the server's
+    // jobs to replace with an AI title), typing one saves it, clearing a title that was sent writes
+    // "" (still read as the type label, M-6), and an AI title arriving while the sheet is open
+    // replaces the placeholder.
 
-    /// The detail title field's placeholder: the card's type label when the stored title is an
-    /// object name — the empty field reads the way the card does — and "Untitled" otherwise.
+    /// The detail title field's placeholder: what the card shows once the field is left empty — the
+    /// type label on an audio, image, video or file item (M-6; the subtype as the row is WITHOUT
+    /// its title, since a cleared vision title's "Screenshot of…" is gone), "Untitled" on any other
+    /// type — and the card's label for an object name on any type.
     public static func titlePlaceholder(for item: Item) -> String {
-        isObjectName(item.title) ? typeLabel(for: item) : "Untitled"
+        if isObjectName(item.title) { return typeLabel(for: item) }
+        var cleared = item
+        cleared.title = ""
+        return displayTitle(for: cleared)
     }
 
     /// `server` as the detail sheet's fields show it: an object-name title reads as empty; every
@@ -81,7 +96,7 @@ public enum ItemDisplay {
         return row
     }
 
-    /// Human label for an item's type, used when its title is only an object name.
+    /// Human label for an item's type, used when its title is only an object name (or empty, M-6).
     public static func typeLabel(for item: Item) -> String {
         switch item.type {
         case .audio: return audioKind(for: item) == .recording ? "Recording" : "Voice note"

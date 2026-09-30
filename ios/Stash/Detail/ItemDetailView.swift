@@ -32,7 +32,7 @@ enum DetailField: Hashable {
 }
 
 /// The editor every detail-sheet save and every pending-edit flush goes through (the sheet's own
-/// and `MainTabView`'s app-scope flusher), so both share the UI-test stalled-network switch below.
+/// and `MainTabView`'s app-scope flusher), so both share the UI-test network switches below.
 @MainActor
 enum DetailEditorFactory {
     static func make() -> ItemEditor {
@@ -41,8 +41,12 @@ enum DetailEditorFactory {
 
     private static var patcher: ItemPatching {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--uitest-stall-item-writes") {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--uitest-stall-item-writes") {
             return StalledItemPatcher()
+        }
+        if arguments.contains("--uitest-slow-item-writes") {
+            return SlowItemPatcher()
         }
         #endif
         return SupabaseItemPatcher()
@@ -65,6 +69,33 @@ private struct StalledItemPatcher: ItemPatching {
     func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
         try? await Task.sleep(for: .seconds(10))
         throw URLError(.timedOut)
+    }
+
+    func deleteItemCascade(itemId: UUID) async throws { try await real.deleteItemCascade(itemId: itemId) }
+    func itemTags(itemId: UUID) async throws -> [StashTag] { try await real.itemTags(itemId: itemId) }
+    func addTag(named: String, userId: UUID, itemId: UUID) async throws {
+        try await real.addTag(named: named, userId: userId, itemId: itemId)
+    }
+    func removeTag(tagId: UUID, itemId: UUID) async throws { try await real.removeTag(tagId: tagId, itemId: itemId) }
+    func suggestTags(title: String, content: String, description: String, available: [String]) async throws -> [String] {
+        try await real.suggestTags(title: title, content: content, description: description, available: available)
+    }
+}
+
+/// `--uitest-slow-item-writes` (UI tests only, compiled out of Release): every item write waits
+/// 3 s and then really goes out — a slow link that still succeeds, so `LibraryDetailUITests` can
+/// edit a field while an earlier save of it is in flight and watch that save's response land
+/// (plan 16 review I-1). Reads, deletes and tags are untouched.
+private struct SlowItemPatcher: ItemPatching {
+    private let real = SupabaseItemPatcher()
+
+    func patch(itemId: UUID, patch: ItemPatch) async throws -> Item {
+        try? await Task.sleep(for: .seconds(3))
+        return try await real.patch(itemId: itemId, patch: patch)
+    }
+
+    func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
+        try await real.currentAttributes(itemId: itemId)
     }
 
     func deleteItemCascade(itemId: UUID) async throws { try await real.deleteItemCascade(itemId: itemId) }
@@ -156,8 +187,8 @@ final class DetailSheetServices: ObservableObject {
 struct ItemDetailView: View {
     @State private var item: Item
     /// The last row the SERVER is known to hold — the initial row, our own confirmed saves, or an
-    /// observed server update. The diff baseline for everything still unsaved (as `baseline`, for
-    /// the text fields); see `adopt(_:)`.
+    /// observed server update. The diff baseline for everything still unsaved (as `baseline`, the
+    /// row as the fields show it); see `adopt(_:)`.
     @State private var snapshot: Item
     @State private var saveStatus: SaveStatus = .idle
     @State private var showDeleteConfirm = false
@@ -202,10 +233,18 @@ struct ItemDetailView: View {
     /// `snapshot` as the text fields show it — what every autosave, the dismiss journal and `adopt`
     /// diff the fields against. Plan 16: an object-name title (`f200ad94-….m4a`, Will's device
     /// screenshot) is shown as an empty field and reads as empty here too, so the untouched field
-    /// is never an edit — opening and closing the sheet never writes a title (an empty one would
-    /// turn the card's "Voice note" into "Untitled"), and the object name stays for the server's
-    /// jobs to replace with an AI title (`ItemDisplay.editableRow`).
+    /// is never an edit — opening and closing the sheet never writes a title, and the object name
+    /// stays for the server's jobs to replace with an AI title (`ItemDisplay.editableRow`).
     private var baseline: Item { ItemDisplay.editableRow(snapshot) }
+
+    /// The fields measured against `baseline` AND this item's durable queue — the one rule the
+    /// autosave, the dismiss journal and `adopt` share (`DetailFieldEdits`). Plan 16 review I-1:
+    /// against `baseline` alone, clearing a title after it was sent (in flight, or failed and
+    /// queued) looked like no edit — the sent title then came back into the field and onto the
+    /// server. The queue holds every save from the moment it starts until the server confirms it.
+    private var fieldEdits: DetailFieldEdits {
+        DetailFieldEdits(local: item, baseline: baseline, queued: services.pendingEdits.edit(for: item.id))
+    }
 
     /// "Transcribing…" while this app watches a job for the item (`TranscriptionActivity`, app-wide)
     /// or while the item itself says the server's job is running (`media.transcript` — e.g. a
@@ -313,9 +352,10 @@ struct ItemDetailView: View {
     /// chrome at rest; violet wash on hover; wash + ring on focus." Touch has no hover, so the
     /// wash/ring both key off `focusedField == .title` here.
     ///
-    /// Plan 16: the placeholder is what the card shows for the server's row — the type label
-    /// ("Voice note", "Photo", …) while its title is only an object name (the field is empty then,
-    /// see `baseline`), "Untitled" otherwise.
+    /// Plan 16: the placeholder is what the card shows once the field is left empty — the type
+    /// label ("Voice note", "Photo", …) on an audio, image, video or file item (an object-name
+    /// title opens as an empty field, see `baseline`; a cleared one is saved as "" and reads the
+    /// same, M-6), "Untitled" on any other type.
     private var titleField: some View {
         // Deliberately single-line (no `axis: .vertical`) — a vertical-axis `TextField` renders
         // as a `UITextView` under the hood, which `testEditSmoke`'s tap-then-`typeText` helper
@@ -538,6 +578,11 @@ struct ItemDetailView: View {
     ///
     /// `send` replaces the plain PATCH of `patch` — a location edit is written onto the server's
     /// current attributes instead (`saveAttributes`); `patch` is still what gets queued.
+    ///
+    /// Plan 16 (review I-1): when the save lands after the user changed a title it sent — e.g.
+    /// cleared "Gro" inside the next debounce, so no newer save has queued the clear yet — the
+    /// field's value is queued first (`DetailFieldEdits.superseding`). The confirm then keeps it,
+    /// `adopt` keeps the field as it is, and the next autosave (or the close) sends it.
     @MainActor
     private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> Item? {
         let capturedAt = Date()
@@ -551,6 +596,11 @@ struct ItemDetailView: View {
             let itemId = item.id
             let editor = services.editor
             let result = try await (send ?? { try await editor.save(itemId: itemId, patch: patch) })()
+            // Once closed, the dismiss journal has already queued whatever the fields held.
+            if !services.isClosed {
+                let superseding = fieldEdits.superseding(patch)
+                if !superseding.isEmpty { pendingEdits.record(itemId: result.id, patch: superseding, capturedAt: Date()) }
+            }
             store.applyDetail(result)
             pendingEdits.confirm(itemId: result.id, patch: patch, capturedAt: capturedAt)
             if services.isLatest(generation) { adopt(result) }
@@ -567,15 +617,14 @@ struct ItemDetailView: View {
     }
 
     /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
-    /// Naturally idempotent — an empty diff against `baseline` is a no-op. Marked @MainActor
-    /// deliberately: it's reached through `Debouncer`, its own (non-Main) actor, whose internal
-    /// `Task` doesn't inherit the main actor. Quiet once the sheet has closed — the dismiss-time
-    /// journal + flush own anything still unsaved then.
+    /// Naturally idempotent — nothing unsaved (`DetailFieldEdits.textPatch`) is a no-op. Marked
+    /// @MainActor deliberately: it's reached through `Debouncer`, its own (non-Main) actor, whose
+    /// internal `Task` doesn't inherit the main actor. Quiet once the sheet has closed — the
+    /// dismiss-time journal + flush own anything still unsaved then.
     @MainActor
     private func saveChangedFields() async {
         guard !services.isClosed else { return }
-        let patch = changedFields(from: baseline, title: item.title ?? "", description: item.description ?? "",
-                                  supplementalNote: item.supplementalNote ?? "")
+        let patch = fieldEdits.textPatch
         guard !patch.isEmpty else { return }
         _ = await save(patch)
     }
@@ -783,15 +832,16 @@ struct ItemDetailView: View {
     // MARK: - Close (plan 15, H5)
 
     /// Everything on screen the server hasn't confirmed, as one patch: fields that differ from the
-    /// server's last row (in flight, failed, or still in a debounce), an optimistic Sharing flip,
-    /// a location edit, and the notes draft (a plain note whole; a rich draft appended as a new
-    /// paragraph — never flattened). Only what the user actually changed: a field another device
-    /// updated meanwhile matches `snapshot` and is left alone.
+    /// server's last row (in flight, failed, or still in a debounce) — and a title that differs
+    /// from a value still queued for it (plan 16, I-1: a clear closed straight after "Gro" was
+    /// sent) — an optimistic Sharing flip, a location edit, and the notes draft (a plain note
+    /// whole; a rich draft appended as a new paragraph — never flattened). Only what the user
+    /// actually changed: a field another device updated meanwhile matches `baseline` and is left
+    /// alone.
     private func unconfirmedPatch() -> (patch: ItemPatch, richDraft: (typed: String, content: String)?) {
-        var patch = changedFields(from: baseline, title: item.title ?? "", description: item.description ?? "",
-                                  supplementalNote: item.supplementalNote ?? "")
-        if item.isPublic != snapshot.isPublic { patch.isPublic = item.isPublic }
-        if item.attributes.location != snapshot.attributes.location { patch.attributes = item.attributes }
+        var patch = fieldEdits.textPatch
+        if item.isPublic != baseline.isPublic { patch.isPublic = item.isPublic }
+        if item.attributes.location != baseline.attributes.location { patch.attributes = item.attributes }
         var richDraft: (typed: String, content: String)?
         let notes = services.notesModel
         if notes.draft != notes.savedDraft {
@@ -837,9 +887,9 @@ struct ItemDetailView: View {
 
     /// Folds a fresher SERVER row into the sheet — an enrichment finishing, another device's edit,
     /// our own save coming back, or the `page_body` fetch. The merge is StashKit's
-    /// `mergePreservingDetail`: every field the user has changed locally (differs from `snapshot`,
-    /// the last server row) keeps the local value; everything else takes the server's. `snapshot`
-    /// always advances to `incoming`.
+    /// `DetailFieldEdits.adopting` (over `mergePreservingDetail`): every field the user has changed
+    /// locally (differs from `baseline`, the last server row as the fields show it) keeps the local
+    /// value; everything else takes the server's. `snapshot` always advances to `incoming`.
     ///
     /// Plan 15: the location check compares `location` only — Task 5 made nested attributes
     /// loss-less, so a whole-blob compare also tripped whenever the server rewrote e.g.
@@ -847,23 +897,13 @@ struct ItemDetailView: View {
     /// the location over the server's (fresh) attributes. An optimistic Sharing flip is kept the
     /// same way (L5).
     ///
-    /// Plan 16: the title is compared and merged as the field shows it (`baseline`,
-    /// `ItemDisplay.editableRow`) — an untouched empty placeholder field takes a server title that
-    /// arrives meanwhile (the transcription job's AI title, via realtime), and a new object name
-    /// still reads as empty.
+    /// Plan 16: the title is compared and merged as the field shows it (`ItemDisplay.editableRow`)
+    /// — an untouched empty placeholder field takes a server title that arrives meanwhile (the
+    /// transcription job's AI title, via realtime), and a new object name still reads as empty —
+    /// and it is kept while a write of it is still queued (review I-1): a "Gro" response can't
+    /// refill a field the user cleared after sending "Gro".
     private func adopt(_ incoming: Item) {
-        let unsavedLocation = item.attributes.location != snapshot.attributes.location
-        var next = mergePreservingDetail(
-            local: item,
-            incoming: ItemDisplay.editableRow(incoming),
-            hasUnsavedTitle: (item.title ?? "") != (baseline.title ?? ""),
-            hasUnsavedDescription: (item.description ?? "") != (snapshot.description ?? ""),
-            hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? ""),
-            hasUnsavedLocation: false,
-            hasUnsavedContent: (item.content ?? "") != (snapshot.content ?? "")
-        )
-        if unsavedLocation { next.attributes.location = item.attributes.location }
-        if item.isPublic != snapshot.isPublic { next.isPublic = item.isPublic }
+        let next = fieldEdits.adopting(incoming)
         snapshot = incoming
         item = next
         reconcileNotesDraft(with: incoming)

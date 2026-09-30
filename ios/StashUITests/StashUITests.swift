@@ -2330,11 +2330,12 @@ final class StashUITests: XCTestCase {
     /// Plan 12, Task 3 (device notes 6 + 7), rebuilt in plan 16: the "Search your stash" pill is the
     /// first element of the grid's scroll content, so scrolling carries it away with the cards
     /// (fading as it goes, never collapsing over them — Will's screenshot had it half covered by the
-    /// first card) and scrolling back to the top brings it back; the old item-count row is gone
-    /// outright; the pill never moves while its field is focused; and every quiet way of leaving the
-    /// keyboard up has a dismissal — a Cancel affordance that clears the query and drops the
-    /// keyboard together. (`LibraryDetailUITests` samples the pill's frame step by step.) Signs in
-    /// with `launchSignedIn` + `--uitest-tab-view` (no tab-bar tap — iOS 26 swallows one while the
+    /// first card) and scrolling back to the top brings it back; it never comes to rest part-way out
+    /// (a release inside its row snaps to the nearer end); the old item-count row is gone outright;
+    /// the pill never moves while its field is focused; and every quiet way of leaving the keyboard
+    /// up has a dismissal — Cancel (clears the query too), the clear button, return, and tapping a
+    /// card. (`LibraryDetailUITests` samples the pill's frame step by step.) Signs in with
+    /// `launchSignedIn` + `--uitest-tab-view` (no tab-bar tap — iOS 26 swallows one while the
     /// sign-in keyboard is still going away), so it runs on the iOS 26 simulators too.
     @MainActor
     func testLibrarySearchBarFadesAndKeyboardDismisses() throws {
@@ -2356,9 +2357,16 @@ final class StashUITests: XCTestCase {
         }
 
         launchSignedIn(app, arguments: ["--uitest-tab-view"], email: email, password: password)
-        // A fresh simulator's Passwords app offers "Save Password?" over the app after a sign-in
-        // (seen on iOS 26.5) — decline it so it can't cover the pill.
-        if app.buttons["Not Now"].waitForExistence(timeout: 3) { app.buttons["Not Now"].tap() }
+        // The Passwords app offers "Save Password?" over the app after every sign-in on iOS 26.5
+        // (never on 17.2) — decline it so it can't cover the pill. It's in the tree while still
+        // sliding in, and a tap then is ignored (the sheet stays), so tap until it has gone.
+        let notNow = app.buttons["Not Now"]
+        if notNow.waitForExistence(timeout: 3) {
+            for _ in 0..<4 where notNow.exists {
+                notNow.tap()
+                _ = eventually(3) { !notNow.exists }
+            }
+        }
 
         // Plan 12 removes the item-count row outright (not just its text) — the identifier
         // must be gone from the tree entirely.
@@ -2403,23 +2411,48 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(eventually(10) { searchField.isHittable && abs(pill.frame.minY - restPillMinY) <= 1 },
                       "Expected the search pill back in its resting slot, hittable (at \(pill.frame.minY), rest \(restPillMinY))")
 
-        // 3. Part-way out (still visible), tapping into it brings the pill all the way back before
-        // anything is typed — it never sits half-hidden while focused. Short slow drags with a hold
-        // at the end, so nothing flings; the pill's centre stays below the status bar.
+        // 3. It never comes to rest part-way out (plan 16 review M-2 — half faded, half under the
+        // clock): a slow drag released inside the search row snaps to the nearer end. Short of the
+        // row's middle it springs back to rest; past it, the row goes all the way out. Slow drags
+        // with a hold at the end, so nothing flings (the release has no velocity: any snap is the
+        // scroll view's own). The drags allow ~10 pt of pan slop: 24 pt moves the list well under
+        // half the 60 pt row, 56 pt well over half and short of all of it.
         let window = app.windows.firstMatch.frame
         let dragStart = app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: window.midX, dy: window.midY + 120))
-        for _ in 0..<5 where pill.frame.minY > restPillMinY - 6 {
-            dragStart.press(forDuration: 0.05, thenDragTo: dragStart.withOffset(CGVector(dx: 0, dy: -14)),
-                            withVelocity: .slow, thenHoldForDuration: 0.25)
-            usleep(400_000)
+        // The row is the pill plus its 8 pt top and 10 pt bottom padding (`LibrarySearchRow`).
+        let rowHeight = pill.frame.height + 18
+        // A slow drag from rest, released without momentum. On a busy simulator a synthesized one
+        // can still land as a fling (seen once in LibraryDetailUITests on a cold-booted iOS 26.5
+        // sim): the list coasts on past the whole row, which the snap rightly leaves alone. Only
+        // momentum carries 24 or 56 pt of drag that far, so that release is retried from rest; a
+        // release that ends anywhere within reach of the row is what the assertions below judge.
+        func slowDrag(_ distance: CGFloat) {
+            for attempt in 1...3 {
+                dragStart.press(forDuration: 0.05, thenDragTo: dragStart.withOffset(CGVector(dx: 0, dy: -distance)),
+                                withVelocity: .slow, thenHoldForDuration: 0.3)
+                usleep(800_000)
+                guard restPillMinY - pill.frame.minY > rowHeight + 20, attempt < 3 else { return }
+                grid.swipeDown()
+                grid.swipeDown()
+                _ = eventually(10) { searchField.isHittable && abs(pill.frame.minY - restPillMinY) <= 1 }
+            }
         }
-        XCTAssertLessThan(pill.frame.minY, restPillMinY - 3, "Expected the pill part-way scrolled out")
-        XCTAssertTrue(searchField.isHittable, "Expected the part-way pill still tappable")
+        slowDrag(24)
+        XCTAssertTrue(eventually(3) { abs(pill.frame.minY - restPillMinY) <= 1 },
+                      "Released short of the row's middle, the pill should spring back to rest (at \(pill.frame.minY), rest \(restPillMinY))")
+        XCTAssertTrue(searchField.isHittable, "Expected the pill back at rest and tappable")
+        slowDrag(56)
+        XCTAssertTrue(eventually(3) { abs((restPillMinY - pill.frame.minY) - rowHeight) <= 1.5 },
+                      "Released past the row's middle, the row should go all the way out (\(restPillMinY - pill.frame.minY) of \(rowHeight) pt)")
+        XCTAssertFalse(searchField.isHittable, "Expected the pill gone once its row snapped out")
+        attachScreenshot(named: "task-4-fix-snapped-out")
+        grid.swipeDown()
+        grid.swipeDown()
+        XCTAssertTrue(eventually(10) { searchField.isHittable && abs(pill.frame.minY - restPillMinY) <= 1 },
+                      "Expected the search pill back in its resting slot (at \(pill.frame.minY), rest \(restPillMinY))")
         searchField.tap()
         XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "Expected the keyboard up once the search field is focused")
-        XCTAssertTrue(eventually(3) { abs(pill.frame.minY - restPillMinY) <= 1 },
-                      "Expected the focused pill fully back in view (at \(pill.frame.minY), rest \(restPillMinY))")
 
         // 4. Typing never moves it: the grid under it changes (local filter → searching → the
         // server's answer), the pill stays put, focused, with the keyboard up.
@@ -2430,6 +2463,7 @@ final class StashUITests: XCTestCase {
             XCTAssertTrue(searchField.isHittable, "The pill stopped being hittable while typing '\(chunk)'")
         }
         XCTAssertTrue(waitForLibrarySearchToSettle(app), "Search for '\(needle)' never settled")
+        attachScreenshot(named: "task-4-fix-no-matches")
         XCTAssertEqual(pill.frame.minY, restPillMinY, accuracy: 1, "The pill moved once the results settled")
         XCTAssertTrue(app.keyboards.element.exists, "Expected the keyboard still up while the field is focused")
         XCTAssertEqual(searchField.value as? String, needle, "Expected the typed query intact in the field")
@@ -2450,6 +2484,43 @@ final class StashUITests: XCTestCase {
         let clearedValue = (searchField.value as? String) ?? ""
         XCTAssertEqual(clearedValue, "Search your stash",
                        "Expected the query cleared after Cancel (placeholder showing), got '\(clearedValue)'")
+
+        // Plan 16 (review M-5): the other three dismissals device note 7 asked for, one assertion each.
+        func keyboardGone() -> Bool {
+            let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                 object: app.keyboards.element)
+            return XCTWaiter().wait(for: [gone], timeout: 3) == .completed
+        }
+        // 6. The clear button clears the query AND drops the keyboard in one tap.
+        searchField.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "Expected the keyboard up to type a query")
+        searchField.typeText("zz")
+        let clearButton = app.buttons["library.search.clear"]
+        XCTAssertTrue(clearButton.waitForExistence(timeout: 5), "Expected the clear button once a query is typed")
+        clearButton.tap()
+        XCTAssertTrue(keyboardGone(), "Expected the keyboard dismissed after tapping the clear button")
+        XCTAssertEqual((searchField.value as? String) ?? "", "Search your stash", "Expected the query cleared by the clear button")
+
+        // 7. Return (the keyboard's Search key) submits the query and drops the keyboard, query intact.
+        searchField.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "Expected the keyboard up to type a query")
+        searchField.typeText("zz\n")
+        XCTAssertTrue(keyboardGone(), "Expected the keyboard dismissed after return")
+        XCTAssertEqual(searchField.value as? String, "zz", "Return keeps the query")
+        clearButton.tap()
+        XCTAssertEqual((searchField.value as? String) ?? "", "Search your stash")
+
+        // 8. Tapping a card drops the keyboard before its detail sheet opens (not left up behind it).
+        searchField.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "Expected the keyboard up before the card tap")
+        let card0 = anyElement("card.0")
+        XCTAssertTrue(card0.waitForExistence(timeout: 10), "Expected a card under the focused pill")
+        // Near the card's top — the keyboard covers its lower part; the whole card is one target.
+        card0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05)).tap()
+        let close = app.buttons["detail.done"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "Expected the card's detail sheet")
+        XCTAssertTrue(keyboardGone(), "Expected the keyboard dismissed by the card tap")
+        close.tap()
     }
 
     // MARK: - Onboarding (Task 4, plan 12; carousel rewrite, plan 13 task 1)
