@@ -156,7 +156,8 @@ final class DetailSheetServices: ObservableObject {
 struct ItemDetailView: View {
     @State private var item: Item
     /// The last row the SERVER is known to hold — the initial row, our own confirmed saves, or an
-    /// observed server update. The diff baseline for everything still unsaved; see `adopt(_:)`.
+    /// observed server update. The diff baseline for everything still unsaved (as `baseline`, for
+    /// the text fields); see `adopt(_:)`.
     @State private var snapshot: Item
     @State private var saveStatus: SaveStatus = .idle
     @State private var showDeleteConfirm = false
@@ -189,12 +190,22 @@ struct ItemDetailView: View {
         // the server's copy, so queued values still count as unsaved here.
         let start = PendingEdits.shared(for: store.userId)
             .sheetStart(for: item, serverRow: store.serverRow(withId: item.id))
-        _item = State(initialValue: start.shown)
+        // Plan 16: a title that is only a storage object name starts as an EMPTY field (its
+        // placeholder is the card's type label — `titleField`); see `baseline`.
+        _item = State(initialValue: ItemDisplay.editableRow(start.shown))
         _snapshot = State(initialValue: start.server)
         self.store = store
         _selectedTab = State(initialValue: contentTabsConfig(for: item.type).defaultTab)
         _services = StateObject(wrappedValue: DetailSheetServices(item: start.shown, userId: store.userId))
     }
+
+    /// `snapshot` as the text fields show it — what every autosave, the dismiss journal and `adopt`
+    /// diff the fields against. Plan 16: an object-name title (`f200ad94-….m4a`, Will's device
+    /// screenshot) is shown as an empty field and reads as empty here too, so the untouched field
+    /// is never an edit — opening and closing the sheet never writes a title (an empty one would
+    /// turn the card's "Voice note" into "Untitled"), and the object name stays for the server's
+    /// jobs to replace with an AI title (`ItemDisplay.editableRow`).
+    private var baseline: Item { ItemDisplay.editableRow(snapshot) }
 
     /// "Transcribing…" while this app watches a job for the item (`TranscriptionActivity`, app-wide)
     /// or while the item itself says the server's job is running (`media.transcript` — e.g. a
@@ -301,6 +312,10 @@ struct ItemDetailView: View {
     /// Object title (panel) per DESIGN.md: 500 · 28 / 1.2 · −0.02em, inline-editable — "no input
     /// chrome at rest; violet wash on hover; wash + ring on focus." Touch has no hover, so the
     /// wash/ring both key off `focusedField == .title` here.
+    ///
+    /// Plan 16: the placeholder is what the card shows for the server's row — the type label
+    /// ("Voice note", "Photo", …) while its title is only an object name (the field is empty then,
+    /// see `baseline`), "Untitled" otherwise.
     private var titleField: some View {
         // Deliberately single-line (no `axis: .vertical`) — a vertical-axis `TextField` renders
         // as a `UITextView` under the hood, which `testEditSmoke`'s tap-then-`typeText` helper
@@ -309,7 +324,7 @@ struct ItemDetailView: View {
         // descendant has keyboard focus" — confirmed against this exact wrapper). A long title
         // scrolls horizontally rather than wrapping to a second line; acceptable given the test
         // contract this field must keep working under.
-        TextField("Untitled", text: titleBinding)
+        TextField(ItemDisplay.titlePlaceholder(for: snapshot), text: titleBinding)
             .font(StashType.panelTitle())
             .stashTracking(-0.02, size: 28)
             .foregroundStyle(StashColor.ink)
@@ -486,7 +501,7 @@ struct ItemDetailView: View {
     }
 
     /// Sticky-note text (`SharingSection`) rides the same debounced field-autosave path as
-    /// title/description — `saveChangedFields` diffs `supplementalNote` against `snapshot`.
+    /// title/description — `saveChangedFields` diffs `supplementalNote` against `baseline`.
     private var supplementalNoteBinding: Binding<String> {
         Binding(get: { item.supplementalNote ?? "" }, set: { newValue in
             item.supplementalNote = newValue
@@ -552,14 +567,14 @@ struct ItemDetailView: View {
     }
 
     /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
-    /// Naturally idempotent — an empty diff against `snapshot` is a no-op. Marked @MainActor
+    /// Naturally idempotent — an empty diff against `baseline` is a no-op. Marked @MainActor
     /// deliberately: it's reached through `Debouncer`, its own (non-Main) actor, whose internal
     /// `Task` doesn't inherit the main actor. Quiet once the sheet has closed — the dismiss-time
     /// journal + flush own anything still unsaved then.
     @MainActor
     private func saveChangedFields() async {
         guard !services.isClosed else { return }
-        let patch = changedFields(from: snapshot, title: item.title ?? "", description: item.description ?? "",
+        let patch = changedFields(from: baseline, title: item.title ?? "", description: item.description ?? "",
                                   supplementalNote: item.supplementalNote ?? "")
         guard !patch.isEmpty else { return }
         _ = await save(patch)
@@ -773,7 +788,7 @@ struct ItemDetailView: View {
     /// paragraph — never flattened). Only what the user actually changed: a field another device
     /// updated meanwhile matches `snapshot` and is left alone.
     private func unconfirmedPatch() -> (patch: ItemPatch, richDraft: (typed: String, content: String)?) {
-        var patch = changedFields(from: snapshot, title: item.title ?? "", description: item.description ?? "",
+        var patch = changedFields(from: baseline, title: item.title ?? "", description: item.description ?? "",
                                   supplementalNote: item.supplementalNote ?? "")
         if item.isPublic != snapshot.isPublic { patch.isPublic = item.isPublic }
         if item.attributes.location != snapshot.attributes.location { patch.attributes = item.attributes }
@@ -831,12 +846,17 @@ struct ItemDetailView: View {
     /// `media.transcript`, pinning the sheet to its stale blob. A pending location now keeps just
     /// the location over the server's (fresh) attributes. An optimistic Sharing flip is kept the
     /// same way (L5).
+    ///
+    /// Plan 16: the title is compared and merged as the field shows it (`baseline`,
+    /// `ItemDisplay.editableRow`) — an untouched empty placeholder field takes a server title that
+    /// arrives meanwhile (the transcription job's AI title, via realtime), and a new object name
+    /// still reads as empty.
     private func adopt(_ incoming: Item) {
         let unsavedLocation = item.attributes.location != snapshot.attributes.location
         var next = mergePreservingDetail(
             local: item,
-            incoming: incoming,
-            hasUnsavedTitle: (item.title ?? "") != (snapshot.title ?? ""),
+            incoming: ItemDisplay.editableRow(incoming),
+            hasUnsavedTitle: (item.title ?? "") != (baseline.title ?? ""),
             hasUnsavedDescription: (item.description ?? "") != (snapshot.description ?? ""),
             hasUnsavedSupplementalNote: (item.supplementalNote ?? "") != (snapshot.supplementalNote ?? ""),
             hasUnsavedLocation: false,

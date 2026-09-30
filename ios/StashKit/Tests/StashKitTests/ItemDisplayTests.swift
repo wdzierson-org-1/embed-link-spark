@@ -60,6 +60,81 @@ final class ItemDisplayTests: XCTestCase {
         XCTAssertEqual(ItemDisplay.displayTitle(for: screenshot), "Screenshot")
     }
 
+    // MARK: - Detail title field (plan 16)
+
+    /// Will's device screenshot: a voice note's detail sheet was titled with its raw storage object
+    /// name (`f200ad94-32d7-4b39-bcfc-313b…`). The title field now holds an object name as EMPTY;
+    /// every other stored title — a real file name included — is the user's and is shown as stored.
+    func testEditableRowEmptiesOnlyObjectNameTitles() {
+        func shown(_ title: String?) -> String? { ItemDisplay.editableRow(item(.audio, title: title)).title }
+        XCTAssertEqual(shown("f200ad94-32d7-4b39-bcfc-313b5e0a9c41.m4a"), "")
+        XCTAssertEqual(shown(" 1758945584318.jpg\n"), "")
+        XCTAssertEqual(shown("Standup notes"), "Standup notes")
+        XCTAssertEqual(shown("Q3 plan.pdf"), "Q3 plan.pdf")
+        XCTAssertNil(shown(nil))
+        XCTAssertEqual(shown(""), "")
+    }
+
+    /// The empty field's placeholder is what the card shows for the same row: the type label for an
+    /// object name (subtypes included), the plain "Untitled" prompt otherwise.
+    func testTitlePlaceholderIsTheCardsTypeLabelForObjectNames() {
+        let uuidName = "ce47f779-d541-461e-b534-f6da3af7e452.m4a"
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: item(.audio, title: uuidName)), "Voice note")
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: item(.image, title: "1758945584318.jpg")), "Photo")
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: item(.video, title: uuidName)), "Video")
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: item(.document, title: uuidName)), "File")
+        let recording = item(.audio, title: uuidName, media: MediaAttributes(durationS: 900))
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: recording), "Recording")
+        let screenshot = item(.image, title: "1758945584318.png", media: MediaAttributes(extra: ["kind": .string("screenshot")]))
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: screenshot), "Screenshot")
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: item(.audio, title: nil)), "Untitled")
+        XCTAssertEqual(ItemDisplay.titlePlaceholder(for: item(.audio, title: "Standup")), "Untitled")
+    }
+
+    /// The sheet's save baseline: it seeds its fields from `editableRow(server)` and diffs against
+    /// `editableRow(snapshot)` with the same `changedFields` every autosave uses. Opening and closing
+    /// never writes a title (the server's job may still replace the object name with an AI title);
+    /// typing one saves it; typing and clearing again is no edit; a meaningful title is untouched.
+    func testEditBaselineNeverWritesAPlaceholderTitle() {
+        let server = item(.audio, title: "f200ad94-32d7-4b39-bcfc-313b5e0a9c41.m4a")
+        let shown = ItemDisplay.editableRow(server)
+        var expected = server
+        expected.title = ""
+        XCTAssertEqual(shown, expected, "Only the title changes")
+
+        func patch(typed title: String, over row: Item) -> ItemPatch {
+            changedFields(from: ItemDisplay.editableRow(row), title: title, description: "", supplementalNote: "")
+        }
+        XCTAssertTrue(patch(typed: shown.title ?? "", over: server).isEmpty, "Opening and closing must not write a title")
+        XCTAssertEqual(patch(typed: "Groceries", over: server).title, "Groceries")
+        XCTAssertTrue(patch(typed: "", over: server).isEmpty, "Typed, then cleared again: nothing to write")
+
+        let named = item(.audio, title: "Standup")
+        XCTAssertEqual(ItemDisplay.editableRow(named), named)
+        XCTAssertTrue(patch(typed: "Standup", over: named).isEmpty)
+        XCTAssertEqual(patch(typed: "", over: named).title, "", "Clearing a real title is still an edit")
+    }
+
+    /// `adopt` merges a fresher server row through the same baseline: an AI title arriving while the
+    /// sheet is open (the transcription job's write, via realtime) replaces the empty placeholder
+    /// field, a title the user is typing is kept, and a new object name still reads as empty.
+    func testAServerTitleReplacesThePlaceholderButNotATypedTitle() {
+        let snapshot = item(.audio, title: "f200ad94-32d7-4b39-bcfc-313b5e0a9c41.m4a")
+        func adopt(_ incomingTitle: String, field: String) -> String? {
+            var local = ItemDisplay.editableRow(snapshot)
+            local.title = field
+            var incoming = snapshot
+            incoming.title = incomingTitle
+            let hasUnsavedTitle = field != (ItemDisplay.editableRow(snapshot).title ?? "")
+            return mergePreservingDetail(local: local, incoming: ItemDisplay.editableRow(incoming),
+                                         hasUnsavedTitle: hasUnsavedTitle, hasUnsavedDescription: false,
+                                         hasUnsavedSupplementalNote: false, hasUnsavedLocation: false).title
+        }
+        XCTAssertEqual(adopt("Grocery run ideas", field: ""), "Grocery run ideas")
+        XCTAssertEqual(adopt("Grocery run ideas", field: "My title"), "My title")
+        XCTAssertEqual(adopt("1758945584318.m4a", field: ""), "")
+    }
+
     // MARK: - Subtypes (web CardBits.tsx parity)
 
     func testAudioKindPrefersMediaKindOverDuration() {

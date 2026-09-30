@@ -2327,10 +2327,16 @@ final class StashUITests: XCTestCase {
         XCTAssertEqual(captureCard.value as? String, "idle", "Expected the composer card to return to idle once the (empty) editor is blurred")
     }
 
-    /// Plan 12, Task 3 (device notes 6 + 7): the "Search your stash" pill fades/collapses as the
-    /// grid scrolls (and comes back once scrolled to the top), the old item-count row is gone
-    /// outright, and every quiet way of leaving the keyboard up now has a dismissal — a Cancel
-    /// affordance that clears the query and drops the keyboard together.
+    /// Plan 12, Task 3 (device notes 6 + 7), rebuilt in plan 16: the "Search your stash" pill is the
+    /// first element of the grid's scroll content, so scrolling carries it away with the cards
+    /// (fading as it goes, never collapsing over them — Will's screenshot had it half covered by the
+    /// first card) and scrolling back to the top brings it back; the old item-count row is gone
+    /// outright; the pill never moves while its field is focused; and every quiet way of leaving the
+    /// keyboard up has a dismissal — a Cancel affordance that clears the query and drops the
+    /// keyboard together. (`LibraryDetailUITests` samples the pill's frame step by step.) Signs in
+    /// with `launchSignedIn` + `--uitest-tab-view` (no tab-bar tap — iOS 26 swallows one while the
+    /// sign-in keyboard is still going away), so it runs on the iOS 26 simulators too.
+    @MainActor
     func testLibrarySearchBarFadesAndKeyboardDismisses() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -2339,8 +2345,20 @@ final class StashUITests: XCTestCase {
             app.descendants(matching: .any)[identifier]
         }
 
-        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
-                      "Expected the tab bar to appear after sign-in")
+        /// Polls `condition` until it holds or `timeout` passes (frames aren't KVO-observable).
+        func eventually(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                if condition() { return true }
+                usleep(200_000)
+            }
+            return condition()
+        }
+
+        launchSignedIn(app, arguments: ["--uitest-tab-view"], email: email, password: password)
+        // A fresh simulator's Passwords app offers "Save Password?" over the app after a sign-in
+        // (seen on iOS 26.5) — decline it so it can't cover the pill.
+        if app.buttons["Not Now"].waitForExistence(timeout: 3) { app.buttons["Not Now"].tap() }
 
         // Plan 12 removes the item-count row outright (not just its text) — the identifier
         // must be gone from the tree entirely.
@@ -2348,23 +2366,27 @@ final class StashUITests: XCTestCase {
                         "library.itemCount should have been removed (Task 3: hide the item count)")
 
         let searchField = app.textFields["library.search"]
+        let pill = anyElement("library.search.pill")
         let grid = anyElement("library.grid")
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
         XCTAssertTrue(grid.waitForExistence(timeout: 15), "Library grid did not appear")
+        XCTAssertTrue(anyElement("card.0").waitForExistence(timeout: 15), "Expected at least one card")
         XCTAssertTrue(searchField.isHittable, "Expected the search pill visible/hittable at the top of the list")
+        let restPillMinY = pill.frame.minY
 
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: search-fade-top\n".data(using: .utf8)!)
         sleep(2)
 
-        // 1. Scrolling the grid up (swipe up) fades the pill out and it stops taking taps —
-        // `isHittable` is the one thing XCUITest can observe here (SwiftUI opacity isn't
-        // exposed directly), so the view is also `allowsHitTesting(false)` once nearly
-        // transparent, which is what actually flips this.
+        // 1. Scrolling the grid up (swipe up) carries the pill up and away with the cards: it
+        // leaves its resting slot and stops taking taps once it has faded out — `isHittable` is
+        // the one thing XCUITest can observe of that (SwiftUI opacity isn't exposed directly), so
+        // the view is also `allowsHitTesting(false)` once nearly transparent. It stays in the tree.
         grid.swipeUp()
         grid.swipeUp()
         sleep(1) // let the scroll settle before reading hit-testability
-        XCTAssertTrue(searchField.exists, "Search field should still exist in the tree once faded (identifier isn't removed, just non-hittable)")
-        XCTAssertFalse(searchField.isHittable, "Expected the search pill to stop being hittable once scrolled past the fade distance")
+        XCTAssertTrue(searchField.exists, "Search field should still exist in the tree once scrolled away (identifier isn't removed, just non-hittable)")
+        XCTAssertFalse(searchField.isHittable, "Expected the search pill to stop being hittable once scrolled away")
+        XCTAssertLessThan(pill.frame.maxY, restPillMinY, "Expected the pill to have scrolled up out of its resting slot")
 
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: search-fade-mid-scroll\n".data(using: .utf8)!)
         sleep(2)
@@ -2372,23 +2394,48 @@ final class StashUITests: XCTestCase {
         // 2. Scrolling back down (toward the top) restores it. Four swipes, not two: two
         // swipe-ups' worth of content can be more than two swipe-downs reliably cancel out
         // (observed flake), whereas over-swiping down is harmless once already at the top — the
-        // scroll view just clamps/bounces there.
+        // scroll view just clamps/bounces there (and may pull to refresh, which settles back).
         grid.swipeDown()
         grid.swipeDown()
         grid.swipeDown()
         grid.swipeDown()
-        sleep(1) // let the scroll settle before reading hit-testability
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Search field should exist after scrolling back to the top")
-        XCTAssertTrue(searchField.isHittable, "Expected the search pill hittable again after returning to the top")
+        XCTAssertTrue(eventually(10) { searchField.isHittable && abs(pill.frame.minY - restPillMinY) <= 1 },
+                      "Expected the search pill back in its resting slot, hittable (at \(pill.frame.minY), rest \(restPillMinY))")
 
-        // 3. Typing into the field brings up the keyboard and a Cancel affordance; tapping
-        // Cancel is the standard-iOS-search way to clear AND dismiss in one tap (device note 7:
-        // "no way to hide the keyboard in a smart way after... the user clears the search box").
+        // 3. Part-way out (still visible), tapping into it brings the pill all the way back before
+        // anything is typed — it never sits half-hidden while focused. Short slow drags with a hold
+        // at the end, so nothing flings; the pill's centre stays below the status bar.
+        let window = app.windows.firstMatch.frame
+        let dragStart = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: window.midX, dy: window.midY + 120))
+        for _ in 0..<5 where pill.frame.minY > restPillMinY - 6 {
+            dragStart.press(forDuration: 0.05, thenDragTo: dragStart.withOffset(CGVector(dx: 0, dy: -14)),
+                            withVelocity: .slow, thenHoldForDuration: 0.25)
+            usleep(400_000)
+        }
+        XCTAssertLessThan(pill.frame.minY, restPillMinY - 3, "Expected the pill part-way scrolled out")
+        XCTAssertTrue(searchField.isHittable, "Expected the part-way pill still tappable")
         searchField.tap()
-        let needle = "zzzunmatchablezzz"
-        searchField.typeText(needle)
         XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "Expected the keyboard up once the search field is focused")
+        XCTAssertTrue(eventually(3) { abs(pill.frame.minY - restPillMinY) <= 1 },
+                      "Expected the focused pill fully back in view (at \(pill.frame.minY), rest \(restPillMinY))")
 
+        // 4. Typing never moves it: the grid under it changes (local filter → searching → the
+        // server's answer), the pill stays put, focused, with the keyboard up.
+        let needle = "zzzunmatchablezzz"
+        for chunk in ["zzz", "unmatchable", "zzz"] {
+            searchField.typeText(chunk)
+            XCTAssertEqual(pill.frame.minY, restPillMinY, accuracy: 1, "The pill moved while typing '\(chunk)'")
+            XCTAssertTrue(searchField.isHittable, "The pill stopped being hittable while typing '\(chunk)'")
+        }
+        XCTAssertTrue(waitForLibrarySearchToSettle(app), "Search for '\(needle)' never settled")
+        XCTAssertEqual(pill.frame.minY, restPillMinY, accuracy: 1, "The pill moved once the results settled")
+        XCTAssertTrue(app.keyboards.element.exists, "Expected the keyboard still up while the field is focused")
+        XCTAssertEqual(searchField.value as? String, needle, "Expected the typed query intact in the field")
+
+        // 5. Tapping Cancel is the standard-iOS-search way to clear AND dismiss in one tap (device
+        // note 7: "no way to hide the keyboard in a smart way after... the user clears the search box").
         let cancelButton = app.buttons["library.search.cancel"]
         XCTAssertTrue(cancelButton.waitForExistence(timeout: 5), "Expected a Cancel affordance while the search field is focused")
 

@@ -1,8 +1,8 @@
 import Foundation
 
 /// Display-only presentation rules for library cards (plan 15, Task 3) and the detail sheet's
-/// empty Transcript tab. Nothing here is ever written back to the row — these only decide what
-/// the UI SHOWS.
+/// title field (plan 16) and empty Transcript tab. Nothing here is ever written back to the row —
+/// these only decide what the UI SHOWS (and, for the title field, what counts as an edit).
 public enum ItemDisplay {
     /// Voice note vs. long recording — mirrors web `audioSubtype` (`src/components/cards/
     /// CardBits.tsx`): enrichment's `attributes.media.kind` wins when it is one of the two known
@@ -33,15 +33,52 @@ public enum ItemDisplay {
 
     /// The card's title. The trimmed title when it means something; "Untitled" when empty; and a
     /// type label ("Voice note", "Recording", "Photo", "Screenshot", "Video", "File") when the title
-    /// is only a storage object name — a UUID (`72322570-….m4a`, iOS share/Voice Memos) or a
-    /// millisecond timestamp (`1727040000000.jpg`, older uploads) — which carries no meaning to a
-    /// person scanning their library. Ports `isUuidObjectName`/`isStorageTimestampName` from
-    /// `src/utils/titlePolicy.ts`; the detail sheet keeps showing (and editing) the raw title.
+    /// is only a storage object name (`isObjectName`), which carries no meaning to a person
+    /// scanning their library. The detail sheet shows such a title as an empty field with this same
+    /// label as its placeholder (`editableRow`/`titlePlaceholder`).
     public static func displayTitle(for item: Item) -> String {
         let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if trimmed.isEmpty { return "Untitled" }
-        if isUuidObjectName(trimmed) || isStorageTimestampName(trimmed) { return typeLabel(for: item) }
+        if isObjectName(trimmed) { return typeLabel(for: item) }
         return trimmed
+    }
+
+    /// Whether a stored title is only a storage object name — a UUID (`72322570-….m4a`, iOS share/
+    /// Voice Memos) or a millisecond timestamp (`1727040000000.jpg`, older uploads). Ports
+    /// `isUuidObjectName`/`isStorageTimestampName` from `src/utils/titlePolicy.ts`. The server's own
+    /// `isPlaceholderTitle` is wider (any file-name-shaped title) and is what lets its jobs replace
+    /// such a title with an AI one; this narrower rule is only about what reads as meaningless.
+    public static func isObjectName(_ title: String?) -> Bool {
+        guard let title else { return false }
+        return isUuidObjectName(title) || isStorageTimestampName(title)
+    }
+
+    // MARK: - Detail title field (plan 16)
+    //
+    // Will's device screenshot: a voice note's detail sheet was titled with its raw object name
+    // (`f200ad94-32d7-4b39-bcfc-313b…`) — the card's fallback didn't reach the sheet. The sheet's
+    // title field now starts EMPTY for such a title, with the card's type label as its placeholder.
+    // The sheet seeds its fields from `editableRow(server)` and diffs every save against
+    // `editableRow(snapshot)`, so the empty field is not an edit: opening and closing the sheet
+    // never writes a title (an empty one would turn the card's "Voice note" into "Untitled"; the
+    // object name stays, for the server's jobs to replace with an AI title), typing one saves it,
+    // and an AI title arriving while the sheet is open replaces the placeholder
+    // (`mergePreservingDetail` sees no unsaved title).
+
+    /// The detail title field's placeholder: the card's type label when the stored title is an
+    /// object name — the empty field reads the way the card does — and "Untitled" otherwise.
+    public static func titlePlaceholder(for item: Item) -> String {
+        isObjectName(item.title) ? typeLabel(for: item) : "Untitled"
+    }
+
+    /// `server` as the detail sheet's fields show it: an object-name title reads as empty; every
+    /// other title (a real file name included — it's the user's words) and every other column is
+    /// untouched. The sheet's seed and its save baseline.
+    public static func editableRow(_ server: Item) -> Item {
+        guard isObjectName(server.title) else { return server }
+        var row = server
+        row.title = ""
+        return row
     }
 
     /// Human label for an item's type, used when its title is only an object name.
