@@ -590,6 +590,43 @@ RPC and an edge function that other agents will meet in the schema.
 
 ---
 
+## 2026-09-07 · Server-side paywall (launch punch list B5)
+
+Backend-only; no visual change on web. Every client is affected by the new
+`403`.
+
+- **Capture and Ask now enforce the subscription on the server.** `add-note`,
+  `add-url`, `add-file` and `chat-with-all-content` answer
+  `403 { "error": "subscription_required", "message": "Your trial has ended. Add a payment method at gostash.it/settings to keep capturing and asking.", "status": "<stripe status>" }`
+  for a lapsed account. The rule mirrors the web client's gate
+  (`src/hooks/useSubscription.tsx`): blocked only on a definitive lapsed
+  Stripe status (`paused`, `canceled`, `unpaid`, `past_due`, `incomplete`,
+  `incomplete_expired`); `trialing`, `active`, no-subscription-yet (`none`)
+  and unknown all pass, so a brand-new account's first save is never blocked
+  by the signup → trial race, and a Stripe outage degrades to the last known
+  answer rather than a lock-out. Decision module
+  `supabase/functions/_shared/entitlement.ts` (unit-tested, import-free);
+  Deno adapter `entitlementGate.ts`.
+- **`subscription_status_cache`** (migration `20260907130000`): a
+  service-role-only table (RLS on, no policies, no client grants) holding each
+  user's last Stripe status + customer id. Written by `check-subscription` on
+  every call (the web client polls it every 30 s), by the gate itself when the
+  row is missing or older than 5 minutes (one Stripe round-trip, then cached),
+  and by the new `stripe-webhook`.
+- **`stripe-webhook`** (deployed, inert until configured): verifies the Stripe
+  signature and upserts the cache on `customer.subscription.*` events, so a
+  trial ending or a payment failing takes effect immediately instead of on the
+  next poll. Will's step: register
+  `https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/stripe-webhook` in
+  the Stripe dashboard for those events and run
+  `supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_… --project-ref uqqsgmwkvslaomzxptnp`.
+  Until then the function answers `503` and polling alone feeds the cache.
+- **Clients**: web already blocks before calling (banner + disabled capture),
+  so users see no change. iOS and the extension should map
+  `403 subscription_required` to their existing "trial ended — subscribe on
+  gostash.it" copy instead of a generic failure (the extension currently shows
+  the bare `!` badge — punch list B13).
+
 ## 2026-09-07 · Hashtag-free link titles (platform) + iOS Ask composer cleanup
 
 Will's notes, same day: LinkedIn titles "often have hashtags in the titles —

@@ -24,6 +24,20 @@ serve(async (req) => {
     { auth: { persistSession: false } }
   );
 
+  // Keep the server-side paywall's view current: subscription_status_cache is
+  // what the entitlement gate in add-*/chat reads (see _shared/entitlementGate.ts).
+  // The client polls this function every 30 s, so the cache is normally fresh
+  // and captures never wait on Stripe. Non-fatal.
+  const cacheStatus = async (userId: string, status: string, customerId: string | null) => {
+    const { error } = await supabaseClient.from("subscription_status_cache").upsert({
+      user_id: userId,
+      status,
+      stripe_customer_id: customerId,
+      checked_at: new Date().toISOString(),
+    });
+    if (error) logStep("cache write failed", { message: error.message });
+  };
+
   try {
     logStep("Function started");
 
@@ -57,6 +71,7 @@ serve(async (req) => {
     
     if (customers.data.length === 0) {
       logStep("No Stripe customer found - user needs trial subscription");
+      await cacheStatus(user.id, "none", null);
       return new Response(JSON.stringify({ 
         subscribed: false,
         subscriptionStatus: null,
@@ -84,6 +99,7 @@ serve(async (req) => {
 
     if (subscriptions.data.length === 0) {
       logStep("Customer exists but no subscription found");
+      await cacheStatus(user.id, "none", customerId);
       return new Response(JSON.stringify({
         subscribed: false,
         subscriptionStatus: null,
@@ -101,6 +117,7 @@ serve(async (req) => {
 
     const subscription = subscriptions.data[0];
     const status = subscription.status;
+    await cacheStatus(user.id, status, customerId);
     const isTrialing = status === 'trialing';
     const isActive = status === 'active';
     const isPaused = status === 'paused';

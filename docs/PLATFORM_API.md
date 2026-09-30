@@ -21,6 +21,14 @@ owner is always derived from the JWT server-side — never sent by the client.
 
 ## Capture
 
+**Entitlement (server-enforced since 2026-09-07).** Every capture endpoint
+below, and Ask, returns
+`403 { "error": "subscription_required", "message": "…", "status": "<stripe status>" }`
+when the account's Stripe subscription is lapsed (`paused`, `canceled`,
+`unpaid`, `past_due`, `incomplete`, `incomplete_expired`). Trialing, active,
+and accounts with no subscription yet pass. Show `message`, link to
+`gostash.it/settings`, and do not retry.
+
 Every capture endpoint (`add-url`, `add-note`, `add-file`) accepts an optional
 `attributes` object in the request body — structured facts about the item
 (location, link metadata, media info; shapes defined in

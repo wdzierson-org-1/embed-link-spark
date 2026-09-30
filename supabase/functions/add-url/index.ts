@@ -2,6 +2,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
 import { afterDraining } from '../_shared/capture.ts';
 import { cleanMetaText, cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtmlEntities } from '../_shared/textHygiene.ts';
+import { requireEntitlement } from '../_shared/entitlementGate.ts';
+import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
@@ -242,6 +244,10 @@ Deno.serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       ));
     }
+    const denied = await requireEntitlement(supabase, user, corsHeaders);
+    // The paywall answers before the body is read; without draining first the
+    // gateway turns this 403 into a hang for anything over ~0.5 MB.
+    if (denied) return await afterDraining(req, denied);
 
     const body = await req.json();
     console.log('add-url called', { hasAttributes: !!body.attributes, url: body.url });
