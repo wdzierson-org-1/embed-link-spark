@@ -40,10 +40,11 @@ struct ItemDetailContent: View {
     var flushNotesNow: () async -> Void
     /// Plan 14 Task 2 ("Transcribe with speakers") — all three owned/driven by `ItemDetailView`
     /// (same "the view that already talks to the network owns the state" split every other save
-    /// site here follows): `isTranscribing` disables the button and swaps its label,
-    /// `transcriptionErrorMessage` renders inline under this section's header on failure (the
-    /// previous transcript stays exactly as it was — this is purely a display concern), and
-    /// `onTranscribeWithSpeakers` is the trigger `ItemDetailView.retranscribe()` hands down.
+    /// site here follows): `isTranscribing` disables the button and swaps its label (also while
+    /// the server's own job for the item runs — final wave B), `transcriptionErrorMessage` renders
+    /// inline under this section's header on failure (the transcript shown is always the server's
+    /// — this is purely a display concern), and `onTranscribeWithSpeakers` is the trigger
+    /// `ItemDetailView.retranscribe()` hands down.
     let isTranscribing: Bool
     let transcriptionErrorMessage: String?
     var onTranscribeWithSpeakers: () -> Void

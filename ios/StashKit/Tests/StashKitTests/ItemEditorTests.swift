@@ -136,7 +136,7 @@ final class ItemEditorTests: XCTestCase {
     // every other field on this type) driven by the detail sheet's `LocationRow`. It must never
     // count toward `touchesTextFields` (web parity: `itemOperations.ts:100-101` gates the
     // embedding refresh on title/description/content/supplemental_note only — an attributes-only
-    // save changes nothing `buildEmbeddingText` reads).
+    // save changes nothing the server's embedding text reads).
 
     func testAttributesPatchEncodesFullBlobInRestBody() throws {
         let attrs = ItemAttributes(location: CapturedLocation(label: "Testville", source: "manual"),

@@ -216,6 +216,35 @@ final class ChatStoreTests: XCTestCase {
         XCTAssertFalse(history.persisted.contains { $0.role == "assistant" })
     }
 
+    /// Final wave B: chat-with-all-content's own paywall (`403 subscription_required`) rolls the
+    /// exchange back like any pre-token failure, but is reported as a subscription refusal — the
+    /// view shows its gate copy — never as the generic "Failed to get a response."
+    func testAServerPaywallRefusalIsReportedAsASubscriptionRefusal() async {
+        let streamer = StubStreamer()
+        streamer.thrown = ChatStreamError.subscriptionRequired
+        let queue = PersistQueue()
+        let history = StubHistory()
+        let store = makeStore(streamer: streamer, history: history, persistQueue: queue)
+
+        await store.send("gated question")
+        await queue.drain()
+
+        XCTAssertTrue(store.messages.isEmpty, "the refused exchange is rolled back")
+        XCTAssertEqual(store.errorRestoredInput, "gated question")
+        XCTAssertNil(store.errorMessage, "not the generic failure copy")
+        XCTAssertEqual(store.subscriptionRefusals, 1)
+        XCTAssertFalse(store.isStreaming)
+        XCTAssertFalse(history.persisted.contains { $0.role == "assistant" })
+
+        // Every refusal is its own observable change; any other failure is still generic.
+        await store.send("gated again")
+        XCTAssertEqual(store.subscriptionRefusals, 2)
+        streamer.thrown = ChatStreamError.badStatus(500)
+        await store.send("server broke")
+        XCTAssertEqual(store.subscriptionRefusals, 2)
+        XCTAssertEqual(store.errorMessage, "Failed to get a response.")
+    }
+
     func testServerErrorBeforeTheFirstTokenRollsBack() async {
         let streamer = StubStreamer()
         streamer.events = [.status(.searching), .serverError("boom")]

@@ -46,7 +46,10 @@ struct LibraryView: View {
 
     /// The whole library; the instant local filter while a search is typed/in flight (or if the
     /// server can't be reached); and, once `search-items` answers, its results — literal matches
-    /// first (`rankedSearchResults`), reaching `page_body` and pages not loaded yet.
+    /// first (`rankedSearchResults`), reaching `page_body` and pages not loaded yet. The local
+    /// filter matches the same plain card text the ranking does (`matchesCardText` — a rich note
+    /// is read as its words, never its TipTap JSON), so a card can't match while the server is
+    /// pending and then drop out (or jump) once it answers.
     private var displayedItems: [Item] {
         let query = trimmedQuery
         guard !query.isEmpty else { return store.items }
@@ -54,7 +57,7 @@ struct LibraryView: View {
             return rankedSearchResults(query: query, rankedIds: ids, rowFor: store.item(withId:),
                                        localPool: store.items)
         }
-        return store.items.filter { $0.matches(searchQuery: query) }
+        return store.items.filter { $0.matchesCardText(searchQuery: query) }
     }
 
     /// True while the server search for the CURRENT query hasn't answered yet.
@@ -270,6 +273,13 @@ struct LibraryView: View {
 /// See `LibraryView.grid`'s trailing comment for why this exists instead of the usual
 /// GeometryReader/PreferenceKey trick. Invisible and zero-size; must sit inside the
 /// `ScrollView`'s own content so walking `superview` reaches the real `UIScrollView`.
+///
+/// Reports are never delivered synchronously (final wave B): the KVO callback also fires when
+/// SwiftUI's OWN layout moves the content — the collapsing search bar resizes the scroll view, the
+/// grid's content changes — i.e. inside a view update, and writing `@State` there is undefined
+/// behavior. That was the "Modifying state during view update" runtime issue every UI test logged
+/// once it reached the View tab (unified-log backtraces: `scrollOffset.setter` ← this KVO handler,
+/// 15 times in one `testLibrarySmoke`). See `Coordinator.offsetChanged`.
 private struct LibraryScrollOffsetObserver: UIViewRepresentable {
     var onChange: (CGFloat) -> Void
 
@@ -279,21 +289,23 @@ private struct LibraryScrollOffsetObserver: UIViewRepresentable {
         let view = ProbeView()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
+        context.coordinator.onChange = onChange
         // `didMoveToWindow` (not a post-`makeUIView` `DispatchQueue.main.async` guess) is the
         // correct hook: it fires once this view's FULL ancestor chain — up through the real
         // `UIScrollView` and into the window — actually exists. An async dispatch fired too
         // early here only ever saw one wrapper level (`PlatformViewHost<...>`) with a still-nil
         // superview above it, silently finding no scroll view (verified empirically).
-        view.onWindowAttach = { [weak view] in
-            guard let view else { return }
-            context.coordinator.attach(from: view, onChange: onChange)
+        view.onWindowAttach = { [weak view, weak coordinator = context.coordinator] in
+            guard let view, let coordinator else { return }
+            coordinator.attach(from: view)
         }
         return view
     }
 
     func updateUIView(_ uiView: ProbeView, context: Context) {
+        context.coordinator.onChange = onChange
         guard context.coordinator.observation == nil, uiView.window != nil else { return }
-        context.coordinator.attach(from: uiView, onChange: onChange)
+        context.coordinator.attach(from: uiView)
     }
 
     /// Zero-size marker `UIView` that reports the one moment it's safe to walk up for the
@@ -309,19 +321,44 @@ private struct LibraryScrollOffsetObserver: UIViewRepresentable {
 
     final class Coordinator {
         var observation: NSKeyValueObservation?
+        var onChange: ((CGFloat) -> Void)?
+        /// The newest offset not handed over yet (non-nil while a hand-over is scheduled).
+        private var pending: CGFloat?
+        private var lastReported: CGFloat?
 
-        func attach(from view: UIView, onChange: @escaping (CGFloat) -> Void) {
+        func attach(from view: UIView) {
             guard observation == nil else { return }
             var ancestor = view.superview
             while let candidate = ancestor {
                 if let scrollView = candidate as? UIScrollView {
-                    onChange(max(0, scrollView.contentOffset.y + scrollView.adjustedContentInset.top))
-                    observation = scrollView.observe(\.contentOffset, options: [.new]) { scrollView, _ in
-                        onChange(max(0, scrollView.contentOffset.y + scrollView.adjustedContentInset.top))
+                    offsetChanged(Self.offset(of: scrollView))
+                    observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
+                        self?.offsetChanged(Self.offset(of: scrollView))
                     }
                     return
                 }
                 ancestor = candidate.superview
+            }
+        }
+
+        private static func offset(of scrollView: UIScrollView) -> CGFloat {
+            max(0, scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
+        }
+
+        /// Hands the newest offset to SwiftUI on the next main-queue turn — outside whatever view
+        /// update may be running now — coalescing a burst into one write and skipping a value that
+        /// didn't change. That turn normally comes before the next frame is drawn, so the search
+        /// bar's fade still tracks the finger.
+        private func offsetChanged(_ offset: CGFloat) {
+            let alreadyScheduled = pending != nil
+            pending = offset
+            guard !alreadyScheduled else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let offset = self.pending else { return }
+                self.pending = nil
+                guard offset != self.lastReported else { return }
+                self.lastReported = offset
+                self.onChange?(offset)
             }
         }
     }

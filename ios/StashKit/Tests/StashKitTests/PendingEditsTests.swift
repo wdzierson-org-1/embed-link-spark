@@ -99,6 +99,7 @@ final class FakeSession: PendingEditsSession, @unchecked Sendable {
     private let lock = NSLock()
     private var user: UUID?
     private var error: Error?
+    private var readError: Error?
     private var reads = 0
     private let server: FakeRowServer?
 
@@ -115,6 +116,11 @@ final class FakeSession: PendingEditsSession, @unchecked Sendable {
         get { lock.withLock { error } }
         set { lock.withLock { error = newValue } }
     }
+    /// Thrown by the verifying read (e.g. `.unverifiable` for a 5xx) — nothing may be concluded.
+    var verifyingReadError: Error? {
+        get { lock.withLock { readError } }
+        set { lock.withLock { readError = newValue } }
+    }
     var verifyingReads: Int { lock.withLock { reads } }
 
     func accessToken(for userId: UUID) async throws -> String {
@@ -125,9 +131,50 @@ final class FakeSession: PendingEditsSession, @unchecked Sendable {
     }
 
     func rowExists(itemId: UUID, accessToken: String) async throws -> Bool {
-        lock.withLock { reads += 1 }
+        let readError = lock.withLock { () -> Error? in
+            reads += 1
+            return self.readError
+        }
+        if let readError { throw readError }
         return server?.row(itemId) != nil
     }
+}
+
+/// Answers every request of a `URLSession` built with `StubbedHTTP.session()` with `respond`'s
+/// canned status and body, and remembers the requests — for `SupabasePendingEditsSession.rowExists`.
+final class StubbedHTTP: URLProtocol {
+    private static let lock = NSLock()
+    private static var responder: (URLRequest) -> (status: Int, body: Data) = { _ in (500, Data()) }
+    private static var seen: [URLRequest] = []
+
+    static var requests: [URLRequest] { lock.withLock { seen } }
+
+    static func session(respond: @escaping (URLRequest) -> (status: Int, body: Data)) -> URLSession {
+        lock.withLock {
+            responder = respond
+            seen = []
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubbedHTTP.self]
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let answer = Self.lock.withLock { () -> (status: Int, body: Data) in
+            Self.seen.append(request)
+            return Self.responder(request)
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: answer.status, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: answer.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
 
 /// A send the server answered and refused (not a transport failure).
@@ -612,5 +659,185 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertEqual(saved.title, "b2", "item b never waited on item a's stalled write")
         server.release()
         _ = try await slow.value
+    }
+
+    // MARK: - Re-journaling and the refusal budget (final wave B)
+
+    /// The sheet re-journals everything unconfirmed on every dismiss and every trip to the
+    /// background. Recording a value that is already queued must not count as a change — otherwise
+    /// each app switch would reset the backoff of an edit the server keeps refusing.
+    func testReJournalingAnUnchangedValueKeepsItsBackoff() async throws {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.error = ServerRefusal()
+        let clock = TestClock(t0)
+        let userId = UUID()
+        let queue = makeQueue(userId: userId, server: server, clock: clock)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "refused"), capturedAt: t0)
+        await queue.flush(editor: makeEditor(server))
+        let refused = try XCTUnwrap(queue.edit(for: row.id))
+        XCTAssertEqual(refused.attempts, 1)
+        XCTAssertEqual(refused.nextAttemptAt, t0.addingTimeInterval(30))
+
+        clock.now = t0.addingTimeInterval(5)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "refused"), capturedAt: clock.now)   // dismiss journal
+
+        XCTAssertEqual(queue.edit(for: row.id), refused, "nothing changed — not the value, backoff, count or revision")
+        XCTAssertEqual(PendingEdits(userId: userId, directory: directory).edit(for: row.id), refused)
+        await queue.flush(editor: makeEditor(server))
+        XCTAssertEqual(server.patches.count, 1, "still backing off")
+    }
+
+    /// A genuinely new value is due at once AND gets a fresh refusal budget: it was never refused.
+    func testAGenuinelyNewValueStartsAFreshRefusalBudget() async throws {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.error = ServerRefusal()
+        let clock = TestClock(t0)
+        let queue = makeQueue(server: server, clock: clock)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "refused"), capturedAt: t0)
+        let editor = makeEditor(server)
+        for _ in 1...3 {
+            await queue.flush(editor: editor)
+            clock.now = clock.now.addingTimeInterval(7 * 60 * 60)
+        }
+        XCTAssertEqual(queue.edit(for: row.id)?.attempts, 3)
+
+        queue.record(itemId: row.id, patch: ItemPatch(description: "a new field"), capturedAt: clock.now)
+
+        let edit = try XCTUnwrap(queue.edit(for: row.id))
+        XCTAssertEqual(edit.attempts, 0)
+        XCTAssertNil(edit.nextAttemptAt)
+        XCTAssertEqual(edit.title?.value, "refused", "the older value stays queued alongside it")
+    }
+
+    /// For a queued location only the location is ever applied, so a re-journaled blob whose other
+    /// keys moved on (the server rewrote `media.transcript` meanwhile) is not a new value either.
+    func testReJournalingTheSameLocationIsNotAChange() throws {
+        let queue = makeQueue()
+        let id = UUID()
+        let location = CapturedLocation(label: "Lisbon", source: "manual")
+        queue.record(itemId: id, patch: ItemPatch(attributes: ItemAttributes(location: location)), capturedAt: t0)
+        let queued = try XCTUnwrap(queue.edit(for: id))
+
+        let newerBlob = ItemAttributes(location: location,
+                                       media: MediaAttributes(extra: ["transcript": .object(["status": .string("done")])]))
+        queue.record(itemId: id, patch: ItemPatch(attributes: newerBlob), capturedAt: t0.addingTimeInterval(9))
+        XCTAssertEqual(queue.edit(for: id), queued)
+
+        let moved = CapturedLocation(label: "Porto", source: "manual")
+        queue.record(itemId: id, patch: ItemPatch(attributes: ItemAttributes(location: moved)), capturedAt: t0.addingTimeInterval(10))
+        XCTAssertEqual(queue.edit(for: id)?.attributes?.value.location, moved)
+        XCTAssertEqual(queue.edit(for: id)?.revision, queued.revision + 1)
+    }
+
+    // MARK: - Verification (final wave B)
+
+    /// A zero-row answer whose verifying read gets no clear answer (a 5xx, a garbled body):
+    /// nothing may be concluded — the edit is kept exactly as it was, neither discarded nor counted.
+    func testAnUnverifiableZeroRowAnswerKeepsTheEditUntouched() async throws {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.rlsHidesRows = true
+        let owner = UUID()
+        let session = FakeSession(signedIn: owner, server: server)
+        session.verifyingReadError = PendingEditsSessionError.unverifiable
+        let queue = makeQueue(userId: owner, session: session)
+        queue.record(itemId: row.id, patch: ItemPatch(content: "keep me"), capturedAt: t0)
+        let before = try XCTUnwrap(queue.edit(for: row.id))
+
+        await queue.flush(editor: makeEditor(server))
+
+        XCTAssertEqual(server.patches.count, 1)
+        XCTAssertEqual(session.verifyingReads, 1)
+        XCTAssertEqual(queue.edit(for: row.id), before, "not discarded, not counted, not backed off")
+        XCTAssertTrue(fileExists(queue, row.id))
+    }
+
+    func testRowExistsAsksPostgRESTWithExactlyTheVerifiedToken() async throws {
+        let itemId = UUID()
+        let session = SupabasePendingEditsSession(urlSession: StubbedHTTP.session { _ in
+            (200, Data(#"[{"id":"\#(itemId.uuidString.lowercased())"}]"#.utf8))
+        })
+
+        let exists = try await session.rowExists(itemId: itemId, accessToken: "verified-jwt")
+
+        XCTAssertTrue(exists)
+        let request = try XCTUnwrap(StubbedHTTP.requests.first)
+        let url = try XCTUnwrap(request.url)
+        XCTAssertEqual(url.host, StashConfig.supabaseURL.host)
+        XCTAssertEqual(url.path, "/rest/v1/items")
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first { $0.name == "id" }?.value, "eq.\(itemId.uuidString.lowercased())")
+        XCTAssertEqual(query.first { $0.name == "select" }?.value, "id")
+        XCTAssertEqual(request.httpMethod ?? "GET", "GET")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer verified-jwt")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "apikey"), StashConfig.supabaseAnonKey)
+    }
+
+    func testRowExistsAnswersOnlyFromAClearReply() async throws {
+        let itemId = UUID()
+        let gone = SupabasePendingEditsSession(urlSession: StubbedHTTP.session { _ in (200, Data("[]".utf8)) })
+        let goneAnswer = try await gone.rowExists(itemId: itemId, accessToken: "t")
+        XCTAssertFalse(goneAnswer, "200 [] — the only reply that means \"no such row\"")
+
+        for (status, body) in [(401, #"{"message":"JWT expired"}"#), (503, ""), (200, "<html>proxy</html>")] {
+            let session = SupabasePendingEditsSession(urlSession: StubbedHTTP.session { _ in (status, Data(body.utf8)) })
+            do {
+                _ = try await session.rowExists(itemId: itemId, accessToken: "t")
+                XCTFail("HTTP \(status) '\(body)' must not be read as an answer")
+            } catch {
+                XCTAssertEqual(error as? PendingEditsSessionError, .unverifiable, "HTTP \(status)")
+            }
+        }
+    }
+
+    // MARK: - Direct location saves (final wave B)
+
+    /// The detail sheet's own location save goes onto the server's CURRENT attributes, never the
+    /// sheet's copy: keys production wrote meanwhile (the transcription job's `media.transcript`,
+    /// enrichment's `enrichment.*`) are not rolled back.
+    func testSaveLocationReplacesOnlyTheLocationOnTheServersCurrentAttributes() async throws {
+        let stale = ItemAttributes(media: MediaAttributes(durationS: 30, extra: ["transcript": .object(["status": .string("pending")])]))
+        let row = makeItem(attributes: stale)
+        let server = FakeRowServer(rows: [row])
+        let done = JSONValue.object(["status": .string("done"), "chunks_done": .number(1)])
+        let enrichment = JSONValue.object(["status": .string("complete"),
+                                           "protected_fields": .object(["title": .bool(true)])])
+        server.update(row.id) {
+            $0.attributes.media?.extra["transcript"] = done
+            $0.attributes.media?.extra["kind"] = .string("voice_note")
+            $0.attributes.extra["enrichment"] = enrichment
+        }
+        let lisbon = CapturedLocation(label: "Lisbon", source: "manual")
+
+        let saved = try await makeEditor(server).saveLocation(itemId: row.id, location: lisbon)
+
+        let sent = try XCTUnwrap(server.patches.first?.1)
+        XCTAssertEqual(sent, ItemPatch(attributes: server.row(row.id)?.attributes), "one attributes-only PATCH")
+        XCTAssertEqual(saved.attributes.location, lisbon)
+        XCTAssertEqual(saved.attributes.media?.extra["transcript"], done, "the server's newer transcript status survives")
+        XCTAssertEqual(saved.attributes.media?.extra["kind"], .string("voice_note"))
+        XCTAssertEqual(saved.attributes.extra["enrichment"], enrichment, "enrichment state survives")
+        XCTAssertEqual(saved.attributes.media?.durationS, 30)
+
+        // Removing it works the same way.
+        let cleared = try await makeEditor(server).saveLocation(itemId: row.id, location: nil)
+        XCTAssertNil(cleared.attributes.location)
+        XCTAssertEqual(cleared.attributes.extra["enrichment"], enrichment)
+    }
+
+    func testSaveLocationOnAnUnreadableRowFailsWithoutWriting() async {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.rlsHidesRows = true
+        do {
+            _ = try await makeEditor(server).saveLocation(itemId: row.id,
+                                                         location: CapturedLocation(label: "Lisbon", source: "manual"))
+            XCTFail("expected itemNotFound")
+        } catch {
+            XCTAssertEqual(error as? ItemEditorError, .itemNotFound)
+        }
+        XCTAssertTrue(server.patches.isEmpty, "no blind whole-blob write when the current one can't be read")
     }
 }

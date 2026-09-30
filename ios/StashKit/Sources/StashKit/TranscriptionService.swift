@@ -2,112 +2,163 @@ import Foundation
 import Observation
 import Supabase
 
-/// Plan 14 Task 2 ("Transcribe with speakers"): mirrors the web's `TranscriptContent.tsx`
-/// `retranscribe` exactly — resolve the item's stored media URL the same way `Item.thumbnailURL`
-/// already does (`ItemRules.swift`; that computed property is generic over `file_path`, not
-/// actually thumbnail-specific, so reusing it here is the "same URL resolution" the brief calls
-/// for rather than a second hand-rolled copy of the http-vs-storage-path branch), invoke
-/// `transcribe-audio` with `{audioUrl, fileName}`, then PATCH ONLY `page_body` + `description` —
-/// never `content`, which is the user's own notes and this flow must never touch. Web parity:
-/// `supabase.from('items').update({ page_body, description })`.
+/// "Transcribe with speakers" (plan 14 Task 2) runs as the SERVER's transcription job (final wave
+/// B). Deployed `transcribe-audio` v28 (verified against its source) has two modes:
 ///
-/// Decoded success body of `transcribe-audio` (deployed v27: `gpt-4o-transcribe-diarize`,
-/// diarized Markdown in `transcription`). Both fields are optional on the wire — a malformed or
-/// empty response is a legitimate failure mode this type has to detect itself, not something the
-/// JSON decoder can reject up front.
-public struct TranscriptionOutcome: Sendable, Decodable {
-    public let transcription: String?
-    public let description: String?
+/// - **Preview** `{ audioUrl, fileName }` — synchronous, what this used to call. It now answers
+///   `200 { transcription: "", deferred: true }` for any file over 24 MiB (the client showed an
+///   endless "try again"), and the client then PATCHed `page_body`/`description` with the user's
+///   token, which the `protect_enrichment_edits` trigger records as USER edits
+///   (`attributes.enrichment.protected_fields`), shutting later enrichment out of both fields.
+/// - **Job** `{ itemId, rebuild: true }` — `202 { accepted: true }` at once (after resetting
+///   `attributes.media.transcript` to `pending`); the job then owns every write with the service
+///   role: the transcript into `page_body` (chunk by chunk — files of any size are split
+///   server-side), `description`, `summary`, an AI title when the title is still a file name,
+///   `media.kind`, embeddings, and `media.transcript` (`processing` → `done` / `failed`).
+///
+/// iOS uses the job for every file. The client starts it, watches `media.transcript.status`
+/// (`TranscriptJobState`, kept loss-lessly in `MediaAttributes.extra`) until the job settles, then
+/// reads the finished row. It never writes the item itself.
 
-    public init(transcription: String?, description: String?) {
-        self.transcription = transcription
-        self.description = description
+/// Where the server's transcription job for an audio/video item stands: `attributes.media.transcript`
+/// (spec 2026-09-09 "long audio transcription"), written only by `transcribe-audio` and `add-file`.
+public struct TranscriptJobState: Equatable, Sendable {
+    public enum Status: String, Sendable {
+        case pending, processing, done, failed
+    }
+
+    public let status: Status
+    public let chunksDone: Int?
+    public let chunksTotal: Int?
+    /// Only when failed: `download_failed`, `no_audio_track`, `unsupported_container`,
+    /// `transcription_failed`, `no_speech`.
+    public let error: String?
+    /// When the job last touched the status (server clock).
+    public let updatedAt: Date?
+
+    /// A running job touches its status at least once per chunk; the server's own sweep resumes a
+    /// stalled one after 15 minutes. A pending/processing status older than this is treated as
+    /// stalled — no longer shown as running, so a new run can be started.
+    public static let staleAfter: TimeInterval = 20 * 60
+
+    public init(status: Status, chunksDone: Int? = nil, chunksTotal: Int? = nil, error: String? = nil,
+                updatedAt: Date? = nil) {
+        self.status = status
+        self.chunksDone = chunksDone
+        self.chunksTotal = chunksTotal
+        self.error = error
+        self.updatedAt = updatedAt
+    }
+
+    /// `nil` when the item has no transcript status (anything but audio/video, or legacy rows).
+    public init?(attributes: ItemAttributes) {
+        guard case .object(let transcript)? = attributes.media?.extra["transcript"],
+              case .string(let raw)? = transcript["status"], let status = Status(rawValue: raw)
+        else { return nil }
+        func int(_ key: String) -> Int? {
+            if case .number(let value)? = transcript[key] { return Int(value) }
+            return nil
+        }
+        var error: String?
+        if case .string(let code)? = transcript["error"] { error = code }
+        var updatedAt: Date?
+        if case .string(let stamp)? = transcript["updated_at"] { updatedAt = Self.parseTimestamp(stamp) }
+        self.init(status: status, chunksDone: int("chunks_done"), chunksTotal: int("chunks_total"),
+                  error: error, updatedAt: updatedAt)
+    }
+
+    /// Pending or processing, and touched within `staleAfter` of `now`.
+    public func isRunning(at now: Date) -> Bool {
+        guard status == .pending || status == .processing, let updatedAt else { return false }
+        return now.timeIntervalSince(updatedAt) < Self.staleAfter
+    }
+
+    /// The job writes `new Date().toISOString()` (fractional seconds); plain seconds also accepted.
+    static func parseTimestamp(_ stamp: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: stamp) { return date }
+        return ISO8601DateFormatter().date(from: stamp)
     }
 }
 
-/// Typed failures for `TranscriptionService.retranscribe` — every case leaves the item's existing
-/// `page_body` untouched server-side; this type never mutates anything before a PATCH actually
-/// succeeds, so a caller catching any of these is guaranteed the previous transcript is intact.
+/// How a watched job ended.
+public enum TranscriptionOutcome: Equatable, Sendable {
+    /// `done` — the finished row (`page_body` included), read after the job's last write.
+    case finished(Item)
+    /// `failed` — the row as it stands (whatever the job wrote before failing; `nil` if it couldn't
+    /// be read) and the job's error code.
+    case failed(Item?, reason: String?)
+}
+
+/// Why no outcome came back from `TranscriptionService`.
 public enum TranscriptionServiceError: Error, Equatable, Sendable {
-    /// No `file_path` on the item — nothing to rebuild from (mirrors the web's `if (!filePath)
-    /// return` guard; the UI is expected to hide the button entirely in this case, same as web).
+    /// No `file_path` on the item — nothing to rebuild from (the UI hides the button then).
     case noStoredMedia
-    /// The `transcribe-audio` invoke itself failed (network, function error, non-2xx).
-    case invokeFailed(String)
-    /// The function returned a 2xx with no usable transcript text — web parity: `if
-    /// (transcriptionError || !data?.transcription?.trim()) throw`.
-    case emptyTranscript
-    /// The transcript came back fine but the `items` PATCH failed — the OLD transcript is still
-    /// the one live on the server; nothing was overwritten.
-    case patchFailed(String)
-    /// A run for this item is already in progress (possibly started from a sheet that has since
-    /// been closed) — nothing new was started.
+    /// The job couldn't be started (network, auth, non-2xx) — nothing changed on the server.
+    case startFailed(String)
+    /// The client stopped watching (`TranscriptionService.maxWait`) before it could deliver an
+    /// outcome — the job outlasted the wait (it carries on server-side, and the item's
+    /// `media.transcript` still says so), or it finished but the row couldn't be read back. Nothing
+    /// to report to the user; the list picks the result up like any server change.
+    case stoppedWatching
+    /// This app is already watching a job for the item (possibly started from a sheet since
+    /// closed) — nothing new was started.
     case alreadyRunning
 }
 
-/// Injection point for the `transcribe-audio` call — mirrors `AccountDeletionTransport`'s "stubbed
-/// transport" shape (StashKitTests hits this with a canned/throwing stub, never the network).
-public protocol TranscriptionInvoking: Sendable {
-    func invoke(audioUrl: String, fileName: String) async throws -> TranscriptionOutcome
+/// The transcription job's network surface — stubbed in `StashKitTests`.
+public protocol TranscriptionJobClient: Sendable {
+    /// `POST transcribe-audio { itemId, rebuild: true }` — succeeds on the `202`.
+    func startRebuild(itemId: UUID) async throws
+    /// The row's current `attributes`, or `nil` when it can't be read.
+    func currentAttributes(itemId: UUID) async throws -> ItemAttributes?
+    /// The full detail row, `page_body` included.
+    func fetchDetail(itemId: UUID) async throws -> Item
 }
 
-/// Real network transport. Plan 15 (M9): its OWN request and session, not
-/// `StashClient.shared.functions.invoke` — that goes through `URLSession.shared` with the default
-/// 60 s request timeout, but `transcribe-audio` is fully synchronous (download → diarized
-/// transcription → summary → respond), so the first response byte of a long memo can take minutes.
-/// At 60 s the client gave up with "Couldn't update the transcript" while the server finished and
-/// its (paid-for) result was thrown away.
-///
-/// The client now allows 300 s, so it is never the one to give up first — but the Supabase
-/// gateway itself answers 504 after ~150 s with no response byte, so a memo whose diarization takes
-/// longer than that still fails (and its result is still lost). Fixing that needs the server's
-/// async transcription job (the server PATCHes, the client observes) — a follow-up, not built here.
-public struct FunctionsTranscriptionInvoker: TranscriptionInvoking {
-    /// How long the client waits for `transcribe-audio`'s response (it sends nothing until it's
-    /// done). The gateway's own ~150 s limit is the effective ceiling today.
-    public static let requestTimeout: TimeInterval = 300
-
-    /// One session for every run, with the request and resource timeouts both covering a full
-    /// `requestTimeout` wait (the per-request `timeoutInterval` is set too, so neither the session
-    /// default nor the request default can cut it short).
-    private static let session: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = requestTimeout
-        configuration.timeoutIntervalForResource = requestTimeout + 60
-        return URLSession(configuration: configuration)
-    }()
-
+public struct SupabaseTranscriptionJobClient: TranscriptionJobClient {
     public init() {}
 
+    /// The job answers `202` as soon as it has reset the status; no long wait.
+    public static let startTimeout: TimeInterval = 30
+
     /// `POST <supabase>/functions/v1/transcribe-audio` with the platform's two auth headers and
-    /// `{audioUrl, fileName}` — the same body the web sends. Pure, for tests.
-    public static func request(audioUrl: String, fileName: String, accessToken: String) throws -> URLRequest {
+    /// `{ itemId, rebuild: true }` (the function checks the caller owns the item). Pure, for tests.
+    public static func startRequest(itemId: UUID, accessToken: String) throws -> URLRequest {
         var request = URLRequest(url: StashConfig.supabaseURL.appending(path: "/functions/v1/transcribe-audio"))
         request.httpMethod = "POST"
-        request.timeoutInterval = requestTimeout
+        request.timeoutInterval = startTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(StashConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["audioUrl": audioUrl, "fileName": fileName])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["itemId": itemId.uuidString.lowercased(),
+                                                                      "rebuild": true])
         return request
     }
 
-    public func invoke(audioUrl: String, fileName: String) async throws -> TranscriptionOutcome {
+    public func startRebuild(itemId: UUID) async throws {
         let accessToken = try await StashClient.shared.auth.session.accessToken
-        let request = try Self.request(audioUrl: audioUrl, fileName: fileName, accessToken: accessToken)
-        let (data, response) = try await Self.session.data(for: request)
+        let (_, response) = try await URLSession.shared.data(for: Self.startRequest(itemId: itemId, accessToken: accessToken))
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(status) else {
-            throw TranscriptionServiceError.invokeFailed("transcribe-audio answered HTTP \(status)")
+            throw TranscriptionServiceError.startFailed("transcribe-audio answered HTTP \(status)")
         }
-        return try JSONDecoder().decode(TranscriptionOutcome.self, from: data)
+    }
+
+    public func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
+        try await SupabaseItemPatcher().currentAttributes(itemId: itemId)
+    }
+
+    public func fetchDetail(itemId: UUID) async throws -> Item {
+        try await SupabaseItemsFetcher().fetchDetail(id: itemId)
     }
 }
 
-/// Which items have a "Transcribe with speakers" run in flight, app-wide (plan 15, M9). A run can
-/// take minutes and keeps going after its sheet is closed, so the busy state lives here rather than
-/// in the sheet: reopening the item still shows "Transcribing…", and a second (duplicate, paid)
-/// run for the same item can't be started.
+/// Which items this app is watching a transcription job for, app-wide (plan 15, M9). A job can
+/// take minutes and keeps going after its sheet is closed, so the busy state lives here rather
+/// than in the sheet: reopening the item still shows "Transcribing…", and a second (duplicate,
+/// paid) run for the same item can't be started meanwhile.
 @MainActor @Observable
 public final class TranscriptionActivity {
     public static let shared = TranscriptionActivity()
@@ -118,108 +169,116 @@ public final class TranscriptionActivity {
 
     public func isRunning(_ itemId: UUID) -> Bool { itemIds.contains(itemId) }
 
-    /// `false` when a run for `itemId` is already in progress.
+    /// `false` when `itemId` is already being watched.
     func begin(_ itemId: UUID) -> Bool { itemIds.insert(itemId).inserted }
 
     func end(_ itemId: UUID) { itemIds.remove(itemId) }
 }
 
-/// Injection point for the `page_body`/`description`-only PATCH — deliberately its OWN protocol,
-/// not a reuse of `ItemPatching`/`ItemPatch`: `ItemPatch` has no `pageBody` field at all (notes
-/// autosave and the title/description/content fields never touch that column — see its own doc
-/// comment), and giving it one just for this one call site would let every other `ItemPatch` user
-/// accidentally start writing `page_body` too. A narrow, purpose-built protocol keeps the
-/// "never touches `content`" guarantee enforced by the type signature itself, not just convention.
-public protocol TranscriptPatching: Sendable {
-    func patchTranscript(itemId: UUID, pageBody: String, description: String?) async throws -> Item
-}
-
-public struct SupabaseTranscriptPatcher: TranscriptPatching {
-    public init() {}
-
-    public func patchTranscript(itemId: UUID, pageBody: String, description: String?) async throws -> Item {
-        var body: [String: AnyJSON] = ["page_body": .string(pageBody)]
-        // `description` is genuinely optional on the wire (`TranscriptionOutcome.description`) —
-        // web parity sends whatever `data.description` is, including `null`/absent, rather than
-        // inventing a fallback; a present-but-nil value here is a deliberate "clear it" write,
-        // not "leave the column alone" (unlike `ItemPatch.attributes`'s different convention).
-        body["description"] = description.map(AnyJSON.string) ?? .null
-        let data = try await StashClient.shared.from("items")
-            .update(body)
-            .eq("id", value: itemId.uuidString)
-            .select(Item.detailColumns)
-            .single()
-            .execute().data
-        return try Item.decoder.decode(Item.self, from: data)
-    }
-}
-
-/// Orchestrates one "Transcribe with speakers" run: resolve media URL → invoke → guard non-empty
-/// → PATCH `page_body`/`description` → schedule an embedding refresh from the merged row (same
-/// decoupled, never-awaited shape `ItemEditor.save` already uses via the shared
-/// `EmbeddingRefresher`) → return the updated item for the caller to adopt into its own state and
-/// the item store. Any thrown error means nothing was written — the caller's existing `item.pageBody`
-/// is still correct to display.
+/// Starts and watches the server's transcription job for an item (see the top of this file).
 @MainActor
 public final class TranscriptionService {
-    private let invoker: TranscriptionInvoking
-    private let patcher: TranscriptPatching
-    private let refresher: EmbeddingRefresher
-    private let activity: TranscriptionActivity
-    private let writeQueue: ItemWriteQueue
+    /// How long the client keeps watching one job. A 45-minute recording (three chunks) takes a
+    /// few minutes; past this the job still finishes server-side and the item says so.
+    public static let maxWait: TimeInterval = 30 * 60
 
-    /// `activity`/`writeQueue` default to the app-wide shared instances (tests pass their own).
-    public init(invoker: TranscriptionInvoking = FunctionsTranscriptionInvoker(),
-                patcher: TranscriptPatching = SupabaseTranscriptPatcher(),
-                refresher: EmbeddingRefresher,
-                activity: TranscriptionActivity? = nil,
-                writeQueue: ItemWriteQueue? = nil) {
-        self.invoker = invoker
-        self.patcher = patcher
-        self.refresher = refresher
-        self.activity = activity ?? .shared
-        self.writeQueue = writeQueue ?? .shared
+    /// Every 3 s for the first minute (a voice memo is usually done by then), every 8 s after.
+    public static func pollInterval(afterWaiting elapsed: TimeInterval) -> TimeInterval {
+        elapsed < 60 ? 3 : 8
     }
 
-    public func retranscribe(item: Item) async throws -> Item {
-        // `item.thumbnailURL` (ItemRules.swift) is the one place this codebase already resolves
-        // `file_path` into a playable/fetchable URL — "an http-prefixed external URL or storage
-        // path either way" per that property's own doc comment — so reusing it here is genuinely
-        // the SAME resolution, not a parallel copy that could drift from it.
-        guard let filePath = item.filePath, !filePath.isEmpty, let audioURL = item.thumbnailURL else {
-            throw TranscriptionServiceError.noStoredMedia
-        }
+    private let client: TranscriptionJobClient
+    private let activity: TranscriptionActivity
+    private let writeQueue: ItemWriteQueue
+    private let now: () -> Date
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
+
+    /// `activity`/`writeQueue` default to the app-wide shared instances; tests pass their own, and
+    /// their own clock and sleep.
+    public init(client: TranscriptionJobClient = SupabaseTranscriptionJobClient(),
+                activity: TranscriptionActivity? = nil,
+                writeQueue: ItemWriteQueue? = nil,
+                now: @escaping () -> Date = Date.init,
+                sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
+                    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                }) {
+        self.client = client
+        self.activity = activity ?? .shared
+        self.writeQueue = writeQueue ?? .shared
+        self.now = now
+        self.sleep = sleep
+    }
+
+    /// "Transcribe with speakers": rebuilds the item's transcript from its recording on the server
+    /// and waits for the result. Throws before anything starts for `.noStoredMedia`/
+    /// `.alreadyRunning`/`.startFailed`; `.stoppedWatching` when no outcome came by `maxWait`.
+    public func retranscribe(item: Item) async throws -> TranscriptionOutcome {
+        guard let filePath = item.filePath, !filePath.isEmpty else { throw TranscriptionServiceError.noStoredMedia }
         guard activity.begin(item.id) else { throw TranscriptionServiceError.alreadyRunning }
         defer { activity.end(item.id) }
-        let fileName = filePath.split(separator: "/").last.map(String.init) ?? filePath
-
-        let outcome: TranscriptionOutcome
         do {
-            outcome = try await invoker.invoke(audioUrl: audioURL.absoluteString, fileName: fileName)
+            try await client.startRebuild(itemId: item.id)
         } catch let error as TranscriptionServiceError {
             throw error
         } catch {
-            throw TranscriptionServiceError.invokeFailed(error.localizedDescription)
+            throw TranscriptionServiceError.startFailed(error.localizedDescription)
         }
+        return try await watch(itemId: item.id)
+    }
 
-        guard let transcription = outcome.transcription?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !transcription.isEmpty else {
-            throw TranscriptionServiceError.emptyTranscript
-        }
+    /// Follows a job that is already running server-side — the sheet opened while one ran (a fresh
+    /// recording's first transcription, or a rebuild started from a sheet since closed) — until it
+    /// settles. `nil` when this app already watches the item (that watcher delivers the result).
+    public func follow(itemId: UUID) async throws -> TranscriptionOutcome? {
+        guard activity.begin(itemId) else { return nil }
+        defer { activity.end(itemId) }
+        return try await watch(itemId: itemId)
+    }
 
-        let updated: Item
-        do {
-            // Same per-item write order as every detail-sheet save (`ItemWriteQueue`): this PATCH
-            // also writes `description`, so it must not overtake (or be overtaken by) a queued edit.
-            updated = try await writeQueue.enqueue(itemId: item.id) { [patcher] in
-                try await patcher.patchTranscript(itemId: item.id, pageBody: transcription,
-                                                  description: outcome.description)
+    /// Polls `media.transcript.status` until `done`/`failed`, then reads the row. A read that fails
+    /// (offline for a moment) is just retried: the job doesn't depend on this client.
+    private func watch(itemId: UUID) async throws -> TranscriptionOutcome {
+        let startedAt = now()
+        func elapsed() -> TimeInterval { now().timeIntervalSince(startedAt) }
+        var settled: TranscriptJobState?
+        while settled == nil {
+            if elapsed() >= Self.maxWait { throw TranscriptionServiceError.stoppedWatching }
+            try await sleep(Self.pollInterval(afterWaiting: elapsed()))
+            let attributes: ItemAttributes?
+            do {
+                attributes = try await client.currentAttributes(itemId: itemId)
+            } catch {
+                if error is CancellationError { throw error }
+                continue
             }
-        } catch {
-            throw TranscriptionServiceError.patchFailed(error.localizedDescription)
+            guard let attributes else { return .failed(nil, reason: nil) }   // deleted, or not readable
+            if let job = TranscriptJobState(attributes: attributes), job.status == .done || job.status == .failed {
+                settled = job
+            }
         }
+        let row = try await settledRow(itemId: itemId, startedAt: startedAt)
+        if settled?.status == .done {
+            guard let row else { throw TranscriptionServiceError.stoppedWatching }
+            return .finished(row)
+        }
+        return .failed(row, reason: settled?.error)
+    }
 
-        await refresher.schedule(updated)
-        return updated
+    /// The settled row, read in the item's write slot — after every write to it the sheet already
+    /// started — so adopting it can never roll back a newer save. Retried like the polls; `nil` if
+    /// it still can't be read by `maxWait`.
+    private func settledRow(itemId: UUID, startedAt: Date) async throws -> Item? {
+        while true {
+            do {
+                return try await writeQueue.enqueue(itemId: itemId) { [client] in
+                    try await client.fetchDetail(itemId: itemId)
+                }
+            } catch {
+                if error is CancellationError { throw error }
+                let elapsed = now().timeIntervalSince(startedAt)
+                if elapsed >= Self.maxWait { return nil }
+                try await sleep(Self.pollInterval(afterWaiting: elapsed))
+            }
+        }
     }
 }

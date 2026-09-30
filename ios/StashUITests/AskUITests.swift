@@ -61,11 +61,42 @@ final class AskUITests: XCTestCase {
         XCTAssertTrue(banner.waitForExistence(timeout: 5), "Expected the banner back on the next blocked send")
     }
 
+    /// Final wave B: when the SERVER refuses a question (`403 subscription_required` —
+    /// chat-with-all-content's own paywall, reached when the app's local gate was out of date or
+    /// still failing open), Ask shows the subscription-gate copy — not "Failed to get a response."
+    /// — rolls the exchange back and keeps the question in the composer. `--uitest-scripted-chat`
+    /// refuses questions starting with "gate:" exactly that way, so nothing reaches the server.
+    func testServerSubscriptionRefusalShowsTheGateCopy() throws {
+        let app = XCUIApplication()
+        try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat"])
+        app.tabBars.buttons["Ask"].tap()
+        let input = element(app, "ask.input")
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
+
+        ask(app, "gate: refused by the server")
+
+        let banner = element(app, "ask.gateError")
+        XCTAssertTrue(banner.waitForExistence(timeout: 5), "Expected the subscription gate banner")
+        XCTAssertTrue(banner.label.contains("AI chat needs an active trial or subscription."),
+                      "Expected the gate copy, got '\(banner.label)'")
+        XCTAssertFalse(element(app, "ask.error").exists, "A paywall refusal is not a generic failure")
+        XCTAssertFalse(element(app, "ask.bubble.0").exists, "The refused exchange is rolled back")
+        XCTAssertEqual(input.value as? String, "gate: refused by the server",
+                       "The refused question is back in the composer")
+    }
+
     /// M2 review fix, verified on the iOS 17 floor: the thread follows a streaming answer until
     /// the USER drags it away, and a new send follows again. `--uitest-scripted-chat` swaps in a
     /// local scripted stream (status frames, then ~60 list lines over ~6 s including two
     /// ten-bullet bursts in single deltas) with in-memory history — nothing reaches the server,
     /// so this runs on the gate-blocked account without creating conversations.
+    ///
+    /// Final wave B: on the iOS 17.0 sim this failed every run at (a), for two reasons found with
+    /// scroll-geometry logging: the streaming cursor's `repeatForever` animation had leaked into
+    /// the answer row's layout (content height swinging ~376 pt every 0.6 s, forever — the cursor
+    /// now animates only its own opacity), and the settle scroll ran while the finished answer was
+    /// still being re-measured, resting hundreds of points short (the settle now holds the true end
+    /// for ~1.3 s — `AskView.followThread`).
     ///
     /// Thread rows are `[q1, a1, q2, a2, q3, a3]`, so the answers are bubbles 1, 3 and 5. An
     /// answer has started once its read-aloud button exists (content arrived) and has finished

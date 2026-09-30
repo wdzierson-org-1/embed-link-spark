@@ -94,6 +94,11 @@ public struct PendingEdit: Codable, Equatable, Sendable {
 
     /// Latest-wins per field: each field of `patch` replaces the queued one unless the queued one
     /// was captured later. Returns whether anything changed.
+    ///
+    /// Recording the value already queued again (the sheet re-journals everything unconfirmed on
+    /// every dismiss and every trip to the background) is NOT a change — the queued field, its
+    /// `capturedAt` included, stays as it is, so the entry's backoff isn't reset (final wave B). For
+    /// `attributes` only the location counts, the one part ever applied.
     @discardableResult
     mutating func merge(_ patch: ItemPatch, capturedAt: Date) -> Bool {
         let before = self
@@ -102,7 +107,11 @@ public struct PendingEdit: Codable, Equatable, Sendable {
         content = Self.newer(content, patch.content, capturedAt)
         supplementalNote = Self.newer(supplementalNote, patch.supplementalNote, capturedAt)
         isPublic = Self.newer(isPublic, patch.isPublic, capturedAt)
-        attributes = Self.newer(attributes, patch.attributes, capturedAt)
+        if let queued = attributes, let incoming = patch.attributes, queued.value.location == incoming.location {
+            // Same location: nothing to send that isn't queued already.
+        } else {
+            attributes = Self.newer(attributes, patch.attributes, capturedAt)
+        }
         return self != before
     }
 
@@ -128,7 +137,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
         _ existing: PendingField<Value>?, _ value: Value?, _ capturedAt: Date
     ) -> PendingField<Value>? {
         guard let value else { return existing }
-        if let existing, existing.capturedAt > capturedAt { return existing }
+        if let existing, existing.capturedAt > capturedAt || existing.value == value { return existing }
         return PendingField(value, capturedAt: capturedAt)
     }
 
@@ -236,8 +245,11 @@ public final class PendingEdits {
     // MARK: - Writing
 
     /// Queues `patch`'s fields for `itemId`, latest-wins per field, and writes the entry to disk
-    /// before returning. A changed entry is due again at once (a new value gets a fresh send even
-    /// while an older one was backing off).
+    /// before returning. A genuinely new value makes the entry due again at once with a fresh
+    /// refusal budget (`attempts` back to 0) — a new value gets a fresh send even while an older one
+    /// was backing off. Re-recording values already queued changes nothing (see
+    /// `PendingEdit.merge`): the sheet journals everything unconfirmed on every dismiss and every
+    /// trip to the background, which must not defeat the backoff of an edit the server refuses.
     public func record(itemId: UUID, patch: ItemPatch, capturedAt: Date) {
         guard !patch.isEmpty else { return }
         var edit = entries[itemId] ?? PendingEdit(itemId: itemId, updatedAt: now())
@@ -245,6 +257,7 @@ public final class PendingEdits {
         edit.revision += 1
         edit.updatedAt = now()
         edit.nextAttemptAt = nil
+        edit.attempts = 0
         store(edit)
     }
 
@@ -431,6 +444,35 @@ public final class PendingEdits {
     }
 }
 
+// MARK: - Location writes (final wave B)
+
+public extension ItemEditor {
+    /// Saves a location edit ONTO THE ROW'S CURRENT `attributes`: the blob is read inside the item's
+    /// write slot (after every earlier write to it has finished) and only its `location` is
+    /// replaced — the same read-merge `PendingEdits.flush` applies to a queued location.
+    ///
+    /// Never the sheet's own copy of the blob: production writes `attributes` asynchronously
+    /// (the transcription job's `media.transcript`/`media.kind`, enrichment's `enrichment.*`), so
+    /// a copy read when the sheet opened can be minutes old, and writing it back would roll those
+    /// keys back — and, since `media` and `enrichment.evidence` changes trigger
+    /// `enqueue_enrichment_assessment`, re-queue enrichment too. (The read and the PATCH are two
+    /// requests, so a server write landing between them can still be lost — a much smaller window
+    /// than the sheet's lifetime; closing it needs a server-side jsonb merge.)
+    ///
+    /// Throws `ItemEditorError.itemNotFound` when the row can't be read.
+    func saveLocation(itemId: UUID, location: CapturedLocation?) async throws -> Item {
+        let outcome = try await saveLatest(itemId: itemId) { [self] in
+            guard var attributes = try await currentAttributes(itemId: itemId) else {
+                throw ItemEditorError.itemNotFound
+            }
+            attributes.location = location
+            return (ItemPatch(attributes: attributes), ())
+        }
+        guard let saved = outcome?.item else { throw ItemEditorError.itemNotFound }   // unreachable: the patch is never empty
+        return saved
+    }
+}
+
 // MARK: - Session guard (plan 15 review)
 
 public enum PendingEditsSessionError: Error, Equatable, Sendable {
@@ -458,7 +500,12 @@ public protocol PendingEditsSession: Sendable {
 }
 
 public struct SupabasePendingEditsSession: PendingEditsSession {
-    public init() {}
+    /// What `rowExists` reads through (tests pass a session with a stubbed protocol).
+    private let urlSession: URLSession
+
+    public init(urlSession: URLSession = .shared) {
+        self.urlSession = urlSession
+    }
 
     public func accessToken(for userId: UUID) async throws -> String {
         do {
@@ -476,16 +523,25 @@ public struct SupabasePendingEditsSession: PendingEditsSession {
     }
 
     /// A direct PostgREST read — deliberately not through `StashClient`, whose `adapt` would swap
-    /// in (or, on a failed refresh, fall back from) the token this check must use.
+    /// in (or, on a failed refresh, fall back from) the token this check must use. Only a `200`
+    /// with a JSON array is an answer; anything else is `.unverifiable`.
     public func rowExists(itemId: UUID, accessToken: String) async throws -> Bool {
+        let (data, response) = try await urlSession.data(for: Self.rowExistsRequest(itemId: itemId, accessToken: accessToken))
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw PendingEditsSessionError.unverifiable }
+        struct Row: Decodable { let id: UUID }
+        guard let rows = try? JSONDecoder().decode([Row].self, from: data) else {
+            throw PendingEditsSessionError.unverifiable
+        }
+        return !rows.isEmpty
+    }
+
+    /// `GET /rest/v1/items?id=eq.<id>&select=id` with exactly `accessToken` — pure, for tests.
+    static func rowExistsRequest(itemId: UUID, accessToken: String) -> URLRequest {
         var request = URLRequest(url: StashConfig.supabaseURL.appending(path: "/rest/v1/items")
             .appending(queryItems: [URLQueryItem(name: "id", value: "eq.\(itemId.uuidString.lowercased())"),
                                     URLQueryItem(name: "select", value: "id")]))
         request.setValue(StashConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw PendingEditsSessionError.unverifiable }
-        struct Row: Decodable { let id: UUID }
-        return !(try JSONDecoder().decode([Row].self, from: data)).isEmpty
+        return request
     }
 }

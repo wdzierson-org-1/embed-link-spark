@@ -89,10 +89,9 @@ private struct StalledItemPatcher: ItemPatching {
 final class DetailSheetServices: ObservableObject {
     let editor: ItemEditor
     let fieldDebouncer = Debouncer(interval: .milliseconds(400))
-    /// Plan 14 Task 2 ("Transcribe with speakers"). Its OWN `EmbeddingRefresher` rather than
-    /// sharing `editor`'s: `ItemEditor` doesn't expose the refresher it was built with, and two
-    /// independent per-item debounce timers racing here is harmless.
-    let transcriptionService = TranscriptionService(refresher: EmbeddingRefresher(syncer: SupabaseEmbeddingSyncer()))
+    /// Plan 14 Task 2 ("Transcribe with speakers"), final wave B: starts and watches the server's
+    /// transcription job — the job writes the item (and its embeddings) itself.
+    let transcriptionService = TranscriptionService()
     let summaryGenerator = SummaryGenerator()
     /// The signed-in user's durable queue of unconfirmed edits — the same instance the app-scope
     /// `ItemStore` lays over the library (`PendingEdits.shared(for:)`).
@@ -197,7 +196,13 @@ struct ItemDetailView: View {
         _services = StateObject(wrappedValue: DetailSheetServices(item: start.shown, userId: store.userId))
     }
 
-    private var isTranscribing: Bool { TranscriptionActivity.shared.isRunning(item.id) }
+    /// "Transcribing…" while this app watches a job for the item (`TranscriptionActivity`, app-wide)
+    /// or while the item itself says the server's job is running (`media.transcript` — e.g. a
+    /// fresh recording's first transcription, or a run started before a relaunch).
+    private var isTranscribing: Bool {
+        TranscriptionActivity.shared.isRunning(item.id)
+            || (TranscriptJobState(attributes: item.attributes)?.isRunning(at: Date()) ?? false)
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -262,10 +267,18 @@ struct ItemDetailView: View {
         }
         .presentationCornerRadius(StashRadius.sheet)
         .task { await loadDetailIfNeeded() }
+        .task { await followRunningTranscription() }
         .onChange(of: store.items) { _, _ in
             // The server's version, never the list's (which shows queued edits over it).
             guard let updated = store.serverRow(withId: item.id), updated != snapshot else { return }
+            let transcriptSettled = Self.transcriptJobSettled(from: snapshot, to: updated)
             adopt(updated)
+            // The server's transcription job just finished (realtime): list rows carry no
+            // `page_body`, so read the new transcript — unless this app's own watcher is about to
+            // deliver the finished row anyway.
+            if transcriptSettled, updated.pageBody == nil, !TranscriptionActivity.shared.isRunning(item.id) {
+                Task { await loadDetailIfNeeded(force: true) }
+            }
         }
         // Leaving the foreground with the sheet still open (app switcher, lock, Control Center):
         // queue what's unsaved now. `.inactive` too — a kill from the app switcher isn't
@@ -507,8 +520,11 @@ struct ItemDetailView: View {
     /// says "Saving…" while any autosave is in flight and then reports how the last one ended
     /// (writes to one item finish in order, so that's the newest). Returns the saved row, or nil
     /// when the save failed.
+    ///
+    /// `send` replaces the plain PATCH of `patch` — a location edit is written onto the server's
+    /// current attributes instead (`saveAttributes`); `patch` is still what gets queued.
     @MainActor
-    private func save(_ patch: ItemPatch) async -> Item? {
+    private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> Item? {
         let capturedAt = Date()
         let pendingEdits = services.pendingEdits
         pendingEdits.record(itemId: item.id, patch: patch, capturedAt: capturedAt)
@@ -517,7 +533,9 @@ struct ItemDetailView: View {
         saveStatus = .saving
         var saved: Item?
         do {
-            let result = try await services.editor.save(itemId: item.id, patch: patch)
+            let itemId = item.id
+            let editor = services.editor
+            let result = try await (send ?? { try await editor.save(itemId: itemId, patch: patch) })()
             store.applyDetail(result)
             pendingEdits.confirm(itemId: result.id, patch: patch, capturedAt: capturedAt)
             if services.isLatest(generation) { adopt(result) }
@@ -552,10 +570,21 @@ struct ItemDetailView: View {
     /// 15 (M8): a failure is no longer silent — the footer shows it, the new location stays on
     /// screen, and it's queued like any other field (flushed onto the server's CURRENT attributes,
     /// see `PendingEdits.flush`) instead of vanishing when the sheet closes.
+    ///
+    /// Final wave B: the save itself goes onto the server's current attributes too
+    /// (`ItemEditor.saveLocation` — read in the item's write slot, only `location` replaced). The
+    /// sheet's blob can be minutes old while production writes `attributes` asynchronously (the
+    /// transcription job's `media.transcript`, enrichment's `enrichment.*`); PATCHing it whole
+    /// rolled those back and re-queued enrichment.
     @MainActor
     private func saveAttributes(_ attributes: ItemAttributes) async {
         guard !services.isClosed else { return }
-        _ = await save(ItemPatch(attributes: attributes))
+        let itemId = item.id
+        let location = attributes.location
+        let editor = services.editor
+        _ = await save(ItemPatch(attributes: attributes)) {
+            try await editor.saveLocation(itemId: itemId, location: location)
+        }
     }
 
     /// L5: the Sharing toggle flips at once (optimistic) and bumps the save generation like every
@@ -639,28 +668,69 @@ struct ItemDetailView: View {
         }
     }
 
-    /// Plan 14 Task 2 ("Transcribe with speakers"). `TranscriptionService.retranscribe`
-    /// guarantees a thrown error means nothing was written server-side. Plan 15 (M9): the busy
-    /// state lives app-wide (`TranscriptionActivity`), so it lasts the whole run, even across
-    /// closing and reopening this item, and a second run can't be started meanwhile. The client
-    /// allows 300 s, but the Supabase gateway answers 504 after ~150 s without a response byte, so
-    /// a memo whose diarization takes longer still fails here — that needs the server's async
-    /// transcription job (follow-up).
+    /// Plan 14 Task 2 ("Transcribe with speakers"). Final wave B: the SERVER's transcription job
+    /// (`transcribe-audio { itemId, rebuild: true }`, deployed v28) does the work and every write —
+    /// any file size (long recordings are split server-side, no gateway timeout in the way), and
+    /// the transcript/description land as the job's writes rather than user edits that would shut
+    /// enrichment out of them. `TranscriptionService` starts it, watches `media.transcript`, and
+    /// hands back the finished row, read after any save of this sheet already in flight (so
+    /// adopting it can't roll one back). The busy state lives app-wide (`TranscriptionActivity`,
+    /// plan 15 M9), so it lasts the whole run, even across closing and reopening this item, and a
+    /// second run can't be started meanwhile.
     @MainActor
     private func retranscribe() async {
         guard !isTranscribing else { return }
         transcriptionErrorMessage = nil
-        let generation = services.nextGeneration()
         do {
-            let updated = try await services.transcriptionService.retranscribe(item: item)
-            store.applyDetail(updated)
-            if services.isLatest(generation) { adopt(updated) }
+            let outcome = try await services.transcriptionService.retranscribe(item: item)
+            applyTranscription(outcome, reportFailure: true)
         } catch TranscriptionServiceError.alreadyRunning {
             // A run started earlier (maybe from a sheet since closed) is still going; its result
             // reaches this sheet through the store.
+        } catch TranscriptionServiceError.stoppedWatching {
+            // The job outlasted the wait (it finishes server-side — the item still says it's
+            // running) or finished but couldn't be read back: nothing wrong to report.
         } catch {
-            // Web parity copy (`TranscriptContent.tsx`): the previous transcript is untouched.
+            // The job never started (web parity copy, `TranscriptContent.tsx`): nothing changed.
             transcriptionErrorMessage = "Couldn’t update the transcript. The original is preserved. Please try again."
+        }
+    }
+
+    /// A job was already running when the sheet opened — a fresh recording's first transcription,
+    /// or a rebuild started before the sheet was closed or the app relaunched: follow it, so the
+    /// transcript appears here when it lands. Ends (the job carries on) when the sheet closes.
+    @MainActor
+    private func followRunningTranscription() async {
+        guard let job = TranscriptJobState(attributes: item.attributes), job.isRunning(at: Date()) else { return }
+        guard let outcome = try? await services.transcriptionService.follow(itemId: item.id) else { return }
+        applyTranscription(outcome, reportFailure: false)
+    }
+
+    /// Whether `new` (a server row) reports the item's transcription job settled — done or failed —
+    /// where `old` didn't show that same state.
+    private static func transcriptJobSettled(from old: Item, to new: Item) -> Bool {
+        guard let job = TranscriptJobState(attributes: new.attributes), job.status == .done || job.status == .failed
+        else { return false }
+        return TranscriptJobState(attributes: old.attributes) != job
+    }
+
+    /// Folds a settled job's row into the list and the sheet (the user's unsaved edits are kept —
+    /// `adopt`). A failure is only reported for a run the user started here.
+    @MainActor
+    private func applyTranscription(_ outcome: TranscriptionOutcome, reportFailure: Bool) {
+        switch outcome {
+        case .finished(let row):
+            store.applyDetail(row)
+            adopt(row)
+        case .failed(let row, let reason):
+            if let row {
+                store.applyDetail(row)
+                adopt(row)
+            }
+            guard reportFailure else { return }
+            transcriptionErrorMessage = reason == "no_speech"
+                ? "No speech was detected in this recording."
+                : "Couldn’t update the transcript. Please try again."
         }
     }
 
@@ -824,9 +894,12 @@ struct ItemDetailView: View {
     ///   being read — otherwise it may predate that save, and only its `page_body` is used.
     /// - L6: a failure is remembered, so the source tabs say "Couldn't load" with a retry instead
     ///   of empty-state copy that reads as "there's nothing here".
+    ///
+    /// `force` re-reads even though a `page_body` is on screen — it's known to be stale (the
+    /// server's transcription job just replaced it). The old text stays up while the read runs.
     @MainActor
-    private func loadDetailIfNeeded() async {
-        guard needsSourceContent(item.type), item.pageBody == nil, sourceLoad != .loading else { return }
+    private func loadDetailIfNeeded(force: Bool = false) async {
+        guard needsSourceContent(item.type), force || item.pageBody == nil, sourceLoad != .loading else { return }
         sourceLoad = .loading
         let itemId = item.id
         let generationAtStart = services.latestGeneration

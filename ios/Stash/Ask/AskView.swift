@@ -118,6 +118,13 @@ struct AskView: View {
         .onChange(of: store.errorRestoredInput) { _, restored in
             if let restored { input = restored }
         }
+        // The server's own paywall refused the question (`403 subscription_required`, final wave
+        // B): the same gate copy as the client-side check, and a forced re-check so the local
+        // gate — which let the send through (out of date, or still failing open) — catches up.
+        .onChange(of: store.subscriptionRefusals) { _, _ in
+            gateMessage = Self.gateCopy
+            Task { await subscription.refresh(force: true) }
+        }
         .sheet(item: $citationItem) { item in
             ItemDetailView(item: item, store: citationStore)
         }
@@ -362,6 +369,18 @@ struct AskView: View {
                 try? await Task.sleep(for: .milliseconds(150))
                 guard isFollowing, !threadScroll.userIsScrolling else { return }
                 proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                // Final wave B: the finished answer re-renders (baked citations, actions row) and
+                // the lazy stack re-measures it for a few hundred ms more — on the iOS 17.0
+                // simulator its height went 2401 → 1987 → 2182 pt after the settle scroll, which
+                // then rested 355 pt short of the end. Hold the true end (straight from the
+                // UIScrollView's content size — `scrollTo` works from the lazy stack's stale
+                // estimate) while it settles: bounded, and never under a finger or once the
+                // user has scrolled away.
+                for _ in 0..<12 {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard isFollowing, !threadScroll.userIsScrolling else { return }
+                    threadScroll.pinToEnd()
+                }
             }
         }
     }
@@ -417,13 +436,16 @@ struct AskView: View {
         .accessibilityIdentifier(identifier)
     }
 
-    /// Web toast copy, verbatim (ChatMole.tsx `ask()`'s gate branch).
+    /// Web toast copy, verbatim (ChatMole.tsx `ask()`'s gate branch) — shown for the client-side
+    /// gate and for the server's `403 subscription_required` alike.
+    private static let gateCopy = "AI chat needs an active trial or subscription."
+
     private func sendTapped() {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         clearBanners()
         guard canAsk else {
-            gateMessage = "AI chat needs an active trial or subscription."
+            gateMessage = Self.gateCopy
             return
         }
         input = ""
@@ -434,7 +456,7 @@ struct AskView: View {
     private func retryTapped(messageId: String) {
         clearBanners()
         guard canAsk else {
-            gateMessage = "AI chat needs an active trial or subscription."
+            gateMessage = Self.gateCopy
             return
         }
         isFollowing = true
@@ -701,6 +723,18 @@ final class AskThreadScrollHandle {
         guard let scrollView else { return false }
         return scrollView.isDragging || scrollView.isDecelerating
     }
+
+    /// Scrolls to the true end of the laid-out thread, computed from the UIScrollView's own
+    /// content size (see `AskView.followThread`). Only called from the settle task — never inside
+    /// a view update.
+    @MainActor
+    func pinToEnd() {
+        guard let scrollView else { return }
+        let insets = scrollView.adjustedContentInset
+        let end = max(-insets.top, scrollView.contentSize.height + insets.bottom - scrollView.bounds.height)
+        guard abs(scrollView.contentOffset.y - end) > 0.5 else { return }
+        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: end), animated: false)
+    }
 }
 
 #if DEBUG
@@ -708,10 +742,14 @@ final class AskThreadScrollHandle {
 /// frames first, then a long, list-heavy answer over ~6 s, including two bursts of ten bullets in
 /// a single delta (the case that once outran the throttled follow-scroll), ending in a paragraph
 /// that names the question — "End of the scripted answer to: <question>" — so a UI test can find
-/// each answer's last line.
+/// each answer's last line. A question starting with "gate:" is refused the way the server's
+/// paywall refuses it (`ChatStreamError.subscriptionRequired`, final wave B), before any frame.
 private struct ScriptedChatStreamer: ChatStreaming {
     func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error> {
-        AsyncThrowingStream { continuation in
+        if message.hasPrefix("gate:") {
+            return AsyncThrowingStream { $0.finish(throwing: ChatStreamError.subscriptionRequired) }
+        }
+        return AsyncThrowingStream { continuation in
             let task = Task {
                 continuation.yield(.status(.searching))
                 try? await Task.sleep(for: .milliseconds(400))

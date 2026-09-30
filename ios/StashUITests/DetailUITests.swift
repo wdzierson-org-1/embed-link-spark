@@ -119,6 +119,72 @@ final class DetailUITests: XCTestCase {
                       "Expected the card to show the edited title")
     }
 
+    /// Final wave B: a location edit is written onto the server's CURRENT attributes — never the
+    /// sheet's copy. Production writes `attributes` while a sheet is open (the transcription job's
+    /// `media.transcript`, enrichment's `enrichment.*`); here the test itself writes a key from
+    /// outside the app after the sheet has read its copy, and commits the edit at once — before
+    /// realtime could bring that key into the sheet. The server must keep that key, the seeded
+    /// `link`, and get the new location.
+    @MainActor
+    func testALocationEditKeepsAttributesTheServerWroteWhileTheSheetWasOpen() async throws {
+        let (email, password) = try credentials()
+        let rest = try await RestSession.signIn(email: email, password: password)
+        let epoch = Int(Date().timeIntervalSince1970)
+        let title = "UITEST-DETAIL: location \(epoch)"
+        let seededLocation: [String: Any] = ["label": "Seed Location", "source": "device-geolocation",
+                                             "latitude": 40.7128, "longitude": -74.006]
+        let id = try await rest.insertItem(["type": "text", "title": title, "content": ""],
+                                           attributes: ["location": seededLocation, "link": ["flavor": "article"]])
+        addTeardownBlock { try? await rest.deleteItem(id: id) }
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        let card = libraryCard(app, titled: title)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        card.tap()
+
+        let details = app.descendants(matching: .any)["detail.details"]
+        XCTAssertTrue(details.waitForExistence(timeout: 10), "Details drawer row not found")
+        details.tap()
+        let label = app.descendants(matching: .any)["detail.location.label"]
+        XCTAssertTrue(label.waitForExistence(timeout: 10), "Expected the seeded location")
+        label.tap()
+        let field = app.descendants(matching: .any)["detail.location.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "Location field didn't open")
+        let prefilled = (field.value as? String) ?? ""
+        field.tap()
+        if !prefilled.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: prefilled.count))
+        }
+        field.typeText("Test City")
+
+        // The server writes a key the sheet has never seen — then the edit is committed at once.
+        let marker = "server-write-\(epoch)"
+        var serverAttributes = try await rest.attributes(of: id)
+        serverAttributes["uitest_server_write"] = ["marker": marker]
+        try await rest.setAttributes(of: id, to: serverAttributes)
+        field.typeText("\n")
+
+        let edited = app.descendants(matching: .any)["detail.location.label"]
+        XCTAssertTrue(edited.waitForExistence(timeout: 10), "Expected the edited location row")
+        XCTAssertEqual(edited.label, "posted from Test City")
+
+        var saved: [String: Any] = [:]
+        let deadline = Date().addingTimeInterval(20)
+        repeat {
+            saved = try await rest.attributes(of: id)
+            if (saved["location"] as? [String: Any])?["label"] as? String == "Test City" { break }
+            try await Task.sleep(for: .seconds(1))
+        } while Date() < deadline
+        let location = saved["location"] as? [String: Any]
+        XCTAssertEqual(location?["label"] as? String, "Test City", "The edit reached the server")
+        XCTAssertEqual(location?["source"] as? String, "manual")
+        XCTAssertEqual((saved["uitest_server_write"] as? [String: Any])?["marker"] as? String, marker,
+                       "A key the server wrote while the sheet was open must survive the location save")
+        XCTAssertEqual((saved["link"] as? [String: Any])?["flavor"] as? String, "article")
+        app.buttons["detail.done"].tap()
+    }
+
     // MARK: - Helpers
 
     private func credentials() throws -> (String, String) {
@@ -199,11 +265,11 @@ private struct RestSession: Sendable {
         return request
     }
 
-    func insertItem(_ fields: [String: Any]) async throws -> String {
+    func insertItem(_ fields: [String: Any], attributes: [String: Any] = [:]) async throws -> String {
         var body = fields
         body["user_id"] = userId
         body["is_public"] = false
-        body["attributes"] = [String: Any]()
+        body["attributes"] = attributes
         var request = request("/rest/v1/items", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("return=representation", forHTTPHeaderField: "Prefer")
@@ -237,6 +303,29 @@ private struct RestSession: Sendable {
 
     func content(of id: String) async throws -> String {
         (try await row(of: id)?["content"] as? String) ?? ""
+    }
+
+    func attributes(of id: String) async throws -> [String: Any] {
+        let (data, response) = try await URLSession.shared.data(for: request("/rest/v1/items", query: [
+            URLQueryItem(name: "id", value: "eq.\(id)"),
+            URLQueryItem(name: "select", value: "attributes"),
+        ]))
+        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true,
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], let row = rows.first
+        else { throw Failure(description: "attributes read failed for \(id)") }
+        return row["attributes"] as? [String: Any] ?? [:]
+    }
+
+    /// A write to `attributes` from outside the app — what production's async writers (the
+    /// transcription job, enrichment) do while a detail sheet is open.
+    func setAttributes(of id: String, to attributes: [String: Any]) async throws {
+        var request = request("/rest/v1/items", query: [URLQueryItem(name: "id", value: "eq.\(id)")], method: "PATCH")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["attributes": attributes])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true else {
+            throw Failure(description: "attributes write failed for \(id)")
+        }
     }
 
     func waitForRow(of id: String, timeout: TimeInterval, until matches: ([String: Any]) -> Bool) async throws -> Bool {

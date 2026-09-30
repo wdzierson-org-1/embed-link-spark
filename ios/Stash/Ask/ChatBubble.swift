@@ -40,7 +40,7 @@ struct ChatBubble: View, Equatable {
     let onRetry: () -> Void
 
     @State private var rating: Int?
-    @State private var cursorVisible = true
+    @State private var cursorDimmed = false
 
     nonisolated static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
         lhs.message == rhs.message && lhs.index == rhs.index && lhs.question == rhs.question
@@ -133,15 +133,18 @@ struct ChatBubble: View, Equatable {
         }
     }
 
+    /// The blinking `▍` while an answer streams — same look as ever (opacity 1 ↔ 0.15, ease-in-out
+    /// 0.6 s). Final wave B: the repeating animation is scoped to the cursor's own opacity
+    /// (`.animation(_:value:)`). It used to start as `withAnimation(.repeatForever)` in `onAppear`,
+    /// and that repeating transaction also caught the row's layout change it appeared in: on the
+    /// iOS 17.0 simulator the thread's content height then swung by ~376 pt every 0.6 s, forever
+    /// (even after the answer finished), so the thread could never rest at its end.
     private var streamingCursor: some View {
         Text("▍")
             .foregroundStyle(StashColor.muted)
-            .opacity(cursorVisible ? 1 : 0.15)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
-                    cursorVisible.toggle()
-                }
-            }
+            .opacity(cursorDimmed ? 0.15 : 1)
+            .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: cursorDimmed)
+            .onAppear { cursorDimmed = true }
     }
 
     // MARK: - Sources

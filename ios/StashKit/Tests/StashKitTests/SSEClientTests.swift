@@ -35,6 +35,18 @@ final class SSEClientTests: XCTestCase {
         XCTAssertNil(parseSSELine(#"data: {"status":42}"#))
     }
 
+    /// Final wave B: chat-with-all-content v126 answers a lapsed account with
+    /// `403 {"error":"subscription_required","message":…,"status":…}` (`_shared/entitlementGate.ts`).
+    func testRefusalMapping() {
+        let paywall = Data(#"{"error":"subscription_required","message":"Your trial has ended.","status":"canceled"}"#.utf8)
+        XCTAssertEqual(chatStreamError(status: 403, body: paywall), .subscriptionRequired)
+        XCTAssertEqual(chatStreamError(status: 403, body: Data(#"{"error":"agent tokens can't chat"}"#.utf8)), .badStatus(403),
+                       "any other 403 is not the paywall")
+        XCTAssertEqual(chatStreamError(status: 403, body: Data("not json".utf8)), .badStatus(403))
+        XCTAssertEqual(chatStreamError(status: 500, body: paywall), .badStatus(500), "only a 403 is the paywall")
+        XCTAssertEqual(chatStreamError(status: 401, body: Data()), .badStatus(401))
+    }
+
     func testStatusLabels() {
         XCTAssertEqual(ChatStreamStatus.searching.label, "Searching your stash…")
         XCTAssertEqual(ChatStreamStatus.browsing.label, "Browsing your stash…")

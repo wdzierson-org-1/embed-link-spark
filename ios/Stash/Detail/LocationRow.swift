@@ -15,16 +15,11 @@ import StashKit
 /// lives here. Restyled (Task 6) onto `StashType`/`StashColor` tokens — behavior/identifiers
 /// unchanged.
 ///
-/// Read-modify-write concurrency caveat (matches the web's own "sheet's item prop freezes while
-/// open" comment on `EditItemLocationSection.tsx`): `attributes` is a live `Binding` onto
-/// `ItemDetailView`'s `item.attributes`, so a commit here always reads-modifies-writes whatever
-/// this sheet's CURRENT (freshest-adopted, per `adopt(_:)`/`hasUnsavedLocation`) attributes blob
-/// is — arguably fresher than the web's own frozen-at-open-time snapshot. The same class of race
-/// remains possible in principle: if some other attributes-writing flow's save completed between
-/// this row's last render and the moment the user's edit commits, that write could still be
-/// clobbered by this row's read-modify-write of a blob that (rarely) predates it by a beat. No
-/// second attributes-writing flow exists in this build today (Task 8's Attachments section is
-/// read-only), so this is a latent, not actual, risk — noted for whoever adds the next one.
+/// Only the LOCATION this row produces is ever saved (final wave B): `ItemDetailView` writes it
+/// onto the server's current attributes (`ItemEditor.saveLocation`, read in the item's write
+/// slot), never this sheet's copy of the blob — production writes other attributes keys
+/// asynchronously (the transcription job's `media.transcript`, enrichment's `enrichment.*`), and a
+/// whole-blob write of a copy read when the sheet opened would roll them back.
 struct LocationRow: View {
     @Binding var attributes: ItemAttributes
 

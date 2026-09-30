@@ -41,8 +41,9 @@ public struct ItemPatch: Equatable, Sendable {
     /// `['title','description','content','supplemental_note'].some(field => field in updates)`,
     /// which gates whether a save schedules an embedding refresh. Deliberately excludes
     /// `attributes`: web parity, `itemOperations.ts:100-101` — an attributes-only PATCH (e.g.
-    /// this task's location-row edit) never touches any of the four fields
-    /// `buildEmbeddingText` actually reads, so it must never schedule a refresh either.
+    /// this task's location-row edit) changes nothing the server embeds (`generate-embeddings`
+    /// builds the text from the saved row; a location isn't part of it), so it must never
+    /// schedule a refresh either.
     public var touchesTextFields: Bool {
         title != nil || description != nil || content != nil || supplementalNote != nil
     }

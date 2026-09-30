@@ -33,6 +33,9 @@ private enum ChatStoreError: Error {
 ///   explicit open) still in flight, and every session switch bumps an epoch that makes any
 ///   older in-flight load drop its result instead of overwriting the session a send is using.
 /// - The server's `status` frames show as `ChatMessage.streamStatus` until the first token.
+/// - The server's paywall (`403 subscription_required`, chat-with-all-content v126) rolls the
+///   exchange back like any pre-token failure but is reported as `subscriptionRefusals`, not the
+///   generic "Failed to get a response." (final wave B).
 @MainActor
 @Observable
 public final class ChatStore {
@@ -62,10 +65,16 @@ public final class ChatStore {
     /// or rolled back) — including any wait for the session to resolve first.
     public private(set) var isStreaming = false
     public var errorMessage: String?
-    /// Set alongside `errorMessage` when a question is rolled back (it failed before its first
-    /// token), carrying the question so the caller can restore it into the composer — Swift
-    /// analog of ChatMole.tsx's `setInput(question)`.
+    /// Set when a question is rolled back (it failed before its first token — alongside
+    /// `errorMessage`, or a `subscriptionRefusals` bump), carrying the question so the caller can
+    /// restore it into the composer — Swift analog of ChatMole.tsx's `setInput(question)`.
     public var errorRestoredInput: String?
+    /// Bumped each time the server refused a question for the account's subscription (`403
+    /// subscription_required`, `ChatStreamError.subscriptionRequired`). The exchange is rolled back
+    /// like any pre-token failure, but `errorMessage` stays nil: the view shows its own
+    /// subscription-gate copy and re-checks the subscription (its local gate was out of date). A
+    /// counter rather than a flag, so two refusals in a row are two changes a view can observe.
+    public private(set) var subscriptionRefusals = 0
     /// Non-nil when an explicitly loaded conversation was let go — drives the restore banner.
     public private(set) var lastLoaded: LetGoConversation?
 
@@ -355,7 +364,11 @@ public final class ChatStore {
             if partial.isEmpty {
                 messages.removeAll { $0.id == userMessageId || $0.id == assistantId }
                 errorRestoredInput = question
-                errorMessage = "Failed to get a response."
+                if (error as? ChatStreamError) == .subscriptionRequired {
+                    subscriptionRefusals += 1
+                } else {
+                    errorMessage = "Failed to get a response."
+                }
             } else {
                 finalizeInterrupted(id: assistantId, partial: partial, conversationId: conversationId)
             }
@@ -454,8 +467,18 @@ public final class ChatStore {
         setAssistantContent(id: assistantId, content: text)
     }
 
+    /// Seconds on a monotonic clock, for the coalescer's "how long since the last publish" checks
+    /// (only differences between two readings matter, so the origin is arbitrary).
+    ///
+    /// `ContinuousClock`, deliberately NOT `ProcessInfo.systemUptime` or `mach_absolute_time()`:
+    /// both are Apple "required reason" system-boot-time APIs, and an undeclared use makes App
+    /// Store Connect reject the upload (ITMS-91053). `Date()` would do too, but a wall-clock jump
+    /// backwards could then hold the stream's tail until the clock caught up.
+    private static let clockOrigin = ContinuousClock.now
+
     private static func monotonicNow() -> TimeInterval {
-        ProcessInfo.processInfo.systemUptime
+        let elapsed = ContinuousClock.now - clockOrigin
+        return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18
     }
 
     // MARK: - Persistence
