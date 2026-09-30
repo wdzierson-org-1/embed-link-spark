@@ -4,7 +4,9 @@ import XCTest
 /// client-side subscription gate so it never requests a model answer — it skips itself when the
 /// account isn't gated (`will+uitest` is comped since 2026-09-30). The follow-scroll and plan-16
 /// keyboard tests run on `--uitest-scripted-chat` (local scripted answers, in-memory history with
-/// one fixed earlier conversation), so they never reach the server either.
+/// one fixed earlier conversation), so they never reach the server either; task 1b's long-thread
+/// test adds `--uitest-scripted-long-thread` (a long restored conversation, and a second one in
+/// History).
 ///
 /// A standalone file (`StashUITests.swift` belongs to another task this round), so it carries its
 /// own small sign-in helper — the same recipe as `StashUITests.signInAndReachLibrary`, plus the
@@ -111,13 +113,13 @@ final class AskUITests: XCTestCase {
     /// that doesn't depend on where the thread is scrolled; an answer's own thumbs can be
     /// scrolled out of the lazily built thread.
     ///
-    /// Plan 16: (a) and (b) send with the keyboard up, as a user sends, so each answer starts
+    /// Plan 16: every send goes with the keyboard up, as a user sends, so each answer starts
     /// streaming under a live keyboard, and (b)'s drag runs against it
     /// (`.scrollDismissesKeyboard(.interactively)`). While the composer is focused, New chat gives
     /// way to Cancel. So the keyboard is put away with Cancel once the answer is under way, and in
     /// (b) only after the drag. Each Cancel asserts that the keyboard is on screen and logs its
-    /// frame; (a)'s also asserts that the answer is still streaming. (c) sends with the keyboard
-    /// down; see the note there.
+    /// frame; (a)'s and (c)'s also assert that the answer is still streaming. (c) is task 1b's
+    /// regression: see the note there.
     func testThreadFollowsTheStreamUntilTheUserScrollsAway() throws {
         let app = XCUIApplication()
         try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat"])
@@ -160,19 +162,98 @@ final class AskUITests: XCTestCase {
         XCTAssertFalse(isVisible(element(app, "ask.bubble.3.thumbsUp"), in: thread),
                        "After a user drag the thread must not be pulled back to the answer's actions row")
 
-        // (c) A new send follows again, from wherever the user had scrolled to. Sent with the
-        // keyboard down. With the keyboard up, this send hits an app bug on the iOS 17.5
-        // simulator in about half of runs: the follow-jump from far up the thread lands past the
-        // last row (the lazy thread has overestimated its height), and the thread stays blank for
-        // the whole answer, with no rows built. Go back to a keyboard-up send once that's fixed.
-        ask(app, "Scripted question three", keyboardDown: true)
+        // (c) A new send follows again, from wherever the user had scrolled to, sent the way a user
+        // sends: with the keyboard up. From up the thread that's a far jump. It used to land past
+        // the last row on iOS 17 and 18 (task 1b): the lazy thread sizes rows it hasn't loaded at
+        // the average of the ones it has, so the jump overshot, and the thread stayed blank for the
+        // whole answer. So the thread must show a bubble right after the send and mid-answer.
+        ask(app, "Scripted question three")
+        assertThreadShowsABubble(app, thread, "right after the send from up the thread")
         XCTAssertTrue(element(app, "ask.bubble.5.speak").waitForExistence(timeout: 10), "Answer 3 never started")
+        assertThreadShowsABubble(app, thread, "mid-answer 3, keyboard up")
+        putKeyboardAway(app, streamingAnswer: 5, "mid-answer 3")
+        assertThreadShowsABubble(app, thread, "mid-answer 3, keyboard down")
         XCTAssertTrue(waitUntilEnabled(newChat, timeout: 20), "Answer 3 never completed")
         sleep(1)
         XCTAssertTrue(isVisible(lastLine(app, "Scripted question three"), in: thread),
                       "A new send should follow its answer to the end")
         XCTAssertTrue(isVisible(element(app, "ask.bubble.5.thumbsUp"), in: thread),
                       "A new send should end on its answer's actions row")
+    }
+
+    /// Task 1b: no far jump leaves a long thread blank. `--uitest-scripted-long-thread` restores a
+    /// long scripted conversation at launch (8 exchanges, each answer a 60-line list several
+    /// screens tall) and lists a second one in History, so every far jump the thread makes runs
+    /// against rows the lazy stack hasn't loaded, and sizes at the average of the ones it has:
+    /// - the restored thread's first landing at its end;
+    /// - a send, keyboard up, from several screens up (the jump that used to land past the last row
+    ///   and leave the thread blank for the whole answer, on iOS 17 and 18);
+    /// - a conversation picked in History (opened while the thread is hidden);
+    /// - New chat, then the restore banner (the thread replaced while on screen).
+    /// After each, the thread must show a bubble, and the landing must be the thread's last row.
+    func testFarJumpsInALongThreadLandOnItsLastRow() throws {
+        let app = XCUIApplication()
+        try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat", "--uitest-scripted-long-thread"])
+        openAskTab(app)
+        let thread = app.scrollViews["ask.thread"]
+        XCTAssertTrue(thread.waitForExistence(timeout: 10), "Ask thread did not appear")
+        let newChat = app.buttons["ask.newChat"]
+        // Rows are [q1, a1, … q8, a8]: the last restored answer is bubble 15.
+        let lastAnswer = 15
+
+        // The restored thread opens at its end.
+        XCTAssertTrue(element(app, "ask.bubble.\(lastAnswer).thumbsUp").waitForExistence(timeout: 10),
+                      "The restored long thread should open at its last answer")
+        assertThreadShowsABubble(app, thread, "after opening the long thread")
+        XCTAssertTrue(waitUntilVisible(lastLine(app, "Long question 8"), in: thread),
+                      "The restored long thread should open on its last answer's last line")
+
+        // Several screens up, then a keyboard-up send: the thread follows the new answer from the
+        // first frame to the last, and is never blank on the way.
+        for _ in 0..<3 { thread.swipeDown() }
+        XCTAssertFalse(isVisible(element(app, "ask.bubble.\(lastAnswer).thumbsUp"), in: thread),
+                       "The drags should have left the end of the thread")
+        ask(app, "Scripted question from far up")
+        assertThreadShowsABubble(app, thread, "right after the send from far up")
+        let answer = lastAnswer + 2
+        XCTAssertTrue(element(app, "ask.bubble.\(answer).speak").waitForExistence(timeout: 10), "The new answer never started")
+        assertThreadShowsABubble(app, thread, "mid-answer, keyboard up")
+        putKeyboardAway(app, streamingAnswer: answer, "mid-answer after the send from far up")
+        assertThreadShowsABubble(app, thread, "mid-answer, keyboard down")
+        XCTAssertTrue(waitUntilEnabled(newChat, timeout: 20), "The new answer never completed")
+        sleep(1)
+        XCTAssertTrue(isVisible(lastLine(app, "Scripted question from far up"), in: thread),
+                      "The send from far up should follow its answer to the end")
+        XCTAssertTrue(isVisible(element(app, "ask.bubble.\(answer).thumbsUp"), in: thread),
+                      "The send from far up should end on its answer's actions row")
+
+        // A long conversation picked in History opens at its end.
+        app.buttons["ask.history"].tap()
+        let search = app.textFields["convos.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "Conversations search did not appear")
+        search.tap()
+        search.typeText("long")
+        let row = element(app, "convos.row.0")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "The scripted long conversation did not list")
+        row.tap()
+        XCTAssertTrue(element(app, "ask.sessionPill").waitForExistence(timeout: 10), "Expected the picked conversation's title pill")
+        XCTAssertTrue(element(app, "ask.bubble.\(lastAnswer).thumbsUp").waitForExistence(timeout: 10),
+                      "The picked long conversation should open at its last answer")
+        assertThreadShowsABubble(app, thread, "after picking the long conversation")
+        XCTAssertTrue(waitUntilVisible(lastLine(app, "Long question B8"), in: thread),
+                      "The picked long conversation should open on its last answer's last line")
+
+        // New chat lets it go; the restore banner brings it back, again at its end.
+        newChat.tap()
+        let banner = element(app, "ask.restoreBanner")
+        XCTAssertTrue(banner.waitForExistence(timeout: 5), "Expected the restore banner after New chat")
+        assertThreadShowsABubble(app, thread, "after New chat", matching: "ask.restoreBanner")
+        banner.tap()
+        XCTAssertTrue(element(app, "ask.bubble.\(lastAnswer).thumbsUp").waitForExistence(timeout: 10),
+                      "The restored long conversation should open at its last answer")
+        assertThreadShowsABubble(app, thread, "after restoring the long conversation")
+        XCTAssertTrue(waitUntilVisible(lastLine(app, "Long question B8"), in: thread),
+                      "The restored long conversation should open on its last answer's last line")
     }
 
     // MARK: - Plan 16: keyboard
@@ -300,16 +381,74 @@ final class AskUITests: XCTestCase {
 
     /// Types `question` and sends it the way a user does: the composer keeps focus, so the answer
     /// streams with the keyboard up, and with Cancel where New chat was (plan 16), until the test
-    /// puts the keyboard away (`putKeyboardAway`). With `keyboardDown`, Cancel goes first (the
-    /// typed text stays), so the question is sent with the keyboard down.
-    private func ask(_ app: XCUIApplication, _ question: String, keyboardDown: Bool = false) {
+    /// puts the keyboard away (`putKeyboardAway`).
+    private func ask(_ app: XCUIApplication, _ question: String) {
         let input = element(app, "ask.input")
         input.tap()
         input.typeText(question)
-        if keyboardDown { putKeyboardAway(app, "before sending") }
         let send = app.buttons["ask.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5), "Send button not found")
         send.tap()
+    }
+
+    /// The thread isn't blank: some element whose identifier starts with `prefix` (by default any
+    /// `ask.bubble.*`: a question, an answer block, an answer's actions) sits inside the thread's
+    /// frame and is hittable. Polls for up to `timeout`, since a far jump settles over a few frames,
+    /// then fails with a screenshot.
+    ///
+    /// One snapshot of the thread per poll finds the candidates: a loaded 60-line answer alone
+    /// carries dozens of `ask.bubble.*` elements, too many to query one at a time. Skipped: elements
+    /// that show nothing (a blank label, such as an empty answer's placeholder space), glyph-sized
+    /// ones, and the transient status line (its label changes before it can be queried). The rest
+    /// are tried bottom-most first, two per snapshot. While an answer streams, the following thread
+    /// moves up about 26 pt every publish, and each query takes up to a second, so anything higher
+    /// in a snapshot can be off screen by the time it's queried (task 1b, measured on 17.5 and
+    /// 26.5). The newest rows stay pinned at the bottom.
+    private func assertThreadShowsABubble(_ app: XCUIApplication, _ thread: XCUIElement, _ context: String,
+                                          matching prefix: String = "ask.bubble.", timeout: TimeInterval = 6,
+                                          file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var seen = "no snapshot of the thread"
+        repeat {
+            if let snapshot = try? thread.snapshot() {
+                let viewport = snapshot.frame
+                let candidates = Self.elements(under: snapshot, prefix: prefix, inside: viewport)
+                    .sorted { $0.frame.maxY > $1.frame.maxY }
+                for candidate in candidates.prefix(2) {
+                    let element = thread.descendants(matching: .any)
+                        .matching(NSPredicate(format: "identifier == %@ AND label == %@",
+                                              candidate.identifier, candidate.label))
+                        .firstMatch
+                    if element.isHittable { return }
+                }
+                seen = candidates.isEmpty
+                    ? "no \(prefix)* element with content inside the thread's frame \(viewport)"
+                    : "\(candidates.count) \(prefix)* elements inside the thread's frame, none of those tried hittable"
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        attachScreenshot(app, named: "thread-blank \(context)")
+        XCTFail("The thread shows nothing \(context): \(seen)", file: file, line: line)
+    }
+
+    /// Depth-first search below `root` (never `root` itself) for elements whose identifier starts
+    /// with `prefix` (never an answer's `.status` line), whose centre is inside `viewport`, with a
+    /// label that isn't blank and a frame at least 8 pt each way.
+    private static func elements(under root: XCUIElementSnapshot, prefix: String,
+                                 inside viewport: CGRect) -> [XCUIElementSnapshot] {
+        var found: [XCUIElementSnapshot] = []
+        var stack = root.children
+        while let node = stack.popLast() {
+            let frame = node.frame
+            if node.identifier.hasPrefix(prefix), !node.identifier.hasSuffix(".status"),
+               frame.width >= 8, frame.height >= 8,
+               !node.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               viewport.contains(CGPoint(x: frame.midX, y: frame.midY)) {
+                found.append(node)
+            }
+            stack.append(contentsOf: node.children)
+        }
+        return found
     }
 
     /// Answer `n` is still streaming: its actions row is built (read-aloud shows once content has
@@ -404,6 +543,17 @@ final class AskUITests: XCTestCase {
     /// The scripted answer's closing paragraph (`ScriptedChatStreamer`).
     private func lastLine(_ app: XCUIApplication, _ question: String) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label == %@", "End of the scripted answer to: \(question)")).firstMatch
+    }
+
+    /// `isVisible`, polled for up to `timeout`: a jump to the end of a thread just opened lands a
+    /// few frames after its rows exist.
+    private func waitUntilVisible(_ element: XCUIElement, in container: XCUIElement, timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if isVisible(element, in: container) { return true }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        return isVisible(element, in: container)
     }
 
     /// Entirely inside the thread's viewport (1 pt tolerance) — XCUITest still reports frames for

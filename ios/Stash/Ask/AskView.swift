@@ -13,6 +13,9 @@ import AVFoundation
 /// (M2), drags dismiss the keyboard (L10), and error banners clear on the next send and on tap
 /// (L2).
 ///
+/// Plan 16 (task 1b): the thread's end is laid out in full (`AskThreadTail`) and every scroll to
+/// the end lands on the last row (`scrollToEnd`), so a jump from far up can't land past it.
+///
 /// Plan 16 (keyboard): the composer's focus is explicit (`inputFocused`). While it's focused the
 /// header's right side is the shared keyboard "Cancel" (`StashCancelButton`, as on the Add tab)
 /// instead of New chat / History, and the keyboard is put away before anything else is shown —
@@ -53,13 +56,22 @@ struct AskView: View {
     @State private var lastMessageCount = 0
     @State private var lastFirstMessageId: String?
     @State private var answerWasStreaming = false
+    /// The next jump to a new question is from away from the end (the user had dragged off it), so
+    /// it goes without animation: an eased scroll across screens of history reads as a blur.
+    @State private var nextSendJumpIsFar = false
+    /// Where the thread's lazy history ends and its laid-out tail begins (task 1b).
+    @State private var tail = AskThreadTail()
 
     /// Exists purely to satisfy `ItemDetailView`'s init — citation sheets are read-only here (per
     /// the brief), so this store's own `items`/save plumbing is never read by anything else; it
     /// is intentionally not shared with the View tab's `ItemStore`.
     @State private var citationStore: ItemStore
 
-    private static let bottomAnchorID = "ask-bottom"
+    /// The thread's top: where an empty thread scrolls to.
+    private static let threadTopID = "ask-thread-top"
+    /// The gap below every row. It's in the row, not the stack's spacing, so the last row brings
+    /// its own gap above the composer when a scroll bottom-aligns it.
+    private static let rowGap: CGFloat = 14
 
     #if DEBUG
     /// `--uitest-scripted-chat` (UI tests only): answers come from `ScriptedChatStreamer` — a
@@ -80,7 +92,10 @@ struct AskView: View {
     private static func makeStore(userId: UUID) -> ChatStore {
         #if DEBUG
         if usesScriptedChat {
-            return ChatStore(userId: userId, streamer: ScriptedChatStreamer(), history: ScriptedChatHistory(),
+            let longThread = ProcessInfo.processInfo.arguments.contains("--uitest-scripted-long-thread")
+            return ChatStore(userId: userId,
+                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(longThread ? 250 : 110)),
+                             history: ScriptedChatHistory(longThread: longThread),
                              accessToken: { "scripted" })
         }
         #endif
@@ -256,44 +271,32 @@ struct AskView: View {
             .buttonStyle(.plain)
             .disabled(store.isStreaming)
             .accessibilityIdentifier("ask.restoreBanner")
+            .padding(.bottom, Self.rowGap)
         }
     }
 
     // MARK: - Thread
 
+    /// Task 1b: the thread's history is a `LazyVStack`, and its end is a plain `VStack` (see
+    /// `AskThreadTail`), so every scroll to the end lands on rows that are laid out.
     private var thread: some View {
         let messages = store.messages
         let questions = Self.precedingQuestions(in: messages)
         let lastIndex = messages.indices.last
+        let historyCount = tail.historyCount(for: messages)
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
                     restoreBanner
                     if messages.isEmpty {
                         emptyState
                     }
-                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                        // `.equatable()` (plan 15, M1): SwiftUI compares bubbles with
-                        // `ChatBubble.==`, so a streaming delta re-renders only the answer it
-                        // changed. `loadingSourceId` is passed only to the bubble that owns that
-                        // source, for the same reason.
-                        let ownsLoadingSource = message.sources.contains { $0.id == loadingSourceId }
-                        let showsRetry = message.isInterrupted && index == lastIndex && !store.isStreaming
-                        ChatBubble(
-                            message: message,
-                            index: index,
-                            question: questions[index],
-                            userId: userId,
-                            loadingSourceId: ownsLoadingSource ? loadingSourceId : nil,
-                            showsRetry: showsRetry,
-                            speech: speech,
-                            onCitationTap: openCitation,
-                            onRetry: { retryTapped(messageId: message.id) }
-                        )
-                        .equatable()
-                        .id(message.id)
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        rows(messages, 0..<historyCount, questions: questions, lastIndex: lastIndex)
                     }
-                    Color.clear.frame(height: 1).id(Self.bottomAnchorID)
+                    VStack(alignment: .leading, spacing: 0) {
+                        rows(messages, historyCount..<messages.count, questions: questions, lastIndex: lastIndex)
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.top, 12)
@@ -305,6 +308,7 @@ struct AskView: View {
                         if isFollowing != atEnd { isFollowing = atEnd }
                     }
                 )
+                .id(Self.threadTopID)
             }
             // L10: drag the thread to put the keyboard away (the composer field has no other
             // dismiss path).
@@ -324,7 +328,7 @@ struct AskView: View {
                 try? await Task.sleep(for: .milliseconds(50))
                 guard !Task.isCancelled else { return }
                 jumpToBottomOnAppear = false
-                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                scrollToEnd(proxy)
             }
             // Every assistant bubble's inline citation links (`ChatCitations.link`, baked as
             // `#item=<uuid>` — or the legacy `stash://item/<uuid>` form some rows may still carry
@@ -344,6 +348,33 @@ struct AskView: View {
         }
     }
 
+    /// The rows at `range` (indices into `messages`), each carrying the thread's gap below it.
+    @ViewBuilder
+    private func rows(_ messages: [ChatMessage], _ range: Range<Int>, questions: [String], lastIndex: Int?) -> some View {
+        ForEach(Array(messages[range].enumerated()), id: \.element.id) { offset, message in
+            let index = range.lowerBound + offset
+            // `.equatable()` (plan 15, M1): SwiftUI compares bubbles with `ChatBubble.==`, so a
+            // streaming delta re-renders only the answer it changed. `loadingSourceId` is passed
+            // only to the bubble that owns that source, for the same reason.
+            let ownsLoadingSource = message.sources.contains { $0.id == loadingSourceId }
+            let showsRetry = message.isInterrupted && index == lastIndex && !store.isStreaming
+            ChatBubble(
+                message: message,
+                index: index,
+                question: questions[index],
+                userId: userId,
+                loadingSourceId: ownsLoadingSource ? loadingSourceId : nil,
+                showsRetry: showsRetry,
+                speech: speech,
+                onCitationTap: openCitation,
+                onRetry: { retryTapped(messageId: message.id) }
+            )
+            .equatable()
+            .padding(.bottom, Self.rowGap)
+            .id(message.id)
+        }
+    }
+
     /// Web's welcome bubble copy, verbatim (`ChatMole.tsx:494`). Shown for every new
     /// conversation (Will's call — kept even with the header chrome removed).
     private var emptyState: some View {
@@ -358,7 +389,7 @@ struct AskView: View {
 
     /// M2 (review fix): while `isFollowing`, every change pins the thread to its end — each
     /// streamed publish (`ChatStore` already caps those at ~10 Hz), with no throttle, so a burst
-    /// of lines can never outrun the view — plus one settle scroll once the answer completes (its
+    /// of lines can never outrun the view — plus settle scrolls once the answer completes (its
     /// thumbs/source-chips row lays out after that change). Nothing here ever turns following
     /// OFF: only a user drag does (`AskThreadScrollObserver`). A replaced thread (history
     /// restored, conversation opened, new chat) lands at its end and follows again.
@@ -371,11 +402,13 @@ struct AskView: View {
         let answerStreaming = messages.last?.isStreaming ?? false
         let answerCompleted = answerWasStreaming && !answerStreaming
         answerWasStreaming = answerStreaming
+        let jumpIsFar = nextSendJumpIsFar
+        if rowsChanged { nextSendJumpIsFar = false }
 
         if threadReplaced {
             isFollowing = true
             if threadVisible {
-                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+                scrollToEnd(proxy)
             } else {
                 jumpToBottomOnAppear = true
             }
@@ -385,33 +418,49 @@ struct AskView: View {
         // is still gliding after it, the user's gesture decides — it either leaves the end
         // (following stops) or doesn't, and the next publish pins again.
         guard isFollowing, !threadScroll.userIsScrolling else { return }
-        if rowsChanged {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
-            }
-        } else {
-            // Growth of the streaming answer: pin without animation, so a scroll is never still
-            // in flight when the user puts a finger on the thread.
-            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
+        // On a jump from far up, the tail sheds the rows it no longer needs (see `AskThreadTail`):
+        // they're off screen below the reader, and the jump below lands on the new rows.
+        if rowsChanged && jumpIsFar {
+            tail.shed(messages)
         }
+        // A new question eases in when the thread was at its end. Growth of the streaming answer
+        // pins without animation, so a scroll is never still in flight when the user puts a finger
+        // on the thread.
+        scrollToEnd(proxy, animated: rowsChanged && !jumpIsFar)
         if answerCompleted {
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(150))
-                guard isFollowing, !threadScroll.userIsScrolling else { return }
-                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
                 // Final wave B: the finished answer re-renders (baked citations, actions row) and
-                // the lazy stack re-measures it for a few hundred ms more — on the iOS 17.0
-                // simulator its height went 2401 → 1987 → 2182 pt after the settle scroll, which
-                // then rested 355 pt short of the end. Hold the true end (straight from the
-                // UIScrollView's content size — `scrollTo` works from the lazy stack's stale
-                // estimate) while it settles: bounded, and never under a finger or once the
-                // user has scrolled away.
-                for _ in 0..<12 {
-                    try? await Task.sleep(for: .milliseconds(100))
+                // re-measures for a few hundred ms more (on the iOS 17.0 simulator its height went
+                // 2401 → 1987 → 2182 pt after one settle scroll). So hold the end while it settles:
+                // bounded, and never under a finger or once the user has scrolled away.
+                try? await Task.sleep(for: .milliseconds(150))
+                for _ in 0..<13 {
                     guard isFollowing, !threadScroll.userIsScrolling else { return }
-                    threadScroll.pinToEnd()
+                    scrollToEnd(proxy)
+                    try? await Task.sleep(for: .milliseconds(100))
                 }
             }
+        }
+    }
+
+    /// Scrolls to the thread's end: the last row's bottom (its gap included) at the bottom of the
+    /// viewport; an empty thread goes to its top.
+    ///
+    /// Task 1b: the target is always a row in the laid-out tail (`AskThreadTail`), never a
+    /// position the lazy stack has to estimate. It used to be a 1 pt anchor view after the last
+    /// row, and in the completion settle the scroll view's absolute content end. From far up a long
+    /// thread neither was built, so both were estimates: the lazy stack sizes rows it hasn't built
+    /// at the average height of the ones it has, several hundred points with list answers. The jump
+    /// then landed past the last real row, and the thread stayed blank until the user dragged back
+    /// up (iOS 17.5, 18.5 and 26.5). On 26.5 a long thread could instead send the lazy stack's
+    /// placement into a loop at full CPU, and on 18.5 a restored thread could stop short of its end.
+    private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        let target = store.messages.last?.id ?? Self.threadTopID
+        let anchor: UnitPoint = store.messages.isEmpty ? .top : .bottom
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: anchor) }
+        } else {
+            proxy.scrollTo(target, anchor: anchor)
         }
     }
 
@@ -479,6 +528,7 @@ struct AskView: View {
             return
         }
         input = ""
+        nextSendJumpIsFar = !isFollowing
         isFollowing = true
         Task { await store.send(text) }
     }
@@ -489,6 +539,7 @@ struct AskView: View {
             gateMessage = Self.gateCopy
             return
         }
+        nextSendJumpIsFar = !isFollowing
         isFollowing = true
         Task { await store.retry(messageId: messageId) }
     }
@@ -802,17 +853,74 @@ final class AskThreadScrollHandle {
         guard let scrollView else { return false }
         return scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
     }
+}
 
-    /// Scrolls to the true end of the laid-out thread, computed from the UIScrollView's own
-    /// content size (see `AskView.followThread`). Only called from the settle task — never inside
-    /// a view update.
-    @MainActor
-    func pinToEnd() {
-        guard let scrollView else { return }
-        let insets = scrollView.adjustedContentInset
-        let end = max(-insets.top, scrollView.contentSize.height + insets.bottom - scrollView.bounds.height)
-        guard abs(scrollView.contentOffset.y - end) > 0.5 else { return }
-        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: end), animated: false)
+/// Task 1b: where the Ask thread's lazily built history ends and its fully laid-out tail begins.
+///
+/// Why a tail: a `LazyVStack` builds only the rows near the screen and sizes the rest at the
+/// average height of the rows it has built. A jump far down is aimed with that estimate, and with
+/// answers several screens long it can land past the last real row, with nothing on screen and
+/// nothing re-measured (see `AskView.scrollToEnd`). Rows in the tail are always built, so a scroll
+/// to the thread's last row lands on it exactly, and so does everything on screen with it: the tail
+/// is the last exchange plus earlier rows until it holds `minimumTailCharacters` of text, about a
+/// screen and a half or more.
+///
+/// Why only a tail: built rows cost memory, and each streamed update redraws them all. Laid out in
+/// full, a 200-message thread (the History load limit) took about 600 MB in a replica on the
+/// simulator, against about 45 MB lazy. And every finished long answer kept in the tail added
+/// about ten dropped frames per streamed answer in the app. So a thread starts with just that tail,
+/// and on a jump from far up the thread the tail sheds the rows it no longer needs (`shed`).
+///
+/// Only there, because a shed row is re-estimated by the lazy history, which moves everything below
+/// it until the next scroll lands: from far up, that's all off screen. Shedding when an answer
+/// completes at the end was measured to flash other content for one frame, before the re-pin
+/// landed. So while the reader follows the thread, new exchanges pile up in the tail.
+///
+/// The split is read during `body`, and set there for a new thread (keyed by its first row), so a
+/// thread's first render already has it. Rows only ever move from the tail into the history. A moved
+/// row is rebuilt, so it loses its state (a given rating), as a lazy row scrolled far away sometimes
+/// does anyway.
+@Observable
+final class AskThreadTail {
+    static let minimumTailCharacters = 2_000
+
+    @ObservationIgnored private var threadKey: String?
+    @ObservationIgnored private var historyEnd = 0
+    /// Bumped by `shed`, so the thread re-renders with the new split.
+    private var sheds = 0
+
+    /// How many leading rows of `messages` are lazy history. The rest are the tail, which always
+    /// holds at least the last row.
+    func historyCount(for messages: [ChatMessage]) -> Int {
+        _ = sheds
+        let key = messages.first?.id
+        if key != threadKey {
+            threadKey = key
+            historyEnd = Self.tailStart(in: messages)
+        }
+        return min(historyEnd, max(0, messages.count - 1))
+    }
+
+    /// Moves the rows the tail no longer needs into the history. Call only when nothing below the
+    /// reader is on screen and the next scroll lands on the tail (a jump from far up).
+    func shed(_ messages: [ChatMessage]) {
+        let start = Self.tailStart(in: messages)
+        guard messages.first?.id == threadKey, start > historyEnd else { return }
+        historyEnd = start
+        sheds += 1
+    }
+
+    /// Where the tail starts: at the last question, or earlier until the tail holds
+    /// `minimumTailCharacters` of text.
+    static func tailStart(in messages: [ChatMessage]) -> Int {
+        guard !messages.isEmpty else { return 0 }
+        var start = messages.lastIndex { $0.role == .user } ?? messages.count - 1
+        var characters = messages[start...].reduce(0) { $0 + $1.content.count }
+        while start > 0, characters < minimumTailCharacters {
+            start -= 1
+            characters += messages[start].content.count
+        }
+        return start
     }
 }
 
@@ -823,11 +931,17 @@ final class AskThreadScrollHandle {
 /// that names the question — "End of the scripted answer to: <question>" — so a UI test can find
 /// each answer's last line. A question starting with "gate:" is refused the way the server's
 /// paywall refuses it (`ChatStreamError.subscriptionRequired`, final wave B), before any frame.
+///
+/// With `--uitest-scripted-long-thread` (task 1b) the chunks come slower, so an answer takes about
+/// 12 s: that test's checks on a big thread all land while the answer is still streaming.
 private struct ScriptedChatStreamer: ChatStreaming {
+    var chunkInterval: Duration = .milliseconds(110)
+
     func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error> {
         if message.hasPrefix("gate:") {
             return AsyncThrowingStream { $0.finish(throwing: ChatStreamError.subscriptionRequired) }
         }
+        let chunkInterval = chunkInterval
         return AsyncThrowingStream { continuation in
             let task = Task {
                 continuation.yield(.status(.searching))
@@ -837,7 +951,7 @@ private struct ScriptedChatStreamer: ChatStreaming {
                 for chunk in Self.answerChunks(for: message) {
                     guard !Task.isCancelled else { break }
                     continuation.yield(.delta(chunk))
-                    try? await Task.sleep(for: .milliseconds(110))
+                    try? await Task.sleep(for: chunkInterval)
                 }
                 continuation.yield(.done(sources: []))
                 continuation.finish()
@@ -846,7 +960,7 @@ private struct ScriptedChatStreamer: ChatStreaming {
         }
     }
 
-    private static func answerChunks(for question: String) -> [String] {
+    static func answerChunks(for question: String) -> [String] {
         func bullet(_ n: Int) -> String { "- Point \(n): a short scripted line\n" }
         var chunks = ["Here is everything that matched:\n\n"]
         chunks += (1...20).map(bullet)
@@ -861,7 +975,15 @@ private struct ScriptedChatStreamer: ChatStreaming {
 /// In-memory history for `--uitest-scripted-chat`: a fresh thread every launch, nothing persisted —
 /// plus one fixed earlier conversation (plan 16), so the Conversations list has a row to open
 /// (and search to match) without the server.
+///
+/// With `--uitest-scripted-long-thread` as well (task 1b), two long conversations join it, each 8
+/// exchanges whose answers are the scripted 60-line list (several screens tall): one continues as
+/// the latest conversation, so it's restored at launch, and one is listed in History ("Scripted long
+/// conversation"). Every far jump the thread makes then runs against rows the lazy stack hasn't
+/// loaded.
 private struct ScriptedChatHistory: ChatHistoryStoring {
+    let longThread: Bool
+
     private static let earlierId = UUID(uuidString: "5C21B7ED-A5C0-4E16-9D16-000000000016")!
     private static let earlierTitle = "Scripted earlier conversation"
     private static let earlierMessages = [
@@ -869,21 +991,53 @@ private struct ScriptedChatHistory: ChatHistoryStoring {
         ChatMessage(id: "scripted-earlier-a", role: .assistant,
                     content: "A scripted earlier answer about sourdough starters."),
     ]
+    private static let latestLongId = UUID(uuidString: "5C21B7ED-A5C0-4E16-9D16-0000000001B1")!
+    private static let listedLongId = UUID(uuidString: "5C21B7ED-A5C0-4E16-9D16-0000000001B2")!
+    private static let listedLongTitle = "Scripted long conversation"
 
-    func latestConversation(userId: UUID) async throws -> ChatSessions.Candidate? { nil }
+    /// Questions "Long question <tag>1" … "<tag>8", each answered with the scripted list.
+    private static func longMessages(tag: String) -> [ChatMessage] {
+        (1...8).flatMap { n -> [ChatMessage] in
+            let question = "Long question \(tag)\(n)"
+            return [ChatMessage(id: "scripted-long-\(tag)\(n)-q", role: .user, content: question),
+                    ChatMessage(id: "scripted-long-\(tag)\(n)-a", role: .assistant,
+                                content: ScriptedChatStreamer.answerChunks(for: question).joined())]
+        }
+    }
+
+    func latestConversation(userId: UUID) async throws -> ChatSessions.Candidate? {
+        guard longThread else { return nil }
+        return ChatSessions.Candidate(id: Self.latestLongId, title: nil, lastMessageAt: Date().addingTimeInterval(-60))
+    }
     func createConversation(userId: UUID) async throws -> UUID { UUID() }
     func loadHistory(conversationId: UUID, limit: Int) async throws -> [ChatMessage] {
-        conversationId == Self.earlierId ? Self.earlierMessages : []
+        switch conversationId {
+        case Self.earlierId: Self.earlierMessages
+        case Self.latestLongId where longThread: Self.longMessages(tag: "")
+        case Self.listedLongId where longThread: Self.longMessages(tag: "B")
+        default: []
+        }
     }
     func persist(conversationId: UUID, role: String, content: String, sourceItemIds: [UUID]?) async {}
     func generateTitle(for question: String) async -> String? { nil }
     func setTitle(conversationId: UUID, title: String) async {}
     func listConversations(searchText: String?, pageLimit: Int, pageOffset: Int) async throws -> [ConversationListRow] {
         let query = (searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard pageOffset == 0, query.isEmpty || Self.earlierTitle.lowercased().contains(query) else { return [] }
-        return [ConversationListRow(id: Self.earlierId, title: Self.earlierTitle,
-                                    lastMessageAt: Date().addingTimeInterval(-3600), messageCount: 2,
-                                    preview: Self.earlierMessages[1].content, totalCount: 1)]
+        guard pageOffset == 0 else { return [] }
+        var rows: [ConversationListRow] = []
+        if longThread {
+            rows.append(ConversationListRow(id: Self.listedLongId, title: Self.listedLongTitle,
+                                            lastMessageAt: Date().addingTimeInterval(-1800), messageCount: 16,
+                                            preview: "A scripted long conversation.", totalCount: 0))
+        }
+        rows.append(ConversationListRow(id: Self.earlierId, title: Self.earlierTitle,
+                                        lastMessageAt: Date().addingTimeInterval(-3600), messageCount: 2,
+                                        preview: Self.earlierMessages[1].content, totalCount: 0))
+        let matching = rows.filter { query.isEmpty || ($0.title ?? "").lowercased().contains(query) }
+        return matching.map {
+            ConversationListRow(id: $0.id, title: $0.title, lastMessageAt: $0.lastMessageAt,
+                                messageCount: $0.messageCount, preview: $0.preview, totalCount: matching.count)
+        }
     }
 }
 #endif
