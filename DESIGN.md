@@ -41,7 +41,9 @@ document tint, deeper purple-biased page gradient).
    *2026-09-13 (housekeeping mirror, plan 14): card titles moved off the
    single-serif treatment onto Montreal medium after a live `/design/cards`
    review; PP Editorial New has no remaining call site but stays defined in
-   both `StashType`/CSS for a possible future serif moment.*
+   both `StashType`/CSS for a possible future serif moment.* *2026-09-30 (iOS
+   plan 16): the face stays bundled, but `StashType.editorialTitle()` is
+   deprecated; a future serif moment gets a proper role then.*
 6. **Enrichment answers "why did I save this?"** before the user asks. Cards
    answer at a glance (type tint, title, one or two fact chips); the panel
    answers in full (summary, transcript, dotted facts).
@@ -56,15 +58,65 @@ bundle); fall back to SF Pro only if the face fails to load.
 
 | Role | Weight | Size / line | Tracking | Notes |
 |---|---|---|---|---|
-| Object title (card) | 500 | 20 / tight | −0.014em | 2-line clamp — Montreal medium (2026-09-13, plan 14; `StashType.cardTitle()`); superseded the prior PP Editorial New treatment |
+| Object title (card) | 500 | 20 / tight | −0.014em | 2-line clamp — Montreal medium (2026-09-13, plan 14; iOS `.stashFont(.cardTitle)`); superseded the prior PP Editorial New treatment |
 | Object title (panel) | 500 | 28 / 1.2 | −0.02em | inline-editable |
 | Display header (marketing, empty states) | 600 | 32–40 / 1.12 | −0.022em | |
 | Body / description | 400 | 13.5–14.5 / 1.5–1.6 | 0 | muted color |
 | User annotation | 400 italic | 13.5–14 | 0 | violet left bar, 2px |
-| Micro-label (section headers) | 600 | 11 caps | +0.11em | `faint` color |
+| Micro-label (section headers) | 600 | 11 caps | +0.11em | `muted` (was `faint` — see Contrast) |
 | Chip | 500 | 11 | 0 | mono variant: ui-monospace 10–11.5 |
 | Kicker / eyebrow | 600 | 11 caps | +0.10em | |
-| Date / meta | 400 | 12 | 0 | `faint` |
+| Date / meta | 400 | 12 | 0 | `muted` (was `faint` — see Contrast) |
+
+This table is the **web** scale (desktop, pointer). *2026-09-30 (iOS plan 16): the
+`faint` → `muted` change for micro-labels and dates is the contrast fix below — iOS has
+made it; web should adopt it.*
+
+**iOS type roles (Dynamic Type).** *2026-09-30 (iOS plan 16).* iOS sets every piece
+of text with a **role** — `.stashFont(.reading)` — never a raw point size. Each role is
+a Neue Montreal face at Apple's default (Large) size for its text style, scaled with
+that style by `Font.custom(_:size:relativeTo:)`, so it follows the user's text size.
+Reading text is 17 pt, as in Apple's own apps (the old 14 pt body was why the detail
+sheet read small).
+
+| Role (`.stashFont(…)`) | Face | Large | xxxLarge | AX3 | Text style | Where |
+|---|---|---|---|---|---|---|
+| `display` | Semibold | 32 | 37 | 48 | `.largeTitle` | marketing, empty states · −0.022em |
+| `panelTitle` | Medium | 28 | 34 | 47 | `.title` | the detail sheet's title · −0.02em |
+| `screenTitle` | Medium | 22 | 27 | 41 | `.title2` | a screen's own title (Ask's "Chat with your Stash") |
+| `cardTitle` | Medium | 20 | 26 | 41 | `.title3` | card titles · −0.014em |
+| `reading` · `readingMedium` · `readingSemibold` · `readingItalic` | Book · Medium · Semibold · Book Italic | 17 | 22 | 37 | `.body` | detail description, notes, summary, transcript; chat bubbles and the Ask composer; the Add editor; the share-sheet note; search fields; markdown headings (Semibold); the user's own words (Italic) |
+| `secondary` · `secondaryMedium` · `secondaryItalic` | Book · Medium · Book Italic | 15 | 20 | 32 | `.subheadline` | card descriptions, previews and notes; settings secondary lines; conversation previews; list-row titles and pill tabs (Medium) |
+| `meta` · `metaMedium` | Book · Medium | 13 | 17 | 29 | `.footnote` | dates, facts, footers, status lines |
+| `chip` | Medium | 12 | 17 | 29 | `.caption` | chips, badges |
+| `microLabel` · `kicker` | Semibold | 12 | 17 | 29 | `.caption` | section labels / eyebrows, caps, +0.11em / +0.10em — `.stashMicroLabel()` / `.stashKicker()` apply face, caps, tracking and colour in one call |
+| `textButton` | Book | 17 | 22 | 37 | `.body` | the keyboard Cancel (`StashCancelButton`) and other plain text buttons |
+| `textButtonProminent` | Medium | 17 | 22 | 37 | `.body` | the one primary text action on a screen (the share sheet's Save, a Done); filled-button labels |
+| `inlineButton` | Medium | 15 | 20 | 32 | `.subheadline` | inline text actions in content ("Retry", "Copy link") — never smaller |
+| `mono(<style>)` | SF Mono | the style's | | | any | format/size chips, file names, URLs, timers |
+| `custom(<face>, size:)` | any | `size` | | | nearest to `size` (or `relativeTo:`) | the escape hatch — prefer a named role |
+
+- **How it scales.** The xxxLarge/AX3 columns are measured (iOS 17.0 and 26.5 alike):
+  iOS scales custom fonts with `UIFontMetrics`, a slightly flatter curve than its own
+  SF text styles at the top end (SF body is 23 / 40 there), rounded to whole points.
+  That is the platform's behaviour for custom faces, and Xcode's Dynamic Type audit
+  passes it.
+- **Bold Text.** SwiftUI does not embolden bundled faces when Bold Text is on (measured:
+  identical glyphs and widths under `legibilityWeight == .bold`, while SF text goes bold).
+  `.stashFont` reads `legibilityWeight` and draws the next heavier face — Book → Medium,
+  Medium → Semibold; Semibold and Book Italic have no heavier bundled face and stay —
+  live, the moment the setting changes, with no rebuild of the view tree. Inside a
+  `Text` concatenation, where a modifier can't reach one run, use
+  `StashType.Role.<role>.font(legibilityWeight)` with the view's own
+  `@Environment(\.legibilityWeight)`. SF text (system styles, `mono`, glyphs) follows
+  Bold Text by itself.
+- **Decorative art is the one fixed size.** `StashType.decorative(<face>, size:)` never
+  scales and never follows Bold Text — for miniature illustrations and plates that draw
+  text or glyphs at a set scale, and the view must be `accessibilityHidden(true)`.
+  Anything a person reads to use the app takes a role.
+- **Tracking** stays in points: `.stashTracking(<em>, size: <the role's Large size>)`, so
+  it tightens in em terms as text grows, as Apple's own tracking does.
+- The web keeps its desktop scale (the table above); these roles are iOS-only.
 
 **Exceptions:** marketing pages (homepage, pricing) may use Tobias as the
 display face, with PP Editorial New *Ultralight Italic* for single accent
@@ -80,8 +132,8 @@ Neutrals (chrome):
 | Token | Value | Use |
 |---|---|---|
 | `ink` | `#22262f` | primary text |
-| `muted` | `#646b76` | descriptions, secondary text |
-| `faint` | `#959ba6` | meta, labels, icons at rest |
+| `muted` | `#646b76` | descriptions, secondary text, and informational meta — dates, facts, section labels, placeholders |
+| `faint` | `#959ba6` | decorative and disabled only — hairline art, a disabled glyph, the idle send circle; never text a person reads (2.79:1) |
 | hairline | `rgba(0,0,0,.07)` | section rules, borders |
 | dotted rule | `rgba(0,0,0,.18)` | facts-row separators only |
 | chip bg | `rgba(20,22,30,.05)` | neutral chips, icon tiles |
@@ -98,6 +150,7 @@ Intent colors:
 | Token | Value | Use |
 |---|---|---|
 | `violet-600` | `#6d5bd0` | interactive: links, active pills, switches-on, focus |
+| `violet-700` | `#5d49cb` | violet **text** on a type tint or a violet tint (session pill, due chip), where violet-600 text falls under AA |
 | `violet-300` | `#b6a8ef` | focus rings, annotation bar |
 | destructive | `#c93a3a` | delete, irreversible |
 | `success` | `#2f9e63` | confirmation icons/labels (e.g. "Saved to Stash") |
@@ -127,6 +180,53 @@ Photos, videos, and link covers use real imagery — no field, no tint.
 `#fff7e6`, border `#f3d9a4` (1px), text `#7a4b00`, `lock.fill`/lock glyph in the
 same text color, radius 12px. *2026-09-03 (plan 9): new token — web should
 adopt for its own gate messaging.*
+
+**Contrast.** *2026-09-30 (iOS plan 16; WCAG 2.2 AA; web can adopt it as is).* Text a
+person reads meets **4.5:1** on the background it actually sits on (3:1 once it is
+large: 24 pt, or 18.7 pt bold). A control's only glyph, and any other graphic that
+carries meaning, meets **3:1**. Disabled controls and pure decoration are exempt.
+
+- **Meta text is `muted`.** Dates, facts, footers, section labels, the autosave line,
+  placeholders. No separate meta grey: a lighter grey that still passed on the chip wash
+  and the type tints would be indistinguishable from `muted`. The trade-off is that
+  descriptions and meta now share a colour; hierarchy comes from size (15 vs 13), weight
+  and position.
+- **`faint` is decorative/disabled only**, including for glyphs: an enabled control's
+  only glyph (a search clear ×, a chevron) is `muted` or `ink`.
+- **Violet text** is `violet-600` on white, paper, the page wash and the chip wash, and
+  `violet-700` on a type tint or a violet tint. Violet glyphs and fills stay violet-600
+  everywhere (3:1).
+- **Nothing but `ink` sits directly on the gradient wash.** Measured behind the Add-tab
+  header and the View-tab search row, the wash takes violet-600 to 2.8–3.3:1 and `muted`
+  to 3.0–3.4:1. Text over it sits on paper (cards, the search pill, a
+  `StashCancelButton(onWash: true)` capsule).
+- **Placeholders are `muted`.** The system placeholder colour is 1.7:1. A custom
+  placeholder `Text` takes `.foregroundStyle(StashColor.muted)`; a `TextField` takes
+  `prompt: Text("…").foregroundStyle(StashColor.muted)` (honoured on iOS 17.0 and 26.5,
+  verified).
+- **`success` (`#2f9e63`, 3.39:1) is for icons and fills.** A confirmation caption is
+  `ink`/`muted` text beside the success glyph.
+
+| Background | ink | muted | faint | violet-600 | violet-700 | system placeholder |
+|---|---|---|---|---|---|---|
+| white: paper, cards, sheets | 15.15 | 5.38 | 2.79 ✗ | 5.18 | 6.40 | 1.73 ✗ |
+| page wash `#f7f7f9` | 14.16 | 5.02 | 2.61 ✗ | 4.84 | 5.98 | 1.72 ✗ |
+| chip bg `rgba(20,22,30,.05)` | 13.69 | 4.86 | 2.53 ✗ | 4.68 | 5.79 | 1.71 ✗ |
+| voice field @.12 | 12.78 | 4.54 | 2.36 ✗ | 4.37 ✗ | 5.40 | 1.69 ✗ |
+| recording/audio field @.11 | 12.94 | 4.59 | 2.39 ✗ | 4.42 ✗ | 5.47 | 1.69 ✗ |
+| document field @.11 | 13.00 | 4.61 | 2.40 ✗ | 4.44 ✗ | 5.49 | 1.69 ✗ |
+| screenshot field @.12 | 13.16 | 4.67 | 2.43 ✗ | 4.497 ✗ | 5.56 | 1.70 ✗ |
+| social field @.07 | 13.79 | 4.89 | 2.54 ✗ | 4.71 | 5.83 | 1.71 ✗ |
+| violet tint @.12 (session pill, active circle) | 12.92 | 4.58 | 2.38 ✗ | 4.41 ✗ | 5.46 | 1.69 ✗ |
+| violet tint @.10 (due chip) | 13.27 | 4.71 | 2.45 ✗ | 4.54 | 5.61 | 1.70 ✗ |
+| gradient wash, Add header (measured `#d8c7e4`) | 9.53 | 3.38 ✗ | 1.76 ✗ | 3.26 ✗ | 4.03 ✗ | 1.61 ✗ |
+| gradient wash, View search row (measured `#d0b7de`) | 8.30 | 2.95 ✗ | 1.53 ✗ | 2.84 ✗ | 3.51 ✗ | 1.57 ✗ |
+| paper @.92 on that wash (`onWash` Cancel) | 14.50 | 5.15 | 2.67 ✗ | 4.95 | 6.13 | 1.72 ✗ |
+
+Tint rows use each range's upper alpha (the darker end). The type spectrum's own text
+colours clear their fields comfortably (voice 7.49, audio 6.89, document 5.86,
+screenshot 5.17), as do white on violet-600 (5.18), destructive on white (5.06) and the
+gate strip (6.95).
 
 **Color scheme: light-only.** *2026-09-03 (plan 9):* Stash renders in the
 light palette above only — no dark-mode stylesheet or trait variant on any
@@ -271,7 +371,8 @@ tags are retired; themes will handle grouping.
 **Reminder chip** (footer, after the date; both platforms): scheduled = clock
 icon + relative time in the muted meta style; due = bell + "Due" in
 violet-600 on a 10 % violet field with an always-visible × ("Remove
-reminder", ≥24 px hit area). Due cards also carry a violet-600 "Due" pill in
+reminder", ≥24 px hit area on the web, 44 pt on iOS; the "Due" text itself is
+`violet-700` on iOS, see Contrast). Due cards also carry a violet-600 "Due" pill in
 the hero-corner badge zone next to "Processing…" / "PUBLICLY SHARED". Neither
 belongs in the chips row.
 
@@ -295,6 +396,38 @@ note confirms first.
 **Switches**: 40×24, knob 20, violet-600 when on. **Focus**: 2px `violet-300`
 ring. **Inline-editable text** (panel title/description): no input chrome at
 rest; violet wash on hover; wash + ring on focus.
+
+**Controls (iOS)** — *2026-09-30 (iOS plan 16), Apple HIG + WCAG 2.2.*
+
+- **44 × 44 pt targets.** Every tappable element takes touches across at least 44 × 44 pt,
+  whatever it looks like. A smaller visual keeps its size and position, and its target
+  grows around it without moving layout: `.stashMinimumHitTarget()` on the control's label
+  (already built into `CircleIcon`, `CircleSubmitIcon`, `PillTabs` and `StashCancelButton`).
+  It matters even though SwiftUI hit-tests a touch with a radius: over anything else
+  tappable, such as a card, a row or a sheet, an exact hit on that surface wins, so a small
+  control only gets the taps its own shape covers. Two targets closer than 44 pt overlap,
+  and the later one wins. (The web keeps WCAG's 24 px floor, e.g. the reminder chip's ×.)
+- **Icon chrome stays put.** Circle buttons and other glyph-only controls keep fixed glyph
+  and circle sizes at every text size, like the system's bar buttons. They name
+  themselves with `.stashIconControl("<name>", systemImage: "<glyph>")`, which gives
+  VoiceOver the label and, at accessibility sizes, shows the name and glyph in the Large
+  Content Viewer on a long press.
+- **One keyboard Cancel.** `StashCancelButton` is the only Cancel shown while a field has
+  the keyboard (Ask, the Add tab, the View-tab search): the `textButton` role, violet-600,
+  a 44 pt target, and ⌘. on a hardware keyboard (plain Esc stays with the focused field). Over the gradient wash it is
+  `StashCancelButton(onWash: true)`, a paper capsule (see Contrast). It is 44 pt tall, so a
+  header that shows it only while composing reserves that height at rest (Ask:
+  `.frame(minHeight: 44)` with its insets trimmed to match).
+- **Pill tabs are segmented chrome.** Labels (`secondaryMedium`) grow with Dynamic Type
+  up to xxxLarge and stop there. At accessibility sizes a long press shows a tab's label
+  in the Large Content Viewer, as with `UISegmentedControl`. Content-sized tabs that
+  outgrow the width scroll sideways, never truncate.
+- **Text grows; containers follow.** Anything holding text uses `minHeight`, never a
+  fixed height. Screens that can overflow at large sizes scroll. At accessibility sizes a
+  row that can't fit reflows (an `HStack` becomes a `VStack`) instead of truncating what
+  the user needs to read: titles, names, errors and actions wrap.
+- **Every icon-only control has a VoiceOver label.** Decorative images are
+  `accessibilityHidden`.
 
 ## Motion
 
@@ -352,7 +485,13 @@ titles/descriptions — enrichment prompts enforce this (`NO_PREAMBLE_RULES`).
   simplified one. *2026-09-03: `StashDesign`/`StashType` re-derived so token
   values and the typography scale now match this file verbatim (plan 7); the
   share extension renders Neue Montreal too (SF Pro fallback only on load
-  failure, both targets).*
+  failure, both targets).* *2026-09-30 (plan 16): text is set with roles
+  (`.stashFont(…)`, Typography › iOS type roles) and controls follow Components ›
+  Controls (iOS). The pre-plan-16 `StashType` helpers are deprecated and their
+  build warnings are the migration list. A DEBUG build launched with
+  `--uitest-type-specimen` shows every role, the shared controls and the contrast
+  cases on one screen; `A11yFoundationUITests` measures it, and
+  `A11yScreenshotSupport.swift` shoots any screen at Large, xxxLarge, AX3 and Bold Text.*
 - **Chrome extension** (restyle upcoming): plain-CSS the tokens above; no
   build step means copying values, so cite this file's section in a comment
   next to each token block.

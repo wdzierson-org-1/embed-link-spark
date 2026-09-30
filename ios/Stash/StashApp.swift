@@ -30,7 +30,7 @@ struct StashApp: App {
     @State private var libraryStores = LibraryStoreProvider()
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var showSplash = true
+    @State private var showSplash = StashApp.showsLaunchSplash
     // Plan 12 task 4: "How to easily stash" panel — set on the `signedIn` transition below when
     // `OnboardingState.hasSeenHowToStash` is still false; `HowToStashView` clears this itself via
     // `\.dismiss` on either of its own buttons (see its doc comment).
@@ -65,6 +65,11 @@ struct StashApp: App {
                 if UITestHooks.outboxProbeEnabled, case .signedIn(let userId) = session.state {
                     OutboxProbe(userId: userId)
                 }
+                // Covers the whole window; the session never starts underneath it (see `.task`).
+                if UITestHooks.typeSpecimenEnabled {
+                    TypeSpecimenView()
+                        .zIndex(2)
+                }
                 #endif
             }
             .fullScreenCover(isPresented: $showHowToStash) {
@@ -77,6 +82,9 @@ struct StashApp: App {
             // root scene content rather than per-surface, so no future view can drift into a
             // dark trait variant by omission.
             .preferredColorScheme(.light)
+            #if DEBUG
+            .modifier(UITestEnvironmentOverrides())
+            #endif
             .task {
                 // Long enough for the gradient's motion to register as intentional, short
                 // enough to never feel like a gate — session restore continues underneath.
@@ -93,6 +101,9 @@ struct StashApp: App {
             .task {
                 #if DEBUG
                 UITestHooks.applyShareExtensionOverrides()
+                // The type specimen stands alone: no session, so nothing (onboarding, a restored
+                // library) can present over it.
+                if UITestHooks.typeSpecimenEnabled { return }
                 #endif
                 await session.start()
             }
@@ -169,6 +180,16 @@ struct StashApp: App {
             // not only once the Add tab's composer happens to appear.
             Task { await drainIfNeeded(userId: userId) }
         }
+    }
+
+    /// The launch splash plays on every launch — except under the DEBUG type specimen (plan 16),
+    /// which UI tests measure straight away.
+    private static var showsLaunchSplash: Bool {
+        #if DEBUG
+        return !UITestHooks.typeSpecimenEnabled
+        #else
+        return true
+        #endif
     }
 
     /// Plan 15 Task 4: drains only when something is actually sendable — a `.pending` entry, or
@@ -271,6 +292,17 @@ enum UITestHooks {
     /// accessibility label) so a UI test can assert what is still queued.
     static var outboxProbeEnabled: Bool { arguments.contains("--uitest-outbox-probe") }
 
+    /// `--uitest-type-specimen` (plan 16): `TypeSpecimenView` — every `StashType` role, the shared
+    /// controls and the text-size / Bold Text state — covers the window. No splash, and the
+    /// session never starts underneath it.
+    static var typeSpecimenEnabled: Bool { arguments.contains("--uitest-type-specimen") }
+
+    /// `--uitest-bold-text` (plan 16): SwiftUI's `legibilityWeight` is `.bold` from the root down —
+    /// what the Bold Text setting sets — without touching the simulator's settings, so one launch
+    /// can be shot with Bold Text and the next without. (Dynamic Type needs no hook: the
+    /// `-UIPreferredContentSizeCategoryName <category>` launch argument sets it per launch.)
+    static var boldTextEnabled: Bool { arguments.contains("--uitest-bold-text") }
+
     /// App Group keys the DEBUG share extension reads (`ShareComposeView`). Every DEBUG launch
     /// writes exactly what its arguments ask for and removes the rest, so no test inherits them:
     /// - `--uitest-share-gate-open` → `uitest.shareGateOpen`: lets Save through on the lapsed
@@ -296,6 +328,18 @@ enum UITestHooks {
             } else {
                 defaults?.removeObject(forKey: key)
             }
+        }
+    }
+}
+
+/// The root's DEBUG environment overrides (plan 16): `--uitest-bold-text` → `legibilityWeight`
+/// `.bold`. Applied above the root's presentations, so sheets and covers inherit it too.
+private struct UITestEnvironmentOverrides: ViewModifier {
+    func body(content: Content) -> some View {
+        if UITestHooks.boldTextEnabled {
+            content.environment(\.legibilityWeight, .bold)
+        } else {
+            content
         }
     }
 }

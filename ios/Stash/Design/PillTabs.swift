@@ -5,6 +5,13 @@ import SwiftUI
 /// border and a soft shadow over it). Extracted here (rather than duplicated) so any tab-style
 /// selector across the app — the detail sheet's content tabs (Task 6) included — draws from one
 /// implementation.
+///
+/// Plan 16 (HIG + accessibility): labels are the `secondaryMedium` role (Medium 15, `.subheadline`,
+/// Bold Text aware). Segmented chrome, like `UISegmentedControl`: they grow with Dynamic Type up
+/// to xxxLarge and stop there — at the accessibility sizes a long press shows the tab's label in
+/// the Large Content Viewer. Content-sized tabs that outgrow the width scroll sideways instead of
+/// squeezing or truncating. Each tab takes taps across its whole pill (it used to be just the word
+/// while unselected) and at least 44 pt of height; its accessibility frame is the pill too.
 struct PillTabs<Tab: Hashable>: View {
     struct Item {
         let tab: Tab
@@ -28,6 +35,20 @@ struct PillTabs<Tab: Hashable>: View {
     var fillWidth: Bool = false
 
     var body: some View {
+        Group {
+            if fillWidth {
+                track
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    track
+                    ScrollView(.horizontal, showsIndicators: false) { track }
+                }
+            }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    private var track: some View {
         HStack(spacing: 4) {
             ForEach(items, id: \.tab) { item in
                 button(item)
@@ -43,7 +64,7 @@ struct PillTabs<Tab: Hashable>: View {
             selection = item.tab
         } label: {
             Text(item.label)
-                .font(StashType.bodyMedium())
+                .stashFont(.secondaryMedium)
                 .lineLimit(1)
                 .fixedSize(horizontal: !fillWidth, vertical: true)
                 .frame(maxWidth: fillWidth ? .infinity : nil)
@@ -58,8 +79,11 @@ struct PillTabs<Tab: Hashable>: View {
                             .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
                     }
                 }
+                .contentShape(.accessibility, Capsule())
+                .stashMinimumHitTarget()
         }
         .buttonStyle(.plain)
+        .accessibilityShowsLargeContentViewer { Text(item.label) }
         .modifier(OptionalAccessibilityIdentifier(identifier: item.identifier))
     }
 }

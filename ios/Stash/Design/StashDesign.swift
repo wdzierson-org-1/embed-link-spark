@@ -10,9 +10,16 @@ import CoreImage.CIFilterBuiltins
 /// "weighted" submit, a compact wordmark header instead of per-screen titles, and the animated
 /// gradient backdrop that gives every capture surface its ambience.
 enum StashColor {
-    // DESIGN.md §Color — neutrals (chrome).
+    // DESIGN.md §Color — neutrals (chrome). Contrast (plan 16, WCAG 2.2 AA; DESIGN.md › Color ›
+    // Contrast has the full table): text a person reads — including dates, facts, section labels
+    // and placeholders — is `ink` or `muted`; `faint` never is.
     static let ink = Color(hex: 0x22262F)
+    /// Secondary AND informational meta text (dates, facts, footers, micro-labels, placeholders):
+    /// 5.38:1 on white, 5.02 on the page wash, 4.86 on the chip wash, ≥ 4.54 on every type tint.
+    /// Not on the gradient wash (≈ 3:1 there).
     static let muted = Color(hex: 0x646B76)
+    /// Decorative and disabled only — hairline art, a disabled glyph, an idle send circle. 2.79:1
+    /// on white: below AA for text (4.5) AND for a control's only glyph (3:1).
     static let faint = Color(hex: 0x959BA6)
     static let hairline = Color.black.opacity(0.07)
     static let paper = Color.white
@@ -22,7 +29,15 @@ enum StashColor {
     static let dottedRule = Color.black.opacity(0.18)
 
     // DESIGN.md §Color — intent colors.
+    /// Interactive: links, active pills, switches, focus, text buttons on white/paper (5.18:1),
+    /// the page wash (4.84) and the chip wash (4.68). As TEXT on a type tint or a violet tint it
+    /// drops to 4.37–4.44 — use `violet700` there; glyphs and fills need only 3:1 and stay
+    /// violet-600. Directly on the gradient wash no violet or grey passes (measured 2.9–3.4:1 at
+    /// the top of the Add and View tabs): text there is `ink`, or sits on paper.
     static let violet600 = Color(hex: 0x6D5BD0)
+    /// Violet TEXT on tinted fields (plan 16): the type tints and violet tints (Ask's session pill,
+    /// the due chip) — ≥ 5.4:1 on every one; 6.40 on white. Not for the gradient wash.
+    static let violet700 = Color(hex: 0x5D49CB)
     static let violet300 = Color(hex: 0xB6A8EF)
     static let destructive = Color(hex: 0xC93A3A)
     /// DESIGN.md §Color "Intent colors" (2026-09-04, plan 11) — first legitimate need for a
@@ -186,11 +201,51 @@ extension View {
     }
 }
 
+// MARK: - Hit targets and icon-only controls (plan 16)
+
+extension View {
+    /// HIG: every tappable element takes touches across at least 44×44 pt. Grows this view's hit
+    /// area to `minimum` × `minimum`, centred, WITHOUT changing its layout size or its look — a
+    /// clear, hit-testable background that may overhang the view (SwiftUI doesn't clip hit testing
+    /// to a view's frame). Apply it to a control's LABEL, after the label's own visuals, so the
+    /// overhang belongs to the control. Views already that big are unchanged.
+    ///
+    /// Why it matters even though SwiftUI hit-tests a touch with a radius (a lone control takes a
+    /// tap ~16 pt past its edge): over anything else tappable — a card, a row, a sheet's surface —
+    /// the exact hit on that surface wins, so a small control only gets the taps its own shape
+    /// covers. Proven by `A11yFoundationUITests.testSharedControlsTakeEveryTapInsideA44PointTarget`.
+    /// Watch neighbours: two targets closer than 44 pt overlap, and the later one wins the overlap.
+    func stashMinimumHitTarget(_ minimum: CGFloat = 44) -> some View {
+        background {
+            Color.clear
+                .frame(minWidth: minimum, minHeight: minimum)
+                .contentShape(Rectangle())
+        }
+    }
+
+    /// Names an icon-only control (a `CircleIcon` button, a glyph-only button) — VoiceOver's label,
+    /// and the Large Content Viewer: icon chrome keeps a fixed glyph size at every text size, like
+    /// the system's bar buttons, so at accessibility sizes a long press shows `label` and the glyph
+    /// large. Use it in place of `.accessibilityLabel` on the control itself (the `Button`), with
+    /// the same symbol the control draws.
+    func stashIconControl(_ label: String, systemImage: String) -> some View {
+        accessibilityLabel(label)
+            .accessibilityShowsLargeContentViewer {
+                Label(label, systemImage: systemImage)
+            }
+    }
+}
+
 // MARK: - Round icon buttons (web: h-12 w-12 rounded-full border shadow-sm)
 
 /// The visual for one round icon control — used as a `Button`/`PhotosPicker` label so both get
 /// the identical treatment. `active` is the web's violet toggled state (location pin on, public
 /// globe on); default is the hairline-bordered ink-on-paper resting state.
+///
+/// Plan 16: icon chrome — the circle and glyph keep their size at every text size (like system
+/// bar buttons), the tap target is at least 44×44 pt whatever `size` is (`stashMinimumHitTarget`),
+/// and the control names itself with `stashIconControl(_:systemImage:)` for VoiceOver and the
+/// Large Content Viewer.
 struct CircleIcon: View {
     let systemImage: String
     var size: CGFloat = 40
@@ -205,6 +260,9 @@ struct CircleIcon: View {
             if busy {
                 ProgressView()
             } else {
+                // Fixed on purpose: chrome glyphs stay put like system bar buttons (plan 16) —
+                // the Large Content Viewer (`stashIconControl`) carries them at large sizes. As a
+                // system font the glyph still follows Bold Text.
                 Image(systemName: systemImage)
                     .font(.system(size: size * 0.42, weight: .medium))
             }
@@ -218,11 +276,13 @@ struct CircleIcon: View {
             }
         }
         .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+        .stashMinimumHitTarget()
     }
 }
 
 /// The weighted submit circle (web's Send button): violet-filled with a white paper plane while
 /// submittable, the resting paper/hairline circle otherwise — never dimmed (`disabled:opacity-100`).
+/// Plan 16: icon chrome like `CircleIcon` — fixed size, a tap target of at least 44×44 pt.
 struct CircleSubmitIcon: View {
     var size: CGFloat = 48
     var hot: Bool
@@ -243,6 +303,7 @@ struct CircleSubmitIcon: View {
         .background(hot ? StashColor.violet600 : StashColor.paper, in: Circle())
         .overlay(Circle().strokeBorder(hot ? StashColor.violet600 : StashColor.hairline, lineWidth: 1))
         .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+        .stashMinimumHitTarget()
     }
 }
 
@@ -253,6 +314,12 @@ struct CircleSubmitIcon: View {
 /// doc comment has the detail). The Stash wordmark leading (same as the web's header) and an
 /// optional per-tab accessory trailing. Detail flows stay sheets; if a tab ever grows push
 /// navigation, the system inline back bar slots under this without clashing.
+///
+/// Plan 16: the header has no tappable parts of its own — each accessory brings its own 44 pt
+/// target (`CircleIcon`, `StashCancelButton`). The row is as tall as its tallest item, so a
+/// 44 pt `StashCancelButton` appearing beside the 20 pt wordmark grows the header by 24 pt unless
+/// the screen reserves that height at rest (Ask's header does: `.frame(minHeight: 44)` with its
+/// insets trimmed to match).
 struct StashHeader<Accessory: View>: View {
     @ViewBuilder var accessory: Accessory
 
@@ -284,35 +351,48 @@ extension StashHeader where Accessory == EmptyView {
 /// never cleared. Ask uses it in place of its New chat / History circles (plan 16); the Add tab
 /// and the View-tab search adopt it in the same plan's accessibility pass, so all three match.
 ///
-/// HIG sizing: the body text style — 17 pt at the default text size, scaling with Dynamic Type
-/// (`relativeTo: .body`; the system fallback is the scaled `.body` style too) — and a hit area of
-/// at least 44×44 pt, carried by the frame and `contentShape` rather than the word itself.
+/// HIG sizing: the `textButton` role — Book 17 pt at the default text size, scaling with Dynamic
+/// Type like `.body`, Medium under Bold Text — and a hit area of at least 44×44 pt, carried by the
+/// frame and `contentShape` rather than the word itself.
+///
+/// Contrast (plan 16): violet-600 on white/paper is 5.18:1, but on the gradient wash at the top of
+/// the Add and View tabs it measures 2.9–3.4:1 (below AA). Over the wash pass `onWash: true`: the
+/// word sits on a paper capsule — the same paper-on-wash chrome as the search pill and the cards —
+/// and keeps 4.9:1 or better over the darkest wash measured.
+///
+/// Hardware keyboards: ⌘. does the same (`.cancelAction`). Plain Esc, the shortcut's other key,
+/// stays with the focused text field and never reaches it (probed on iOS 17.0). Only one Cancel
+/// is ever on screen — each shows only while its own field has focus, and only one field can — so
+/// the shortcut never has two claimants.
 struct StashCancelButton: View {
     /// The caller's accessibility identifier (e.g. `ask.dismissKeyboard`) — tests find it by this.
     let identifier: String
+    /// The button sits directly on the gradient wash (Add tab header, View-tab search row).
+    var onWash = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text("Cancel")
-                .font(Self.font)
+                .stashFont(.textButton)
                 .foregroundStyle(StashColor.violet600)
+                .padding(.horizontal, onWash ? 12 : 0)
+                .padding(.vertical, onWash ? 5 : 0)
+                .background {
+                    if onWash {
+                        Capsule()
+                            .fill(StashColor.paper.opacity(0.92))
+                            .overlay(Capsule().strokeBorder(StashColor.hairline, lineWidth: 1))
+                    }
+                }
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(.cancelAction)
         .accessibilityLabel("Cancel")
         .accessibilityHint("Hides the keyboard")
         .accessibilityIdentifier(identifier)
-    }
-
-    /// PP Neue Montreal Book (DESIGN.md's UI face) at the body role's 17 pt, scaled to the user's
-    /// text size; the system body style — also 17 pt by default, also scaled — if the bundled
-    /// face didn't register.
-    private static var font: Font {
-        StashType.isNeueMontrealAvailable
-            ? .custom("PPNeueMontreal-Book", size: 17, relativeTo: .body)
-            : .body
     }
 }
 
