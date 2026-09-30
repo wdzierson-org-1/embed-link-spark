@@ -1,7 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
 import { afterDraining } from '../_shared/capture.ts';
-import { isStorageTimestampName, isUuidObjectName } from '../_shared/titlePolicy.ts';
 import { requireEntitlement } from '../_shared/entitlementGate.ts';
 import { NO_PREAMBLE_RULES, stripPreamble } from '../_shared/summarize.ts';
 import {
