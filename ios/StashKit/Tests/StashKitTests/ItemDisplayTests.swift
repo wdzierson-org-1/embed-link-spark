@@ -82,4 +82,34 @@ final class ItemDisplayTests: XCTestCase {
         XCTAssertTrue(ItemDisplay.isScreenshot(item(.image, title: "Screenshot of a settings page")))
         XCTAssertFalse(ItemDisplay.isScreenshot(item(.image, title: "Image of a cat")))
     }
+
+    // MARK: - Empty Transcript tab (plan 15 wrap)
+
+    /// A job that ended `failed` must not read as "in progress" forever: `no_speech` gets its own
+    /// sentence, every other failure (or none named) the plain one; pending/processing/done and rows
+    /// with no job status keep the in-progress copy.
+    func testEmptyTranscriptTextFollowsTheJobStatus() {
+        func audio(_ status: String?, error: String? = nil) -> Item {
+            guard let status else { return item(.audio, title: "Memo", media: MediaAttributes(durationS: 12)) }
+            var transcript: [String: JSONValue] = ["status": .string(status),
+                                                   "updated_at": .string("2026-09-29T18:40:59.335Z")]
+            if let error { transcript["error"] = .string(error) }
+            return item(.audio, title: "Memo", media: MediaAttributes(extra: ["transcript": .object(transcript)]))
+        }
+        XCTAssertEqual(ItemDisplay.emptyTranscriptText(for: audio("failed", error: "no_speech")),
+                       "No speech was detected in this recording.")
+        for code in ["transcription_failed", "download_failed", "no_audio_track", "unsupported_container"] {
+            XCTAssertEqual(ItemDisplay.emptyTranscriptText(for: audio("failed", error: code)),
+                           "Couldn't transcribe this recording.", code)
+        }
+        XCTAssertEqual(ItemDisplay.emptyTranscriptText(for: audio("failed")), "Couldn't transcribe this recording.")
+        for status in ["pending", "processing", "done", "thinking"] {
+            XCTAssertNil(ItemDisplay.transcriptFailureText(for: audio(status)), status)
+            XCTAssertEqual(ItemDisplay.emptyTranscriptText(for: audio(status)), "Transcription in progress…", status)
+        }
+        XCTAssertNil(ItemDisplay.transcriptFailureText(for: audio(nil)), "legacy row: no job status")
+        XCTAssertEqual(ItemDisplay.emptyTranscriptText(for: audio(nil)), "Transcription in progress…")
+        XCTAssertEqual(ItemDisplay.transcriptFailureText(for: audio("failed", error: "no_speech")),
+                       "No speech was detected in this recording.")
+    }
 }

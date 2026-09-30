@@ -1,7 +1,8 @@
 import Foundation
 
-/// Display-only presentation rules for library cards (plan 15, Task 3). Nothing here is ever
-/// written back to the row — these only decide what a card SHOWS.
+/// Display-only presentation rules for library cards (plan 15, Task 3) and the detail sheet's
+/// empty Transcript tab. Nothing here is ever written back to the row — these only decide what
+/// the UI SHOWS.
 public enum ItemDisplay {
     /// Voice note vs. long recording — mirrors web `audioSubtype` (`src/components/cards/
     /// CardBits.tsx`): enrichment's `attributes.media.kind` wins when it is one of the two known
@@ -51,6 +52,22 @@ public enum ItemDisplay {
         case .video: return "Video"
         default: return "File"
         }
+    }
+
+    /// Why an audio/video item has no transcript when the server's transcription job
+    /// (`attributes.media.transcript`, `TranscriptJobState`) ended `failed`: `no_speech` gets its
+    /// own sentence, any other failure a plain one. `nil` while the job is pending or processing,
+    /// once it's done, and on rows with no job status (legacy rows).
+    public static func transcriptFailureText(for item: Item) -> String? {
+        guard let job = TranscriptJobState(attributes: item.attributes), job.status == .failed else { return nil }
+        return job.error == "no_speech" ? "No speech was detected in this recording."
+                                        : "Couldn't transcribe this recording."
+    }
+
+    /// What the detail sheet's Transcript tab says while it has no transcript text. A failed job
+    /// says why (plan 15 wrap — it used to read "in progress" forever); anything else is on its way.
+    public static func emptyTranscriptText(for item: Item) -> String {
+        transcriptFailureText(for: item) ?? "Transcription in progress…"
     }
 
     /// Port of web `isStorageTimestampName`: `/^\d{10,17}\.[a-z0-9]+$/i` on the trimmed name.

@@ -185,6 +185,44 @@ final class DetailUITests: XCTestCase {
         app.buttons["detail.done"].tap()
     }
 
+    /// Plan 15 wrap: a transcription job that ended `failed` left no transcript — the Transcript tab
+    /// says why instead of "Transcription in progress…" forever (`no_speech` gets its own sentence).
+    /// The seeded audio rows have no `file_path`, so the server's transcription sweep never picks
+    /// them up.
+    @MainActor
+    func testAFailedTranscriptionSaysSoInsteadOfInProgress() async throws {
+        let (email, password) = try credentials()
+        let rest = try await RestSession.signIn(email: email, password: password)
+        let epoch = Int(Date().timeIntervalSince1970)
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let cases = [("UITEST-DETAIL: no speech \(epoch)", "no_speech", "No speech was detected in this recording."),
+                     ("UITEST-DETAIL: failed transcript \(epoch)", "transcription_failed", "Couldn't transcribe this recording.")]
+        for (title, code, _) in cases {
+            let transcript: [String: Any] = ["status": "failed", "error": code, "attempts": 3, "updated_at": stamp]
+            let id = try await rest.insertItem(["type": "audio", "title": title, "content": ""],
+                                               attributes: ["media": ["duration_s": 4, "transcript": transcript]])
+            addTeardownBlock { try? await rest.deleteItem(id: id) }
+        }
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        for (title, _, expected) in cases {
+            let card = libraryCard(app, titled: title)
+            XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card '\(title)'")
+            card.tap()
+            let transcript = app.descendants(matching: .any)["detail.transcriptText"]
+            XCTAssertTrue(transcript.waitForExistence(timeout: 10), "Transcript text container not found")
+            let honest = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", expected),
+                                                   object: transcript)
+            XCTAssertEqual(XCTWaiter().wait(for: [honest], timeout: 10), .completed,
+                           "Expected '\(expected)', got '\(transcript.label)'")
+            let close = app.buttons["detail.done"]
+            close.tap()
+            let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
+            XCTAssertEqual(XCTWaiter().wait(for: [closed], timeout: 5), .completed, "The sheet didn't close")
+        }
+    }
+
     // MARK: - Helpers
 
     private func credentials() throws -> (String, String) {

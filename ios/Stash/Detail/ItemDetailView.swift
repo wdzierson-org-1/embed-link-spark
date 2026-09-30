@@ -715,7 +715,8 @@ struct ItemDetailView: View {
     }
 
     /// Folds a settled job's row into the list and the sheet (the user's unsaved edits are kept —
-    /// `adopt`). A failure is only reported for a run the user started here.
+    /// `adopt`). A failure is only reported for a run the user started here, and only when the
+    /// Transcript tab isn't already saying it.
     @MainActor
     private func applyTranscription(_ outcome: TranscriptionOutcome, reportFailure: Bool) {
         switch outcome {
@@ -728,6 +729,12 @@ struct ItemDetailView: View {
                 adopt(row)
             }
             guard reportFailure else { return }
+            // No transcript on screen: the Transcript tab itself now says why
+            // (`ItemDisplay.transcriptFailureText`) — an inline error would only repeat it.
+            let tabExplainsFailure = (item.pageBody ?? "").isEmpty
+                && (sourceLoad == .idle || sourceLoad == .loaded)
+                && ItemDisplay.transcriptFailureText(for: item) != nil
+            guard !tabExplainsFailure else { return }
             transcriptionErrorMessage = reason == "no_speech"
                 ? "No speech was detected in this recording."
                 : "Couldn’t update the transcript. Please try again."

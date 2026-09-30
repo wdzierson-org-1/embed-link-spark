@@ -169,7 +169,9 @@ struct ItemDetailContent: View {
         case .original:
             sourceBody(empty: "Nothing captured yet", id: "detail.originalText")
         case .transcript:
-            sourceBody(empty: "Transcription in progress…", id: "detail.transcriptText")
+            // A job that ended `failed` (incl. `no_speech`) says so — the header's "Transcribe with
+            // speakers" is the retry — instead of "Transcription in progress…" forever.
+            sourceBody(empty: ItemDisplay.emptyTranscriptText(for: item), id: "detail.transcriptText")
         case .notes:
             NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
                         scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
