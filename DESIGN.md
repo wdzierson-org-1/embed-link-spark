@@ -298,6 +298,11 @@ rest; violet wash on hover; wash + ring on focus.
   dimming out in lockstep (a true crossfade), which used to produce a visible
   mid-fade lightening dip — so the blur's cost never lands on the first
   frame's main thread.*
+  *2026-09-27 (plan 15, task 4): the share-sheet compose screen no longer
+  shows the gradient (Will, 2026-09-27) — it sits on plain paper
+  (`StashColor.paper`), and its header carries extra top/leading inset so the
+  wordmark clears iOS 26's larger sheet corners. The iOS wash stays on
+  sign-in, the Add-tab composer, the View-tab library and the launch splash.*
 - The loading interstitial (`LoadingInterstitial.tsx`) is a quiet arc
   spinner: hairline grey track, violet-600 rounded-cap arc, 0.9s spin, on the
   plain grey wash. It shows for a split second — nothing on it should demand

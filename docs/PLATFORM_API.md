@@ -184,7 +184,7 @@ A duplicate's `item` is the plain row.
 | 413 | `{ "error": "meta_too_large", "max_bytes": 1048576 }` | the meta itself is too big. Don't retry unchanged |
 | 500 | `{ "error": "receipt_failed", "message" }` · `{ "error": "Internal server error" }` | transient, retry |
 | 502 | `{ "error": "storage_upload_failed" \| "downstream_unreachable", "message" }` | transient, retry |
-| any other | the `add-*` endpoint's status and body, **verbatim** | e.g. a lapsed account: `403 {"error":"subscription_required","message":"…","status":"paused"}` from `add-note` |
+| any other | the `add-*` endpoint's status and body, **verbatim** | e.g. a lapsed account: `403 {"error":"subscription_required","message":"…","status":"paused"}` from `add-note` (and from `add-url`/`add-file` since 2026-09-29, below) |
 
 Known gateway quirk (measured 2026-09-27): `add-note` returns its
 `subscription_required` 403 before reading the request body. For bodies larger
@@ -193,6 +193,16 @@ answers `504` instead of the 403. Up to 512 KiB answered promptly; 900 KiB and
 1 MiB stalled. This hits direct `add-note` callers too, and the fix belongs in
 `add-note`. Through `capture`, only a lapsed account's very large note sees it,
 as a 504 (transient).
+
+**Paywall on every capture kind (production since the 2026-09-29 redeploy).**
+`add-url` and `add-file` now refuse a lapsed account exactly like `add-note`:
+`403 {"error":"subscription_required","message":"…","status":"<stripe status>"}`
+(one shared server gate; a blocking Stripe status — `past_due`, `unpaid`,
+`canceled`, `incomplete`, `incomplete_expired`, `paused` — is refused, anything
+else passes). `capture` forwards it verbatim, so a lapsed account gets that 403
+for notes, links and files alike; iOS parks the Outbox entry until the
+entitlement returns. `chat-with-all-content` (see Ask) refuses a lapsed account
+with the same 403 before streaming. Before 2026-09-29 only `add-note` did.
 
 ## Ask
 

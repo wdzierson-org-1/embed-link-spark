@@ -8,6 +8,128 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-27 · iOS background share, instant library, functional tune-up (plan 15)
+
+Will's on-device feedback (share sheet too slow on cellular, View-tab taps opening the
+wrong card, slow first load) plus an audit-driven tune-up of the whole app. iOS-only
+except the new platform `capture` endpoint, which other clients may adopt. Plan:
+`docs/superpowers/plans/2026-09-27-ios-plan-15-background-share-and-tuneup.md`.
+Look and feel unchanged except where noted.
+
+**Platform — idempotent `capture` endpoint (new).** `POST /functions/v1/capture` wraps
+`add-note`/`add-url`/`add-file` with an idempotency receipt keyed by a client-generated
+`capture_id` (table `capture_receipts`, attempt-fenced so a stalled attempt can never
+double-insert). JSON for notes/links; multipart (`meta` part first, then `file` with a
+`filename=`) for files ≤ 10 MiB on iOS (server cap 45 MiB); larger files upload to
+`stash-media/<uid>/<capture_id>.<ext>` first and register with `file_path`. Contract,
+status table and limits: `docs/PLATFORM_API.md` "capture". iOS routes every capture
+through it; web, the Chrome extension and macOS still call `add-*` directly and can adopt
+`capture` whenever they add retries.
+
+**iOS Outbox contract.** Every capture (composer, voice note, share sheet) is written to
+the per-user Outbox BEFORE any network call, and its entry id is the `capture_id`, so any
+retry from any process is deduplicated server-side. States: `pending`, `parked` (403
+`subscription_required`; unparked when entitlement returns), `transferring` (owned by a
+background upload; resent by a drain only after 600 s, or 3900 s for a storage upload
+that hasn't checkpointed). 409 `capture_in_progress` never counts as an attempt; 413
+`file_too_large` switches the entry to the two-step path; 400/`meta_too_large` count and
+don't loop. Composer network failures now queue instead of dropping attachments.
+
+**Share sheet.** Save persists the entries, hands them to one background `URLSession`
+shared by app and extension (`it.gostash.stash.capture-transfers`, App Group container),
+shows the existing "Saved to Stash" confirmation ~50 ms after the tap and closes ~0.8 s
+later; the upload finishes in the background even if the extension is gone (the system
+wakes the app to finish). A token with < 5 min left is refreshed first (≤ 2.5 s); a
+401/expired-JWT completion refreshes and restarts that phase once. If the background
+session is busy, a bounded (≤ 6 s) foreground send runs instead; anything left is
+drained by the app later. A resolving location pin no longer delays the confirmation (it
+is merged into the entries before upload, ≤ 2.5 s). Any file type is accepted. Visual:
+the gradient backdrop is gone (plain paper) and the header has extra inset so the
+wordmark clears iOS 26's larger sheet corners.
+
+**Image policy (every iOS image capture).** Longest edge ≤ 2560 px (big sources decode
+subsampled, so a 12 MP photo lands at 2016×1512), JPEG quality 0.82, EXIF orientation
+applied, all metadata incl. GPS stripped (passthrough JPEGs are GPS-stripped losslessly),
+GIF passed through, alpha composited onto white, RAW uses its embedded preview, original
+name kept in `attributes.media.file_name`. Fixes HEIC originals that Chrome and the
+vision model couldn't read, and cuts cellular upload size ~4×.
+
+**View tab.** On iOS the whole card is ONE tap target that opens the detail sheet — no
+in-card note editing, no "Add a note", no kicker link (web keeps its inline note
+editor; DESIGN.md "Card note" records the difference). Root cause of the mis-taps: hero
+images scaled to fill overflowed their clipped frames and still received taps, so the
+next card stole taps aimed at the bottom of the card above. The item store now lives at
+app scope per signed-in user with a disk-cached first page (purged on sign-out and
+account deletion), refreshes at sign-in, on foreground and on tab open (30 s staleness
+rule; pull forces), and re-reads only changed rows on realtime events (deletes made on
+another device appear on the next refresh — realtime can't filter DELETE by user).
+Search uses `search-items` like web, with literal matches (on displayed plain text) shown
+first, then server relevance — an intentional divergence web may want to adopt. Images
+load through one downsampling loader with memory + disk caches and prefetch. Titles that
+are bare UUID or timestamp file names display a type label ("Voice note", "Photo",
+"Video", "File"); card chips read `attributes.media.kind`.
+
+**Detail sheet.** Closing never waits on the network: unconfirmed edits go to a durable
+per-user pending-edits queue (latest value wins per field; flushed before every refresh;
+backoff min(30 s·2^(n−1), 6 h); dropped with a log after 20 server refusals; offline
+failures don't count), and the list shows queued values until confirmed. A zero-row
+PATCH is only treated as "item deleted" after a verified-token read. Location edits
+merge onto the server's current attributes (never a stale whole blob). The summary shows
+immediately; `page_body` is fetched only when missing; empty summaries get "Generate
+summary" (`summarize-content`). Load failures show a retryable state. "Transcribe with
+speakers" now asks the server to rebuild the transcript as a job (`transcribe-audio`
+`{itemId, rebuild: true}` → 202) and follows `attributes.media.transcript` until it
+finishes; the client no longer writes `page_body`/`description` itself, so the new
+`protect_enrichment_edits` trigger never mistakes a transcript for a user edit, and
+recordings over 24 MiB work the same way. An empty Transcript tab reads that same
+status: a job that ended `failed` says "No speech was detected in this recording."
+(`error: no_speech`) or "Couldn't transcribe this recording." (any other code) instead of
+"Transcription in progress…" forever; the header's "Transcribe with speakers" is the
+retry. (Web's empty transcript reads "No transcript available for this recording."
+whatever the job status — web could adopt the status-aware copy.)
+
+**Attributes.** `location`, `link` and `media` now round-trip unknown nested keys, so
+iOS edits no longer delete server-written keys such as `media.kind` and
+`media.transcript`.
+
+**Ask.** Retrieval-only on iOS too (implements the 2026-08-27 all-platform decision;
+placeholder "Ask your stash…"). Each answer is written to the conversation it was asked
+in; new chat / history / restore wait while an answer streams. Streaming updates are
+batched (~10 Hz); the thread follows the answer until the user drags it. An interrupted
+answer keeps its partial text with Retry. The server's `status` frames show as
+"Searching your stash…"/"Reading…" before the first token (web ignores them — worth
+adopting). Read-aloud strips markdown and citations (web's `stripForSpeech` still reads
+bare citation ids aloud — web follow-up). A `403 subscription_required` from chat shows
+the existing subscription gate and re-checks entitlement instead of a generic failure.
+
+**Session, settings, composer.** A cold launch uses the stored session, so an offline or
+expired-token launch opens the app instead of the sign-in screen; signed-in requests that
+can't get a token fail locally instead of going out anonymously; only an explicit
+sign-in can switch accounts. Subscription gates stay open until the server gives a
+definite answer (web parity; the server enforces the paywall). Entitlement checks are
+coalesced: an open answer is reused for 180 s, while a closed one is re-checked on every
+foreground so someone who just subscribed on the web isn't held back.
+Delete-account allows 120 s and confirms with Auth before reporting; sign-out keeps the
+per-user queues for the same user's next sign-in, deletion purges them. Sign-up offers
+strong-password AutoFill (`.newPassword`) and Return walks the form. Voice memos keep
+recording through screen lock (`UIBackgroundModes: audio`, app target only) and show
+"Recording was interrupted at m:ss" after an interruption. Attachments load off the main
+thread with a pending chip and a toast on failure.
+
+**Privacy manifests.** App: UserDefaults (CA92.1, 1C8F.1) and file timestamps (C617.1).
+Share extension: UserDefaults (1C8F.1) and file timestamps (C617.1). No system-boot-time
+API anywhere (`BootTimeAPIUsageTests` guards it).
+
+**Production state observed 2026-09-29** (redeployed 05:50–05:57Z by another session from
+code that wasn't on `origin/main`): `add-url`, `add-file` and `chat-with-all-content` now
+also return 403 `subscription_required` for lapsed accounts (`docs/PLATFORM_API.md`
+previously named only `add-note`); `transcribe-audio` v28 defers files over 24 MiB to its
+job mode; `generate-embeddings` v120 checks item ownership and replaces rows by
+compare-and-swap; new `items` triggers `protect_enrichment_edits` and
+`enqueue_enrichment_assessment` mark user-edited fields and queue enrichment.
+
+---
+
 ## 2026-09-18 · Chrome extension install page + hosted zip refresh
 
 Unlisted install instructions for the zip-distributed extension, for anyone who

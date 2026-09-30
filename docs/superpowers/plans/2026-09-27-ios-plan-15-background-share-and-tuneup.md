@@ -103,3 +103,154 @@ Source: `/tmp/stash-ios-audit-2026-09-27.md` (copied to `.superpowers/sdd/plan-1
 - [ ] Merge `origin/main` (audit foreign commits first); `docs/ui-changes.md` top entry "2026-09-27 · iOS background share, instant library, tune-up (plan 15)" (contracts-first: capture endpoint + idempotency, whole-card tap on iOS vs web's inline editor, image preparation policy, search parity, title fallback); plan Outcome; DESIGN.md note.
 - [ ] Suites: `swift test`, `npm test`, both targets warning-free, UI suite ×2 (only the standing gate-blocked set may fail).
 - [ ] `CURRENT_PROJECT_VERSION` stays 10 (build 10 was archived but never uploaded); `release.sh all` → upload → VALID → attach both TestFlight groups → attach to App Store version `c5b26d42-dcd6-466f-abd4-d91d37cf6d59`. STOP with the exact message if the Xcode session expired.
+
+## Outcome
+
+**Commits (branch `worktree-ios-plan-15`, base `cd6cb6cf` = `origin/main`, not pushed):**
+
+- `e493e44b`, `a5862dca` — the plan, then the audit's fix-wave groups (6A–6D).
+- `f182e244` — T5: `location`/`link`/`media` keep unknown nested keys, so iOS edits no longer
+  delete `media.kind`/`media.transcript`.
+- `66879312` + fix `66265a3b` — T1: `capture` edge function (deployed, v5) + `capture_receipts`
+  (migrations `20260927120000`/`20260927130000` applied to production and recorded). Fix:
+  `attempt_id` fencing with a compensating delete of a superseded attempt's duplicate, release
+  retries, 1 MiB meta cap (`413 meta_too_large`), multipart drain on parse failure.
+- `361fe12f` + fixes `f93f26c9`, `7cc02312` — T2: outbox-first idempotent captures
+  (`capture_id` = Outbox entry id), `ImagePreparation`, composer failures queue, 10 MiB
+  one-shot / two-step. Fixes: the whole batch on disk before any send, file-before-entry
+  deletion, dead-pid claims reclaimed, RAW-safe resize, GPS stripped from passthrough JPEGs,
+  413 → two-step; then subsampled decode for big sources (extension memory).
+- `61306900` + follow-up `ec596b63` — T3: instant View tab (app-scope per-user store + disk
+  cache, incremental realtime, `search-items`, one downsampling image loader, whole-card taps,
+  title fallback). Follow-up: literal-first ranking on displayed plain text; cache-hit path.
+- `f7c008b2` + fix `e8c8f83c` — 6A Ask: answers bound to their conversation, retrieval-only,
+  ~10 Hz coalesced streaming, follow-scroll, clean read-aloud, partial answer + Retry.
+- `948ac939` + fix `81a7b7ca` — 6B Detail: durable per-user PendingEdits, instant summary,
+  honest load failures, Generate summary, location failure surfaced + queued.
+- `eecf4c4d` + fix `835ac164` — T4: background share transfers, instant confirmation, no
+  gradient, header inset. Fix: 401 → fresh token + one restart, no extension retention, 3900 s
+  stale bound for storage uploads, confirm-first Save with a late pin.
+- `8388bdbe` — 6D composer: recordings survive auto-lock (`UIBackgroundModes: audio`), off-main
+  attachment loading, one-pass thumbnails.
+- `4fda7d3d` — 6C session/settings: stored-session launch, no anonymous requests while signed
+  in, gates fail open until known, honest delete timeout, `.newPassword` sign-up.
+- `61aa91e0` + follow-up `b30ca2e9` — final wave A: accurate privacy manifests, 30-min staging
+  sweep grace (copied files stamped `mtime = now`), enqueue-first composer, owner-token drains,
+  one bounded token fetch per background wake, recorder finalized on terminate.
+- `1ec68d19` — final wave B: `ContinuousClock` instead of `systemUptime` (no boot-time API) +
+  `BootTimeAPIUsageTests`, location read-merge, transcription as the server job, chat 403 gate
+  copy, the "Modifying state during view update" warning fixed (7 → 0).
+- `8f323eb5` — T7: a transcription job that ended `failed` says so ("No speech was detected in
+  this recording." / "Couldn't transcribe this recording.") instead of "Transcription in
+  progress…" forever; unit test + `DetailUITests.testAFailedTranscriptionSaysSoInsteadOfInProgress`
+  (fails on the old copy).
+- (this commit) — docs: this Outcome, the `docs/ui-changes.md` entry, DESIGN.md share-sheet
+  wash note, PLATFORM_API paywall note, App Review background-audio sentence.
+
+**Merge:** `origin/main` has not moved since the base (`cd6cb6cf`, 2026-09-18), so nothing was
+merged. Will's local `main` carries 30 unpushed commits (the 2026-09-29 merge wave: long-audio
+transcription, reminders email, Ask notes-in-search, logo refresh, enrichment quality loop, and
+`9ee0a4af` relabelling "Transcribe with speakers" to "Transcribe again" on web + iOS). A trial
+`git merge-tree` of this branch with that `main` conflicts in `docs/PLATFORM_API.md` and
+`ios/StashKit/Sources/StashKit/TranscriptionService.swift`. The build uploaded from this branch
+has none of those commits (old app icon and wordmark, "Transcribe with speakers").
+
+**Reviews:** every unit had an opus review. T5 APPROVE. T1 NEEDS FIX (no fencing) → APPROVE.
+T2 NEEDS FIX → APPROVE (after the memory follow-up). T3 APPROVE (+ small follow-up). 6A NEEDS
+FIX (follow-scroll) → APPROVE. 6B NEEDS FIX (anon-fallback PATCH, citation overlay) → APPROVE.
+T4 APPROVE with pre-release fixes → APPROVE. 6D APPROVE. 6C APPROVE. Whole-branch review
+(contracts checked against the 15 deployed functions): READY FOR FINAL FIX WAVE → FW-A NEEDS
+FIX (ship gate + mtime) → APPROVE; FW-B APPROVE (its one LOW carried into T7).
+
+**Key decisions:**
+
+- `capture` wraps `add-*` and never modifies them (production drifted from `main`); only iOS
+  uses it. The Outbox entry id is the `capture_id`, so every retry path can resend blindly.
+- iOS one-shot limit 10 MiB (the gateway buffers the whole body and caps requests at 150 s);
+  the server accepts 45 MiB. Larger files go two-step to a deterministic storage path.
+- Image policy: ≤ 2560 px, JPEG 0.82, orientation applied, all metadata incl. GPS stripped;
+  sources above 2560 px decode subsampled (factor 2/4/8, target ≥ 1600 px) to stay under the
+  extension's ~120 MB ceiling.
+- Share sheet: confirmation first; the pin, token refresh and upload never hold it. Gradient
+  removed (Will, 2026-09-27). `isModalInPresentation` removed (didn't block swipe-down; entries
+  persist before the confirmation, so a swipe is harmless).
+- View tab: one tap target per card (web keeps its inline note editor). Search is literal-first
+  on displayed plain text, then server relevance: an intentional divergence from web.
+- Ask is retrieval-only on iOS (the 2026-08-27 all-platform decision).
+- Subscription gates fail open until the server gives a definite answer; only open answers
+  are cached (180 s).
+- Transcription runs as the server's job (`{itemId, rebuild: true}`); the client never writes
+  `page_body`/`description`, so the new `protect_enrichment_edits` trigger stays accurate.
+- No boot-time API (`ContinuousClock`), so the manifests declare only UserDefaults (app CA92.1
+  + 1C8F.1; extension 1C8F.1) and file timestamps (C617.1).
+
+**Measured:**
+
+- Share Save → confirmation ~50 ms in the extension (26–76 ms across iOS 17.5/26.5 runs; UI
+  test observed 0.47–0.92 s end to end); the sheet closes ~0.8 s later. Background proof: app
+  terminated + extension force-exited 150 ms after hand-off → the system launched the app in
+  the background, the item landed once, the Outbox emptied.
+- Mis-taps: bottom-edge taps opened the card below 5/5 before, the right card 5/5 after.
+- Tab tap → first card 0.21 s → 0.04 s; cold launch → first card 0.74 s → 0.33 s (disk cache).
+- 12 MP photo upload 6.2 MB → ~1.5 MB (T2's live check stored 1.48 MB; after the subsampled
+  decode a 12 MP photo stores at 2016×1512).
+- Image-prep decode peaks after subsampling: 12 MP JPEG 90 → 30 MB, 12 MP HEIC 117 → 50 MB,
+  48 MP JPEG 102 → 30 MB, 48 MP HEIC 109 → 47 MB. Extension process peaks: 12 MP JPEG from
+  Photos 49 MB, 12 MP HEIC from Photos 48 MB, a HEIC original from Files 85.5 MB (in a process
+  reused for two earlier shares).
+- Transcription job (live smoke): 202 in 0.56 s, done in ~10 s, no protected fields written.
+- "Modifying state during view update": 7 per UI run → 0.
+
+**Server follow-ups for Will:**
+
+- `transcribe-audio` v28 (MED, data loss): a rebuild that hears no speech writes
+  `page_body = null` before failing `no_speech`, so the old transcript is lost. It also has no
+  guard against a second concurrent rebuild (iOS never starts one).
+- Web "Transcribe with speakers" (`TranscriptContent.tsx` on `origin/main`) still uses preview
+  mode + a user-token PATCH, so the trigger marks `page_body`/`description` as user edits.
+  Move it to the job (`{itemId, rebuild: true}`) like iOS.
+- `add-note` answered its paywall 403 before reading the body (v52), so bodies over ~0.5 MiB
+  got a gateway 504 after ~160 s. Re-check on the redeployed v53.
+- Location edits: iOS read-merges `location` onto the current attributes, but a server write
+  between that read and the PATCH can still be lost. A server-side jsonb merge would close it.
+- `capture_receipts` is never pruned (one small row per iOS capture). Add a periodic delete of
+  old `done` receipts.
+- Web: `stripForSpeech` reads bare citation ids aloud; chat `status` frames ("Searching your
+  stash…") and the status-aware empty Transcript copy are worth adopting.
+- Production runs ~21 functions redeployed 2026-09-29 05:50–05:57Z from code not on
+  `origin/main`. Reviewing and pushing the local `main` merge wave would realign them.
+- Comp `will+uitest` (every capture/Ask smoke is gate-blocked) and make sure the App Review
+  demo account `will+review` is entitled before submitting.
+
+**Device checks still owed (simulator can't prove these):**
+
+- Voice memo: record → lock ~1 min → unlock → still recording (the simulator passed even
+  without the background-audio key).
+- Voice memo: record → swipe the app away → relaunch → the recording lands and plays.
+- Share on cellular: confirmation timing, and swipe-down during the hand-off.
+- iOS 26 device: the share-sheet wordmark and X clear the sheet corners (inset sized for
+  ≤ 60 pt corners).
+- One 48 MP HEIC share (simulator HEIC decode is software, so the device peak is unmeasured).
+
+**Carried / accepted LOWs:**
+
+- T1: if the compensating delete fails 3× after a takeover, one duplicate item remains (logged).
+- T2: two in-app drains can both reclaim a dead claim → a concurrent double send (the server
+  dedupes). A 2561–3199 px source still peaks ~82 MB in the extension (factor-1 decode). RAW
+  preview minimum 1024 px (nit).
+- T3: deletes from another device appear on the next refresh (realtime can't filter DELETE by
+  user). Portrait heroes render cropped vs DESIGN.md's "contained" (pre-existing).
+- 6B/FW-B: location read-merge gap vs a concurrent server write (above). A user-started
+  transcription keeps polling up to 30 min after its sheet closes (bounded).
+- 6C: a user whose refresh fails for a non-cleanup reason (e.g. banned) stays signed in.
+  UI-test launches use `.password` because the strong-password UI swallows typed text
+  (`.newPassword` proven in Release by screenshot). Keychain unreadable at launch (narrow).
+- 6D: large attachments still load as `Data` in memory (needs a StashKit file-reference
+  attachment). ComposerUITests' "Save waits" assertions skip under the gate.
+- T4: if a drain overlaps the late-location window, the pin can be dropped (rare).
+- FW-A: microsecond gap between `copyItem` and the mtime stamp; a straggler completion can
+  repopulate the token cache (≤ 60 s TTL).
+- T7: a stale `pending`/`processing` status (> 20 min) and legacy rows with no status still
+  read "Transcription in progress…" (the server's sweep resumes them). While the v28 no-speech
+  wipe exists, an open sheet keeps showing the old transcript until reopened, because the merge
+  keeps a local `page_body` when a row arrives without one.
