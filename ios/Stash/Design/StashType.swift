@@ -36,7 +36,23 @@ import UIKit
 ///
 /// Arbitrary sizes: `.stashFont(.custom(.medium, size: 24))` scales with the nearest text style
 /// (or `relativeTo:`). The ONE non-scaling font is `StashType.decorative(_:size:)`, for
-/// accessibility-hidden miniature art only.
+/// accessibility-hidden miniature art only. Text a person reads is never below 11 pt at the
+/// default size (`.caption2`, the HIG floor): anything smaller is a picture of text —
+/// `decorative` plus `accessibilityHidden(true)` — not a `.custom` role.
+///
+/// Markdown and TipTap text (plan 16 fix wave, measured on iOS 17.0 and 26.5): put the role on the
+/// `Text` that renders the `AttributedString` — `Text(attributed).stashFont(.reading)` — and its
+/// inline runs resolve against that face by themselves: `**strong**` (and TipTap bold, TipTap
+/// headings) draws Semibold, `*emphasis*` (TipTap italic) Book Italic, `` `code` `` a monospaced
+/// system face, both at regular weight and under Bold Text (where the rest goes Medium). No helper is
+/// needed. The one trap: a role applied OUTSIDE a view whose `Text` already sets its own font is
+/// dead — the inner font wins — so a markdown heading passes its role (`.readingSemibold`) into the
+/// function that builds the `Text`. `***both***` draws Book Italic (no Semibold Italic is
+/// bundled), and under Bold Text emphasis stays Book Italic inside Medium text (no Medium Italic).
+///
+/// Spacing that grows with the text: `.stashLeading(<em>, role:)` for line spacing and
+/// `.stashTracking(<em>, role:)` for kerning; `Role.textStyle` / `Role.defaultSize` pair a role
+/// with `@ScaledMetric(relativeTo:)` for anything else (a glyph beside a line of text).
 ///
 /// The pre-plan-16 helpers (`body()`, `meta()`, `bodyMedium(_:)`, …) are deprecated — the build's
 /// deprecation warnings are the surface passes' migration checklist. They still scale (with the
@@ -147,7 +163,8 @@ enum StashType {
         case mono(Font.TextStyle)
         /// `face` at an arbitrary default size, scaled like `relativeTo` — by default the nearest
         /// text style for `size` (`StashType.nearestTextStyle(for:)`). For the few places the
-        /// named roles don't cover; prefer a named role.
+        /// named roles don't cover; prefer a named role. Readable text: `size` ≥ 11 — smaller is
+        /// decorative art (`StashType.decorative`, accessibility-hidden).
         case custom(Face, size: CGFloat, relativeTo: Font.TextStyle? = nil)
 
         /// This role's font: the scaled face, or the next heavier face when `legibilityWeight` is
@@ -159,6 +176,18 @@ enum StashType {
             }
             let (face, size, style) = metrics
             return StashType.scaled(legibilityWeight == .bold ? face.bolder : face, size: size, relativeTo: style)
+        }
+
+        /// The text style this role scales with — for `@ScaledMetric(relativeTo:)` sizes that
+        /// should grow with this text (a glyph or a gap beside it).
+        var textStyle: Font.TextStyle { metrics.2 }
+
+        /// This role's size at the default (Large) text size, in points — the size DESIGN.md's
+        /// table gives it, and the base `stashLeading` / `stashTracking` scale from. `mono(style)`
+        /// is the style's own default size.
+        var defaultSize: CGFloat {
+            if case .mono(let style) = self { return StashType.defaultSize(of: style) }
+            return metrics.1
         }
 
         /// Face, default (Large) size and scaling text style. `mono` never reaches here.
@@ -214,6 +243,23 @@ enum StashType {
         case 12.5..<14: .footnote     // 13
         case 11.5..<12.5: .caption    // 12
         default: .caption2            // 11
+        }
+    }
+
+    /// Apple's default (Large) point size for `style` — SF's own sizes, which the roles follow.
+    static func defaultSize(of style: Font.TextStyle) -> CGFloat {
+        switch style {
+        case .largeTitle: 34
+        case .title: 28
+        case .title2: 22
+        case .title3: 20
+        case .headline, .body: 17
+        case .callout: 16
+        case .subheadline: 15
+        case .footnote: 13
+        case .caption: 12
+        case .caption2: 11
+        default: 17
         }
     }
 
@@ -322,7 +368,7 @@ extension View {
     func stashMicroLabel(_ color: Color = StashColor.muted) -> some View {
         stashFont(.microLabel)
             .textCase(.uppercase)
-            .stashTracking(0.11, size: 12)
+            .stashTracking(0.11, role: .microLabel)
             .foregroundStyle(color)
     }
 
@@ -331,16 +377,43 @@ extension View {
     func stashKicker(_ color: Color = StashColor.muted) -> some View {
         stashFont(.kicker)
             .textCase(.uppercase)
-            .stashTracking(0.10, size: 12)
+            .stashTracking(0.10, role: .kicker)
             .foregroundStyle(color)
     }
 
-    /// Kerning expressed as an em fraction of `size`, matching the web's letter-spacing tokens
-    /// (e.g. DESIGN.md's `+0.11em` micro-label tracking becomes `stashTracking(0.11, size: 12)`).
-    /// Pass the role's default (Large) size from the role table — micro-labels and kickers 12,
-    /// cards 20, the panel 28, display 32. The kerning is that many points at every text size, so
-    /// it tightens in em terms as the text grows, as Apple's own tracking does.
+    /// Kerning for text set in `role`, as an em fraction of the role's default (Large) size —
+    /// DESIGN.md's letter-spacing tokens as written: `.stashTracking(-0.014, role: .cardTitle)`,
+    /// `.stashTracking(0.11, role: .microLabel)`. The kerning is that many points at every text
+    /// size, so it tightens in em terms as the text grows, as Apple's own tracking does.
+    func stashTracking(_ em: CGFloat, role: StashType.Role) -> some View {
+        kerning(em * role.defaultSize)
+    }
+
+    /// `stashTracking(_:role:)` with the size by hand — prefer the role overload, which can't be
+    /// handed a stale size (the pre-plan-16 call sites pass 11 for what is now a 12 pt role).
     func stashTracking(_ em: CGFloat, size: CGFloat) -> some View {
         kerning(em * size)
+    }
+
+    /// Line spacing for text set in `role`: `em` × the role's size, scaled with the role's text
+    /// style like the text itself — `.stashLeading(0.55, role: .reading)` is 9.35 pt at the default
+    /// size and 20.35 pt at AX3, so paragraphs keep their proportions (a fixed `lineSpacing` shrinks
+    /// to nothing as text grows). `em` is the gap on top of the face's own line height, so CSS
+    /// `line-height: 1.55` is 0.55. It replaces every `lineSpacing(14 * …)`.
+    func stashLeading(_ em: CGFloat, role: StashType.Role) -> some View {
+        modifier(StashLeading(em: em, role: role))
+    }
+}
+
+/// `stashLeading`: a `@ScaledMetric` built from the role's own size and text style.
+private struct StashLeading: ViewModifier {
+    @ScaledMetric private var spacing: CGFloat
+
+    init(em: CGFloat, role: StashType.Role) {
+        _spacing = ScaledMetric(wrappedValue: em * role.defaultSize, relativeTo: role.textStyle)
+    }
+
+    func body(content: Content) -> some View {
+        content.lineSpacing(spacing)
     }
 }

@@ -7,6 +7,16 @@ import UIKit
 /// connected to that session, the system launches or resumes the APP to deliver the events —
 /// this is where they arrive. The app never connects to the session otherwise.
 final class StashAppDelegate: NSObject, UIApplicationDelegate {
+    #if DEBUG
+    /// DEBUG only (plan 16): `--uitest-bold-text` has to be in place before the first scene
+    /// connects, so the very first frame of every screen is already bold (`UITestTraitOverrides`).
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UITestTraitOverrides.install()
+        return true
+    }
+    #endif
+
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         guard BackgroundCaptureTransfers.shared.handleEvents(forBackgroundURLSession: identifier,
@@ -82,9 +92,6 @@ struct StashApp: App {
             // root scene content rather than per-surface, so no future view can drift into a
             // dark trait variant by omission.
             .preferredColorScheme(.light)
-            #if DEBUG
-            .modifier(UITestEnvironmentOverrides())
-            #endif
             .task {
                 // Long enough for the gradient's motion to register as intentional, short
                 // enough to never feel like a gate — session restore continues underneath.
@@ -297,10 +304,11 @@ enum UITestHooks {
     /// session never starts underneath it.
     static var typeSpecimenEnabled: Bool { arguments.contains("--uitest-type-specimen") }
 
-    /// `--uitest-bold-text` (plan 16): SwiftUI's `legibilityWeight` is `.bold` from the root down —
+    /// `--uitest-bold-text` (plan 16): every window scene's legibility-weight TRAIT is `.bold` —
     /// what the Bold Text setting sets — without touching the simulator's settings, so one launch
-    /// can be shot with Bold Text and the next without. (Dynamic Type needs no hook: the
-    /// `-UIPreferredContentSizeCategoryName <category>` launch argument sets it per launch.)
+    /// can be shot with Bold Text and the next without. See `UITestTraitOverrides`. (Dynamic Type
+    /// needs no hook: the `-UIPreferredContentSizeCategoryName <category>` launch argument sets it
+    /// per launch, for every screen.)
     static var boldTextEnabled: Bool { arguments.contains("--uitest-bold-text") }
 
     /// App Group keys the DEBUG share extension reads (`ShareComposeView`). Every DEBUG launch
@@ -332,15 +340,41 @@ enum UITestHooks {
     }
 }
 
-/// The root's DEBUG environment overrides (plan 16): `--uitest-bold-text` → `legibilityWeight`
-/// `.bold`. Applied above the root's presentations, so sheets and covers inherit it too.
-private struct UITestEnvironmentOverrides: ViewModifier {
-    func body(content: Content) -> some View {
-        if UITestHooks.boldTextEnabled {
-            content.environment(\.legibilityWeight, .bold)
-        } else {
-            content
+/// `--uitest-bold-text` (plan 16) as a UIKit TRAIT, the way Settings › Bold Text delivers it:
+/// `UIWindowScene.traitOverrides.legibilityWeight = .bold` (iOS 17+) on every connected scene at
+/// launch and on any scene that connects later. Every window in a scene, and every view controller
+/// presented in it (sheets, covers), inherits the scene's traits, and every `UIHostingController`
+/// derives SwiftUI's `legibilityWeight` from them, so the hook reaches `MainTabView`'s tabs,
+/// sheets, covers and NavigationStacks — all SwiftUI text, SF Symbols and SwiftUI-hosted text
+/// fields. Not quite everything the real setting does: UIKit text that reads the global setting
+/// instead of the trait stays regular under the hook — iOS 17's tab bar item labels (measured on
+/// 17.0; iOS 26.5's tab bar follows the trait) — and `A11yScreens.enableBoldTextSetting(for:)`
+/// is the way to shoot those. The real setting
+/// (`UIAccessibility.isBoldTextEnabled`) stays off, so the specimen's state line reads
+/// `lw=bold;boldText=false` under the hook.
+///
+/// Why a trait (plan 16 fix wave, measured): this hook used to set SwiftUI's
+/// `.environment(\.legibilityWeight, .bold)` on the root view. A SwiftUI environment override
+/// crosses a nested `TabView` and a `NavigationStack`, but NOT a root `TabView`'s tabs (where
+/// `MainTabView` puts every real screen) and NOT a sheet — both re-derive trait-bridged values from
+/// UIKit traits — so every real screen's L-bold screenshot came out identical to its L one.
+/// `A11yFoundationUITests.testBoldTextDrawsEachRoleOneFaceHeavier` probes each boundary.
+@MainActor
+enum UITestTraitOverrides {
+    static func install() {
+        guard UITestHooks.boldTextEnabled else { return }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            apply(to: scene)
         }
+        NotificationCenter.default.addObserver(forName: UIScene.willConnectNotification, object: nil,
+                                               queue: .main) { notification in
+            guard let scene = notification.object as? UIWindowScene else { return }
+            MainActor.assumeIsolated { apply(to: scene) }
+        }
+    }
+
+    private static func apply(to scene: UIWindowScene) {
+        scene.traitOverrides.legibilityWeight = .bold
     }
 }
 

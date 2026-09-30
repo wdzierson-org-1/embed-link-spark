@@ -63,14 +63,15 @@ bundle); fall back to SF Pro only if the face fails to load.
 | Display header (marketing, empty states) | 600 | 32–40 / 1.12 | −0.022em | |
 | Body / description | 400 | 13.5–14.5 / 1.5–1.6 | 0 | muted color |
 | User annotation | 400 italic | 13.5–14 | 0 | violet left bar, 2px |
-| Micro-label (section headers) | 600 | 11 caps | +0.11em | `muted` (was `faint` — see Contrast) |
+| Micro-label (section headers) | 600 | 11 caps | +0.11em | `muted` — web should adopt (it still renders `faint`; see Contrast) |
 | Chip | 500 | 11 | 0 | mono variant: ui-monospace 10–11.5 |
 | Kicker / eyebrow | 600 | 11 caps | +0.10em | |
-| Date / meta | 400 | 12 | 0 | `muted` (was `faint` — see Contrast) |
+| Date / meta | 400 | 12 | 0 | `muted` — web should adopt (it still renders `faint`; see Contrast) |
 
 This table is the **web** scale (desktop, pointer). *2026-09-30 (iOS plan 16): the
-`faint` → `muted` change for micro-labels and dates is the contrast fix below — iOS has
-made it; web should adopt it.*
+`faint` → `muted` change for micro-labels and dates is the contrast fix below. The web
+still renders `faint` there and should adopt it; iOS migrates in plan 16's surface
+passes.*
 
 **iOS type roles (Dynamic Type).** *2026-09-30 (iOS plan 16).* iOS sets every piece
 of text with a **role** — `.stashFont(.reading)` — never a raw point size. Each role is
@@ -113,9 +114,28 @@ sheet read small).
 - **Decorative art is the one fixed size.** `StashType.decorative(<face>, size:)` never
   scales and never follows Bold Text — for miniature illustrations and plates that draw
   text or glyphs at a set scale, and the view must be `accessibilityHidden(true)`.
-  Anything a person reads to use the app takes a role.
-- **Tracking** stays in points: `.stashTracking(<em>, size: <the role's Large size>)`, so
-  it tightens in em terms as text grows, as Apple's own tracking does.
+  Anything a person reads to use the app takes a role, and is never below **11 pt** at
+  the default size (`.caption2`, the HIG floor): smaller is decorative + hidden.
+- **Tracking** stays in points: `.stashTracking(<em>, role: <role>)` — the table's em
+  value times the role's Large size (`.stashTracking(-0.014, role: .cardTitle)`) — so it
+  tightens in em terms as text grows, as Apple's own tracking does.
+- **Leading grows with the text.** Extra line spacing is `.stashLeading(<em>, role:)`:
+  `em` × the role's size, scaled with the role's text style (a `@ScaledMetric`), so
+  `.stashLeading(0.55, role: .reading)` is 9.35 pt at Large and 20.35 pt at AX3.
+  `em` is the gap on top of the face's own line height, so CSS `line-height: 1.55` is
+  0.55. Never a fixed `lineSpacing(…)`: the old `14 * 0.55` shrank to 0.2 em at AX3.
+- **Markdown and TipTap text** (measured, iOS 17.0 and 26.5): put the role on the `Text`
+  that draws the `AttributedString` — `Text(attributed).stashFont(.reading)` — and its
+  inline runs resolve against that face by themselves: `**strong**` (TipTap bold, TipTap
+  headings) is Semibold, `*emphasis*` (TipTap italic) is Book Italic, `` `code` `` is the
+  system monospaced face, at regular weight and under Bold Text (where the rest goes
+  Medium). No helper needed. **A role applied outside a view whose `Text` sets its own
+  font is dead** — the inner font wins — so a markdown heading passes its role into the
+  function that builds
+  the `Text` (`inlineText(text, role: .readingSemibold)`), never
+  `inlineText(text).stashFont(.readingSemibold)`. Known limits (no face bundled):
+  `***both***` draws Book Italic, and under Bold Text emphasis stays Book Italic inside
+  Medium text.
 - The web keeps its desktop scale (the table above); these roles are iOS-only.
 
 **Exceptions:** marketing pages (homepage, pricing) may use Tobias as the
@@ -185,6 +205,10 @@ adopt for its own gate messaging.*
 person reads meets **4.5:1** on the background it actually sits on (3:1 once it is
 large: 24 pt, or 18.7 pt bold). A control's only glyph, and any other graphic that
 carries meaning, meets **3:1**. Disabled controls and pure decoration are exempt.
+(WCAG's "large" is 18 pt / 14 pt bold in print points, i.e. 24 / 18.66 CSS px; on iOS
+we read CSS px as points — both are ≈ 1/160 in on a device — so the thresholds are 24 pt
+and 18.7 pt bold. That is deliberately stricter than Apple's own guidance, which allows
+3:1 from 18 pt or at any bold weight.)
 
 - **Meta text is `muted`.** Dates, facts, footers, section labels, the autosave line,
   placeholders. No separate meta grey: a lighter grey that still passed on the chip wash
@@ -199,7 +223,13 @@ carries meaning, meets **3:1**. Disabled controls and pure decoration are exempt
 - **Nothing but `ink` sits directly on the gradient wash.** Measured behind the Add-tab
   header and the View-tab search row, the wash takes violet-600 to 2.8–3.3:1 and `muted`
   to 3.0–3.4:1. Text over it sits on paper (cards, the search pill, a
-  `StashCancelButton(onWash: true)` capsule).
+  `StashCancelButton(onWash: true)` capsule — opaque paper, so its violet-600 word is
+  5.18:1 over any wash).
+- **A wash or tint stacked on a non-white surface needs its own check.** The table's
+  tint rows are over white; stacking darkens. A chip wash on `#f2f2f7` takes `muted` to
+  4.36 ✗ and violet-600 to 4.20 ✗; a voice tint @.12 over the page wash takes `muted` to
+  4.26 ✗; a violet tint @.12 over the page wash, `muted` to 4.30 ✗. Use `ink` or
+  `violet-700` there, or put the text on paper.
 - **Placeholders are `muted`.** The system placeholder colour is 1.7:1. A custom
   placeholder `Text` takes `.foregroundStyle(StashColor.muted)`; a `TextField` takes
   `prompt: Text("…").foregroundStyle(StashColor.muted)` (honoured on iOS 17.0 and 26.5,
@@ -211,6 +241,7 @@ carries meaning, meets **3:1**. Disabled controls and pure decoration are exempt
 |---|---|---|---|---|---|---|
 | white: paper, cards, sheets | 15.15 | 5.38 | 2.79 ✗ | 5.18 | 6.40 | 1.73 ✗ |
 | page wash `#f7f7f9` | 14.16 | 5.02 | 2.61 ✗ | 4.84 | 5.98 | 1.72 ✗ |
+| iOS `secondarySystemBackground` `#f2f2f7` (Ask's answer bubble, empty state, restore banner) | 13.58 | 4.82 | 2.50 ✗ | 4.64 | 5.74 | 1.71 ✗ |
 | chip bg `rgba(20,22,30,.05)` | 13.69 | 4.86 | 2.53 ✗ | 4.68 | 5.79 | 1.71 ✗ |
 | voice field @.12 | 12.78 | 4.54 | 2.36 ✗ | 4.37 ✗ | 5.40 | 1.69 ✗ |
 | recording/audio field @.11 | 12.94 | 4.59 | 2.39 ✗ | 4.42 ✗ | 5.47 | 1.69 ✗ |
@@ -221,12 +252,12 @@ carries meaning, meets **3:1**. Disabled controls and pure decoration are exempt
 | violet tint @.10 (due chip) | 13.27 | 4.71 | 2.45 ✗ | 4.54 | 5.61 | 1.70 ✗ |
 | gradient wash, Add header (measured `#d8c7e4`) | 9.53 | 3.38 ✗ | 1.76 ✗ | 3.26 ✗ | 4.03 ✗ | 1.61 ✗ |
 | gradient wash, View search row (measured `#d0b7de`) | 8.30 | 2.95 ✗ | 1.53 ✗ | 2.84 ✗ | 3.51 ✗ | 1.57 ✗ |
-| paper @.92 on that wash (`onWash` Cancel) | 14.50 | 5.15 | 2.67 ✗ | 4.95 | 6.13 | 1.72 ✗ |
+| opaque paper capsule on the wash (`StashCancelButton(onWash: true)`) | 15.15 | 5.38 | 2.79 ✗ | 5.18 | 6.40 | 1.73 ✗ |
 
-Tint rows use each range's upper alpha (the darker end). The type spectrum's own text
-colours clear their fields comfortably (voice 7.49, audio 6.89, document 5.86,
+Tint rows use each range's upper alpha (the darker end), over white. The type spectrum's
+own text colours clear their fields comfortably (voice 7.49, audio 6.89, document 5.86,
 screenshot 5.17), as do white on violet-600 (5.18), destructive on white (5.06) and the
-gate strip (6.95).
+gate strip (6.95). `success` is 3.04 on `#f2f2f7` — a glyph there, never text.
 
 **Color scheme: light-only.** *2026-09-03 (plan 9):* Stash renders in the
 light palette above only — no dark-mode stylesheet or trait variant on any
@@ -401,33 +432,48 @@ rest; violet wash on hover; wash + ring on focus.
 
 - **44 × 44 pt targets.** Every tappable element takes touches across at least 44 × 44 pt,
   whatever it looks like. A smaller visual keeps its size and position, and its target
-  grows around it without moving layout: `.stashMinimumHitTarget()` on the control's label
-  (already built into `CircleIcon`, `CircleSubmitIcon`, `PillTabs` and `StashCancelButton`).
-  It matters even though SwiftUI hit-tests a touch with a radius: over anything else
-  tappable, such as a card, a row or a sheet, an exact hit on that surface wins, so a small
-  control only gets the taps its own shape covers. Two targets closer than 44 pt overlap,
-  and the later one wins. (The web keeps WCAG's 24 px floor, e.g. the reminder chip's ×.)
+  grows around it without moving layout — an overhang. It is built into `CircleIcon`,
+  `CircleSubmitIcon`, `PillTabs` and `StashCancelButton`; a custom control gets it from
+  `.buttonStyle(.stashPlain)` (`.plain` with the target on the label), or by hand from
+  `.stashMinimumHitTarget()` **on the label, inside `label:`** — on the `Button` it is a
+  44 pt dead zone that swallows taps and activates nothing. It matters even though SwiftUI
+  hit-tests a touch with a radius: over anything else tappable, such as a card, a row or a
+  sheet, an exact hit on that surface wins, so a small control only gets the taps its own
+  shape covers. Two targets closer than 44 pt (centre to centre) overlap, and the later one
+  wins. An overhang is lost wherever an ancestor clips — past a `ScrollView`'s edge, inside
+  `.clipped()` / `.clipShape` — so keep a small control's centre ≥ 22 pt inside such an
+  edge. (The web keeps WCAG's 24 px floor, e.g. the reminder chip's ×.)
 - **Icon chrome stays put.** Circle buttons and other glyph-only controls keep fixed glyph
   and circle sizes at every text size, like the system's bar buttons. They name
   themselves with `.stashIconControl("<name>", systemImage: "<glyph>")`, which gives
   VoiceOver the label and, at accessibility sizes, shows the name and glyph in the Large
-  Content Viewer on a long press.
+  Content Viewer on a long press. A control that toggles a state (the location pin, the
+  public globe) passes `isOn:` too, so VoiceOver hears a toggle that is "On" or "Off", not
+  a colour.
 - **One keyboard Cancel.** `StashCancelButton` is the only Cancel shown while a field has
   the keyboard (Ask, the Add tab, the View-tab search): the `textButton` role, violet-600,
-  a 44 pt target, and ⌘. on a hardware keyboard (plain Esc stays with the focused field). Over the gradient wash it is
-  `StashCancelButton(onWash: true)`, a paper capsule (see Contrast). It is 44 pt tall, so a
-  header that shows it only while composing reserves that height at rest (Ask:
-  `.frame(minHeight: 44)` with its insets trimmed to match).
+  and ⌘. on a hardware keyboard (plain Esc stays with the focused field). Its 44 pt target
+  overhangs the word, so it appears without moving anything — no height to reserve: a
+  `StashHeader` changes by under 1 pt (32 → 32.67 pt at Large, measured), and beside a
+  42 pt search pill the row keeps the pill's height (the word lays out 20.67 pt tall).
+  The word never breaks or truncates (it is one line at full width,
+  and claims its width before a flexible neighbour). Over the gradient wash it is
+  `StashCancelButton(onWash: true)`, an opaque paper capsule whose vertical padding is
+  drawn, not laid out (see Contrast). What it does is the caller's action; the VoiceOver
+  hint defaults to "Hides the keyboard", and a Cancel that also clears something (the
+  View-tab search) passes its own `hint:`.
 - **Pill tabs are segmented chrome.** Labels (`secondaryMedium`) grow with Dynamic Type
   up to xxxLarge and stop there. At accessibility sizes a long press shows a tab's label
   in the Large Content Viewer, as with `UISegmentedControl`. Content-sized tabs that
-  outgrow the width scroll sideways, never truncate.
+  outgrow the width scroll sideways, never truncate. The selected tab carries VoiceOver's
+  Selected trait.
 - **Text grows; containers follow.** Anything holding text uses `minHeight`, never a
   fixed height. Screens that can overflow at large sizes scroll. At accessibility sizes a
   row that can't fit reflows (an `HStack` becomes a `VStack`) instead of truncating what
   the user needs to read: titles, names, errors and actions wrap.
 - **Every icon-only control has a VoiceOver label.** Decorative images are
-  `accessibilityHidden`.
+  `accessibilityHidden`. State that is only visual — which tab is selected, whether a
+  toggle is on — is also given to VoiceOver (the Selected trait; a toggle's On/Off value).
 
 ## Motion
 
@@ -491,7 +537,10 @@ titles/descriptions — enrichment prompts enforce this (`NO_PREAMBLE_RULES`).
   build warnings are the migration list. A DEBUG build launched with
   `--uitest-type-specimen` shows every role, the shared controls and the contrast
   cases on one screen; `A11yFoundationUITests` measures it, and
-  `A11yScreenshotSupport.swift` shoots any screen at Large, xxxLarge, AX3 and Bold Text.*
+  `A11yScreenshotSupport.swift` shoots any screen at Large, xxxLarge, AX3 and Bold Text
+  (`--uitest-bold-text` sets the window scene's Bold Text trait, so it reaches every tab
+  and sheet — all but iOS 17's tab bar labels, which follow only the real setting; check
+  each Bold Text shot differs from its Large one).*
 - **Chrome extension** (restyle upcoming): plain-CSS the tokens above; no
   build step means copying values, so cite this file's section in a comment
   next to each token block.

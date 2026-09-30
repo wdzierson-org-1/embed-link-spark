@@ -1,8 +1,14 @@
+import UIKit
 import XCTest
 
 // Plan 16 — the accessibility screenshot matrix and the hit-area / type-role tests share this.
 //
 // HOW TO USE (2b: A11yDetailLibraryUITests, 2c: A11yAppUITests)
+//
+//     override func setUpWithError() throws {
+//         continueAfterFailure = false
+//         MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }   // see GLOBAL STATE
+//     }
 //
 //     @MainActor
 //     func testDetailScreenshots() throws {
@@ -28,21 +34,39 @@ import XCTest
 //   tap, which iOS 26 swallows while the sign-in keyboard is still going away.
 // - Dynamic Type PER LAUNCH, no global simulator state: `-UIPreferredContentSizeCategoryName
 //   <UIContentSizeCategory raw value>` sets the app's content size category, and SwiftUI's
-//   `dynamicTypeSize` follows it (verified in plan 16 by `A11yFoundationUITests
-//   .testContentSizeLaunchArgumentReachesSwiftUI`). If a future OS ever ignores it, the fallback
-//   is global and must be undone afterwards:
-//   `xcrun simctl ui <udid> content_size extra-extra-extra-large` (… `accessibility-extra-large`,
-//   `large` to reset).
-// - Bold Text per launch via the DEBUG `--uitest-bold-text` argument (the app forces
-//   `legibilityWeight = .bold` at its root — see `StashApp`'s `UITestHooks`).
+//   `dynamicTypeSize` follows it everywhere — tabs and sheets included (verified in plan 16 by
+//   `A11yFoundationUITests.testContentSizeLaunchArgumentReachesSwiftUI` and the AX3 shots).
+// - Bold Text PER LAUNCH via the DEBUG `--uitest-bold-text` argument: the app sets the window
+//   scene's legibility-weight TRAIT to bold (`UIWindowScene.traitOverrides`, see `StashApp`'s
+//   `UITestTraitOverrides`) — what Settings › Bold Text sets — so every hosting controller sees it:
+//   MainTabView's tabs, NavigationStack, sheets and covers. (Until the plan-16 fix wave it set the
+//   SwiftUI environment at the root, which stopped at the root TabView's tabs and at sheets: L-bold
+//   shots of real screens were identical to L.) SF text, `mono`, SF Symbols and SwiftUI-hosted text
+//   fields go bold by themselves; Neue Montreal text goes one face heavier only through
+//   `.stashFont`. The one thing the hook can't reach is UIKit text that reads the global setting
+//   rather than the trait: on iOS 17 the tab bar's item labels stay regular in L-bold shots (they
+//   follow only the real setting; iOS 26's tab bar goes bold). Check every L-bold shot really
+//   differs from its L shot.
 // - iOS 26's "Save Password?" sheet after a sign-in (`dismissSavePasswordPrompt`, the canonical
 //   copy — the other suites' copies should point here).
 // - `launchSpecimen(_:)`: the DEBUG type specimen (every role, the shared controls, the contrast
 //   cases), signed out — the reference sheet to shoot beside a screen.
 //
+// GLOBAL STATE — two knobs change the WHOLE SIMULATOR, not one launch, and survive the app, the
+// test run and a killed runner (a timeout, a stopped run: teardown blocks never run then):
+// - the REAL Bold Text setting (`enableBoldTextSetting(for:)` / `setBoldTextSetting(_:)`);
+// - `xcrun simctl ui <udid> content_size <size>` (the host-side Dynamic Type fallback).
+// So: never run two suites that use them on the same simulator at once (2b and 2c each have their
+// own), always pair them with a restore (`enableBoldTextSetting(for:)` registers its own teardown;
+// `simctl ui <udid> content_size large` afterwards), and start every a11y test with
+// `A11yScreens.restoreRealBoldTextIfLeftOn()` (the setUp above), which switches a leaked Bold Text
+// back off. A leaked content size doesn't affect launches that pass the launch argument (all of
+// `A11yScreens`'), but does affect the share extension and every other suite: reset it with
+// `xcrun simctl ui <udid> content_size large`.
+//
 // The SHARE EXTENSION is its own process, launched by the host app, so neither launch argument
-// reaches it. Shoot it with the real settings: `A11yScreens.setBoldTextSetting(true)` (restored in
-// a teardown block), and for text size the global fallback above, reset to `large` afterwards.
+// reaches it. Shoot it with the real settings: `A11yScreens.enableBoldTextSetting(for: self)`, and
+// for text size the global `simctl` fallback above, reset to `large` afterwards.
 //
 // Xcode's own audit is worth running on each screen too (it caught the old detail sheet's faint
 // section labels and 17 pt-tall hit areas):
@@ -59,7 +83,8 @@ struct A11yVariant: Hashable, CustomStringConvertible {
     let category: String
     /// Stable screenshot-name token: `L`, `xxxL`, `AX3`, `L-bold`, …
     let token: String
-    /// Launch with the DEBUG `--uitest-bold-text` override (SwiftUI `legibilityWeight = .bold`).
+    /// Launch with the DEBUG `--uitest-bold-text` hook: the window scene's legibility-weight trait
+    /// is bold, as with Settings › Bold Text, on every screen of this launch.
     var bold = false
 
     /// Large — the default text size.
@@ -78,6 +103,12 @@ struct A11yVariant: Hashable, CustomStringConvertible {
 
     var launchArguments: [String] {
         ["-UIPreferredContentSizeCategoryName", category] + (bold ? ["--uitest-bold-text"] : [])
+    }
+
+    /// The trait collection this variant's text size renders with — for `UIFontMetrics`
+    /// expectations (`UIFontMetrics(forTextStyle: .body).scaledValue(for: 17, compatibleWith: …)`).
+    var traits: UITraitCollection {
+        UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(rawValue: category))
     }
 
     var description: String { token }
@@ -146,10 +177,12 @@ final class A11yScreens {
 
     /// Launches the DEBUG type specimen (`--uitest-type-specimen`: every `StashType` role, the
     /// shared controls, and the text-size / Bold Text state) at `variant`. Signed out; no network.
+    /// `arguments`: extra specimen arguments (`--uitest-specimen-tabbed`: inside a root `TabView`).
     @discardableResult
-    func launchSpecimen(_ variant: A11yVariant, file: StaticString = #filePath, line: UInt = #line) -> XCUIApplication {
+    func launchSpecimen(_ variant: A11yVariant, arguments: [String] = [],
+                        file: StaticString = #filePath, line: UInt = #line) -> XCUIApplication {
         self.variant = variant
-        app.launchArguments = ["--uitest-type-specimen"] + variant.launchArguments
+        app.launchArguments = ["--uitest-type-specimen"] + variant.launchArguments + arguments
         app.launch()
         XCTAssertTrue(app.descendants(matching: .any)["specimen.state"].waitForExistence(timeout: 15),
                       "The type specimen did not appear", file: file, line: line)
@@ -195,11 +228,20 @@ final class A11yScreens {
         }
     }
 
-    /// Switches the REAL Bold Text setting (Settings › Accessibility › Display & Text Size) — for
-    /// what `--uitest-bold-text` can't reach, like the share extension (its own process, launched
-    /// by the host app). Global simulator state: always pair it with
-    /// `addTeardownBlock { @MainActor in A11yScreens.setBoldTextSetting(false) }`. Verified on
-    /// iOS 17.0 and 26.5; the app picks the change up live.
+    /// Turns the REAL Bold Text setting on (Settings › Accessibility › Display & Text Size) for the
+    /// rest of `testCase`, and registers the teardown that turns it back off FIRST, so a failure
+    /// anywhere after this line still restores it. For what `--uitest-bold-text` can't reach, like
+    /// the share extension (its own process, launched by the host app). Simulator-global — see
+    /// GLOBAL STATE above; a killed runner skips teardown, which `restoreRealBoldTextIfLeftOn()`
+    /// at the next test's start repairs.
+    static func enableBoldTextSetting(for testCase: XCTestCase) {
+        testCase.addTeardownBlock { @MainActor in A11yScreens.setBoldTextSetting(false) }
+        setBoldTextSetting(true)
+    }
+
+    /// Switches the REAL Bold Text setting. The raw switch: turn it ON only through
+    /// `enableBoldTextSetting(for:)`, which pairs it with its restore. Verified on iOS 17.0 and
+    /// 26.5; the app picks the change up live.
     static func setBoldTextSetting(_ on: Bool) {
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
         settings.terminate()
@@ -220,6 +262,21 @@ final class A11yScreens {
         settings.terminate()
     }
 
+    /// Start-of-test guard for the simulator-global Bold Text setting: an interrupted earlier run
+    /// (a timeout, a stopped runner) never ran its teardown and may have left it ON, which would
+    /// silently turn every "regular" measurement and L shot bold. Reads the setting in the test
+    /// runner's own process (`UIAccessibility.isBoldTextEnabled` is the system-wide value) and, if
+    /// it's on, switches it off through Settings — logged as `A11Y state …` — and asserts it went.
+    static func restoreRealBoldTextIfLeftOn(file: StaticString = #filePath, line: UInt = #line) {
+        guard UIAccessibility.isBoldTextEnabled else { return }
+        print("A11Y state: the REAL Bold Text setting was left ON by an earlier run — switching it off")
+        setBoldTextSetting(false)
+        let off = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !UIAccessibility.isBoldTextEnabled }, object: nil)
+        XCTAssertEqual(XCTWaiter().wait(for: [off], timeout: 10), .completed,
+                       "The real Bold Text setting is still on — every regular-weight check would be wrong",
+                       file: file, line: line)
+    }
+
     /// Taps `field` until it has keyboard focus (a tap can land while the screen is still settling).
     static func tapUntilFocused(_ field: XCUIElement, attempts: Int = 5) {
         for _ in 0..<attempts {
@@ -229,12 +286,40 @@ final class A11yScreens {
         }
     }
 
+    /// Waits (a predicate, not a fixed sleep) until `element`'s label satisfies `condition`
+    /// (`CONTAINS`, `ENDSWITH`, `==` — an `NSPredicate` operator) `text`; true if it did in time.
+    @discardableResult
+    static func waitForLabel(_ element: XCUIElement, _ text: String, condition: String = "CONTAINS",
+                             timeout: TimeInterval = 3) -> Bool {
+        let predicate = NSPredicate(format: "label \(condition) %@", text)
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout)
+            == .completed
+    }
+
     /// Taps the screen at `point` (screen coordinates, points) — for taps that must land outside
     /// any element's frame, e.g. just past a control's visual edge.
     static func tap(_ app: XCUIApplication, at point: CGPoint) {
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: point.x, dy: point.y))
             .tap()
+    }
+
+    /// Drags the screen's scroll view until `element` sits well inside the visible area (100 pt
+    /// clear of the top, 120 pt of the bottom), with no fling — for element screenshots and taps on
+    /// something off screen. Gives up after a few drags.
+    static func scrollIntoView(_ app: XCUIApplication, _ element: XCUIElement) {
+        for _ in 0..<12 {
+            guard element.exists else { return }
+            let frame = element.frame, screen = app.frame
+            let below = frame.maxY - (screen.maxY - 120), above = (screen.minY + 100) - frame.minY
+            guard below > 0 || above > 0 else { return }
+            // Positive drags the content up (reveals what's below); negative, down.
+            let wanted = below > 0 ? frame.maxY - (screen.maxY - 200) : -((screen.minY + 200) - frame.minY)
+            let distance = (wanted < 0 ? -1 : 1) * min(max(abs(wanted), 80), screen.height * 0.5)
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: distance > 0 ? 0.75 : 0.25))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)),
+                        withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
     }
 
     private static func credentials() throws -> (String, String) {

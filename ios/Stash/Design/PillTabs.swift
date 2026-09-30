@@ -11,7 +11,8 @@ import SwiftUI
 /// to xxxLarge and stop there — at the accessibility sizes a long press shows the tab's label in
 /// the Large Content Viewer. Content-sized tabs that outgrow the width scroll sideways instead of
 /// squeezing or truncating. Each tab takes taps across its whole pill (it used to be just the word
-/// while unselected) and at least 44 pt of height; its accessibility frame is the pill too.
+/// while unselected) and at least 44 pt of height; its accessibility frame is the pill too, and
+/// the selected tab carries VoiceOver's Selected trait (fix wave, I4).
 struct PillTabs<Tab: Hashable>: View {
     struct Item {
         let tab: Tab
@@ -83,6 +84,9 @@ struct PillTabs<Tab: Hashable>: View {
                 .stashMinimumHitTarget()
         }
         .buttonStyle(.plain)
+        // VoiceOver says which tab is showing ("Summary, selected") — the paper capsule alone is
+        // only visual (WCAG 4.1.2).
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityShowsLargeContentViewer { Text(item.label) }
         .modifier(OptionalAccessibilityIdentifier(identifier: item.identifier))
     }

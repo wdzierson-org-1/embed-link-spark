@@ -207,14 +207,23 @@ extension View {
     /// HIG: every tappable element takes touches across at least 44×44 pt. Grows this view's hit
     /// area to `minimum` × `minimum`, centred, WITHOUT changing its layout size or its look — a
     /// clear, hit-testable background that may overhang the view (SwiftUI doesn't clip hit testing
-    /// to a view's frame). Apply it to a control's LABEL, after the label's own visuals, so the
-    /// overhang belongs to the control. Views already that big are unchanged.
+    /// to a view's frame). Views already that big are unchanged.
+    ///
+    /// **It goes on the control's LABEL** (inside `label:`, after the label's own visuals), never
+    /// on the `Button`: there the clear background belongs to no gesture — a 44 pt dead zone that
+    /// swallows taps meant for whatever is beside or beneath it, and activates nothing. For a plain
+    /// custom control, `.buttonStyle(.stashPlain)` puts it in the right place for you.
     ///
     /// Why it matters even though SwiftUI hit-tests a touch with a radius (a lone control takes a
     /// tap ~16 pt past its edge): over anything else tappable — a card, a row, a sheet's surface —
     /// the exact hit on that surface wins, so a small control only gets the taps its own shape
     /// covers. Proven by `A11yFoundationUITests.testSharedControlsTakeEveryTapInsideA44PointTarget`.
-    /// Watch neighbours: two targets closer than 44 pt overlap, and the later one wins the overlap.
+    ///
+    /// Limits: two targets closer than 44 pt (centre to centre) overlap, and the later sibling wins
+    /// the overlap; and an overhang is lost wherever an ancestor clips — past a `ScrollView`'s edge
+    /// (a horizontal scroll row's top and bottom, a list's first and last row) or inside
+    /// `.clipped()` / `.clipShape` — so keep a small control's centre ≥ 22 pt inside such an edge,
+    /// or give it a real 44 pt layout there.
     func stashMinimumHitTarget(_ minimum: CGFloat = 44) -> some View {
         background {
             Color.clear
@@ -228,12 +237,53 @@ extension View {
     /// the system's bar buttons, so at accessibility sizes a long press shows `label` and the glyph
     /// large. Use it in place of `.accessibilityLabel` on the control itself (the `Button`), with
     /// the same symbol the control draws.
-    func stashIconControl(_ label: String, systemImage: String) -> some View {
+    ///
+    /// `isOn`: pass it for a control that toggles a state — the Add tab / share sheet's location
+    /// pin, the detail sheet's public globe (`CircleIcon(active:)`) — and VoiceOver hears a toggle
+    /// button that is "On" or "Off" (`.isToggle` trait + value), not a plain button whose state is
+    /// only a colour. Leave it nil for an action.
+    func stashIconControl(_ label: String, systemImage: String, isOn: Bool? = nil) -> some View {
         accessibilityLabel(label)
             .accessibilityShowsLargeContentViewer {
                 Label(label, systemImage: systemImage)
             }
+            .modifier(StashToggleState(isOn: isOn))
     }
+}
+
+/// `stashIconControl`'s on/off state for VoiceOver (WCAG 4.1.2 name, role, value).
+private struct StashToggleState: ViewModifier {
+    let isOn: Bool?
+
+    func body(content: Content) -> some View {
+        if let isOn {
+            content
+                .accessibilityAddTraits(.isToggle)
+                .accessibilityValue(isOn ? "On" : "Off")
+        } else {
+            content
+        }
+    }
+}
+
+/// `.buttonStyle(.stashPlain)` — exactly `.plain` (no chrome; the system's pressed dimming), with
+/// the 44×44 pt target built in: `stashMinimumHitTarget()` lands on the button's label, the one
+/// place it works, so it can't be misplaced. For small custom controls — a glyph-only button (a
+/// search clear ×, a reminder ×, a sheet's close ×), a thumbs/speak glyph, a short inline text
+/// action ("Open link", "Delete item"). A label already 44 pt both ways is unchanged; the shared
+/// controls (`CircleIcon`, `CircleSubmitIcon`, `PillTabs`, `StashCancelButton`) carry their own.
+struct StashPlainButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button(role: configuration.role, action: configuration.trigger) {
+            configuration.label.stashMinimumHitTarget()
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+extension PrimitiveButtonStyle where Self == StashPlainButtonStyle {
+    /// `.plain` with a 44×44 pt target on the label — see `StashPlainButtonStyle`.
+    static var stashPlain: StashPlainButtonStyle { StashPlainButtonStyle() }
 }
 
 // MARK: - Round icon buttons (web: h-12 w-12 rounded-full border shadow-sm)
@@ -316,10 +366,14 @@ struct CircleSubmitIcon: View {
 /// navigation, the system inline back bar slots under this without clashing.
 ///
 /// Plan 16: the header has no tappable parts of its own — each accessory brings its own 44 pt
-/// target (`CircleIcon`, `StashCancelButton`). The row is as tall as its tallest item, so a
-/// 44 pt `StashCancelButton` appearing beside the 20 pt wordmark grows the header by 24 pt unless
-/// the screen reserves that height at rest (Ask's header does: `.frame(minHeight: 44)` with its
-/// insets trimmed to match).
+/// target (`CircleIcon`, `StashCancelButton`), and those targets OVERHANG instead of growing the
+/// row. So a `StashCancelButton` appearing beside the 20 pt wordmark while a field has focus moves
+/// nothing: the row takes the word's own line (20.67 pt at the default text size), and the header
+/// goes from 32 to 32.67 pt (measured on iOS 17.0 and 26.5; `A11yFoundationUITests` asserts
+/// ≤ 1 pt). No
+/// height needs reserving at rest. At larger text sizes the word outgrows the wordmark and the
+/// header grows with the text, as it should. The Cancel's target reaches ~12 pt above and below
+/// the word — past these 8/4 pt insets — so keep other tappable things ≥ 44 pt from its centre.
 struct StashHeader<Accessory: View>: View {
     @ViewBuilder var accessory: Accessory
 
@@ -346,19 +400,29 @@ extension StashHeader where Accessory == EmptyView {
 
 // MARK: - Keyboard "Cancel" (plan 16)
 
-/// The one keyboard "Cancel": a plain violet-600 text button, top-right of a screen's header,
-/// shown while that screen's text field is focused. It only puts the keyboard away — the draft is
-/// never cleared. Ask uses it in place of its New chat / History circles (plan 16); the Add tab
-/// and the View-tab search adopt it in the same plan's accessibility pass, so all three match.
+/// The one keyboard "Cancel": a plain violet-600 text button, top-right of a screen's header (or
+/// beside a search field), shown while that screen's text field is focused. What it does is the
+/// caller's `action`: on Ask and the Add tab it only puts the keyboard away and keeps the draft;
+/// the View-tab search's Cancel also clears the query (the iOS search convention) — say so with
+/// `hint`. Ask uses it in place of its New chat / History circles (plan 16); the Add tab and the
+/// View-tab search adopt it in the same plan's accessibility pass, so all three match.
 ///
 /// HIG sizing: the `textButton` role — Book 17 pt at the default text size, scaling with Dynamic
-/// Type like `.body`, Medium under Bold Text — and a hit area of at least 44×44 pt, carried by the
-/// frame and `contentShape` rather than the word itself.
+/// Type like `.body`, Medium under Bold Text — and a tap target of at least 44×44 pt that
+/// OVERHANGS the word (`stashMinimumHitTarget`, like the circles) instead of growing its layout.
+/// Its layout is just the word (plus `onWash`'s horizontal capsule padding), so it appears and
+/// disappears without moving its row: a `StashHeader` changes height by under 1 pt, and the
+/// View-tab search row keeps its pill's height. VoiceOver's frame is the 44 pt target.
+///
+/// Never breaks: the word is one line at its full width at every text size (`fixedSize`) and the
+/// button claims its width before a flexible neighbour does (`layoutPriority(1)`) — a title beside
+/// it wraps, a search pill narrows. (Before the plan-16 fix wave it split "Canc / el" at AX3.)
 ///
 /// Contrast (plan 16): violet-600 on white/paper is 5.18:1, but on the gradient wash at the top of
-/// the Add and View tabs it measures 2.9–3.4:1 (below AA). Over the wash pass `onWash: true`: the
-/// word sits on a paper capsule — the same paper-on-wash chrome as the search pill and the cards —
-/// and keeps 4.9:1 or better over the darkest wash measured.
+/// the Add and View tabs it measures 2.8–3.3:1 (below AA). Over the wash pass `onWash: true`: the
+/// word sits on an opaque paper capsule — the same paper-on-wash chrome as the search pill and
+/// the cards — so it is violet-600 on white, 5.18:1, whatever the wash does behind it. The
+/// capsule's 5 pt of vertical padding is drawn, not laid out.
 ///
 /// Hardware keyboards: ⌘. does the same (`.cancelAction`). Plain Esc, the shortcut's other key,
 /// stays with the focused text field and never reaches it (probed on iOS 17.0). Only one Cancel
@@ -369,30 +433,39 @@ struct StashCancelButton: View {
     let identifier: String
     /// The button sits directly on the gradient wash (Add tab header, View-tab search row).
     var onWash = false
+    /// VoiceOver's hint: what THIS Cancel does. The default fits a Cancel that only puts the
+    /// keyboard away (Ask, the Add tab); one that also clears something says so (the View-tab
+    /// search: "Clears the search and hides the keyboard").
+    var hint = "Hides the keyboard"
     let action: () -> Void
+
+    /// `onWash`'s capsule reaches this far above and below the word — drawn, not laid out.
+    private static let capsuleVerticalPadding: CGFloat = 5
 
     var body: some View {
         Button(action: action) {
             Text("Cancel")
                 .stashFont(.textButton)
                 .foregroundStyle(StashColor.violet600)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, onWash ? 12 : 0)
-                .padding(.vertical, onWash ? 5 : 0)
                 .background {
                     if onWash {
                         Capsule()
-                            .fill(StashColor.paper.opacity(0.92))
+                            .fill(StashColor.paper)
                             .overlay(Capsule().strokeBorder(StashColor.hairline, lineWidth: 1))
+                            .padding(.vertical, -Self.capsuleVerticalPadding)
                     }
                 }
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
+                .stashMinimumHitTarget()
         }
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)
         .accessibilityLabel("Cancel")
-        .accessibilityHint("Hides the keyboard")
+        .accessibilityHint(hint)
         .accessibilityIdentifier(identifier)
+        .layoutPriority(1)
     }
 }
 
