@@ -189,10 +189,11 @@ emoji, never mixed icon sets on one surface.
 web header + auth 24px, pricing/legal/landing 20px; iOS header 20pt, sign-in
 28pt, splash 40pt; extension sign-in 26px. Never set the name in type instead.
 
-**The app icon is the wordmark's first S** (`brand/stash-s.svg`) in ink
-`#22262f` at 62% of the tile, centred on the purple→blue stops of the page-wash
-gradient (`#764ba2 → #9d5fd8 → #667eea → #4facfe`, bottom-left → top-right) —
-the one brand mark that sits on a gradient. `brand/icon-src.html` is the source;
+**The app icon is a white S on the purple→blue wash:** the wordmark's first S
+(`brand/stash-s.svg`) in white `#ffffff` at 62% of the tile, centred on the
+purple→blue stops of the page-wash gradient (`#764ba2 → #9d5fd8 → #667eea →
+#4facfe`, bottom-left → top-right) — the one brand mark that sits on a gradient
+(the "Stash" wordmark itself stays ink). `brand/icon-src.html` is the source;
 `node brand/build.mjs` regenerates the favicon set, PWA icons, extension icons,
 iOS AppIcon and the onboarding tile. Square where the OS masks (iOS, touch/PWA),
 20% radius with transparent corners where it doesn't (favicon, extension). Every
@@ -202,6 +203,14 @@ other brand element stays flat: no gradients in buttons, chips, or marks.
 on the wash, and the wordmark replaced with the "Stash" lettering (Will);
 the 2026-09-03 "icon matches the favicon" note is superseded — they still match,
 both are now the S on the wash.*
+
+*2026-09-30 (iOS plan 16): the S went from ink `#22262f` to white `#ffffff` on
+every icon the build writes — iOS app + share extension, onboarding tile, favicon
+set, PWA/touch icons, Chrome extension (Will). The wash and the 62% scale are
+unchanged. White measures 3.4:1 or better against the wash under every part of
+the S (WCAG's graphical-object floor is 3:1); keep it above that if the wash
+stops ever change. The macOS menubar icon lives in `stash-mac` and does not
+follow until that repo re-runs the source at `#size=1024`.*
 
 ## Components
 
