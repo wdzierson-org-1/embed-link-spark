@@ -23,7 +23,7 @@ cd extension
 ./scripts/package.sh
 ```
 
-This produces `stash-it-1.2.0.zip` in `extension/` (gitignored — see
+This produces `stash-it-1.2.1.zip` in `extension/` (gitignored — see
 "Future updates" below for why it isn't committed). Bump `version` in
 `manifest.json` before re-running this for any future release; the script
 names the zip after whatever version is currently in the manifest.
@@ -31,8 +31,8 @@ names the zip after whatever version is currently in the manifest.
 ## 2. Create the item
 
 1. In the Developer Dashboard, click **New item**.
-2. Upload `stash-it-1.2.0.zip`. The dashboard unpacks it and validates the
-   manifest — it should show name "Stash it", version "1.2.0", and no
+2. Upload `stash-it-1.2.1.zip`. The dashboard unpacks it and validates the
+   manifest — it should show name "Stash it", version "1.2.1", and no
    manifest errors. If it flags a permission warning, that's expected for
    the broad host permission; the justification you paste in step 4 is what
    satisfies the reviewer, not the dashboard's own linter.

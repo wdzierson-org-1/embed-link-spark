@@ -1,6 +1,6 @@
 # Permissions justifications (Chrome Web Store dashboard → Privacy practices)
 
-Manifest (`extension/manifest.json`, v1.2.0):
+Manifest (`extension/manifest.json`, v1.2.1):
 
 ```json
 "permissions": ["contextMenus", "storage", "scripting"],
