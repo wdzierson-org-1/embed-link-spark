@@ -277,6 +277,45 @@ extension StashHeader where Accessory == EmptyView {
     init() { self.init(accessory: { EmptyView() }) }
 }
 
+// MARK: - Keyboard "Cancel" (plan 16)
+
+/// The one keyboard "Cancel": a plain violet-600 text button, top-right of a screen's header,
+/// shown while that screen's text field is focused. It only puts the keyboard away — the draft is
+/// never cleared. Ask uses it in place of its New chat / History circles (plan 16); the Add tab
+/// and the View-tab search adopt it in the same plan's accessibility pass, so all three match.
+///
+/// HIG sizing: the body text style — 17 pt at the default text size, scaling with Dynamic Type
+/// (`relativeTo: .body`; the system fallback is the scaled `.body` style too) — and a hit area of
+/// at least 44×44 pt, carried by the frame and `contentShape` rather than the word itself.
+struct StashCancelButton: View {
+    /// The caller's accessibility identifier (e.g. `ask.dismissKeyboard`) — tests find it by this.
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("Cancel")
+                .font(Self.font)
+                .foregroundStyle(StashColor.violet600)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Cancel")
+        .accessibilityHint("Hides the keyboard")
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// PP Neue Montreal Book (DESIGN.md's UI face) at the body role's 17 pt, scaled to the user's
+    /// text size; the system body style — also 17 pt by default, also scaled — if the bundled
+    /// face didn't register.
+    private static var font: Font {
+        StashType.isNeueMontrealAvailable
+            ? .custom("PPNeueMontreal-Book", size: 17, relativeTo: .body)
+            : .body
+    }
+}
+
 // MARK: - Animated gradient backdrop (web: .animated-gradient at opacity-30, faded to background)
 
 /// The web's `gradientShift` reinterpreted for SwiftUI: a −45°-equivalent sweep (bottom-leading →

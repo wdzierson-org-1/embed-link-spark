@@ -129,6 +129,9 @@ struct ConversationsListView: View {
         Button {
             guard openingId == nil else { return }
             openingId = row.id
+            // Plan 16: the search keyboard goes down with the tap, not at the end of the load
+            // and pop — the conversation lands on the Ask thread with no keyboard up.
+            searchFocused = false
             Task {
                 await store.openConversation(id: row.id, title: row.title)
                 openingId = nil

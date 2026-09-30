@@ -12,6 +12,15 @@ import AVFoundation
 /// answer lands — see `ChatStore`), the thread follows the stream until the user drags it away
 /// (M2), drags dismiss the keyboard (L10), and error banners clear on the next send and on tap
 /// (L2).
+///
+/// Plan 16 (keyboard): the composer's focus is explicit (`inputFocused`). While it's focused the
+/// header's right side is the shared keyboard "Cancel" (`StashCancelButton`, as on the Add tab)
+/// instead of New chat / History, and the keyboard is put away before anything else is shown —
+/// the Conversations list, a restored conversation, a citation's detail sheet. Why: on iOS 26 a
+/// navigation push taken while the composer holds the keyboard hands the keyboard back to the
+/// composer when the stack pops, and SwiftUI's keyboard avoidance misses that returning keyboard —
+/// it sat up over a composer left at its resting position, hidden behind it, with nothing on
+/// screen to put it away (reproduced on the iOS 26.5 simulator; iOS 17.5 restores nothing).
 struct AskView: View {
     let userId: UUID
 
@@ -25,6 +34,9 @@ struct AskView: View {
     @State private var loadingSourceId: UUID?
     @State private var citationErrorMessage: String?
     @State private var showConversations = false
+    /// The composer holds the keyboard. Drives the header's Cancel swap; cleared before the
+    /// Conversations list, a restored conversation or a citation sheet is shown (plan 16).
+    @FocusState private var inputFocused: Bool
 
     // Thread-follow state (M2, review fix).
     /// Pin the thread to its end as it grows. Turned OFF only by the user dragging the thread
@@ -142,35 +154,51 @@ struct AskView: View {
     ///
     /// Plan 15 (H4): both are disabled while an answer streams, so the answer can never be
     /// dropped or filed into another conversation by a mid-stream session switch.
+    ///
+    /// Plan 16 (Will: "when keyboard is shown and input is active while composing on Ask view,
+    /// upper right should become 'cancel' (same as when composing on the home screen)"): while the
+    /// composer is focused the two circles give way to `StashCancelButton` (`ask.dismissKeyboard`)
+    /// — keyboard away, draft kept. It also means History can't be opened while the composer holds
+    /// the keyboard (the stuck-keyboard path; see the type doc), though it clears focus anyway.
     private var askHeader: some View {
         HStack(spacing: 8) {
             Text("Chat with your Stash")
                 .font(StashType.medium(size: 22))
                 .foregroundStyle(StashColor.ink)
             Spacer()
-            Button {
-                store.startNewChat()
-            } label: {
-                CircleIcon(systemImage: "square.and.pencil", size: 36)
-            }
-            .buttonStyle(.plain)
-            .disabled(store.isStreaming)
-            .accessibilityLabel("Start new chat")
-            .accessibilityIdentifier("ask.newChat")
+            if inputFocused {
+                StashCancelButton(identifier: "ask.dismissKeyboard") {
+                    inputFocused = false
+                }
+            } else {
+                Button {
+                    store.startNewChat()
+                } label: {
+                    CircleIcon(systemImage: "square.and.pencil", size: 36)
+                }
+                .buttonStyle(.plain)
+                .disabled(store.isStreaming)
+                .accessibilityLabel("Start new chat")
+                .accessibilityIdentifier("ask.newChat")
 
-            Button {
-                showConversations = true
-            } label: {
-                CircleIcon(systemImage: "clock", size: 36)
+                Button {
+                    inputFocused = false
+                    showConversations = true
+                } label: {
+                    CircleIcon(systemImage: "clock", size: 36)
+                }
+                .buttonStyle(.plain)
+                .disabled(store.isStreaming)
+                .accessibilityLabel("Earlier conversations")
+                .accessibilityIdentifier("ask.history")
             }
-            .buttonStyle(.plain)
-            .disabled(store.isStreaming)
-            .accessibilityLabel("Earlier conversations")
-            .accessibilityIdentifier("ask.history")
         }
+        // A 44 pt row so the Cancel's hit area fits without the header changing height when it
+        // swaps in; with the insets below the 36 pt circles and the title sit exactly where they
+        // did before (top 8 + 36 + bottom 4 = 48 = top 4 + 44).
+        .frame(minHeight: 44)
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.top, 4)
     }
 
     // MARK: - Session chrome (title pill + restore banner)
@@ -201,10 +229,12 @@ struct AskView: View {
     /// Web's "Load previous conversation — <title>" banner: appears only on an empty thread
     /// after an explicitly loaded conversation was let go (tab switch or Start new chat).
     /// Disabled while a send is in flight — it's still on screen while that send resolves its
-    /// session, and the store refuses the switch then anyway (H4).
+    /// session, and the store refuses the switch then anyway (H4). Puts the keyboard away first
+    /// (plan 16): the restored conversation is shown to be read.
     @ViewBuilder private var restoreBanner: some View {
         if store.messages.isEmpty, let previous = store.lastLoaded {
             Button {
+                inputFocused = false
                 Task { await store.restorePrevious() }
             } label: {
                 HStack(spacing: 8) {
@@ -411,7 +441,7 @@ struct AskView: View {
             if let citationErrorMessage {
                 banner(citationErrorMessage, identifier: "ask.citationError") { self.citationErrorMessage = nil }
             }
-            ChatComposerBar(text: $input, isSending: store.isStreaming, onSend: sendTapped)
+            ChatComposerBar(text: $input, isFocused: $inputFocused, isSending: store.isStreaming, onSend: sendTapped)
         }
         .padding(12)
     }
@@ -499,8 +529,11 @@ struct AskView: View {
 
     // MARK: - Citations
 
+    /// Puts the keyboard away first (plan 16), as for an earlier conversation: the source opens to
+    /// be read, and the composer isn't left holding the keyboard behind the sheet.
     private func openCitation(_ id: UUID) {
         guard loadingSourceId == nil else { return }
+        inputFocused = false
         loadingSourceId = id
         citationErrorMessage = nil
         Task {
@@ -816,14 +849,32 @@ private struct ScriptedChatStreamer: ChatStreaming {
     }
 }
 
-/// In-memory history for `--uitest-scripted-chat`: a fresh thread every launch, nothing persisted.
+/// In-memory history for `--uitest-scripted-chat`: a fresh thread every launch, nothing persisted —
+/// plus one fixed earlier conversation (plan 16), so the Conversations list has a row to open
+/// (and search to match) without the server.
 private struct ScriptedChatHistory: ChatHistoryStoring {
+    private static let earlierId = UUID(uuidString: "5C21B7ED-A5C0-4E16-9D16-000000000016")!
+    private static let earlierTitle = "Scripted earlier conversation"
+    private static let earlierMessages = [
+        ChatMessage(id: "scripted-earlier-q", role: .user, content: "What did I save about sourdough?"),
+        ChatMessage(id: "scripted-earlier-a", role: .assistant,
+                    content: "A scripted earlier answer about sourdough starters."),
+    ]
+
     func latestConversation(userId: UUID) async throws -> ChatSessions.Candidate? { nil }
     func createConversation(userId: UUID) async throws -> UUID { UUID() }
-    func loadHistory(conversationId: UUID, limit: Int) async throws -> [ChatMessage] { [] }
+    func loadHistory(conversationId: UUID, limit: Int) async throws -> [ChatMessage] {
+        conversationId == Self.earlierId ? Self.earlierMessages : []
+    }
     func persist(conversationId: UUID, role: String, content: String, sourceItemIds: [UUID]?) async {}
     func generateTitle(for question: String) async -> String? { nil }
     func setTitle(conversationId: UUID, title: String) async {}
-    func listConversations(searchText: String?, pageLimit: Int, pageOffset: Int) async throws -> [ConversationListRow] { [] }
+    func listConversations(searchText: String?, pageLimit: Int, pageOffset: Int) async throws -> [ConversationListRow] {
+        let query = (searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard pageOffset == 0, query.isEmpty || Self.earlierTitle.lowercased().contains(query) else { return [] }
+        return [ConversationListRow(id: Self.earlierId, title: Self.earlierTitle,
+                                    lastMessageAt: Date().addingTimeInterval(-3600), messageCount: 2,
+                                    preview: Self.earlierMessages[1].content, totalCount: 1)]
+    }
 }
 #endif

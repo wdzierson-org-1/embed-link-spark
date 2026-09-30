@@ -13,6 +13,9 @@ import SwiftUI
 /// voice memo. `NSSpeechRecognitionUsageDescription` left `project.yml` with it.
 struct ChatComposerBar: View {
     @Binding var text: String
+    /// Owned by `AskView`, which puts the keyboard away before anything is shown over the thread
+    /// and swaps its header controls for "Cancel" while this is true.
+    var isFocused: FocusState<Bool>.Binding
     let isSending: Bool
     let onSend: () -> Void
 
@@ -27,6 +30,7 @@ struct ChatComposerBar: View {
             // Same face as the thread's bubbles (`StashType.body()`, DESIGN.md's one UI family) —
             // a bare `TextField` fell back to SF while the replies rendered Neue Montreal.
             TextField("Ask your stash…", text: $text, axis: .vertical)
+                .focused(isFocused)
                 .font(StashType.body())
                 .lineLimit(1...4)
                 .padding(.horizontal, 14)
