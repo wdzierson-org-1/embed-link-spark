@@ -116,8 +116,14 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     }
 
     /// Drops every field `sent` confirms: a field the server now holds is no longer pending, unless
-    /// a NEWER, different value was recorded after `sent`'s was captured. Returns whether anything
-    /// was dropped.
+    /// a value captured AFTER `sent`'s was recorded since. Returns whether anything was dropped.
+    ///
+    /// Only the capture times decide — never the values (plan 16 review P-1). A later value equal
+    /// to the one confirmed is still pending: in X → Y → X, the first X landing says nothing about
+    /// the last X, because Y lands after it. Dropping it on equality lost the user's final value
+    /// (e.g. "Gro", cleared, "Gro" again, closed with both saves in flight: the server ended
+    /// empty). The cost is one redundant PATCH of X. Recording an identical value again keeps its
+    /// original `capturedAt` (`merge`), so a re-journal still leaves with its own save's confirm.
     @discardableResult
     mutating func removeSent(_ sent: PendingEdit) -> Bool {
         let before = self
@@ -126,10 +132,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
         content = Self.stillPending(content, after: sent.content)
         supplementalNote = Self.stillPending(supplementalNote, after: sent.supplementalNote)
         isPublic = Self.stillPending(isPublic, after: sent.isPublic)
-        if let current = attributes, let confirmed = sent.attributes,
-           current.capturedAt <= confirmed.capturedAt || current.value.location == confirmed.value.location {
-            attributes = nil
-        }
+        attributes = Self.stillPending(attributes, after: sent.attributes)
         return self != before
     }
 
@@ -145,7 +148,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
         _ current: PendingField<Value>?, after sent: PendingField<Value>?
     ) -> PendingField<Value>? {
         guard let current, let sent else { return current }
-        return current.capturedAt <= sent.capturedAt || current.value == sent.value ? nil : current
+        return current.capturedAt <= sent.capturedAt ? nil : current
     }
 }
 
@@ -162,7 +165,8 @@ public struct PendingEdit: Codable, Equatable, Sendable {
 ///   still unconfirmed (in flight, failed, or still in a debounce). Anything left here was never
 ///   confirmed by the server.
 /// - **Latest wins per field** (`PendingField.capturedAt`), so recording an old value late can't
-///   replace a newer one, and a confirmed save never drops a newer value typed after it.
+///   replace a newer one, and a confirmed save never drops a value typed after it — not even one
+///   equal to what it sent (X → Y → X, plan 16 review P-1).
 /// - **Flush** (`flush(editor:)`) PATCHes each queued item through `ItemEditor.saveLatest` — after
 ///   any write to that item already in flight, with the newest queued values — and forgets what the
 ///   server confirmed. Only ever as the queue's own user with a valid token (`PendingEditsSession`),
@@ -262,7 +266,7 @@ public final class PendingEdits {
     }
 
     /// A PATCH carrying `patch` (captured at `capturedAt`) succeeded: forget each of its fields
-    /// unless a newer, different value was recorded since.
+    /// unless a value captured later was recorded since — equal or not (`PendingEdit.removeSent`).
     public func confirm(itemId: UUID, patch: ItemPatch, capturedAt: Date) {
         guard var edit = entries[itemId],
               edit.removeSent(PendingEdit(itemId: itemId, patch: patch, capturedAt: capturedAt))

@@ -275,6 +275,42 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertNil(queue.edit(for: id), "the server holds exactly that value now")
     }
 
+    /// Plan 16 review P-1: X → Y → X. "Gro" is sent, then the clear, and "Gro" is typed again and
+    /// the sheet closed while both are still in flight. The first "Gro" landing doesn't make the
+    /// last one delivered — the clear lands after it — so neither confirm may drop the value the
+    /// user left, however equal it is to one sent earlier.
+    func testConfirmNeverDropsALaterValueThatEqualsAnEarlierOne() {
+        let queue = makeQueue()
+        let id = UUID()
+        queue.record(itemId: id, patch: ItemPatch(title: "Gro"), capturedAt: t0)                        // X, sent
+        queue.record(itemId: id, patch: ItemPatch(title: ""), capturedAt: t0.addingTimeInterval(1))     // Y, sent
+        queue.record(itemId: id, patch: ItemPatch(title: "Gro"), capturedAt: t0.addingTimeInterval(2))  // X, on close
+
+        queue.confirm(itemId: id, patch: ItemPatch(title: "Gro"), capturedAt: t0)
+        XCTAssertEqual(queue.edit(for: id)?.title, PendingField("Gro", capturedAt: t0.addingTimeInterval(2)),
+                       "the first \"Gro\" landing must not drop the one typed after the clear")
+        queue.confirm(itemId: id, patch: ItemPatch(title: ""), capturedAt: t0.addingTimeInterval(1))
+        XCTAssertEqual(queue.edit(for: id)?.title?.value, "Gro", "once the clear lands, \"Gro\" is still to be sent")
+    }
+
+    /// P-1 for a queued location (only its `location` is ever compared): Lisbon → Porto → Lisbon.
+    func testConfirmNeverDropsALaterLocationThatEqualsAnEarlierOne() {
+        let queue = makeQueue()
+        let id = UUID()
+        let lisbon = ItemAttributes(location: CapturedLocation(label: "Lisbon", source: "manual"))
+        let porto = ItemAttributes(location: CapturedLocation(label: "Porto", source: "manual"))
+        queue.record(itemId: id, patch: ItemPatch(attributes: lisbon), capturedAt: t0)
+        queue.record(itemId: id, patch: ItemPatch(attributes: porto), capturedAt: t0.addingTimeInterval(1))
+        queue.record(itemId: id, patch: ItemPatch(attributes: lisbon), capturedAt: t0.addingTimeInterval(2))
+
+        queue.confirm(itemId: id, patch: ItemPatch(attributes: lisbon), capturedAt: t0)
+        XCTAssertEqual(queue.edit(for: id)?.attributes?.value.location?.label, "Lisbon",
+                       "the first Lisbon landing must not drop the one set after Porto")
+        queue.confirm(itemId: id, patch: ItemPatch(attributes: porto), capturedAt: t0.addingTimeInterval(1))
+        XCTAssertEqual(queue.edit(for: id)?.attributes?.value.location?.label, "Lisbon",
+                       "once Porto lands, Lisbon is still to be sent")
+    }
+
     func testOverlayLaysQueuedValuesOverTheServerRow() {
         let queue = makeQueue()
         let media = MediaAttributes(durationS: 42, extra: ["kind": .string("voice_note")])
