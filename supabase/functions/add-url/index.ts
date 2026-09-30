@@ -1,12 +1,12 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
 import { afterDraining } from '../_shared/capture.ts';
-import { cleanMetaText, cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { requireEntitlement } from '../_shared/entitlementGate.ts';
-import { cleanMetaText, cleanOptionalMetaText, decodeHtmlEntities } from '../_shared/textHygiene.ts';
+import { cleanMetaText, cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
+import { resolveTikTokLink } from '../_shared/tiktok.ts';
 import { isPlaceholderMetadata } from '../_shared/enrichmentQuality.ts';
 import { applyCandidate, ENRICHMENT_COLUMNS } from '../_shared/enrichmentStore.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
@@ -85,7 +85,10 @@ const downloadAndStoreImage = async (imageUrl: string, userId: string, supabase:
     const blob = await response.blob();
     const urlParts = imageUrl.split('?')[0].split('/');
     const lastPart = urlParts[urlParts.length - 1];
-    const fileExt = lastPart.includes('.') ? lastPart.split('.').pop() : 'jpg';
+    // CDN paths like TikTok's "…~tplv-origin.image" carry no real extension
+    const urlExt = lastPart.includes('.') ? lastPart.split('.').pop()!.toLowerCase() : '';
+    const typeExt = blob.type.startsWith('image/') ? blob.type.slice(6).replace('jpeg', 'jpg') : '';
+    const fileExt = /^(jpe?g|png|gif|webp|avif|heic)$/.test(urlExt) ? urlExt : typeExt || 'jpg';
     const fileName = `preview_${Date.now()}.${fileExt}`;
     const filePath = `${userId}/previews/${fileName}`;
 
@@ -298,6 +301,10 @@ Deno.serve(async (req) => {
     // already the finished card. If oEmbed is down the thumbnail still lands
     // and the deep pass supplies the title.
     const youtube = await resolveYouTubeLink(url);
+    // TikTok serves crawlers a "Couldn't find this page" shell, so the same
+    // URL-only approach: oEmbed gives the caption, creator and thumbnail (the
+    // thumbnail URL expires, so it is copied into our bucket)
+    const tiktok = youtube ? null : await resolveTikTokLink(url);
     if (youtube) {
       metadata = {
         title: youtube.title ?? null,
@@ -308,6 +315,17 @@ Deno.serve(async (req) => {
       console.log('YouTube resolved from URL alone:', metadata);
       if (youtube.image) {
         previewImagePath = await downloadAndStoreImage(youtube.image, targetUserId, supabase);
+      }
+    } else if (tiktok) {
+      metadata = {
+        title: tiktok.title ?? null,
+        description: tiktok.description ?? null,
+        image: tiktok.image ?? null,
+        siteName: tiktok.siteName,
+      };
+      console.log('TikTok resolved from URL alone:', { title: metadata.title, description: metadata.description });
+      if (tiktok.image) {
+        previewImagePath = await downloadAndStoreImage(tiktok.image, targetUserId, supabase);
       }
     } else {
       try {
@@ -398,6 +416,9 @@ Deno.serve(async (req) => {
         content: messageResult.cleanedContent, // Cleaned user's message about the link
         supplemental_note: supplementalResult.cleanedContent, // Cleaned sticky note content
         description: finalDescription,
+        // A TikTok caption is the saved object's own text: captured source
+        // material, so it is searchable before any scrape or summary runs
+        page_body: tiktok?.caption ?? null,
         file_path: previewImagePath,
         is_public: is_public,
         visibility: is_public ? 'public' : 'private',
@@ -458,6 +479,14 @@ Deno.serve(async (req) => {
     // mole, menubar widget, browser extension, iOS — gets the same pipeline.
     const enrichAfterResponse = async () => {
       let status = 'complete';
+      // A resolved TikTok is already complete (caption in page_body, creator,
+      // stored thumbnail); its page is a crawler shell, so the deep pass and
+      // the scrape could only fail and mark the card "partial"
+      if (tiktok?.caption) {
+        const { error: statusError } = await supabase.rpc('set_item_enrichment', { target_id: item.id, next_status: status });
+        if (statusError) console.error('Failed to settle enrichment:', statusError);
+        return;
+      }
       try {
         const { data: deepMeta, error: deepError } = await supabase.functions.invoke('extract-link-metadata', {
           body: { url, userId: targetUserId, fastOnly: false },
