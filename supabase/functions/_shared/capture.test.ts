@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   META_BYTES_LIMIT,
+  afterDraining,
   MULTIPART_BODY_LIMIT,
   ONE_SHOT_FILE_LIMIT,
   RECEIPT_HEARTBEAT_MS,
@@ -685,5 +686,39 @@ describe('fencing scenarios: a zombie attempt vs its successor', () => {
     await store.finalize('item-a'); // committed, but the response was lost
     expect(await settleSuccess(store, 'item-a')).toEqual({ outcome: 'done', recordedItemId: 'item-a' });
     expect([...receipt.items]).toEqual(['item-a']);
+  });
+});
+
+describe('afterDraining', () => {
+  const bodyOf = (chunks: number, size = 1024) => {
+    let sent = 0;
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ >= chunks) return controller.close();
+        controller.enqueue(new Uint8Array(size));
+      },
+    });
+  };
+
+  it('reads the body before answering, so the gateway can deliver the response', async () => {
+    const req = new Request('https://x.test/', { method: 'POST', body: bodyOf(64), duplex: 'half' } as RequestInit);
+    const res = await afterDraining(req, new Response('{"error":"subscription_required"}', { status: 403 }));
+    expect(req.bodyUsed).toBe(true);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe('{"error":"subscription_required"}');
+  });
+
+  it('passes the response through untouched when the body was already read', async () => {
+    const req = new Request('https://x.test/', { method: 'POST', body: 'hi', duplex: 'half' } as RequestInit);
+    await req.text();
+    const res = await afterDraining(req, new Response('ok', { status: 401 }));
+    expect(res.status).toBe(401);
+    expect(await res.text()).toBe('ok');
+  });
+
+  it('survives a request with no body at all', async () => {
+    const req = new Request('https://x.test/', { method: 'GET' });
+    const res = await afterDraining(req, new Response(null, { status: 405 }));
+    expect(res.status).toBe(405);
   });
 });

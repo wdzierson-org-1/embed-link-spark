@@ -607,3 +607,26 @@ async function releaseReceipt(store: AttemptStore): Promise<'released' | 'notOwn
   }
   return 'failed';
 }
+
+/**
+ * Cap for a discard-read. The isolate never holds more than one chunk, so this
+ * bounds time rather than memory.
+ */
+export const DRAIN_CAP_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Answer a request whose body may still be unread.
+ *
+ * The gateway buffers the whole request before invoking the function and turns a
+ * reply to an unread body into a bare 502 (observed 2026-09-27 with a 47 MiB
+ * multipart). A small body usually survives; past roughly half a megabyte the
+ * caller sees a timeout instead of the status we actually sent — so a paywall
+ * 403, a 401 or a 413 silently becomes a hang on exactly the large requests
+ * where the answer matters most.
+ *
+ * Every early return that happens BEFORE the body is read goes through here.
+ */
+export async function afterDraining(req: Request, response: Response): Promise<Response> {
+  if (!req.bodyUsed) await drainStream(req.body, DRAIN_CAP_BYTES);
+  return response;
+}

@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
+import { afterDraining } from '../_shared/capture.ts';
 import { cleanMetaText, cleanOptionalMetaText, cleanOptionalMetaTitle, decodeHtmlEntities } from '../_shared/textHygiene.ts';
 import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
@@ -203,43 +204,43 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     if (req.method !== 'POST') {
-      return new Response(
+      return await afterDraining(req, new Response(
         JSON.stringify({ error: 'Method not allowed' }),
         { 
           status: 405, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      );
+      ));
     }
 
     // The item owner is always derived from a verified JWT, never from the request body
     const authHeader = req.headers.get('Authorization');
     const token = authHeader?.replace(/^Bearer\s+/i, '').trim();
     if (!token) {
-      return new Response(
+      return await afterDraining(req, new Response(
         JSON.stringify({ error: 'Missing authorization token' }),
         {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
-      );
+      ));
     }
 
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) {
-      return new Response(
+      return await afterDraining(req, new Response(
         JSON.stringify({ error: 'Invalid or expired token' }),
         {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         }
-      );
+      ));
     }
     if (isAgentToken(token)) {
-      return new Response(
+      return await afterDraining(req, new Response(
         JSON.stringify({ error: 'Agent tokens are only accepted by the MCP endpoint' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      ));
     }
 
     const body = await req.json();

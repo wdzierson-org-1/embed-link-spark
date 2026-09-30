@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
+import { afterDraining } from '../_shared/capture.ts';
 import { isStorageTimestampName, isUuidObjectName } from '../_shared/titlePolicy.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
 
@@ -40,7 +41,7 @@ const fileNameFrom = (path: string) => path.split('/').pop() ?? 'file';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
-  if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
+  if (req.method !== 'POST') return await afterDraining(req, json(405, { error: 'Method not allowed' }));
 
   try {
     const supabase = createClient(
@@ -50,10 +51,10 @@ Deno.serve(async (req) => {
 
     // Owner always derived from the verified JWT, never the body
     const token = req.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim();
-    if (!token) return json(401, { error: 'Missing authorization token' });
+    if (!token) return await afterDraining(req, json(401, { error: 'Missing authorization token' }));
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) return json(401, { error: 'Invalid or expired token' });
-    if (isAgentToken(token)) return json(403, { error: 'Agent tokens are only accepted by the MCP endpoint' });
+    if (authError || !user) return await afterDraining(req, json(401, { error: 'Invalid or expired token' }));
+    if (isAgentToken(token)) return await afterDraining(req, json(403, { error: 'Agent tokens are only accepted by the MCP endpoint' }));
 
     const { file_path, mime_type, file_size, content, title, is_public = false, attributes, remind_at } = await req.json();
     const safeAttributes =
