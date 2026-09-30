@@ -570,9 +570,11 @@ ${APP_GUIDE}`;
     console.error('Error in chat-with-all-content:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     const status = message.includes('Authentication') || message.includes('authorization') ? 401 : 500;
-    return new Response(JSON.stringify({ error: message }), {
+    // authenticateUser throws BEFORE the body is read, so this answer can also
+    // be the one the gateway drops. Draining is a no-op once the body was read.
+    return await afterDraining(req, new Response(JSON.stringify({ error: message }), {
       status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }));
   }
 });
