@@ -254,3 +254,80 @@ FIX (ship gate + mtime) → APPROVE; FW-B APPROVE (its one LOW carried into T7).
   read "Transcription in progress…" (the server's sweep resumes them). While the v28 no-speech
   wipe exists, an open sheet keeps showing the old transcript until reopened, because the merge
   keeps a local `page_body` when a row arrives without one.
+
+### Wrap (T7) results — 2026-09-29
+
+**Suites** (HEAD `8fbaddc9`, project regenerated with `xcodegen`):
+
+- StashKit `swift test`: **723 / 0**. `npm test`: **427 / 427** (55 files).
+- Clean simulator builds of app + extension, **Debug and Release: 0 warnings** (only the
+  `appintentsmetadataprocessor` "Metadata extraction skipped" tool note, once per target).
+- UI suite ×2, full `StashUITests` bundle on sim `28F9E3CD` (iOS 17.5), `DerivedData-wrap`:
+  **40 passed / 7 failed / 2 skipped in both runs**, with the identical passing set.
+  `StoreScreenshotsUITests` ×2 skipped (no env). Every failure is at the subscription gate or a
+  "lands server-side" assertion. `will+uitest` is `paused` in `subscription_status_cache`, and
+  since 2026-09-29 notes, URLs, files and chat are all refused:
+  - `testAskSmoke` L1042 "Ask send was subscription-gate-blocked".
+  - `testCaptureSmoke` L556 and `testLocationPinSmoke` L1348 "Expected a success toast after
+    saving" (the composer's Save is gated for a lapsed account).
+  - `testDeleteSmoke` L773 and `testLocationEditSmoke` L1396: their `add-note` seed got 403.
+  - `testShareSaveConfirmsInstantlyAndLandsOnceInTheBackground` L1692 and
+    `testShareSaveWithTheAppTerminatedLandsOnceAndLeavesNothingQueued` L1741 "land … exactly
+    once" = 0 (the capture is refused with 403 and parked; the instant-confirmation assertions
+    before it pass).
+  - In run 1 `testLocationPinSmoke` stopped earlier, at the pin preview, because this simulator
+    had no simulated location (a plan-4 precondition), not because of the gate. After
+    `simctl privacy … grant location` + `simctl location … set 43.0831,-73.7846` it reached the
+    gate line, both alone and in run 2.
+  - One "Modifying state during view update" warning appeared in run 1 only, in
+    `AskUITests.testThreadFollowsTheStreamUntilTheUserScrollsAway` (which passed), at the
+    test's swipe on the thread mid-stream. Run 2 had 0. Cause: `AskThreadScrollObserver`'s
+    `contentOffset` KVO handler calls `onUserScroll` synchronously, so a layout-driven offset
+    change during a drag writes state inside a view update. This is the pattern final wave B
+    fixed in `LibraryScrollOffsetObserver`: deliver on the next main-queue turn. Carried as a
+    LOW product fix (the wrap made test-only changes).
+
+**Production hygiene** (SELECT-only): `capture_receipts` has 0 rows (all accounts). No `items`
+and no `stash-media` objects created since 2026-09-27 on `will+uitest` or `will+review`, so
+every `UITEST-P15`/`UITEST-CARDNOTE`/`UITEST-DELETE`/`UITEST-DETAIL`/`UITEST-FWB` row is gone
+and nothing needed deleting. The 12 `UITEST-FIXTURE` rows are intact. "note one" carries
+`testEditSmoke`'s markers by design; its next run's restore-first pre-flight repairs it.
+Reported, not touched:
+- Five `UITEST-LOC … Smoke Test Edit <epoch>` rows on `will+uitest` from 2026-09-03 (plan 8/9
+  leftovers).
+- `will+smoke-p4-1790661132@dzierson.com`, an account created 2026-09-29 05:52Z with 12 link
+  items during the other session's redeploy (not plan 15's).
+
+**Release: STOPPED at archive.** Build 10 has never been uploaded (ASC's latest is build 9,
+VALID, beta review APPROVED 2026-09-06), so `project.yml` stays 1.0 (10). `release.sh all`
+failed in the **archive** step (exit 65) on the expired Xcode session:
+`Failed to load credentials for willdzierson@gmail.com: … "Invalid credentials in keychain for
+willdzierson@gmail.com, missing Xcode-Token"` → `error: No Accounts: Add a new account in
+Accounts settings.` (Stash and StashShareExtension) → `Provisioning profile "iOS Team
+Provisioning Profile: it.gostash.stash" doesn't include signing certificate "Apple Development:
+William Dzierson (94XB76ZSHF)"` → `** ARCHIVE FAILED **`. Nothing was uploaded, attached to
+the TestFlight groups or the App Store version, or submitted for beta review.
+
+Ship gate, checked on an **unsigned** Release device archive of this same HEAD
+(`/tmp/wrap-verify`, a verification build only):
+- App and extension binaries: `nm -u` shows no `mach_absolute_time`/`systemUptime`, and
+  `strings` finds 0 `systemUptime`. No embedded frameworks. Positive control: the pre-wave-B
+  builds (T3/6B/6C) still show 1.
+- Both `PrivacyInfo.xcprivacy` are in the bundles: app UserDefaults CA92.1 + 1C8F.1, file
+  timestamps C617.1; extension UserDefaults 1C8F.1, file timestamps C617.1; tracking false.
+- Both bundles are 1.0 (10). The app has `UIBackgroundModes: [audio]`, the extension none.
+
+**App Store Connect** (API key; `c5b26d42` is `PREPARE_FOR_SUBMISSION`, no build attached):
+the App Review notes (`appStoreReviewDetails` `84cae442`) got the background-audio sentence on
+step 4. GET-verified byte-identical to `docs/app-store/2026-09-13-listing.md`.
+
+**For Will, to finish build 10:**
+1. Xcode → Settings → Accounts: sign in again as willdzierson@gmail.com (team `3CH3K9NTT2`).
+2. `cd ios && ./scripts/release.sh archive && ./scripts/release.sh upload`, then poll
+   `./scripts/asc-api.sh GET "/v1/builds?filter[app]=6806459949&sort=-uploadedDate&limit=2"`
+   until VALID.
+3. Attach the build to both TestFlight groups (`d19f78c1…` Internal, `d0d24fce…` Trusted
+   Testers), then to version `c5b26d42…` (`PATCH /v1/appStoreVersions/{id}/relationships/build`).
+   Submit beta review (`POST /v1/betaAppReviewSubmissions`) for the external group.
+4. Before submitting 1.0: **`will+review` (the App Review demo account) is `paused` too**, so
+   the reviewer's share/save would be refused. Comp it (and `will+uitest`).
