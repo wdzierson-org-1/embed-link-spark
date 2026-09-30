@@ -68,11 +68,14 @@ do $$ declare t text; begin
 end $$;
 
 -- Client edits become field locks. Subsequent server re-enrichment preserves these fields.
+-- While capture enrichment is still pending, client writes are the web app's own
+-- link enrichment (src/utils/contentProcessor.ts), not user edits: don't lock
+-- those, or a placeholder title it wrote could never be repaired.
 create function public.protect_enrichment_edits() returns trigger language plpgsql set search_path=public as $$
 declare k text; protected jsonb;
 begin
   protected := coalesce(old.attributes->'enrichment'->'protected_fields','{}'::jsonb);
-  if auth.role() = 'authenticated' then
+  if auth.role() = 'authenticated' and coalesce(old.attributes->'enrichment'->>'status','') <> 'pending' then
     foreach k in array array['title','description','summary','page_body','file_path'] loop
       if to_jsonb(new)->k is distinct from to_jsonb(old)->k then protected := protected || jsonb_build_object(k,true); end if;
     end loop;

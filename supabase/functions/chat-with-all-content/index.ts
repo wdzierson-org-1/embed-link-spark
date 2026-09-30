@@ -3,6 +3,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { authenticateUser } from '../_shared/auth.ts';
 import { notesSnippet, plainNotes } from '../_shared/notes.ts';
 import { coerceSearchTypes } from '../_shared/search.ts';
+import { afterDraining } from '../_shared/capture.ts';
+import { requireEntitlement } from '../_shared/entitlementGate.ts';
 
 // Ask Stash — agentic retrieval. The model drives search itself through three
 // tools (search_stash, browse_catalog, get_item) instead of a fixed
@@ -241,6 +243,10 @@ serve(async (req) => {
 
   try {
     const { user, supabaseAdmin } = await authenticateUser(req.headers.get('Authorization'));
+    const denied = await requireEntitlement(supabaseAdmin, user, corsHeaders);
+    // The paywall answers before the body is read; without draining first the
+    // gateway turns this 403 into a hang for anything over ~0.5 MB.
+    if (denied) return await afterDraining(req, denied);
     const { message, conversationHistory = [] } = await req.json();
 
     if (!message || typeof message !== 'string') {

@@ -1,4 +1,5 @@
 import { inspectSourceText, sourceIdentity, type EnrichmentItem } from './enrichmentQuality.ts';
+import { resolveTikTokLink } from './tiktok.ts';
 
 export interface ProviderJob { id: string; started: string; polls: number; }
 export interface SocialState {
@@ -12,30 +13,16 @@ export interface SocialCandidate {
 }
 interface Config { apiKey?: string; visualEnabled?: boolean; now?: number; }
 const API = 'https://api.supadata.ai/v1';
-const hostAllowed = (url: string, source: string) => {
-  try { const h = new URL(url).hostname; return h === `${source}.com` || h.endsWith(`.${source}.com`); } catch { return false; }
-};
 const transcriptText = (value: unknown): string => typeof value === 'string' ? value : Array.isArray(value)
   ? value.map(x => typeof x?.text === 'string' ? x.text : '').filter(Boolean).join('\n') : '';
 const jobExpired = (job: ProviderJob, now: number) => job.polls >= 12 || now - Date.parse(job.started) > 48 * 3600_000;
 
-/** Public oEmbed is a free caption fallback. Never infer a video ID from an opaque shortlink. */
+/** Public oEmbed is a free caption fallback (shortlinks included; see _shared/tiktok.ts). */
 export async function tikTokCaption(url: string, fetcher = fetch): Promise<{ text: string; canonical: string } | null> {
-  if (!hostAllowed(url, 'tiktok')) return null;
-  let canonical = url;
-  for (let i = 0; i < 4 && !/\/@[^/]+\/video\/\d+/.test(new URL(canonical).pathname); i++) {
-    const response = await fetcher(canonical, { redirect: 'manual', signal: AbortSignal.timeout(6_000) });
-    if (![301,302,303,307,308].includes(response.status)) break;
-    const location = response.headers.get('location');
-    if (!location) break;
-    const next = new URL(location, canonical).href;
-    if (!hostAllowed(next, 'tiktok')) return null;
-    canonical = next;
-  }
-  const response = await fetcher(`https://www.tiktok.com/oembed?url=${encodeURIComponent(canonical)}`, { signal: AbortSignal.timeout(8_000) });
-  if (!response.ok) return null;
-  const data = await response.json();
-  const checked = inspectSourceText(canonical, data.title, 'caption');
+  const resolved = await resolveTikTokLink(url, fetcher);
+  if (!resolved?.caption) return null;
+  const canonical = resolved.canonicalUrl ?? url;
+  const checked = inspectSourceText(canonical, resolved.caption, 'caption');
   return checked.usable ? { text: checked.text, canonical } : null;
 }
 
