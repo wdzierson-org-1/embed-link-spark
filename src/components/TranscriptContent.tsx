@@ -1,33 +1,30 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '@/integrations/supabase/client';
-import { scheduleEmbeddingRefresh } from '@/utils/itemOperations';
 import { Button } from '@/components/ui/button';
 
 /** Reprocessing replaces captured source, never the user's notes. */
 export default function TranscriptContent({ itemId, filePath, transcript }: {
   itemId: string; filePath?: string; transcript: string | null;
 }) {
-  const [replacement, setReplacement] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
-  const text = replacement ?? transcript;
+  const text = transcript;
+  // The transcript is the server's to write. Persisting it from here would run as
+  // `authenticated`, and protect_enrichment_edits records any authenticated change
+  // to page_body as a user edit — which permanently locks enrichment out of the
+  // field. So hand the rebuild to the job that already owns every write for the
+  // item; it replaces page_body, description, summary, title and the embeddings as
+  // one coherent step, and the progress strip above reads its status.
   const retranscribe = async () => {
     if (!filePath || working) return;
     setWorking(true);
     setError('');
     try {
-      const audioUrl = supabase.storage.from('stash-media').getPublicUrl(filePath).data.publicUrl;
-      const { data, error: transcriptionError } = await supabase.functions.invoke('transcribe-audio', {
-        body: { audioUrl, fileName: filePath.split('/').pop() },
+      const { error: jobError } = await supabase.functions.invoke('transcribe-audio', {
+        body: { itemId },
       });
-      if (transcriptionError || !data?.transcription?.trim()) throw new Error('No transcript returned');
-      const { data: updated, error: saveError } = await supabase.from('items')
-        .update({ page_body: data.transcription, description: data.description })
-        .eq('id', itemId).select().single();
-      if (saveError) throw saveError;
-      setReplacement(data.transcription);
-      if (updated) scheduleEmbeddingRefresh(updated);
+      if (jobError) throw jobError;
     } catch {
       setError('Couldn’t update the transcript. The original is preserved. Please try again.');
     } finally { setWorking(false); }
