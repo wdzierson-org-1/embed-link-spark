@@ -351,9 +351,9 @@ struct AskView: View {
             }
             return
         }
-        // Never pin under a moving finger: while the user is dragging (or it's still gliding)
-        // their gesture decides — it either leaves the end (following stops) or doesn't, and the
-        // next publish pins again.
+        // Never pin under a finger: while one is on the thread (touch-down included) or the thread
+        // is still gliding after it, the user's gesture decides — it either leaves the end
+        // (following stops) or doesn't, and the next publish pins again.
         guard isFollowing, !threadScroll.userIsScrolling else { return }
         if rowsChanged {
             withAnimation(.easeOut(duration: 0.2)) {
@@ -639,11 +639,18 @@ final class SpeechReader: NSObject, AVSpeechSynthesizerDelegate {
 /// there): on the iOS 17 floor, geometry/preference tracking fires at layout but not during an
 /// interactive scroll. Invisible and zero-size; must sit inside the `ScrollView`'s own content so
 /// walking `superview` reaches the real `UIScrollView`.
+///
+/// Reports are never delivered synchronously (the same fix as `LibraryScrollOffsetObserver`): the
+/// KVO callback also fires when SwiftUI's OWN layout moves the content while a drag or glide is in
+/// progress — i.e. inside a view update — and writing `@State` (`isFollowing`) there is undefined
+/// behavior. That was the "Modifying state during view update" runtime issue the follow-scroll UI
+/// test logged now and then (unified-log backtrace: `isFollowing.setter` ← this KVO handler,
+/// inside SwiftUI's update). See `Coordinator.userScrolled`.
 private struct AskThreadScrollObserver: UIViewRepresentable {
     /// Receives the thread's UIScrollView once found.
     let handle: AskThreadScrollHandle
-    /// "Is the viewport at the end of the thread (within 80 pt)?" — called on every user-driven
-    /// offset change.
+    /// "Is the viewport at the end of the thread (within 80 pt)?" — called after user-driven offset
+    /// changes, on a main-queue turn of its own (a burst of changes yields one call).
     var onUserScroll: (_ atEnd: Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(handle: handle) }
@@ -680,6 +687,8 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
         var onUserScroll: ((Bool) -> Void)?
         private let handle: AskThreadScrollHandle
         private var observation: NSKeyValueObservation?
+        /// True while a report to SwiftUI is scheduled on the main queue (see `userScrolled`).
+        private var reportScheduled = false
 
         init(handle: AskThreadScrollHandle) {
             self.handle = handle
@@ -692,12 +701,35 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
                 if let scrollView = candidate as? UIScrollView {
                     handle.scrollView = scrollView
                     observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
+                        // Only a drag or the glide after one may turn following on or off — never a
+                        // touch-down that hasn't moved, a programmatic scroll or content growth. Two
+                        // flag reads are safe inside a layout pass; telling SwiftUI is not (see
+                        // `userScrolled`).
                         guard scrollView.isDragging || scrollView.isDecelerating else { return }
-                        self?.onUserScroll?(Self.isAtEnd(scrollView))
+                        self?.userScrolled(scrollView)
                     }
                     return
                 }
                 ancestor = candidate.superview
+            }
+        }
+
+        /// Tells SwiftUI whether the thread now rests at its end, on the next main-queue turn —
+        /// outside whatever view update may be running now. A burst of offset changes coalesces
+        /// into one report, which reads the layout as it stands then rather than a mid-layout
+        /// snapshot. The lag is harmless: a follow-scroll can't pin in between, because it holds
+        /// off while `AskThreadScrollHandle.userIsScrolling`.
+        ///
+        /// Not de-duplicated against the last report on purpose: `isFollowing` has other writers
+        /// (send, retry, a replaced thread), so only the receiver may compare with its live value.
+        private func userScrolled(_ scrollView: UIScrollView) {
+            guard !reportScheduled else { return }
+            reportScheduled = true
+            DispatchQueue.main.async { [weak self, weak scrollView] in
+                guard let self else { return }
+                self.reportScheduled = false
+                guard let scrollView else { return }
+                self.onUserScroll?(Self.isAtEnd(scrollView))
             }
         }
 
@@ -715,13 +747,18 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
 
 /// A weak reference to the Ask thread's UIScrollView (filled in by `AskThreadScrollObserver`),
 /// held in `@State` so follow-scrolls can check whether the user's finger — or the glide after
-/// it — is moving the thread right now.
+/// it — is on the thread right now.
 final class AskThreadScrollHandle {
     weak var scrollView: UIScrollView?
 
+    /// A finger is on the thread or its momentum is still moving it: touch-down (`isTracking` —
+    /// true a beat before `isDragging`, so a pin can't land under a finger that has only just
+    /// touched), a drag, or the glide after a lift. Follow-scrolls hold off while this is true.
+    /// Broader than what may turn following OFF — that is a drag or glide only
+    /// (`AskThreadScrollObserver`), since a bare touch-down moves nothing.
     var userIsScrolling: Bool {
         guard let scrollView else { return false }
-        return scrollView.isDragging || scrollView.isDecelerating
+        return scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
     }
 
     /// Scrolls to the true end of the laid-out thread, computed from the UIScrollView's own
