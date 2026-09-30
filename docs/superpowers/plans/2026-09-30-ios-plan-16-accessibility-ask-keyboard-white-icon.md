@@ -70,9 +70,13 @@ Split by the coordinator (2026-09-30) into a foundation task and two parallel, f
 
 **Files:** `ios/Stash/Detail/*`, `ios/Stash/Library/*`, `ios/StashUITests/{StashUITests,DetailUITests,LibraryDetailUITests}.swift`, a NEW `ios/StashUITests/A11yDetailLibraryUITests.swift`.
 
-#### Task 2c: Ask, Add, Settings, onboarding, sign-in, tab bar, share sheet (parallel with 2b)
+#### Task 2c: Add, Settings, onboarding, sign-in, tab bar, share sheet (parallel with 2b/2d)
 
-**Files:** `ios/Stash/{Ask,Capture,Settings,Onboarding,Auth}/*`, `ios/Stash/MainTabView.swift`, `ios/StashShareExtension/*`, `ios/StashUITests/{AskUITests,ComposerUITests,AccountUITests,SessionUITests,StoreScreenshotsUITests}.swift`, a NEW `ios/StashUITests/A11yAppUITests.swift`.
+**Files:** `ios/Stash/{Capture,Settings,Onboarding,Auth}/*`, `ios/Stash/MainTabView.swift`, `ios/StashShareExtension/*`, `ios/StashUITests/{ComposerUITests,AccountUITests,SessionUITests,StoreScreenshotsUITests}.swift`, a NEW `ios/StashUITests/A11yAppUITests.swift`.
+
+#### Task 2d: Ask (parallel with 2b/2c; split from 2c by the coordinator so it can fold in the Task 1b review)
+
+**Files:** `ios/Stash/Ask/*`, `ios/StashUITests/AskUITests.swift`, a NEW `ios/StashUITests/A11yAskUITests.swift`.
 
 Both surface passes do the following, in their own files only:
 - [ ] Migrate every call site to a role; the build shows zero `StashType` deprecation warnings in their files. Detail reading text renders at 17. Replace every `.system(size:)` with a scaled equivalent, or with the decorative helper plus `accessibilityHidden`.
