@@ -284,8 +284,9 @@ FIX (ship gate + mtime) → APPROVE; FW-B APPROVE (its one LOW carried into T7).
     test's swipe on the thread mid-stream. Run 2 had 0. Cause: `AskThreadScrollObserver`'s
     `contentOffset` KVO handler calls `onUserScroll` synchronously, so a layout-driven offset
     change during a drag writes state inside a view update. This is the pattern final wave B
-    fixed in `LibraryScrollOffsetObserver`: deliver on the next main-queue turn. Carried as a
-    LOW product fix (the wrap made test-only changes).
+    fixed in `LibraryScrollOffsetObserver`: deliver on the next main-queue turn. **Fixed after
+    the wrap in `4d92f1fd`** (same next-turn delivery, plus `isTracking` in the user-scroll
+    check): `AskUITests` ×3 and the follow test ×6 now log 0 warnings (was 5 of 6).
 
 **Production hygiene** (SELECT-only): `capture_receipts` has 0 rows (all accounts). No `items`
 and no `stash-media` objects created since 2026-09-27 on `will+uitest` or `will+review`, so
