@@ -65,8 +65,8 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return await afterDraining(req, json(401, { error: 'Invalid or expired token' }));
     if (isAgentToken(token)) return await afterDraining(req, json(403, { error: 'Agent tokens are only accepted by the MCP endpoint' }));
-    if (authError || !user) return json(401, { error: 'Invalid or expired token' });
-    if (isAgentToken(token)) return json(403, { error: 'Agent tokens are only accepted by the MCP endpoint' });
+    if (authError || !user) return await afterDraining(req, json(401, { error: 'Invalid or expired token' }));
+    if (isAgentToken(token)) return await afterDraining(req, json(403, { error: 'Agent tokens are only accepted by the MCP endpoint' }));
     const denied = await requireEntitlement(supabase, user, corsHeaders);
     // The paywall answers before the body is read; without draining first the
     // gateway turns this 403 into a hang for anything over ~0.5 MB.
