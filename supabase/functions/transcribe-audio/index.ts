@@ -21,6 +21,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
+import { transcriptProgressColumns } from '../_shared/transcript.ts';
 import { NO_PREAMBLE_RULES, generateSummary, stripPreamble } from '../_shared/summarize.ts';
 import {
   KEEP_FILENAME_TOKEN,
@@ -353,7 +354,7 @@ const runJob = async (db: Db, itemId: string, trigger: 'start' | 'continue' | 's
         db,
         itemId,
         { status: 'processing', chunks_total: chunksTotal, chunks_done: idx + 1, source: `openai:${model}` },
-        { page_body: text.slice(0, PAGE_BODY_CAP) || null },
+        transcriptProgressColumns(text, PAGE_BODY_CAP),
       );
       console.log(`transcribe-audio: ${itemId} chunk ${idx + 1}/${chunksTotal} → ${result.text.length} chars via ${model}`);
     }

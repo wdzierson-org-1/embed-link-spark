@@ -21,3 +21,16 @@ export function formatDiarizedTranscript(result: DiarizedTranscript): string {
     return `**Speaker ${speaker} · ${stamp}**\n\n${text}`;
   }).join('\n\n');
 }
+
+/**
+ * Columns to write alongside a chunk's transcript progress.
+ *
+ * A retry starts with an EMPTY accumulator while the row still holds the
+ * PREVIOUS transcript. Writing `page_body: null` at that moment destroys a good
+ * transcript before the run has found any speech — and a no-speech run then
+ * fails with nothing left to fall back to. So: no new text, no write. The old
+ * transcript survives until there is something better to replace it with.
+ */
+export function transcriptProgressColumns(text: string, cap: number): Record<string, unknown> {
+  return text.trim() ? { page_body: text.slice(0, cap) } : {};
+}
