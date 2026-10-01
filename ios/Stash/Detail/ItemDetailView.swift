@@ -228,6 +228,7 @@ struct ItemDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selectedTab: ContentTabKey
     /// The `page_body` read (M5/L6) — see `loadDetailIfNeeded`.
     @State private var sourceLoad: DetailSourceLoad = .idle
@@ -390,19 +391,27 @@ struct ItemDetailView: View {
     /// label ("Voice note", "Photo", …) on an audio, image, video or file item (an object-name
     /// title opens as an empty field, see `baseline`; a cleared one is saved as "" and reads the
     /// same, M-6), "Untitled" on any other type.
+    ///
+    /// Plan 16 (HIG + accessibility): the `panelTitle` role (28 pt, scaling with `.title`), and the
+    /// title WRAPS — a vertical-axis field — so no part of it is ever cut off (it used to scroll
+    /// sideways out of view in one line, at every size). It is still one line of text: Return
+    /// ends editing, as it did, and a pasted line break becomes a space (`keepTitleOnOneLine`).
+    /// The placeholder is `muted` (`prompt:`; the system grey is 1.7:1 and this one names the
+    /// item), and VoiceOver calls the field "Title" — not its placeholder, which would announce a
+    /// typed title as "Voice note" or "Untitled". A vertical-axis field is a text view underneath,
+    /// which a bare XCUITest `.tap()` doesn't always focus — UI tests tap until it has focus
+    /// (`tapUntilFocused`).
     private var titleField: some View {
-        // Deliberately single-line (no `axis: .vertical`) — a vertical-axis `TextField` renders
-        // as a `UITextView` under the hood, which `testEditSmoke`'s tap-then-`typeText` helper
-        // (`clearField`/`replaceText`) proved live doesn't reliably gain keyboard focus from a
-        // plain `.tap()` the way a single-line `UITextField` does ("Neither element nor any
-        // descendant has keyboard focus" — confirmed against this exact wrapper). A long title
-        // scrolls horizontally rather than wrapping to a second line; acceptable given the test
-        // contract this field must keep working under.
-        TextField(ItemDisplay.titlePlaceholder(for: snapshot), text: titleBinding)
-            .font(StashType.panelTitle())
-            .stashTracking(-0.02, size: 28)
+        let placeholder = ItemDisplay.titlePlaceholder(for: snapshot)
+        return TextField("Title", text: titleBinding,
+                         prompt: Text(placeholder).foregroundStyle(StashColor.muted), axis: .vertical)
+            .stashFont(.panelTitle)
+            .stashTracking(-0.02, role: .panelTitle)
             .foregroundStyle(StashColor.ink)
             .textFieldStyle(.plain)
+            .submitLabel(.done)
+            .onSubmit { focusedField = nil }
+            .onChange(of: item.title) { oldTitle, newTitle in keepTitleOnOneLine(was: oldTitle, now: newTitle) }
             .focused($focusedField, equals: .title)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -420,16 +429,20 @@ struct ItemDetailView: View {
             // exactly on `DetailLayout.inset` (20), flush with the eyebrow/URL bar above it,
             // while the hit target itself keeps its full width.
             .padding(.horizontal, -6)
+            .detailFieldTapTarget { focusedField = .title }
     }
 
+    /// Plan 16: reading text — the `reading` role, 17 pt (was 14) — in `muted` (5.38:1), with a
+    /// `muted` placeholder (`prompt:`); VoiceOver names the field "Description".
     private var descriptionField: some View {
-        TextField("Add a description…", text: descriptionBinding, axis: .vertical)
-            .font(StashType.body())
+        TextField("Description", text: descriptionBinding,
+                  prompt: Text("Add a description…").foregroundStyle(StashColor.muted), axis: .vertical)
+            .stashFont(.reading)
             .foregroundStyle(StashColor.muted)
-            // Body line spacing (DESIGN.md "~1.55 at 14pt") — same delta `MarkdownBlocksView`'s
-            // paragraphs and the content tabs' plain-text fallback both already use, so the
-            // description reads at the same rhythm as the rest of the sheet's body text.
-            .lineSpacing(14 * 0.55)
+            // Body line spacing (DESIGN.md "~1.55") — the same leading `MarkdownBlocksView`'s
+            // paragraphs and the content tabs' plain-text fallback use, so the description reads
+            // at the rhythm of the rest of the sheet's reading text; it grows with the text.
+            .stashLeading(0.55, role: .reading)
             .textFieldStyle(.plain)
             .focused($focusedField, equals: .description)
             .padding(.horizontal, 6)
@@ -445,6 +458,7 @@ struct ItemDetailView: View {
             // Final wave — same compensation as `titleField` above: negate the 6pt hit-padding
             // so the text's left edge lands on `DetailLayout.inset`, not `inset + 6`.
             .padding(.horizontal, -6)
+            .detailFieldTapTarget { focusedField = .description }
     }
 
     /// Contained hero, radius 16 + card shadow — `.image` items, and (plan 12 fix round 3) any
@@ -474,20 +488,25 @@ struct ItemDetailView: View {
     /// The iOS close affordance — a hairline circle × top-trailing, matching the web sheet's own
     /// close button. Plan 15 (H5): closes at once, never waiting on a save — `handleDismiss` (via
     /// `onDisappear`, which a swipe-to-dismiss reaches too) queues and sends anything unconfirmed.
+    ///
+    /// Plan 16: sheet chrome, so the 28 pt circle and its glyph keep their size at every text size
+    /// (the Large Content Viewer shows "Close" large) — but it takes taps across 44×44 pt
+    /// (`.stashPlain` puts the target on the label; the 14 pt inset stays outside the button).
     private var closeButton: some View {
         Button {
             dismiss()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 12, weight: .semibold))
+                .font(StashType.decorative(.semibold, size: 12))
                 .foregroundStyle(StashColor.muted)
                 .frame(width: 28, height: 28)
                 .background(StashColor.paper, in: Circle())
                 .overlay(Circle().strokeBorder(StashColor.hairline, lineWidth: 1))
         }
-        .padding(14)
-        .accessibilityLabel("Close")
+        .buttonStyle(.stashPlain)
+        .stashIconControl("Close", systemImage: "xmark")
         .accessibilityIdentifier("detail.done")
+        .padding(14)
     }
 
     /// Pinned footer bar (hairline top): "Delete item" left, autosave status + hide-keyboard
@@ -495,25 +514,33 @@ struct ItemDetailView: View {
     /// keyboard-dismiss control: a pinned SIBLING below the ScrollView, so it's reachable no
     /// matter which of the three fields (`DetailField`) is focused or where the sheet is
     /// scrolled.
+    ///
+    /// Plan 16: at the accessibility sizes the autosave line moves under "Delete item" (a row of
+    /// its own, full width) instead of squeezing beside it; below them the row is as before, the
+    /// caption wrapping onto a second line if it must.
     private var footerBar: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                deleteButton
-                Spacer()
-                autosaveLabel
-                if focusedField != nil {
-                    Button {
-                        focusedField = nil
-                    } label: {
-                        CircleIcon(systemImage: "keyboard.chevron.compact.down")
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        deleteButton
+                        Spacer(minLength: 8)
+                        dismissKeyboardButton
                     }
-                    .accessibilityIdentifier("detail.dismissKeyboard")
-                    .accessibilityLabel("Hide keyboard")
+                    autosaveLabel
+                }
+            } else {
+                HStack {
+                    deleteButton
+                    Spacer(minLength: 8)
+                    autosaveLabel
+                        .multilineTextAlignment(.trailing)
+                    dismissKeyboardButton
                 }
             }
             if let deleteErrorMessage {
                 Text(deleteErrorMessage)
-                    .font(StashType.meta())
+                    .stashFont(.meta)
                     .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("detail.deleteError")
             }
@@ -524,6 +551,26 @@ struct ItemDetailView: View {
         .overlay(alignment: .top) { hairline }
     }
 
+    /// The sheet's one keyboard-dismiss control, while any field has focus: a `CircleIcon` (its
+    /// own 44 pt target), named for VoiceOver and the Large Content Viewer. `.plain`, as every
+    /// circle button is: under the default (borderless) style the button's frame stayed the 40 pt
+    /// circle — the circle's 44 pt target overhang didn't count (measured).
+    @ViewBuilder private var dismissKeyboardButton: some View {
+        if focusedField != nil {
+            Button {
+                focusedField = nil
+            } label: {
+                CircleIcon(systemImage: "keyboard.chevron.compact.down")
+            }
+            .buttonStyle(.plain)
+            .stashIconControl("Hide keyboard", systemImage: "keyboard.chevron.compact.down")
+            .accessibilityIdentifier("detail.dismissKeyboard")
+        }
+    }
+
+    /// Plan 16: an inline action — `inlineButton` (Medium 15, was a 12 pt caption) in
+    /// `destructive` (5.06:1), with a 44 pt target (`.stashPlain`; it was the 85×17 pt word). It
+    /// keeps its one line and its width before the autosave caption beside it gives way.
     private var deleteButton: some View {
         Button {
             showDeleteConfirm = true
@@ -532,28 +579,33 @@ struct ItemDetailView: View {
                 ProgressView()
             } else {
                 Label("Delete item", systemImage: "trash")
-                    .font(StashType.meta())
+                    .stashFont(.inlineButton)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
+        .buttonStyle(.stashPlain)
         .foregroundStyle(StashColor.destructive)
         .disabled(isDeleting)
+        .layoutPriority(1)
         .accessibilityIdentifier("detail.delete")
     }
 
     /// `.failed` (final wave, item D) renders as its own `detail.autosave.error` identifier in
     /// `StashColor.destructive`, distinct from the resting `detail.autosave` identifier every
     /// other state shares — so a UI test (or VoiceOver user) can tell "saved" and "failed, please
-    /// retry" apart without parsing label text.
+    /// retry" apart without parsing label text. Plan 16: `meta`, and the resting caption `muted`
+    /// (it was `faint`, 2.79:1).
     @ViewBuilder private var autosaveLabel: some View {
         if case .failed(let message) = saveStatus {
             Text(message)
-                .font(StashType.meta())
+                .stashFont(.meta)
                 .foregroundStyle(StashColor.destructive)
                 .accessibilityIdentifier("detail.autosave.error")
         } else {
             Text(saveStatus == .saving ? "Saving…" : "Changes saved automatically")
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
                 .accessibilityIdentifier("detail.autosave")
         }
     }
@@ -565,6 +617,22 @@ struct ItemDetailView: View {
             item.title = newValue
             scheduleFieldSave()
         })
+    }
+
+    /// Plan 16: the title field wraps (`axis: .vertical`), but a title is one line of text. A
+    /// vertical-axis field inserts a line break on Return, so while the user is typing in it: a
+    /// Return (the old title plus one line break) is taken back out and ends editing, as it did in
+    /// the single-line field; a pasted line break becomes a space. The line break is only ever on
+    /// screen for the one update this takes — the 400 ms autosave never sees it. Titles that
+    /// arrive from the server are left alone (the field isn't focused then).
+    private func keepTitleOnOneLine(was oldTitle: String?, now newTitle: String?) {
+        guard focusedField == .title, let newTitle, newTitle.contains(where: \.isNewline) else { return }
+        if newTitle.filter({ !$0.isNewline }) == (oldTitle ?? "") {
+            item.title = oldTitle
+            focusedField = nil
+        } else {
+            item.title = String(newTitle.map { $0.isNewline ? " " : $0 })
+        }
     }
 
     private var descriptionBinding: Binding<String> {
@@ -1034,6 +1102,26 @@ struct ItemDetailView: View {
         } catch {
             // A read cancelled because the sheet went away isn't a failure worth showing.
             sourceLoad = Task.isCancelled ? .idle : .failed
+        }
+    }
+}
+
+private extension View {
+    /// Plan 16 (HIG: 44 pt targets): the title and description are inline fields with no chrome
+    /// at rest, and one line of them is shorter than 44 pt — a one-line description is ~25 pt, the
+    /// title ~38 at the default text size. This takes taps across at least 44 pt of height without
+    /// growing the layout (an overhang, like `stashMinimumHitTarget`), and a tap on the overhang
+    /// focuses the field — a bare overhang would swallow it. Taps on the field itself still reach
+    /// the field. The sheet's 14 pt gaps keep these overhangs apart from each other and from the
+    /// URL bar's "Open link" target.
+    func detailFieldTapTarget(_ focus: @escaping () -> Void) -> some View {
+        background {
+            Color.clear
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: focus)
+                // Touch only: VoiceOver reaches the field itself.
+                .accessibilityHidden(true)
         }
     }
 }

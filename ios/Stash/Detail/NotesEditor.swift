@@ -128,15 +128,18 @@ struct NotesEditor: View {
     /// 44–110. `@ScaledMetric` (not a plain `CGFloat` constant) so both bounds grow with Dynamic
     /// Type — a fixed 44pt floor would clip a single line of XXL-size text, and a fixed 110pt
     /// ceiling would force scrolling far sooner than intended at larger text sizes. `relativeTo:
-    /// .body` matches the editor's own `StashType.body()` font this frame wraps.
+    /// .body` matches the editor's own `reading` role (plan 16: 17 pt, `.body`) this frame wraps.
+    /// The 44 pt floor is also the field's minimum touch height (HIG).
     @ScaledMetric(relativeTo: .body) private var minEditorHeight: CGFloat = 44
     @ScaledMetric(relativeTo: .body) private var maxEditorHeight: CGFloat = 110
 
+    /// Plan 16: the note (rendered TipTap, the field, its placeholder) is reading text — the
+    /// `reading` role, 17 pt, was 14 — and the hint and placeholder are `muted` (were `faint`).
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.isRich, let content = item.content, !content.isEmpty {
                 Text(model.renderedContent(content))
-                    .font(StashType.body())
+                    .stashFont(.reading)
                     .foregroundStyle(StashColor.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("detail.notesText")
@@ -149,8 +152,8 @@ struct NotesEditor: View {
             // unsaved draft text worth explaining.
             if isFocused.wrappedValue == .notes || !model.draft.isEmpty {
                 Text(model.isRich ? "Adds when you tap Done or leave the field" : "Editing note")
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.faint)
+                    .stashFont(.meta)
+                    .foregroundStyle(StashColor.muted)
                     .accessibilityIdentifier("detail.notes.hint")
             }
         }
@@ -170,12 +173,15 @@ struct NotesEditor: View {
     private var field: some View {
         ZStack(alignment: .topLeading) {
             if model.draft.isEmpty {
+                // `muted` on the wash is 4.86:1 (`faint` was 2.53). VoiceOver hears the field's
+                // own label and hint instead, so this picture of a placeholder stays out of its way.
                 Text("Add a note…")
-                    .font(StashType.body())
-                    .foregroundStyle(StashColor.faint)
+                    .stashFont(.reading)
+                    .foregroundStyle(StashColor.muted)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 10)
                     .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
             // Bounded-but-generous auto-grow (44–110pt, Plan 14 Task 2 — roughly half the prior
             // 80–220pt footprint, web parity's own 150px/half-of-300px move) rather than a true
@@ -187,8 +193,10 @@ struct NotesEditor: View {
             // since this editor was never what pushes the keyboard offscreen — the sheet's own
             // ScrollView does), same shape "auto-growing" reads as in practice.
             TextEditor(text: $model.draft)
-                .font(StashType.body())
+                .stashFont(.reading)
                 .foregroundStyle(StashColor.ink)
+                // VoiceOver's name for the field (the drawn placeholder above is hidden from it).
+                .accessibilityLabel(model.isRich ? "Add to your notes" : "Notes")
                 .scrollContentBackground(.hidden)
                 .autocorrectionDisabled()
                 .focused(isFocused, equals: .notes)

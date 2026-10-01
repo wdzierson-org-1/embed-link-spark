@@ -39,6 +39,11 @@ enum DetailLayout {
 /// wrapped mid-word at 393pt (confirmed live, pre-dating this fix round — see that view's own doc
 /// comment). Both default to nothing, so the plain call site (`SharingSection`) is exactly
 /// `SectionHeader(title:)`.
+///
+/// Plan 16: the label is `stashMicroLabel()` — Semibold 12 caps, `muted` (the old `faint` was
+/// 2.79:1). When the label and `trailing` can't share a line (large text: "NOTES & TRANSCRIPT"
+/// beside "Transcribe again", "DETAILS" beside a file's facts), `trailing` moves to its own line
+/// under the label instead of squeezing either one.
 struct SectionHeader<Trailing: View, Accessory: View>: View {
     let title: String
     @ViewBuilder var trailing: () -> Trailing
@@ -54,18 +59,29 @@ struct SectionHeader<Trailing: View, Accessory: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(title.uppercased())
-                    .font(StashType.microLabel())
-                    .stashTracking(0.11, size: 11)
-                    .foregroundStyle(StashColor.faint)
-                Spacer(minLength: 8)
-                trailing()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    label
+                    Spacer(minLength: 8)
+                    trailing()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    label
+                    trailing()
+                }
             }
             accessory()
             Rectangle().fill(StashColor.hairline).frame(height: 1)
         }
         .padding(.top, DetailLayout.section)
         .padding(.bottom, DetailLayout.gap)
+    }
+
+    /// Callers pass the title in any case ("DETAILS", "Notes"); the caps are drawn, so VoiceOver
+    /// reads the words — as a heading, so the rotor can jump between the sheet's sections.
+    private var label: some View {
+        Text(title)
+            .stashMicroLabel()
+            .accessibilityAddTraits(.isHeader)
     }
 }

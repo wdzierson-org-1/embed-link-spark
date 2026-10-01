@@ -32,6 +32,12 @@ struct SharingSection: View {
     @State private var showUnshareConfirm = false
     @State private var errorMessage: String?
     @State private var didCopyFeedLink = false
+    /// The feed link's copy glyph grows with the URL beside it (11 pt beside its 11, like a text
+    /// field's clear button). A scaled metric on a system symbol font: the same glyph set in a
+    /// custom face relative to `.caption2` stayed ~11 pt at every size (measured at xxxL and AX3).
+    @ScaledMetric(relativeTo: .caption2) private var copyGlyphSize: CGFloat = 11
+    /// The sticky note field's keyboard focus — so a tap anywhere on its note box focuses it.
+    @FocusState private var stickyFocused: Bool
 
     private var username: String? { session.profile?.username }
     private var isLoadingUsername: Bool { session.profileLoad == .loading }
@@ -60,7 +66,7 @@ struct SharingSection: View {
                 }
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(StashType.meta())
+                        .stashFont(.meta)
                         .foregroundStyle(StashColor.destructive)
                         .accessibilityIdentifier("detail.public.error")
                 }
@@ -78,6 +84,10 @@ struct SharingSection: View {
 
     // MARK: - Rows
 
+    /// Plan 16: the switch is the system one (VoiceOver already hears a switch that is on or off),
+    /// so its name stays the same in both states — "Share on your public feed" — instead of
+    /// switching between "Private" and "On your public feed". The tile and copy read the state;
+    /// the switch sits in a row at least 44 pt tall, and the copy wraps at large text sizes.
     private var statusRow: some View {
         HStack(spacing: 12) {
             statusGroup
@@ -87,23 +97,27 @@ struct SharingSection: View {
                 .tint(StashColor.violet600)
                 .disabled(isToggling)
                 .accessibilityIdentifier("detail.public.toggle")
-                .accessibilityLabel(item.isPublic ? "On your public feed" : "Private")
+                .accessibilityLabel("Share on your public feed")
         }
+        .frame(minHeight: 44)
     }
 
     /// Tile + two-line copy, isolated as its own leaf accessibility element (mirrors
     /// `DetailEyebrow`'s pattern) so `detail.sharing` reports "Private"/"On your public feed"
     /// without swallowing the sibling `Toggle`'s own identifier into a combined label.
+    ///
+    /// Plan 16: the state line is `secondaryMedium` (was a 13.5 pt Medium), the explanation `meta`
+    /// in `muted` (was `faint`).
     private var statusGroup: some View {
         HStack(spacing: 12) {
             tile
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.isPublic ? "On your public feed" : "Private")
-                    .font(StashType.bodyMedium(13.5))
+                    .stashFont(.secondaryMedium)
                     .foregroundStyle(StashColor.ink)
                 Text(item.isPublic ? "Anyone with your feed link can see this item" : "Only you can see this item")
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.faint)
+                    .stashFont(.meta)
+                    .foregroundStyle(StashColor.muted)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -114,13 +128,16 @@ struct SharingSection: View {
     }
 
     /// 40pt circle — `wash` + `lock` at rest, violet-tinted + `globe` once shared (DESIGN.md
-    /// "Sharing row states": "private = grey lock tile ... Public = violet globe tile").
+    /// "Sharing row states": "private = grey lock tile ... Public = violet globe tile"). A picture
+    /// of the state, not a control (the switch beside it is): its glyph stays a fixed size, like
+    /// the tile (plan 16 — `StashType.decorative`; `statusGroup` reads the state to VoiceOver).
     private var tile: some View {
         Image(systemName: item.isPublic ? "globe" : "lock")
-            .font(.system(size: 15, weight: .medium))
+            .font(StashType.decorative(.medium, size: 15))
             .foregroundStyle(item.isPublic ? StashColor.violet600 : StashColor.muted)
             .frame(width: 40, height: 40)
             .background(item.isPublic ? StashColor.violet600.opacity(0.12) : StashColor.wash, in: Circle())
+            .accessibilityHidden(true)
     }
 
     /// Gates the feed-link chip on a loaded, non-empty `username` (Fix round 1, review finding
@@ -133,8 +150,8 @@ struct SharingSection: View {
             feedLinkChip(feedURL)
         } else if isLoadingUsername {
             Text("Loading feed link…")
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
                 .padding(.leading, 52)
         }
     }
@@ -144,32 +161,41 @@ struct SharingSection: View {
     /// Motion. Only ever called with a complete, non-empty `feedURL` (see `feedLinkSection`), so
     /// the copy button needs no separate "is the URL complete yet" disabled state — by the time
     /// this view exists at all, it always is.
+    /// Plan 16: the URL is `mono(.caption2)` and scales, wrapping onto up to three lines (the
+    /// capsule becomes a rounded rectangle while it does) rather than losing its middle; the copy
+    /// button's glyph grows with it (11 pt beside the URL's 11, like a text field's clear button)
+    /// and takes taps across 44 pt (`.stashPlain`), named for VoiceOver and the Large Content
+    /// Viewer.
     private func feedLinkChip(_ feedURL: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text(feedURL.replacingOccurrences(of: "https://", with: ""))
-                    .font(StashType.mono(11))
+                    .stashFont(.mono(.caption2))
                     .foregroundStyle(StashColor.muted)
-                    .lineLimit(1)
+                    .lineLimit(3)
                     .truncationMode(.middle)
                 Button {
                     copyFeedLink(feedURL)
                 } label: {
                     Image(systemName: didCopyFeedLink ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: copyGlyphSize, weight: .medium))
                         .foregroundStyle(StashColor.violet600)
                 }
-                .accessibilityLabel(didCopyFeedLink ? "Copied" : "Copy public feed link")
+                .buttonStyle(.stashPlain)
+                .stashIconControl(didCopyFeedLink ? "Copied" : "Copy public feed link",
+                                  systemImage: didCopyFeedLink ? "checkmark" : "doc.on.doc")
                 .accessibilityIdentifier("detail.sharing.feedLink.copy")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
-            .background(StashColor.paper.opacity(0.85), in: Capsule())
-            .overlay(Capsule().strokeBorder(StashColor.hairline, lineWidth: 1))
+            .background(StashColor.paper.opacity(0.85),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(StashColor.hairline, lineWidth: 1))
 
             Text("Turning this off removes it from your feed.")
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
         }
         .padding(.leading, 52)
         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -177,20 +203,32 @@ struct SharingSection: View {
         .accessibilityIdentifier("detail.sharing.feedLink")
     }
 
+    /// Plan 16: the note is reading text (17), its placeholder `muted` (`prompt:` — the system
+    /// grey was 1.7:1), and the whole note box — at least 44 pt tall — takes the tap that focuses
+    /// it: the text field itself is only its line of text (21 pt), and a tap on the box's padding
+    /// used to do nothing. The box's fill takes those taps from behind the field, so a tap on the
+    /// text still goes to the text (caret, selection).
     private var stickyNoteField: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Sticky note")
-                .font(StashType.meta())
+                .stashFont(.meta)
                 .foregroundStyle(StashColor.muted)
-            TextField("Add a quick note…", text: $supplementalNote, axis: .vertical)
-                .font(StashType.body())
+            TextField("Sticky note", text: $supplementalNote,
+                      prompt: Text("Add a quick note…").foregroundStyle(StashColor.muted), axis: .vertical)
+                .stashFont(.reading)
                 .textFieldStyle(.plain)
+                .focused($stickyFocused)
                 .padding(10)
-                .background(Color.yellow.opacity(0.16), in: RoundedRectangle(cornerRadius: StashRadius.input))
+                .frame(minHeight: 44)
+                .background {
+                    RoundedRectangle(cornerRadius: StashRadius.input)
+                        .fill(Color.yellow.opacity(0.16))
+                        .onTapGesture { stickyFocused = true }
+                }
                 .accessibilityIdentifier("detail.public.sticky")
             Text("This note appears as a yellow sticky note on the public feed card.")
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
         }
         .padding(.leading, 52)
     }

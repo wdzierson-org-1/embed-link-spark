@@ -11,6 +11,9 @@ import XCTest
 final class DetailUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Plan 16: the real Bold Text setting is simulator-global; an interrupted a11y run can
+        // leave it on.
+        MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
     }
 
     /// H5 on a stalled link (`--uitest-stall-item-writes`: every item write hangs 10 s, then times
@@ -99,7 +102,8 @@ final class DetailUITests: XCTestCase {
 
         let titleField = app.descendants(matching: .any)["detail.title"]
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        titleField.tap()
+        // Plan 16: the title wraps (a vertical-axis field), which a bare tap doesn't always focus.
+        A11yScreens.tapUntilFocused(titleField)
         titleField.typeText("Q")
         // Where a tap lands the caret in this field isn't reliable (see `testEditSmoke`), so the
         // expected title is whatever the field now holds.
@@ -238,21 +242,24 @@ final class DetailUITests: XCTestCase {
 
     /// `--uitest-reset-auth` forces the real sign-in screen (the Keychain session survives
     /// reinstalls on the Simulator); lands on the View tab.
+    ///
+    /// Plan 16: by launch argument (`--uitest-tab-view`) — never a tab-bar tap, which iOS 26
+    /// swallows while the sign-in keyboard is still going away — tapping each field until it has
+    /// focus, and declining iOS 26's "Save Password?" sheet with the canonical helper.
     @MainActor
     private func signIn(_ app: XCUIApplication, email: String, password: String, extraArguments: [String] = []) {
-        app.launchArguments = ["--uitest-reset-auth"] + extraArguments
+        app.launchArguments = ["--uitest-reset-auth", "--uitest-tab-view"] + extraArguments
         app.launch()
         let emailField = app.textFields["signin.email"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
-        emailField.tap()
+        A11yScreens.tapUntilFocused(emailField)
         emailField.typeText(email)
         let passwordField = app.secureTextFields["signin.password"]
-        passwordField.tap()
+        A11yScreens.tapUntilFocused(passwordField)
         passwordField.typeText(password)
         app.buttons["signin.submit"].tap()
-        let viewTab = app.tabBars.buttons["View"]
-        XCTAssertTrue(viewTab.waitForExistence(timeout: 15), "Expected the tab bar after sign-in")
-        viewTab.tap()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the tab bar after sign-in")
+        A11yScreens.dismissSavePasswordPrompt(app)
     }
 
     /// The grid card (`card.<n>`) whose accessibility label contains `title`.

@@ -24,6 +24,9 @@ import XCTest
 final class LibraryDetailUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Plan 16: the real Bold Text setting is simulator-global; an interrupted a11y run can
+        // leave it on.
+        MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
     }
 
     /// Deletes a seeded row once the test ends, however it ends — and says so if the delete fails,
@@ -77,12 +80,12 @@ final class LibraryDetailUITests: XCTestCase {
 
         // 1. Opening: an empty field with the card's label as placeholder — never the object name.
         tapWhenHittable(quietCard)
-        let titleField = app.textFields["detail.title"]
+        let titleField = detailTitleField(app)
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        XCTAssertEqual(titleField.placeholderValue, "Voice note", "Expected the type label as the placeholder")
-        // An empty text field reports its placeholder as its value; a filled one reports its text.
-        XCTAssertEqual(titleField.value as? String, "Voice note",
-                       "Expected an empty title field, got '\((titleField.value as? String) ?? "")'")
+        XCTAssertTrue(showsPlaceholder("Voice note", titleField), "Expected the type label as the placeholder, got "
+                      + "placeholder '\(titleField.placeholderValue ?? "nil")', value '\((titleField.value as? String) ?? "")'")
+        XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"),
+                      "Expected an empty title field, got '\((titleField.value as? String) ?? "")'")
         attachScreenshot(named: "task-4-detail-placeholder")
 
         // 2. Closing without typing writes nothing (the close queues and sends anything unsaved at
@@ -96,7 +99,7 @@ final class LibraryDetailUITests: XCTestCase {
         //    afterwards still writes nothing.
         tapWhenHittable(quietCard)
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found on reopen")
-        XCTAssertEqual(titleField.placeholderValue, "Voice note")
+        XCTAssertTrue(showsPlaceholder("Voice note", titleField))
         let aiTitle = "\(quietMarker) AI title"
         try await rest.setTitle(of: quietId, to: aiTitle)
         let replaced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", aiTitle), object: titleField)
@@ -112,7 +115,7 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertTrue(typedCard.waitForExistence(timeout: 20), "Expected the second seeded voice note's card")
         tapWhenHittable(typedCard)
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        XCTAssertEqual(titleField.placeholderValue, "Voice note")
+        XCTAssertTrue(showsPlaceholder("Voice note", titleField))
         let typed = "Groceries \(epoch)"
         tapUntilFocused(titleField)
         titleField.typeText(typed)
@@ -146,7 +149,7 @@ final class LibraryDetailUITests: XCTestCase {
         let card = libraryCard(app, containing: marker)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded voice note's card")
         tapWhenHittable(card)
-        let titleField = app.textFields["detail.title"]
+        let titleField = detailTitleField(app)
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
         typeThenClear("Gro", in: titleField)
         closeSheet(app)
@@ -191,7 +194,7 @@ final class LibraryDetailUITests: XCTestCase {
 
         let app = XCUIApplication()
         signIn(app, email: email, password: password, extraArguments: ["--uitest-slow-item-writes"])
-        let titleField = app.textFields["detail.title"]
+        let titleField = detailTitleField(app)
 
         // A. The "Gro" response lands ~2.5 s after the clear, the clear's own ~3 s after that.
         let sendingCard = libraryCard(app, containing: sendingMarker)
@@ -202,7 +205,8 @@ final class LibraryDetailUITests: XCTestCase {
         let watchUntil = Date().addingTimeInterval(8)
         while Date() < watchUntil {
             let shown = (titleField.value as? String) ?? ""
-            XCTAssertEqual(shown, "Voice note", "The cleared field refilled with '\(shown)' while the typed title was in flight")
+            XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"),
+                          "The cleared field refilled with '\(shown)' while the typed title was in flight")
             usleep(250_000)
         }
         let cleared = try await rest.waitForTitle(of: sendingId, equalTo: "", timeout: 20)
@@ -254,13 +258,13 @@ final class LibraryDetailUITests: XCTestCase {
         let card = libraryCard(app, containing: marker)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded voice note's card")
         tapWhenHittable(card)
-        let titleField = app.textFields["detail.title"]
+        let titleField = detailTitleField(app)
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
         tapUntilFocused(titleField)
         titleField.typeText("Gro")
         sleep(2)   // past the 1.5 s autosave: "Gro" is on its 6 s way
         titleField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
-        XCTAssertEqual(titleField.value as? String, "Voice note", "Expected the field empty again (placeholder showing)")
+        XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"), "Expected the field empty again (placeholder showing)")
         sleep(2)   // the clear's autosave has gone out too, queued behind "Gro"
         titleField.typeText("Gro")
         closeSheet(app)   // inside the retyped title's 1.5 s debounce; the first "Gro" still in flight
@@ -482,7 +486,8 @@ final class LibraryDetailUITests: XCTestCase {
         // local filter answers "No matches" at once; return drops the keyboard.
         field.tap()
         field.typeText("¶\n")
-        // The pane's identifier lands on each of its parts (icon, title, message): measure them together.
+        // Plan 16: the pane is one VoiceOver element (title, then message); measuring every match
+        // together still holds if its identifier ever lands on its parts again.
         let paneParts = app.descendants(matching: .any).matching(identifier: "library.empty")
         XCTAssertTrue(paneParts.firstMatch.waitForExistence(timeout: 5), "Expected the No matches pane")
         let pane = paneParts.allElementsBoundByIndex.map(\.frame).reduce(CGRect.null) { $0.union($1) }
@@ -532,29 +537,18 @@ final class LibraryDetailUITests: XCTestCase {
         app.buttons["signin.submit"].tap()
         XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the tab bar after sign-in")
         // The Passwords app offers "Save Password?" over the app after every sign-in on iOS 26.5
-        // (never on 17.2) — decline it so it can't cover the View tab.
-        if app.buttons["Not Now"].waitForExistence(timeout: 3) { declineSavePassword(app) }
-    }
-
-    /// Taps "Not Now" until the "Save Password?" sheet has really gone. It is in the tree while it
-    /// is still sliding in, and a tap then is ignored — seen on the 26.5 simulator: the sheet stayed
-    /// over the app for the rest of the test, so every card tap got a {-1, -1} hit point.
-    @MainActor
-    private func declineSavePassword(_ app: XCUIApplication) {
-        let notNow = app.buttons["Not Now"]
-        for _ in 0..<4 where notNow.exists {
-            notNow.tap()
-            _ = eventually(3) { !notNow.exists }
-        }
+        // (never on 17.2) — declined with the canonical helper (plan 16: exactly "Not Now", in the
+        // app or SpringBoard, until it has really gone), so it can't cover the View tab.
+        A11yScreens.dismissSavePasswordPrompt(app)
     }
 
     /// Taps `element` once it can really take the tap — declining a "Save Password?" sheet that
-    /// arrived late in the meantime.
+    /// arrived late in the meantime (a tap while it's up gets a {-1, -1} hit point).
     @MainActor
     private func tapWhenHittable(_ element: XCUIElement, timeout: TimeInterval = 10) {
         let app = XCUIApplication()
         _ = eventually(timeout) {
-            if app.buttons["Not Now"].exists { declineSavePassword(app) }
+            if app.buttons["Not Now"].exists { A11yScreens.dismissSavePasswordPrompt(app, timeout: 3) }
             return element.isHittable
         }
         element.tap()
@@ -595,7 +589,33 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertEqual(field.value as? String, text, "Expected exactly the typed title in the empty field")
         sleep(1)
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: text.count))
-        XCTAssertEqual(field.value as? String, "Voice note", "Expected the field empty again (placeholder showing)")
+        XCTAssertTrue(isEmpty(field, placeholder: "Voice note"),
+                      "Expected the field empty again (placeholder showing), got '\((field.value as? String) ?? "")'")
+    }
+
+    /// The detail sheet's title. Plan 16: it wraps — a vertical-axis `TextField` — which XCUITest
+    /// may report as a text view rather than a text field (like the description).
+    @MainActor
+    private func detailTitleField(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND (elementType == %d OR elementType == %d)",
+                                  "detail.title", Int(XCUIElement.ElementType.textView.rawValue),
+                                  Int(XCUIElement.ElementType.textField.rawValue)))
+            .firstMatch
+    }
+
+    /// Whether `field` shows `placeholder` — as its `placeholderValue`, or (an empty field, the way
+    /// XCUITest reports some text fields and vertical-axis ones) as its `value`.
+    @MainActor
+    private func showsPlaceholder(_ placeholder: String, _ field: XCUIElement) -> Bool {
+        field.placeholderValue == placeholder || (field.value as? String) == placeholder
+    }
+
+    /// Whether `field` is empty: no text, or its placeholder reported as its value.
+    @MainActor
+    private func isEmpty(_ field: XCUIElement, placeholder: String) -> Bool {
+        let value = (field.value as? String) ?? ""
+        return value.isEmpty || value == placeholder
     }
 
     /// The detail sheet's description: a vertical-axis `TextField`, which XCUITest may report as a

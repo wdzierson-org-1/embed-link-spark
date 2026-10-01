@@ -77,7 +77,7 @@ struct ItemDetailContent: View {
             if !tabs.isEmpty { sectionHead }
             if showsTranscribeButton, let transcriptionErrorMessage, !transcriptionErrorMessage.isEmpty {
                 Text(transcriptionErrorMessage)
-                    .font(StashType.meta())
+                    .stashFont(.meta)
                     .foregroundStyle(StashColor.destructive)
                     .padding(.bottom, DetailLayout.gap)
                     .accessibilityIdentifier("detail.transcribeSpeakers.error")
@@ -133,6 +133,10 @@ struct ItemDetailContent: View {
     /// button and swaps the label to "Transcribing…" with a small spinner alongside it. The copy
     /// never claimed real speaker identities and no longer mentions speakers at all: as of
     /// 2026-09-29 the server does not diarize, so the button only promises a rebuild.
+    ///
+    /// Plan 16: an inline action — `inlineButton` (Medium 15) with a 44 pt target (`.stashPlain`).
+    /// Busy, it's disabled and `muted`, not `faint`: its label is then the progress
+    /// ("Transcribing…"), which people need to be able to read.
     private var transcribeButton: some View {
         Button {
             onTranscribeWithSpeakers()
@@ -143,10 +147,11 @@ struct ItemDetailContent: View {
                         .controlSize(.mini)
                 }
                 Text(isTranscribing ? "Transcribing…" : "Transcribe again")
-                    .font(StashType.meta())
+                    .stashFont(.inlineButton)
             }
         }
-        .foregroundStyle(isTranscribing ? StashColor.faint : StashColor.violet600)
+        .buttonStyle(.stashPlain)
+        .foregroundStyle(isTranscribing ? StashColor.muted : StashColor.violet600)
         .disabled(isTranscribing)
         // Identifier deliberately unchanged: stable UI-test contract. A mild misnomer
         // since the server no longer diarizes — renaming churns StashUITests for no user benefit.
@@ -155,10 +160,9 @@ struct ItemDetailContent: View {
 
     private var attachmentsSection: some View {
         VStack(alignment: .leading, spacing: DetailLayout.tight) {
-            Text("Attachments".uppercased())
-                .font(StashType.microLabel())
-                .stashTracking(0.11, size: 11)
-                .foregroundStyle(StashColor.faint)
+            Text("Attachments")
+                .stashMicroLabel()
+                .accessibilityAddTraits(.isHeader)
             CollectionStrip(itemId: item.id)
         }
         .accessibilityIdentifier("detail.attachments")
@@ -210,7 +214,7 @@ struct ItemDetailContent: View {
                 generateSummaryButton
                 if let summaryErrorMessage {
                     Text(summaryErrorMessage)
-                        .font(StashType.meta())
+                        .stashFont(.meta)
                         .foregroundStyle(StashColor.destructive)
                         .accessibilityIdentifier("detail.generateSummary.error")
                 }
@@ -231,7 +235,8 @@ struct ItemDetailContent: View {
     }
 
     /// Same text-button treatment as "Transcribe with speakers": busy disables it and swaps the
-    /// label (an action keeps its name through the flow — DESIGN.md §Voice).
+    /// label (an action keeps its name through the flow — DESIGN.md §Voice). Plan 16: `inlineButton`
+    /// with a 44 pt target (`.stashPlain`); busy, `muted` (the progress label is read, not decor).
     private var generateSummaryButton: some View {
         Button {
             onGenerateSummary()
@@ -242,10 +247,11 @@ struct ItemDetailContent: View {
                         .controlSize(.mini)
                 }
                 Text(isGeneratingSummary ? "Generating summary…" : "Generate summary")
-                    .font(StashType.meta())
+                    .stashFont(.inlineButton)
             }
         }
-        .foregroundStyle(isGeneratingSummary ? StashColor.faint : StashColor.violet600)
+        .buttonStyle(.stashPlain)
+        .foregroundStyle(isGeneratingSummary ? StashColor.muted : StashColor.violet600)
         .disabled(isGeneratingSummary)
         .accessibilityIdentifier("detail.generateSummary")
     }
@@ -260,24 +266,28 @@ struct ItemDetailContent: View {
                 onRetryDetail()
             } label: {
                 Text("Try again")
-                    .font(StashType.meta())
+                    .stashFont(.inlineButton)
             }
+            .buttonStyle(.stashPlain)
             .foregroundStyle(StashColor.violet600)
             .accessibilityIdentifier("detail.loadFailed.retry")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Plan 16: reading text (17) in `muted` — it says something ("No summary yet…"), so not
+    /// `faint`.
     private func emptyText(_ text: String, id: String) -> some View {
         Text(text)
-            .font(StashType.body())
-            .foregroundStyle(StashColor.faint)
+            .stashFont(.reading)
+            .foregroundStyle(StashColor.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier(id)
     }
 
     /// Shared by Summary/Original/Transcript: renders through `MarkdownBlocksView` when the text
-    /// looks like markdown, else as plain body text — never literal `- `/`**` syntax.
+    /// looks like markdown, else as plain body text — never literal `- `/`**` syntax. Plan 16: the
+    /// `reading` role (17, was 14) with leading that grows with it (`stashLeading`).
     private func readOnlyBlock(_ text: String?, empty: String, id: String) -> some View {
         Group {
             if let text, !text.isEmpty {
@@ -285,15 +295,15 @@ struct ItemDetailContent: View {
                     MarkdownBlocksView(text: text)
                 } else {
                     Text(text)
-                        .font(StashType.body())
+                        .stashFont(.reading)
                         .foregroundStyle(StashColor.ink)
-                        .lineSpacing(14 * 0.55)
+                        .stashLeading(0.55, role: .reading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 Text(empty)
-                    .font(StashType.body())
-                    .foregroundStyle(StashColor.faint)
+                    .stashFont(.reading)
+                    .foregroundStyle(StashColor.muted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

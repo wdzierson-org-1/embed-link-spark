@@ -6,16 +6,26 @@ import SwiftUI
 /// treatment; inline emphasis inside paragraphs/bullets/etc. is handed to
 /// `AttributedString(markdown:)` so `**bold**`, `*italic*`, and `[text](url)` links render
 /// properly instead of showing their raw markdown syntax.
+///
+/// Plan 16: reading text is the `reading` role (17, was 14) with leading that grows with it
+/// (`stashLeading`), and `**strong**` / `*emphasis*` resolve to the role's Semibold / Book Italic
+/// faces by themselves. A block's role and colour go INTO `inlineText`, which builds the `Text`:
+/// one applied outside it is dead (the inner `Text`'s own font and colour win) — which is why
+/// `##` headings used to render in the Book face and quotes in `ink`.
 struct MarkdownBlocksView: View {
     let text: String
     // (Plan 15: the `compact` chat-bubble mode is gone — the Ask tab renders its own cached blocks
     // through `ChatAnswerText` since 6A, so this view only ever draws the detail sheet's
     // full-width Summary/Original/Transcript tabs.)
 
+    /// The gaps between blocks and list items grow with the text, like its leading.
+    @ScaledMetric(relativeTo: .body) private var blockGap: CGFloat = 12
+    @ScaledMetric(relativeTo: .body) private var itemGap: CGFloat = 6
+
     private var blocks: [MarkdownBlock] { MarkdownBlocks.parse(text) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: blockGap) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 view(for: block)
             }
@@ -28,14 +38,14 @@ struct MarkdownBlocksView: View {
             inlineText(text)
 
         case .heading(_, let text):
-            inlineText(text)
-                .font(StashType.bodySemibold())
+            inlineText(text, role: .readingSemibold)
+                .accessibilityAddTraits(.isHeader)
 
         case .bullets(let items):
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: itemGap) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("•").foregroundStyle(StashColor.faint)
+                        marker("•")
                         inlineText(item)
                     }
                     .padding(.leading, 16)
@@ -44,10 +54,10 @@ struct MarkdownBlocksView: View {
             }
 
         case .numbered(let items):
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: itemGap) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("\(index + 1).").foregroundStyle(StashColor.faint)
+                        marker("\(index + 1).")
                         inlineText(item)
                     }
                     .padding(.leading, 16)
@@ -60,13 +70,12 @@ struct MarkdownBlocksView: View {
                 Rectangle()
                     .fill(StashColor.violet600)
                     .frame(width: 2)
-                inlineText(text)
-                    .foregroundStyle(StashColor.muted)
+                inlineText(text, color: StashColor.muted)
             }
 
         case .code(let text):
             Text(text)
-                .font(StashType.mono())
+                .stashFont(.mono(.subheadline))
                 .foregroundStyle(StashColor.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -74,16 +83,27 @@ struct MarkdownBlocksView: View {
         }
     }
 
-    /// Body line-height per DESIGN.md (~1.55 at 14pt): `.lineSpacing` adds the delta on top of
-    /// the font's own single-line spacing, so `14 * 0.55`.
-    private func inlineText(_ raw: String) -> some View {
+    /// A list marker, `muted`: a number carries the order, so it has to be readable (`faint` was
+    /// 2.79:1). Its face is the system body style, as before (a round bullet; Neue Montreal's is
+    /// square) — a text style, so it scales with the item and follows Bold Text by itself.
+    private func marker(_ text: String) -> some View {
+        Text(text)
+            .font(.body)
+            .foregroundStyle(StashColor.muted)
+    }
+
+    /// One markdown run as a `Text` in `role` and `color` — both passed in, never applied outside
+    /// (see the type's doc). Body line-height per DESIGN.md (~1.55): `stashLeading(0.55)` adds the
+    /// delta on top of the face's own line spacing, scaled with the role's text style.
+    private func inlineText(_ raw: String, role: StashType.Role = .reading,
+                            color: Color = StashColor.ink) -> some View {
         var attributed = (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(raw)
         styleLinks(&attributed)
         return Text(attributed)
-            .font(StashType.body())
-            .foregroundStyle(StashColor.ink)
-            .lineSpacing(14 * 0.55)
+            .stashFont(role)
+            .foregroundStyle(color)
+            .stashLeading(0.55, role: role)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 

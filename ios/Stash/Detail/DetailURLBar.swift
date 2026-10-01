@@ -1,11 +1,27 @@
 import SwiftUI
 import StashKit
+import UIKit
 
 /// Hairline link row — port of the web's `EditItemLinkSection.tsx`: favicon (Google's favicon
-/// service, `faviconURL(for:)`) · mono URL, single-line, truncated · trailing external-link icon
-/// that opens the URL. Replaces the old system-blue "Open Link" button. Link items only.
+/// service, `faviconURL(for:)`) · mono URL · trailing external-link icon that opens the URL.
+/// Replaces the old system-blue "Open Link" button. Link items only.
+///
+/// Plan 16 (HIG + accessibility):
+/// - The URL is `mono(.footnote)` and scales. At the standard text sizes it keeps its one line,
+///   shortened in the MIDDLE (the domain and the end of the path stay readable), and the full URL
+///   is always one long press away: the context menu previews it whole, wrapped, with Copy link.
+///   VoiceOver reads the whole URL either way. At the accessibility sizes one line would leave a
+///   few characters, so it wraps instead.
+/// - "Open link" takes taps across 44×44 pt and names itself for VoiceOver and the Large Content
+///   Viewer; its glyph is `muted` (`faint`, 2.79:1, is decorative-only). It's a `Button` that
+///   opens the URL (`openURL`, what a `Link` does): a `Link` keeps its 20×18 pt glyph as its
+///   target even with the 44 pt overhang on its label (measured — Xcode's audit still flagged it),
+///   while a button takes the overhang (`.stashPlain`).
 struct DetailURLBar: View {
     let urlString: String
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.openURL) private var openURL
 
     private var url: URL? { URL(string: urlString) }
 
@@ -20,30 +36,58 @@ struct DetailURLBar: View {
             }
             .frame(width: 16, height: 16)
             .clipShape(RoundedRectangle(cornerRadius: 4))
+            .accessibilityHidden(true)
 
             Text(urlString)
-                .font(StashType.mono(12.5))
+                .stashFont(.mono(.footnote))
                 .foregroundStyle(StashColor.muted)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("detail.urlText")
 
             if let url {
-                Link(destination: url) {
+                Button {
+                    openURL(url)
+                } label: {
                     Image(systemName: "arrow.up.right.square")
-                        .foregroundStyle(StashColor.faint)
+                        .foregroundStyle(StashColor.muted)
                 }
-                .accessibilityLabel("Open link")
+                .buttonStyle(.stashPlain)
+                .stashIconControl("Open link", systemImage: "arrow.up.right.square")
+                .accessibilityIdentifier("detail.openLink")
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(StashColor.paper.opacity(0.7), in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                .strokeBorder(StashColor.hairline, lineWidth: 1)
-        )
+        .background(StashColor.paper.opacity(0.7), in: barShape)
+        .overlay(barShape.strokeBorder(StashColor.hairline, lineWidth: 1))
+        // The full-URL affordance: a long press anywhere on the bar.
+        .contentShape(.contextMenuPreview, barShape)
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = urlString
+            } label: {
+                Label("Copy link", systemImage: "doc.on.doc")
+            }
+            if let url {
+                Link(destination: url) {
+                    Label("Open link", systemImage: "arrow.up.right.square")
+                }
+            }
+        } preview: {
+            Text(urlString)
+                .stashFont(.mono(.footnote))
+                .foregroundStyle(StashColor.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 300, alignment: .leading)
+                .padding(16)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("detail.urlBar")
+    }
+
+    private var barShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
     }
 }

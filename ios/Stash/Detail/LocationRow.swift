@@ -47,30 +47,39 @@ struct LocationRow: View {
         }
     }
 
+    /// Plan 16: an inline action — `inlineButton` (Medium 15, never smaller), `muted` (the old
+    /// 70 % `muted` was 2.9:1), with a 44 pt target (`.stashPlain`).
     private var addButton: some View {
         Button(action: startEditing) {
             HStack(spacing: 4) {
                 Image(systemName: "mappin.and.ellipse")
                 Text("Add a location")
             }
-            .font(StashType.meta())
+            .stashFont(.inlineButton)
+            .foregroundStyle(StashColor.muted)
         }
-        .foregroundStyle(StashColor.muted.opacity(0.7))
+        .buttonStyle(.stashPlain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Add a location")
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("detail.location.add")
     }
 
+    /// Plan 16: the location reads as a fact (`meta`, like the drawer's other values) and edits on
+    /// a tap; the label and the × each take a 44 pt target (`.stashPlain`). They sit 16 pt apart
+    /// (was 6) so the ×'s target — 22 pt either side of its centre — ends where the label's
+    /// starts: a tap on the end of the label never removes the location.
     private func populatedRow(_ location: CapturedLocation) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 16) {
             Button(action: startEditing) {
                 HStack(spacing: 4) {
                     Image(systemName: "mappin.and.ellipse")
                     Text("posted from \(location.label)")
                 }
-                .font(StashType.meta())
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
             }
-            .foregroundStyle(StashColor.muted)
+            .buttonStyle(.stashPlain)
             // Same shape as Task 6's `pinPreview` fix (`LocationCapture`/`CaptureComposerView`):
             // an icon+text `HStack` sharing one identifier can expose BOTH children as separate
             // "Multiple matching elements found" hits instead of one combined element — collapse
@@ -78,15 +87,19 @@ struct LocationRow: View {
             // live.
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("posted from \(location.label)")
+            .accessibilityHint("Edits the location")
+            .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("detail.location.label")
 
             Button {
                 commit("")
             } label: {
-                Image(systemName: "xmark.circle.fill").font(StashType.meta())
+                Image(systemName: "xmark.circle.fill")
+                    .stashFont(.meta)
+                    .foregroundStyle(StashColor.muted)
             }
-            .foregroundStyle(StashColor.muted)
-            .accessibilityLabel("Remove location")
+            .buttonStyle(.stashPlain)
+            .stashIconControl("Remove location", systemImage: "xmark.circle.fill")
             .accessibilityIdentifier("detail.location.remove")
         }
     }
@@ -94,11 +107,12 @@ struct LocationRow: View {
     private var editingField: some View {
         HStack(spacing: 6) {
             Image(systemName: "mappin.and.ellipse")
-                .font(StashType.meta())
+                .stashFont(.meta)
                 .foregroundStyle(StashColor.muted)
                 .accessibilityHidden(true)
-            TextField("e.g. Brooklyn, New York", text: $draft)
-                .font(StashType.meta())
+            TextField("Location", text: $draft,
+                      prompt: Text("e.g. Brooklyn, New York").foregroundStyle(StashColor.muted))
+                .stashFont(.meta)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .onSubmit {

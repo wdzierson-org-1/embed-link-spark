@@ -35,6 +35,7 @@ struct DetailsDrawer: View {
     @Binding var attributes: ItemAttributes
 
     @State private var isOpen = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -47,6 +48,10 @@ struct DetailsDrawer: View {
 
     // MARK: - Collapsed header
 
+    /// Plan 16: the whole header row is the tap target (well over 44 pt tall with its section
+    /// rhythm). The summary is `meta` in `muted` and the chevron `muted` too (`faint` is
+    /// decorative-only); at the larger text sizes `SectionHeader` moves them under the label, where
+    /// the summary may take two lines.
     private var header: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { isOpen.toggle() }
@@ -55,13 +60,15 @@ struct DetailsDrawer: View {
                 HStack(spacing: 8) {
                     if !isOpen, !summary.isEmpty {
                         Text(summary)
-                            .font(StashType.meta())
-                            .foregroundStyle(StashColor.faint)
-                            .lineLimit(1)
+                            .stashFont(.meta)
+                            .foregroundStyle(StashColor.muted)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     }
+                    // The disclosure glyph grows with the summary beside it (11 pt beside its 13);
+                    // the row's label carries the meaning — VoiceOver hears "Expanded"/"Collapsed".
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(StashColor.faint)
+                        .stashFont(.custom(.semibold, size: 11, relativeTo: .footnote))
+                        .foregroundStyle(StashColor.muted)
                         .rotationEffect(.degrees(isOpen ? 180 : 0))
                         .accessibilityHidden(true)
                 }
@@ -72,6 +79,9 @@ struct DetailsDrawer: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary.isEmpty ? "Details" : "Details, \(summary)")
         .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
+        // Plan 16: the element that replaces the button's own (`.ignore`) is still a button to
+        // VoiceOver — "Details, Collapsed, button".
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("detail.details")
     }
 
@@ -116,18 +126,21 @@ struct DetailsDrawer: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
+    /// Plan 16: the label is `meta` in `muted` (was `faint`, 2.79:1), the value `metaMedium` (a
+    /// link's source `mono(.caption)`). Side by side while they fit, the value shortened in the
+    /// middle if it must; at the accessibility sizes the value goes under its label and wraps.
     private func factRow(key: String, label: String, value: String, mono: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        FactLayout {
             Text(label)
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
-            Spacer(minLength: 12)
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
+        } value: {
             Text(value)
-                .font(mono ? StashType.mono(11.5) : StashType.bodyMedium(13))
+                .stashFont(mono ? .mono(.caption) : .metaMedium)
                 .foregroundStyle(StashColor.ink)
-                .lineLimit(1)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 .truncationMode(.middle)
-                .multilineTextAlignment(.trailing)
+                .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
         }
         .padding(.vertical, 7.5)
         .overlay(alignment: .bottom) { DottedDivider() }
@@ -147,11 +160,11 @@ struct DetailsDrawer: View {
     /// did at its old top-of-sheet mount. No trailing divider — this is always the last row (see
     /// `rows`'s own doc comment).
     private var locationRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        FactLayout {
             Text("Location")
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
-            Spacer(minLength: 12)
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
+        } value: {
             LocationRow(attributes: $attributes)
         }
         .padding(.vertical, 7.5)
@@ -189,6 +202,37 @@ struct DetailsDrawer: View {
         formatter.timeStyle = .short
         return formatter
     }()
+}
+
+/// One Details fact (plan 16): the label and the value side by side — the value trailing — or, at
+/// the accessibility sizes, where a label and a value rarely share a line, the value on its own
+/// lines under the label (HIG: rows that can't fit reflow instead of truncating).
+private struct FactLayout<Label: View, Value: View>: View {
+    private let label: Label
+    private let value: Value
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    init(@ViewBuilder label: () -> Label, @ViewBuilder value: () -> Value) {
+        self.label = label()
+        self.value = value()
+    }
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 2) {
+                label
+                value
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                label
+                Spacer(minLength: 12)
+                value
+            }
+        }
+    }
 }
 
 /// A single dashed hairline — DESIGN.md's "dotted rule" (`rgba(0,0,0,.18)`), "facts-row
