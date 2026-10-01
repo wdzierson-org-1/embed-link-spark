@@ -19,6 +19,9 @@ struct CollectionStrip: View {
     private var shown: [CollectionAttachment] { Array(attachments.prefix(maxTiles)) }
     private var overflow: Int { max(0, attachments.count - maxTiles) }
 
+    /// Plan 16: the tiles are miniatures — fixed-size art whose captions are pictures of text
+    /// (`StashType.decorative`) — so the strip is ONE VoiceOver element that says how many
+    /// attachments there are and what they're called.
     var body: some View {
         Group {
             if !attachments.isEmpty {
@@ -26,9 +29,16 @@ struct CollectionStrip: View {
                     ForEach(shown) { AttachmentTile(attachment: $0) }
                     if overflow > 0 { OverflowTile(count: overflow) }
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilitySummary)
             }
         }
         .task { await load() }
+    }
+
+    private var accessibilitySummary: String {
+        let names = attachments.map { $0.title ?? $0.type }.joined(separator: ", ")
+        return "\(attachments.count) attachment\(attachments.count == 1 ? "" : "s"): \(names)"
     }
 
     private func load() async {
@@ -85,14 +95,17 @@ private struct AttachmentTile: View {
 
     private var iconTile: some View {
         VStack(spacing: 4) {
-            Image(systemName: iconName).foregroundStyle(StashColor.muted)
+            Image(systemName: iconName)
+                .font(StashType.decorative(.book, size: 17))
+                .foregroundStyle(StashColor.muted)
             Text(attachment.title ?? attachment.type)
-                .font(StashType.regular(size: 9))
+                .font(StashType.decorative(.book, size: 9))
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(StashColor.muted)
         }
         .padding(4)
+        .accessibilityHidden(true)
     }
 
     private var iconName: String {
@@ -110,8 +123,9 @@ private struct OverflowTile: View {
 
     var body: some View {
         Text("+\(count)")
-            .font(StashType.bodyMedium(13))
+            .font(StashType.decorative(.medium, size: 13))
             .foregroundStyle(StashColor.muted)
+            .accessibilityHidden(true)
             .frame(width: 56, height: 72)
             .background(Color(.tertiarySystemFill))
             .clipShape(RoundedRectangle(cornerRadius: 10))

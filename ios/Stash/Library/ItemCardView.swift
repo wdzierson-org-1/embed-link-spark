@@ -4,7 +4,7 @@ import StashKit
 /// A single object-first card in the library grid (Plan 4 rework — see
 /// `docs/superpowers/specs/2026-08-16-single-object-items-design.md`; DESIGN.md §Components
 /// "Card anatomy"/"Card note" for the plan-14 shell below). Anatomy, top to bottom: object zone
-/// (`CardHero.swift`) → kicker (links only) → Montreal medium title (`StashType.cardTitle()`,
+/// (`CardHero.swift`) → kicker (links only) → Montreal medium title (`.stashFont(.cardTitle)`,
 /// plan 14 — was the plan-9 serif `editorialTitle()`; plan 15: `ItemDisplay.displayTitle`, so a
 /// bare storage object name reads as its type) → description → the card's note (`CardNoteView`:
 /// a violet-ruled 5-line preview of `content`, nothing when empty) → metadata chips (leading type
@@ -21,11 +21,26 @@ import StashKit
 /// claims a gesture any more (the plan-14 in-card note editor, its "Add a note" affordance and the
 /// kicker's external-link icon are gone); notes are written and links opened from the detail
 /// sheet. Web keeps its inline card-note editor (DESIGN.md "Card note").
+///
+/// Plan 16 (HIG + accessibility): the title is the `cardTitle` role, descriptions and the note
+/// `secondary` (15), the kicker, date and location `meta`-scale in `muted` (dates were `.tertiary`,
+/// which failed contrast), chips `chip` — all scale with Dynamic Type and follow Bold Text. At the
+/// accessibility sizes the card gives the title every line it needs and the description and note
+/// twice their lines, instead of truncating them to a few words; the footer stacks when its date,
+/// type chip and place can't share a line.
 struct ItemCardView: View {
     let item: Item
 
     @State private var shimmerPhase: CGFloat = -1
     @State private var collectionCount: Int?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// Line caps: the designed clamps at the standard sizes; at the accessibility sizes (where a
+    /// line holds a word or two) the title isn't clamped and the previews get twice the lines.
+    private var titleLineLimit: Int? { dynamicTypeSize.isAccessibilitySize ? nil : 2 }
+    private func previewLineLimit(_ standard: Int) -> Int {
+        dynamicTypeSize.isAccessibilitySize ? standard * 2 : standard
+    }
 
     private static let footerDateFormatter: DateFormatter = {
         // Fixed pattern + POSIX locale, not a localized style: the anatomy pins the literal
@@ -59,7 +74,7 @@ struct ItemCardView: View {
                     .overlay(alignment: .topLeading) {
                         if status == "pending" || status == "partial" {
                             Text(status == "pending" ? "Gathering more information…" : "Some information unavailable")
-                                .font(StashType.meta())
+                                .stashFont(.meta)
                                 .padding(.horizontal, 10).padding(.vertical, 6)
                                 .background(Color(.systemBackground), in: Capsule())
                                 .padding(8)
@@ -76,12 +91,12 @@ struct ItemCardView: View {
             VStack(alignment: .leading, spacing: 8) {
                 kicker
                 // DESIGN.md's current card heading (2026-09-13 housekeeping mirror, plan 14):
-                // Montreal medium 20/tight · −0.014em tracking (`StashType.cardTitle()`),
+                // Montreal medium 20/tight · −0.014em tracking (`.stashFont(.cardTitle)`),
                 // superseding the plan-9 serif `editorialTitle()`. The negative `.lineSpacing`
                 // keeps the "tight" leading the old serif treatment also needed — Montreal at
                 // 20pt across a 2-line clamp reads loose under SwiftUI's default line spacing too.
-                Text(title).font(StashType.cardTitle()).stashTracking(-0.014, size: 20)
-                    .lineSpacing(-2).lineLimit(2)
+                Text(title).stashFont(.cardTitle).stashTracking(-0.014, role: .cardTitle)
+                    .lineSpacing(-2).lineLimit(titleLineLimit)
                     // Plan 15 fix: with the negative line spacing, a title that needs both lines
                     // was sometimes handed a one-line height at layout time — rendered as
                     // "…" after one line while the grid row still reserved the second (a ~24pt
@@ -154,9 +169,12 @@ struct ItemCardView: View {
         if item.type == .link, let urlString = item.url {
             let domain = domainOf(urlString)
             if !domain.isEmpty {
-                Text(domain.uppercased())
-                    .font(StashType.microLabel())
-                    .kerning(0.6)
+                // The kicker role (Semibold 12, caps drawn — VoiceOver reads the domain, not
+                // letters), keeping the card's own 0.6 pt tracking.
+                Text(domain)
+                    .stashFont(.kicker)
+                    .textCase(.uppercase)
+                    .stashTracking(0.05, role: .kicker)
                     .foregroundStyle(StashColor.muted)
             }
         }
@@ -187,7 +205,7 @@ struct ItemCardView: View {
     @ViewBuilder private var textBody: some View {
         Group {
             if contentPlain.isEmpty, !descriptionPlain.isEmpty {
-                Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
+                description
             }
             CardNoteView(item: item)
             chipsRow
@@ -197,11 +215,23 @@ struct ItemCardView: View {
     private var standardBody: some View {
         Group {
             if !descriptionPlain.isEmpty {
-                Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(3)
+                description
             }
             CardNoteView(item: item)
             chipsRow
         }
+    }
+
+    /// Supporting text: the `secondary` role (15, was 14) in `muted`, 3 lines (6 at the
+    /// accessibility sizes). Takes its full ideal height, like the title: the grid could hand it
+    /// one line at layout time — "Voice memo abou…" over a two-line gap (seen in plan 16's search
+    /// results).
+    private var description: some View {
+        Text(descriptionPlain)
+            .stashFont(.secondary)
+            .foregroundStyle(StashColor.muted)
+            .lineLimit(previewLineLimit(3))
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Legacy `collection`: rich note (`renderTipTap` of `content`, else plain-texted
@@ -214,9 +244,12 @@ struct ItemCardView: View {
     private var collectionBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !contentPlain.isEmpty {
-                Text(renderTipTap(item.content)).font(StashType.body()).lineLimit(6)
+                Text(renderTipTap(item.content)).stashFont(.secondary).lineLimit(previewLineLimit(6))
+                    .fixedSize(horizontal: false, vertical: true)
             } else if !descriptionPlain.isEmpty {
-                Text(descriptionPlain).font(StashType.body()).foregroundStyle(StashColor.muted).lineLimit(2)
+                Text(descriptionPlain).stashFont(.secondary).foregroundStyle(StashColor.muted)
+                    .lineLimit(previewLineLimit(2))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             MetaChip(text: collectionChipText).accessibilityIdentifier("card.typeChip")
             CollectionStrip(itemId: item.id) { collectionCount = $0 }
@@ -265,26 +298,49 @@ struct ItemCardView: View {
     /// in the chips row (`CardChips.swift`'s `typeChip(for:)`, tinted or neutral, on every card)
     /// instead of down here, so the footer keeps only date + location, matching web's own footer
     /// contents minus the desktop-only hover overflow control.
-    private var footer: some View {
-        HStack(spacing: 8) {
-            Text(Self.footerDateFormatter.string(from: item.createdAt))
-                .font(StashType.meta())
-                .foregroundStyle(.tertiary)
-            if let chip = typeChip(for: item) { chip }
-            if let label = item.attributes.location?.label, !label.isEmpty {
-                locationBadge(label)
+    ///
+    /// Plan 16: the date never wraps inside the row (it and the type chip keep their one line; the
+    /// place gives way first, as before). At the accessibility sizes, where the three can't share a
+    /// line, they stack — date, chip, then the place in full.
+    @ViewBuilder private var footer: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                footerContents
+            }
+        } else {
+            HStack(spacing: 8) {
+                footerContents
             }
         }
     }
 
-    private func locationBadge(_ label: String) -> some View {
-        HStack(spacing: 2) {
-            Image(systemName: "mappin.and.ellipse").font(.system(size: 9))
-            Text(label).lineLimit(1).truncationMode(.tail)
+    @ViewBuilder private var footerContents: some View {
+        // `meta` in `muted` (it was `.tertiary`, which failed contrast).
+        Text(Self.footerDateFormatter.string(from: item.createdAt))
+            .stashFont(.meta)
+            .foregroundStyle(StashColor.muted)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+        if let chip = typeChip(for: item) {
+            chip.fixedSize(horizontal: true, vertical: false)
         }
-        .font(StashType.meta())
-        .foregroundStyle(.tertiary)
-        .frame(maxWidth: 140, alignment: .leading)
+        if let label = item.attributes.location?.label, !label.isEmpty {
+            locationBadge(label)
+        }
+    }
+
+    /// The pin takes the line's own role, a size down (`imageScale(.small)`, as the 9 pt glyph
+    /// sat beside 12 pt text), so it grows with the text.
+    private func locationBadge(_ label: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
+            Image(systemName: "mappin.and.ellipse").imageScale(.small)
+            Text(label)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                .truncationMode(.tail)
+        }
+        .stashFont(.meta)
+        .foregroundStyle(StashColor.muted)
+        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 140, alignment: .leading)
         // Same HStack-identifier-collision fix as `CaptureComposerView.pinPreview` (Task 6
         // finding): without `.ignore` + an explicit label, the icon and text independently
         // inherit `card.location`, and an XCUITest query for it returns "multiple matching
@@ -318,6 +374,11 @@ struct ItemCardView: View {
                 .background(Color.yellow, in: RoundedRectangle(cornerRadius: 4))
                 .rotationEffect(.degrees(6))
                 .padding(6)
+                // Plan 16: a corner badge is chrome, capped at its Large size — it stays inside the
+                // card's 24 pt side padding; grown with the text it covered the title's first line
+                // (seen at xxxLarge and AX3). VoiceOver reads what it means, not the glyph's name.
+                .dynamicTypeSize(...DynamicTypeSize.large)
+                .accessibilityLabel("Sticky note on your public feed")
         }
     }
 
@@ -347,6 +408,8 @@ struct ItemCardView: View {
 struct CardNoteView: View {
     let item: Item
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     /// Plain-texted preview — same "never raw TipTap JSON on a card" rule `ItemCardView.plainText`
     /// follows, computed independently here since this view doesn't have access to that private
     /// helper.
@@ -361,12 +424,15 @@ struct CardNoteView: View {
                                 bottomTrailingRadius: 8, topTrailingRadius: 8, style: .continuous)
     }
 
+    /// Plan 16: the `secondary` role (15, was 14); 5 lines, 10 at the accessibility sizes.
     var body: some View {
         if !preview.isEmpty {
             Text(preview)
-                .font(StashType.body())
+                .stashFont(.secondary)
                 .foregroundStyle(.primary.opacity(0.75))
-                .lineLimit(5)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 10 : 5)
+                // Its full ideal height (see `ItemCardView.description`).
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 11)
                 .padding(.vertical, 5)

@@ -8,6 +8,9 @@ import XCTest
 final class StashUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Plan 16: the real Bold Text setting is simulator-global, and an interrupted a11y run can
+        // leave it on — which would silently turn every screen here bold.
+        MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
     }
 
     func testWrongPasswordShowsErrorThenCorrectPasswordSignsIn() throws {
@@ -80,22 +83,30 @@ final class StashUITests: XCTestCase {
     }
 
     /// Happy-path sign-in, reused by tests that don't need the wrong-password detour.
+    ///
+    /// Plan 16: lands on its tab by launch argument (`--uitest-tab-view`, or `landingTab`) — never
+    /// a tab-bar tap, which iOS 26 swallows while the sign-in keyboard is still going away — taps
+    /// each field until it has focus, and declines iOS 26's "Save Password?" sheet with the
+    /// canonical `A11yScreens.dismissSavePasswordPrompt` (exactly "Not Now", never "Save"), which
+    /// otherwise takes the test's next tap.
     @discardableResult
-    private func signInAndReachLibrary(_ app: XCUIApplication, email: String, password: String) -> Bool {
-        app.launchArguments = ["--uitest-reset-auth"]
-        app.launch()
-        let emailField = app.textFields["signin.email"]
-        guard emailField.waitForExistence(timeout: 10) else { return false }
-        emailField.tap()
-        emailField.typeText(email)
-        let passwordField = app.secureTextFields["signin.password"]
-        passwordField.tap()
-        passwordField.typeText(password)
-        app.buttons["signin.submit"].tap()
-        let viewTab = app.tabBars.buttons["View"]
-        let reached = viewTab.waitForExistence(timeout: 15)
-        if reached { viewTab.tap() }
-        return reached
+    private func signInAndReachLibrary(_ app: XCUIApplication, email: String, password: String,
+                                       landingTab: String = "--uitest-tab-view") -> Bool {
+        MainActor.assumeIsolated {
+            app.launchArguments = ["--uitest-reset-auth", landingTab]
+            app.launch()
+            let emailField = app.textFields["signin.email"]
+            guard emailField.waitForExistence(timeout: 10) else { return false }
+            A11yScreens.tapUntilFocused(emailField)
+            emailField.typeText(email)
+            let passwordField = app.secureTextFields["signin.password"]
+            A11yScreens.tapUntilFocused(passwordField)
+            passwordField.typeText(password)
+            app.buttons["signin.submit"].tap()
+            let reached = app.tabBars.buttons["View"].waitForExistence(timeout: 15)
+            if reached { A11yScreens.dismissSavePasswordPrompt(app) }
+            return reached
+        }
     }
 
     // MARK: - Library search + card helpers (plan 15, Task 3)
@@ -128,7 +139,7 @@ final class StashUITests: XCTestCase {
     private func searchLibrary(_ app: XCUIApplication, for query: String, cardTitled title: String) -> XCUIElement {
         let searchField = app.textFields["library.search"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field not found")
-        searchField.tap()
+        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(searchField) }
         searchField.typeText(query)
         XCTAssertTrue(waitForLibrarySearchToSettle(app), "Search for '\(query)' never settled")
         let card = libraryCard(app, titled: title)
@@ -140,7 +151,7 @@ final class StashUITests: XCTestCase {
     /// and waits for the unfiltered grid.
     private func clearLibrarySearch(_ app: XCUIApplication) {
         let searchField = app.textFields["library.search"]
-        searchField.tap()
+        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(searchField) }
         let clear = app.buttons["library.search.clear"]
         if clear.waitForExistence(timeout: 5) { clear.tap() }
         XCTAssertTrue(app.descendants(matching: .any)["card.0"].waitForExistence(timeout: 15),
@@ -228,6 +239,24 @@ final class StashUITests: XCTestCase {
         }
     }
 
+    /// Puts "UITEST-FIXTURE: note two" back to what `testPublicSmoke` leaves it as — private, no
+    /// sticky note — by exact title (that test never edits the title).
+    private func restoreNoteTwoFixtureToPrivate(email: String, password: String) async throws {
+        let token = try await fixtureRepairAccessToken(email: email, password: password)
+        var request = URLRequest(
+            url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
+                .appending(queryItems: [URLQueryItem(name: "title", value: "eq.UITEST-FIXTURE: note two")]))
+        request.httpMethod = "PATCH"
+        request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["is_public": false, "supplemental_note": NSNull()])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw FixtureRepairError("note-two restore PATCH failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+    }
+
     /// REST fetch of "UITEST-FIXTURE: note one*"'s current `content` — same LIKE-prefix title
     /// match as `restoreNoteOneFixtureToCanonical` above (robust to a still-mutated title from a
     /// prior crash). Used by `testEditSmoke`'s notes step to verify the inline editor's autosave
@@ -311,11 +340,20 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(signOutButton.waitForExistence(timeout: 10), "Sign Out row not found in Settings")
         signOutButton.tap()
 
-        let confirmButton = app.buttons["settings.signout.confirm"]
-        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Sign-out confirmation dialog did not appear")
-        confirmButton.tap()
+        confirmSignOut(app)
 
         XCTAssertTrue(app.textFields["signin.email"].waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
+    }
+
+    /// Taps the sign-out confirmation. Plan 16: on iOS 26 the confirmation dialog's button is in the
+    /// tree twice ("Multiple matching elements found" on the 26.5 simulator) — tap the one that
+    /// can take the tap.
+    private func confirmSignOut(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let matches = app.buttons.matching(identifier: "settings.signout.confirm")
+        XCTAssertTrue(matches.firstMatch.waitForExistence(timeout: 5), "Sign-out confirmation dialog did not appear",
+                      file: file, line: line)
+        let confirm = matches.allElementsBoundByIndex.first(where: \.isHittable) ?? matches.firstMatch
+        confirm.tap()
     }
 
     /// Opens the read-only detail sheet for one permanent UITEST-FIXTURE card of each of
@@ -616,18 +654,24 @@ final class StashUITests: XCTestCase {
         // caret position at all; it only assumes backspace deletes characters before the caret,
         // which is universally true. Bounded to 5 rounds so a genuine failure loops rather than
         // hangs; the caller's own post-condition assertion is the real safety net regardless.
+        // Plan 16: the title field wraps now (a vertical-axis field — a text view underneath), which
+        // a bare `.tap()` doesn't always focus: every tap here taps until the field has focus. And a
+        // clear selects all (⌘A, a hardware-keyboard command the simulator takes) before deleting,
+        // so where the tap left the caret in a two-line title doesn't matter; the counted deletes
+        // after it are the old fallback, harmless on an empty field.
         func clearField(_ field: XCUIElement, placeholder: String) {
             for _ in 0..<5 {
                 let current = (field.value as? String) ?? ""
                 if current.isEmpty || current == placeholder { return }
-                field.tap()
+                A11yScreens.tapUntilFocused(field)
+                field.typeKey("a", modifierFlags: .command)
                 field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
             }
         }
 
         func replaceText(_ field: XCUIElement, placeholder: String, with newValue: String) {
             clearField(field, placeholder: placeholder)
-            field.tap()
+            A11yScreens.tapUntilFocused(field)
             field.typeText(newValue)
         }
 
@@ -899,6 +943,12 @@ final class StashUITests: XCTestCase {
     /// Settings tab's own `TagsSection` row was removed in the same change.
     func testPublicSmoke() throws {
         let (email, password) = try testCredentials()
+        // Plan 16: a run that stops between "public on" and "public off" (seen once — a tap that
+        // didn't focus the sticky field) used to leave the permanent fixture PUBLIC. The teardown
+        // puts it back as the test leaves it — private, no sticky note — however the test ends.
+        addTeardownBlock {
+            try? await self.restoreNoteTwoFixtureToPrivate(email: email, password: password)
+        }
         let app = XCUIApplication()
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
                       "Expected the tab bar to appear after sign-in")
@@ -920,7 +970,13 @@ final class StashUITests: XCTestCase {
 
         let stickyField = anyElement("detail.public.sticky")
         XCTAssertTrue(stickyField.waitForExistence(timeout: 10), "Sticky note field did not appear after enabling public")
-        stickyField.tap()
+        // Plan 16: the Sharing section's text is bigger, so the field can open right above the
+        // sheet's footer — bring it into view, and tap until it has focus (a vertical-axis field
+        // is a text view, which a bare tap doesn't always focus).
+        MainActor.assumeIsolated {
+            A11yScreens.scrollIntoView(app, stickyField)
+            A11yScreens.tapUntilFocused(stickyField)
+        }
         stickyField.typeText("UITEST-FIXTURE sticky check")
 
         // Let the sticky note's own debounced autosave land (same 400ms path as title/
@@ -961,12 +1017,21 @@ final class StashUITests: XCTestCase {
     func testAskSmoke() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
-        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+        // Plan 16: straight onto Ask by launch argument (no tab-bar tap — iOS 26 swallows one while
+        // the sign-in keyboard is still going away).
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password, landingTab: "--uitest-tab-ask"),
                       "Expected the tab bar to appear after sign-in")
 
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
 
-        app.tabBars.buttons["Ask"].tap()
+        /// Plan 16: an answer is drawn block by block (`ChatAnswerText`), and every block's `Text`
+        /// carries the bubble's `ask.bubble.N` — so the bubble is ALL the elements with that
+        /// identifier, read in order (one element, if they are ever combined). Reading `.label` off
+        /// `anyElement(id)` fails with "multiple matching elements" once an answer has two blocks.
+        func bubbleText(_ identifier: String) -> String {
+            app.descendants(matching: .any).matching(identifier: identifier).allElementsBoundByIndex
+                .map(\.label).joined(separator: "\n")
+        }
 
         let input = anyElement("ask.input")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
@@ -1022,7 +1087,7 @@ final class StashUITests: XCTestCase {
         // retry below are byte-identical in behavior — the retry is exactly "do this again", not
         // a separate, potentially-diverging code path.
         func askAndAwaitStableReply(_ question: String) -> String {
-            input.tap()
+            MainActor.assumeIsolated { A11yScreens.tapUntilFocused(input) }
             input.typeText(question)
 
             let sendButton = app.buttons["ask.send"]
@@ -1046,15 +1111,14 @@ final class StashUITests: XCTestCase {
                 XCTFail("Assistant bubble did not appear")
                 return ""
             }
-            let assistantBubble = anyElement(bubbleId)
 
-            // Poll for the bubble's label to stabilize (stream completion), capped at 30s total.
+            // Poll for the bubble's text to stabilize (stream completion), capped at 30s total.
             var previousLabel: String?
             var stableStreak = 0
             let deadline = Date().addingTimeInterval(30)
             while Date() < deadline {
-                let currentLabel = assistantBubble.label
-                let meaningful = currentLabel.trimmingCharacters(in: .whitespaces)
+                let currentLabel = bubbleText(bubbleId)
+                let meaningful = currentLabel.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !meaningful.isEmpty, currentLabel == previousLabel {
                     stableStreak += 1
                     if stableStreak >= 3 { break }   // stable across 3 consecutive 0.5s polls (~1.5s quiet)
@@ -1064,14 +1128,33 @@ final class StashUITests: XCTestCase {
                 previousLabel = currentLabel
                 usleep(500_000)
             }
-            let finalLabel = assistantBubble.label.trimmingCharacters(in: .whitespaces)
+            let finalLabel = bubbleText(bubbleId).trimmingCharacters(in: .whitespacesAndNewlines)
             XCTAssertFalse(finalLabel.isEmpty, "Expected a non-empty assistant answer")
+            // Plan 16: what came back, so a sourceless answer can be told from an error reply.
+            print("ASK answer \(bubbleId): \(finalLabel.prefix(400).replacingOccurrences(of: "\n", with: " ⏎ "))")
             return bubbleId
         }
 
         func sourcesRow(forBubble bubbleId: String) -> XCUIElement {
             anyElement("ask.sources.\(bubbleId.replacingOccurrences(of: "ask.bubble.", with: ""))")
         }
+
+        /// Plan 16: an answer's sources reach the user two ways (Plan 8 Task 4, web parity): a
+        /// source the answer CITES is an inline link in its text (`[1]` → `#item=<uuid>`, marked by
+        /// `ask.bubble.N.hasLinks`), and only the sources it doesn't cite get chips
+        /// (`ask.sources.N`). A test that waited for chips alone failed whenever the model cited
+        /// its one source inline — which is the good case.
+        func sourcesShown(forBubble bubbleId: String, timeout: TimeInterval) -> Bool {
+            let chips = sourcesRow(forBubble: bubbleId)
+            let inlineLinks = anyElement("\(bubbleId).hasLinks")
+            let deadline = Date().addingTimeInterval(timeout)
+            repeat {
+                if chips.exists || inlineLinks.exists { return true }
+                usleep(250_000)
+            } while Date() < deadline
+            return chips.exists || inlineLinks.exists
+        }
+
 
         let question = "What do my saved items say about persimmons?"
         var bubbleId = askAndAwaitStableReply(question)
@@ -1089,11 +1172,11 @@ final class StashUITests: XCTestCase {
         // the first) and re-check. This is still a genuine, reportable failure if BOTH attempts
         // come back sourceless — that would mean retrieval against the document fixture is
         // actually broken, not just unlucky once.
-        if !sourcesRow(forBubble: bubbleId).waitForExistence(timeout: 10) {
+        if !sourcesShown(forBubble: bubbleId, timeout: 10) {
             bubbleId = askAndAwaitStableReply(question)
             XCTAssertTrue(
-                sourcesRow(forBubble: bubbleId).waitForExistence(timeout: 10),
-                "Expected at least one source chip for the persimmons question — sourceless on both the initial attempt and the RAG-variance retry")
+                sourcesShown(forBubble: bubbleId, timeout: 10),
+                "Expected the persimmons answer to show a source (a chip, or an inline citation link) — sourceless on both the initial attempt and the RAG-variance retry")
         }
 
         // Screenshot rig (same checkpoint technique as testDetailSheets/testPublicSmoke):
@@ -1102,11 +1185,18 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask\n".data(using: .utf8)!)
         sleep(3)
 
-        // ≥1 source chip, derived from the SAME bubble's index (not assumed/hardcoded) — whichever
-        // attempt (initial or retry) actually produced sources.
+        // Open the source from its chip — derived from the SAME bubble's index (not assumed or
+        // hardcoded), whichever attempt produced it. Plan 16: when the answer cites its only
+        // source inline there is no chip, and the inline link can't be tapped from here — SwiftUI
+        // draws the answer as `Text`, and XCUITest sees each block as ONE static text with no
+        // element per link run (iOS 17.0, checked) — so that run stops at the citation marker.
         let indexSuffix = bubbleId.replacingOccurrences(of: "ask.bubble.", with: "")
         let firstChip = anyElement("ask.sources.\(indexSuffix).chip.0")
-        XCTAssertTrue(firstChip.waitForExistence(timeout: 5), "Expected a tappable source chip")
+        guard firstChip.waitForExistence(timeout: 3) else {
+            XCTAssertTrue(anyElement("\(bubbleId).hasLinks").exists, "Expected the answer's inline citation marker")
+            print("ASK citation: \(bubbleId) cites its source inline only — no chip to open the citation sheet from")
+            return
+        }
         firstChip.tap()
 
         let done = app.buttons["detail.done"]
@@ -1842,9 +1932,7 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(signOutButton.waitForExistence(timeout: 5), "Sign Out row not found in Settings")
         signOutButton.tap()
 
-        let confirmButton = app.buttons["settings.signout.confirm"]
-        XCTAssertTrue(confirmButton.waitForExistence(timeout: 5), "Sign-out confirmation dialog did not appear")
-        confirmButton.tap()
+        confirmSignOut(app)
 
         XCTAssertTrue(app.textFields["signin.email"].waitForExistence(timeout: 10), "Expected the sign-in screen after signing out")
     }
@@ -1919,12 +2007,11 @@ final class StashUITests: XCTestCase {
     func testAskHeaderButtonsOpenConversations() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
-        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+        // Plan 16: straight onto Ask by launch argument (no tab-bar tap).
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password, landingTab: "--uitest-tab-ask"),
                       "Expected the tab bar to appear after sign-in")
 
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
-
-        app.tabBars.buttons["Ask"].tap()
 
         let input = anyElement("ask.input")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
@@ -1935,13 +2022,26 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(historyButton.exists, "History header button missing")
 
         // Above the intro bubble (the restored pre-plan-7 position), not below the composer (the
-        // plan-7 footer-link position this reverses).
+        // plan-7 footer-link position this reverses). Plan 16: a circle's accessibility frame is
+        // its 44×44 pt TAP TARGET, which overhangs the 36 pt circle, so the circle itself is read
+        // from the frame's centre and its known diameter.
+        //
+        // The intro bubble belongs to a fresh thread, and Ask opens on the account's latest
+        // conversation instead when that is under 3 h old (`ChatStore.loadHistoryOnce`, web parity)
+        // — any Ask test in the last 3 h leaves one (seen 2026-10-01: the thread opened on
+        // `testAskSmoke`'s persimmons answer). Start a new chat first when it opened on one.
         let bubble = anyElement("ask.emptyState")
+        let continuedThread = app.descendants(matching: .any).matching(identifier: "ask.bubble.0").firstMatch
+        if !bubble.waitForExistence(timeout: 5), continuedThread.exists {
+            newChatButton.tap()
+        }
         XCTAssertTrue(bubble.waitForExistence(timeout: 10), "Intro bubble did not appear")
-        XCTAssertLessThan(newChatButton.frame.maxY, bubble.frame.minY,
-                          "Expected the new-chat button above the intro bubble")
-        XCTAssertLessThan(historyButton.frame.maxY, bubble.frame.minY,
-                          "Expected the history button above the intro bubble")
+        XCTAssertGreaterThanOrEqual(historyButton.frame.height, 43.5, "Expected History's 44 pt target")
+        func circleBottom(_ button: XCUIElement) -> CGFloat { button.frame.midY + 36 / 2 }
+        XCTAssertLessThan(circleBottom(newChatButton), bubble.frame.minY,
+                          "Expected the new-chat circle above the intro bubble")
+        XCTAssertLessThan(circleBottom(historyButton), bubble.frame.minY,
+                          "Expected the history circle above the intro bubble")
 
         // The old "Ask Stash" title block's item-count subtitle stays gone — plan 12 Task 2 added
         // back a small "Chat with your Stash" title in this same header row (see `askHeader`),
@@ -1974,12 +2074,11 @@ final class StashUITests: XCTestCase {
     func testAskComposerLayout() throws {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
-        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
+        // Plan 16: straight onto Ask by launch argument (no tab-bar tap).
+        XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password, landingTab: "--uitest-tab-ask"),
                       "Expected the tab bar to appear after sign-in")
 
         func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
-
-        app.tabBars.buttons["Ask"].tap()
 
         let input = anyElement("ask.input")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
@@ -1990,7 +2089,7 @@ final class StashUITests: XCTestCase {
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-composer-empty\n".data(using: .utf8)!)
         sleep(4)
 
-        input.tap()
+        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(input) }
         input.typeText("Which of my saved links talk about coding agents, what did each of them recommend for keeping memory across sessions, and which one should I read first if I only have ten minutes tonight?")
 
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask-composer-wrapped\n".data(using: .utf8)!)
@@ -2002,16 +2101,24 @@ final class StashUITests: XCTestCase {
         // visible field spans `inputFrame` inset by that padding. With `.top` alignment the 40pt
         // send circle's top edge meets the field's top edge, and it ends above the field's
         // bottom edge once the field has wrapped.
+        //
+        // Plan 16: the send circle's accessibility frame is its 44×44 pt TAP TARGET, centred on the
+        // 40 pt circle (2 pt of overhang each side), so the circle's own edges are read from the
+        // frame's centre and its diameter.
         let fieldPadding: CGFloat = 10
+        let sendDiameter: CGFloat = 40
         let inputFrame = input.frame
         let sendFrame = send.frame
+        XCTAssertGreaterThanOrEqual(sendFrame.height, 43.5, "Expected the send circle's 44 pt target")
+        let circleTop = sendFrame.midY - sendDiameter / 2
+        let circleBottom = sendFrame.midY + sendDiameter / 2
         let fieldTop = inputFrame.minY - fieldPadding
         let fieldBottom = inputFrame.maxY + fieldPadding
         XCTAssertGreaterThan(inputFrame.height, 30, "Expected the composer to have wrapped (text height \(inputFrame.height))")
-        XCTAssertLessThan(abs(sendFrame.minY - fieldTop), 4,
-                          "Expected the send button top-aligned with the field (send top \(sendFrame.minY) vs field top \(fieldTop))")
-        XCTAssertLessThan(sendFrame.maxY, fieldBottom - 6,
-                          "Expected the send button to end above the field's bottom edge (send bottom \(sendFrame.maxY) vs field bottom \(fieldBottom))")
+        XCTAssertLessThan(abs(circleTop - fieldTop), 4,
+                          "Expected the send circle top-aligned with the field (circle top \(circleTop) vs field top \(fieldTop))")
+        XCTAssertLessThan(circleBottom, fieldBottom - 6,
+                          "Expected the send circle to end above the field's bottom edge (circle bottom \(circleBottom) vs field bottom \(fieldBottom))")
     }
 
     /// Plan 7 Task 6: the item detail sheet rebuilt to DESIGN.md's detail-panel anatomy — eyebrow
@@ -2068,7 +2175,8 @@ final class StashUITests: XCTestCase {
         // "visible while any field is focused" contract, so this assertion is unchanged.
         let titleField = anyElement("detail.title")
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        titleField.tap()
+        // Plan 16: the title wraps (a vertical-axis field), which a bare tap doesn't always focus.
+        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(titleField) }
 
         let dismissKeyboard = app.buttons["detail.dismissKeyboard"]
         XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
@@ -2356,17 +2464,8 @@ final class StashUITests: XCTestCase {
             return condition()
         }
 
+        // (`launchSignedIn` declines iOS 26's "Save Password?" sheet, so it can't cover the pill.)
         launchSignedIn(app, arguments: ["--uitest-tab-view"], email: email, password: password)
-        // The Passwords app offers "Save Password?" over the app after every sign-in on iOS 26.5
-        // (never on 17.2) — decline it so it can't cover the pill. It's in the tree while still
-        // sliding in, and a tap then is ignored (the sheet stays), so tap until it has gone.
-        let notNow = app.buttons["Not Now"]
-        if notNow.waitForExistence(timeout: 3) {
-            for _ in 0..<4 where notNow.exists {
-                notNow.tap()
-                _ = eventually(3) { !notNow.exists }
-            }
-        }
 
         // Plan 12 removes the item-count row outright (not just its text) — the identifier
         // must be gone from the tree entirely.
@@ -2420,8 +2519,10 @@ final class StashUITests: XCTestCase {
         let window = app.windows.firstMatch.frame
         let dragStart = app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: window.midX, dy: window.midY + 120))
-        // The row is the pill plus its 8 pt top and 10 pt bottom padding (`LibrarySearchRow`).
+        // The row is the pill (plan 16: at least 44 pt, was 42) plus its 8 pt top and 10 pt bottom
+        // padding (`LibrarySearchRow`).
         let rowHeight = pill.frame.height + 18
+        XCTAssertGreaterThanOrEqual(pill.frame.height, 43.5, "Expected the search pill at least 44 pt tall")
         // A slow drag from rest, released without momentum. On a busy simulator a synthesized one
         // can still land as a fling (seen once in LibraryDetailUITests on a cold-booted iOS 26.5
         // sim): the list coasts on past the whole row, which the snap rightly leaves alone. Only
@@ -2472,6 +2573,10 @@ final class StashUITests: XCTestCase {
         // note 7: "no way to hide the keyboard in a smart way after... the user clears the search box").
         let cancelButton = app.buttons["library.search.cancel"]
         XCTAssertTrue(cancelButton.waitForExistence(timeout: 5), "Expected a Cancel affordance while the search field is focused")
+        // Plan 16: the shared `StashCancelButton` — a 44 pt target that overhangs the word, so the
+        // pill (checked above: it never moved) keeps its height beside it.
+        XCTAssertGreaterThanOrEqual(cancelButton.frame.height, 43.5, "Expected Cancel's 44 pt target, got \(cancelButton.frame)")
+        XCTAssertEqual(cancelButton.label, "Cancel")
 
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: search-active-cancel\n".data(using: .utf8)!)
         sleep(2)
@@ -2497,6 +2602,10 @@ final class StashUITests: XCTestCase {
         searchField.typeText("zz")
         let clearButton = app.buttons["library.search.clear"]
         XCTAssertTrue(clearButton.waitForExistence(timeout: 5), "Expected the clear button once a query is typed")
+        // Plan 16: a 44×44 pt target around the glyph (`.stashPlain`), and a name for VoiceOver.
+        XCTAssertGreaterThanOrEqual(clearButton.frame.width, 43.5, "Expected the clear button's 44 pt target, got \(clearButton.frame)")
+        XCTAssertGreaterThanOrEqual(clearButton.frame.height, 43.5, "Expected the clear button's 44 pt target, got \(clearButton.frame)")
+        XCTAssertEqual(clearButton.label, "Clear search")
         clearButton.tap()
         XCTAssertTrue(keyboardGone(), "Expected the keyboard dismissed after tapping the clear button")
         XCTAssertEqual((searchField.value as? String) ?? "", "Search your stash", "Expected the query cleared by the clear button")
@@ -3002,6 +3111,7 @@ final class StashUITests: XCTestCase {
         let viewTab = app.tabBars.buttons["View"]
         let deadline = Date().addingTimeInterval(20)
         while Date() < deadline, !emailField.exists, !viewTab.exists { usleep(250_000) }
+        var signedIn = false
         if emailField.exists {
             tapUntilFocused(emailField)
             emailField.typeText(email)
@@ -3009,8 +3119,11 @@ final class StashUITests: XCTestCase {
             tapUntilFocused(passwordField)
             passwordField.typeText(password)
             app.buttons["signin.submit"].tap()
+            signedIn = true
         }
         XCTAssertTrue(viewTab.waitForExistence(timeout: 15), "Expected to be signed in")
+        // Plan 16: iOS 26's "Save Password?" sheet, declined with the canonical helper.
+        if signedIn { A11yScreens.dismissSavePasswordPrompt(app) }
     }
 
     /// Taps Save and measures how long the confirmation takes to appear, polling as tightly as

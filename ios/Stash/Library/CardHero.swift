@@ -208,19 +208,23 @@ struct ImageHeroZone: View {
 struct VideoHeroZone: View {
     let item: Item
 
+    /// Plan 16: the play glyph is art at a fixed size in a fixed-height zone
+    /// (`StashType.decorative`, hidden from VoiceOver); the duration is the `chip` role, white on
+    /// the 70 % black badge.
     var body: some View {
         ZStack {
             Color.black
             Image(systemName: "play.rectangle.fill")
-                .font(.system(size: 34))
+                .font(StashType.decorative(.book, size: 34))
                 .foregroundStyle(.white.opacity(0.85))
+                .accessibilityHidden(true)
         }
         .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, maxHeight: CardHeroHeight.standard)
         .clipped()
         .overlay(alignment: .bottomTrailing) {
             if let duration = formatDurationChip(item.attributes.media?.durationS) {
                 Text(duration)
-                    .font(StashType.chip())
+                    .stashFont(.chip)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -233,12 +237,16 @@ struct VideoHeroZone: View {
 
 // MARK: - Link-cover decorations
 
+/// Art over a video cover (plan 16: a fixed-size glyph, hidden from VoiceOver — the card isn't a
+/// player; it opens the detail sheet).
 private struct PlayIconBadge: View {
     var body: some View {
         Image(systemName: "play.fill")
+            .font(StashType.decorative(.book, size: 17))
             .foregroundStyle(.white)
             .padding(14)
             .background(Color.black.opacity(0.5), in: Circle())
+            .accessibilityHidden(true)
     }
 }
 
@@ -247,7 +255,7 @@ private struct DomainPill: View {
 
     var body: some View {
         Text(text)
-            .font(StashType.chip())
+            .stashFont(.chip)
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)

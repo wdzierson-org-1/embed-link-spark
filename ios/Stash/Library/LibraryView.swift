@@ -32,10 +32,16 @@ struct LibraryView: View {
     @State private var searchFade = LibrarySearchFade()
     /// The search row's laid-out height: the band the scroll snaps out of (`LibrarySearchRowSnap`),
     /// and what a state pane (loading, empty, no matches, error) leaves above itself, as when the row
-    /// sat above it. 60 is its height at the default text size.
-    @State private var searchRowHeight: CGFloat = 60
+    /// sat above it. 62 is its height at the default text size (plan 16: the pill is at least 44 pt
+    /// tall, was a fixed 42); it grows with the text.
+    @State private var searchRowHeight: CGFloat = 62
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// Plan 16: while VoiceOver runs, the search row's snap stands aside — VoiceOver scrolls to
+    /// what it focuses and by pages (three-finger swipes), and a snap re-aiming those scrolls would
+    /// fight it. (Focusing the search field brings its row back in full either way —
+    /// `LibrarySearchRow`.)
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
 
     fileprivate static let searchRowID = "library.searchRow"
 
@@ -46,6 +52,17 @@ struct LibraryView: View {
         return !ProcessInfo.processInfo.arguments.contains("--uitest-search-no-snap")
         #else
         return true
+        #endif
+    }()
+
+    /// `--uitest-library-error-banner` (UI tests only, compiled out of Release): the refresh-error
+    /// banner over the cards, with a sample message, so the accessibility screenshot matrix can
+    /// shoot it (plan 16) — a real one needs a failed refresh.
+    private static let showsSampleErrorBanner: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("--uitest-library-error-banner")
+        #else
+        return false
         #endif
     }()
 
@@ -107,9 +124,25 @@ struct LibraryView: View {
         .task { await store.refreshIfStale() }
         .onChange(of: query) { _, newValue in search.update(query: newValue) }
         .onChange(of: store.refreshCount) { _, _ in search.invalidateCache() }
+        // Plan 16 (2a review N6): never a focused search under the detail sheet. Its Cancel carries
+        // the hardware ⌘. (`.cancelAction`), which could reach it from inside the sheet through the
+        // responder chain and clear the query; the card tap drops the focus first (`open`), and
+        // this catches any other way a sheet comes up.
+        .onChange(of: selectedItem?.id) { _, id in
+            if id != nil { searchFocused = false }
+        }
         .sheet(item: $selectedItem) { item in
             ItemDetailView(item: item, store: store)
         }
+    }
+
+    /// A card tap: the search field (and its Cancel, with the ⌘. shortcut) lets go first, then the
+    /// sheet opens — the keyboard never stays up behind it (device note 3/7) and nothing in the
+    /// sheet can reach the search (review N6).
+    private func open(_ item: Item) {
+        searchFocused = false
+        selectedItem = item
+        onSelect(item)
     }
 
     // MARK: - Scroll surface (plan 16)
@@ -137,7 +170,8 @@ struct LibraryView: View {
                     stateBody(items)
                 }
             }
-            .scrollTargetBehavior(LibrarySearchRowSnap(rowHeight: searchRowHeight, isEnabled: Self.snapsSearchRow))
+            .scrollTargetBehavior(LibrarySearchRowSnap(rowHeight: searchRowHeight,
+                                                       isEnabled: Self.snapsSearchRow && !voiceOverEnabled))
             // `library.grid` names the scroll view while it shows cards (UI tests scroll and
             // pull to refresh through it), as when only the grid scrolled.
             .accessibilityIdentifier(items.isEmpty ? "library.scroll" : "library.grid")
@@ -170,6 +204,8 @@ struct LibraryView: View {
         } else {
             if let error = store.loadError {
                 LibraryErrorBanner(message: error) { Task { await store.refresh() } }
+            } else if Self.showsSampleErrorBanner {
+                LibraryErrorBanner(message: "The Internet connection appears to be offline.") {}
             }
             grid(items)
         }
@@ -206,9 +242,7 @@ struct LibraryView: View {
                 Button {
                     // Device note 3/7: a card tap dismisses the keyboard before the sheet
                     // opens, rather than leaving it up behind the presented detail sheet.
-                    searchFocused = false
-                    selectedItem = item
-                    onSelect(item)
+                    open(item)
                 } label: {
                     // Plan 15: the card is ONE tap target and its hit area is exactly what's
                     // drawn — without this shape, content that overflows a card (fill-scaled
@@ -248,6 +282,21 @@ private final class LibrarySearchFade {
 ///
 /// Its own view (review M-4): the fade is read here, not in `LibraryView.body`, so a frame in the
 /// fade band re-renders this row — not the tab's search results or the grid.
+///
+/// Plan 16 (HIG + accessibility):
+/// - Cancel is the shared `StashCancelButton` on its paper capsule (the row sits on the gradient
+///   wash, where violet text fails contrast): the `textButton` role, one line at every size, a 44 pt
+///   target that overhangs instead of growing the row, ⌘. on a hardware keyboard — and, as before,
+///   it clears the query too (the iOS search convention; its VoiceOver hint says so). At the
+///   accessibility sizes it sits under the pill (`rowLayout`).
+/// - The pill is at least 44 pt tall (it was a fixed 42 that clipped large text); the field is
+///   reading text (17) with a `muted` placeholder — "Search" at the accessibility sizes, where
+///   "Search your stash" doesn't fit the pill — and the magnifier grows with it.
+/// - The clear × takes a 44 pt target (`.stashPlain`) and has a name.
+/// - VoiceOver: when the field gets VoiceOver's focus while the row is part-way or all the way
+///   out (it stays in the accessibility tree at its 1 % fade floor), the row scrolls back to rest
+///   at full opacity, so what VoiceOver outlines is what the user sees; and after Cancel or the ×
+///   (both vanish with the keyboard) VoiceOver's focus lands on the field, not wherever it falls.
 private struct LibrarySearchRow: View {
     @Binding var query: String
     var focused: FocusState<Bool>.Binding
@@ -257,19 +306,33 @@ private struct LibrarySearchRow: View {
     /// `LibraryView.searchStateValue` — the pill's `accessibilityValue`.
     let searchState: String
 
+    /// VoiceOver's focus on the search field (not the keyboard's).
+    @AccessibilityFocusState private var fieldHasVoiceOverFocus: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
+    /// Beside the pill at the standard sizes; at the accessibility sizes Cancel goes on its own line
+    /// under it (trailing), so the field keeps the row's width — beside a 37 pt "Cancel" it had
+    /// room for four or five characters of the query. `AnyLayout` keeps the field the same view
+    /// (and its focus) if the text size changes while it's up.
+    private var rowLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 12))
+            : AnyLayout(HStackLayout(spacing: 8))
+    }
+
     var body: some View {
         let isFocused = focused.wrappedValue
         let visibility = fade.visibility
-        HStack(spacing: 8) {
+        rowLayout {
             pill(isFocused: isFocused)
             if isFocused {
-                Button("Cancel") {
+                StashCancelButton(identifier: "library.search.cancel", onWash: true,
+                                  hint: "Clears the search and hides the keyboard") {
                     query = ""
                     focused.wrappedValue = false
+                    moveVoiceOverToField()
                 }
-                .font(StashType.bodyMedium())
-                .foregroundStyle(StashColor.violet600)
-                .accessibilityIdentifier("library.search.cancel")
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
@@ -294,15 +357,51 @@ private struct LibrarySearchRow: View {
             guard nowFocused, fade.visibility < 1 else { return }
             withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(LibraryView.searchRowID, anchor: .top) }
         }
+        // Plan 16 (Task 4 review M-3): VoiceOver reaches the field from anywhere in the list — it
+        // stays in the tree at the 1 % fade floor — so bring its row back to rest when it does.
+        // (A target of 0 is one the row's snap leaves alone.)
+        .onChange(of: fieldHasVoiceOverFocus) { _, hasFocus in
+            guard hasFocus, fade.visibility < 1 else { return }
+            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(LibraryView.searchRowID, anchor: .top) }
+        }
+        #if DEBUG
+        // `--uitest-voiceover-focus-search-after <seconds>` (UI tests only, compiled out of Release):
+        // moves VoiceOver's focus to the field that long after the row appears — what VoiceOver's
+        // own navigation does when a swipe lands on it. XCUITest's touches and keys never reach
+        // VoiceOver, so this is how the plan-16 VoiceOver probe puts it there.
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "--uitest-voiceover-focus-search-after"),
+                  index + 1 < arguments.count, let seconds = Double(arguments[index + 1]) else { return }
+            try? await Task.sleep(for: .seconds(seconds))
+            fieldHasVoiceOverFocus = true
+        }
+        #endif
+    }
+
+    /// Cancel and the × both disappear as they act (with the keyboard): VoiceOver's focus goes to
+    /// the field they belonged to rather than jumping wherever it falls. Only while VoiceOver runs —
+    /// otherwise the focus state has no one to hand it to, and would stay set.
+    private func moveVoiceOverToField() {
+        guard voiceOverEnabled else { return }
+        fieldHasVoiceOverFocus = true
     }
 
     private func pill(isFocused: Bool) -> some View {
         HStack(spacing: 8) {
+            // Scales with the field's text (15 beside its 17, at every size); decorative — the
+            // field says what it's for. A tap on it falls through to the pill (focuses the field).
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 15))
-                .foregroundStyle(isFocused ? StashColor.violet600 : StashColor.faint)
-            TextField("Search your stash", text: $query)
+                .stashFont(.custom(.book, size: 15, relativeTo: StashType.Role.reading.textStyle))
+                .foregroundStyle(isFocused ? StashColor.violet600 : StashColor.muted)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+            TextField("Search your stash", text: $query,
+                      prompt: Text(dynamicTypeSize.isAccessibilitySize ? "Search" : "Search your stash")
+                        .foregroundStyle(StashColor.muted))
+                .stashFont(.reading)
                 .focused(focused)
+                .accessibilityFocused($fieldHasVoiceOverFocus)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
@@ -315,16 +414,28 @@ private struct LibrarySearchRow: View {
                     // keyboard was the gap — clear AND dismiss in one tap.
                     query = ""
                     focused.wrappedValue = false
+                    moveVoiceOverToField()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(StashColor.faint)
+                        .foregroundStyle(StashColor.muted)
                 }
+                .buttonStyle(.stashPlain)
+                .stashIconControl("Clear search", systemImage: "xmark.circle.fill")
                 .accessibilityIdentifier("library.search.clear")
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 42)
-        .background(Color(.systemBackground), in: Capsule())
+        .padding(.vertical, 6)
+        .frame(minHeight: 44)
+        // The whole pill — at least 44 pt tall — takes the tap that focuses the field, as a system
+        // search field does: the field itself is only its line of text (~22 pt) and the magnifier.
+        // The pill's fill takes those taps from behind, so a tap on the text still reaches the
+        // field (caret) and the clear × keeps its own.
+        .background {
+            Capsule()
+                .fill(Color(.systemBackground))
+                .onTapGesture { focused.wrappedValue = true }
+        }
         .overlay(Capsule().strokeBorder(isFocused ? StashColor.violet300 : StashColor.hairline, lineWidth: 1))
         .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
         // The container itself isn't a VoiceOver stop (its children are).

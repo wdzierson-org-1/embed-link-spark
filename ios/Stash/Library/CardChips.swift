@@ -30,13 +30,16 @@ extension Color {
 
 /// A small pill-shaped metadata chip. `mono` is for the raw-filename chip; everything else
 /// (facts, duration) reads as plain text, matching `MetaChip.tsx`'s `mono?` prop.
+///
+/// Plan 16: the `chip` role (Medium 12, was 11) — `mono(.caption2)` for the mono variant — in
+/// `muted`, which is 4.9:1 on the chip's 4 % fill.
 struct MetaChip: View {
     var mono = false
     let text: String
 
     var body: some View {
         Text(text)
-            .font(mono ? StashType.mono(10) : StashType.chip())
+            .stashFont(mono ? .mono(.caption2) : .chip)
             .lineLimit(1)
             .truncationMode(.middle)
             .foregroundStyle(StashColor.muted)
@@ -67,10 +70,12 @@ struct TypeChip: View {
     let systemImage: String
     let text: String
 
+    /// Plan 16: the `chip` role (Medium 12, was 11; the glyph takes the same size), each type's own
+    /// text colour on its own tint — 5.2:1 to 7.5:1.
     var body: some View {
         Label(text, systemImage: systemImage)
             .labelStyle(.titleAndIcon)
-            .font(StashType.chip())
+            .stashFont(.chip)
             // A chip row that exceeds the card's content width must not degrade this into
             // vertical text (the same squeeze-proofing the now-deleted footer `typeBadge`
             // (ItemCardView) used to need) — the chips row's own `FlowLayout` (plan 9 final wave)

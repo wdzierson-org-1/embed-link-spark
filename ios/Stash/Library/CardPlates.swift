@@ -6,6 +6,11 @@ import StashKit
 /// stand-ins instead of a broken or decorative-only hero. Every plate here is pinned to
 /// `CardHeroHeight.standard` — see `CardHero.swift`'s header comment for why that's fixed even
 /// though the web equivalents are content-hugging.
+///
+/// Plan 16: a plate's words are text people read (a repo path, a domain, a file name), so they
+/// take roles and scale; the plate is `CardHeroHeight.standard` tall at least and grows when its
+/// text needs more room (a fixed height would clip it at the larger sizes). Tiles and glyphs
+/// stay art (`StashType.decorative`). Each plate is one VoiceOver element with its own label.
 
 /// GitHub/GitLab repos: the repo path IS the imagery. DESIGN.md's type-spectrum table gives repo
 /// its own row — `plate #0d1117` (`StashColor.repoPlate`, Task 0) — with the "owner" segment of
@@ -15,6 +20,8 @@ import StashKit
 struct RepoPlate: View {
     let url: String?
     let description: String?
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var parsed: (owner: String, repo: String)? { repoPath(url) }
     private var pathLabel: String {
@@ -40,19 +47,19 @@ struct RepoPlate: View {
                         Text(pathLabel).foregroundColor(StashColor.typeText(.repo))
                     }
                 }
-                .font(StashType.mono(15))
-                .lineLimit(1)
+                .stashFont(.mono(.subheadline))
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
             }
             if let description, !description.isEmpty {
                 Text(description)
-                    .font(StashType.body())
+                    .stashFont(.secondary)
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(2)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .frame(height: CardHeroHeight.standard)
+        .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, alignment: .leading)
         .background(StashColor.repoPlate)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(pathLabel)
@@ -64,29 +71,33 @@ struct RepoPlate: View {
 struct FaviconPlate: View {
     let url: String?
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     private var domain: String { domainOf(url) }
     private var letter: String { domain.first.map { String($0).uppercased() } ?? "?" }
 
     var body: some View {
         HStack(spacing: 12) {
+            // The monogram tile is art: a fixed letter in a fixed tile (the plate's label names the
+            // domain).
             Text(letter)
-                .font(StashType.semibold(size: 17))
+                .font(StashType.decorative(.semibold, size: 17))
                 .foregroundStyle(Color.cardVioletAccent)
                 .frame(width: 48, height: 48)
                 .background(Color.cardVioletTint, in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(domain.isEmpty ? "link" : domain)
-                    .font(StashType.bodyMedium(13))
-                    .lineLimit(1)
+                    .stashFont(.metaMedium)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 Text("preview limited · saved anyway")
-                    .font(StashType.regular(size: 11))
+                    .stashFont(.meta)
                     .foregroundStyle(StashColor.muted)
             }
             Spacer(minLength: 0)
         }
         .padding(16)
-        .frame(maxWidth: .infinity)
-        .frame(height: CardHeroHeight.standard)
+        .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard)
         .background(Color(.tertiarySystemFill).opacity(0.5))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(domain.isEmpty ? "link" : domain) — preview limited, saved anyway")
@@ -107,6 +118,8 @@ struct FilePlate: View {
     let kind: Kind
     let fileName: String?
     let factsLine: String?
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var tint: Color {
         switch kind {
@@ -139,24 +152,26 @@ struct FilePlate: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            // The icon tile is art: a fixed glyph in a fixed tile.
             Image(systemName: iconName)
+                .font(StashType.decorative(.book, size: 17))
                 .foregroundStyle(tint)
                 .frame(width: 44, height: 44)
                 .background(tintBg, in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(fileName != nil ? StashType.mono(12) : StashType.bodyMedium(13))
-                    .lineLimit(1)
+                    .stashFont(fileName != nil ? .mono(.caption) : .metaMedium)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                     .truncationMode(.middle)
                 if let factsLine, !factsLine.isEmpty {
-                    Text(factsLine).font(StashType.regular(size: 11)).foregroundStyle(StashColor.muted)
+                    Text(factsLine).stashFont(.meta).foregroundStyle(StashColor.muted)
                 }
             }
             Spacer(minLength: 0)
         }
         .padding(14)
-        .frame(maxWidth: .infinity)
-        .frame(height: CardHeroHeight.standard)
+        .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard)
         .background(Color(.tertiarySystemFill).opacity(0.5))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([label, factsLine].compactMap { $0 }.joined(separator: " "))
