@@ -16,6 +16,14 @@ import AVFoundation
 /// Plan 16 (task 1b): the thread's end is laid out in full (`AskThreadTail`) and every scroll to
 /// the end lands on the last row (`scrollToEnd`), so a jump from far up can't land past it.
 ///
+/// Plan 16 (task 1c): the laid-out tail stays bounded. It's sized by height (the viewport and the
+/// bubble text as set, `ChatThreadTail`), sheds when an answer completes with the reader at the end,
+/// and only a send from above the whole tail sheds before its jump. Whatever changes size, what the
+/// reader sees stays put (`AskThreadScrollObserver`): while they follow, the thread's end holds — the
+/// lazy history re-measuring, a shed, the keyboard, a rotation, a text-size change — never under a
+/// finger; while they read inside the tail, the tail holds still when the history above it
+/// re-measures, finger or not.
+///
 /// Plan 16 (keyboard): the composer's focus is explicit (`inputFocused`). While it's focused the
 /// header's right side is the shared keyboard "Cancel" (`StashCancelButton`, as on the Add tab)
 /// instead of New chat / History, and the keyboard is put away before anything else is shown —
@@ -32,6 +40,8 @@ struct AskView: View {
     @State private var store: ChatStore
     @State private var input = ""
     @State private var speech = SpeechReader()
+    /// Thumbs given this session, by message id: they outlive a row's rebuild (task 1c, `ChatRatings`).
+    @State private var ratings = ChatRatings()
     @State private var gateMessage: String?
     @State private var citationItem: Item?
     @State private var loadingSourceId: UUID?
@@ -42,12 +52,8 @@ struct AskView: View {
     @FocusState private var inputFocused: Bool
 
     // Thread-follow state (M2, review fix).
-    /// Pin the thread to its end as it grows. Turned OFF only by the user dragging the thread
-    /// away from the end (`AskThreadScrollObserver` — programmatic scrolls and content growth
-    /// never count); back ON when they drag to the end again, send, retry, or the thread is
-    /// replaced.
-    @State private var isFollowing = true
-    /// The thread's UIScrollView, so a follow-scroll never lands under a moving finger.
+    /// The thread's UIScrollView, so a follow-scroll never lands under a moving finger; and whether
+    /// the reader follows (`isFollowing`).
     @State private var threadScroll = AskThreadScrollHandle()
     @State private var threadVisible = false
     /// The thread was replaced while off screen (e.g. a conversation opened from the pushed
@@ -56,11 +62,28 @@ struct AskView: View {
     @State private var lastMessageCount = 0
     @State private var lastFirstMessageId: String?
     @State private var answerWasStreaming = false
-    /// The next jump to a new question is from away from the end (the user had dragged off it), so
-    /// it goes without animation: an eased scroll across screens of history reads as a blur.
-    @State private var nextSendJumpIsFar = false
-    /// Where the thread's lazy history ends and its laid-out tail begins (task 1b).
+    /// How the jump to the next new question goes, classified at the send from where the reader is
+    /// (task 1c, `ChatThreadTail.sendJump`): a hop of up to a screen from up the thread eases, any
+    /// other jump cuts, and only a reader above the whole tail sheds it first.
+    @State private var nextSendJump = ChatThreadTail.SendJump.fromTheEnd
+    /// Where the thread's lazy history ends and its laid-out tail begins (tasks 1b, 1c).
     @State private var tail = AskThreadTail()
+
+    /// Pin the thread to its end as it grows, and hold the end through changes of size. Turned OFF
+    /// only by the user dragging the thread away from the end (`AskThreadScrollObserver` —
+    /// programmatic scrolls and content growth never count); back ON when they drag to the end
+    /// again, send, retry, or the thread is replaced.
+    ///
+    /// Kept on the handle, unobserved (task 1c), and never read while `body` runs: turning following
+    /// on or off must not re-render the thread. A re-render makes the lazy history re-estimate the
+    /// rows it hasn't built: when following turned off under a drag, the history above the laid-out
+    /// tail re-estimated by +1,036 pt (iOS 17.5) and +4,893 pt (18.5) in the frame after the flip —
+    /// layout work for nothing, and a move of the whole tail under the reader's finger that only the
+    /// observer's tail hold keeps off the screen.
+    private var isFollowing: Bool {
+        get { threadScroll.isFollowing }
+        nonmutating set { threadScroll.isFollowing = newValue }
+    }
 
     /// Exists purely to satisfy `ItemDetailView`'s init — citation sheets are read-only here (per
     /// the brief), so this store's own `items`/save plumbing is never read by anything else; it
@@ -92,10 +115,12 @@ struct AskView: View {
     private static func makeStore(userId: UUID) -> ChatStore {
         #if DEBUG
         if usesScriptedChat {
-            let longThread = ProcessInfo.processInfo.arguments.contains("--uitest-scripted-long-thread")
+            let arguments = ProcessInfo.processInfo.arguments
+            let longThread = arguments.contains("--uitest-scripted-long-thread")
+            let prose = arguments.contains("--uitest-scripted-prose")
             return ChatStore(userId: userId,
-                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(longThread ? 250 : 110)),
-                             history: ScriptedChatHistory(longThread: longThread),
+                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(longThread ? 250 : 110), prose: prose),
+                             history: ScriptedChatHistory(longThread: longThread, prose: prose),
                              accessToken: { "scripted" })
         }
         #endif
@@ -279,6 +304,14 @@ struct AskView: View {
 
     /// Task 1b: the thread's history is a `LazyVStack`, and its end is a plain `VStack` (see
     /// `AskThreadTail`), so every scroll to the end lands on rows that are laid out.
+    ///
+    /// Task 1c: the content has no bottom padding, so a scroll to the last row (its gap included)
+    /// rests exactly where a user's drag to the end does. The tail's height is measured for the
+    /// scroll observer's holds and the send classification, the viewport's size and the bubble text's
+    /// metrics for the tail's budget. The tail's reader writes to the unobserved handle, so a streamed
+    /// update re-renders nothing; SwiftUI reports it before it hands the scroll view the content size
+    /// that comes with it, in the same layout pass (measured on iOS 17.5, 18.5 and 26.5), which is
+    /// what lets the observer tell the tail's own growth from a change above it.
     private var thread: some View {
         let messages = store.messages
         let questions = Self.precedingQuestions(in: messages)
@@ -297,23 +330,22 @@ struct AskView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         rows(messages, historyCount..<messages.count, questions: questions, lastIndex: lastIndex)
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { threadScroll.tailHeight = $0 }
                 }
                 .padding(.horizontal)
                 .padding(.top, 12)
-                .padding(.bottom, 4)
-                // M2: the user's own drags decide whether the thread keeps following. Must sit
-                // inside the scrolled content (it walks up to the real UIScrollView).
-                .background(
-                    AskThreadScrollObserver(handle: threadScroll) { atEnd in
-                        if isFollowing != atEnd { isFollowing = atEnd }
-                    }
-                )
+                // M2: the user's own drags decide whether the thread keeps following, and the
+                // observer holds what the reader sees through changes of size. Must sit inside the
+                // scrolled content (it walks up to the real UIScrollView).
+                .background(AskThreadScrollObserver(handle: threadScroll))
                 .id(Self.threadTopID)
             }
             // L10: drag the thread to put the keyboard away (the composer field has no other
             // dismiss path).
             .scrollDismissesKeyboard(.interactively)
             .accessibilityIdentifier("ask.thread")
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { tail.noteViewport($0) }
+            .background { AskBubbleTextGauge(tail: tail) }
             .onChange(of: store.messages) { _, newMessages in
                 followThread(newMessages, proxy: proxy)
             }
@@ -329,6 +361,7 @@ struct AskView: View {
                 guard !Task.isCancelled else { return }
                 jumpToBottomOnAppear = false
                 scrollToEnd(proxy)
+                settleAtTheEnd(proxy)
             }
             // Every assistant bubble's inline citation links (`ChatCitations.link`, baked as
             // `#item=<uuid>` — or the legacy `stash://item/<uuid>` form some rows may still carry
@@ -366,6 +399,7 @@ struct AskView: View {
                 loadingSourceId: ownsLoadingSource ? loadingSourceId : nil,
                 showsRetry: showsRetry,
                 speech: speech,
+                ratings: ratings,
                 onCitationTap: openCitation,
                 onRetry: { retryTapped(messageId: message.id) }
             )
@@ -392,7 +426,8 @@ struct AskView: View {
     /// of lines can never outrun the view — plus settle scrolls once the answer completes (its
     /// thumbs/source-chips row lays out after that change). Nothing here ever turns following
     /// OFF: only a user drag does (`AskThreadScrollObserver`). A replaced thread (history
-    /// restored, conversation opened, new chat) lands at its end and follows again.
+    /// restored, conversation opened, new chat) lands at its end, settles there (task 1c,
+    /// `settleAtTheEnd`) and follows again.
     private func followThread(_ messages: [ChatMessage], proxy: ScrollViewProxy) {
         let firstId = messages.first?.id
         let threadReplaced = firstId != lastFirstMessageId
@@ -402,13 +437,14 @@ struct AskView: View {
         let answerStreaming = messages.last?.isStreaming ?? false
         let answerCompleted = answerWasStreaming && !answerStreaming
         answerWasStreaming = answerStreaming
-        let jumpIsFar = nextSendJumpIsFar
-        if rowsChanged { nextSendJumpIsFar = false }
+        let jump = nextSendJump
+        if rowsChanged { nextSendJump = .fromTheEnd }
 
         if threadReplaced {
             isFollowing = true
             if threadVisible {
                 scrollToEnd(proxy)
+                settleAtTheEnd(proxy)
             } else {
                 jumpToBottomOnAppear = true
             }
@@ -418,27 +454,49 @@ struct AskView: View {
         // is still gliding after it, the user's gesture decides — it either leaves the end
         // (following stops) or doesn't, and the next publish pins again.
         guard isFollowing, !threadScroll.userIsScrolling else { return }
-        // On a jump from far up, the tail sheds the rows it no longer needs (see `AskThreadTail`):
-        // they're off screen below the reader, and the jump below lands on the new rows.
-        if rowsChanged && jumpIsFar {
+        // A send from above the whole tail: every row the tail sheds is off screen below the reader,
+        // and the jump below lands on the new rows (task 1c; see `ChatThreadTail.sendJump`). From
+        // inside the tail nothing sheds: the rows above the reader stay as they are.
+        if rowsChanged && jump.shedsTail {
             tail.shed(messages)
         }
-        // A new question eases in when the thread was at its end. Growth of the streaming answer
-        // pins without animation, so a scroll is never still in flight when the user puts a finger
-        // on the thread.
-        scrollToEnd(proxy, animated: rowsChanged && !jumpIsFar)
+        // A new question sent from up to a screen away eases in; from further, the jump cuts, and so
+        // does a send from the end, where the held end has already brought the new rows into view.
+        // Growth of the streaming answer pins without animation, so a scroll is never still in
+        // flight when the user puts a finger on the thread.
+        scrollToEnd(proxy, animated: rowsChanged && jump.animated)
         if answerCompleted {
-            Task { @MainActor in
-                // Final wave B: the finished answer re-renders (baked citations, actions row) and
-                // re-measures for a few hundred ms more (on the iOS 17.0 simulator its height went
-                // 2401 → 1987 → 2182 pt after one settle scroll). So hold the end while it settles:
-                // bounded, and never under a finger or once the user has scrolled away.
-                try? await Task.sleep(for: .milliseconds(150))
-                for _ in 0..<13 {
-                    guard isFollowing, !threadScroll.userIsScrolling else { return }
-                    scrollToEnd(proxy)
-                    try? await Task.sleep(for: .milliseconds(100))
-                }
+            // Task 1c: the reader followed the answer to its end, so the tail sheds back to its
+            // budget — the last exchange and a screen and a half — and the next answer streams with
+            // no more laid-out rows than this one did. The rows it sheds are above the viewport; the
+            // observer holds the end through that layout pass (the reader follows, and no finger is
+            // on the thread — checked above), so nothing on screen moves.
+            tail.shed(messages)
+            settleAtTheEnd(proxy)
+        }
+    }
+
+    /// Pins the end a few more times over about 1.5 s, while the reader follows and no finger is on
+    /// the thread: after an answer completes, and after a landing (a thread restored, opened or
+    /// replaced). The observer's end hold keeps whatever distance from the end the viewport had, so
+    /// it can't correct a landing that came to rest short; these pins do.
+    ///
+    /// - Final wave B: the finished answer re-renders (baked citations, actions row) and re-measures
+    ///   for a few hundred ms more (on the iOS 17.0 simulator its height went 2401 → 1987 → 2182 pt
+    ///   after one settle scroll).
+    /// - Task 1c: once straight away, on the next turn, after that update's layout, and after a
+    ///   landing too: a landing's scroll can run before the new thread has finished laying out, and
+    ///   the hold keeps the distance it's given rather than seek the end (on iOS 18.5 under heavy load
+    ///   a restored long thread once came to rest about 800 pt short of its end, and stayed).
+    private func settleAtTheEnd(_ proxy: ScrollViewProxy) {
+        Task { @MainActor in
+            guard isFollowing, !threadScroll.userIsScrolling else { return }
+            scrollToEnd(proxy)
+            try? await Task.sleep(for: .milliseconds(150))
+            for _ in 0..<13 {
+                guard isFollowing, !threadScroll.userIsScrolling else { return }
+                scrollToEnd(proxy)
+                try? await Task.sleep(for: .milliseconds(100))
             }
         }
     }
@@ -528,7 +586,7 @@ struct AskView: View {
             return
         }
         input = ""
-        nextSendJumpIsFar = !isFollowing
+        nextSendJump = classifySendJump()
         isFollowing = true
         Task { await store.send(text) }
     }
@@ -539,9 +597,19 @@ struct AskView: View {
             gateMessage = Self.gateCopy
             return
         }
-        nextSendJumpIsFar = !isFollowing
+        nextSendJump = classifySendJump()
         isFollowing = true
         Task { await store.retry(messageId: messageId) }
+    }
+
+    /// How the jump to the question about to be sent goes, from where the reader is now (task 1c,
+    /// review finding I1). Read before `isFollowing` is set for the send.
+    private func classifySendJump() -> ChatThreadTail.SendJump {
+        let geometry = threadScroll.endGeometry
+        return ChatThreadTail.sendJump(isFollowing: isFollowing,
+                                       distanceFromEnd: geometry.map { Double($0.distanceFromEnd) },
+                                       visibleHeight: geometry.map { Double($0.visibleHeight) },
+                                       tailHeight: Double(threadScroll.tailHeight))
     }
 
     private var canAsk: Bool { subscription.canUseAI || Self.usesScriptedChat }
@@ -733,18 +801,31 @@ final class SpeechReader: NSObject, AVSpeechSynthesizerDelegate {
 /// interactive scroll. Invisible and zero-size; must sit inside the `ScrollView`'s own content so
 /// walking `superview` reaches the real `UIScrollView`.
 ///
-/// Reports are never delivered synchronously (the same fix as `LibraryScrollOffsetObserver`): the
-/// KVO callback also fires when SwiftUI's OWN layout moves the content while a drag or glide is in
-/// progress — i.e. inside a view update — and writing `@State` (`isFollowing`) there is undefined
-/// behavior. That was the "Modifying state during view update" runtime issue the follow-scroll UI
-/// test logged now and then (unified-log backtrace: `isFollowing.setter` ← this KVO handler,
-/// inside SwiftUI's update). See `Coordinator.userScrolled`.
+/// Reports land on a later main-queue turn (`Coordinator.userScrolled`): the KVO callback also fires
+/// when SwiftUI's OWN layout moves the content while a drag or glide is in progress — inside a view
+/// update — and a report then would read a mid-layout snapshot. (Plan 15 wrote `@State` here, which
+/// was the "Modifying state during view update" runtime issue; task 1c keeps following on the
+/// unobserved handle, `AskThreadScrollHandle.isFollowing`.)
+///
+/// Plan 16 (task 1c): it also holds what the reader sees through every change of size, on every OS
+/// (`Coordinator.Hold`). Why: the rows above the laid-out tail are the lazy history's estimates, and
+/// whenever it builds or re-estimates one — after a landing, when the keyboard comes up, after a
+/// jump, at a completion shed — everything below moves by the difference. The lazy stack keeps its
+/// own visible rows still through that, but not the tail, which is outside it; and nothing kept the
+/// end through the keyboard, a rotation or a text-size change. With the content's top holding still,
+/// as a scroll view's does, every re-estimate moved the reader. On iOS 18.5, task 1b's restored long
+/// thread came to rest 816 pt short of its end half a second after it landed; and without the tail
+/// hold, a reader a little way up its last answer saw the line they were reading drop 816 pt down
+/// the screen when they tapped the composer.
+///
+/// SwiftUI's own size-change anchor (`defaultScrollAnchor(_:for: .sizeChanges)`, iOS 18 and later)
+/// can't do this job: it holds a fixed point of the viewport, so it can't keep a reader's place on
+/// the tail while an answer streams below them, and switching it on and off with following means
+/// reading `isFollowing` in `body` — whose re-render at the flip is itself what made the history
+/// re-estimate under a drag (see `AskView.isFollowing`).
 private struct AskThreadScrollObserver: UIViewRepresentable {
-    /// Receives the thread's UIScrollView once found.
+    /// Receives the thread's UIScrollView once found, and the reader's following.
     let handle: AskThreadScrollHandle
-    /// "Is the viewport at the end of the thread (within 80 pt)?" — called after user-driven offset
-    /// changes, on a main-queue turn of its own (a burst of changes yields one call).
-    var onUserScroll: (_ atEnd: Bool) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(handle: handle) }
 
@@ -752,7 +833,6 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
         let view = ProbeView()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
-        context.coordinator.onUserScroll = onUserScroll
         // `didMoveToWindow` is when this view's full ancestor chain (up through the UIScrollView)
         // exists — see `LibraryScrollOffsetObserver` for the verification.
         view.onWindowAttach = { [weak view, weak coordinator = context.coordinator] in
@@ -763,7 +843,6 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: ProbeView, context: Context) {
-        context.coordinator.onUserScroll = onUserScroll
         if uiView.window != nil { context.coordinator.attach(from: uiView) }
     }
 
@@ -777,10 +856,50 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
     }
 
     final class Coordinator {
-        var onUserScroll: ((Bool) -> Void)?
+        /// What a change of size holds still for the reader. Decided from the geometry just BEFORE
+        /// the change (the KVO "prior" notification), applied just after it, inside the same
+        /// setter — so in the layout pass that made the change, and no frame is drawn displaced.
+        /// (Deciding afterwards would read a geometry UIKit has already touched: when the content
+        /// shrinks, it clamps the offset inside `setContentSize:` before the change is reported —
+        /// by 316 pt in one measured pass on iOS 18.5.)
+        enum Hold: Equatable {
+            /// The reader follows, with no finger on the thread and the viewport at the end (within
+            /// `AskThreadScrollHandle.endSlack`): the viewport keeps this distance from the content's
+            /// end. A streamed update, a completion shed, the lazy history re-measuring above, the
+            /// keyboard, a rotation, a text-size change: the end stays where it was on screen.
+            case end(distance: CGFloat)
+            /// Every row on screen is a laid-out tail row (the reader reads inside the tail, following
+            /// or not, finger on the thread or not): the viewport keeps its place on the tail. It keeps
+            /// this distance from the content's end, plus whatever the tail itself grew by below it, so
+            /// a change above the tail (the lazy history re-measuring) moves it with the tail, and an
+            /// answer streaming below the reader moves nothing.
+            ///
+            /// Relative to the end, never to the lazy history's own reported height: SwiftUI reports
+            /// that from passes it lays out and drops in the same frame, and holding by those moved
+            /// the viewport into rows that then re-estimated it back — on iOS 18.5, an oscillation of
+            /// 6,000 pt every frame. The end is laid out, so the viewport's place relative to it is
+            /// the same in every pass, and so is what the lazy stack builds near it.
+            case tail(distance: CGFloat)
+        }
+
         private let handle: AskThreadScrollHandle
-        private var observation: NSKeyValueObservation?
-        /// True while a report to SwiftUI is scheduled on the main queue (see `userScrolled`).
+        private var observations: [NSKeyValueObservation] = []
+        /// Decided at the prior notification of a content-size or viewport-size change.
+        private var contentHold: Hold?
+        private var viewportHold: Hold?
+        /// The tail's height as of the last content-size change (nil until the first). SwiftUI
+        /// reports the tail's new height to the handle before it sets the content size that comes
+        /// with it, in the same layout pass (measured on iOS 17.5, 18.5 and 26.5).
+        private var tailHeight: CGFloat?
+        /// Where the last hold put the viewport, and whether the reader followed then (an end hold) or
+        /// not (a tail hold) — kept until this run-loop turn is over — and how many times it has been
+        /// put back since (see `offsetChanged`).
+        private var held: (offset: CGFloat, following: Bool)?
+        private var heldRestores = 0
+        private var heldExpiryScheduled = false
+        /// True while the coordinator itself is setting the offset.
+        private var settingOffset = false
+        /// True while a report is scheduled on the main queue (see `userScrolled`).
         private var reportScheduled = false
 
         init(handle: AskThreadScrollHandle) {
@@ -788,33 +907,163 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
         }
 
         func attach(from view: UIView) {
-            guard observation == nil else { return }
+            guard observations.isEmpty else { return }
             var ancestor = view.superview
             while let candidate = ancestor {
                 if let scrollView = candidate as? UIScrollView {
                     handle.scrollView = scrollView
-                    observation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
-                        // Only a drag or the glide after one may turn following on or off — never a
-                        // touch-down that hasn't moved, a programmatic scroll or content growth. Two
-                        // flag reads are safe inside a layout pass; telling SwiftUI is not (see
-                        // `userScrolled`).
-                        guard scrollView.isDragging || scrollView.isDecelerating else { return }
-                        self?.userScrolled(scrollView)
-                    }
+                    observations = [
+                        scrollView.observe(\.contentOffset, options: []) { [weak self] scrollView, _ in
+                            self?.offsetChanged(scrollView)
+                        },
+                        scrollView.observe(\.contentSize, options: [.prior]) { [weak self] scrollView, change in
+                            guard let self else { return }
+                            if change.isPrior {
+                                self.contentHold = self.hold(scrollView)
+                            } else {
+                                self.contentSizeChanged(scrollView)
+                            }
+                        },
+                        // The viewport's size: the keyboard, a rotation. (`bounds` also changes with
+                        // every scroll, as its origin; only a change of size is held.)
+                        scrollView.layer.observe(\.bounds, options: [.prior, .old, .new]) { [weak self, weak scrollView] _, change in
+                            guard let self, let scrollView else { return }
+                            if change.isPrior {
+                                self.viewportHold = self.hold(scrollView, followingOnly: true)
+                            } else if change.oldValue?.size != change.newValue?.size {
+                                self.viewportSizeChanged(scrollView)
+                            }
+                        },
+                    ]
                     return
                 }
                 ancestor = candidate.superview
             }
         }
 
-        /// Tells SwiftUI whether the thread now rests at its end, on the next main-queue turn —
-        /// outside whatever view update may be running now. A burst of offset changes coalesces
-        /// into one report, which reads the layout as it stands then rather than a mid-layout
-        /// snapshot. The lag is harmless: a follow-scroll can't pin in between, because it holds
-        /// off while `AskThreadScrollHandle.userIsScrolling`.
+        /// What to hold through a change about to land, from the geometry as it stands. The end, while
+        /// the reader follows at it with no finger on the thread; otherwise — for content changes only —
+        /// the tail, while every row on screen is in it. A viewport that shows any lazy history row is
+        /// left alone: the lazy stack keeps its own visible rows still, and a hold on top of that would
+        /// move them twice. A viewport-size change is only held at the end: a reader who has scrolled
+        /// away keeps their place from the top when the keyboard comes or goes, as before.
+        private func hold(_ scrollView: UIScrollView, followingOnly: Bool = false) -> Hold? {
+            let distance = Self.distanceFromEnd(scrollView)
+            if handle.isFollowing, !handle.userIsScrolling, distance < AskThreadScrollHandle.endSlack {
+                return .end(distance: max(0, distance))
+            }
+            guard !followingOnly, let tailHeight,
+                  distance + Self.visibleHeight(scrollView) <= tailHeight + 0.5 else { return nil }
+            return .tail(distance: distance)
+        }
+
+        private func contentSizeChanged(_ scrollView: UIScrollView) {
+            let newTailHeight = handle.tailHeight
+            switch contentHold {
+            case .end(let distance)?:
+                keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - distance), following: true)
+            case .tail(let distance)?:
+                let tailGrowth = newTailHeight - (tailHeight ?? newTailHeight)
+                keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - (distance + tailGrowth)), following: false)
+            case nil:
+                held = nil
+            }
+            contentHold = nil
+            tailHeight = newTailHeight
+        }
+
+        private func viewportSizeChanged(_ scrollView: UIScrollView) {
+            if case .end(let distance)? = viewportHold {
+                keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - distance), following: true)
+            }
+            viewportHold = nil
+        }
+
+        /// Every move of the offset: the user's drags and glides decide following (`userScrolled`),
+        /// and a hold made this run-loop turn is put back if SwiftUI undoes it.
         ///
-        /// Not de-duplicated against the last report on purpose: `isFollowing` has other writers
-        /// (send, retry, a replaced thread), so only the receiver may compare with its live value.
+        /// Why put back: in an update that lays the thread out more than once (the lazy history
+        /// re-estimating as the keyboard comes up, say), SwiftUI can set the offset itself after a
+        /// hold, discarding it. On iOS 18.5, after UIKit had clamped the offset inside
+        /// `setContentSize:` as the content shrank, SwiftUI wrote back the offset the update began
+        /// with: tail holds that had kept a reader's line still through +2,990, −544 and +2,534 pt
+        /// were wiped, and the line dropped 1,990 pt (1 run in 3). On iOS 26.5, right after an end hold
+        /// it set an offset of its own: a restored long thread at rest at its end was left 2,637 pt
+        /// short of it when the keyboard came up, every time.
+        ///
+        /// Put back only what a hold of the same kind would still keep, and never under a finger. A
+        /// tail hold (the reader doesn't follow): any move, since then nothing else moves the offset
+        /// programmatically. An end hold (the reader follows): a move up, away from the end, or past
+        /// it — a follower's own jumps and pins only ever go to the end, and those stand.
+        private func offsetChanged(_ scrollView: UIScrollView) {
+            if !settingOffset, let held, heldRestores < 4, !handle.userIsScrolling,
+               handle.isFollowing == held.following {
+                let offset = scrollView.contentOffset.y
+                let lastOffset = max(-scrollView.adjustedContentInset.top, Self.endOffset(scrollView))
+                let undone = held.following
+                    ? offset < held.offset - 0.5 || offset > lastOffset + 0.5
+                    : abs(offset - held.offset) > 0.5
+                if undone {
+                    heldRestores += 1
+                    setOffset(scrollView, held.offset)
+                }
+            }
+            // Only a drag or the glide after one may turn following on or off — never a touch-down
+            // that hasn't moved, a programmatic scroll, content growth or a hold. Two flag reads are
+            // safe inside a layout pass.
+            guard scrollView.isDragging || scrollView.isDecelerating else { return }
+            userScrolled(scrollView)
+        }
+
+        /// Keeps a hold's offset for the rest of this run-loop turn (the update it was made in, and
+        /// the frame it draws), then lets it go.
+        private func keepHeld(_ offset: CGFloat, following: Bool) {
+            held = (offset, following)
+            guard !heldExpiryScheduled else { return }
+            heldExpiryScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.held = nil
+                self.heldRestores = 0
+                self.heldExpiryScheduled = false
+            }
+        }
+
+        /// Sets the offset — never above the content's top or past its end — and returns where it put
+        /// it.
+        @discardableResult
+        private func setOffset(_ scrollView: UIScrollView, _ y: CGFloat) -> CGFloat {
+            let top = -scrollView.adjustedContentInset.top
+            let target = max(top, min(y, max(top, Self.endOffset(scrollView))))
+            if abs(scrollView.contentOffset.y - target) > 0.5 {
+                settingOffset = true
+                scrollView.contentOffset.y = target
+                settingOffset = false
+            }
+            return target
+        }
+
+        /// The offset at which the viewport's bottom meets the content's end.
+        static func endOffset(_ scrollView: UIScrollView) -> CGFloat {
+            scrollView.contentSize.height + scrollView.adjustedContentInset.bottom - scrollView.bounds.height
+        }
+
+        /// How far the content's end is below the viewport's bottom (negative when the content is
+        /// shorter than the viewport).
+        static func distanceFromEnd(_ scrollView: UIScrollView) -> CGFloat {
+            endOffset(scrollView) - scrollView.contentOffset.y
+        }
+
+        static func visibleHeight(_ scrollView: UIScrollView) -> CGFloat {
+            let insets = scrollView.adjustedContentInset
+            return scrollView.bounds.height - insets.top - insets.bottom
+        }
+
+        /// Records whether the thread now rests at its end, on the next main-queue turn — outside
+        /// whatever layout pass may be running now. A burst of offset changes coalesces into one
+        /// report, which reads the layout as it stands then rather than a mid-layout snapshot. The lag
+        /// is harmless: a follow-scroll can't pin in between, because it holds off while
+        /// `AskThreadScrollHandle.userIsScrolling`.
         private func userScrolled(_ scrollView: UIScrollView) {
             guard !reportScheduled else { return }
             reportScheduled = true
@@ -822,27 +1071,36 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
                 guard let self else { return }
                 self.reportScheduled = false
                 guard let scrollView else { return }
-                self.onUserScroll?(Self.isAtEnd(scrollView))
+                self.handle.isFollowing = Self.isAtEnd(scrollView)
             }
         }
 
         /// A thread shorter than the viewport is always "at the end" (so a rubber-band pull on a
-        /// short thread doesn't stop following); otherwise within 80 pt of the last row counts.
+        /// short thread doesn't stop following); otherwise within `endSlack` of the last row counts.
         static func isAtEnd(_ scrollView: UIScrollView) -> Bool {
-            let insets = scrollView.adjustedContentInset
-            let visibleHeight = scrollView.bounds.height - insets.top - insets.bottom
-            guard scrollView.contentSize.height > visibleHeight else { return true }
-            let endOffset = scrollView.contentSize.height + insets.bottom - scrollView.bounds.height
-            return endOffset - scrollView.contentOffset.y < 80
+            guard scrollView.contentSize.height > visibleHeight(scrollView) else { return true }
+            return distanceFromEnd(scrollView) < AskThreadScrollHandle.endSlack
         }
     }
 }
 
-/// A weak reference to the Ask thread's UIScrollView (filled in by `AskThreadScrollObserver`),
-/// held in `@State` so follow-scrolls can check whether the user's finger — or the glide after
-/// it — is on the thread right now.
+/// The Ask thread's scroll state, shared by `AskView` and `AskThreadScrollObserver` and held in
+/// `@State`: a weak reference to the thread's UIScrollView, so follow-scrolls can check whether the
+/// user's finger — or the glide after it — is on the thread right now; whether the reader follows;
+/// and the measured heights the observer's holds and a send's classification need. Unobserved:
+/// writing to it never re-renders anything.
 final class AskThreadScrollHandle {
+    /// Within this distance of the content's end the viewport is at the end: a drag that comes to
+    /// rest there keeps following, and the end hold applies.
+    static let endSlack: CGFloat = 80
+
     weak var scrollView: UIScrollView?
+    /// The reader follows the thread (see `AskView.isFollowing`).
+    var isFollowing = true
+    /// The laid-out tail's height (task 1c), measured as it changes — how far above the end the
+    /// tail's first row is, for the observer's tail hold and a send's classification
+    /// (`ChatThreadTail.sendJump`).
+    var tailHeight: CGFloat = 0
 
     /// A finger is on the thread or its momentum is still moving it: touch-down (`isTracking` —
     /// true a beat before `isDragging`, so a pin can't land under a finger that has only just
@@ -853,41 +1111,96 @@ final class AskThreadScrollHandle {
         guard let scrollView else { return false }
         return scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
     }
+
+    /// Where the viewport is: its bottom's distance from the content's end (never negative), and its
+    /// visible height. Inside the laid-out tail the distance is exact; above it, it includes the lazy
+    /// history's estimate of the rows in between, which only ever adds to it.
+    var endGeometry: (distanceFromEnd: CGFloat, visibleHeight: CGFloat)? {
+        guard let scrollView else { return nil }
+        return (max(0, AskThreadScrollObserver.Coordinator.distanceFromEnd(scrollView)),
+                AskThreadScrollObserver.Coordinator.visibleHeight(scrollView))
+    }
 }
 
-/// Task 1b: where the Ask thread's lazily built history ends and its fully laid-out tail begins.
-///
-/// Why a tail: a `LazyVStack` builds only the rows near the screen and sizes the rest at the
-/// average height of the rows it has built. A jump far down is aimed with that estimate, and with
-/// answers several screens long it can land past the last real row, with nothing on screen and
-/// nothing re-measured (see `AskView.scrollToEnd`). Rows in the tail are always built, so a scroll
-/// to the thread's last row lands on it exactly, and so does everything on screen with it: the tail
-/// is the last exchange plus earlier rows until it holds `minimumTailCharacters` of text, about a
-/// screen and a half or more.
-///
-/// Why only a tail: built rows cost memory, and each streamed update redraws them all. Laid out in
-/// full, a 200-message thread (the History load limit) took about 600 MB in a replica on the
-/// simulator, against about 45 MB lazy. And every finished long answer kept in the tail added
-/// about ten dropped frames per streamed answer in the app. So a thread starts with just that tail,
-/// and on a jump from far up the thread the tail sheds the rows it no longer needs (`shed`).
-///
-/// Only there, because a shed row is re-estimated by the lazy history, which moves everything below
-/// it until the next scroll lands: from far up, that's all off screen. Shedding when an answer
-/// completes at the end was measured to flash other content for one frame, before the re-pin
-/// landed. So while the reader follows the thread, new exchanges pile up in the tail.
+/// Task 1c: measures bubble text as `ChatBubble` sets it (`chatBubbleText()`), for the tail's height
+/// budget (`ChatThreadTail.Metrics`): the step from one line to the next, leading included, and the
+/// average width of a character of prose. Hidden behind the thread; it re-measures whenever the
+/// bubbles would re-lay out (text size, Bold Text). Writes to `AskThreadTail`'s unobserved fields, so
+/// measuring never re-renders anything.
+private struct AskBubbleTextGauge: View {
+    let tail: AskThreadTail
+
+    /// A line of plain prose, for the average character width.
+    static let sample = "Here is what your saved notes and links say about it, and where they differ."
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Text(Self.sample)
+                .chatBubbleText()
+                .fixedSize()
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { tail.gaugeSample = $0 }
+            Text("Ag\nAg\nAg")
+                .chatBubbleText()
+                .fixedSize()
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tail.gaugeThreeLines = $0 }
+        }
+        .hidden()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Where the Ask thread's lazily built history ends and its fully laid-out tail begins (plan 16,
+/// tasks 1b and 1c). The rule itself — why a tail, how big — is `ChatThreadTail` in StashKit; this
+/// holds the split for the thread on screen and the measurements the rule needs.
 ///
 /// The split is read during `body`, and set there for a new thread (keyed by its first row), so a
-/// thread's first render already has it. Rows only ever move from the tail into the history. A moved
-/// row is rebuilt, so it loses its state (a given rating), as a lazy row scrolled far away sometimes
-/// does anyway.
+/// thread's first render already has it. Rows only ever move from the tail into the history, at two
+/// moments, both when the rows that move are off screen:
+/// - a send from above the whole tail (`ChatThreadTail.sendJump`): they're below the reader, and the
+///   jump lands on the new rows;
+/// - an answer completing with the reader following at its end: they're above the reader, and the
+///   scroll observer holds the end through that layout pass (`AskThreadScrollObserver`). Task 1b
+///   measured a one-frame flash of 1,070–1,517 pt when it shed there without the hold, so it didn't:
+///   new exchanges piled up in the tail while the reader followed, and each one kept laid out added
+///   about ten dropped frames to every later streamed answer.
+///
+/// A moved row is rebuilt and loses its own state, as a lazy row scrolled far away sometimes does
+/// anyway; a given rating lives in `ChatRatings`, so it stays.
 @Observable
 final class AskThreadTail {
-    static let minimumTailCharacters = 2_000
+    /// The thread's horizontal padding (16 pt each side) plus an answer bubble's own: its trailing
+    /// spacer (40 pt) and spacing (8 pt), and its padding (12 pt each side). What's left of the
+    /// thread's width is a line of bubble text.
+    static let bubbleTextInset: CGFloat = 32 + 40 + 8 + 24
 
     @ObservationIgnored private var threadKey: String?
     @ObservationIgnored private var historyEnd = 0
+    /// `AskBubbleTextGauge`'s measurements: one line of sample prose, and three short lines.
+    @ObservationIgnored var gaugeSample: CGSize = .zero
+    @ObservationIgnored var gaugeThreeLines: CGFloat = 0
+    /// The thread's size now, and the tallest it has been (so the budget isn't cut while the
+    /// keyboard is up).
+    @ObservationIgnored private var viewport: CGSize = .zero
+    @ObservationIgnored private var tallestViewport: CGFloat = 0
     /// Bumped by `shed`, so the thread re-renders with the new split.
     private var sheds = 0
+
+    func noteViewport(_ size: CGSize) {
+        viewport = size
+        tallestViewport = max(tallestViewport, size.height)
+    }
+
+    /// The budget's inputs, once the thread and the gauge have both been measured.
+    var metrics: ChatThreadTail.Metrics? {
+        let characters = CGFloat(AskBubbleTextGauge.sample.count)
+        guard gaugeSample.width > 0, gaugeThreeLines > gaugeSample.height,
+              viewport.width > Self.bubbleTextInset, tallestViewport > 0 else { return nil }
+        return ChatThreadTail.Metrics(viewportHeight: Double(tallestViewport),
+                                      textWidth: Double(viewport.width - Self.bubbleTextInset),
+                                      lineHeight: Double((gaugeThreeLines - gaugeSample.height) / 2),
+                                      characterWidth: Double(gaugeSample.width / characters))
+    }
 
     /// How many leading rows of `messages` are lazy history. The rest are the tail, which always
     /// holds at least the last row.
@@ -896,31 +1209,21 @@ final class AskThreadTail {
         let key = messages.first?.id
         if key != threadKey {
             threadKey = key
-            historyEnd = Self.tailStart(in: messages)
+            historyEnd = ChatThreadTail.tailStart(in: messages, metrics: metrics)
         }
-        return min(historyEnd, max(0, messages.count - 1))
+        // A rollback (a question that failed before its first token) can leave the split past the
+        // last row. Stored back, so the next rows appended stay in the tail rather than moving
+        // finished rows out of it while the reader follows (review nit N1).
+        historyEnd = min(historyEnd, max(0, messages.count - 1))
+        return historyEnd
     }
 
-    /// Moves the rows the tail no longer needs into the history. Call only when nothing below the
-    /// reader is on screen and the next scroll lands on the tail (a jump from far up).
+    /// Moves the rows the tail no longer needs into the history — only at the two moments above.
     func shed(_ messages: [ChatMessage]) {
-        let start = Self.tailStart(in: messages)
+        let start = ChatThreadTail.tailStart(in: messages, metrics: metrics)
         guard messages.first?.id == threadKey, start > historyEnd else { return }
         historyEnd = start
         sheds += 1
-    }
-
-    /// Where the tail starts: at the last question, or earlier until the tail holds
-    /// `minimumTailCharacters` of text.
-    static func tailStart(in messages: [ChatMessage]) -> Int {
-        guard !messages.isEmpty else { return 0 }
-        var start = messages.lastIndex { $0.role == .user } ?? messages.count - 1
-        var characters = messages[start...].reduce(0) { $0 + $1.content.count }
-        while start > 0, characters < minimumTailCharacters {
-            start -= 1
-            characters += messages[start].content.count
-        }
-        return start
     }
 }
 
@@ -934,21 +1237,28 @@ final class AskThreadTail {
 ///
 /// With `--uitest-scripted-long-thread` (task 1b) the chunks come slower, so an answer takes about
 /// 12 s: that test's checks on a big thread all land while the answer is still streaming.
+///
+/// With `--uitest-scripted-prose` (task 1c) every answer is prose instead: three wrapping paragraphs
+/// (about 550 characters) and the same closing line. A list answer is tall at any text size; prose
+/// takes a height that depends on the text size and the width, as a real answer's does, which is what
+/// the tail's height budget has to follow.
 private struct ScriptedChatStreamer: ChatStreaming {
     var chunkInterval: Duration = .milliseconds(110)
+    var prose = false
 
     func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error> {
         if message.hasPrefix("gate:") {
             return AsyncThrowingStream { $0.finish(throwing: ChatStreamError.subscriptionRequired) }
         }
         let chunkInterval = chunkInterval
+        let chunks = prose ? Self.proseChunks(for: message) : Self.answerChunks(for: message)
         return AsyncThrowingStream { continuation in
             let task = Task {
                 continuation.yield(.status(.searching))
                 try? await Task.sleep(for: .milliseconds(400))
                 continuation.yield(.status(.reading))
                 try? await Task.sleep(for: .milliseconds(400))
-                for chunk in Self.answerChunks(for: message) {
+                for chunk in chunks {
                     guard !Task.isCancelled else { break }
                     continuation.yield(.delta(chunk))
                     try? await Task.sleep(for: chunkInterval)
@@ -970,6 +1280,27 @@ private struct ScriptedChatStreamer: ChatStreaming {
         chunks.append("\nEnd of the scripted answer to: \(question)")
         return chunks
     }
+
+    private static let proseParagraphs = [
+        "Here is what your stash says about it. The notes you saved over the last few months come back to the same idea again and again, and the clearest version of it is in the longest one.",
+        "Most of the links you saved agree on the basics, although two of them disagree about the details, and one of your voice memos adds a caveat that the others leave out entirely.",
+        "If you want to read further, the article you saved in the spring covers the background in more depth, and the photo of the whiteboard has the outline you sketched at the time.",
+    ]
+
+    /// The prose answer, streamed a few words at a time.
+    static func proseChunks(for question: String) -> [String] {
+        var chunks: [String] = []
+        for paragraph in proseParagraphs {
+            let words = paragraph.split(separator: " ")
+            stride(from: 0, to: words.count, by: 5).forEach { start in
+                let end = min(start + 5, words.count)
+                chunks.append(words[start..<end].joined(separator: " ") + (end < words.count ? " " : ""))
+            }
+            chunks.append("\n\n")
+        }
+        chunks.append("End of the scripted answer to: \(question)")
+        return chunks
+    }
 }
 
 /// In-memory history for `--uitest-scripted-chat`: a fresh thread every launch, nothing persisted —
@@ -980,9 +1311,10 @@ private struct ScriptedChatStreamer: ChatStreaming {
 /// exchanges whose answers are the scripted 60-line list (several screens tall): one continues as
 /// the latest conversation, so it's restored at launch, and one is listed in History ("Scripted long
 /// conversation"). Every far jump the thread makes then runs against rows the lazy stack hasn't
-/// loaded.
+/// loaded. With `--uitest-scripted-prose` too (task 1c), their answers are the prose answer.
 private struct ScriptedChatHistory: ChatHistoryStoring {
     let longThread: Bool
+    var prose = false
 
     private static let earlierId = UUID(uuidString: "5C21B7ED-A5C0-4E16-9D16-000000000016")!
     private static let earlierTitle = "Scripted earlier conversation"
@@ -995,13 +1327,13 @@ private struct ScriptedChatHistory: ChatHistoryStoring {
     private static let listedLongId = UUID(uuidString: "5C21B7ED-A5C0-4E16-9D16-0000000001B2")!
     private static let listedLongTitle = "Scripted long conversation"
 
-    /// Questions "Long question <tag>1" … "<tag>8", each answered with the scripted list.
-    private static func longMessages(tag: String) -> [ChatMessage] {
+    /// Questions "Long question <tag>1" … "<tag>8", each answered with the scripted list (or prose).
+    private static func longMessages(tag: String, prose: Bool) -> [ChatMessage] {
         (1...8).flatMap { n -> [ChatMessage] in
             let question = "Long question \(tag)\(n)"
+            let answer = prose ? ScriptedChatStreamer.proseChunks(for: question) : ScriptedChatStreamer.answerChunks(for: question)
             return [ChatMessage(id: "scripted-long-\(tag)\(n)-q", role: .user, content: question),
-                    ChatMessage(id: "scripted-long-\(tag)\(n)-a", role: .assistant,
-                                content: ScriptedChatStreamer.answerChunks(for: question).joined())]
+                    ChatMessage(id: "scripted-long-\(tag)\(n)-a", role: .assistant, content: answer.joined())]
         }
     }
 
@@ -1013,8 +1345,8 @@ private struct ScriptedChatHistory: ChatHistoryStoring {
     func loadHistory(conversationId: UUID, limit: Int) async throws -> [ChatMessage] {
         switch conversationId {
         case Self.earlierId: Self.earlierMessages
-        case Self.latestLongId where longThread: Self.longMessages(tag: "")
-        case Self.listedLongId where longThread: Self.longMessages(tag: "B")
+        case Self.latestLongId where longThread: Self.longMessages(tag: "", prose: prose)
+        case Self.listedLongId where longThread: Self.longMessages(tag: "B", prose: prose)
         default: []
         }
     }

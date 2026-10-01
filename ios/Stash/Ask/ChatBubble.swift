@@ -36,17 +36,29 @@ struct ChatBubble: View, Equatable {
     /// last row and nothing is streaming.
     let showsRetry: Bool
     let speech: SpeechReader
+    /// The thumbs given this session, kept outside the bubble (plan 16 task 1c) — see `ChatRatings`.
+    let ratings: ChatRatings
     let onCitationTap: (UUID) -> Void
     let onRetry: () -> Void
 
-    @State private var rating: Int?
     @State private var cursorDimmed = false
 
     nonisolated static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
         lhs.message == rhs.message && lhs.index == rhs.index && lhs.question == rhs.question
             && lhs.userId == rhs.userId && lhs.loadingSourceId == rhs.loadingSourceId
-            && lhs.showsRetry == rhs.showsRetry && lhs.speech === rhs.speech
+            && lhs.showsRetry == rhs.showsRetry && lhs.speech === rhs.speech && lhs.ratings === rhs.ratings
     }
+
+    private var rating: Int? { ratings.value(for: message.id) }
+
+    #if DEBUG
+    /// `--uitest-scripted-chat` (UI tests only): nothing reaches the server (see
+    /// `AskView.usesScriptedChat`), so a thumb is recorded on screen but no `chat_feedback` row is
+    /// written. Compiled out of Release.
+    private static let keepsFeedbackLocal = ProcessInfo.processInfo.arguments.contains("--uitest-scripted-chat")
+    #else
+    private static let keepsFeedbackLocal = false
+    #endif
 
     var body: some View {
         switch message.role {
@@ -64,8 +76,7 @@ struct ChatBubble: View, Equatable {
             // DESIGN.md's one UI family. A bare `Text` here fell back to SF at the system size
             // while replies rendered Neue Montreal 14 (Will, 2026-09-07).
             Text(message.content)
-                .font(StashType.body())
-                .lineSpacing(14 * 0.35)
+                .chatBubbleText()
                 .accessibilityIdentifier("ask.bubble.\(index)")
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
@@ -277,7 +288,8 @@ struct ChatBubble: View, Equatable {
     /// answer, source_item_ids (nullable), rating (1 up / -1 down).
     private func submitFeedback(_ value: Int) {
         guard rating == nil else { return }
-        rating = value
+        ratings.record(value, for: message.id)
+        guard !Self.keepsFeedbackLocal else { return }
         let feedback = ChatFeedbackInsert(
             userId: userId.uuidString,
             question: question,
@@ -372,11 +384,39 @@ private struct ChatAnswerText: View {
             attributed[range].underlineStyle = nil
         }
         return Text(attributed)
-            .font(StashType.body())
+            .chatBubbleText()
             .foregroundStyle(StashColor.ink)
-            .lineSpacing(14 * 0.35)
             .frame(maxWidth: nil, alignment: .leading)
     }
+}
+
+extension View {
+    /// Sets bubble text the one way `ChatBubble` lays it out: the face, its size and the space
+    /// between lines. Every line of a question or an answer goes through here, and so does the Ask
+    /// thread's text gauge (`AskBubbleTextGauge`), which measures a sample set this way to size the
+    /// thread's laid-out tail by height (`ChatThreadTail`, plan 16 task 1c). So a change of type here
+    /// (the reading role, a scaled leading) moves the tail's budget with it: set bubble text through
+    /// this modifier, never with its own `.font` or `.lineSpacing`.
+    func chatBubbleText() -> some View {
+        font(StashType.body())
+            .lineSpacing(14 * 0.35)
+    }
+}
+
+/// The thumbs the user gave each answer this session, by message id (plan 16 task 1c, review nit
+/// N5). A bubble used to hold its rating in its own `@State`, which starts over whenever the row is
+/// rebuilt — and the Ask thread rebuilds a row whenever it moves from the laid-out tail into the lazy
+/// history (`AskThreadTail`), which since task 1c happens at every answer the reader follows to its
+/// end. The given thumb then showed unset again, and a second tap could insert a second
+/// `chat_feedback` row. Kept by `AskView`, so it lasts as long as the Ask tab does.
+@MainActor
+@Observable
+final class ChatRatings {
+    private var values: [String: Int] = [:]
+
+    func value(for messageId: String) -> Int? { values[messageId] }
+
+    func record(_ rating: Int, for messageId: String) { values[messageId] = rating }
 }
 
 private struct ChatFeedbackInsert: Encodable {
@@ -412,6 +452,7 @@ private struct ChatFeedbackInsert: Encodable {
         loadingSourceId: nil,
         showsRetry: false,
         speech: SpeechReader(),
+        ratings: ChatRatings(),
         onCitationTap: { _ in },
         onRetry: {}
     )
