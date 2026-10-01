@@ -50,14 +50,14 @@ struct PhoneSection: View {
             }
             if let errorMessage {
                 Text(errorMessage)
-                    .font(StashType.meta())
+                    .stashFont(.meta)
                     .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("settings.phone.error")
             }
         } header: {
-            Text("Phone Numbers")
+            settingsCaption("Phone Numbers")
         } footer: {
-            Text("Register up to 3 numbers to send notes via SMS or WhatsApp.")
+            settingsCaption("Register up to 3 numbers to send notes via SMS or WhatsApp.")
         }
         .task { await load() }
         .confirmationDialog(
@@ -77,39 +77,73 @@ struct PhoneSection: View {
         return "You will no longer be able to send notes from \(formatStoredPhoneNumber(deleteTarget.phoneNumber)) until you register it again."
     }
 
+    /// Plan 16: the number, its "Verified" note and the remove button on one line while they fit;
+    /// at the larger text sizes the note and the button go under the number.
     private func row(_ number: PhoneNumberRow) -> some View {
-        HStack {
-            // Tabular mono for the formatted digits — same sanctioned system-monospace
-            // exception as the capture-recorder timer.
-            Text(formatStoredPhoneNumber(number.phoneNumber))
-                .font(StashType.mono(15))
-            if number.verified {
-                Text("Verified")
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.muted)
+        let display = formatStoredPhoneNumber(number.phoneNumber)
+        return ViewThatFits(in: .horizontal) {
+            HStack {
+                phoneText(display)
+                if number.verified { verifiedText }
+                Spacer()
+                removeButton(number, display: display)
             }
-            Spacer()
-            Button {
-                deleteTarget = number
-            } label: {
-                Image(systemName: "trash").foregroundStyle(StashColor.destructive)
+            VStack(alignment: .leading, spacing: 4) {
+                phoneText(display)
+                HStack {
+                    if number.verified { verifiedText }
+                    Spacer()
+                    removeButton(number, display: display)
+                }
             }
-            .buttonStyle(.borderless)
-            .accessibilityIdentifier("settings.phone.delete.\(number.id)")
         }
         .accessibilityIdentifier("settings.phone.row.\(number.id)")
     }
 
+    /// Tabular mono for the formatted digits — same sanctioned system-monospace exception as the
+    /// capture-recorder timer (15 pt, `.subheadline`).
+    private func phoneText(_ display: String) -> some View {
+        Text(display)
+            .stashFont(.mono(.subheadline))
+            .lineLimit(1)
+    }
+
+    private var verifiedText: some View {
+        Text("Verified")
+            .stashFont(.meta)
+            .foregroundStyle(StashColor.muted)
+    }
+
+    /// A 44 pt target (`.stashPlain` — the tap stays on the button, not the row), named for
+    /// VoiceOver and the Large Content Viewer.
+    private func removeButton(_ number: PhoneNumberRow, display: String) -> some View {
+        Button {
+            deleteTarget = number
+        } label: {
+            Image(systemName: "trash").foregroundStyle(StashColor.destructive)
+        }
+        .buttonStyle(.stashPlain)
+        .stashIconControl("Remove \(display)", systemImage: "trash")
+        .accessibilityIdentifier("settings.phone.delete.\(number.id)")
+    }
+
     private var addRow: some View {
         HStack {
-            TextField("+1 (555) 123-4567", text: $input)
+            // Plan 16: the placeholder in `muted` (the system's is 1.7:1).
+            TextField("Phone number", text: $input,
+                      prompt: Text("+1 (555) 123-4567").foregroundStyle(StashColor.muted))
                 .keyboardType(.phonePad)
                 .onChange(of: input) { _, newValue in input = formatPhoneNumber(newValue).display }
                 .accessibilityIdentifier("settings.phone.input")
             if isSaving {
                 ProgressView()
             } else {
+                // Plan 16: a 44 pt target (`.stashPlain`; it was the word, 31 × 21 pt). A plain
+                // button doesn't tint itself: violet-600 while it can act (5.18:1), `faint` while
+                // it's disabled (the one use `faint` has for text).
                 Button("Add") { Task { await add() } }
+                    .buttonStyle(.stashPlain)
+                    .foregroundStyle(isInputValid ? StashColor.violet600 : StashColor.faint)
                     .disabled(!isInputValid)
                     .accessibilityIdentifier("settings.phone.add")
             }

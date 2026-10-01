@@ -30,6 +30,11 @@ struct CaptureComposerView: View {
     /// attachments leave).
     @State private var thumbnails: [UUID: UIImage] = [:]
     @FocusState private var editorFocused: Bool
+    /// VoiceOver's cursor (plan 16): Cancel disappears the moment it's activated, so it hands the
+    /// cursor back to the editor — the thing the user was writing in — instead of leaving VoiceOver
+    /// to land wherever it falls back to.
+    @AccessibilityFocusState private var editorAccessibilityFocused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     // Task 2 (plan 10 round 2): the tab's own container height, captured from a keyboard-blind
     // measuring layer below — never the height SwiftUI proposes to the composer's own content,
     // which shrinks once the keyboard rises. Used only to compute the card's 2/3 cap; left at 0
@@ -118,27 +123,32 @@ struct CaptureComposerView: View {
                     // capturing" behavior everywhere else. `capture.dismissKeyboard` + the "Cancel"
                     // a11y label are preserved so `testComposerKeyboardAccessory` still finds a
                     // control there (its glyph assertions were updated in place for the new copy).
+                    //
+                    // Plan 16: the shared keyboard Cancel (`StashCancelButton`, the same one Ask and
+                    // the View-tab search use) — 17 pt, a 44 pt target that overhangs the word, and,
+                    // on this gradient wash, `onWash`'s opaque paper capsule (violet-600 straight on
+                    // the wash is ~3.3:1).
                     HStack(spacing: 12) {
                         if viewModel.pendingOutboxCount > 0 {
-                            Text("\(viewModel.pendingOutboxCount)")
-                                .font(StashType.semibold(size: 11))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                // .orange has no DESIGN.md token yet.
-                                .background(Color.orange, in: Capsule())
-                                .accessibilityIdentifier("capture.outboxBadge")
+                            outboxBadge(viewModel.pendingOutboxCount)
                         }
-                        if editorFocused {
-                            Button {
-                                editorFocused = false
-                            } label: {
-                                Text("Cancel")
-                                    .font(StashType.body())
-                                    .foregroundStyle(StashColor.violet600)
+                        ZStack(alignment: .trailing) {
+                            // Holds Cancel's line at rest, so it appearing never moves the header at
+                            // any text size (at Large the line is 20.67 pt beside the 20 pt wordmark;
+                            // at AX3 it's ~45 pt, which would otherwise push the card down as the
+                            // keyboard rises). Not a button: nothing to tap, nothing for VoiceOver.
+                            Text("Cancel")
+                                .stashFont(.textButton)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .hidden()
+                                .accessibilityHidden(true)
+                            if editorFocused {
+                                StashCancelButton(identifier: "capture.dismissKeyboard", onWash: true) {
+                                    editorFocused = false
+                                    editorAccessibilityFocused = true
+                                }
                             }
-                            .accessibilityIdentifier("capture.dismissKeyboard")
-                            .accessibilityLabel("Cancel")
                         }
                     }
                 }
@@ -298,12 +308,20 @@ struct CaptureComposerView: View {
                     // as `TextEditor`'s own caret (see the container comment for the full math).
                     .padding(.vertical, 8)
                     .allowsHitTesting(false)
+                    // The editor itself announces the placeholder (its accessibility label below).
+                    .accessibilityHidden(true)
             }
             TextEditor(text: $viewModel.text)
                 .focused($editorFocused)
+                .accessibilityFocused($editorAccessibilityFocused)
                 .scrollContentBackground(.hidden)
+                .accessibilityLabel("Save a thought, a link, anything")
                 .accessibilityIdentifier("capture.editor")
         }
+        // Plan 16: the Add editor is reading text — Neue Montreal at 17 pt (`.body`), scaling with
+        // Dynamic Type and one face heavier under Bold Text; the placeholder matches it, in `muted`
+        // (AA on the card). Both used to be SF.
+        .stashFont(.reading)
         // TextEditor's greedy vertical fill is exactly right here — it claims whatever room
         // `ComposerCard`'s column gives it above the URL chip/attachments/gate/pin/bottom-bar
         // stack. Final wave: that's no longer "the whole screen" — the card itself is capped at
@@ -333,9 +351,10 @@ struct CaptureComposerView: View {
     private var subscriptionGateMessage: some View {
         HStack(spacing: 6) {
             Image(systemName: "lock.fill").imageScale(.small)
+                .accessibilityHidden(true)
             Text("Subscribe to add new items.")
         }
-        .font(StashType.meta())
+        .stashFont(.meta)
         .foregroundStyle(StashColor.gateText)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -348,14 +367,17 @@ struct CaptureComposerView: View {
         .accessibilityIdentifier("capture.subscriptionGate")
     }
 
+    /// One line at every size, truncating: the URL is also right there in the editor above it,
+    /// in full.
     private func urlChip(_ url: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "globe")
+                .accessibilityHidden(true)
             Text(url)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .font(StashType.meta())
+        .stashFont(.meta)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Color(.tertiarySystemFill), in: Capsule())
@@ -379,9 +401,13 @@ struct CaptureComposerView: View {
             // wave (F1 + Will's markup): removed outright — the same job (dismiss the keyboard,
             // keep the draft) now lives as a "Cancel" text button in the header row above
             // (`capture.dismissKeyboard`, see `StashHeader` usage), which can never widen this bar.
+            // Plan 16: each circle names itself for VoiceOver and the Large Content Viewer
+            // (`stashIconControl`); the circles keep their size at every text size, like bar
+            // buttons, and each takes a 44 pt target (48 pt apart, centre to centre).
             PhotosPicker(selection: $selectedPhotoItems, matching: .images) {
                 CircleIcon(systemImage: "photo.on.rectangle")
             }
+            .stashIconControl("Add photos", systemImage: "photo.on.rectangle")
             .accessibilityIdentifier("capture.photosPicker")
 
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -390,6 +416,7 @@ struct CaptureComposerView: View {
                 } label: {
                     CircleIcon(systemImage: "camera")
                 }
+                .stashIconControl("Take a photo", systemImage: "camera")
                 .accessibilityIdentifier("capture.cameraButton")
             }
 
@@ -398,6 +425,7 @@ struct CaptureComposerView: View {
             } label: {
                 CircleIcon(systemImage: "doc.badge.plus")
             }
+            .stashIconControl("Add a file", systemImage: "doc.badge.plus")
             .accessibilityIdentifier("capture.fileButton")
 
             // Hidden only when the device truly has no microphone input at all (`isInputAvailable`
@@ -419,6 +447,7 @@ struct CaptureComposerView: View {
                 // Save's own visible-but-disabled treatment; the inline message above already
                 // explains why.
                 .disabled(!subscription.canAddContent && !CaptureTestHooks.opensVoiceGate)
+                .stashIconControl("Record a voice note", systemImage: "mic")
                 .accessibilityIdentifier("capture.voice")
             }
 
@@ -440,17 +469,22 @@ struct CaptureComposerView: View {
         } label: {
             CircleIcon(systemImage: "mappin", active: engaged, busy: state == .resolving)
         }
+        // A toggle: VoiceOver hears "Include your location, On/Off" (web parity: the composer's
+        // "Include your location"), not a colour.
+        .stashIconControl("Include your location", systemImage: "mappin", isOn: engaged)
         .accessibilityIdentifier("capture.pin")
     }
 
     private func pinPreview(_ label: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "mappin.circle.fill")
+            // One line while it fits beside the controls; at accessibility sizes the place wraps
+            // (up to three lines) rather than truncating to a word.
             Text("posted from \(label)")
-                .lineLimit(1)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 .truncationMode(.tail)
         }
-        .font(StashType.meta())
+        .stashFont(.meta)
         .foregroundStyle(StashColor.muted)
         // Without `.ignore` + an explicit label, the Image and Text below are each independently
         // accessible and BOTH inherit the identifier applied below (confirmed live: an XCUITest
@@ -479,7 +513,23 @@ struct CaptureComposerView: View {
                              busy: isSubmitting)
         }
         .disabled(isSubmitting || !canSubmit || !subscription.canAddContent || isAddingAttachments)
+        .stashIconControl("Save", systemImage: "paperplane.fill")
         .accessibilityIdentifier("capture.save")
+    }
+
+    /// Captures still waiting to sync (the Outbox). Violet-600 — DESIGN.md's "will sync" intent (the
+    /// share sheet's queued state) — with white text, 5.18:1; it used to be white on a bare
+    /// `.orange`, 2.2:1 and no token. 12 pt Semibold, scaling with `.caption`.
+    private func outboxBadge(_ count: Int) -> some View {
+        Text("\(count)")
+            .stashFont(.custom(.semibold, size: 12))
+            .monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(StashColor.violet600, in: Capsule())
+            .accessibilityLabel(count == 1 ? "1 capture waiting to sync" : "\(count) captures waiting to sync")
+            .accessibilityIdentifier("capture.outboxBadge")
     }
 
     // MARK: - Actions
@@ -594,30 +644,60 @@ struct CaptureComposerView: View {
         let token = UUID()
         toastToken = token
         withAnimation { self.toast = toast }
+        // WCAG 4.1.3: the outcome is also said, not only shown — VoiceOver's cursor is elsewhere
+        // (on Save, or back in the editor) when the toast appears.
+        AccessibilityNotification.Announcement(toast.message).post()
         Task {
             try? await Task.sleep(for: .seconds(3))
             if toastToken == token { withAnimation { self.toast = nil } }
         }
     }
 
+    /// A saved toast opens the View tab; any toast goes away.
+    private func tapToast(_ toast: CaptureToast) {
+        if toast.opensLibrary { switchToView() }
+        withAnimation { self.toast = nil }
+    }
+
+    /// Plan 16 (contrast): a paper pill — the state's glyph in its intent colour beside `ink`
+    /// text (DESIGN.md: "a confirmation caption is ink/muted text beside the success glyph"). The
+    /// old pills put white text on `success` (3.39:1) or on a bare `.orange` (2.2:1), both under AA.
+    /// Tapping a saved toast still opens the View tab.
     @ViewBuilder
     private var toastView: some View {
         if let toast {
-            Text(toast.message)
-                .font(StashType.bodySemibold())
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(toast.color, in: Capsule())
-                .shadow(radius: 4)
-                .padding(.bottom, 20)
-                .accessibilityIdentifier("capture.toast")
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .onTapGesture {
-                    if case .saved = toast { switchToView() }
-                    withAnimation { self.toast = nil }
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: toast.systemImage)
+                    .foregroundStyle(toast.glyphColor)
+                    .accessibilityHidden(true)
+                Text(toast.message)
+                    .foregroundStyle(StashColor.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .stashFont(.secondaryMedium)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            // A 20 pt radius is the old capsule on one line, and keeps a wrapped message (a
+            // multi-save note, any toast at the larger text sizes) clear of the ends.
+            .background(StashColor.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(StashColor.hairline, lineWidth: 1))
+            .stashCardShadow()
+            // The pill is ~40 pt tall at Large: its tap target reaches 44 without changing it
+            // (on the pill, not the margins around it).
+            .stashMinimumHitTarget()
+            .onTapGesture { tapToast(toast) }
+            // One element that reads exactly the message (tests read `capture.toast`'s label);
+            // a saved toast is a button to VoiceOver too.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(toast.message)
+            .accessibilityAddTraits(toast.opensLibrary ? .isButton : [])
+            .accessibilityHint(toast.opensLibrary ? "Shows it in View" : "")
+            .accessibilityAction { tapToast(toast) }
+            .accessibilityIdentifier("capture.toast")
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 }
@@ -633,15 +713,30 @@ private enum CaptureToast: Equatable {
         }
     }
 
-    // Amber whenever something didn't make it (dropped attachments, offline queueing, or an
-    // outright rejection) — green is reserved for a fully clean save (fix round: a partially
-    // dropped save must not read as an unqualified success).
-    // .orange is a bare literal with no DESIGN.md warn/amber token yet (plan-11 wrap fold:
-    // only added `success`, which covers the green case below).
-    var color: Color {
+    /// A saved toast is a shortcut to the View tab.
+    var opensLibrary: Bool {
+        if case .saved = self { return true }
+        return false
+    }
+
+    // Plan 16: the state is carried by the glyph, in DESIGN.md's intent tokens — a clean save is
+    // `success` (fix round: a partially dropped save must not read as an unqualified success), an
+    // offline save that will sync is violet-600 (the share sheet's queued state), and anything that
+    // didn't make it is `destructive`. Glyphs need 3:1 on the paper pill: success 3.39, violet-600
+    // 5.18, destructive 5.06. (These replace the pills' old bare `.orange`, which had no token.)
+    var systemImage: String {
         switch self {
-        case .saved(_, let hadDrops): hadDrops ? .orange : StashColor.success
-        case .queued, .rejected: .orange
+        case .saved(_, let hadDrops): hadDrops ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
+        case .queued: "clock.arrow.circlepath"
+        case .rejected: "exclamationmark.circle.fill"
+        }
+    }
+
+    var glyphColor: Color {
+        switch self {
+        case .saved(_, let hadDrops): hadDrops ? StashColor.destructive : StashColor.success
+        case .queued: StashColor.violet600
+        case .rejected: StashColor.destructive
         }
     }
 }

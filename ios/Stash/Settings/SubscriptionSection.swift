@@ -24,18 +24,23 @@ struct SubscriptionSection: View {
     @Environment(SubscriptionStore.self) private var subscription
 
     var body: some View {
-        Section("Subscription") {
+        Section {
             statusRow
             Link(destination: URL(string: "https://gostash.it/settings")!) {
                 HStack {
                     Text("Manage on gostash.it")
                     Spacer()
+                    // Plan 16: the external-link glyph at the meta role's size, scaling with the
+                    // row (it used to be a raw `.caption`); the link's name says where it goes.
                     Image(systemName: "arrow.up.right")
-                        .font(.caption)
+                        .stashFont(.meta)
                         .foregroundStyle(StashColor.muted)
+                        .accessibilityHidden(true)
                 }
             }
             .accessibilityIdentifier("settings.subscription.manage")
+        } header: {
+            settingsCaption("Subscription")
         }
         .task {
             await subscription.refresh(force: true)
@@ -47,10 +52,9 @@ struct SubscriptionSection: View {
         }
     }
 
-    @ViewBuilder private var statusRow: some View {
-        HStack {
-            Text("Status").foregroundStyle(StashColor.muted)
-            Spacer()
+    /// Plan 16: label above value once they don't fit side by side (`SettingsValueRow`).
+    private var statusRow: some View {
+        SettingsValueRow(label: "Status") {
             if subscription.isLoading {
                 ProgressView()
                     .accessibilityIdentifier("settings.subscription.loading")

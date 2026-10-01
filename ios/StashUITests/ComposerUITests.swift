@@ -16,6 +16,9 @@ import XCTest
 final class ComposerUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Plan 16: the simulator-global Bold Text setting may have been left on by an interrupted
+        // accessibility run (see `A11yScreenshotSupport`'s GLOBAL STATE note).
+        MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
     }
 
     // MARK: - Voice memos (H3)
@@ -24,6 +27,7 @@ final class ComposerUITests: XCTestCase {
     /// `AVAudioSession.interruptionNotification` (`--uitest-voice-interrupt-after`), what a phone
     /// call or Siri delivers — finalizes the take and says where it was cut, with Save and
     /// Re-record still offered. Re-record starts a clean take.
+    @MainActor
     func testRecordingKeepsTheScreenAwakeAndReportsAnInterruption() throws {
         let app = XCUIApplication()
         try signIn(app, extraLaunchArguments: ["--uitest-voice-gate-open", "--uitest-voice-probe",
@@ -62,6 +66,7 @@ final class ComposerUITests: XCTestCase {
     /// `UIBackgroundModes: audio`: a recording keeps running while the app is in the background
     /// (Home here; a screen lock suspends the app the same way) and comes back still recording,
     /// with the time spent away on its clock. Stopping it afterwards is a normal stop — no notice.
+    @MainActor
     func testRecordingKeepsRunningInTheBackground() throws {
         let app = XCUIApplication()
         try signIn(app, extraLaunchArguments: ["--uitest-voice-gate-open", "--uitest-voice-probe"])
@@ -97,6 +102,7 @@ final class ComposerUITests: XCTestCase {
     /// takes typing WHILE the photo is still loading. `--uitest-slow-attachment-load` BLOCKS the
     /// loading thread for 6 s: if loading ever moved back onto the main thread, the composer would
     /// freeze for those 6 s, and the typing below would only land after the chip had resolved.
+    @MainActor
     func testPickedPhotoLoadsBehindAPendingChipWhileTypingContinues() throws {
         let app = XCUIApplication()
         try signIn(app, extraLaunchArguments: ["--uitest-slow-attachment-load=6000"])
@@ -135,10 +141,20 @@ final class ComposerUITests: XCTestCase {
     /// from its size alone with a toast — never dropped silently. Driven through the composer's
     /// real file-import path: `--uitest-import-file` hands it sparse files exactly as the Files
     /// picker hands over its picks (minus the out-of-process picker UI).
+    @MainActor
     func testImportedFilesAttachOrSayWhyNot() throws {
         let app = XCUIApplication()
-        try signIn(app, extraLaunchArguments: ["--uitest-import-file=clip.mov:30",
-                                               "--uitest-import-file=lecture.mov:101"])
+        try signIn(app)
+        // The imports are handed over on the composer's first appearance, and the refusal toast
+        // lasts 3 s — so they ride a signed-in RELAUNCH (the Keychain session restores), clear of
+        // the sign-in's iOS 26 "Save Password?" handling, which can take up to 12 s and used to
+        // outlast the toast (plan 16). The allowed file's load is held 4 s, so the toast comes
+        // after the launch has settled.
+        app.terminate()
+        app.launchArguments = ["--uitest-slow-attachment-load=4000",
+                               "--uitest-import-file=clip.mov:30", "--uitest-import-file=lecture.mov:101"]
+        app.launch()
+        XCTAssertTrue(element(app, "capture.editor").waitForExistence(timeout: 20), "Expected the Add tab after relaunching")
 
         let toast = element(app, "capture.toast")
         XCTAssertTrue(toast.waitForExistence(timeout: 20), "The 101 MB movie must be refused with a toast")
@@ -191,13 +207,18 @@ final class ComposerUITests: XCTestCase {
         let firstPhoto = app.images.matching(NSPredicate(format: "label CONTAINS 'Photo'")).firstMatch
         let photoCell = firstPhoto.waitForExistence(timeout: 10) ? firstPhoto : app.scrollViews.firstMatch.images.firstMatch
         XCTAssertTrue(photoCell.waitForExistence(timeout: 10), "Expected the system photo picker to show at least one photo")
-        photoCell.tap()
+        // A coordinate tap: on iOS 26.5 the out-of-process picker reported its first photo "not
+        // hittable" to XCUITest (plan 16), and `tap()` refuses to tap such an element.
+        photoCell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let addButton = app.navigationBars.buttons["Add"]
         if addButton.waitForExistence(timeout: 5) { addButton.tap() }
     }
 
     /// `--uitest-reset-auth` forces the real sign-in screen (the Keychain session survives
-    /// reinstalls on the Simulator) and marks the one-time onboarding panel as seen.
+    /// reinstalls on the Simulator) and marks the one-time onboarding panel as seen. Plan 16:
+    /// declines iOS 26's "Save Password?" sheet with the canonical `A11yScreens` recipe (it would
+    /// swallow the test's next tap).
+    @MainActor
     private func signIn(_ app: XCUIApplication, extraLaunchArguments: [String] = []) throws {
         let environment = ProcessInfo.processInfo.environment
         guard let email = environment["STASH_TEST_EMAIL"], let password = environment["STASH_TEST_PASSWORD"],
@@ -210,12 +231,13 @@ final class ComposerUITests: XCTestCase {
         app.launch()
         let emailField = app.textFields["signin.email"]
         XCTAssertTrue(emailField.waitForExistence(timeout: 10), "Sign-in email field did not appear")
-        emailField.tap()
+        A11yScreens.tapUntilFocused(emailField)
         emailField.typeText(email)
         let passwordField = app.secureTextFields["signin.password"]
-        passwordField.tap()
+        A11yScreens.tapUntilFocused(passwordField)
         passwordField.typeText(password)
         app.buttons["signin.submit"].tap()
         XCTAssertTrue(element(app, "capture.editor").waitForExistence(timeout: 20), "Expected the Add tab after sign-in")
+        A11yScreens.dismissSavePasswordPrompt(app)
     }
 }

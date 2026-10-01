@@ -34,8 +34,13 @@ struct CaptureAttachmentsRow: View {
             // against the row's own top edge — `.scrollClipDisabled()` below lets it draw past
             // the ScrollView's implicit content-bounds clip; this padding gives it the room to do
             // so without visually shifting the chips themselves.
-            .padding(.top, 10)
-            .padding(.trailing, 8)
+            //
+            // Plan 16: the × takes a 44 pt target (`.stashPlain`), and a target only works inside
+            // the scroll view's own bounds (UIKit doesn't hit-test a scroll view's subviews past
+            // its edge, drawn or not) — so the × centre sits 22 pt inside the top edge (it was 13)
+            // and the last chip's 22 pt inside the trailing end (it was 11).
+            .padding(.top, 19)
+            .padding(.trailing, 19)
         }
         .scrollClipDisabled()
     }
@@ -48,7 +53,7 @@ struct CaptureAttachmentsRow: View {
                 .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
-            removeButton {
+            removeButton(named: "Remove \(attachment.fileName ?? (attachment.kind == .photo ? "photo" : "attachment"))") {
                 attachments.removeAll { $0.id == attachment.id }
             }
             .accessibilityIdentifier("capture.attachment.remove")
@@ -65,19 +70,23 @@ struct CaptureAttachmentsRow: View {
                 .accessibilityLabel("Adding attachment")
                 .accessibilityIdentifier("capture.attachment.pending")
 
-            removeButton { cancelPending(placeholder) }
-                .accessibilityLabel("Cancel adding attachment")
+            removeButton(named: "Cancel adding attachment") { cancelPending(placeholder) }
                 .accessibilityIdentifier("capture.attachment.cancelPending")
         }
     }
 
-    private func removeButton(action: @escaping () -> Void) -> some View {
+    /// The chip's ×: an 18 pt glyph with a 44 pt target (`.stashPlain`), named for VoiceOver and
+    /// the Large Content Viewer. The glyph is icon chrome and keeps its size at every text size
+    /// (DESIGN.md › Controls (iOS)), like `CircleIcon`'s — a system font, so it follows Bold Text.
+    private func removeButton(named name: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "xmark.circle.fill")
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(.white, .black.opacity(0.6))
                 .font(.system(size: 18))
         }
+        .buttonStyle(.stashPlain)
+        .stashIconControl(name, systemImage: "xmark.circle.fill")
         .offset(x: 6, y: -6)
     }
 
@@ -91,14 +100,21 @@ struct CaptureAttachmentsRow: View {
                 .accessibilityIdentifier("capture.attachment.thumbnail")
         } else {
             VStack(spacing: 4) {
+                // Tile art at the tile's own fixed scale (the 64 pt chip never grows).
                 Image(systemName: "doc.fill")
-                    .font(.title3)
+                    .font(StashType.decorative(.book, size: 20))
                     .foregroundStyle(StashColor.muted)
+                    .accessibilityHidden(true)
                 // Task 5: prefer the real filename captured at pick time; fall back to the bare
                 // extension for a camera capture or anything a picker didn't supply a name for.
+                // Plan 16: 12 pt Semibold (`.caption`), growing to xxxLarge and stopping there —
+                // it sits inside the fixed 64 pt tile, where a larger line would show two letters;
+                // VoiceOver reads the whole name. `ink`, not `muted`: the tile's fill stacked on the
+                // composer card is #e9e9ed, where `muted` renders 4.44:1 (measured) — under AA.
                 Text(attachment.fileName ?? attachment.fileExtension.uppercased())
-                    .font(StashType.semibold(size: 11))
-                    .foregroundStyle(StashColor.muted)
+                    .stashFont(.custom(.semibold, size: 12))
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    .foregroundStyle(StashColor.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

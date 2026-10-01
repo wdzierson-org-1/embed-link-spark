@@ -38,13 +38,19 @@ struct DeleteAccountSection: View {
             Button(role: .destructive) {
                 showSheet = true
             } label: {
-                Text("Delete account").frame(maxWidth: .infinity, alignment: .center)
+                // Plan 16: DESIGN.md's `destructive` (5.06:1 on white); the system red a
+                // destructive List button draws is 3.55:1.
+                Text("Delete account")
+                    .foregroundStyle(StashColor.destructive)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .accessibilityIdentifier("settings.deleteAccount")
         } footer: {
-            Text("Permanently deletes your account and everything in it: every item, file, "
-                 + "transcript, note, and conversation. Your phone number is unlinked and any "
-                 + "subscription is canceled. This cannot be undone.")
+            // Plan 16: `muted` — the consequences have to be readable (the system footer grey
+            // is ~3.3:1 on the grouped background).
+            settingsCaption("Permanently deletes your account and everything in it: every item, file, "
+                            + "transcript, note, and conversation. Your phone number is unlinked and any "
+                            + "subscription is canceled. This cannot be undone.")
         }
     }
 }
@@ -73,71 +79,139 @@ struct DeleteAccountConfirmSheet: View {
 
     @Environment(SessionStore.self) private var session
     @Environment(\.dismiss) private var dismiss
+    /// Bold Text, for the one run of the confirmation copy set in its own face (`confirmWord`).
+    @Environment(\.legibilityWeight) private var legibilityWeight
     @State private var confirmation = ""
     @State private var isDeleting = false
     @State private var errorMessage: String?
+    @FocusState private var fieldFocused: Bool
 
     private static let confirmWord = "DELETE"
 
+    /// The field's and the buttons' minimum target, in this sheet's own points (plan 16): 46, not
+    /// HIG's 44, because iOS 26 draws a sheet that isn't at its largest detent — this one's
+    /// `.medium`, at the default text sizes — as a floating card scaled to about 0.96 (measured on
+    /// iOS 26.5: a 44 pt control in it is 42.2 pt on screen). 46 × 0.96 is 44.2. Only the field
+    /// grows (2 pt); the buttons' targets overhang their words, so nothing else moves.
+    private static let minimumTarget: CGFloat = 46
+
+    private var canDelete: Bool { confirmation == Self.confirmWord && !isDeleting }
+
     var body: some View {
+        // Plan 16: centred in the sheet while it fits, scrolling at the larger text sizes (the
+        // sheet also opens full height at the accessibility sizes — `SettingsView`).
+        GeometryReader { geo in
+            ScrollView {
+                content
+                    .padding(24)
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
+        }
+        // Guards against a swipe-to-dismiss mid-delete (web parity: the AlertDialog's own
+        // `handleOpenChange` refuses to close while `deleting` is true) — `interactiveDismissDisabled`
+        // replaces the old custom `Binding` setter now that presentation lives at the root and this
+        // view no longer has direct write access to the `showSheet` boolean.
+        .interactiveDismissDisabled(isDeleting)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Delete your account?")
-                .font(StashType.bodyMedium(17))
+                .stashFont(.readingMedium)
                 .foregroundStyle(StashColor.ink)
+                .accessibilityAddTraits(.isHeader)
 
+            // Supporting text (15 pt), with the word to type in Semibold at the same size and
+            // curve — a run inside the concatenation takes its face from `legibilityWeight`.
             (Text("This removes your whole stash and signs you out everywhere. Type ")
-                + Text(Self.confirmWord).font(StashType.bodySemibold(14))
+                + Text(Self.confirmWord).font(StashType.Role.custom(.semibold, size: 15).font(legibilityWeight))
                 + Text(" to confirm."))
-                .font(StashType.body())
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
 
-            TextField(Self.confirmWord, text: $confirmation)
+            // Plan 16: the placeholder in `muted` (the system's is 1.7:1), a field that grows with
+            // its text (`minHeight`), and a tap anywhere in it focuses it — not only on its text
+            // line (simultaneous, so the field's own caret and selection taps are untouched).
+            TextField(Self.confirmWord, text: $confirmation,
+                      prompt: Text(Self.confirmWord).foregroundStyle(StashColor.muted))
+                .focused($fieldFocused)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .disabled(isDeleting)
-                .font(StashType.mono(15))
+                .stashFont(.mono(.subheadline))
                 .padding(.horizontal, 14)
-                .frame(height: 44)
+                .padding(.vertical, 8)
+                .frame(minHeight: Self.minimumTarget)
                 .background(StashColor.violet300.opacity(0.12),
                             in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                         .strokeBorder(StashColor.hairline, lineWidth: 1)
                 )
+                .contentShape(RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+                .simultaneousGesture(TapGesture().onEnded { fieldFocused = true })
                 .accessibilityIdentifier("settings.deleteAccount.field")
                 .accessibilityLabel("Type \(Self.confirmWord) to confirm")
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(StashType.meta())
+                    .stashFont(.meta)
                     .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("settings.deleteAccount.error")
             }
 
-            HStack {
-                Button("Cancel") { dismiss() }
-                    .disabled(isDeleting)
-                    .accessibilityIdentifier("settings.deleteAccount.cancel")
-                Spacer()
-                Button(role: .destructive) {
-                    Task { await performDelete() }
-                } label: {
-                    if isDeleting {
-                        ProgressView().tint(StashColor.destructive)
-                    } else {
-                        Text("Delete everything")
-                    }
+            // Side by side while they fit; stacked once the text is too big for one line (the
+            // destructive action first, each on its own `minimumTarget` line, 50 pt apart centre
+            // to centre).
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    cancelButton
+                    Spacer()
+                    deleteButton
                 }
-                .disabled(confirmation != Self.confirmWord || isDeleting)
-                .accessibilityIdentifier("settings.deleteAccount.confirm")
+                VStack(spacing: 4) {
+                    deleteButton.frame(maxWidth: .infinity, minHeight: Self.minimumTarget)
+                    cancelButton.frame(maxWidth: .infinity, minHeight: Self.minimumTarget)
+                }
             }
+            // Plain text buttons whose labels carry the target (`stashMinimumHitTarget`, as
+            // `.stashPlain` does at 44); their colours are set here, since a plain button doesn't
+            // tint itself.
+            .buttonStyle(.plain)
         }
-        .padding(24)
-        // Guards against a swipe-to-dismiss mid-delete (web parity: the AlertDialog's own
-        // `handleOpenChange` refuses to close while `deleting` is true) — `interactiveDismissDisabled`
-        // replaces the old custom `Binding` setter now that presentation lives at the root and this
-        // view no longer has direct write access to the `showSheet` boolean.
-        .interactiveDismissDisabled(isDeleting)
+    }
+
+    private var cancelButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Text("Cancel").stashMinimumHitTarget(Self.minimumTarget)
+        }
+        .foregroundStyle(isDeleting ? StashColor.faint : StashColor.violet600)
+        .disabled(isDeleting)
+        .accessibilityIdentifier("settings.deleteAccount.cancel")
+    }
+
+    /// DESIGN.md's `destructive` (5.06:1 on the white sheet) while it can act — the system red a
+    /// destructive button draws is 3.55:1 — and `faint` while it's disabled (the only use `faint`
+    /// has for text).
+    private var deleteButton: some View {
+        Button(role: .destructive) {
+            Task { await performDelete() }
+        } label: {
+            Group {
+                if isDeleting {
+                    ProgressView().tint(StashColor.destructive)
+                } else {
+                    Text("Delete everything")
+                        .foregroundStyle(canDelete ? StashColor.destructive : StashColor.faint)
+                }
+            }
+            .stashMinimumHitTarget(Self.minimumTarget)
+        }
+        .disabled(!canDelete)
+        .accessibilityIdentifier("settings.deleteAccount.confirm")
     }
 
     private func performDelete() async {

@@ -36,26 +36,28 @@ struct HowToStashView: View {
     @State private var pageIndex = 0
 
     private static let panelCount = 3
-    /// Fixed height for the `TabView` — SwiftUI's paged `TabView` doesn't self-size to its
-    /// tallest page, and the three panels have different content heights (only panel 2 carries a
-    /// hint line under its caption). A fixed height matching the tallest panel, with each panel's
-    /// own content top-aligned inside it (`OnboardingPanelChrome`'s `.frame(maxHeight: .infinity,
-    /// alignment: .top)`), reproduces the prototype's CSS behavior exactly: `.ob-carousel-viewport`
-    /// has no explicit height, so the flexbox default (`align-items: stretch`) stretches every
-    /// panel to the height of the tallest one (panel 2), and each panel's own column layout
-    /// (`justify-content` unset → `flex-start`) leaves the extra space at the bottom rather than
-    /// centering or distributing it — panels 1 and 3 have quiet empty space below their caption,
-    /// panel 2 fills the box exactly. An earlier, taller card (508pt `panelHeight` plus more
-    /// generous outer/card padding) pushed `skipButton`, at the very bottom, to only ~25pt above
-    /// the screen edge (measured `y=819` on an 852pt-tall iPhone 15 Pro) — inside the zone iOS
-    /// reserves for the home-indicator swipe gesture. XCUITest's synthesized tap still reported
-    /// the button `hittable`, but the OS silently ate the touch before SwiftUI's `Button` ever
-    /// saw it, so `Skip`'s action never ran — no crash, no error, just a tap that did nothing
-    /// (see `testOnboardingPanelShowsOnceAfterSignIn`'s own note on this). 490 here, plus the
-    /// tightened outer/card padding just below, together shrink the whole card enough to clear
-    /// that zone with margin (measured `y=750`, ~93pt of clearance) while still leaving panel 2's
-    /// two-line hint (the tallest panel content) room to wrap without truncating.
-    private static let panelHeight: CGFloat = 490
+    // The carousel's height (plan 16): SwiftUI's paged `TabView` doesn't size itself to its tallest
+    // page, and the three panels have different content heights (only panel 2 carries a hint line
+    // under its caption). The tallest panel's height, with each panel's own content top-aligned
+    // inside it (`OnboardingPanelChrome`'s `.frame(maxHeight: .infinity, alignment: .top)`),
+    // reproduces the prototype's CSS behavior exactly: `.ob-carousel-viewport` has no explicit
+    // height, so the flexbox default (`align-items: stretch`) stretches every panel to the height of
+    // the tallest one (panel 2), and each panel's own column layout (`justify-content` unset →
+    // `flex-start`) leaves the extra space at the bottom rather than centering or distributing it —
+    // panels 1 and 3 have quiet empty space below their caption, panel 2 fills the box exactly.
+    //
+    // Until plan 16 that height was a fixed 490 pt, measured at the default text size — so any
+    // larger size clipped the panels' titles and captions, and at the accessibility sizes the card
+    // cut them off mid-art. It is now MEASURED: `carousel` lays the three panels out invisibly at
+    // the current text size and the TabView takes the tallest one's height (≈ 490 pt at Large, as
+    // before); taller at bigger sizes, where the whole card scrolls.
+    //
+    // (History: an earlier, taller card — a 508 pt panel plus more generous outer/card padding —
+    // pushed `skipButton`, at the very bottom, to only ~25pt above the screen edge on an 852pt-tall
+    // iPhone 15 Pro, inside the zone iOS reserves for the home-indicator swipe gesture: XCUITest's
+    // synthesized tap still reported the button `hittable`, but the OS ate the touch before
+    // SwiftUI's `Button` saw it. Keep the card's Large layout tight for the same reason — see
+    // `testOnboardingPanelShowsOnceAfterSignIn`.)
 
     var body: some View {
         ZStack {
@@ -79,34 +81,21 @@ struct HowToStashView: View {
         VStack(spacing: 14) {
             VStack(spacing: 8) {
                 Text("How to easily stash")
-                    .font(StashType.medium(size: 24))
+                    .stashFont(.custom(.medium, size: 24))
                     .foregroundStyle(StashColor.ink)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("onboarding.title")
 
                 Text("Save from any app: tap Share, then Stash.")
-                    .font(StashType.body())
+                    .stashFont(.secondary)
                     .foregroundStyle(StashColor.muted)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            TabView(selection: $pageIndex) {
-                SharePanel()
-                    .tag(0)
-                    .accessibilityIdentifier("onboarding.panel.1")
-                PickStashPanel()
-                    .tag(1)
-                    .accessibilityIdentifier("onboarding.panel.2")
-                SavePanel()
-                    .tag(2)
-                    .accessibilityIdentifier("onboarding.panel.3")
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: Self.panelHeight)
-            // Matches the "Next" button's own animation so a swipe and a tap read identically —
-            // plan 13 Global Constraints: "Swipe + Next both animate
-            // withAnimation(.easeInOut(duration: 0.25))."
-            .animation(.easeInOut(duration: 0.25), value: pageIndex)
+            carousel
 
             dots
 
@@ -126,10 +115,44 @@ struct HowToStashView: View {
         .stashCardShadow()
     }
 
+    // MARK: - Carousel
+
+    /// The three panels, paged. The paged `TabView` gets the tallest panel's height at the current
+    /// text size (see the note under `panelCount`): the panels are laid out once more, invisibly,
+    /// under it — never shown, never read by VoiceOver.
+    private var carousel: some View {
+        ZStack {
+            SharePanel()
+            PickStashPanel()
+            SavePanel()
+        }
+        .hidden()
+        .accessibilityHidden(true)
+        .overlay {
+            TabView(selection: $pageIndex) {
+                SharePanel()
+                    .tag(0)
+                    .accessibilityIdentifier("onboarding.panel.1")
+                PickStashPanel()
+                    .tag(1)
+                    .accessibilityIdentifier("onboarding.panel.2")
+                SavePanel()
+                    .tag(2)
+                    .accessibilityIdentifier("onboarding.panel.3")
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            // Matches the "Next" button's own animation so a swipe and a tap read identically —
+            // plan 13 Global Constraints: "Swipe + Next both animate
+            // withAnimation(.easeInOut(duration: 0.25))."
+            .animation(.easeInOut(duration: 0.25), value: pageIndex)
+        }
+    }
+
     // MARK: - Dots
 
     /// Custom dots (not the system page-index dots `.page` would otherwise draw): active = a
     /// 24×6 violet600 capsule, inactive = a plain 6pt circle — plan 13 Global Constraints.
+    /// A picture of the position: each panel's "Step N" says the same thing to VoiceOver.
     private var dots: some View {
         HStack(spacing: 7) {
             ForEach(0..<Self.panelCount, id: \.self) { i in
@@ -139,6 +162,7 @@ struct HowToStashView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: pageIndex)
+        .accessibilityHidden(true)
         .accessibilityIdentifier("onboarding.dots")
     }
 
@@ -158,8 +182,12 @@ struct HowToStashView: View {
                 dismiss()
             }
         } label: {
+            // Plan 16: the screen's one primary action — `textButtonProminent` (Medium 17,
+            // scaling); white on violet-600 is 5.18:1. 52 pt at the default size, growing with
+            // its text.
             Text(pageIndex == Self.panelCount - 1 ? "Got it" : "Next")
-                .font(StashType.bodyMedium())
+                .stashFont(.textButtonProminent)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, minHeight: 52)
         }
         .foregroundStyle(.white)
@@ -168,16 +196,21 @@ struct HowToStashView: View {
     }
 
     /// Marks the panel seen (see this type's own doc comment for why Skip is not "later") and
-    /// dismisses immediately regardless of which panel is showing.
+    /// dismisses immediately regardless of which panel is showing. Plan 16: a 17 pt text button
+    /// (`textButton`, `muted` 5.38:1) with a 44 pt target (`.stashPlain`); its centre sits 47 pt
+    /// below the primary button's.
     private var skipButton: some View {
         Button {
             OnboardingState.markHowToStashSeen()
             dismiss()
         } label: {
             Text("Skip")
-                .font(StashType.body())
+                .stashFont(.textButton)
                 .foregroundStyle(StashColor.muted)
+                .lineLimit(1)
+                .fixedSize()
         }
+        .buttonStyle(.stashPlain)
         .accessibilityIdentifier("onboarding.skip")
     }
 }
@@ -185,8 +218,14 @@ struct HowToStashView: View {
 // MARK: - Panel chrome (shared layout: kicker, title, art, caption, optional hint)
 
 /// The column every panel shares: `STEP N` kicker, panel title, an art slot sized by the caller
-/// (each concrete panel's own art already reports the shared 172×344 footprint — see
-/// `HowToStashView.panelHeight`'s doc comment), caption, and an optional hint line (panel 2 only).
+/// (each concrete panel's own art already reports the shared 172×344 footprint — see the carousel
+/// note under `HowToStashView.panelCount`), caption, and an optional hint line (panel 2 only).
+///
+/// Plan 16: the words are text roles (the caption was an off-scale 13.5 pt, the hint `faint` and
+/// unreadable at 2.8:1) and wrap instead of truncating; the art is a picture at its own fixed
+/// scale, hidden from VoiceOver — the title and caption say what it shows. At the accessibility
+/// sizes the caption and hint use the panel's full width (their narrow measure is for the default
+/// size's rhythm).
 private struct OnboardingPanelChrome<Art: View>: View {
     let step: Int
     let title: String
@@ -194,32 +233,46 @@ private struct OnboardingPanelChrome<Art: View>: View {
     var hint: String?
     @ViewBuilder var art: Art
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         VStack(spacing: 14) {
-            Text("STEP \(step)")
-                .font(StashType.microLabel())
-                .stashTracking(0.11, size: 11)
-                .foregroundStyle(StashColor.violet600)
+            // "Step 1" in its natural case: drawn in caps, read as words. Violet-600 on white is
+            // 5.18:1.
+            Text("Step \(step)")
+                .stashMicroLabel(StashColor.violet600)
 
             Text(title)
-                .font(StashType.semibold(size: 18))
+                .stashFont(.custom(.semibold, size: 18))
                 .foregroundStyle(StashColor.ink)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
 
+            // Art, out of VoiceOver's way. Inside the paged TabView these two modifiers alone did
+            // NOT take the mock share sheet's labels ("Reminders", "Copy Photo"…) or the Share
+            // glyph out of the accessibility tree on iOS 17.5 (measured — the audit and
+            // `A11yAppUITests.testOnboardingArtIsNotInTheAccessibilityTree` still found them);
+            // what does is drawing the art's words and glyphs as pictures (`PictureOfText` /
+            // `PictureOfSymbol`), and `Image(decorative:)` for the bitmaps. Kept as the intent.
             art
+                .accessibilityElement(children: .ignore)
+                .accessibilityHidden(true)
 
             Text(caption)
-                .font(StashType.regular(size: 13.5))
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 240)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 240)
 
             if let hint {
                 Text(hint)
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.faint)
+                    .stashFont(.meta)
+                    .foregroundStyle(StashColor.muted)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 230)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 230)
             }
         }
         .padding(.horizontal, 4)
@@ -242,23 +295,24 @@ private struct SharePanel: View {
 }
 
 /// Not a screenshot — a large SF Symbol quoting the OS's own Share icon, on a white tile with the
-/// standard card shadow. Centered inside the shared 172×344 art footprint (see
-/// `HowToStashView.panelHeight`'s doc comment) the same way the prototype's `.shot--glyph`
-/// variant centers it inside its own invisible, same-size box.
+/// standard card shadow. Centered inside the shared 172×344 art footprint (see the carousel note
+/// under `HowToStashView.panelCount`) the same way the prototype's `.shot--glyph` variant centers
+/// it inside its own invisible, same-size box.
 private struct ShareGlyphArt: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 28, style: .continuous)
             .fill(StashColor.paper)
             .frame(width: 160, height: 160)
             .overlay(
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 60, weight: .regular))
-                    // The ONE non-token color on this screen, and deliberately so: this glyph
-                    // quotes iOS's own Share icon — the exact button the user is hunting for in
-                    // Safari/Photos/any other app — so it needs to read as "the real system
-                    // button," not a Stash-branded illustration recolored in violet600. Plan 13
-                    // Global Constraints calls this out explicitly as the sanctioned exception.
-                    .foregroundStyle(Color(uiColor: .systemBlue))
+                // Art (plan 16): a fixed 60 pt glyph (`StashType.decorative`), drawn as a picture
+                // so VoiceOver never meets it — the panel's title and caption say what to look for.
+                // The ONE non-token color on this screen, and deliberately so: this glyph quotes
+                // iOS's own Share icon — the exact button the user is hunting for in
+                // Safari/Photos/any other app — so it needs to read as "the real system button,"
+                // not a Stash-branded illustration recolored in violet600. Plan 13 Global
+                // Constraints calls this out explicitly as the sanctioned exception.
+                PictureOfSymbol(systemName: "square.and.arrow.up", font: StashType.decorative(.book, size: 60),
+                                color: Color(uiColor: .systemBlue))
             )
             .stashCardShadow()
             .frame(width: 172, height: 344)
@@ -287,6 +341,11 @@ private struct PickStashPanel: View {
 /// sheet's structure below it. Fills the shared 172×344 art footprint with a wash background,
 /// content top-aligned with padding — the box reads as a peek of a taller sheet, cut off, same as
 /// the prototype's `.shot--sheet`.
+///
+/// Plan 16: a miniature at a fixed scale, like the screenshot on panel 3 — its 9–11 pt labels
+/// and glyphs are `StashType.decorative` (they used to grow with Dynamic Type and burst the
+/// 172×344 box) and are drawn as pictures, so VoiceOver never reads the mock's "Reminders, Copy
+/// Photo, AirPlay…" as if they were the app's own words.
 private struct MockShareSheet: View {
     // 44pt — the prototype's own `.share-tile` size. A 60pt tile (the "standard Home Screen
     // icon size" `onboarding.stashTile`'s 1024px source was cropped to describe, per plan 13's
@@ -323,6 +382,10 @@ private struct MockShareSheet: View {
         )
     }
 
+    // The mock's labels and glyphs are pictures (`PictureOfText` / `PictureOfSymbol`), not Text and
+    // Image views: inside the paged TabView `accessibilityHidden` left them in the accessibility
+    // tree on iOS 17.5 (measured — Xcode's audit flagged "Reminders", "Copy Photo"… and VoiceOver
+    // could land on them), while a picture never makes an accessibility element.
     private func neutralTile(systemImage: String, label: String) -> some View {
         VStack(spacing: 5) {
             RoundedRectangle(cornerRadius: tileRadius, style: .continuous)
@@ -333,14 +396,10 @@ private struct MockShareSheet: View {
                         .strokeBorder(StashColor.hairline, lineWidth: 1)
                 )
                 .overlay(
-                    Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(StashColor.muted)
+                    PictureOfSymbol(systemName: systemImage, font: StashType.decorative(.medium, size: 15),
+                                    color: StashColor.muted)
                 )
-            Text(label)
-                .font(StashType.regular(size: 9))
-                .foregroundStyle(StashColor.ink)
-                .fixedSize()
+            PictureOfText(label, font: StashType.decorative(.book, size: 9), color: StashColor.ink)
         }
     }
 
@@ -348,16 +407,13 @@ private struct MockShareSheet: View {
     /// from `AppIcon-1024.png`) plus the glowing ring/halo from `StashTileGlow`.
     private var stashTile: some View {
         VStack(spacing: 5) {
-            Image("onboarding.stashTile")
+            Image(decorative: "onboarding.stashTile")
                 .resizable()
                 .scaledToFill()
                 .frame(width: tileSize, height: tileSize)
                 .clipShape(RoundedRectangle(cornerRadius: tileRadius, style: .continuous))
                 .modifier(StashTileGlow(cornerRadius: tileRadius))
-            Text("Stash")
-                .font(StashType.regular(size: 9))
-                .foregroundStyle(StashColor.ink)
-                .fixedSize()
+            PictureOfText("Stash", font: StashType.decorative(.book, size: 9), color: StashColor.ink)
         }
     }
 
@@ -382,17 +438,65 @@ private struct MockShareSheet: View {
 
     private func actionRow(systemImage: String, label: String) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(StashColor.muted)
+            PictureOfSymbol(systemName: systemImage, font: StashType.decorative(.book, size: 11),
+                            color: StashColor.muted)
                 .frame(width: 13)
-            Text(label)
-                .font(StashType.regular(size: 10))
-                .foregroundStyle(StashColor.ink)
+            PictureOfText(label, font: StashType.decorative(.book, size: 10), color: StashColor.ink)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+    }
+}
+
+// MARK: - Pictures of text and glyphs (the art's miniature labels)
+
+/// `text` drawn as a picture at `font`'s fixed size: a `Canvas` paints it — a Canvas makes no
+/// accessibility element — over an invisible copy of the same text that gives it its size
+/// (`.hidden()` is outside the accessibility tree too). For art only; see `MockShareSheet`.
+private struct PictureOfText: View {
+    let text: String
+    let font: Font
+    let color: Color
+
+    init(_ text: String, font: Font, color: Color) {
+        self.text = text
+        self.font = font
+        self.color = color
+    }
+
+    var body: some View {
+        Text(text)
+            .font(font)
+            .fixedSize()
+            .hidden()
+            .overlay {
+                Canvas { context, size in
+                    context.draw(Text(text).font(font).foregroundStyle(color),
+                                 in: CGRect(origin: .zero, size: size))
+                }
+            }
+    }
+}
+
+/// An SF Symbol drawn as a picture — see `PictureOfText`.
+private struct PictureOfSymbol: View {
+    let systemName: String
+    let font: Font
+    let color: Color
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(font)
+            .hidden()
+            .overlay {
+                Canvas { context, size in
+                    var symbol = context.resolve(Image(systemName: systemName))
+                    symbol.shading = .color(color)
+                    context.draw(symbol, in: CGRect(origin: .zero, size: size))
+                }
+                .font(font)
+            }
     }
 }
 
@@ -435,7 +539,7 @@ private struct SavePanel: View {
             title: "Add a note, save",
             caption: "Add an optional note, then Save. Stash does the rest."
         ) {
-            Image("onboarding.step3")
+            Image(decorative: "onboarding.step3")
                 .resizable()
                 .scaledToFill()
                 .frame(width: 172, height: 344)

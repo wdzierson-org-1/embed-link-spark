@@ -34,33 +34,35 @@ struct AccountSection: View {
     private var feedURL: String? { PublicFeedURL.make(username: username) }
 
     var body: some View {
-        Section("Account") {
-            HStack {
-                Text("Email").foregroundStyle(StashColor.muted)
-                Spacer()
-                Text(email)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+        Section {
+            // Plan 16: label and value side by side while the value fits, stacked (and wrapping)
+            // when it doesn't — an email is never cut to a fragment.
+            SettingsValueRow(label: "Email") {
+                // A line-break opportunity after the "@" (a zero-width space), so a wrapped email
+                // breaks between name and domain instead of being hyphenated mid-word
+                // ("dzier-son.com" at AX3). VoiceOver (and tests) read the plain address.
+                Text(email.replacingOccurrences(of: "@", with: "@\u{200B}"))
+                    .accessibilityLabel(email)
                     .accessibilityIdentifier("settings.account.email")
             }
             switch load {
             case .idle, .loading:
                 ProgressView()
             case .loaded, .failed:
-                HStack {
-                    Text("Username").foregroundStyle(StashColor.muted)
-                    Spacer()
+                SettingsValueRow(label: "Username") {
                     Text(username ?? "—")
                         .accessibilityIdentifier("settings.account.username")
                 }
                 feedURLRow
                 if load == .failed {
                     Text("Couldn't load your profile.")
-                        .font(StashType.meta())
+                        .stashFont(.meta)
                         .foregroundStyle(StashColor.destructive)
                         .accessibilityIdentifier("settings.account.error")
                 }
             }
+        } header: {
+            settingsCaption("Account")
         }
         .onAppear { session.loadProfileIfNeeded() }
     }
@@ -73,18 +75,26 @@ struct AccountSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Public Feed URL").foregroundStyle(StashColor.muted)
                 HStack(spacing: 10) {
+                    // Plan 16: wraps (up to three lines) rather than losing its middle at the
+                    // larger text sizes.
                     Text(feedURL)
-                        .font(StashType.meta())
-                        .lineLimit(1)
+                        .stashFont(.meta)
+                        .lineLimit(3)
                         .truncationMode(.middle)
                         .accessibilityIdentifier("settings.feedurl")
                     Spacer(minLength: 8)
+                    // A 44 pt target (`.stashPlain`, which also keeps the tap on this button, not
+                    // the row); named for VoiceOver and the Large Content Viewer, and says when
+                    // it has copied.
                     Button {
                         copyFeedURL(feedURL)
                     } label: {
                         Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                            .foregroundStyle(StashColor.violet600)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.stashPlain)
+                    .stashIconControl("Copy feed URL", systemImage: "doc.on.doc")
+                    .accessibilityValue(didCopy ? "Copied" : "")
                     .accessibilityIdentifier("settings.feedurl.copy")
                 }
             }

@@ -32,6 +32,9 @@ final class AccountUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Plan 16: the simulator-global Bold Text setting may have been left on by an interrupted
+        // accessibility run (see `A11yScreenshotSupport`'s GLOBAL STATE note).
+        MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
     }
 
     /// Teardown-guaranteed cleanup (review fix round 1 — see the type's own doc comment above).
@@ -106,6 +109,10 @@ final class AccountUITests: XCTestCase {
 
         let viewTab = app.tabBars.buttons["View"]
         XCTAssertTrue(viewTab.waitForExistence(timeout: 20), "Expected the tab bar to appear after signing up")
+        // iOS 26 offers "Save Password?" after the form submits; left up it swallows the next tap
+        // (plan 16: the canonical `A11yScreens` recipe — taps exactly "Not Now"). Test methods
+        // run on the main thread.
+        MainActor.assumeIsolated { A11yScreens.dismissSavePasswordPrompt(app) }
 
         app.tabBars.buttons["Settings"].tap()
 

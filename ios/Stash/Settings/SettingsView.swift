@@ -25,6 +25,7 @@ struct SettingsView: View {
     // How-to-Stash `.fullScreenCover` — both ROOT-anchored presentations that never exhibited the
     // bug a ROW-anchored one did.
     @State private var showDeleteAccountSheet = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         // No wordmark/title above this (Will's call, plan 8 — View/Ask/Settings all drop it). The
@@ -52,7 +53,14 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showDeleteAccountSheet) {
             DeleteAccountConfirmSheet(userId: userId)
-                .presentationDetents([.medium])
+                // Plan 16: at the accessibility text sizes the confirmation (copy, field,
+                // buttons) no longer fits half a screen — the sheet opens full height there (its
+                // content also scrolls).
+                .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium])
+                // Plan 16 (contrast): opaque paper, as on iOS 17. iOS 26 draws a half-height
+                // sheet in translucent glass, and the Settings list behind it (the red Sign Out,
+                // the legal links) showed through blurred under this sheet's own copy and buttons.
+                .presentationBackground(StashColor.paper)
         }
     }
 
@@ -65,9 +73,12 @@ struct SettingsView: View {
                     Text("How to stash")
                         .foregroundStyle(StashColor.ink)
                     Spacer()
+                    // Plan 16: the row's disclosure glyph is `muted` (an enabled control's glyph;
+                    // `faint` is decorative-only) at the meta role's size, scaling with the text.
                     Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(StashColor.faint)
+                        .stashFont(.meta)
+                        .foregroundStyle(StashColor.muted)
+                        .accessibilityHidden(true)
                 }
             }
             .accessibilityIdentifier("settings.howToStash")
@@ -79,7 +90,11 @@ struct SettingsView: View {
             Button(role: .destructive) {
                 showSignOutConfirm = true
             } label: {
-                Text("Sign Out").frame(maxWidth: .infinity, alignment: .center)
+                // Plan 16: DESIGN.md's `destructive` (5.06:1 on white) — the system red a
+                // destructive List button draws is 3.55:1.
+                Text("Sign Out")
+                    .foregroundStyle(StashColor.destructive)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .accessibilityIdentifier("settings.signout")
         }
@@ -88,16 +103,28 @@ struct SettingsView: View {
     private var footerSection: some View {
         Section {
             VStack(spacing: 8) {
-                HStack(spacing: 24) {
-                    Link("Privacy Policy", destination: URL(string: "https://gostash.it/privacy")!)
-                        .accessibilityIdentifier("settings.footer.privacy")
-                    Link("Terms of Service", destination: URL(string: "https://gostash.it/terms")!)
-                        .accessibilityIdentifier("settings.footer.terms")
+                // Side by side while they fit; stacked at the larger text sizes rather than
+                // squeezing either name onto two lines.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 24) {
+                        privacyLink
+                        termsLink
+                    }
+                    // Stacked, each link gets a real 44 pt row: overhanging targets this close
+                    // would overlap, and the lower link would win taps meant for the upper one.
+                    VStack(spacing: 0) {
+                        privacyLink.frame(minHeight: 44)
+                        termsLink.frame(minHeight: 44)
+                    }
                 }
-                .font(StashType.meta())
+                // Text actions: the `inlineButton` role (Medium 15 — inline actions are never
+                // smaller than 15 pt; they were 12, then meta 13).
+                .stashFont(.inlineButton)
+                .buttonStyle(.stashPlain)
                 Text("Stash \(appVersionString)")
-                    .font(StashType.meta())
+                    .stashFont(.meta)
                     .foregroundStyle(StashColor.muted)
+                    .multilineTextAlignment(.center)
                     .accessibilityIdentifier("settings.footer.version")
                 #if DEBUG
                 // Plan 7 Task 2: proves PP Neue Montreal actually registered in the app target
@@ -107,8 +134,9 @@ struct SettingsView: View {
                 // rather than adding a second identifier — one DEBUG-only probe point for both
                 // bundled font families. DEBUG-only: never ships to TestFlight/App Store.
                 Text(fontStatusText)
-                    .font(StashType.meta())
-                    .foregroundStyle(StashColor.faint)
+                    .stashFont(.meta)
+                    .foregroundStyle(StashColor.muted)
+                    .multilineTextAlignment(.center)
                     .accessibilityIdentifier("design.fontStatus")
                     .accessibilityLabel(fontStatusText)
                 #endif
@@ -117,6 +145,23 @@ struct SettingsView: View {
             .padding(.vertical, 4)
         }
         .listRowBackground(Color.clear)
+    }
+
+    // The legal links: violet-600 on the grouped background (4.64:1), each a 44 pt target
+    // (`.stashPlain`, which also keeps a tap in this row to the link it hits), set in
+    // `inlineButton` by the footer.
+    private var privacyLink: some View {
+        Link(destination: URL(string: "https://gostash.it/privacy")!) {
+            Text("Privacy Policy").foregroundStyle(StashColor.violet600)
+        }
+        .accessibilityIdentifier("settings.footer.privacy")
+    }
+
+    private var termsLink: some View {
+        Link(destination: URL(string: "https://gostash.it/terms")!) {
+            Text("Terms of Service").foregroundStyle(StashColor.violet600)
+        }
+        .accessibilityIdentifier("settings.footer.terms")
     }
 
     #if DEBUG
@@ -137,4 +182,35 @@ struct SettingsView: View {
         let build = info?["CFBundleVersion"] as? String ?? "?"
         return "v\(shortVersion) (\(build))"
     }
+}
+
+/// A Settings row with a label and its value (plan 16): side by side while the whole value fits
+/// on the row's one line; otherwise — a long email at xxxLarge, anything at the accessibility
+/// sizes — the value goes under its label and wraps, instead of being truncated to a fragment.
+/// The label is `muted` (4.82:1 or better on the grouped list), the value the row's own style.
+struct SettingsValueRow<Value: View>: View {
+    let label: String
+    @ViewBuilder var value: Value
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                Text(label).foregroundStyle(StashColor.muted)
+                Spacer(minLength: 12)
+                value.lineLimit(1)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).foregroundStyle(StashColor.muted)
+                value
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// A Settings section header or footer in `muted` (4.82:1 on the grouped background): the
+/// system's secondary label colour is 60 % grey, about 3.3:1 there — under AA for text this size.
+/// A plain `Text`, so the List still lays it out as its own header/footer text.
+func settingsCaption(_ text: String) -> Text {
+    Text(text).foregroundStyle(StashColor.muted)
 }

@@ -7,6 +7,16 @@ import XCTest
 final class SessionUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+        // Plan 16: the simulator-global Bold Text setting may have been left on by an interrupted
+        // accessibility run (see `A11yScreenshotSupport`'s GLOBAL STATE note).
+        MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
+    }
+
+    /// iOS 26 offers "Save Password?" after the sign-in form submits; left up, it swallows the
+    /// test's next tap. The canonical plan-16 recipe (`A11yScreens`, taps exactly "Not Now"); a
+    /// no-op before iOS 26. Test methods run on the main thread.
+    private func dismissSavePasswordPrompt(_ app: XCUIApplication) {
+        MainActor.assumeIsolated { A11yScreens.dismissSavePasswordPrompt(app) }
     }
 
     private func credentials() throws -> (email: String, password: String) {
@@ -53,6 +63,7 @@ final class SessionUITests: XCTestCase {
         passwordField.typeText(password)
         app.buttons["signin.submit"].tap()
         XCTAssertTrue(viewTab.waitForExistence(timeout: 20), "Expected the tab bar after signing in")
+        dismissSavePasswordPrompt(app)
         viewTab.tap()
         XCTAssertTrue(firstCard.waitForExistence(timeout: 20), "Expected the library's first card")
         sleep(2)   // the disk-cache write is coalesced (~250 ms); let it land before the kill
@@ -116,6 +127,7 @@ final class SessionUITests: XCTestCase {
         passwordField.typeText(password)
         app.buttons["signin.submit"].tap()
         XCTAssertTrue(viewTab.waitForExistence(timeout: 20), "Expected the tab bar after signing in")
+        dismissSavePasswordPrompt(app)
         app.terminate()
 
         // …whose access token has expired (Auth unreachable, so nothing refreshes it here).
@@ -158,6 +170,7 @@ final class SessionUITests: XCTestCase {
 
         XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 20),
                       "Return on the password field should sign in")
+        dismissSavePasswordPrompt(app)
     }
 
     /// L8: on the sign-up form, Return walks email → password → username → phone. Nothing is

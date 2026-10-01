@@ -30,6 +30,9 @@ final class StoreScreenshotsUITests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipUnless(ProcessInfo.processInfo.environment["STORE_SCREENSHOTS"] == "1",
                           "Store-screenshot capture only runs when STORE_SCREENSHOTS=1 is set in the test runner environment")
+        // Plan 16: a Bold Text setting left on by an interrupted accessibility run would put
+        // bold type in the store frames (see `A11yScreenshotSupport`'s GLOBAL STATE note).
+        MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
     }
 
     // MARK: - Review credentials + REST helpers
@@ -179,6 +182,10 @@ final class StoreScreenshotsUITests: XCTestCase {
         passwordField.tap()
         passwordField.typeText(password)
         app.buttons["signin.submit"].tap()
+        // iOS 26's "Save Password?" sheet would swallow the next tap (plan 16: the canonical
+        // `A11yScreens` recipe — taps exactly "Not Now", never "Save"). Test methods run on the
+        // main thread.
+        MainActor.assumeIsolated { A11yScreens.dismissSavePasswordPrompt(app) }
 
         // A fresh sign-in may show the once-per-install "How to easily stash" onboarding panel —
         // dismiss it via Skip and wait for it to actually finish animating out (not just for the

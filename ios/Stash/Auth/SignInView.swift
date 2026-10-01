@@ -31,6 +31,8 @@ struct SignInView: View {
     @State private var phoneChecking = false
     @State private var usernameCheckTask: Task<Void, Never>?
     @State private var phoneCheckTask: Task<Void, Never>?
+    /// Bold Text, for the one run of the username helper set in its own face (the handle).
+    @Environment(\.legibilityWeight) private var legibilityWeight
 
     enum AuthMode { case signIn, signUp }
     enum Field: Hashable { case email, password, username, phone }
@@ -62,22 +64,27 @@ struct SignInView: View {
 
     private var card: some View {
         VStack(spacing: 16) {
+            // The brand mark, not text: a fixed 28 pt like every wordmark (DESIGN.md › Logo); it
+            // names the screen for VoiceOver.
             Image("StashWordmark")
                 .resizable()
                 .scaledToFit()
                 .frame(height: 28)
                 .foregroundStyle(StashColor.ink)
                 .accessibilityLabel("Stash")
+                .accessibilityAddTraits(.isHeader)
 
             Text("Sign in or create your account.")
-                .font(StashType.body())
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
 
             if session.accountDeletedBannerVisible {
+                // `muted` on the lavender field: 4.95:1.
                 Text("Your account was deleted.")
-                    .font(StashType.meta())
+                    .stashFont(.meta)
                     .foregroundStyle(StashColor.muted)
+                    .multilineTextAlignment(.center)
                     .padding(.vertical, 8)
                     .padding(.horizontal, 12)
                     .frame(maxWidth: .infinity)
@@ -93,8 +100,10 @@ struct SignInView: View {
 
                 if let error = session.errorMessage {
                     Text(error)
-                        .font(StashType.meta())
+                        .stashFont(.meta)
                         .foregroundStyle(StashColor.destructive)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("signin.error")
                 }
 
@@ -103,12 +112,18 @@ struct SignInView: View {
                 if mode == .signIn {
                     // Web parity (Auth.tsx "Forgot password?"). Recovery is email-driven, so the
                     // link lands on the web reset form (`/auth?mode=reset`) rather than a native flow.
+                    // Plan 16: an inline text action — the `inlineButton` role (Medium 15; it was a
+                    // 12 pt meta line) — with a 44 pt target (`.stashPlain`; its centre sits ≥ 46 pt
+                    // below the submit button's), and the words wrap rather than truncate at the
+                    // largest sizes.
                     Link(destination: URL(string: "https://www.gostash.it/auth?mode=reset")!) {
                         Text("Forgot password?")
-                            .font(StashType.meta())
+                            .stashFont(.inlineButton)
                             .foregroundStyle(StashColor.muted)
                             .underline()
+                            .multilineTextAlignment(.center)
                     }
+                    .buttonStyle(.stashPlain)
                     .accessibilityIdentifier("auth.forgotPassword")
                     .padding(.top, 4)
                 }
@@ -148,6 +163,12 @@ struct SignInView: View {
 
     // MARK: - Fields
 
+    /// Plan 16: every field's placeholder is `muted` — 4.95:1 on the lavender field; the system
+    /// placeholder grey is 1.7:1 — through `prompt:` (the title stays the VoiceOver label).
+    private func prompt(_ text: String) -> Text {
+        Text(text).foregroundStyle(StashColor.muted)
+    }
+
     /// Plan 15 (L8): Return walks the form in the order it's drawn — email → password, then submit
     /// (sign in), or on through username → phone → submit (sign up; the phone pad itself has no
     /// Return key, but a hardware keyboard does). Sign-up's password is `.newPassword`, so iOS
@@ -156,7 +177,7 @@ struct SignInView: View {
     /// associated domain is a separate, not-yet-done change.)
     @ViewBuilder
     private var fields: some View {
-        TextField("Email", text: $email)
+        TextField("Email", text: $email, prompt: prompt("Email"))
             .textContentType(.username)
             .keyboardType(.emailAddress)
             .textInputAutocapitalization(.never)
@@ -164,47 +185,54 @@ struct SignInView: View {
             .focused($focusedField, equals: .email)
             .submitLabel(.next)
             .onSubmit { focusedField = .password }
-            .modifier(QuietFieldStyle(focused: focusedField == .email))
+            .modifier(QuietFieldStyle(focused: focusedField == .email) { focusedField = .email })
             .accessibilityIdentifier("signin.email")
 
-        SecureField("Password", text: $password)
+        SecureField("Password", text: $password, prompt: prompt("Password"))
             .textContentType(passwordContentType)
             .focused($focusedField, equals: .password)
             .submitLabel(mode == .signUp ? .next : .go)
             .onSubmit {
                 if mode == .signUp { focusedField = .username } else { submitFromKeyboard() }
             }
-            .modifier(QuietFieldStyle(focused: focusedField == .password))
+            .modifier(QuietFieldStyle(focused: focusedField == .password) { focusedField = .password })
             .accessibilityIdentifier("signin.password")
 
         if mode == .signUp {
             VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .leading) {
+                // Plan 16: the "@" is laid out beside the text inside the field's chrome (it used
+                // to be overlaid at a fixed 28 pt inset, which the text would run into once it
+                // grows). Part of the field's meaning — the handle is "@name" — so `muted`, like
+                // the placeholder; hidden from VoiceOver, which hears the field's "username". A tap
+                // on it focuses the field, as when the field lay under it (`QuietFieldStyle`).
+                HStack(spacing: 1) {
                     Text("@")
-                        .font(StashType.body())
-                        .foregroundStyle(StashColor.faint)
-                        .padding(.leading, 14)
-                        .allowsHitTesting(false)
-                    TextField("username", text: usernameBinding)
+                        .foregroundStyle(StashColor.muted)
+                        .accessibilityHidden(true)
+                    TextField("username", text: usernameBinding, prompt: prompt("username"))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($focusedField, equals: .username)
                         .submitLabel(.next)
                         .onSubmit { focusedField = .phone }
-                        .modifier(QuietFieldStyle(focused: focusedField == .username, error: usernameError != nil, leadingPadding: 28))
                         .accessibilityIdentifier("auth.username")
                         .onChange(of: username) { _, newValue in scheduleUsernameCheck(newValue) }
                 }
+                .modifier(QuietFieldStyle(focused: focusedField == .username, error: usernameError != nil) {
+                    focusedField = .username
+                })
                 usernameHelper
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                TextField("Phone number (optional)", text: $phone)
+                TextField("Phone number (optional)", text: $phone, prompt: prompt("Phone number (optional)"))
                     .keyboardType(.phonePad)
                     .focused($focusedField, equals: .phone)
                     .submitLabel(.join)
                     .onSubmit { submitFromKeyboard() }
-                    .modifier(QuietFieldStyle(focused: focusedField == .phone, error: phoneError != nil))
+                    .modifier(QuietFieldStyle(focused: focusedField == .phone, error: phoneError != nil) {
+                        focusedField = .phone
+                    })
                     .accessibilityIdentifier("auth.phone")
                     .onChange(of: phone) { _, newValue in schedulePhoneCheck(newValue) }
                 phoneHelper
@@ -235,20 +263,25 @@ struct SignInView: View {
     private var usernameHelper: some View {
         if let usernameError {
             Text(usernameError)
-                .font(StashType.meta())
+                .stashFont(.meta)
                 .foregroundStyle(StashColor.destructive)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("auth.username.error")
         } else if username.count >= 3 {
+            // Meta text (13 pt) with the handle in Medium at the same size and curve — a run
+            // inside the concatenation takes its face from `legibilityWeight` (Bold Text).
             (
                 Text("You'll be ").foregroundStyle(StashColor.muted)
-                + Text("@\(username)").foregroundStyle(StashColor.ink).font(StashType.bodyMedium(12))
+                + Text("@\(username)").foregroundStyle(StashColor.ink).font(StashType.Role.metaMedium.font(legibilityWeight))
                 + Text(" on Stash — your public feed lives at gostash.it/feed/\(username)").foregroundStyle(StashColor.muted)
             )
-            .font(StashType.meta())
+            .stashFont(.meta)
+            .fixedSize(horizontal: false, vertical: true)
         } else {
             Text("Your username becomes your @handle and your public feed address.")
-                .font(StashType.meta())
+                .stashFont(.meta)
                 .foregroundStyle(StashColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -256,13 +289,15 @@ struct SignInView: View {
     private var phoneHelper: some View {
         if let phoneError {
             Text(phoneError)
-                .font(StashType.meta())
+                .stashFont(.meta)
                 .foregroundStyle(StashColor.destructive)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("auth.phone.error")
         } else {
             Text("Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.")
-                .font(StashType.meta())
+                .stashFont(.meta)
                 .foregroundStyle(StashColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -332,10 +367,16 @@ struct SignInView: View {
                 if busy {
                     ProgressView().tint(.white)
                 } else {
+                    // Plan 16: the screen's one primary action — `textButtonProminent` (Medium
+                    // 17, scaling); white on violet-600 is 5.18:1.
                     Text(mode == .signIn ? "Sign in" : "Create account")
-                        .font(StashType.bodyMedium())
+                        .stashFont(.textButtonProminent)
+                        .multilineTextAlignment(.center)
                 }
             }
+            // 44 pt at the default size; the padding keeps the label off the edges once the
+            // text outgrows it.
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, minHeight: 44)
         }
         .foregroundStyle(.white)
@@ -380,18 +421,25 @@ struct SignInView: View {
 
 /// Quiet input chrome (DESIGN.md / Auth.tsx `quietInput`): hairline border, `StashRadius.input`,
 /// a lavender `violet300` fill, and a 2pt `violet300` focus ring in place of the hairline.
+///
+/// Plan 16: the fields are reading text (Neue Montreal 17, scaling with Dynamic Type) in a field
+/// that is at least 44 pt tall and grows with its text (`minHeight`, never a fixed height). The
+/// whole field takes the tap that focuses it (`focus`): a SwiftUI text field only answers touches
+/// on its own line, so the padding above and below it — and the username's "@" — would otherwise
+/// be a dead band inside the 44 pt the field draws. Simultaneous, so the field's own taps (caret,
+/// selection) are untouched.
 private struct QuietFieldStyle: ViewModifier {
     var focused: Bool
     var error: Bool = false
-    var leadingPadding: CGFloat = 14
+    var focus: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .font(StashType.body())
+            .stashFont(.reading)
             .foregroundStyle(StashColor.ink)
-            .padding(.leading, leadingPadding)
-            .padding(.trailing, 14)
-            .frame(height: 44)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
             .background(StashColor.violet300.opacity(0.12), in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
@@ -400,5 +448,7 @@ private struct QuietFieldStyle: ViewModifier {
                         lineWidth: 1
                     )
             )
+            .contentShape(RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+            .simultaneousGesture(TapGesture().onEnded(focus))
     }
 }

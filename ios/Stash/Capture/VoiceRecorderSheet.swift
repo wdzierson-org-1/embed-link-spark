@@ -40,17 +40,22 @@ struct VoiceRecorderSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack {
-                Spacer()
-                switch phase {
-                case .permissionDenied: permissionDeniedView
-                case .idle: idleView
-                case .recording: recordingView
-                case .preview: previewView
+            // Plan 16: centred while it fits, scrolling once the text sizes outgrow the sheet
+            // (the same shape as `SignInView`), so nothing is ever cut off at accessibility sizes.
+            GeometryReader { geo in
+                ScrollView {
+                    Group {
+                        switch phase {
+                        case .permissionDenied: permissionDeniedView
+                        case .idle: idleView
+                        case .recording: recordingView
+                        case .preview: previewView
+                        }
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, minHeight: geo.size.height)
                 }
-                Spacer()
             }
-            .padding(24)
             .navigationTitle("Voice Note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -87,8 +92,9 @@ struct VoiceRecorderSheet: View {
     private var idleView: some View {
         VStack(spacing: 20) {
             Text("Tap to start recording")
-                .font(StashType.bodySemibold())
+                .stashFont(.readingSemibold)
                 .foregroundStyle(StashColor.muted)
+                .multilineTextAlignment(.center)
             Button {
                 recorder.start()
             } label: {
@@ -96,12 +102,16 @@ struct VoiceRecorderSheet: View {
                     .fill(Color.red)
                     .frame(width: 84, height: 84)
                     .overlay {
+                        // Icon chrome (DESIGN.md › Controls (iOS)): the 84 pt button and its
+                        // glyph keep their size at every text size; the Large Content Viewer
+                        // (`stashIconControl`) shows it large. A system font, so Bold Text applies.
                         Image(systemName: "mic.fill")
-                            .font(.title)
+                            .font(.system(size: 28))
                             .foregroundStyle(.white)
                     }
             }
             .disabled(recorder.permissionState != .granted)
+            .stashIconControl("Record", systemImage: "mic.fill")
             .accessibilityIdentifier("capture.voice.record")
         }
     }
@@ -110,14 +120,15 @@ struct VoiceRecorderSheet: View {
         VStack(spacing: 24) {
             // Tabular monospaced digits for a running timer — DESIGN.md's sanctioned
             // system-monospace exception (`StashType.mono`, "ui-monospace" chip variant), not a
-            // Neue Montreal migration candidate.
+            // Neue Montreal migration candidate. Plan 16: 34 pt (`.largeTitle`), scaling.
             Text(formattedElapsed)
-                .font(StashType.mono(34))
+                .stashFont(.mono(.largeTitle))
                 .accessibilityIdentifier("capture.voice.timer")
             levelMeter
-            HStack(spacing: 16) {
+            actionRow {
                 Button("Cancel", role: .destructive) { cancelAndDismiss() }
                     .buttonStyle(.bordered)
+                    .tint(StashColor.violet700)
                     .accessibilityIdentifier("capture.voice.cancel")
                 Button("Stop") { recorder.stop() }
                     .buttonStyle(.borderedProminent)
@@ -129,35 +140,52 @@ struct VoiceRecorderSheet: View {
     private var previewView: some View {
         VStack(spacing: 24) {
             Image(systemName: "waveform")
-                .font(.system(size: 40))
+                .font(StashType.decorative(.book, size: 40))
                 .foregroundStyle(StashColor.muted)
+                .accessibilityHidden(true)
             VStack(spacing: 8) {
-                // Same monospace exception as the recording timer above.
+                // Same monospace exception as the recording timer above (28 pt, `.title`).
                 Text(formattedElapsed)
-                    .font(StashType.mono(28))
+                    .stashFont(.mono(.title))
                     .accessibilityIdentifier("capture.voice.duration")
                 // Plan 15 H3: a phone call, Siri, or another app taking the microphone finalized
                 // the take — say where it was cut before the user decides to Save or Re-record.
                 if let interruptedAt = recorder.interruptedAt {
                     Text("Recording was interrupted at \(Self.minutesAndSeconds(interruptedAt))")
-                        .font(StashType.body())
+                        .stashFont(.secondary)
                         .foregroundStyle(StashColor.muted)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("capture.voice.interrupted")
                 }
             }
-            HStack(spacing: 16) {
+            actionRow {
                 Button("Re-record") { reRecord() }
                     .buttonStyle(.bordered)
+                    .tint(StashColor.violet700)
                     .disabled(isSaving)
                     .accessibilityIdentifier("capture.voice.rerecord")
                 Button("Cancel", role: .destructive) { cancelAndDismiss() }
                     .buttonStyle(.bordered)
+                    .tint(StashColor.violet700)
                     .disabled(isSaving)
                     .accessibilityIdentifier("capture.voice.cancel")
                 saveButton
             }
         }
+    }
+
+    /// The sheet's buttons side by side while they fit, stacked once the text is too big for one
+    /// row (xxxLarge and the accessibility sizes) — never squeezed or wrapped mid-word. System
+    /// buttons at the large control size: 50 pt tall, 17 pt text that scales (HIG's 44 pt minimum).
+    /// The tinted (`.bordered`) ones are violet-700 — violet TEXT on a violet tint (DESIGN.md);
+    /// violet-600 there measured "nearly passed" in Xcode's contrast audit (~4.2:1). The filled
+    /// ones keep violet-600 (white on it is 5.18:1).
+    private func actionRow<Buttons: View>(@ViewBuilder _ buttons: () -> Buttons) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) { buttons() }
+            VStack(spacing: 12) { buttons() }
+        }
+        .controlSize(.large)
     }
 
     private var saveButton: some View {
@@ -178,12 +206,15 @@ struct VoiceRecorderSheet: View {
     private var permissionDeniedView: some View {
         VStack(spacing: 16) {
             Image(systemName: "mic.slash")
-                .font(.system(size: 40))
+                .font(StashType.decorative(.book, size: 40))
                 .foregroundStyle(StashColor.muted)
+                .accessibilityHidden(true)
             Text("Microphone access needed")
-                .font(StashType.bodySemibold())
+                .stashFont(.readingSemibold)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
             Text("Stash needs microphone access to record voice notes. You can enable it in Settings.")
-                .font(StashType.body())
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .multilineTextAlignment(.center)
             Button("Open Settings") {
@@ -192,6 +223,7 @@ struct VoiceRecorderSheet: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .accessibilityIdentifier("capture.voice.openSettings")
         }
     }
