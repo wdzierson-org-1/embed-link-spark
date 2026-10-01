@@ -345,9 +345,10 @@ final class A11yDetailLibraryUITests: XCTestCase {
         XCTAssertTrue(hitRegionIssues.isEmpty, "Xcode's hit-region audit flagged: \(hitRegionIssues)")
     }
 
-    /// The footer and the Details facts reflow at the accessibility sizes instead of cramming:
-    /// "Changes saved automatically" sits UNDER "Delete item" (at Large it's beside it), and a
-    /// fact's value sits under its label.
+    /// The footer and the Details facts reflow at the accessibility sizes instead of cramming: at
+    /// Large "Changes saved automatically" sits beside "Delete item"; at AX sizes that resting
+    /// line is left out (Task 4d, 2b review M-3 — "Saving…" and errors still show, under Delete:
+    /// `LibraryDetailUITests`), and a fact's value sits under its label.
     @MainActor
     func testTheDetailFooterAndFactsStackAtAccessibilitySizes() async throws {
         let screens = A11yScreens(self)
@@ -357,13 +358,12 @@ final class A11yDetailLibraryUITests: XCTestCase {
             openDetail(app, query: "link one", cardText: "UITEST-FIXTURE: link one", variant: variant)
             let delete = app.buttons["detail.delete"]
             let autosave = element(app, "detail.autosave")
-            XCTAssertTrue(delete.waitForExistence(timeout: 10) && autosave.waitForExistence(timeout: 10),
-                          "\(variant): footer missing")
-            print("A11Y footer \(variant) delete \(delete.frame) autosave \(autosave.frame)")
+            XCTAssertTrue(delete.waitForExistence(timeout: 10), "\(variant): footer missing")
             if variant == .ax3 {
-                XCTAssertGreaterThan(autosave.frame.minY, delete.frame.midY,
-                                     "\(variant): the autosave line should sit under Delete item")
+                XCTAssertFalse(autosave.exists, "\(variant): no resting autosave line at the accessibility sizes")
             } else {
+                XCTAssertTrue(autosave.waitForExistence(timeout: 10), "\(variant): footer missing")
+                print("A11Y footer \(variant) delete \(delete.frame) autosave \(autosave.frame)")
                 XCTAssertEqual(autosave.frame.midY, delete.frame.midY, accuracy: 4,
                                "\(variant): the autosave line should sit beside Delete item")
             }

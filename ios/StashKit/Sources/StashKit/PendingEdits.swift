@@ -60,6 +60,12 @@ public struct PendingEdit: Codable, Equatable, Sendable {
             && isPublic == nil && attributes == nil
     }
 
+    /// The latest capture of any queued field (`.distantPast` when empty).
+    var latestCapture: Date {
+        [title?.capturedAt, description?.capturedAt, content?.capturedAt, supplementalNote?.capturedAt,
+         isPublic?.capturedAt, attributes?.capturedAt].compactMap { $0 }.max() ?? .distantPast
+    }
+
     /// Whether a flush may send this now (its backoff, if any, has passed).
     public func isDue(at date: Date) -> Bool {
         nextAttemptAt.map { $0 <= date } ?? true
@@ -122,8 +128,10 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     /// to the one confirmed is still pending: in X → Y → X, the first X landing says nothing about
     /// the last X, because Y lands after it. Dropping it on equality lost the user's final value
     /// (e.g. "Gro", cleared, "Gro" again, closed with both saves in flight: the server ended
-    /// empty). The cost is one redundant PATCH of X. Recording an identical value again keeps its
-    /// original `capturedAt` (`merge`), so a re-journal still leaves with its own save's confirm.
+    /// empty). The cost, when Y never landed, is one redundant PATCH of X — which re-asserts the
+    /// user's last value over anything that reached the server in between (an AI title, say), as
+    /// a local edit always wins. Recording an identical value again keeps its original
+    /// `capturedAt` (`merge`), so a re-journal still leaves with its own save's confirm.
     @discardableResult
     mutating func removeSent(_ sent: PendingEdit) -> Bool {
         let before = self
@@ -160,13 +168,14 @@ public struct PendingEdit: Codable, Equatable, Sendable {
 ///   recorded, so a crash, a kill from the app switcher, or a relaunch days later still has it.
 ///   Another account's edits are never visible (separate directory). An unreadable file is
 ///   skipped and removed; the rest still load.
-/// - **Write-ahead.** The sheet records each save's fields BEFORE sending them and confirms them
-///   after the PATCH succeeds (`record` → PATCH → `confirm`); on dismiss it records whatever is
-///   still unconfirmed (in flight, failed, or still in a debounce). Anything left here was never
-///   confirmed by the server.
-/// - **Latest wins per field** (`PendingField.capturedAt`), so recording an old value late can't
-///   replace a newer one, and a confirmed save never drops a value typed after it — not even one
-///   equal to what it sent (X → Y → X, plan 16 review P-1).
+/// - **Write-ahead.** The sheet records each save's fields BEFORE sending them (`send`) and
+///   confirms them after the PATCH succeeds (`record` → PATCH → `confirm`); on dismiss it records
+///   whatever is still unconfirmed (in flight, failed, or still in a debounce). Anything left here
+///   was never confirmed by the server.
+/// - **Latest wins per field** (`PendingField.capturedAt`, from `captureTime()` — strictly
+///   increasing), so recording an old value late can't replace a newer one, a confirmed save never
+///   drops a value typed after it — not even one equal to what it sent (X → Y → X, plan 16 review
+///   P-1) — and a sheet's save never lands over a later value a flush already delivered (P-3).
 /// - **Flush** (`flush(editor:)`) PATCHes each queued item through `ItemEditor.saveLatest` — after
 ///   any write to that item already in flight, with the newest queued values — and forgets what the
 ///   server confirmed. Only ever as the queue's own user with a valid token (`PendingEditsSession`),
@@ -198,6 +207,10 @@ public final class PendingEdits {
     /// Who a send goes out as, and how "the item is gone" is proven — see `PendingEditsSession`.
     private let session: PendingEditsSession
     private var flushing: Set<UUID> = []
+    /// Per item, the latest capture of each field that a write which LANDED this session put on
+    /// the server (`send`, `flush`) — what a detail sheet's save checks at its turn (review P-3).
+    /// In memory only: it matters only while writes to the item are in flight.
+    private var delivered: [UUID: DeliveredCaptures] = [:]
 
     private static var instances: [UUID: PendingEdits] = [:]
 
@@ -248,6 +261,23 @@ public final class PendingEdits {
 
     // MARK: - Writing
 
+    /// When a value read from the editor right now was captured — the `capturedAt` for every
+    /// `record`/`confirm` the detail sheet makes (plan 16 review n-1). The wall clock (`now`), but
+    /// strictly increasing: one microsecond past the latest capture this queue has handed out or
+    /// holds whenever the clock stands still between two reads or has stepped back (a clock
+    /// correction, or an entry recorded ahead of it in an earlier launch). Captures are the
+    /// latest-wins key, so two values of one field must never tie (the earlier one's confirm would
+    /// drop the later one), and a newer edit must never lose to an older one because the clock
+    /// moved back.
+    public func captureTime() -> Date {
+        let capture = max(now(), latestCapture.addingTimeInterval(0.000_001))
+        latestCapture = capture
+        return capture
+    }
+
+    /// The latest capture handed out (`captureTime`) or held (`record`, `load`).
+    private var latestCapture = Date.distantPast
+
     /// Queues `patch`'s fields for `itemId`, latest-wins per field, and writes the entry to disk
     /// before returning. A genuinely new value makes the entry due again at once with a fresh
     /// refusal budget (`attempts` back to 0) — a new value gets a fresh send even while an older one
@@ -256,6 +286,7 @@ public final class PendingEdits {
     /// trip to the background, which must not defeat the backoff of an edit the server refuses.
     public func record(itemId: UUID, patch: ItemPatch, capturedAt: Date) {
         guard !patch.isEmpty else { return }
+        latestCapture = max(latestCapture, capturedAt)
         var edit = entries[itemId] ?? PendingEdit(itemId: itemId, updatedAt: now())
         guard edit.merge(patch, capturedAt: capturedAt) else { return }
         edit.revision += 1
@@ -274,11 +305,80 @@ public final class PendingEdits {
         store(edit)
     }
 
+    /// Takes back a queued Sharing value other than `shown` — what the detail sheet's switch shows,
+    /// and the server holds, after a toggle failed in front of the user (plan 16 review P-4). Sent
+    /// by a later flush, it would change the item's visibility to something the user no longer
+    /// sees: a share that visibly failed, published after all. Nothing else in the entry changes.
+    public func withdrawSharing(itemId: UUID, otherThan shown: Bool) {
+        guard var edit = entries[itemId], let queued = edit.isPublic, queued.value != shown else { return }
+        edit.isPublic = nil
+        store(edit)
+    }
+
     /// Forgets everything queued for `itemId` (the item was deleted).
     public func discard(itemId: UUID) {
         guard entries.removeValue(forKey: itemId) != nil else { return }
         try? FileManager.default.removeItem(at: fileURL(for: itemId))
         onChange?([itemId])
+    }
+
+    // MARK: - A detail sheet's own saves (plan 16 review P-3)
+
+    /// Sends one detail-sheet save through `editor`, after every earlier write to the item: `patch`
+    /// (title, description, notes, sticky note — a location goes through `ItemEditor.saveLocation`),
+    /// captured at `capturedAt` and recorded here first (write-ahead). Returns what it sent: the
+    /// saved row, or `item == nil` when nothing was left to send.
+    ///
+    /// The sheet's patch is fixed when the save starts, but a flush queued ahead of it builds its
+    /// own at ITS turn, from the newest queued values — so it can deliver a value the user left
+    /// after this save was made (typed again in a reopened sheet and closed inside the debounce:
+    /// only the close's journal held it). Sent next, this older patch would land over it and the
+    /// user's last word would be lost (A, then ABC, then AB: the server ended with "AB"). So at its
+    /// turn the save leaves out each field a write that already landed put on the server with this
+    /// capture or a later one — that value, or a newer one, is there already.
+    public func send(_ patch: ItemPatch, capturedAt: Date, itemId: UUID,
+                     editor: ItemEditor) async throws -> QueuedSave<Void> {
+        let captures = PendingEdit(itemId: itemId, patch: patch, capturedAt: capturedAt)
+        let outcome = try await editor.saveLatest(itemId: itemId, prepare: { [weak self] in
+            (self?.unsuperseded(patch, itemId: itemId, capturedAt: capturedAt) ?? patch, ())
+        }, landed: { [weak self] saved in
+            self?.noteDelivered(itemId, patch: saved.patch, captures: captures)
+        })
+        return outcome ?? QueuedSave(item: nil, patch: ItemPatch(), context: ())
+    }
+
+    /// `patch`, captured at `capturedAt`, without each field a landed write already put on the
+    /// server with that capture or a later one.
+    private func unsuperseded(_ patch: ItemPatch, itemId: UUID, capturedAt: Date) -> ItemPatch {
+        guard let landed = delivered[itemId] else { return patch }
+        func overtaken(_ capture: Date?) -> Bool { capture.map { $0 >= capturedAt } ?? false }
+        var kept = patch
+        if overtaken(landed.title) { kept.title = nil }
+        if overtaken(landed.description) { kept.description = nil }
+        if overtaken(landed.content) { kept.content = nil }
+        if overtaken(landed.supplementalNote) { kept.supplementalNote = nil }
+        if overtaken(landed.isPublic) { kept.isPublic = nil }
+        if overtaken(landed.attributes) { kept.attributes = nil }
+        return kept
+    }
+
+    /// A write of `patch` — its fields' values captured as in `captures` — just landed: remembers,
+    /// per field, the latest capture the server now holds. Called inside the item's write slot, so
+    /// the next write to the item sees it.
+    private func noteDelivered(_ itemId: UUID, patch: ItemPatch, captures: PendingEdit) {
+        var landed = delivered[itemId] ?? DeliveredCaptures()
+        func latest(_ known: Date?, sent: Bool, _ capture: Date?) -> Date? {
+            guard sent, let capture else { return known }
+            return max(known ?? capture, capture)
+        }
+        landed.title = latest(landed.title, sent: patch.title != nil, captures.title?.capturedAt)
+        landed.description = latest(landed.description, sent: patch.description != nil, captures.description?.capturedAt)
+        landed.content = latest(landed.content, sent: patch.content != nil, captures.content?.capturedAt)
+        landed.supplementalNote = latest(landed.supplementalNote, sent: patch.supplementalNote != nil,
+                                         captures.supplementalNote?.capturedAt)
+        landed.isPublic = latest(landed.isPublic, sent: patch.isPublic != nil, captures.isPublic?.capturedAt)
+        landed.attributes = latest(landed.attributes, sent: patch.attributes != nil, captures.attributes?.capturedAt)
+        delivered[itemId] = landed
     }
 
     // MARK: - Flush
@@ -323,7 +423,7 @@ public final class PendingEdits {
         for _ in 0..<3 {
             let outcome: QueuedSave<PendingEdit>?
             do {
-                outcome = try await editor.saveLatest(itemId: id) { [weak self] in
+                outcome = try await editor.saveLatest(itemId: id, prepare: { [weak self] in
                     guard let self, let edit = self.entries[id], !edit.isEmpty else { return nil }
                     _ = try await self.session.accessToken(for: self.userId)
                     var patch = edit.fieldPatch
@@ -338,7 +438,9 @@ public final class PendingEdits {
                         }
                     }
                     return (patch, edit)
-                }
+                }, landed: { [weak self] saved in
+                    self?.noteDelivered(id, patch: saved.patch, captures: saved.context)
+                })
             } catch PendingEditsSessionError.notSignedInAsOwner {
                 return   // kept, untouched, for its own user's next session
             } catch ItemEditorError.itemNotFound {
@@ -444,8 +546,20 @@ public final class PendingEdits {
                   envelope.edit.itemId == id, !envelope.edit.isEmpty
             else { continue }
             entries[id] = envelope.edit
+            latestCapture = max(latestCapture, envelope.edit.latestCapture)
         }
     }
+}
+
+/// The capture of the newest value of each field a write that landed put on the server (review
+/// P-3) — `PendingEdits`' record of what a later, older patch must not overwrite.
+struct DeliveredCaptures: Equatable, Sendable {
+    var title: Date?
+    var description: Date?
+    var content: Date?
+    var supplementalNote: Date?
+    var isPublic: Date?
+    var attributes: Date?
 }
 
 // MARK: - Location writes (final wave B)

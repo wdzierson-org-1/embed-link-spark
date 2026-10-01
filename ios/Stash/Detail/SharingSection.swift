@@ -25,6 +25,10 @@ import UIKit
 struct SharingSection: View {
     let item: Item
     @Binding var supplementalNote: String
+    /// The sheet's shared text-input focus (`ItemDetailView.focusedField`; the note is
+    /// `.stickyNote`), so the sheet's one hide-keyboard control (the footer's) works for the note
+    /// too — and a tap anywhere on the note box focuses it (plan 16, Task 4d).
+    var focus: FocusState<DetailField?>.Binding
     var setPublic: (Bool) async -> Bool
 
     @Environment(SessionStore.self) private var session
@@ -36,8 +40,6 @@ struct SharingSection: View {
     /// field's clear button). A scaled metric on a system symbol font: the same glyph set in a
     /// custom face relative to `.caption2` stayed ~11 pt at every size (measured at xxxL and AX3).
     @ScaledMetric(relativeTo: .caption2) private var copyGlyphSize: CGFloat = 11
-    /// The sticky note field's keyboard focus — so a tap anywhere on its note box focuses it.
-    @FocusState private var stickyFocused: Bool
 
     private var username: String? { session.profile?.username }
     private var isLoadingUsername: Bool { session.profileLoad == .loading }
@@ -208,27 +210,35 @@ struct SharingSection: View {
     /// it: the text field itself is only its line of text (21 pt), and a tap on the box's padding
     /// used to do nothing. The box's fill takes those taps from behind the field, so a tap on the
     /// text still goes to the text (caret, selection).
+    ///
+    /// Task 4d: focused, the note gets the sheet's hide-keyboard control like every other field
+    /// (`focus`). VoiceOver hears its name once — the visible label repeats the field's own name,
+    /// so it is hidden from VoiceOver (2b review N-3) — and the caption is the field's hint.
     private var stickyNoteField: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let caption: LocalizedStringKey = "This note appears as a yellow sticky note on the public feed card."
+        return VStack(alignment: .leading, spacing: 4) {
             Text("Sticky note")
                 .stashFont(.meta)
                 .foregroundStyle(StashColor.muted)
+                .accessibilityHidden(true)
             TextField("Sticky note", text: $supplementalNote,
                       prompt: Text("Add a quick note…").foregroundStyle(StashColor.muted), axis: .vertical)
                 .stashFont(.reading)
                 .textFieldStyle(.plain)
-                .focused($stickyFocused)
+                .focused(focus, equals: .stickyNote)
                 .padding(10)
                 .frame(minHeight: 44)
                 .background {
                     RoundedRectangle(cornerRadius: StashRadius.input)
                         .fill(Color.yellow.opacity(0.16))
-                        .onTapGesture { stickyFocused = true }
+                        .onTapGesture { focus.wrappedValue = .stickyNote }
                 }
+                .accessibilityHint(Text(caption))
                 .accessibilityIdentifier("detail.public.sticky")
-            Text("This note appears as a yellow sticky note on the public feed card.")
+            Text(caption)
                 .stashFont(.meta)
                 .foregroundStyle(StashColor.muted)
+                .accessibilityHidden(true)
         }
         .padding(.leading, 52)
     }

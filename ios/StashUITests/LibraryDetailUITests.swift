@@ -18,6 +18,13 @@ import XCTest
 /// sent (the server ends with the retyped title), a description reverted to its server value while
 /// the edit is in flight, and a plain note cleared and closed while its text is in flight.
 ///
+/// Task 4d (4c review P-4; 2b review I-1, M-3, N-3): on a stalled link, a Sharing toggle the user
+/// saw fail — the app having left the foreground mid-flight — is never delivered later (a share
+/// never publishes the item; an un-share leaves it public with its note, as the sheet showed); the
+/// sticky note hides its keyboard with the sheet's own control, and VoiceOver hears its name once;
+/// "done" over a selected word in the wrapping title keeps the title and ends editing; at AX3 the
+/// footer drops its resting caption.
+///
 /// Self-contained like `DetailUITests` (its own sign-in and REST helpers). Seeded rows carry a
 /// `UITEST-P16-` marker and are deleted in teardown blocks, so a failed assertion can't leak them
 /// (a failed delete is reported, never swallowed); `UITEST-FIXTURE` rows are never touched.
@@ -239,8 +246,10 @@ final class LibraryDetailUITests: XCTestCase {
     ///
     /// The close journals from `onDisappear`, after the dismiss animation — later than 400 ms after
     /// XCUITest's last keystroke, so with the shipping debounce the retyped title's own autosave
-    /// always went first (and delivered it). The DEBUG timing switches open the window: a 1.5 s
-    /// field debounce to close inside, and a 6 s link so the first "Gro" is still in flight then.
+    /// always went first (and delivered it). The DEBUG timing switches open the window: a 3 s field
+    /// debounce to close inside (Task 4d, review n-4: it was 1.5 s, which the close — tap plus the
+    /// dismiss animation — beat by only ~0.6 s, so on a slow simulator the old code's failure could
+    /// slip past), and an 8 s link so the first "Gro" is still in flight then.
     @MainActor
     func testATitleRetypedAfterASentClearIsWhatTheServerEndsWith() async throws {
         let (email, password) = try credentials()
@@ -253,8 +262,8 @@ final class LibraryDetailUITests: XCTestCase {
 
         let app = XCUIApplication()
         signIn(app, email: email, password: password,
-               extraArguments: ["--uitest-slow-item-writes", "--uitest-slow-item-write-seconds", "6",
-                                "--uitest-field-debounce-seconds", "1.5"])
+               extraArguments: ["--uitest-slow-item-writes", "--uitest-slow-item-write-seconds", "8",
+                                "--uitest-field-debounce-seconds", "3"])
         let card = libraryCard(app, containing: marker)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded voice note's card")
         tapWhenHittable(card)
@@ -262,15 +271,15 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
         tapUntilFocused(titleField)
         titleField.typeText("Gro")
-        sleep(2)   // past the 1.5 s autosave: "Gro" is on its 6 s way
+        usleep(3_500_000)   // past the 3 s autosave: "Gro" is on its 8 s way
         titleField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
         XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"), "Expected the field empty again (placeholder showing)")
-        sleep(2)   // the clear's autosave has gone out too, queued behind "Gro"
+        usleep(3_500_000)   // the clear's autosave has gone out too, queued behind "Gro"
         titleField.typeText("Gro")
-        closeSheet(app)   // inside the retyped title's 1.5 s debounce; the first "Gro" still in flight
+        closeSheet(app)   // well inside the retyped title's 3 s debounce; the first "Gro" still in flight
 
-        // "Gro" lands ~6 s after it was sent and the clear ~6 s after that; writes to one item never
-        // overtake each other, so the close's flush goes out only then, and lands ~6 s later.
+        // "Gro" lands ~8 s after it was sent and the clear ~8 s after that; writes to one item never
+        // overtake each other, so the close's flush goes out only then, and lands ~8 s later.
         let clearLanded = try await rest.waitFor("title", of: id, equalTo: "", timeout: 30)
         XCTAssertTrue(clearLanded, "Expected the clear (sent before the close) to land first")
         let delivered = try await rest.waitFor("title", of: id, equalTo: "Gro", timeout: 30)
@@ -367,6 +376,215 @@ final class LibraryDetailUITests: XCTestCase {
         let cleared = try await rest.waitFor("content", of: id, equalTo: "", timeout: 25)
         let serverContent = try await rest.column("content", of: id)
         XCTAssertTrue(cleared, "Expected the clear to be what the server ends with, got '\(serverContent ?? "nil")'")
+    }
+
+    // MARK: - Sharing never goes out behind the user's back (plan 16, Task 4d)
+
+    /// Review P-4, on a stalled link (`--uitest-stall-item-writes`: every item write hangs 10 s, then
+    /// times out). Sharing is turned on for a private item, and while that PATCH hangs the app
+    /// leaves the foreground (Home) and comes back — the journal that runs then used to queue the
+    /// share. The PATCH fails: the switch flips back off and the section says it couldn't update.
+    /// Once the link is back (a relaunch without the switch, whose launch refresh flushes the
+    /// queue) the item must still be private: a share the user saw fail is never published.
+    @MainActor
+    func testAShareThatFailedInFrontOfTheUserIsNeverPublishedLater() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-share"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password, extraArguments: ["--uitest-stall-item-writes"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let toggle = sharingSwitch(app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Sharing switch not found")
+        A11yScreens.scrollIntoView(app, toggle)
+        XCTAssertEqual(toggle.value as? String, "0", "Expected the seeded item private")
+        toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "1", "The switch turns on at once (optimistic)")
+
+        // Away and back while the share hangs.
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        let error = app.descendants(matching: .any)["detail.public.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 25), "Expected the share to fail visibly once its PATCH times out")
+        XCTAssertEqual(toggle.value as? String, "0", "The switch is back off")
+
+        app.terminate()
+        app.launchArguments = ["--uitest-tab-view"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in")
+        XCTAssertTrue(libraryCard(app, containing: marker).waitForExistence(timeout: 20), "Expected the card after the relaunch")
+        // The launch refresh flushes the queue before it reads page 1: anything queued goes out now.
+        let published = try await rest.waitForPublic(id, equalTo: true, timeout: 12)
+        XCTAssertFalse(published, "A share the user saw fail must never be published later")
+    }
+
+    /// The reverse, on the stalled link: a PUBLIC item with a sticky note is made private ("Make
+    /// Private" — the note will be removed), and while that PATCH hangs the app leaves the
+    /// foreground and comes back, so the journal queues the un-share. The PATCH fails: the switch
+    /// flips back on and the note comes back. Once the link is back, the server must agree with
+    /// what the sheet showed — still public, still with its note — not take the queued un-share
+    /// (which made it private while the sheet said public).
+    @MainActor
+    func testAnUnshareThatFailedInFrontOfTheUserLeavesTheItemPublicWithItsNote() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-unshare"
+        let note = "\(marker) note"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": "", "supplemental_note": note],
+                                           isPublic: true)
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password, extraArguments: ["--uitest-stall-item-writes"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let toggle = sharingSwitch(app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Sharing switch not found")
+        A11yScreens.scrollIntoView(app, toggle)
+        XCTAssertEqual(toggle.value as? String, "1", "Expected the seeded item public")
+        let sticky = app.descendants(matching: .any)["detail.public.sticky"]
+        XCTAssertTrue(sticky.waitForExistence(timeout: 5), "Expected the sticky note field")
+        XCTAssertEqual(sticky.value as? String, note)
+        toggle.tap()
+        let makePrivate = app.buttons["Make Private"]
+        XCTAssertTrue(makePrivate.waitForExistence(timeout: 5), "Expected the un-share confirmation")
+        makePrivate.tap()
+        XCTAssertTrue(waitUntilGone(sticky, timeout: 5), "The note field goes with the un-share (optimistic)")
+        XCTAssertEqual(toggle.value as? String, "0")
+
+        // Away and back while the un-share hangs.
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.activate()
+        let error = app.descendants(matching: .any)["detail.public.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 25), "Expected the un-share to fail visibly once its PATCH times out")
+        XCTAssertEqual(toggle.value as? String, "1", "The switch is back on")
+        XCTAssertTrue(sticky.waitForExistence(timeout: 5), "The note field is back")
+        XCTAssertEqual(sticky.value as? String, note, "…with the note")
+
+        app.terminate()
+        app.launchArguments = ["--uitest-tab-view"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in")
+        XCTAssertTrue(libraryCard(app, containing: marker).waitForExistence(timeout: 20), "Expected the card after the relaunch")
+        let madePrivate = try await rest.waitForPublic(id, equalTo: false, timeout: 12)
+        XCTAssertFalse(madePrivate, "The server must end as the sheet showed it: public")
+        let serverNote = try await rest.column("supplemental_note", of: id)
+        XCTAssertEqual(serverNote, note, "…with its sticky note")
+    }
+
+    /// The sticky note's field hides its keyboard the way the sheet's other text fields do: while
+    /// it has focus, the footer's "Hide keyboard" control is there, and it takes the focus away.
+    /// (The field used to keep a focus of its own, which that control never saw.)
+    @MainActor
+    func testTheStickyNoteFieldCanHideItsKeyboard() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-sticky"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""], isPublic: true)
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let sticky = app.descendants(matching: .any)["detail.public.sticky"]
+        XCTAssertTrue(sticky.waitForExistence(timeout: 10), "Expected the sticky note field on a public item")
+        A11yScreens.scrollIntoView(app, sticky)
+        A11yScreens.tapUntilFocused(sticky)
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: sticky)
+        XCTAssertEqual(XCTWaiter().wait(for: [focused], timeout: 3), .completed, "Expected the sticky note focused")
+
+        let hide = app.buttons["detail.dismissKeyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Expected the sheet's Hide keyboard control while the sticky note has focus")
+        hide.tap()
+        let unfocused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == false"), object: sticky)
+        XCTAssertEqual(XCTWaiter().wait(for: [unfocused], timeout: 5), .completed, "Expected the sticky note to give up the keyboard")
+        XCTAssertTrue(waitUntilGone(hide, timeout: 5), "The control goes once nothing has focus")
+        // 2b review N-3: VoiceOver hears the field's name once — the visible "Sticky note" label
+        // above it isn't a second element saying the same.
+        XCTAssertFalse(app.staticTexts["Sticky note"].exists, "The visible label repeats the field's name to VoiceOver")
+        closeSheet(app)
+    }
+
+    // MARK: - The wrapping title and the footer (plan 16, 2b review I-1, M-3)
+
+    /// 2b review I-1 (its recipe R-1): the title wraps — a vertical-axis field — so the keyboard's
+    /// "done" reaches it as a line break. Pressed over a selected word, it must leave the title as
+    /// it was and end editing, as the single-line field did: never turn the word into a space and
+    /// keep the keyboard up (and then autosave that).
+    @MainActor
+    func testDoneOverASelectedWordKeepsTheTitleAndEndsEditing() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-done"
+        let original = "\(marker) Grocery list"
+        let id = try await rest.insertItem(["type": "text", "title": original, "content": ""])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let title = detailTitleField(app)
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "Title field not found")
+        tapUntilFocused(title)
+        title.doubleTap()   // selects the word under the tap
+        title.typeText("\n")   // the keyboard's "done"
+        XCTAssertEqual(title.value as? String, original, "Done over a selected word must leave the title as it was")
+        XCTAssertTrue(waitUntilGone(app.buttons["detail.dismissKeyboard"], timeout: 5), "…and end editing")
+        sleep(2)   // past the 400 ms autosave
+        let serverTitle = try await rest.title(of: id)
+        XCTAssertEqual(serverTitle, original, "Nothing is saved over the title")
+        closeSheet(app)
+    }
+
+    /// 2b review M-3 (the coordinator's call): at the accessibility sizes the pinned footer drops
+    /// its resting "Changes saved automatically" — under "Delete item" it took two more lines, a
+    /// fifth of the screen at AX3 — but still says "Saving…" while a save is on its way (slow
+    /// link), and the caption goes again once it lands.
+    @MainActor
+    func testTheFooterDropsItsRestingCaptionAtAccessibilitySizes() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-footer"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        app.terminate()
+        app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL",
+                               "--uitest-tab-view", "--uitest-slow-item-writes"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in at AX3")
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        XCTAssertTrue(app.buttons["detail.delete"].waitForExistence(timeout: 10), "Expected Delete item in the footer")
+        let caption = app.descendants(matching: .any)["detail.autosave"]
+        XCTAssertFalse(caption.exists, "At AX3 the footer has no resting caption")
+
+        let title = detailTitleField(app)
+        tapUntilFocused(title)
+        title.typeText(" x")   // wherever the caret is: what matters is that a save goes out
+        let typed = (title.value as? String) ?? ""
+        XCTAssertNotEqual(typed, marker, "Expected the title edited")
+        XCTAssertTrue(caption.waitForExistence(timeout: 5), "Expected \"Saving…\" while the save is on its way")
+        XCTAssertEqual(caption.label, "Saving…")
+        XCTAssertTrue(waitUntilGone(caption, timeout: 15), "Expected the caption gone again once the save landed")
+        let saved = try await rest.waitForTitle(of: id, equalTo: typed, timeout: 10)
+        XCTAssertTrue(saved, "Expected the edit saved")
+        closeSheet(app)
     }
 
     // MARK: - Search pill
@@ -570,6 +788,19 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [closed], timeout: 5), .completed, "The sheet didn't close")
     }
 
+    /// The detail sheet's Sharing switch.
+    @MainActor
+    private func sharingSwitch(_ app: XCUIApplication) -> XCUIElement {
+        app.switches["detail.public.toggle"]
+    }
+
+    /// Waits until `element` no longer exists; true if it went within `timeout`.
+    @MainActor
+    private func waitUntilGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter().wait(for: [gone], timeout: timeout) == .completed
+    }
+
     /// Polls `condition` until it holds or `timeout` passes (frames aren't KVO-observable).
     private func eventually(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
@@ -706,10 +937,10 @@ private struct P16Rest: Sendable {
         return request
     }
 
-    func insertItem(_ fields: [String: Any], attributes: [String: Any] = [:]) async throws -> String {
+    func insertItem(_ fields: [String: Any], attributes: [String: Any] = [:], isPublic: Bool = false) async throws -> String {
         var body = fields
         body["user_id"] = userId
-        body["is_public"] = false
+        body["is_public"] = isPublic
         body["attributes"] = attributes
         var request = request("/rest/v1/items", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -743,6 +974,30 @@ private struct P16Rest: Sendable {
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], let row = rows.first
         else { throw Failure(description: "\(name) read failed for \(id)") }
         return row[name] as? String
+    }
+
+    /// A seeded row's `is_public`.
+    func isPublic(_ id: String) async throws -> Bool {
+        let (data, response) = try await Self.send(request("/rest/v1/items", query: [
+            URLQueryItem(name: "id", value: "eq.\(id)"),
+            URLQueryItem(name: "select", value: "is_public"),
+        ]))
+        guard Self.succeeded(response),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let value = rows.first?["is_public"] as? Bool
+        else { throw Failure(description: "is_public read failed for \(id)") }
+        return value
+    }
+
+    /// Polls a seeded row's `is_public` (about once a second) until it equals `expected`; false if
+    /// it never did within `timeout`.
+    func waitForPublic(_ id: String, equalTo expected: Bool, timeout: TimeInterval) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let value = try? await isPublic(id), value == expected { return true }
+            try await Task.sleep(for: .seconds(1))
+        } while Date() < deadline
+        return false
     }
 
     /// A title write from outside the app — what the server's transcription job does when it

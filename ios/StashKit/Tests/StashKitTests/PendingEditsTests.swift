@@ -311,6 +311,78 @@ final class PendingEditsTests: XCTestCase {
                        "once Porto lands, Lisbon is still to be sent")
     }
 
+    // MARK: - The capture clock (plan 16 review n-1)
+
+    /// Every capture the sheet takes comes from the queue's clock, which never repeats a time and
+    /// never goes back: two reads in the same instant (or after the wall clock steps back) still
+    /// get increasing times, and it follows the wall clock again once that is ahead.
+    func testCaptureTimesStrictlyIncreaseWhenTheClockStandsStillOrStepsBack() {
+        let clock = TestClock(t0)
+        let queue = makeQueue(clock: clock)
+        let first = queue.captureTime()
+        let second = queue.captureTime()
+        XCTAssertEqual(first, t0)
+        XCTAssertGreaterThan(second, first, "the same wall-clock instant still gives a later capture")
+
+        clock.now = t0.addingTimeInterval(-60)   // the wall clock steps back
+        let third = queue.captureTime()
+        XCTAssertGreaterThan(third, second, "a clock stepping back never makes a newer capture older")
+
+        clock.now = t0.addingTimeInterval(10)
+        XCTAssertEqual(queue.captureTime(), t0.addingTimeInterval(10), "and it follows the clock again once that is ahead")
+    }
+
+    /// The review's tie probe: Y read in the same instant as X used to replace it (`merge`) and then
+    /// leave with X's confirm (`removeSent` keeps only LATER captures) — the user's later value lost.
+    /// Captures from the queue's clock can't tie.
+    func testAValueReadInTheSameInstantAsTheOneBeforeItIsNeverDroppedByThatOnesConfirm() {
+        let queue = makeQueue(clock: TestClock(t0))   // the wall clock never moves
+        let id = UUID()
+        let x = queue.captureTime()
+        queue.record(itemId: id, patch: ItemPatch(title: "X"), capturedAt: x)
+        let y = queue.captureTime()
+        queue.record(itemId: id, patch: ItemPatch(title: "Y"), capturedAt: y)
+
+        queue.confirm(itemId: id, patch: ItemPatch(title: "X"), capturedAt: x)
+        XCTAssertEqual(queue.edit(for: id)?.title?.value, "Y", "X landing says nothing about Y, read after it")
+    }
+
+    /// A value queued with a later capture than the clock now reads — recorded before the wall clock
+    /// stepped back, maybe in an earlier launch — must still lose to a newer edit: captures stay
+    /// ahead of everything the queue holds, on disk included.
+    func testCaptureTimesStayAheadOfEveryValueTheQueueHolds() {
+        let userId = UUID()
+        let id = UUID()
+        let later = t0.addingTimeInterval(3600)
+        makeQueue(userId: userId).record(itemId: id, patch: ItemPatch(title: "queued an hour ahead"), capturedAt: later)
+
+        let relaunched = makeQueue(userId: userId, clock: TestClock(t0))   // the clock is back at t0
+        let capture = relaunched.captureTime()
+        XCTAssertGreaterThan(capture, later)
+        relaunched.record(itemId: id, patch: ItemPatch(title: "typed now"), capturedAt: capture)
+        XCTAssertEqual(relaunched.edit(for: id)?.title?.value, "typed now", "the newer edit wins")
+    }
+
+    /// Review P-4: a Sharing value queued during a toggle the user then saw fail is taken back —
+    /// only it, and only when it differs from what the switch shows.
+    func testWithdrawingASharingValueLeavesTheRestOfTheEdit() {
+        let queue = makeQueue()
+        let id = UUID()
+        queue.record(itemId: id, patch: ItemPatch(title: "Typed", isPublic: true), capturedAt: t0)
+
+        queue.withdrawSharing(itemId: id, otherThan: true)
+        XCTAssertEqual(queue.edit(for: id)?.isPublic?.value, true, "the value the switch shows stays")
+        queue.withdrawSharing(itemId: id, otherThan: false)
+        XCTAssertNil(queue.edit(for: id)?.isPublic)
+        XCTAssertEqual(queue.edit(for: id)?.title?.value, "Typed", "the rest of the edit is untouched")
+
+        let other = UUID()
+        queue.record(itemId: other, patch: ItemPatch(isPublic: true), capturedAt: t0)
+        queue.withdrawSharing(itemId: other, otherThan: false)
+        XCTAssertNil(queue.edit(for: other))
+        XCTAssertFalse(fileExists(queue, other), "an entry left empty is gone, file and all")
+    }
+
     func testOverlayLaysQueuedValuesOverTheServerRow() {
         let queue = makeQueue()
         let media = MediaAttributes(durationS: 42, extra: ["kind": .string("voice_note")])
@@ -678,6 +750,113 @@ final class PendingEditsTests: XCTestCase {
 
         XCTAssertEqual(server.patches.map(\.1.title), ["older", "newer"])
         XCTAssertEqual(server.row(row.id)?.title, "newer", "the newest value lands last")
+    }
+
+    // MARK: - A sheet's save never lands over a later value (plan 16 review P-3)
+
+    /// Lets every task already queued on the main actor run until it next waits — e.g. a flush
+    /// started in a `Task` reaching its place in the item's write queue.
+    private func settle() async {
+        for _ in 0..<50 { await Task.yield() }
+    }
+
+    /// The review's probe, on a slow link. "A" is autosaved and the sheet closed — its flush queues
+    /// behind "A". The user reopens at once and types "AB" (autosaved: a fixed patch, queued behind
+    /// that flush), then "ABC" and closes inside the debounce: only the journal holds "ABC", and
+    /// this close's flush is skipped, the first still running. The first flush builds its patch at
+    /// its turn and delivers "ABC"; the older "AB" must not then land over it.
+    func testTheLastTitleTypedWinsAcrossACloseAndAReopen() async throws {
+        let row = makeItem(title: "")
+        let server = FakeRowServer(rows: [row])
+        server.gated = true
+        let writeQueue = ItemWriteQueue()
+        let sheets = makeEditor(server, writeQueue: writeQueue)    // the sheets' autosaves
+        let closes = makeEditor(server, writeQueue: writeQueue)    // the closes' flushes
+        let queue = makeQueue(server: server, clock: TestClock(t0))
+
+        // 1. "A" is autosaved: recorded, then sent — and held by the slow link.
+        let a = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(title: "A"), capturedAt: a)
+        let saveA = Task { try await queue.send(ItemPatch(title: "A"), capturedAt: a, itemId: row.id, editor: sheets) }
+        await waitUntil { server.heldCount == 1 }
+        // The sheet closes: "A" is queued already; the close's flush waits behind it.
+        let firstClose = Task { await queue.flush(editor: closes, itemIds: [row.id]) }
+        await settle()
+
+        // 2. Reopened at once: "AB" is autosaved, behind that flush.
+        let ab = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(title: "AB"), capturedAt: ab)
+        let saveAB = Task { try await queue.send(ItemPatch(title: "AB"), capturedAt: ab, itemId: row.id, editor: sheets) }
+        await settle()
+
+        // 3. "ABC", closed inside its debounce: only the close's journal holds it.
+        queue.record(itemId: row.id, patch: ItemPatch(title: "ABC"), capturedAt: queue.captureTime())
+        await queue.flush(editor: closes, itemIds: [row.id])   // skipped: the first close's flush is still running
+
+        // 4. The link catches up.
+        server.gated = false
+        server.release()
+        _ = try await saveA.value
+        await firstClose.value
+        let sentAB = try await saveAB.value
+
+        XCTAssertEqual(server.row(row.id)?.title, "ABC", "the user's last value is what the server ends with")
+        XCTAssertEqual(server.patches.map(\.1.title), ["A", "ABC"], "the older \"AB\" never goes out after \"ABC\"")
+        XCTAssertNil(sentAB.item, "nothing was left for the \"AB\" save to send")
+        XCTAssertNil(queue.edit(for: row.id))
+    }
+
+    /// A flush waiting behind a slow write builds its patch at its turn, so it carries an autosave
+    /// recorded meanwhile — and the autosave, queued behind it, has nothing left to send.
+    func testASheetSaveAFlushAheadOfItAlreadyDeliveredIsNotSentAgain() async throws {
+        let row = makeItem(title: "")
+        let server = FakeRowServer(rows: [row])
+        server.gated = true
+        let writeQueue = ItemWriteQueue()
+        let sheets = makeEditor(server, writeQueue: writeQueue)
+        let refreshes = makeEditor(server, writeQueue: writeQueue)
+        let queue = makeQueue(server: server, clock: TestClock(t0))
+        let slow = Task { try await sheets.save(itemId: row.id, patch: ItemPatch(description: "slow")) }
+        await waitUntil { server.heldCount == 1 }
+
+        let gro = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Gro"), capturedAt: gro)   // the autosave's write-ahead
+        let refresh = Task { await queue.flush(editor: refreshes, itemIds: [row.id]) }  // e.g. a foreground refresh
+        await settle()
+        let autosave = Task { try await queue.send(ItemPatch(title: "Gro"), capturedAt: gro, itemId: row.id, editor: sheets) }
+        await settle()
+
+        server.gated = false
+        server.release()
+        _ = try await slow.value
+        await refresh.value
+        let sent = try await autosave.value
+        XCTAssertEqual(server.patches.map(\.1), [ItemPatch(description: "slow"), ItemPatch(title: "Gro")],
+                       "\"Gro\" goes out once, with the flush")
+        XCTAssertNil(sent.item)
+        XCTAssertEqual(server.row(row.id)?.title, "Gro")
+    }
+
+    /// The same check never holds back a save no earlier write overtook: two autosaves in a row
+    /// both go out, in order, and each reports the row it saved.
+    func testASheetSaveNoLaterValueOvertookGoesOutAsItIs() async throws {
+        let row = makeItem(title: "")
+        let server = FakeRowServer(rows: [row])
+        let editor = makeEditor(server)
+        let queue = makeQueue(server: server)
+
+        let first = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Gro"), capturedAt: first)
+        let savedFirst = try await queue.send(ItemPatch(title: "Gro"), capturedAt: first, itemId: row.id, editor: editor)
+        let second = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Groceries", description: "list"), capturedAt: second)
+        let savedSecond = try await queue.send(ItemPatch(title: "Groceries", description: "list"), capturedAt: second,
+                                               itemId: row.id, editor: editor)
+
+        XCTAssertEqual(savedFirst.item?.title, "Gro")
+        XCTAssertEqual(savedSecond.patch, ItemPatch(title: "Groceries", description: "list"))
+        XCTAssertEqual(savedSecond.item?.title, "Groceries")
+        XCTAssertEqual(server.patches.map(\.1.title), ["Gro", "Groceries"])
     }
 
     func testWritesToDifferentItemsDoNotWaitOnEachOther() async throws {

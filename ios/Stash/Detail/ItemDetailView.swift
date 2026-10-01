@@ -19,16 +19,17 @@ enum SaveStatus: Equatable {
     case failed(String)
 }
 
-/// The sheet's three focusable text inputs (final wave, item B) — one shared `@FocusState` rather
-/// than three independent `Bool`s, specifically so the keyboard accessory's "hide keyboard" button
-/// can defocus WHICHEVER of the three is currently active. Previously that button hardcoded
-/// `notesFocused = false`, so it was a dead tap unless notes specifically had focus (confirmed
-/// live: tapping it while title/description was focused left the keyboard up). `NotesEditor`
-/// itself binds into this same enum via `equals: .notes`, not a private `Bool` of its own — see
-/// its own doc comment for why a `FocusState<DetailField?>.Binding` has to be threaded all the way
-/// down for that to work.
+/// The sheet's focusable text inputs (final wave, item B) — one shared `@FocusState` rather than
+/// independent `Bool`s, specifically so the footer's "hide keyboard" button can defocus WHICHEVER
+/// is currently active. Previously that button hardcoded `notesFocused = false`, so it was a dead
+/// tap unless notes specifically had focus (confirmed live: tapping it while title/description was
+/// focused left the keyboard up). `NotesEditor` itself binds into this same enum via `equals:
+/// .notes`, not a private `Bool` of its own — see its own doc comment for why a
+/// `FocusState<DetailField?>.Binding` has to be threaded all the way down for that to work.
+/// Plan 16 (Task 4d): `SharingSection`'s sticky note binds in the same way (`.stickyNote`) — with
+/// a focus of its own, the hide-keyboard control never appeared for it.
 enum DetailField: Hashable {
-    case title, description, notes
+    case title, description, notes, stickyNote
 }
 
 /// The editor every detail-sheet save and every pending-edit flush goes through (the sheet's own
@@ -232,10 +233,10 @@ struct ItemDetailView: View {
     @State private var selectedTab: ContentTabKey
     /// The `page_body` read (M5/L6) — see `loadDetailIfNeeded`.
     @State private var sourceLoad: DetailSourceLoad = .idle
-    /// One shared enum-keyed `@FocusState` for all three text inputs (final wave, item B — see
-    /// `DetailField`'s own doc comment). Threaded down through `ItemDetailContent` as a
-    /// `FocusState<DetailField?>.Binding`; the footer's hide-keyboard control needs "is ANY of
-    /// title/description/notes focused" and "clear whichever one is".
+    /// One shared enum-keyed `@FocusState` for every text input (final wave, item B — see
+    /// `DetailField`'s own doc comment). Threaded down through `ItemDetailContent` and
+    /// `SharingSection` as a `FocusState<DetailField?>.Binding`; the footer's hide-keyboard control
+    /// needs "is ANY of title/description/notes/sticky note focused" and "clear whichever one is".
     @FocusState private var focusedField: DetailField?
 
     init(item: Item, store: ItemStore) {
@@ -338,7 +339,7 @@ struct ItemDetailView: View {
                         DetailsDrawer(item: item, attributes: attributesBinding)
 
                         SharingSection(item: item, supplementalNote: supplementalNoteBinding,
-                                       setPublic: setPublic)
+                                       focus: $focusedField, setPublic: setPublic)
                     }
                     .padding(.horizontal, DetailLayout.inset)
                     .padding(.top, 44)
@@ -367,9 +368,10 @@ struct ItemDetailView: View {
         }
         // Leaving the foreground with the sheet still open (app switcher, lock, Control Center):
         // queue what's unsaved now. `.inactive` too — a kill from the app switcher isn't
-        // guaranteed to deliver `.background` first. The next foreground refresh sends it.
+        // guaranteed to deliver `.background` first. The next foreground refresh sends it. The
+        // sheet stays open, so a share still in flight is left to its own PATCH (Task 4d).
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active, !isDeleted { journalUnconfirmedEdits() }
+            if phase != .active, !isDeleted { journalUnconfirmedEdits(closing: false) }
         }
         .onAppear { services.isClosed = false }
         // Fires on every way out — X, swipe, or a programmatic dismissal.
@@ -506,6 +508,10 @@ struct ItemDetailView: View {
         .buttonStyle(.stashPlain)
         .stashIconControl("Close", systemImage: "xmark")
         .accessibilityIdentifier("detail.done")
+        // VoiceOver first (2b review N-9): as the ZStack's last child it is otherwise reached
+        // late. Unverified by UI tests — XCUITest's snapshot keeps its own order — so it's on the
+        // device VoiceOver check.
+        .accessibilitySortPriority(1)
         .padding(14)
     }
 
@@ -517,7 +523,10 @@ struct ItemDetailView: View {
     ///
     /// Plan 16: at the accessibility sizes the autosave line moves under "Delete item" (a row of
     /// its own, full width) instead of squeezing beside it; below them the row is as before, the
-    /// caption wrapping onto a second line if it must.
+    /// caption wrapping onto a second line if it must. Task 4d (2b review M-3): at those sizes the
+    /// line is there only while it says something that matters — "Saving…" or an error. The
+    /// resting "Changes saved automatically" took two more lines under Delete, and the pinned
+    /// footer about a fifth of the screen at AX3.
     private var footerBar: some View {
         VStack(alignment: .leading, spacing: 4) {
             if dynamicTypeSize.isAccessibilitySize {
@@ -527,7 +536,9 @@ struct ItemDetailView: View {
                         Spacer(minLength: 8)
                         dismissKeyboardButton
                     }
-                    autosaveLabel
+                    if !saveStatusIsResting {
+                        autosaveLabel
+                    }
                 }
             } else {
                 HStack {
@@ -591,6 +602,12 @@ struct ItemDetailView: View {
         .accessibilityIdentifier("detail.delete")
     }
 
+    /// Nothing in flight and nothing failed: the caption would only say "Changes saved
+    /// automatically".
+    private var saveStatusIsResting: Bool {
+        saveStatus == .idle || saveStatus == .saved
+    }
+
     /// `.failed` (final wave, item D) renders as its own `detail.autosave.error` identifier in
     /// `StashColor.destructive`, distinct from the resting `detail.autosave` identifier every
     /// other state shares — so a UI test (or VoiceOver user) can tell "saved" and "failed, please
@@ -620,19 +637,17 @@ struct ItemDetailView: View {
     }
 
     /// Plan 16: the title field wraps (`axis: .vertical`), but a title is one line of text. A
-    /// vertical-axis field inserts a line break on Return, so while the user is typing in it: a
-    /// Return (the old title plus one line break) is taken back out and ends editing, as it did in
-    /// the single-line field; a pasted line break becomes a space. The line break is only ever on
-    /// screen for the one update this takes — the 400 ms autosave never sees it. Titles that
-    /// arrive from the server are left alone (the field isn't focused then).
+    /// vertical-axis field inserts a line break on Return, so while the user is typing in it the
+    /// change is resolved by what it inserted (StashKit's `OneLineTitleEdit`, 2b review I-1): a
+    /// bare Return — over a selection too — leaves the title as it was and ends editing, as the
+    /// single-line field did; a Return that also accepted an autocorrection keeps the correction
+    /// and ends editing; a pasted line break becomes a space. The line break is only ever on
+    /// screen for the one update this takes — the 400 ms autosave never sees it. Titles that arrive
+    /// from the server are left alone (the field isn't focused then).
     private func keepTitleOnOneLine(was oldTitle: String?, now newTitle: String?) {
-        guard focusedField == .title, let newTitle, newTitle.contains(where: \.isNewline) else { return }
-        if newTitle.filter({ !$0.isNewline }) == (oldTitle ?? "") {
-            item.title = oldTitle
-            focusedField = nil
-        } else {
-            item.title = String(newTitle.map { $0.isNewline ? " " : $0 })
-        }
+        guard focusedField == .title, let edit = OneLineTitleEdit.resolve(old: oldTitle, new: newTitle) else { return }
+        item.title = edit.title
+        if edit.endsEditing { focusedField = nil }
     }
 
     private var descriptionBinding: Binding<String> {
@@ -676,7 +691,7 @@ struct ItemDetailView: View {
     /// sheet adopts it. On failure the typed value stays on screen and in the queue. The footer
     /// says "Saving…" while any autosave is in flight and then reports how the last one ended
     /// (writes to one item finish in order, so that's the newest). Returns the saved row, or nil
-    /// when the save failed.
+    /// when the save failed or had nothing left to send.
     ///
     /// `send` replaces the plain PATCH of `patch` — a location edit is written onto the server's
     /// current attributes instead (`saveAttributes`); `patch` is still what gets queued.
@@ -685,31 +700,46 @@ struct ItemDetailView: View {
     /// its one safe order. When the save lands after the user changed a field it sent — e.g.
     /// cleared "Gro" inside the next debounce, so no newer save has queued the clear yet — the
     /// field's value is queued before `adopt` reads the queue (not once the sheet has closed: its
-    /// journal already did). The confirm then keeps it, `adopt` keeps the field as it is, and the
-    /// next autosave (or the close) sends it.
+    /// journal already did). The confirm then keeps it, the list row is laid over what is still
+    /// queued, `adopt` keeps the field as it is, and the next autosave (or the close) sends it.
+    ///
+    /// Task 4d: captures come from the queue's strictly increasing clock (`captureTime`), and the
+    /// PATCH goes out through `PendingEdits.send`, which at its turn leaves out any field a write
+    /// that landed first (a flush) already put on the server with a later capture — so a save
+    /// made before a close, a reopen and a retype never lands over the retyped value (review P-3).
+    /// Nothing left to send is not a failure; there is no row to adopt then (returns nil).
     @MainActor
     private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> Item? {
-        let capturedAt = Date()
         let pendingEdits = services.pendingEdits
+        let capturedAt = pendingEdits.captureTime()
         pendingEdits.record(itemId: item.id, patch: patch, capturedAt: capturedAt)
         let generation = services.nextGeneration()
         services.savesInFlight += 1
         saveStatus = .saving
         var saved: Item?
+        var failed = false
         do {
             let itemId = item.id
             let editor = services.editor
-            let result = try await (send ?? { try await editor.save(itemId: itemId, patch: patch) })()
-            let landed = DetailFieldEdits.landing(patch, capturedAt: capturedAt, as: result, local: item,
-                                                  baseline: baseline, queue: pendingEdits,
-                                                  sheetIsOpen: !services.isClosed, at: Date())
-            store.applyDetail(result)
-            if services.isLatest(generation) { adopt(result, fields: landed) }
-            saved = result
+            let outcome: (row: Item?, sent: ItemPatch)
+            if let send {
+                outcome = (try await send(), patch)
+            } else {
+                let sent = try await pendingEdits.send(patch, capturedAt: capturedAt, itemId: itemId, editor: editor)
+                outcome = (sent.item, sent.patch)
+            }
+            if let result = outcome.row {
+                let landed = DetailFieldEdits.landing(outcome.sent, capturedAt: capturedAt, as: result, local: item,
+                                                      baseline: baseline, queue: pendingEdits,
+                                                      sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime(),
+                                                      apply: store.applyDetail)
+                if services.isLatest(generation) { adopt(result, fields: landed) }
+                saved = result
+            }
         } catch {
-            saved = nil
+            failed = true
         }
-        services.lastSaveFailed = saved == nil
+        services.lastSaveFailed = failed
         services.savesInFlight -= 1
         if services.savesInFlight == 0 {
             saveStatus = services.lastSaveFailed ? .failed("Couldn't save — try again.") : .saved
@@ -753,38 +783,43 @@ struct ItemDetailView: View {
     }
 
     /// L5: the Sharing toggle flips at once (optimistic) and bumps the save generation like every
-    /// other save; on failure it flips back (so the switch never claims a state the server doesn't
-    /// hold) and `SharingSection` shows its inline error. Not written ahead to `PendingEdits` —
-    /// a failed share while the sheet is open is reverted, not retried later. If the sheet closes
-    /// while this is still in flight, the dismiss journal queues the toggle the user last saw.
-    /// Un-sharing an item with a sticky note clears the note in the same PATCH (the section asks
-    /// first); if that fails, the note comes back — whether the server holds it or the queue still
-    /// has to deliver it (Task 4c, `DetailFieldEdits.undoingFailedUnshare`: the field reads the
-    /// queue, so an empty field under a queued note would otherwise be sent as a clear). The footer
-    /// caption is left to the autosaves (`save(_:)`) — this toggle reports in its own section, and
-    /// never sets or strands "Saving…" (plan 15 review).
+    /// other save. It is not written ahead to `PendingEdits`. Un-sharing an item with a sticky note
+    /// clears the note in the same PATCH (the section asks first). The footer caption is left to
+    /// the autosaves (`save(_:)`) — this toggle reports in its own section, and never sets or
+    /// strands "Saving…" (plan 15 review). Returns whether the server holds what the user asked for.
+    ///
+    /// - Landing goes through `DetailFieldEdits.landing`, like every save: the confirm — which
+    ///   drops a note queued before an un-share — comes before the list row is laid, so the list
+    ///   never keeps showing the dropped note (Task 4d, review m-1).
+    /// - Failing goes through `DetailFieldEdits.undoingFailedToggle` (Task 4d, review P-4 and F1).
+    ///   The switch shows what the server holds — normally the old value, with a failed un-share's
+    ///   note back (Task 4c) — and `SharingSection` shows its inline error, unless the server
+    ///   already holds what the user asked for. A Sharing value queued during the flight is taken
+    ///   back, so a share the user saw fail is never published later. If the sheet has closed
+    ///   meanwhile (the PATCH outlives it), nothing changes: the close journaled the toggle the
+    ///   user last saw, and its flush retries it (plan 15).
     @MainActor
     private func setPublic(_ isPublic: Bool) async -> Bool {
-        let before = (isPublic: item.isPublic, note: item.supplementalNote)
+        let pendingEdits = services.pendingEdits
+        let noteBefore = item.supplementalNote
         let patch = services.editor.togglePublic(item: item, to: isPublic)
-        let clearsNote = patch.supplementalNote == ""
         item.isPublic = isPublic
-        if clearsNote { item.supplementalNote = nil }
-        let capturedAt = Date()
+        if patch.supplementalNote == "" { item.supplementalNote = nil }
+        let capturedAt = pendingEdits.captureTime()
         let generation = services.nextGeneration()
         do {
             let saved = try await services.editor.save(itemId: item.id, patch: patch)
-            store.applyDetail(saved)
-            services.pendingEdits.confirm(itemId: saved.id, patch: patch, capturedAt: capturedAt)
-            if services.isLatest(generation) { adopt(saved) }
+            let landed = DetailFieldEdits.landing(patch, capturedAt: capturedAt, as: saved, local: item,
+                                                  baseline: baseline, queue: pendingEdits,
+                                                  sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime(),
+                                                  apply: store.applyDetail)
+            if services.isLatest(generation) { adopt(saved, fields: landed) }
             return true
         } catch {
-            if item.isPublic == isPublic { item.isPublic = before.isPublic }
-            if clearsNote {
-                item = DetailFieldEdits.undoingFailedUnshare(noteBefore: before.note, local: item, baseline: baseline,
-                                                             queue: services.pendingEdits, at: Date())
-            }
-            return false
+            item = DetailFieldEdits.undoingFailedToggle(to: isPublic, noteBefore: noteBefore, local: item,
+                                                        baseline: baseline, queue: pendingEdits,
+                                                        sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime())
+            return item.isPublic == isPublic
         }
     }
 
@@ -947,9 +982,14 @@ struct ItemDetailView: View {
     /// location edit, and the notes draft (a plain note whole, measured against the queue too; a
     /// rich draft appended as a new paragraph — never flattened). Only what the user actually
     /// changed: a field another device updated meanwhile matches `baseline` and is left alone.
-    private func unconfirmedPatch() -> (patch: ItemPatch, richDraft: (typed: String, content: String)?) {
+    ///
+    /// Task 4d (review P-4): a share still in flight is queued only when the sheet is `closing` —
+    /// never when the app merely leaves the foreground with the sheet open, where a failure would
+    /// flip the switch back in front of the user while the queued copy published the item anyway
+    /// (`DetailFieldEdits.journaledSharing`).
+    private func unconfirmedPatch(closing: Bool) -> (patch: ItemPatch, richDraft: (typed: String, content: String)?) {
         var patch = fieldEdits.textPatch
-        if item.isPublic != baseline.isPublic { patch.isPublic = item.isPublic }
+        patch.isPublic = fieldEdits.journaledSharing(closing: closing)
         if item.attributes.location != baseline.attributes.location { patch.attributes = item.attributes }
         var richDraft: (typed: String, content: String)?
         let notes = services.notesModel
@@ -968,11 +1008,11 @@ struct ItemDetailView: View {
         return (patch, richDraft)
     }
 
-    /// Writes `unconfirmedPatch()` to the durable queue, synchronously.
-    private func journalUnconfirmedEdits() {
-        let (patch, richDraft) = unconfirmedPatch()
+    /// Writes `unconfirmedPatch(closing:)` to the durable queue, synchronously.
+    private func journalUnconfirmedEdits(closing: Bool) {
+        let (patch, richDraft) = unconfirmedPatch(closing: closing)
         guard !patch.isEmpty else { return }
-        services.pendingEdits.record(itemId: item.id, patch: patch, capturedAt: Date())
+        services.pendingEdits.record(itemId: item.id, patch: patch, capturedAt: services.pendingEdits.captureTime())
         if let richDraft { services.journaledRichDraft = richDraft }
     }
 
@@ -983,7 +1023,7 @@ struct ItemDetailView: View {
     private func handleDismiss() {
         guard !isDeleted, !services.isClosed else { return }
         services.isClosed = true
-        journalUnconfirmedEdits()
+        journalUnconfirmedEdits(closing: true)
         let itemId = item.id
         let pendingEdits = services.pendingEdits
         guard pendingEdits.edit(for: itemId) != nil else { return }
@@ -1021,7 +1061,7 @@ struct ItemDetailView: View {
         reconcileNotesDraft(with: incoming)
         // A failed save the queue has since delivered (e.g. flushed on foreground) is no longer
         // failed — the caption shouldn't keep saying so.
-        if case .failed = saveStatus, services.savesInFlight == 0, unconfirmedPatch().patch.isEmpty,
+        if case .failed = saveStatus, services.savesInFlight == 0, unconfirmedPatch(closing: true).patch.isEmpty,
            services.pendingEdits.edit(for: item.id) == nil {
             services.lastSaveFailed = false
             saveStatus = .saved

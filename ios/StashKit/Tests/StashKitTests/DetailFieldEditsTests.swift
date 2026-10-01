@@ -90,11 +90,13 @@ final class DetailFieldEditsTests: XCTestCase {
     }
 
     /// `save` came back as `response` in the open sheet: `DetailFieldEdits.landing`, exactly as
-    /// `ItemDetailView.save(_:)` calls it (supersede, confirm, adopt), then the sheet adopts.
+    /// `ItemDetailView.save(_:)` calls it (supersede, confirm, the list row, adopt), then the sheet
+    /// adopts. (The list row's own order is pinned by `testAnUnshareLandingLeavesNoDroppedNoteOnTheListRow`.)
     private func land(_ save: Save, as response: Item, in sheet: inout Sheet, at time: TimeInterval) {
         sheet.local = DetailFieldEdits.landing(save.patch, capturedAt: save.capturedAt, as: response,
                                                local: sheet.local, baseline: ItemDisplay.editableRow(sheet.snapshot),
-                                               queue: queue, sheetIsOpen: true, at: t0.addingTimeInterval(time))
+                                               queue: queue, sheetIsOpen: true, at: t0.addingTimeInterval(time),
+                                               apply: { _ in })
         sheet.snapshot = response
     }
 
@@ -589,6 +591,35 @@ final class DetailFieldEditsTests: XCTestCase {
         XCTAssertNil(queue.overlay(sheet.snapshot).supplementalNote)
     }
 
+    /// Review m-1: the list row is laid AFTER the landing's confirm. A successful un-share removes
+    /// the sticky note in the same PATCH, so its confirm drops a note still queued from before it.
+    /// Laid before that, the row kept showing the dropped note: the store re-lays a row only from
+    /// what is still queued, so the note stayed on the row (and a sheet reopened on it) until the
+    /// next refresh.
+    func testAnUnshareLandingLeavesNoDroppedNoteOnTheListRow() async throws {
+        let server = textRow(isPublic: true)
+        let store = ItemStore(userId: UUID(), fetcher: FakeItemsServer(rows: [server], pageSize: 50), pageSize: 50)
+        store.installPendingEdits(queue) { _ in }
+        await store.refresh()
+        var sheet = open(server)
+        sheet.local.supplementalNote = "For you"
+        _ = try XCTUnwrap(autosave(sheet, at: 1))   // fails: queued, undelivered
+        XCTAssertEqual(store.item(withId: server.id)?.supplementalNote, "For you", "The list shows the queued note")
+
+        let unshare = ItemPatch(supplementalNote: "", isPublic: false)
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil   // optimistic, as `setPublic` does
+        let saved = applying(unshare, to: server)
+        sheet.local = DetailFieldEdits.landing(unshare, capturedAt: t0.addingTimeInterval(2), as: saved,
+                                               local: sheet.local, baseline: ItemDisplay.editableRow(sheet.snapshot),
+                                               queue: queue, sheetIsOpen: true, at: t0.addingTimeInterval(3),
+                                               apply: store.applyDetail)
+        XCTAssertNil(queuedNote(sheet), "The un-share confirmed the note's removal")
+        XCTAssertNil(store.item(withId: server.id)?.supplementalNote, "The list row shows no note")
+        XCTAssertEqual(store.item(withId: server.id)?.isPublic, false)
+        XCTAssertNil(sheet.local.supplementalNote)
+    }
+
     /// An un-share that FAILS must change nothing. Its optimistic clear of the field would otherwise
     /// read as the user clearing a queued, undelivered note — now that the field reads the queue,
     /// that is a clear the next autosave or the close would send. The note goes back in the field
@@ -610,7 +641,7 @@ final class DetailFieldEditsTests: XCTestCase {
         sheet.local.isPublic = true   // the un-share failed: `setPublic` flips the switch back
         sheet.local = DetailFieldEdits.undoingFailedUnshare(noteBefore: noteBefore, local: sheet.local,
                                                             baseline: ItemDisplay.editableRow(sheet.snapshot),
-                                                            queue: queue, at: t0.addingTimeInterval(3))
+                                                            queue: queue, sheetIsOpen: true, at: t0.addingTimeInterval(3))
         XCTAssertEqual(sheet.local.supplementalNote, "For you", "The queued note is back in the field")
         XCTAssertEqual(edits(sheet).textPatch, sendsBefore, "The sheet sends what it would have before — never a clear")
         XCTAssertEqual(queue.edit(for: server.id), queuedBefore, "The queue is exactly as it was")
@@ -634,10 +665,37 @@ final class DetailFieldEditsTests: XCTestCase {
         sheet.local.isPublic = true   // the un-share failed
         sheet.local = DetailFieldEdits.undoingFailedUnshare(noteBefore: noteBefore, local: sheet.local,
                                                             baseline: ItemDisplay.editableRow(sheet.snapshot),
-                                                            queue: queue, at: t0.addingTimeInterval(3))
+                                                            queue: queue, sheetIsOpen: true, at: t0.addingTimeInterval(3))
         XCTAssertEqual(sheet.local.supplementalNote, "For you", "The note (now on the server) is back in the field")
         XCTAssertEqual(queuedNote(sheet), "For you", "…and in the queue: nothing ever sends that clear")
         XCTAssertEqual(queue.overlay(sheet.snapshot).supplementalNote, "For you", "The list shows the note")
+    }
+
+    /// Review F1: the un-share's PATCH outlives the sheet (`SharingSection` runs it in its own
+    /// task). Closed while it was in flight, the sheet journaled the toggle the user last saw —
+    /// private, the note removed, as they confirmed ("The sticky note will be removed"). When the
+    /// un-share then fails, the closed sheet must not put the note back over that clear: the
+    /// journal owns what the user last saw, and the close's flush delivers it (plan 15). Re-queuing
+    /// the note there made the item private WITH the note — published again on a later re-share.
+    func testAFailedUnshareInAClosedSheetLeavesTheJournaledUnshareQueued() async throws {
+        let server = textRow(note: "On the server", isPublic: true)
+        var sheet = open(server)
+        let noteBefore = sheet.local.supplementalNote
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil                                  // optimistic
+        var journal = edits(sheet).textPatch
+        journal.isPublic = false                                            // the close journals the Sharing flip
+        queue.record(itemId: server.id, patch: journal, capturedAt: t0.addingTimeInterval(1))
+        let queuedBefore = queue.edit(for: server.id)
+        sheet.local.isPublic = true                                         // the un-share failed
+        _ = DetailFieldEdits.undoingFailedUnshare(noteBefore: noteBefore, local: sheet.local,
+                                                  baseline: ItemDisplay.editableRow(sheet.snapshot),
+                                                  queue: queue, sheetIsOpen: false, at: t0.addingTimeInterval(2))
+        XCTAssertEqual(queue.edit(for: server.id), queuedBefore, "the journaled un-share stands")
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, false)
+        XCTAssertNil(online.row(server.id)?.supplementalNote, "the note the user agreed to remove is gone")
     }
 
     /// The same for a note the server already holds (the pre-plan-16 case), and nothing put back
@@ -655,6 +713,160 @@ final class DetailFieldEditsTests: XCTestCase {
         sheet.local.supplementalNote = "Typed since"
         XCTAssertNil(edits(sheet).noteAfterFailedUnshare(noteBefore: "On the server"),
                      "A field that isn't empty any more is left as it is")
+    }
+
+    // MARK: - A failed Sharing toggle (review P-4)
+
+    /// What the sheet's journal records (`ItemDetailView.unconfirmedPatch`: the text fields and the
+    /// Sharing value) when the app leaves the foreground (`closing: false`) or the sheet closes.
+    private func journal(_ sheet: Sheet, closing: Bool, at time: TimeInterval) {
+        var patch = edits(sheet).textPatch
+        patch.isPublic = edits(sheet).journaledSharing(closing: closing)
+        guard !patch.isEmpty else { return }
+        queue.record(itemId: sheet.local.id, patch: patch, capturedAt: t0.addingTimeInterval(time))
+    }
+
+    /// `setPublic`'s failure, as the sheet handles it: the fields to show — and whether the toggle
+    /// took effect after all (the server already holds it), so the section shows no error.
+    private func failToggle(to target: Bool, noteBefore: String?, in sheet: inout Sheet, sheetIsOpen: Bool = true,
+                            at time: TimeInterval) -> Bool {
+        sheet.local = DetailFieldEdits.undoingFailedToggle(to: target, noteBefore: noteBefore, local: sheet.local,
+                                                           baseline: ItemDisplay.editableRow(sheet.snapshot),
+                                                           queue: queue, sheetIsOpen: sheetIsOpen,
+                                                           at: t0.addingTimeInterval(time))
+        return sheet.local.isPublic == target
+    }
+
+    /// P-4's way in: the app leaves the foreground (app switcher, Control Center, a notification)
+    /// while a share is in flight. The journal that runs then must not queue the share — if its
+    /// PATCH fails, the switch flips back in front of the user, and a queued copy would publish the
+    /// item later anyway. Closing the sheet still queues it (the user never sees a failure then:
+    /// plan 15 retries what they last saw), and an un-share is always queued: it fails safe.
+    func testTheBackgroundJournalNeverQueuesAShareStillInFlight() {
+        var sharing = open(textRow())
+        sharing.local.isPublic = true   // optimistic: the share is in flight
+        XCTAssertNil(edits(sharing).journaledSharing(closing: false), "Leaving the foreground: not queued")
+        XCTAssertEqual(edits(sharing).journaledSharing(closing: true), true, "Closing: queued (plan 15)")
+
+        var unsharing = open(textRow(note: "For you", isPublic: true))
+        unsharing.local.isPublic = false
+        unsharing.local.supplementalNote = nil
+        XCTAssertEqual(edits(unsharing).journaledSharing(closing: false), false, "An un-share is queued either way")
+        XCTAssertEqual(edits(unsharing).journaledSharing(closing: true), false)
+
+        XCTAssertNil(edits(open(textRow())).journaledSharing(closing: true), "Untouched: nothing")
+    }
+
+    /// P-4: a share fails while the user watches — the switch flips back and the section says
+    /// "Couldn't update". A Sharing value queued during the flight (by the old journal, say) must
+    /// never go out: delivered by the next flush, it published the item.
+    func testAFailedShareIsNeverPublishedLater() async {
+        let server = textRow()
+        var sheet = open(server)
+        sheet.local.isPublic = true   // optimistic
+        queue.record(itemId: server.id, patch: ItemPatch(isPublic: true), capturedAt: t0.addingTimeInterval(1))
+
+        let tookEffect = failToggle(to: true, noteBefore: nil, in: &sheet, at: 2)
+        XCTAssertFalse(tookEffect, "The share failed: the section says so")
+        XCTAssertFalse(sheet.local.isPublic, "The switch is back off")
+        XCTAssertNil(queue.edit(for: server.id)?.isPublic, "The queued share is taken back")
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "Never published")
+        journal(sheet, closing: true, at: 3)
+        XCTAssertNil(queue.edit(for: server.id), "Closing afterwards queues nothing either")
+    }
+
+    /// The reverse: an un-share fails while the user watches — the switch flips back on and the
+    /// sticky note comes back. The un-share the background journal queued during the flight
+    /// (private, the note removed) must not go out either: the item stays public with its note,
+    /// exactly as the sheet shows it.
+    func testAFailedUnshareKeepsTheItemPublicWithItsNoteAsTheSheetShows() async {
+        let server = textRow(note: "For you", isPublic: true)
+        var sheet = open(server)
+        let noteBefore = sheet.local.supplementalNote
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil   // optimistic
+        journal(sheet, closing: false, at: 1)   // the app left the foreground mid-flight
+        XCTAssertEqual(queue.edit(for: server.id)?.fieldPatch, ItemPatch(supplementalNote: "", isPublic: false))
+
+        let tookEffect = failToggle(to: false, noteBefore: noteBefore, in: &sheet, at: 2)
+        XCTAssertFalse(tookEffect)
+        XCTAssertTrue(sheet.local.isPublic, "The switch is back on")
+        XCTAssertEqual(sheet.local.supplementalNote, "For you", "The note is back")
+        XCTAssertNil(queue.edit(for: server.id)?.isPublic, "The queued un-share is taken back")
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, true, "The server ends as the sheet shows: public")
+        XCTAssertEqual(online.row(server.id)?.supplementalNote, "For you", "…with its note")
+    }
+
+    /// A flush ahead of the toggle's own PATCH (a refresh, waiting behind an earlier write) already
+    /// delivered the un-share the background journal queued, and the sheet took that row. The
+    /// toggle's own PATCH then fails — but the server holds what the user asked for: the switch
+    /// stays off, there's no error, and nothing queued now or journaled on close makes the item
+    /// public again (flipping the switch back on did: the close then queued a share).
+    func testAnUnshareTheServerAlreadyHoldsStaysPrivateWhenItsOwnPatchFails() async throws {
+        let server = textRow(note: "For you", isPublic: true)
+        var sheet = open(server)
+        let noteBefore = sheet.local.supplementalNote
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil
+        journal(sheet, closing: false, at: 1)
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)                             // the flush ahead of it
+        adopt(try XCTUnwrap(online.row(server.id)), in: &sheet)    // the store's row reaches the sheet
+        XCTAssertEqual(sheet.snapshot.isPublic, false)
+
+        let tookEffect = failToggle(to: false, noteBefore: noteBefore, in: &sheet, at: 2)
+        XCTAssertTrue(tookEffect, "The server already holds it: no error")
+        XCTAssertFalse(sheet.local.isPublic, "The switch stays off")
+        XCTAssertNil(sheet.local.supplementalNote, "The removed note stays removed")
+        journal(sheet, closing: true, at: 3)
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "Never made public again")
+        XCTAssertNil(online.row(server.id)?.supplementalNote)
+    }
+
+    /// Closed while the share was in flight, the user last saw it on — never the failure. The
+    /// close queued the share (plan 15), and a failure arriving after the sheet has gone leaves
+    /// that alone: it is retried.
+    func testAFailedShareInAClosedSheetLeavesTheClosesJournalToRetryIt() async {
+        let server = textRow()
+        var sheet = open(server)
+        sheet.local.isPublic = true
+        journal(sheet, closing: true, at: 1)
+        let queuedBefore = queue.edit(for: server.id)
+
+        _ = failToggle(to: true, noteBefore: nil, in: &sheet, sheetIsOpen: false, at: 2)
+        XCTAssertEqual(queue.edit(for: server.id), queuedBefore, "The close's journal stands")
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, true, "What the user last saw is delivered")
+    }
+
+    /// Opened on a share still queued from earlier (the switch on, the server private), the user
+    /// turns it off, and that PATCH fails. The server holds private — what they asked for — so the
+    /// switch stays off and the queued share is taken back: nothing publishes it later. A sticky
+    /// note typed meanwhile (queued too) never lands either, as the un-share promised.
+    func testTurningAQueuedShareOffSticksWithoutTheNetwork() async {
+        let server = textRow()
+        queue.record(itemId: server.id, patch: ItemPatch(isPublic: true), capturedAt: t0)   // an undelivered share
+        var sheet = open(server)
+        XCTAssertTrue(sheet.local.isPublic, "The sheet opens on the queued share")
+        sheet.local.supplementalNote = "For you"
+        _ = autosave(sheet, at: 1)   // offline: queued too
+        let noteBefore = sheet.local.supplementalNote
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil   // the un-share removes it
+
+        let tookEffect = failToggle(to: false, noteBefore: noteBefore, in: &sheet, at: 2)
+        XCTAssertTrue(tookEffect, "The server already holds private")
+        XCTAssertFalse(sheet.local.isPublic)
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "Never published")
+        XCTAssertNil(online.row(server.id)?.supplementalNote, "The note the un-share removed never lands")
     }
 
     /// Supersede only what moved on: a save that sent the title and the description, where only the
@@ -688,7 +900,7 @@ final class DetailFieldEditsTests: XCTestCase {
         let adopted = DetailFieldEdits.landing(sendGro.patch, capturedAt: sendGro.capturedAt,
                                                as: applying(sendGro.patch, to: server), local: sheet.local,
                                                baseline: ItemDisplay.editableRow(sheet.snapshot), queue: queue,
-                                               sheetIsOpen: true, at: t0.addingTimeInterval(2))
+                                               sheetIsOpen: true, at: t0.addingTimeInterval(2), apply: { _ in })
         XCTAssertEqual(adopted.title, "", "The adopted fields keep the clear")
         XCTAssertEqual(queuedTitle(sheet), "", "The clear was queued before \"Gro\" was confirmed")
     }
@@ -711,7 +923,7 @@ final class DetailFieldEditsTests: XCTestCase {
         _ = DetailFieldEdits.landing(sendGro.patch, capturedAt: sendGro.capturedAt,
                                      as: applying(sendGro.patch, to: server), local: typed.local,
                                      baseline: ItemDisplay.editableRow(typed.snapshot), queue: queue,
-                                     sheetIsOpen: false, at: t0.addingTimeInterval(4))
+                                     sheetIsOpen: false, at: t0.addingTimeInterval(4), apply: { _ in })
         XCTAssertEqual(queuedTitle(reopened), "Groceries", "The closed sheet's old fields never replace the newer edit")
     }
 

@@ -1,12 +1,13 @@
 import Foundation
 
 /// A PLAIN note's draft in the detail sheet (not TipTap: the field is the whole note, saved whole)
-/// measured against what the server last confirmed AND the item's durable edit queue (plan 16,
-/// Task 4c) — the notes editor's own counterpart to `DetailFieldEdits.needsSave`.
+/// measured against what it was last saved as AND the item's durable edit queue (plan 16, Task 4c)
+/// — the notes editor's own counterpart to `DetailFieldEdits.needsSave`.
 ///
 /// - `draft`: the field as the user left it (`NotesEditorModel.draft`).
-/// - `saved`: the text the server last confirmed (`NotesEditorModel.savedDraft` — the seed, then
-///   each save that landed).
+/// - `saved`: `NotesEditorModel.savedDraft` — the seed (the queue overlay, so a sheet opened on a
+///   queued, undelivered note starts with that note here, though the server hasn't confirmed it),
+///   then each save that landed.
 /// - `queued`: the `content` the queue still holds for the item — a save in flight, or one that
 ///   failed and waits for the next flush.
 ///

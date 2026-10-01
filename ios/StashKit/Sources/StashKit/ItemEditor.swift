@@ -393,15 +393,28 @@ public final class ItemEditor {
         itemId: UUID,
         prepare: @escaping @MainActor () async throws -> (ItemPatch, Context)?
     ) async throws -> QueuedSave<Context>? {
+        try await saveLatest(itemId: itemId, prepare: prepare, landed: { _ in })
+    }
+
+    /// `saveLatest`, telling `landed` about a PATCH that succeeded while the write still holds the
+    /// item's slot — before any later write to the item builds its patch (`PendingEdits` notes
+    /// what reached the server there; plan 16 review P-3).
+    func saveLatest<Context: Sendable>(
+        itemId: UUID,
+        prepare: @escaping @MainActor () async throws -> (ItemPatch, Context)?,
+        landed: @escaping @MainActor (QueuedSave<Context>) -> Void
+    ) async throws -> QueuedSave<Context>? {
         try await writeQueue.enqueue(itemId: itemId) { [patcher, refresher] in
             guard let prepared = try await prepare() else { return nil }
             let (patch, context) = prepared
             guard !patch.isEmpty else { return QueuedSave(item: nil, patch: patch, context: context) }
             let merged = try await patcher.patch(itemId: itemId, patch: patch)
+            let saved = QueuedSave(item: merged, patch: patch, context: context)
+            landed(saved)
             if patch.touchesTextFields {
                 await refresher.schedule(merged)
             }
-            return QueuedSave(item: merged, patch: patch, context: context)
+            return saved
         }
     }
 
