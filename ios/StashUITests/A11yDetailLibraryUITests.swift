@@ -28,6 +28,16 @@ import XCTest
 /// opened, never edited. Shots are attached as `a11y-2b-<screen>-<size>` (`a11y-2b-ios26-…` on
 /// iOS 26); export them with `/tmp/p16/export-shots.sh`-style tooling.
 final class A11yDetailLibraryUITests: XCTestCase {
+    /// One pass of Xcode's audit (`XCUIApplication.performAccessibilityAudit`). A parameter of `audit`
+    /// only so that `testAnAuditThatNeverCompletesEndsTheTestAsSkipped` can stand in a runner that
+    /// gives up, as the real one does when it "failed to complete in time".
+    private typealias AuditRun = (_ types: XCUIAccessibilityAuditType,
+                                  _ issueHandler: @escaping (XCUIAccessibilityAuditIssue) throws -> Bool) throws -> Void
+
+    /// The screens whose audit never completed in this test (`audit`, which records them; a test
+    /// that audits ends with `skipIfAnAuditNeverFinished()`). XCTest makes a new instance per test.
+    private var unfinishedAudits: [String] = []
+
     override func setUpWithError() throws {
         continueAfterFailure = false
         // The real Bold Text setting is simulator-global; a killed earlier run can leave it on.
@@ -126,6 +136,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
             if variant == .large { assertTarget(bannerApp.buttons["Retry"], "Retry") }
             try capture(bannerApp, screens, "view-error", variant)
         }
+        try skipIfAnAuditNeverFinished()
     }
 
     // MARK: - Screenshot matrix: the detail sheet
@@ -228,9 +239,51 @@ final class A11yDetailLibraryUITests: XCTestCase {
             }
             closeDetail(app)
         }
+        try skipIfAnAuditNeverFinished()
     }
 
     // MARK: - Contracts
+
+    /// An audit that never completes must not pass silently (polish batch, item 4). Xcode's audit
+    /// can give up ("Audit failed to complete in time"); `audit` then scrolls 30 pt and tries once
+    /// more, and if that times out too, nothing was audited — the matrix tests above must end as
+    /// SKIPPED, naming the screen, not pass with a log line. A skip rather than a failure because
+    /// a double timeout with the app still answering is the tool's known hang (iOS 26.5, the detail
+    /// facts screen at xxxL, 3 of 3 first attempts; the app idle and answering at once), not
+    /// something the app did — and the helper fails right there if the app stops answering. This
+    /// puts a runner that gives up in the real helper's place, on the type specimen (signed out, no
+    /// network): twice → the test must be skipped; once, then completing → it must not be.
+    @MainActor
+    func testAnAuditThatNeverCompletesEndsTheTestAsSkipped() throws {
+        let app = A11yScreens(self).launchSpecimen(.large)
+        let timedOut = NSError(domain: "com.apple.xcode.xctest.accessibilityAudit", code: -56,
+                               userInfo: [NSLocalizedDescriptionKey: "Audit failed to complete in time"])
+
+        var runs = 0
+        try audit(app, screen: "probe-never-completes", variant: .large) { _, _ in
+            runs += 1
+            throw timedOut
+        }
+        XCTAssertEqual(runs, 2, "The audit should be tried, then once more after the scroll — not more, not less")
+        XCTAssertEqual(unfinishedAudits.count, 1, "A double timeout should be recorded")
+        do {
+            try skipIfAnAuditNeverFinished()
+            XCTFail("An audit that timed out twice must end its test as skipped, not let it pass")
+        } catch is XCTSkip {
+            print("A11Y audit probe | the double timeout ended the test as skipped, as it should")
+        }
+
+        // Once, then completing after the scroll: audited after all — no skip.
+        unfinishedAudits.removeAll()
+        runs = 0
+        try audit(app, screen: "probe-completes-on-retry", variant: .large) { _, _ in
+            runs += 1
+            if runs == 1 { throw timedOut }
+        }
+        XCTAssertEqual(runs, 2)
+        XCTAssertTrue(unfinishedAudits.isEmpty, "An audit that completed on the retry was recorded as unfinished")
+        XCTAssertNoThrow(try skipIfAnAuditNeverFinished(), "An audit that completed on the retry is no reason to skip")
+    }
 
     /// Will's "especially small" detail text, measured: the description is the `reading` role —
     /// 17 pt at Large (it was 14; the summary, transcript and notes share the role) — and grows
@@ -1079,10 +1132,13 @@ final class A11yDetailLibraryUITests: XCTestCase {
     /// where the audit samples bars, not the text — and `no-element` when the audit names none. A
     /// contrast finding also gets the element's real pixels, sampled from a screenshot taken right
     /// after the audit: the darkest and lightest colours in its frame and their WCAG ratio (for a
-    /// text element, its text against its background). Never fails the test: the report judges
-    /// each finding.
+    /// text element, its text against its background). Never fails the test on a finding: the
+    /// report judges each finding. An audit that never COMPLETES is another matter — it says
+    /// nothing about the screen — and is never a pass: see the second timeout below.
     @MainActor
-    private func audit(_ app: XCUIApplication, screen: String, variant: A11yVariant) throws {
+    private func audit(_ app: XCUIApplication, screen: String, variant: A11yVariant,
+                       run: AuditRun? = nil) throws {
+        let perform: AuditRun = run ?? { types, handler in try app.performAccessibilityAudit(for: types, handler) }
         let window = app.windows.firstMatch.frame
         var bottom = window.maxY
         if app.tabBars.firstMatch.exists { bottom = min(bottom, app.tabBars.firstMatch.frame.minY) }
@@ -1106,14 +1162,13 @@ final class A11yDetailLibraryUITests: XCTestCase {
         }
         let types: XCUIAccessibilityAuditType = [.hitRegion, .dynamicType, .contrast, .textClipped]
         do {
-            try app.performAccessibilityAudit(for: types, record)
+            try perform(types, record)
         } catch let error as NSError where Self.isAuditTimeout(error) {
             // The audit itself can give up ("Audit failed to complete in time", about 15 s, nothing
-            // reported). iOS 26.5 did, 2 runs of 2, on the detail facts screen at xxxL, which 17.2
-            // audits in 2 s. It's a failure of the tool, not a finding, and this helper never fails
-            // the test (above). So: say so loudly, nudge the scroll 30 pt and audit once more. A
-            // second timeout leaves this screen without findings, logged. A hung app would still
-            // fail the test at the drag or at the next step.
+            // reported). iOS 26.5 did, in 3 of 3 runs, on the detail facts screen at xxxL, which 17.2
+            // audits in 2 s. It's a failure of the tool, not a finding: say so loudly, nudge the scroll
+            // 30 pt and audit once more. A hung app would still fail the test, here (below) or at the
+            // drag or the next step.
             print("A11Y audit \(name) \(variant) | AUDIT TIMED OUT (\(error.localizedDescription)); "
                   + "scrolling 30 pt and auditing again")
             findings.removeAll()
@@ -1121,11 +1176,23 @@ final class A11yDetailLibraryUITests: XCTestCase {
             start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -30)))
             sleep(1)
             do {
-                try app.performAccessibilityAudit(for: types, record)
+                try perform(types, record)
                 print("A11Y audit \(name) \(variant) | the second audit completed")
             } catch let error as NSError where Self.isAuditTimeout(error) {
-                print("A11Y audit \(name) \(variant) | AUDIT TIMED OUT AGAIN: no findings for this screen "
-                      + "(its shot is attached)")
+                // Twice: nothing was audited, and "no findings" would be a lie. This helper never fails
+                // a test on a finding, but the test must not PASS as though this screen had been
+                // looked at. So the screen is recorded, the matrix carries on (its other checks and
+                // shots still count), and the test ends as SKIPPED, naming it
+                // (`skipIfAnAuditNeverFinished`) — a skip and not a failure because a double timeout
+                // with the app still answering is the tool's known hang (above), not something the
+                // app did. If the app has stopped answering, it is not that: fail, here and now.
+                let answers = app.state == .runningForeground && app.windows.firstMatch.waitForExistence(timeout: 10)
+                XCTAssertTrue(answers, "\(name) \(variant): Xcode's audit timed out twice and the app has stopped "
+                              + "answering — a hang in the app, not the audit tool's")
+                print("A11Y audit \(name) \(variant) | AUDIT NEVER COMPLETED (timed out twice, the app "
+                      + "\(answers ? "still answers" : "does NOT answer")): no findings for this screen (its shot is "
+                      + "attached); the test will end as skipped")
+                unfinishedAudits.append("\(name) \(variant)")
                 return
             }
         }
@@ -1138,6 +1205,17 @@ final class A11yDetailLibraryUITests: XCTestCase {
                 print(finding.line)
             }
         }
+    }
+
+    /// Ends the test as SKIPPED — never passed — if an `audit` in it never completed (it timed out,
+    /// then timed out again after a scroll, with the app still answering). Call it as the last line
+    /// of every test that audits, so a missing audit can't pass for a clean one.
+    private func skipIfAnAuditNeverFinished() throws {
+        guard !unfinishedAudits.isEmpty else { return }
+        throw XCTSkip("Xcode's accessibility audit never completed on \(unfinishedAudits.joined(separator: ", ")): "
+                      + "it timed out, and again after a 30 pt scroll, while the app kept answering — the audit tool's "
+                      + "own hang (seen on iOS 26.5 at xxxL). Everything else in this test passed; those screens have "
+                      + "no audit findings from this run (their shots are attached).")
     }
 }
 

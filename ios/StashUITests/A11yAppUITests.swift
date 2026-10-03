@@ -15,6 +15,10 @@ import XCTest
 /// - Fix round 1 (the 2c review): targets proven by taps where a frame can't show them (the
 ///   attachment ×'s top edge, Next's bottom edge, a tap through a refusal toast), the onboarding
 ///   card's height, the Outbox badge's place, and a phone number that wraps instead of truncating.
+/// - Polish batch: Skip's 44 pt target starts at Next's bottom edge and the two share it
+///   (`testSkipAndNextShareTheirEdgeAndNeitherTakesTheOthersTaps`), and the attachment ×'s target is
+///   whole on iOS 17 too, up to the row's top edge and in over its chip
+///   (`testTheAttachmentRemoveTargetIsWholeToTheRowsTopAndOverItsChip`).
 ///
 /// The share sheet is its own process (launched by Safari), so launch arguments can't reach it:
 /// `testShareComposeScreenshot` is host-orchestrated — see its doc comment.
@@ -142,6 +146,48 @@ final class A11yAppUITests: XCTestCase {
             if toastLiesOverTheMic {
                 assertARefusalToastLetsTapsThroughToTheMic(screens, variant)
             }
+        }
+    }
+
+    /// The attachment ×'s 44 × 44 pt target is whole — to the top of its row and in over its chip
+    /// (polish batch, item 3). The glyph sits on the chip's top-trailing corner, 22 pt under the row's
+    /// top edge, and on iOS 17 the row's scroll view takes no taps in its top ~4 pt: a target centred
+    /// on the glyph was only about 40 pt tall there. So it is moved 6 pt toward the chip, down and
+    /// left (`CaptureAttachmentsRow.removeButton`). Two taps, each from a fresh launch (a tap removes
+    /// the chip), 1.5 pt inside the target's
+    /// - top edge: 7.5 pt inside the scroll view — in its dead zone on iOS 17.5 when the target is
+    ///   centred (RED), where the old tap, 16 pt above the glyph's centre, was not;
+    /// - bottom-left corner: over the chip's picture, 26.5 pt left of and 26.5 pt below the glyph's
+    ///   centre. The picture takes no taps of its own, so the target may lie over it. (On a centred
+    ///   target that tap is outside it, by 4.5 pt each way — where SwiftUI's touch radius may still
+    ///   reach the ×: this one need not be RED.)
+    /// The same attachment as the toast step of `testAddScreensAtEveryTextSize` (a movie from the
+    /// DEBUG import hook; nothing is saved).
+    @MainActor
+    func testTheAttachmentRemoveTargetIsWholeToTheRowsTopAndOverItsChip() throws {
+        continueAfterFailure = true
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        let points: [(name: String, at: (CGRect) -> CGPoint)] = [
+            ("top edge", { CGPoint(x: $0.midX, y: $0.minY + 1.5) }),
+            ("bottom-left corner", { CGPoint(x: $0.minX + 1.5, y: $0.maxY - 1.5) }),
+        ]
+        for point in points {
+            let app = screens.launch(.large, tab: .add, arguments: Self.refusedImportArguments)
+            let toast = Self.element(app, "capture.toast")
+            XCTAssertTrue(toast.waitForExistence(timeout: 20), "\(point.name): the import's toast never showed")
+            _ = toast.waitForNonExistence(timeout: 6)
+            let remove = Self.element(app, "capture.attachment.remove")
+            guard remove.waitForExistence(timeout: 10) else {
+                XCTFail("\(point.name): the attached movie's × is missing")
+                continue
+            }
+            let frame = remove.frame
+            let tap = point.at(frame)
+            A11yScreens.tap(app, at: tap)
+            let removed = remove.waitForNonExistence(timeout: 5)
+            print("A11Y attachment-x \(point.name) tap: target=\(frame) tap=\(tap) removed=\(removed)")
+            XCTAssertTrue(removed, "A tap 1.5 pt inside the × target's \(point.name) (\(frame) → \(tap)) should remove its chip")
         }
     }
 
@@ -374,8 +420,9 @@ final class A11yAppUITests: XCTestCase {
                 if panel == 1 {
                     primary.tap()
                 } else if panel == 2 {
-                    // 1 pt inside Next's bottom edge: Next's fill, and — at the default size — inside
-                    // Skip's overhanging target too. Next must take it and move on to panel 3.
+                    // 1 pt inside Next's bottom edge: Next's fill (it used to be inside Skip's overhanging
+                    // target too, at the default size; Skip's now starts at this edge — the polish batch's
+                    // test below). Next must take it and move on to panel 3.
                     let next = primary.frame
                     A11yScreens.tap(app, at: CGPoint(x: next.midX, y: next.maxY - 1))
                     let advanced = A11yScreens.waitForLabel(primary, "Got it", condition: "==", timeout: 4)
@@ -407,6 +454,91 @@ final class A11yAppUITests: XCTestCase {
             if !dismissed { shoot("onboarding-after-skip", variant) }
             XCTAssertTrue(dismissed, "\(variant): Skip didn't dismiss the panel")
             XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5), "\(variant): Skip didn't return to Settings")
+        }
+    }
+
+    /// Skip and Next share an edge, and neither takes the other's taps (polish batch, item 2). Skip's
+    /// 44 pt target used to be centred on its word, so at the smaller text sizes it reached up into
+    /// Next's fill — 3.0 pt at xS, 1.67 at L (measured, iOS 17.5); at xxxL and AX3 it started 1.3 and
+    /// 10 pt below Next. Next, drawn above it, kept those points, and Skip was left with about
+    /// 42.3 pt at the default size. The target is now moved down by the overlap, so it starts at
+    /// Next's bottom edge and keeps its 44 pt (`HowToStashView.HitTargetBelowNeighbour`); at the
+    /// larger sizes it is where it was. At each size, from a fresh launch:
+    /// - Skip's frame (its target, as VoiceOver and the audit see it) is at least 44 × 44 pt and
+    ///   starts at or below Next's bottom edge;
+    /// - a tap 1.5 pt inside Skip's top edge dismisses the panel. (RED before the fix at xS and L:
+    ///   that point was Next's, and Next went to panel 2.) The tap is made on panel 1, where Next
+    ///   only pages — on panel 3 "Got it" dismisses too;
+    /// - a tap 1.5 pt inside Next's bottom edge moves to panel 3, and doesn't dismiss;
+    /// - on panel 3, a tap 1.5 pt inside Skip's bottom edge dismisses: all 44 pt are Skip's.
+    @MainActor
+    func testSkipAndNextShareTheirEdgeAndNeitherTakesTheOthersTaps() throws {
+        continueAfterFailure = true
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        variants: for variant in [Self.extraSmall, .large, .xxxLarge, .ax3] {
+            let app = screens.launch(variant, tab: .settings)
+            let row = app.buttons["settings.howToStash"]
+            let primary = app.buttons["onboarding.gotIt"]
+            let skip = app.buttons["onboarding.skip"]
+
+            /// Opens "How to stash" (panel 1) with Next and Skip both well inside the screen.
+            func openPanel() -> Bool {
+                Self.bringIntoView(app, row)
+                row.tap()
+                guard primary.waitForExistence(timeout: 10) else { return false }
+                Self.bringIntoView(app, skip)
+                return skip.exists
+            }
+
+            guard openPanel() else {
+                XCTFail("\(variant): the onboarding panel didn't open")
+                continue variants
+            }
+            let next = primary.frame, skipFrame = skip.frame
+            print(String(format: "A11Y onboarding skip-edge %@: next=%@ skip=%@ (skip starts %.2f pt %@ next's bottom edge)",
+                         variant.token, "\(next)", "\(skipFrame)", abs(skipFrame.minY - next.maxY),
+                         skipFrame.minY >= next.maxY ? "below" : "INSIDE"))
+            XCTAssertGreaterThanOrEqual(skipFrame.width, 43.5, "\(variant): Skip's target is \(skipFrame.width) pt wide")
+            XCTAssertGreaterThanOrEqual(skipFrame.height, 43.5, "\(variant): Skip's target is \(skipFrame.height) pt tall")
+            XCTAssertGreaterThanOrEqual(skipFrame.minY, next.maxY - 0.5,
+                                        "\(variant): Skip's target starts \(next.maxY - skipFrame.minY) pt inside Next's fill")
+
+            // 1. Skip's side of the shared edge.
+            A11yScreens.tap(app, at: CGPoint(x: skipFrame.midX, y: skipFrame.minY + 1.5))
+            let skipped = primary.waitForNonExistence(timeout: 8)
+            print("A11Y onboarding skip-edge \(variant): tap at Skip's top edge dismissed=\(skipped)")
+            guard skipped else {
+                XCTFail("\(variant): a tap 1.5 pt inside Skip's top edge (\(skipFrame.minY + 1.5), Next's bottom edge is "
+                        + "\(next.maxY)) didn't dismiss the panel — Next took it")
+                continue variants
+            }
+            XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5), "\(variant): Skip didn't return to Settings")
+
+            // 2. Next's side: 1.5 pt inside its bottom edge pages on, and doesn't dismiss.
+            guard openPanel() else {
+                XCTFail("\(variant): the onboarding panel didn't reopen")
+                continue variants
+            }
+            primary.tap()   // panel 1 → 2
+            sleep(1)        // past the page animation
+            let nextOnPanel2 = primary.frame
+            A11yScreens.tap(app, at: CGPoint(x: nextOnPanel2.midX, y: nextOnPanel2.maxY - 1.5))
+            let paged = A11yScreens.waitForLabel(primary, "Got it", condition: "==", timeout: 4)
+            print("A11Y onboarding skip-edge \(variant): tap at Next's bottom edge paged on=\(paged) panelStillUp=\(primary.exists)")
+            guard paged else {
+                XCTFail("\(variant): a tap 1.5 pt inside Next's bottom edge didn't move to panel 3 (Skip took it?)")
+                continue variants
+            }
+
+            // 3. Skip's whole target is Skip's: a tap at its bottom edge dismisses (on panel 3 "Got it" dismisses
+            // too, but it is 52 pt above this point).
+            let skipOnPanel3 = skip.frame
+            A11yScreens.tap(app, at: CGPoint(x: skipOnPanel3.midX, y: skipOnPanel3.maxY - 1.5))
+            let dismissedAtTheBottom = skip.waitForNonExistence(timeout: 8)
+            print("A11Y onboarding skip-edge \(variant): tap at Skip's bottom edge dismissed=\(dismissedAtTheBottom)")
+            XCTAssertTrue(dismissedAtTheBottom,
+                          "\(variant): a tap 1.5 pt inside Skip's bottom edge (\(skipOnPanel3.maxY - 1.5)) didn't dismiss the panel")
         }
     }
 
@@ -606,6 +738,10 @@ final class A11yAppUITests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// The smallest standard text size (Settings › Display & Text Size, slider all the way left): the
+    /// most Skip's centred target reached into Next's fill.
+    private static let extraSmall = A11yVariant(category: "UICTContentSizeCategoryXS", token: "xS")
+
     /// "ios26-" on iOS 26 and later, so both OSes' shots can sit side by side.
     private static var osPrefix: String {
         ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 ? "ios26-" : ""
@@ -680,19 +816,20 @@ final class A11yAppUITests: XCTestCase {
         return !shared.isNull && shared.width >= 1 && shared.height >= 1
     }
 
-    /// The attachment ×'s target reaches up past its glyph (fix round 1, M-5) — proven by a tap, not
-    /// a frame: a horizontal scroll view takes taps only inside its own bounds, so the part of a
-    /// 44 pt target that overhangs the row's top is lost to taps while the accessibility frame
-    /// (`assertTarget`'s) keeps it. The row's 19 pt top padding keeps the target inside. The tap:
-    /// 16 pt above the glyph's centre — 6 pt inside the target's top edge, well off the 18 pt glyph.
-    ///
-    /// Measured with a probe (2026-10-03, taps every few points above the glyph's centre): with the
-    /// 19 pt padding the target takes taps up to 18 pt above the centre on iOS 17.5 (the scroll
-    /// view's top ~5 pt take no taps there) and at least 20 on iOS 26.5; with the old 10 pt padding,
-    /// up to about 9 (17.5) and 12 (26.5) — so this tap misses on the old layout on both. Not
-    /// checked: the trailing edge. A tap 2 pt inside it worked even with the old 8 pt trailing
-    /// padding, since a row narrower than its scroll view isn't cut there; that padding matters
-    /// only once the row overflows and is scrolled to its end.
+    /// The attachment ×'s target reaches to the top of its row and takes a tap there (fix round 1,
+    /// M-5; polish batch, item 3) — proven by a tap, not a frame: a horizontal scroll view takes taps
+    /// only inside its own bounds, so the part of a 44 pt target that overhangs the row's top is lost
+    /// to taps while the accessibility frame (`assertTarget`'s) keeps it. The row's 19 pt top padding
+    /// keeps the target's top edge at the row's. And on iOS 17 the scroll view's top ~4 pt take no
+    /// taps either (a probe, 2026-10-03: taps every few points above the glyph's centre, with the
+    /// target centred on the glyph — 18 pt above hit on iOS 17.5, 19 missed; 26.5 reached at least
+    /// 20), which left the target about 40 pt tall there. So the target is moved 6 pt toward the
+    /// chip (`CaptureAttachmentsRow.removeButton`), and this taps 1.5 pt inside its top edge: on the
+    /// centred target that is inside the dead zone on iOS 17.5 — the tap misses — and on the moved
+    /// one it is 7.5 pt inside the scroll view. Not checked here: the trailing edge. A tap 2 pt
+    /// inside it worked even with the old 8 pt trailing padding, since a row narrower than its
+    /// scroll view isn't cut there; that padding matters only once the row overflows and is
+    /// scrolled to its end.
     @MainActor
     private func assertAttachmentRemoveTargetTakesATapAtItsTopEdge(_ app: XCUIApplication, _ variant: A11yVariant) {
         let remove = Self.element(app, "capture.attachment.remove")
@@ -701,10 +838,10 @@ final class A11yAppUITests: XCTestCase {
             return
         }
         let frame = remove.frame
-        A11yScreens.tap(app, at: CGPoint(x: frame.midX, y: frame.midY - 16))
+        A11yScreens.tap(app, at: CGPoint(x: frame.midX, y: frame.minY + 1.5))
         let removed = remove.waitForNonExistence(timeout: 5)
         print("A11Y attachment-x top-edge tap \(variant): target=\(frame) removed=\(removed)")
-        XCTAssertTrue(removed, "\(variant): a tap 16 pt above the ×'s centre (inside its target, off the glyph) should remove its chip")
+        XCTAssertTrue(removed, "\(variant): a tap 1.5 pt inside the × target's top edge (\(frame)) should remove its chip")
     }
 
     /// A toast that doesn't navigate lets taps through to what it lies over (fix round 1, M-1). At

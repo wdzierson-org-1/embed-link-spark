@@ -36,6 +36,9 @@ struct HowToStashView: View {
     @State private var pageIndex = 0
 
     private static let panelCount = 3
+    /// The gap between the primary button and Skip. Skip's tap target starts at the primary
+    /// button's bottom edge, so the two share this one number (`skipButton`).
+    private static let actionSpacing: CGFloat = 10
     // The carousel's height (plan 16): SwiftUI's paged `TabView` doesn't size itself to its tallest
     // page, and the three panels have different content heights (only panel 2 carries a hint line
     // under its caption). The tallest panel's height, with each panel's own content top-aligned
@@ -102,9 +105,10 @@ struct HowToStashView: View {
 
             dots
 
-            VStack(spacing: 10) {
-                // Above Skip, whose 44 pt target reaches up into this button's fill (see
-                // `skipButton`): the overlap is the primary button's.
+            VStack(spacing: Self.actionSpacing) {
+                // Skip's 44 pt target starts at this button's bottom edge and never reaches into
+                // it (see `skipButton`). Drawn above Skip all the same: should a rounding of the
+                // layout ever overlap them by a fraction of a point, the overlap is this button's.
                 primaryButton.zIndex(1)
                 skipButton
             }
@@ -209,11 +213,17 @@ struct HowToStashView: View {
 
     /// Marks the panel seen (see this type's own doc comment for why Skip is not "later") and
     /// dismisses immediately regardless of which panel is showing. Plan 16: a 17 pt text button
-    /// (`textButton`, `muted` 5.38:1) with a 44 pt target (`.stashPlain`) that overhangs the word.
-    /// Its centre sits about 46 pt below the primary button's, but that button is 52 pt tall, so
-    /// at the default text size the target reaches about 1.7 pt up into its fill (more at the
-    /// smaller sizes) — and the later sibling wins an overlap. The primary button is drawn above
-    /// Skip (`zIndex`), so a tap on Next's bottom edge is Next's, never a dismissal (fix round 1).
+    /// (`textButton`, `muted` 5.38:1) with a 44 × 44 pt target that overhangs the word.
+    ///
+    /// The word is 20.7 pt tall at the default size and `actionSpacing` (10 pt) under the primary
+    /// button, which is 52 pt tall — so a target centred on the word (`.stashPlain`'s) reaches 11.7
+    /// pt up: 1.7 pt into that button's fill (3.0 pt at the smallest text size, measured). The
+    /// primary button won the overlap (`zIndex`), which left Skip about 42.3 pt of target, under the
+    /// contract. `HitTargetBelowNeighbour` moves the target down by exactly the overlap, so it
+    /// starts at the primary button's bottom edge and keeps its 44 pt: nothing visible moves, and
+    /// the two buttons share one edge, every tap on it one or the other's
+    /// (`A11yAppUITests.testSkipAndNextShareTheirEdgeAndNeitherTakesTheOthersTaps`). At the larger
+    /// text sizes the centred target never reached the primary button, and is unchanged.
     private var skipButton: some View {
         Button {
             OnboardingState.markHowToStashSeen()
@@ -224,9 +234,38 @@ struct HowToStashView: View {
                 .foregroundStyle(StashColor.muted)
                 .lineLimit(1)
                 .fixedSize()
+                .modifier(HitTargetBelowNeighbour(gap: Self.actionSpacing))
         }
-        .buttonStyle(.stashPlain)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("onboarding.skip")
+    }
+}
+
+/// `stashMinimumHitTarget` for a control `gap` pt under another tappable one: a clear 44 × 44 pt
+/// target (or the label's own size, if that is bigger), centred on the label — except that it is
+/// moved down by however far it would otherwise reach up into the neighbour, so it starts at the
+/// neighbour's bottom edge and no further. The label's layout size and look are untouched.
+///
+/// The centred target runs up `(44 − label height) / 2` pt above the label, and the neighbour ends
+/// `gap` pt above it: where the first is more than the second (a line of text under 24 pt tall,
+/// under a 10 pt gap) the target would take the neighbour's bottom edge — and the neighbour, drawn
+/// above it, takes it back, leaving the control less than 44 pt of target. A label as tall as the
+/// target, or nearly, needs no move. Goes on the LABEL of a `Button`, as `stashMinimumHitTarget`
+/// does; the ancestors must not clip hit testing below the label (the onboarding card doesn't).
+private struct HitTargetBelowNeighbour: ViewModifier {
+    let gap: CGFloat
+
+    func body(content: Content) -> some View {
+        content.background {
+            GeometryReader { label in
+                let reachUp = max(44 - label.size.height, 0) / 2
+                Color.clear
+                    .frame(width: max(44, label.size.width), height: max(44, label.size.height))
+                    .contentShape(Rectangle())
+                    .position(x: label.size.width / 2,
+                              y: label.size.height / 2 + max(reachUp - gap, 0))
+            }
+        }
     }
 }
 

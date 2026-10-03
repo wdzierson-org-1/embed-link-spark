@@ -21,14 +21,7 @@ struct MainTabView: View {
     init(userId: UUID, store: ItemStore) {
         self.userId = userId
         self.store = store
-        // Test/verification hook (same family as `--uitest-reset-auth`): lets a headless run
-        // land on a specific tab without scripting taps through the simulator window.
-        let args = ProcessInfo.processInfo.arguments
-        let initial: MainTab = if args.contains("--uitest-tab-view") { .view }
-            else if args.contains("--uitest-tab-ask") { .ask }
-            else if args.contains("--uitest-tab-settings") { .settings }
-            else { .add }
-        _selection = State(initialValue: initial)
+        _selection = State(initialValue: Self.launchTab)
         // Plan 15 (H5): detail-sheet edits the server hasn't confirmed yet (`PendingEdits`) are
         // shown over the library's rows and sent before every refresh fetches — sign-in/launch,
         // foreground, View-tab appear, pull-to-refresh. Done here, before any child's `.task`
@@ -40,6 +33,21 @@ struct MainTabView: View {
                 await pendingEdits.flush(editor: editor, apply: apply)
             }
         }
+    }
+
+    /// The tab the app opens on: always Add (Plan 2: the app opens ready to capture) — except in a
+    /// DEBUG build, where `--uitest-tab-view` / `-ask` / `-settings` (same family as
+    /// `--uitest-reset-auth`) let a headless run land on a specific tab without scripting taps
+    /// through the simulator window. Compiled out of Release like the app's other test hooks
+    /// (`CaptureTestHooks`), so a shipped build neither reads nor contains the argument strings.
+    private static var launchTab: MainTab {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--uitest-tab-view") { return .view }
+        if args.contains("--uitest-tab-ask") { return .ask }
+        if args.contains("--uitest-tab-settings") { return .settings }
+        #endif
+        return .add
     }
 
     var body: some View {

@@ -57,6 +57,28 @@ final class A11yFoundationUITests: XCTestCase {
     /// Ask, as anywhere it shows, the keyboard goes and the draft stays. (Plain Esc, the other
     /// `.cancelAction` key, never reaches the shortcut: the focused text field keeps it — probed on
     /// iOS 17.0, where a typed "z" landed in the field and Esc changed nothing.)
+    ///
+    /// SIDE EFFECT ON THE SIMULATOR (polish batch, item 6; measured on iOS 17.5 and 26.5): `typeKey`
+    /// is a hardware-keyboard event, and after one iOS records it in the simulator's own
+    /// `com.apple.keyboard.preferences` — `AutomaticMinimizationEnabled` (and, on iOS 17,
+    /// `KeyboardHardwareKeyboardsSeen`). The on-screen keyboard still comes up for the rest of that
+    /// boot, so nothing fails at once; from the simulator's NEXT boot it is minimized — in the tree
+    /// but parked below the screen (y 897 on an 852 pt screen) — in every app, every launch, and
+    /// every test that asserts the keyboard's frame fails "Expected the keyboard on screen"
+    /// (`AskUITests.testALongThreadKeepsItsEndWhenTheKeyboardComesUp`, …). Restarting the simulator
+    /// does not undo it; it is where the damage shows, which is why the failures look intermittent.
+    /// Restore, with the simulator booted (the next app launch picks it up):
+    ///
+    ///     xcrun simctl spawn <udid> defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled
+    ///
+    /// So: keep this test out of the main run of a simulator that keyboard suites share
+    /// (`-skip-testing:StashUITests/A11yFoundationUITests/testCommandPeriodOnAHardwareKeyboardIsTheKeyboardCancel`),
+    /// run it last, and restore afterwards. `ios/README.md` › UI tests has the runner recipe. This
+    /// test itself still passes on a simulator in that state (measured on 17.5), so it doesn't
+    /// explain this test's own failures. (Other `typeKey` callers — ⌘A in `testEditSmoke`'s title
+    /// clear and in `A11yDetailLibraryUITests.openDetail` — send the same kind of event; only ⌘. was
+    /// measured.) Never toggle the Simulator app's own "Connect Hardware Keyboard": it is shared with
+    /// every other session on the Mac.
     @MainActor
     func testCommandPeriodOnAHardwareKeyboardIsTheKeyboardCancel() throws {
         let screens = A11yScreens(self)
@@ -74,6 +96,10 @@ final class A11yFoundationUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "⌘. should put the keyboard away like Cancel")
         XCTAssertEqual(input.value as? String, "Keep this draft", "⌘. must keep the draft")
         XCTAssertTrue(app.buttons["ask.history"].waitForExistence(timeout: 5), "The header circles should be back")
+        // Said here, where the failures it causes will be read (see the doc comment above).
+        print("A11Y state: this test sent a hardware-keyboard event (⌘.). From this simulator's next boot its on-screen "
+              + "keyboard stays minimized until: xcrun simctl spawn <udid> defaults delete "
+              + "com.apple.keyboard.preferences AutomaticMinimizationEnabled (ios/README.md › UI tests)")
     }
 
     /// The shared controls in `Design/` — `CircleIcon` (36 pt and its 40 pt default),

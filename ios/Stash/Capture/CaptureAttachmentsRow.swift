@@ -35,14 +35,15 @@ struct CaptureAttachmentsRow: View {
             // the ScrollView's implicit content-bounds clip; this padding gives it the room to do
             // so without visually shifting the chips themselves.
             //
-            // Plan 16: the × takes a 44 pt target (`.stashPlain`), and a target only works inside
+            // Plan 16: the × takes a 44 pt target (`removeButton`), and a target only works inside
             // the scroll view's own bounds (UIKit doesn't hit-test a scroll view's subviews past
             // its edge, drawn or not) — so the × centre sits 22 pt inside the top edge (it was 13)
             // and the last chip's 22 pt inside the trailing end (it was 11; that end clips once
-            // the row overflows and is scrolled to it). Measured by taps (fix round 1): the target
-            // takes taps up to 18 pt above the glyph's centre on iOS 17.5 — the scroll view's top
-            // ~5 pt take none there — and at least 20 on iOS 26.5; with the old 10 pt, about 9 and
-            // 12. `A11yAppUITests.assertAttachmentRemoveTargetTakesATapAtItsTopEdge` taps at 16.
+            // the row overflows and is scrolled to it). Measured by taps (fix round 1): a target
+            // centred on the glyph takes taps up to 18 pt above the glyph's centre on iOS 17.5 —
+            // the scroll view's top ~4 pt take none there — and at least 20 on iOS 26.5; with the
+            // old 10 pt, about 9 and 12. That left the × about 40 pt tall on iOS 17, so `removeButton`
+            // moves the target 6 pt toward the chip instead (below), and this padding stays 19.
             .padding(.top, 19)
             .padding(.trailing, 19)
         }
@@ -79,20 +80,38 @@ struct CaptureAttachmentsRow: View {
         }
     }
 
-    /// The chip's ×: an 18 pt glyph with a 44 pt target (`.stashPlain`), named for VoiceOver and
-    /// the Large Content Viewer. The glyph is icon chrome and keeps its size at every text size
-    /// (DESIGN.md › Controls (iOS)), like `CircleIcon`'s — a system font, so it follows Bold Text.
+    /// The chip's ×: an 18 pt glyph with a 44 × 44 pt target, named for VoiceOver and the Large
+    /// Content Viewer. The glyph is icon chrome and keeps its size at every text size (DESIGN.md ›
+    /// Controls (iOS)), like `CircleIcon`'s — a system font, so it follows Bold Text.
+    ///
+    /// The target is not centred on the glyph (`.stashPlain`'s is): it is moved `removeTargetShift`
+    /// pt toward the chip, down and left. The glyph sits on the chip's top-trailing corner, 22 pt
+    /// under the row's top edge, and on iOS 17 the scroll view takes no taps in its top ~4 pt — a
+    /// centred target was only about 40 pt tall there (44 on iOS 26). Moved, its top edge is 6 pt
+    /// inside the scroll view on both, and nothing else changes: the glyph doesn't move, and the
+    /// chip's own picture has no tap action for the target to take taps from. The same move keeps
+    /// the last chip's target off the end of an overflowing row. (A tap at the target's top edge
+    /// and at its bottom-left corner: `A11yAppUITests`.)
     private func removeButton(named name: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "xmark.circle.fill")
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(.white, .black.opacity(0.6))
                 .font(.system(size: 18))
+                .background {
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                        .offset(x: -Self.removeTargetShift, y: Self.removeTargetShift)
+                }
         }
-        .buttonStyle(.stashPlain)
+        .buttonStyle(.plain)
         .stashIconControl(name, systemImage: "xmark.circle.fill")
         .offset(x: 6, y: -6)
     }
+
+    /// How far the × target moves toward the chip, down and left (`removeButton`).
+    private static let removeTargetShift: CGFloat = 6
 
     @ViewBuilder
     private func thumbnail(for attachment: CaptureAttachment) -> some View {
