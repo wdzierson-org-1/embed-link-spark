@@ -18,10 +18,15 @@ import XCTest
 ///   scrolled-away search field staying reachable (and, in a by-hand probe, real VoiceOver
 ///   bringing its row back).
 ///
+/// The 2b fix wave adds, measured the same way: reading text's line spacing tapering at the
+/// accessibility sizes, the detail URL keeping to three lines there, links in reading text
+/// underlined (in the pixels), and the "Generating summary…" progress label keeping its contrast.
+///
 /// Seeded rows carry a `UITEST-P16-2b-` marker and are deleted in teardown blocks (a failed delete
-/// is reported, never swallowed); the permanent `UITEST-FIXTURE: link one` is only opened, never
-/// edited. Shots are attached as `a11y-2b-<screen>-<size>` (`a11y-2b-ios26-…` on iOS 26); export
-/// them with `/tmp/p16/export-shots.sh`-style tooling.
+/// is reported, never swallowed); every seeding first deletes this file's rows that a killed run
+/// leaked (`Rest2b.deleteStaleSeededRows`). The permanent `UITEST-FIXTURE: link one` is only
+/// opened, never edited. Shots are attached as `a11y-2b-<screen>-<size>` (`a11y-2b-ios26-…` on
+/// iOS 26); export them with `/tmp/p16/export-shots.sh`-style tooling.
 final class A11yDetailLibraryUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -382,6 +387,226 @@ final class A11yDetailLibraryUITests: XCTestCase {
         }
     }
 
+    // MARK: - Contracts (2b fix wave)
+
+    /// Reading text's line spacing — `stashLeading(0.55, role: .reading)`, the detail sheet's — on
+    /// the sheet itself, at Large, xxxLarge and AX3: a seeded link's one-line summary and its
+    /// three-line "Original Content", both plain reading text. Their heights give the gap between
+    /// lines, (h3 − 3·h1) / 2. It is 0.55 em of the scaled reading size at the standard sizes (9.35
+    /// pt at Large, 12.1 at xxxLarge) and 0.35 em at the accessibility sizes (12.95 pt at AX3, where
+    /// 0.55 em was 20.35 — a line's pitch 1.77 em): the foundation's taper (2b review).
+    @MainActor
+    func testDetailReadingLeadingTapersAtAccessibilitySizes() async throws {
+        let seeded = try await seedLinkRow("Leading probe", fields: [
+            "url": "https://example.com/p16-2b/leading-probe",
+            "description": "Three short lines.",
+            // Plain text, not markdown, and short enough to stay one line apiece at AX3.
+            "summary": "One line.",
+            "page_body": "First line\nSecond line\nThird line",
+        ])
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        var failures: [String] = []
+        for variant in [A11yVariant.large, .xxxLarge, .ax3] {
+            let app = screens.launch(variant, tab: .view)
+            openDetail(app, query: seeded.marker, cardText: "Leading probe", variant: variant)
+            let summary = firstElement(app, "detail.summaryText")
+            XCTAssertTrue(summary.waitForExistence(timeout: 10), "\(variant): no summary")
+            XCTAssertTrue(A11yScreens.waitForLabel(summary, "One line.", condition: "==", timeout: 10),
+                          "\(variant): unexpected summary '\(summary.label)'")
+            A11yScreens.scrollIntoView(app, summary)
+            let oneLine = summary.frame.height
+
+            let originalTab = app.buttons["Original Content"]
+            XCTAssertTrue(originalTab.waitForExistence(timeout: 10), "\(variant): no Original Content tab")
+            A11yScreens.scrollIntoView(app, originalTab)
+            originalTab.tap()
+            let original = firstElement(app, "detail.originalText")
+            XCTAssertTrue(original.waitForExistence(timeout: 10), "\(variant): no Original Content text")
+            XCTAssertTrue(A11yScreens.waitForLabel(original, "Third line", timeout: 15),
+                          "\(variant): the captured text never loaded ('\(original.label)')")
+            A11yScreens.scrollIntoView(app, original)
+            sleep(1)
+            let threeLines = original.frame.height
+            screens.attachScreenshot(named: (Self.isIOS26 ? "2b-ios26-" : "2b-") + "detail-leading")
+
+            let metrics = UIFontMetrics(forTextStyle: .body)
+            let size = metrics.scaledValue(for: 17, compatibleWith: variant.traits)
+            let em: CGFloat = Self.isAccessibilitySize(variant) ? 0.35 : 0.55
+            let expected = metrics.scaledValue(for: em * 17, compatibleWith: variant.traits)
+            let gap = (threeLines - 3 * oneLine) / 2
+            let pitch = (threeLines - oneLine) / 2
+            print("A11Y leading detail \(variant): line \(oneLine) · three lines \(threeLines) · pitch \(pitch) "
+                  + "(\(String(format: "%.2f", pitch / size)) em of \(size)) · gap \(gap) · expected \(expected) (\(em) em)")
+            if abs(gap - expected) > 0.75 {
+                failures.append("\(variant): gap \(gap) pt, expected \(expected) (\(em) em)")
+            }
+            closeDetail(app)
+        }
+        XCTAssertTrue(failures.isEmpty, "Reading text's line spacing is off its rule:\n" + failures.joined(separator: "\n"))
+    }
+
+    /// The detail URL (2b review M-3; coordinator decision): one line, shortened in the middle, at
+    /// the standard sizes — and at the accessibility sizes it wraps but keeps to three lines, still
+    /// shortened in the middle, instead of the whole address (10 lines of 33 pt mono at AX3 for
+    /// this one). VoiceOver reads it whole, and the whole URL is a long press away at every size:
+    /// the context menu (Copy link, Open link) previews it wrapped. XCUITest doesn't see inside that
+    /// preview, so the `detail-url-menu` shots are its check (it was sized for one line and cut the
+    /// rest off). The long domain is also the Details header's summary (2b review N-1): beside the
+    /// label, shortened, at the standard sizes — under it only at the accessibility sizes.
+    @MainActor
+    func testTheDetailURLKeepsToThreeLinesAtAccessibilitySizes() async throws {
+        let url = "https://dynamic-type-field-guide.everyday-reading.example.com/p16-2b/at-every-text-size-from-large-up"
+        let seeded = try await seedLinkRow("Address probe", fields: [
+            "url": url, "description": "A long address.", "summary": "One line.",
+        ])
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        var failures: [String] = []
+        for variant in [A11yVariant.large, .ax3] {
+            let app = screens.launch(variant, tab: .view)
+            openDetail(app, query: seeded.marker, cardText: "Address probe", variant: variant)
+            let bar = element(app, "detail.urlBar")
+            let text = element(app, "detail.urlText")
+            XCTAssertTrue(text.waitForExistence(timeout: 10), "\(variant): no URL")
+            A11yScreens.scrollIntoView(app, bar)
+            sleep(1)
+            if text.label != url { failures.append("\(variant): VoiceOver reads '\(text.label)', not the whole URL") }
+            let pointSize = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: variant.traits).pointSize
+            let line = UIFont.monospacedSystemFont(ofSize: pointSize, weight: .regular).lineHeight
+            let lines = text.frame.height / line
+            print("A11Y url \(variant): text \(text.frame) · mono line \(line) · \(String(format: "%.2f", lines)) lines")
+            screens.attachScreenshot(named: (Self.isIOS26 ? "2b-ios26-" : "2b-") + "detail-url")
+            if Self.isAccessibilitySize(variant) {
+                if !(2.5...3.4).contains(lines) { failures.append("\(variant): \(lines) lines, expected three (\(text.frame))") }
+            } else if lines > 1.4 {
+                failures.append("\(variant): \(lines) lines, expected one (\(text.frame))")
+            }
+
+            // The whole URL, a long press away.
+            bar.press(forDuration: 1.2)
+            let copy = app.buttons["Copy link"]
+            XCTAssertTrue(copy.waitForExistence(timeout: 5), "\(variant): the long press should open the link menu")
+            sleep(1)
+            screens.attachScreenshot(named: (Self.isIOS26 ? "2b-ios26-" : "2b-") + "detail-url-menu")
+            A11yScreens.tap(app, at: CGPoint(x: app.windows.firstMatch.frame.midX, y: 70))
+            let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: copy)
+            XCTAssertEqual(XCTWaiter().wait(for: [closed], timeout: 5), .completed, "\(variant): the link menu didn't close")
+
+            // N-1: the Details header with this long domain as its summary. One row at Large is
+            // ~65 pt with the section's rhythm; the summary moved under the label made it ~88.
+            let details = element(app, "detail.details")
+            A11yScreens.scrollIntoView(app, details)
+            sleep(1)
+            print("A11Y details header \(variant): \(details.frame) label '\(details.label)'")
+            screens.attachScreenshot(named: (Self.isIOS26 ? "2b-ios26-" : "2b-") + "detail-details-header")
+            if Self.isAccessibilitySize(variant) {
+                if details.frame.height < 100 {
+                    failures.append("\(variant): the Details summary should sit under its label (\(details.frame))")
+                }
+            } else if details.frame.height > 76 {
+                failures.append("\(variant): the Details summary should stay beside its label (\(details.frame))")
+            }
+            closeDetail(app)
+        }
+        XCTAssertTrue(failures.isEmpty, "The detail URL is off its contract:\n" + failures.joined(separator: "\n"))
+    }
+
+    /// WCAG 1.4.1, Use of Color (2b review; coordinator decision): a link in reading text is
+    /// underlined — colour alone can't mark it (violet-600 is 2.93:1 against ink body text and
+    /// 1.04:1 against a muted quote). Checked in the pixels, in body text and inside a quote, at
+    /// Large and with Bold Text: under each link's word runs a line in the soft violet underline
+    /// colour (violet-600 at 50 % over white, ≈ #b6ade8), far longer than any stroke edge of a
+    /// violet glyph. The link words have no descenders, so nothing crosses the line.
+    @MainActor
+    func testLinksInReadingTextAreUnderlined() async throws {
+        let seeded = try await seedLinkRow("Link probe", fields: [
+            "url": "https://example.com/p16-2b/link-probe",
+            "description": "Links in a summary.",
+            "summary": """
+            Read the [handbook](https://example.com/p16-2b/handbook) first, then the [standards](https://example.com/p16-2b/standards) list.
+
+            > Wrap the text instead of [truncation](https://example.com/p16-2b/truncation) marks.
+            """,
+        ])
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        var failures: [String] = []
+        for variant in [A11yVariant.large, .largeBold] {
+            let app = screens.launch(variant, tab: .view)
+            openDetail(app, query: seeded.marker, cardText: "Link probe", variant: variant)
+            let first = firstElement(app, "detail.summaryText")
+            XCTAssertTrue(first.waitForExistence(timeout: 10), "\(variant): no summary")
+            A11yScreens.scrollIntoView(app, first)
+            sleep(1)
+            screens.attachScreenshot(named: (Self.isIOS26 ? "2b-ios26-" : "2b-") + "detail-links")
+            let window = app.windows.firstMatch.frame
+            guard let pixels = ScreenPixels(XCUIScreen.main.screenshot(), pointWidth: window.width) else {
+                XCTFail("\(variant): no screenshot pixels")
+                continue
+            }
+            for words in ["Read the handbook", "Wrap the text"] {
+                let block = app.descendants(matching: .any)
+                    .matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "detail.summaryText", words))
+                    .firstMatch
+                XCTAssertTrue(block.exists, "\(variant): no '\(words)' block")
+                let run = pixels.longestRun(in: block.frame, where: ScreenPixels.isLinkUnderline)
+                print("A11Y underline \(variant) '\(words)…': block \(block.frame) · longest underline-colour run "
+                      + "\(String(format: "%.1f", run.points)) pt at y \(String(format: "%.1f", run.y))")
+                if run.points < 30 {
+                    failures.append("\(variant) '\(words)…': longest underline-colour run \(run.points) pt")
+                }
+            }
+            closeDetail(app)
+        }
+        XCTAssertTrue(failures.isEmpty, "Links in reading text should be underlined:\n" + failures.joined(separator: "\n"))
+    }
+
+    /// 2b review M-2, recipe R-2: "Generating summary…" is the progress people read while a summary
+    /// is made, so it keeps `muted`'s contrast — #646b76, 5.38:1 on white — and isn't dimmed by the
+    /// disabled button it stands in for; VoiceOver still hears a dimmed button. Sampled in the
+    /// pixels of the busy label (its middle band, past the spinner: the 44 pt target's overhang
+    /// reaches the "No summary yet" line above). The busy state comes from the DEBUG
+    /// `--uitest-detail-busy-actions` (no job behind it): a real `summarize-content` call can
+    /// answer — or fail — within a frame (measured: the label showed for one frame of the recording).
+    @MainActor
+    func testTheBusySummaryLabelKeepsItsContrast() async throws {
+        let seeded = try await seedLinkRow("Busy probe", fields: [
+            "url": "https://example.com/p16-2b/busy-probe",
+            "description": "Captured text, no summary yet.",
+            "page_body": "Persimmon season runs from October to December. Fuyu persimmons are squat and crisp "
+                + "and are eaten like apples; Hachiya persimmons stay astringent until they are soft.",
+        ])
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        let app = screens.launch(.large, tab: .view, arguments: ["--uitest-detail-busy-actions"])
+        openDetail(app, query: seeded.marker, cardText: "Busy probe", variant: .large)
+        let busy = element(app, "detail.generateSummary")
+        XCTAssertTrue(busy.waitForExistence(timeout: 15), "no Generate summary")
+        XCTAssertTrue(A11yScreens.waitForLabel(busy, "Generating summary", timeout: 10),
+                      "Expected the busy label, got '\(busy.label)'")
+        A11yScreens.scrollIntoView(app, busy)
+        sleep(1)
+        let shot = XCUIScreen.main.screenshot()
+        let frame = busy.frame
+        let window = app.windows.firstMatch.frame
+        let pixels = try XCTUnwrap(ScreenPixels(shot, pointWidth: window.width), "no screenshot pixels")
+        let band = CGRect(x: frame.minX + 24, y: frame.midY - 8, width: max(frame.width - 24, 1), height: 16)
+        let darkest = pixels.darkest(in: band)
+        print("A11Y busy label: frame \(frame) · sampled \(band) · darkest \(darkest.hex) = "
+              + "\(String(format: "%.2f", darkest.contrastOnWhite)):1 on white · enabled=\(busy.isEnabled) "
+              + "type=\(busy.elementType.rawValue) label='\(busy.label)'")
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = (Self.isIOS26 ? "a11y-2b-ios26-" : "a11y-2b-") + "detail-busy-L"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertEqual(busy.elementType, .button, "VoiceOver should still hear a button")
+        XCTAssertFalse(busy.isEnabled, "VoiceOver should still hear it dimmed (not enabled)")
+        XCTAssertGreaterThanOrEqual(darkest.contrastOnWhite, 4.5,
+                                    "The busy label is dimmed: darkest \(darkest.hex), \(darkest.contrastOnWhite):1")
+        closeDetail(app)
+    }
+
     /// Task 4 review M-3: the search row fades to a 1 % floor as it scrolls away — invisible, but
     /// still in the accessibility tree, so VoiceOver can reach the field from anywhere in the list.
     /// Reaching an element that's scrolled out of view, VoiceOver scrolls it into view with the
@@ -526,6 +751,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
     private func seedRows() async throws -> SeededRows {
         let (email, password) = try credentials()
         let rest = try await Rest2b.signIn(email: email, password: password)
+        await rest.deleteStaleSeededRows()
         let marker = "UITEST-P16-2b-\(Int(Date().timeIntervalSince1970))"
         let audioWords = "harbour walk"
         let summaryWords = "Field guide"
@@ -541,11 +767,12 @@ final class A11yDetailLibraryUITests: XCTestCase {
         deleteAtTeardown(rest, audioId)
         try await Task.sleep(for: .milliseconds(150))
 
+        // Links in body text and in a quote — underlined (2b fix wave), the first in view in the shot.
         let summary = """
         ## Why it matters
 
         Text that follows the user's **preferred size** stays readable at *every* setting, from \
-        Large to the accessibility sizes.
+        Large to the [accessibility sizes](https://developer.apple.com/design/human-interface-guidelines/typography).
 
         - Reading text is 17 pt at Large
         - Meta text is 13 pt, in `muted`
@@ -554,7 +781,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
         1. Set roles, never point sizes
         2. Let rows reflow when they can't fit
 
-        > Wrap critical text instead of truncating it.
+        > Wrap critical text instead of [truncating](https://example.com/p16-2b/truncation) it.
 
         See the [guidelines](https://developer.apple.com/design/human-interface-guidelines/typography) for more.
         """
@@ -603,6 +830,24 @@ final class A11yDetailLibraryUITests: XCTestCase {
                           sharedWords: sharedWords)
     }
 
+    /// One throwaway LINK row for a contract test, titled "`label` (`marker`)" — `fields` add the
+    /// rest (url, summary, page_body…) — and deleted in teardown. Runs the leak janitor first.
+    @MainActor
+    private func seedLinkRow(_ label: String, fields: [String: Any]) async throws -> (marker: String, title: String) {
+        let (email, password) = try credentials()
+        let rest = try await Rest2b.signIn(email: email, password: password)
+        await rest.deleteStaleSeededRows()
+        let marker = "UITEST-P16-2b-\(Int(Date().timeIntervalSince1970))"
+        let title = "\(label) (\(marker))"
+        var row = fields
+        row["type"] = "link"
+        row["title"] = title
+        if row["content"] == nil { row["content"] = "" }
+        let id = try await rest.insertItem(row, attributes: ["link": ["flavor": "article"]])
+        deleteAtTeardown(rest, id)
+        return (marker, title)
+    }
+
     /// Deletes a seeded row once the test ends, however it ends — and says so if the delete fails.
     private func deleteAtTeardown(_ rest: Rest2b, _ id: String) {
         addTeardownBlock {
@@ -631,6 +876,11 @@ final class A11yDetailLibraryUITests: XCTestCase {
     }
 
     private static var isIOS26: Bool { ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 }
+
+    /// AX1–AX5 (SwiftUI's `dynamicTypeSize.isAccessibilitySize`).
+    private static func isAccessibilitySize(_ variant: A11yVariant) -> Bool {
+        variant.category.contains("Accessibility")
+    }
 
     /// Shoots the screen on show, then audits it: `a11y-2b-<screen>-<size>`, or
     /// `a11y-2b-ios26-<screen>-<size>` on iOS 26. The shot comes first because the audit moves
@@ -887,6 +1137,60 @@ private struct ScreenPixels {
         let ratio = (lightest.lum + 0.05) / (darkest.lum + 0.05)
         return "darkest \(darkest.hex) on lightest \(lightest.hex) = " + String(format: "%.2f:1", ratio)
     }
+
+    /// The darkest colour inside `frame` (by WCAG relative luminance) and its contrast on white —
+    /// for a text whose glyph cores are its colour (2b fix wave, recipe R-2).
+    func darkest(in frame: CGRect) -> (hex: String, contrastOnWhite: Double) {
+        func linear(_ c: UInt8) -> Double {
+            let v = Double(c) / 255
+            return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        guard let (x0, x1, y0, y1) = pixelBounds(frame) else { return ("(off screen)", 0) }
+        var darkest: (lum: Double, hex: String) = (2, "")
+        for y in y0..<y1 {
+            for x in x0..<x1 {
+                let i = (y * width + x) * 4
+                let (r, g, b) = (bytes[i], bytes[i + 1], bytes[i + 2])
+                let lum = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+                if lum < darkest.lum { darkest = (lum, String(format: "#%02x%02x%02x", r, g, b)) }
+            }
+        }
+        return (darkest.hex, 1.05 / (darkest.lum + 0.05))
+    }
+
+    /// The longest unbroken horizontal run of pixels that `matches` inside `frame`: its length and
+    /// its row, in screen points (2b fix wave: a link's underline).
+    func longestRun(in frame: CGRect, where matches: (UInt8, UInt8, UInt8) -> Bool) -> (points: CGFloat, y: CGFloat) {
+        guard let (x0, x1, y0, y1) = pixelBounds(frame) else { return (0, 0) }
+        var best = 0, bestRow = 0
+        for y in y0..<y1 {
+            var run = 0
+            for x in x0..<x1 {
+                let i = (y * width + x) * 4
+                if matches(bytes[i], bytes[i + 1], bytes[i + 2]) {
+                    run += 1
+                    if run > best { (best, bestRow) = (run, y) }
+                } else {
+                    run = 0
+                }
+            }
+        }
+        return (CGFloat(best) / scale, CGFloat(bestRow) / scale)
+    }
+
+    /// The link underline's colour — violet-600 (#6d5bd0) at 50 % over white, ≈ #b6ade8 — give or
+    /// take antialiasing. Never white, a grey, `ink`, `muted` or a violet-600 glyph's core. (A
+    /// violet glyph's antialiased edges match too, but only in runs as short as a stroke.)
+    static func isLinkUnderline(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool {
+        let (r, g, b) = (Int(r), Int(g), Int(b))
+        return (150...230).contains(r) && (140...225).contains(g) && b >= 215 && b - r >= 18 && b - g >= 22
+    }
+
+    private func pixelBounds(_ frame: CGRect) -> (Int, Int, Int, Int)? {
+        let x0 = max(0, Int(frame.minX * scale)), x1 = min(width, Int(frame.maxX * scale))
+        let y0 = max(0, Int(frame.minY * scale)), y1 = min(height, Int(frame.maxY * scale))
+        return x0 < x1 && y0 < y1 ? (x0, x1, y0, y1) : nil
+    }
 }
 
 /// A password-grant REST session for the test account — seeds and deletes this file's throwaway
@@ -949,6 +1253,45 @@ private struct Rest2b: Sendable {
             throw Failure(description: "throwaway insert failed (status \(status)): \(String(data: data, encoding: .utf8) ?? "")")
         }
         return id
+    }
+
+    /// 2b review N-8: a run killed before its teardown blocks run (a timeout, a stopped runner)
+    /// leaks its seeded rows. So every seeding first deletes THIS file's leftovers: rows with
+    /// `UITEST-P16-2b-` in the title or description (the voice note carries it in its description)
+    /// created more than `age` ago — 30 minutes, three times the longest test here (the detail
+    /// matrix, ~10), so a run going on the other simulator keeps its rows. Each row is re-checked
+    /// before its delete, and a
+    /// `UITEST-FIXTURE` row is never touched. Logs each delete; a failure only logs.
+    func deleteStaleSeededRows(olderThan age: TimeInterval = 30 * 60) async {
+        let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-age))
+        let query = [
+            URLQueryItem(name: "select", value: "id,title,description,created_at"),
+            URLQueryItem(name: "or", value: "(title.like.*UITEST-P16-2b-*,description.like.*UITEST-P16-2b-*)"),
+            URLQueryItem(name: "created_at", value: "lt.\(cutoff)"),
+        ]
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request("/rest/v1/items", query: query))
+            guard Self.succeeded(response),
+                  let rows = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                print("A11yDetailLibraryUITests janitor: the lookup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+                return
+            }
+            for row in rows {
+                guard let id = row["id"] as? String else { continue }
+                let title = row["title"] as? String ?? "", description = row["description"] as? String ?? ""
+                let text = title + " " + description
+                guard text.contains("UITEST-P16-2b-"), !text.contains("UITEST-FIXTURE") else { continue }
+                do {
+                    try await deleteItem(id: id)
+                    print("A11yDetailLibraryUITests janitor: deleted leaked row \(id) '\(title.prefix(60))' "
+                          + "from \(row["created_at"] as? String ?? "?")")
+                } catch {
+                    print("A11yDetailLibraryUITests janitor: couldn't delete leaked row \(id): \(error)")
+                }
+            }
+        } catch {
+            print("A11yDetailLibraryUITests janitor: \(error)")
+        }
     }
 
     func deleteItem(id: String) async throws {

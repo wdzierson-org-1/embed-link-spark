@@ -23,6 +23,17 @@ enum DetailLayout {
     static let section: CGFloat = 24
 }
 
+/// What a `SectionHeader`'s `trailing` does when it doesn't fit beside the label.
+enum SectionTrailingFit {
+    /// It moves under the label, whole — an action ("Transcribe again") is never cut.
+    case reflow
+    /// It stays beside the label, its text shortened, at the standard sizes — the Details drawer's
+    /// collapsed summary (a long domain), which the open drawer shows in full — and moves under the
+    /// label at the accessibility sizes, where little fits beside it (2b review N-1: at Large a
+    /// long domain took the chevron down under the label with it).
+    case truncateUntilAccessibilitySizes
+}
+
 /// One shared section heading — DESIGN.md "Panel section grammar: uppercase micro-label over a
 /// hairline rule — never a nested card/box." Before this fix round, `ItemDetailContent`,
 /// `DetailsDrawer`, and `SharingSection` each hand-rolled this exact label-over-rule pattern
@@ -42,32 +53,50 @@ enum DetailLayout {
 ///
 /// Plan 16: the label is `stashMicroLabel()` — Semibold 12 caps, `muted` (the old `faint` was
 /// 2.79:1). When the label and `trailing` can't share a line (large text: "NOTES & TRANSCRIPT"
-/// beside "Transcribe again", "DETAILS" beside a file's facts), `trailing` moves to its own line
-/// under the label instead of squeezing either one.
+/// beside "Transcribe again"), `trailing` moves to its own line under the label instead of
+/// squeezing either one — or, for a `trailing` that may be cut (`SectionTrailingFit`), only at
+/// the accessibility sizes.
 struct SectionHeader<Trailing: View, Accessory: View>: View {
     let title: String
+    var trailingFit: SectionTrailingFit
     @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var accessory: () -> Accessory
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     init(title: String,
+         trailingFit: SectionTrailingFit = .reflow,
          @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() },
          @ViewBuilder accessory: @escaping () -> Accessory = { EmptyView() }) {
         self.title = title
+        self.trailingFit = trailingFit
         self.trailing = trailing
         self.accessory = accessory
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ViewThatFits(in: .horizontal) {
+            if trailingFit == .truncateUntilAccessibilitySizes, !dynamicTypeSize.isAccessibilitySize {
+                // One line: the label keeps its word, `trailing`'s text gives way.
                 HStack(spacing: 8) {
                     label
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .layoutPriority(1)
                     Spacer(minLength: 8)
                     trailing()
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    label
-                    trailing()
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        label
+                        Spacer(minLength: 8)
+                        trailing()
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        label
+                        trailing()
+                    }
                 }
             }
             accessory()

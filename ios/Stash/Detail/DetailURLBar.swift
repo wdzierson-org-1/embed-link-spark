@@ -11,7 +11,8 @@ import UIKit
 ///   shortened in the MIDDLE (the domain and the end of the path stay readable), and the full URL
 ///   is always one long press away: the context menu previews it whole, wrapped, with Copy link.
 ///   VoiceOver reads the whole URL either way. At the accessibility sizes one line would leave a
-///   few characters, so it wraps instead.
+///   few characters, so it wraps — but to three lines at most, still shortened in the middle (2b
+///   fix wave: the whole address took about 8 lines of 33 pt mono at AX3, ~300 pt of the sheet).
 /// - "Open link" takes taps across 44×44 pt and names itself for VoiceOver and the Large Content
 ///   Viewer; its glyph is `muted` (`faint`, 2.79:1, is decorative-only). It's a `Button` that
 ///   opens the URL (`openURL`, what a `Link` does): a `Link` keeps its 20×18 pt glyph as its
@@ -41,7 +42,7 @@ struct DetailURLBar: View {
             Text(urlString)
                 .stashFont(.mono(.footnote))
                 .foregroundStyle(StashColor.muted)
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("detail.urlText")
@@ -76,11 +77,14 @@ struct DetailURLBar: View {
                 }
             }
         } preview: {
+            // A definite width: the menu sizes its preview from the view's ideal size, and with only
+            // a maximum width the URL's ideal is ONE line — the box came out one line tall and cut
+            // the rest off (2b fix wave, measured on iOS 17.2: three lines of URL in a 47 pt box).
             Text(urlString)
                 .stashFont(.mono(.footnote))
                 .foregroundStyle(StashColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 300, alignment: .leading)
+                .frame(width: 300, alignment: .leading)
                 .padding(16)
         }
         .accessibilityElement(children: .contain)

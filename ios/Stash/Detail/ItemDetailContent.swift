@@ -53,6 +53,18 @@ struct ItemDetailContent: View {
     let summaryErrorMessage: String?
     var onGenerateSummary: () -> Void
 
+    #if DEBUG
+    /// `--uitest-detail-busy-actions` (UI tests only, compiled out of Release): "Transcribe again"
+    /// and "Generate summary" draw their busy state — the progress label — with no job behind it,
+    /// so a test can sample the labels' pixels (2b review M-2, recipe R-2: a real
+    /// `summarize-content` call can answer, or fail, within a frame).
+    private static let drawsBusyActions = ProcessInfo.processInfo.arguments.contains("--uitest-detail-busy-actions")
+    #else
+    private static let drawsBusyActions = false
+    #endif
+    private var showsTranscribing: Bool { isTranscribing || Self.drawsBusyActions }
+    private var showsGeneratingSummary: Bool { isGeneratingSummary || Self.drawsBusyActions }
+
     private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
     private var tabs: [ContentTab] { config.tabs.filter { $0.key != .notes } }
     /// Audio/video items with a stored media file only (web parity: `EditItemContentSection.tsx`
@@ -135,27 +147,45 @@ struct ItemDetailContent: View {
     /// 2026-09-29 the server does not diarize, so the button only promises a rebuild.
     ///
     /// Plan 16: an inline action — `inlineButton` (Medium 15) with a 44 pt target (`.stashPlain`).
-    /// Busy, it's disabled and `muted`, not `faint`: its label is then the progress
-    /// ("Transcribing…"), which people need to be able to read.
+    /// Busy, its label is the progress ("Transcribing…"), which people read: `busyInlineAction`.
     private var transcribeButton: some View {
-        Button {
-            onTranscribeWithSpeakers()
-        } label: {
-            HStack(spacing: 6) {
-                if isTranscribing {
-                    ProgressView()
-                        .controlSize(.mini)
-                }
-                Text(isTranscribing ? "Transcribing…" : "Transcribe again")
-                    .stashFont(.inlineButton)
-            }
-        }
-        .buttonStyle(.stashPlain)
-        .foregroundStyle(isTranscribing ? StashColor.muted : StashColor.violet600)
-        .disabled(isTranscribing)
         // Identifier deliberately unchanged: stable UI-test contract. A mild misnomer
         // since the server no longer diarizes — renaming churns StashUITests for no user benefit.
-        .accessibilityIdentifier("detail.transcribeSpeakers")
+        busyInlineAction("Transcribe again", busy: "Transcribing…", isBusy: showsTranscribing,
+                         identifier: "detail.transcribeSpeakers", action: onTranscribeWithSpeakers)
+    }
+
+    /// An inline action that turns into its own progress while it runs — "Transcribe again" →
+    /// "Transcribing…", "Generate summary" → "Generating summary…" with a small spinner. Idle, a
+    /// violet-600 `inlineButton` with a 44 pt target (`.stashPlain`). Busy, the same disabled button
+    /// — VoiceOver hears "…, dimmed, button" — but drawn as is, in `muted` (5.38:1): `.plain` dims a
+    /// disabled button's label to half (measured #b1b5ba, 2.06:1 — 2b review M-2), and this label
+    /// is the progress people need to read. Same place, same identifier in both states.
+    @ViewBuilder
+    private func busyInlineAction(_ title: String, busy busyTitle: String, isBusy: Bool, identifier: String,
+                                  action: @escaping () -> Void) -> some View {
+        if isBusy {
+            Button(action: action) {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text(busyTitle)
+                        .stashFont(.inlineButton)
+                }
+            }
+            .buttonStyle(BusyInlineActionStyle())
+            .foregroundStyle(StashColor.muted)
+            .disabled(true)
+            .accessibilityIdentifier(identifier)
+        } else {
+            Button(action: action) {
+                Text(title)
+                    .stashFont(.inlineButton)
+            }
+            .buttonStyle(.stashPlain)
+            .foregroundStyle(StashColor.violet600)
+            .accessibilityIdentifier(identifier)
+        }
     }
 
     private var attachmentsSection: some View {
@@ -235,25 +265,11 @@ struct ItemDetailContent: View {
     }
 
     /// Same text-button treatment as "Transcribe with speakers": busy disables it and swaps the
-    /// label (an action keeps its name through the flow — DESIGN.md §Voice). Plan 16: `inlineButton`
-    /// with a 44 pt target (`.stashPlain`); busy, `muted` (the progress label is read, not decor).
+    /// label (an action keeps its name through the flow — DESIGN.md §Voice). Plan 16:
+    /// `busyInlineAction` — busy, its progress label stays readable.
     private var generateSummaryButton: some View {
-        Button {
-            onGenerateSummary()
-        } label: {
-            HStack(spacing: 6) {
-                if isGeneratingSummary {
-                    ProgressView()
-                        .controlSize(.mini)
-                }
-                Text(isGeneratingSummary ? "Generating summary…" : "Generate summary")
-                    .stashFont(.inlineButton)
-            }
-        }
-        .buttonStyle(.stashPlain)
-        .foregroundStyle(isGeneratingSummary ? StashColor.muted : StashColor.violet600)
-        .disabled(isGeneratingSummary)
-        .accessibilityIdentifier("detail.generateSummary")
+        busyInlineAction("Generate summary", busy: "Generating summary…", isBusy: showsGeneratingSummary,
+                         identifier: "detail.generateSummary", action: onGenerateSummary)
     }
 
     /// L6: the `page_body` fetch failed — say so, with a retry, instead of empty-state copy that
@@ -308,5 +324,15 @@ struct ItemDetailContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier(id)
+    }
+}
+
+/// A busy inline action's button style: the label exactly as drawn — no disabled dimming, which a
+/// custom `ButtonStyle` never gets (`.plain` halves a disabled label's opacity) — with the same
+/// 44 pt target as `.stashPlain`, so the control keeps its frame between its two states. The
+/// button stays `.disabled(true)`: VoiceOver still hears it dimmed. Only `busyInlineAction` uses it.
+private struct BusyInlineActionStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.stashMinimumHitTarget()
     }
 }

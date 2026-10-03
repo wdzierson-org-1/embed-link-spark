@@ -50,13 +50,15 @@ struct DetailsDrawer: View {
 
     /// Plan 16: the whole header row is the tap target (well over 44 pt tall with its section
     /// rhythm). The summary is `meta` in `muted` and the chevron `muted` too (`faint` is
-    /// decorative-only); at the larger text sizes `SectionHeader` moves them under the label, where
-    /// the summary may take two lines.
+    /// decorative-only). At the standard sizes a summary too long for the label's line (a long
+    /// domain) is shortened there, the chevron still trailing (2b review N-1 — the open drawer
+    /// shows every fact whole); at the accessibility sizes `SectionHeader` moves them under the
+    /// label, where the summary may take two lines.
     private var header: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) { isOpen.toggle() }
         } label: {
-            SectionHeader(title: "DETAILS", trailing: {
+            SectionHeader(title: "DETAILS", trailingFit: .truncateUntilAccessibilitySizes, trailing: {
                 HStack(spacing: 8) {
                     if !isOpen, !summary.isEmpty {
                         Text(summary)
@@ -80,8 +82,10 @@ struct DetailsDrawer: View {
         .accessibilityLabel(summary.isEmpty ? "Details" : "Details, \(summary)")
         .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
         // Plan 16: the element that replaces the button's own (`.ignore`) is still a button to
-        // VoiceOver — "Details, Collapsed, button".
-        .accessibilityAddTraits(.isButton)
+        // VoiceOver — "Details, Collapsed, button" — and still the section's heading, which
+        // `.ignore` dropped with the label's own trait (2b review N-2): the rotor's headings list
+        // reaches DETAILS like every other section.
+        .accessibilityAddTraits([.isButton, .isHeader])
         .accessibilityIdentifier("detail.details")
     }
 

@@ -292,7 +292,8 @@ private final class LibrarySearchFade {
 /// - The pill is at least 44 pt tall (it was a fixed 42 that clipped large text); the field is
 ///   reading text (17) with a `muted` placeholder — "Search" at the accessibility sizes, where
 ///   "Search your stash" doesn't fit the pill — and the magnifier grows with it.
-/// - The clear × takes a 44 pt target (`.stashPlain`) and has a name.
+/// - The clear × takes a 44 pt target (`.stashPlain`) that stops short of the field, so a tap at the
+///   end of a long query never clears it, and has a name.
 /// - VoiceOver: when the field gets VoiceOver's focus while the row is part-way or all the way
 ///   out (it stays in the accessibility tree at its 1 % fade floor), the row scrolls back to rest
 ///   at full opacity, so what VoiceOver outlines is what the user sees; and after Cancel or the ×
@@ -422,6 +423,13 @@ private struct LibrarySearchRow: View {
                 .buttonStyle(.stashPlain)
                 .stashIconControl("Clear search", systemImage: "xmark.circle.fill")
                 .accessibilityIdentifier("library.search.clear")
+                // 2b review M-4: the 44 pt target overhangs the glyph by (44 − its width) / 2 — 11.9
+                // pt at Large, 13.7 at xSmall — and the later sibling wins an overlap, so with the
+                // 8 pt row spacing alone it covered the last ~4 pt of the field: a tap meant for the
+                // end of a long query cleared it. 6 pt more keeps the target clear of the field at
+                // every text size (what's left between them is the pill's, whose tap focuses the
+                // field). The glyph stays put; the field ends 6 pt sooner.
+                .padding(.leading, 6)
             }
         }
         .padding(.horizontal, 16)

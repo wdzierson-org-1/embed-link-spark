@@ -104,15 +104,17 @@ struct LocationRow: View {
         }
     }
 
+    /// Plan 16 (2b review N-4): the field types at the supporting size (`secondary`, 15) — an input
+    /// a person types into reads at more than the 13 pt fact it edits — its pin a size with it.
     private var editingField: some View {
         HStack(spacing: 6) {
             Image(systemName: "mappin.and.ellipse")
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .accessibilityHidden(true)
             TextField("Location", text: $draft,
                       prompt: Text("e.g. Brooklyn, New York").foregroundStyle(StashColor.muted))
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .onSubmit {

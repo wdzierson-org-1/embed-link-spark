@@ -240,7 +240,8 @@ final class StashUITests: XCTestCase {
     }
 
     /// Puts "UITEST-FIXTURE: note two" back to what `testPublicSmoke` leaves it as — private, no
-    /// sticky note — by exact title (that test never edits the title).
+    /// sticky note — by exact title (that test never edits the title). The note goes back to
+    /// `null`, the fixture's own seeded value (the app's un-share writes `""`; both mean no note).
     private func restoreNoteTwoFixtureToPrivate(email: String, password: String) async throws {
         let token = try await fixtureRepairAccessToken(email: email, password: password)
         var request = URLRequest(
@@ -250,10 +251,15 @@ final class StashUITests: XCTestCase {
         request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("return=representation", forHTTPHeaderField: "Prefer")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["is_public": false, "supplemental_note": NSNull()])
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw FixtureRepairError("note-two restore PATCH failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
+        }
+        // A PATCH that matched nothing still answers 2xx: say so instead of passing silently.
+        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]], !rows.isEmpty else {
+            throw FixtureRepairError("note-two restore PATCH matched zero rows — 'UITEST-FIXTURE: note two' is missing")
         }
     }
 
@@ -577,6 +583,7 @@ final class StashUITests: XCTestCase {
         let editor = anyElement("capture.editor")
         XCTAssertTrue(editor.waitForExistence(timeout: 15),
                       "Expected the capture editor to appear on launch (Add is the launch tab)")
+        MainActor.assumeIsolated { A11yScreens.dismissSavePasswordPrompt(app) }
 
         // Screenshot rig (Task 8, same checkpoint technique as testDetailSheets/testAskSmoke):
         // holds here, on the empty composer immediately after launch/sign-in — before this test
@@ -945,9 +952,17 @@ final class StashUITests: XCTestCase {
         let (email, password) = try testCredentials()
         // Plan 16: a run that stops between "public on" and "public off" (seen once — a tap that
         // didn't focus the sticky field) used to leave the permanent fixture PUBLIC. The teardown
-        // puts it back as the test leaves it — private, no sticky note — however the test ends.
+        // puts it back as the test leaves it — private, no sticky note — however the test ends,
+        // and says so if it can't (2b review N-7: it used to fail silently).
         addTeardownBlock {
-            try? await self.restoreNoteTwoFixtureToPrivate(email: email, password: password)
+            do {
+                try await self.restoreNoteTwoFixtureToPrivate(email: email, password: password)
+            } catch {
+                print("testPublicSmoke: RESTORE FAILED — 'UITEST-FIXTURE: note two' may be left public: \(error)")
+                await MainActor.run {
+                    XCTContext.runActivity(named: "note-two fixture restore failed: \(error)") { _ in }
+                }
+            }
         }
         let app = XCUIApplication()
         XCTAssertTrue(signInAndReachLibrary(app, email: email, password: password),
@@ -1001,20 +1016,60 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after dismiss")
     }
 
-    /// Ask tab: streaming Q&A against production (one real model call per attempt — normally one
-    /// per run, two on the RAG-variance retry path below; expected and budgeted), citation chip,
-    /// detail sheet. Deliberately does NOT assume `ask.bubble.0` is the user question /
-    /// `ask.bubble.1` is the assistant reply: chat history is durable (Task 2 persists every
-    /// exchange to `conversations`/`messages`), so a second run of this same test against the
-    /// same account restores prior turns first and appends after them — the indices this run
-    /// lands on depend on how much history already exists. Instead this finds whichever
-    /// `ask.bubble.*`/`ask.sources.*` elements are LAST in the tree right after sending, which are
-    /// always the freshly-appended ones regardless of any earlier accumulated history.
-    ///
-    /// Asks about the permanent document fixture ("persimmons") per the plan's own note that its
-    /// extracted `page_body` guarantees retrievable content, so a source chip is expected. Includes
-    /// a one-shot RAG-variance retry (Task 8 hardening) — see the comment at its call site below.
+    /// Ask tab: streaming Q&A against production — a real answer that shows its source (a chip, or
+    /// an inline citation). One real model call per attempt (normally one per test, two on the
+    /// RAG-variance retry path; expected and budgeted). See `askAboutPersimmons`. The citation
+    /// sheet is `testAskCitationChipOpensTheDetailSheet`'s.
     func testAskSmoke() throws {
+        _ = try askAboutPersimmons()
+        // Screenshot rig (same checkpoint technique as testDetailSheets/testPublicSmoke): holds
+        // here so an external `xcrun simctl io <udid> screenshot` can capture the streamed answer
+        // with its source visible.
+        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask\n".data(using: .utf8)!)
+        sleep(3)
+    }
+
+    /// The Ask smoke's citation step, on its own (2b review M-1): a source chip under a live answer
+    /// opens that item's detail sheet over Ask, and Done comes back to Ask. Only the sources an
+    /// answer DOESN'T cite get chips (Plan 8 Task 4, web parity): a source it cites is an inline
+    /// link in its text — the intended rendering — and XCUITest can't tap a link run inside the
+    /// answer's `Text` (it sees one static text per block, iOS 17.0 checked). So when the answer
+    /// cites its source inline only, this SKIPS, saying so: the untested citation sheet shows in
+    /// every run's counts instead of passing silently, as the smoke used to. The deterministic
+    /// route — a seeded citation opening a real fixture — belongs to the Ask suite (Task 2d).
+    func testAskCitationChipOpensTheDetailSheet() throws {
+        let (app, bubbleId) = try askAboutPersimmons()
+        func anyElement(_ identifier: String) -> XCUIElement { app.descendants(matching: .any)[identifier] }
+        // The chip of the SAME bubble (its index, not assumed), whichever attempt produced it.
+        let indexSuffix = bubbleId.replacingOccurrences(of: "ask.bubble.", with: "")
+        let firstChip = anyElement("ask.sources.\(indexSuffix).chip.0")
+        guard firstChip.waitForExistence(timeout: 3) else {
+            XCTAssertTrue(anyElement("\(bubbleId).hasLinks").exists, "Expected the answer's inline citation marker")
+            throw XCTSkip("Citation sheet NOT exercised: the live answer (\(bubbleId)) cites its source inline only, "
+                          + "so there's no chip, and XCUITest can't tap a link inside the answer's Text. "
+                          + "Covered deterministically by the Ask suite's seeded citation (Task 2d), if present.")
+        }
+        firstChip.tap()
+
+        let done = app.buttons["detail.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for the tapped source")
+        done.tap()
+        XCTAssertTrue(anyElement("ask.input").waitForExistence(timeout: 10),
+                      "Expected the Ask tab after dismissing the detail sheet")
+    }
+
+    /// Signs in straight onto Ask, asks about the permanent document fixture ("persimmons" — its
+    /// extracted `page_body` guarantees retrievable content) and waits for a non-empty answer that
+    /// shows a source, with a one-shot RAG-variance retry (Task 8 hardening — see its call site).
+    /// Returns the app and the answer's `ask.bubble.<N>` identifier.
+    ///
+    /// Deliberately does NOT assume `ask.bubble.0` is the user question / `ask.bubble.1` is the
+    /// assistant reply: chat history is durable (Task 2 persists every exchange to
+    /// `conversations`/`messages`), so a second run against the same account restores prior turns
+    /// first and appends after them — the indices a run lands on depend on how much history already
+    /// exists. Instead this finds whichever `ask.bubble.*`/`ask.sources.*` elements are LAST in the
+    /// tree right after sending, which are always the freshly-appended ones.
+    private func askAboutPersimmons() throws -> (app: XCUIApplication, bubbleId: String) {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
         // Plan 16: straight onto Ask by launch argument (no tab-bar tap — iOS 26 swallows one while
@@ -1178,31 +1233,7 @@ final class StashUITests: XCTestCase {
                 sourcesShown(forBubble: bubbleId, timeout: 10),
                 "Expected the persimmons answer to show a source (a chip, or an inline citation link) — sourceless on both the initial attempt and the RAG-variance retry")
         }
-
-        // Screenshot rig (same checkpoint technique as testDetailSheets/testPublicSmoke):
-        // holds here so an external `xcrun simctl io <udid> screenshot` can capture the streamed
-        // answer with its source chip(s) visible before this test moves on to tapping one.
-        FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: ask\n".data(using: .utf8)!)
-        sleep(3)
-
-        // Open the source from its chip — derived from the SAME bubble's index (not assumed or
-        // hardcoded), whichever attempt produced it. Plan 16: when the answer cites its only
-        // source inline there is no chip, and the inline link can't be tapped from here — SwiftUI
-        // draws the answer as `Text`, and XCUITest sees each block as ONE static text with no
-        // element per link run (iOS 17.0, checked) — so that run stops at the citation marker.
-        let indexSuffix = bubbleId.replacingOccurrences(of: "ask.bubble.", with: "")
-        let firstChip = anyElement("ask.sources.\(indexSuffix).chip.0")
-        guard firstChip.waitForExistence(timeout: 3) else {
-            XCTAssertTrue(anyElement("\(bubbleId).hasLinks").exists, "Expected the answer's inline citation marker")
-            print("ASK citation: \(bubbleId) cites its source inline only — no chip to open the citation sheet from")
-            return
-        }
-        firstChip.tap()
-
-        let done = app.buttons["detail.done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 10), "Detail sheet did not present for the tapped source")
-        done.tap()
-        XCTAssertTrue(input.waitForExistence(timeout: 10), "Expected the Ask tab after dismissing the detail sheet")
+        return (app, bubbleId)
     }
 
     /// Voice notes (Task 6): record → Stop → Save → success toast → View tab shows the new item.
@@ -1240,6 +1271,7 @@ final class StashUITests: XCTestCase {
         // Add is the launch tab (plan 2) — the mic button must appear without tapping any tab.
         let voiceButton = anyElement("capture.voice")
         XCTAssertTrue(voiceButton.waitForExistence(timeout: 15), "Expected the voice-note mic button on the Add tab")
+        MainActor.assumeIsolated { A11yScreens.dismissSavePasswordPrompt(app) }
         voiceButton.tap()
 
         let recordButton = anyElement("capture.voice.record")
@@ -1408,6 +1440,9 @@ final class StashUITests: XCTestCase {
         // Add is the launch tab (plan 2) — the pin button must appear without tapping any tab.
         let pinButton = anyElement("capture.pin")
         XCTAssertTrue(pinButton.waitForExistence(timeout: 15), "Expected the location pin button on the Add tab")
+        // Already on the main actor (`@MainActor` test): a direct call. (`assumeIsolated` is for
+        // the synchronous smokes; from an async context it's a warning, an error in Swift 6.)
+        A11yScreens.dismissSavePasswordPrompt(app)
         pinButton.tap()
 
         // Screenshot rig (same checkpoint technique as testDetailSheets/testAskSmoke): holds
@@ -2262,6 +2297,7 @@ final class StashUITests: XCTestCase {
         let editor = anyElement("capture.editor")
         XCTAssertTrue(editor.waitForExistence(timeout: 15),
                       "Expected the capture editor to appear on launch (Add is the launch tab)")
+        MainActor.assumeIsolated { A11yScreens.dismissSavePasswordPrompt(app) }
 
         // The composer's own lock/public toggle is gone entirely — sharing lives on the detail
         // sheet only now.
@@ -2309,9 +2345,11 @@ final class StashUITests: XCTestCase {
         app.buttons["capture.photosPicker"].tap()
 
         let firstPhoto = app.images.matching(NSPredicate(format: "label CONTAINS 'Photo'")).firstMatch
-        let photoCell = firstPhoto.exists ? firstPhoto : app.scrollViews.firstMatch.images.firstMatch
+        let photoCell = firstPhoto.waitForExistence(timeout: 10) ? firstPhoto : app.scrollViews.firstMatch.images.firstMatch
         XCTAssertTrue(photoCell.waitForExistence(timeout: 10), "Expected the system photo picker to show at least one photo")
-        photoCell.tap()
+        // A coordinate tap: on iOS 26.5 the out-of-process picker reports its photos "not
+        // hittable" to XCUITest, and `tap()` refuses to tap such an element.
+        photoCell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
         let addButton = app.navigationBars.buttons["Add"]
         if addButton.waitForExistence(timeout: 5) { addButton.tap() }
@@ -2606,6 +2644,22 @@ final class StashUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(clearButton.frame.width, 43.5, "Expected the clear button's 44 pt target, got \(clearButton.frame)")
         XCTAssertGreaterThanOrEqual(clearButton.frame.height, 43.5, "Expected the clear button's 44 pt target, got \(clearButton.frame)")
         XCTAssertEqual(clearButton.label, "Clear search")
+        // 2b review M-4: that target overhangs its glyph, but never the field — a tap at the very
+        // end of a long query puts the caret there; it must not clear the search or drop the
+        // keyboard. (Typing after it proves the field kept focus, and closes any edit menu.)
+        let longQuery = "zz" + String(repeating: "z", count: 48)
+        searchField.typeText(String(repeating: "z", count: 48))
+        let fieldFrame = searchField.frame, clearFrame = clearButton.frame
+        print("M-4 field \(fieldFrame) · clear target \(clearFrame) · overlap \(fieldFrame.maxX - clearFrame.minX) pt")
+        XCTAssertGreaterThanOrEqual(clearFrame.minX, fieldFrame.maxX - 0.5,
+                                    "The clear button's target must not overlap the field (field \(fieldFrame), clear \(clearFrame))")
+        A11yScreens.tap(app, at: CGPoint(x: fieldFrame.maxX - 1, y: fieldFrame.midY))
+        sleep(1)
+        XCTAssertEqual((searchField.value as? String) ?? "", longQuery,
+                       "A tap at the end of the field must not clear the query (field \(fieldFrame), clear target \(clearFrame))")
+        XCTAssertTrue(app.keyboards.element.exists, "A tap at the end of the field must not drop the keyboard")
+        searchField.typeText("z")
+        XCTAssertEqual(searchField.value as? String, longQuery + "z", "The field should keep focus after a tap at its end")
         clearButton.tap()
         XCTAssertTrue(keyboardGone(), "Expected the keyboard dismissed after tapping the clear button")
         XCTAssertEqual((searchField.value as? String) ?? "", "Search your stash", "Expected the query cleared by the clear button")
