@@ -72,8 +72,9 @@ public enum SheetTextField: Hashable, Sendable {
 /// keeps its plain comparison with `baseline`. The Sharing switch is optimistic and never written
 /// ahead: a journal queues a toggle the server hasn't confirmed (`journaledSharing` — never a
 /// share while the sheet stays open), and a toggle that fails in front of the user settles the
-/// switch, and the queue, on what the server holds: a share that isn't there is queued as private
-/// again (`undoingFailedToggle`, Tasks 4d and 4e).
+/// switch, and the queue, on what the server holds as far as the client knows — its last server
+/// row, or a Sharing value the app's queue delivered since: a share that isn't there is queued as
+/// private again (`undoingFailedToggle`, Tasks 4d and 4e).
 public struct DetailFieldEdits {
     public var local: Item
     public var baseline: Item
@@ -191,11 +192,16 @@ public struct DetailFieldEdits {
     /// **The note document** (Task 4e fix round 1, found with review C-1). A note is never edited in
     /// place: the notes editor's draft is appended to the document, or replaces a plain note whole,
     /// and the save carries the result. So once a save that carried `content` lands, the document
-    /// the server holds is the one the sheet must show — the next note is appended to it — unless a
-    /// newer write of it is still queued. `adopting` alone kept the sheet's copy whenever it differed
-    /// from the last server row: a sheet opened on a queued, undelivered note (closed offline) kept
-    /// that copy after a note saved on top of it landed, and the next note, appended to the copy,
-    /// replaced the server's document.
+    /// the server holds is the one the sheet must show — the next note is appended to it. `adopting`
+    /// alone kept the sheet's copy whenever it differed from the last server row: a sheet opened on
+    /// a queued, undelivered note (closed offline) kept that copy after a note saved on top of it
+    /// landed, and the next note, appended to the copy, replaced the server's document.
+    ///
+    /// Fix round 2 (4e re-review): that holds while another note save is still queued too. Round
+    /// 1 kept the sheet's copy then, and overlapping note saves lost one: "abc" landed, its paragraph
+    /// left the notes box, the sheet's document still lacked it, and the next note — built on that
+    /// document — landed last. Nothing the user typed is in neither place: what a newer save carries
+    /// beyond the landed document is still in the box (`RichNoteBox.landing`).
     @MainActor
     public static func landing(_ sent: ItemPatch, capturedAt: Date, as saved: Item, local: Item,
                                baseline: Item, queue: PendingEdits, sheetIsOpen: Bool, at now: Date,
@@ -211,7 +217,7 @@ public struct DetailFieldEdits {
         let after = DetailFieldEdits(local: local, baseline: baseline, queued: queue.edit(for: saved.id),
                                      sending: sending, typedSinceSave: typedSinceSave)
         var fields = after.adopting(saved)
-        if sent.content != nil, after.queued?.content == nil { fields.content = saved.content }
+        if sent.content != nil { fields.content = saved.content }
         return fields
     }
 
@@ -312,8 +318,8 @@ public struct DetailFieldEdits {
 
     /// A Sharing toggle to `target` FAILED: the fields to show, with the queue settled to match —
     /// the one call `ItemDetailView.setPublic`'s failure makes (review P-4, F1). `local.isPublic ==
-    /// target` afterwards means the switch stays where the user put it — the sheet's last server
-    /// row already holds `target` — so there is no error to show.
+    /// target` afterwards means the switch stays where the user put it — the server already holds
+    /// `target`, as far as the client knows — so there is no error to show.
     ///
     /// - A closed sheet changes nothing (as `landing`): its journal queued the toggle the user last
     ///   saw, and the close's flush retries it — they never saw it fail.
@@ -324,14 +330,15 @@ public struct DetailFieldEdits {
     ///   opened on a queued toggle the user has just turned back to the server's value — the toggle
     ///   took effect, and the switch stays where they put it. Flipping it back would have the close
     ///   journal (and the next flush) undo what the server holds: an un-shared item made public.
-    /// - A failed SHARE settles on what the server actually holds (Task 4e fix round 1, review
-    ///   M-4): a Sharing value queued as the toggle started (`queuedBefore`, read by `setPublic`)
-    ///   that a flush delivered meanwhile (`PendingEdits`' delivered ledger) is it — the sheet's last
-    ///   server row can predate that flush (an Ask citation sheet never sees a flushed row). Opened
-    ///   on a queued un-share and turned on, the switch stayed on with no error over a private item,
-    ///   and the user's share was lost without a word; now it shows private and the error. A failed
-    ///   UN-share keeps the fail-safe below instead: whatever reached the server, private is queued
-    ///   again — the user's choice, and the safe one.
+    /// - What the server holds is what the client knows of it: `baseline`, the sheet's last server
+    ///   row, and anything the app's queue delivered after that row was read — `knownDeliveries` is
+    ///   the queue's `deliveryCount` then (Task 4e fix rounds 1–2, review M-4). An Ask citation
+    ///   sheet's store never hands it a flushed row, so its row can predate the app's own delivery
+    ///   of a queued Sharing value — in any order: before the toggle, or during it. Opened on a queued
+    ///   un-share and turned on, the switch stayed on with no error over a private item, and the
+    ///   share was lost without a word; now it shows private, with the error. A failed UN-share is
+    ///   never turned back on by such a delivery (a queued share delivered underneath it): it keeps
+    ///   the fail-safe below — private is queued again, the user's choice and the safe one.
     /// - Then the queue must say the same as the switch, so a later flush never changes the item's
     ///   visibility to something the user isn't looking at. Left ON (the server is public): any other
     ///   queued Sharing value is taken back (`PendingEdits.withdrawSharing`). Left OFF: private is
@@ -344,15 +351,15 @@ public struct DetailFieldEdits {
     ///   un-share re-records its note removal too: a note still queued is cleared, never delivered
     ///   to the private item (a later share would publish it again).
     @MainActor
-    public static func undoingFailedToggle(to target: Bool, noteBefore: String?, queuedBefore: PendingField<Bool>? = nil,
+    public static func undoingFailedToggle(to target: Bool, noteBefore: String?, knownDeliveries: Int? = nil,
                                            local: Item, baseline: Item,
                                            queue: PendingEdits, sheetIsOpen: Bool, at now: Date) -> Item {
         guard sheetIsOpen else { return local }
         var settled = local
         settled.isPublic = baseline.isPublic
-        if target, let before = queuedBefore, let delivered = queue.delivered[local.id]?.isPublic,
-           delivered.capturedAt >= before.capturedAt {
-            settled.isPublic = delivered.value   // what a flush delivered during the share (review M-4)
+        if let known = knownDeliveries, let delivered = queue.deliveredSharing(for: local.id, after: known),
+           target || !delivered {
+            settled.isPublic = delivered
         }
         if !target {
             if settled.isPublic {

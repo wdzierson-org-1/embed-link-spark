@@ -309,6 +309,20 @@ public final class PendingEdits {
         store(edit)
     }
 
+    /// How many landed writes the delivered ledger has recorded this session (fix round 2) — a
+    /// running count. A detail sheet notes it whenever it reads the server's row; whatever the queue
+    /// delivers after that, the row doesn't reflect (an Ask citation sheet's store never hands it a
+    /// flushed row).
+    public private(set) var deliveryCount = 0
+
+    /// The newest Sharing value a write that landed this session put on the server for `itemId`, if
+    /// it landed after `deliveryCount` stood at `count` — nil otherwise. What the server holds for
+    /// Sharing that a row read at `count` doesn't show (4e re-review M-4).
+    public func deliveredSharing(for itemId: UUID, after count: Int) -> Bool? {
+        guard let field = delivered[itemId]?.isPublic, field.sequence > count else { return nil }
+        return field.value
+    }
+
     /// Takes back a queued Sharing value other than `shown` — what the detail sheet's switch shows,
     /// and the server holds, after a toggle failed in front of the user (plan 16 review P-4). Sent
     /// by a later flush, it would change the item's visibility to something the user no longer
@@ -369,7 +383,7 @@ public final class PendingEdits {
     private func unsuperseded(_ patch: ItemPatch, itemId: UUID,
                               capturedAt: Date) -> (kept: ItemPatch, serverHolds: ItemPatch) {
         guard let landed = delivered[itemId] else { return (patch, patch) }
-        func overtaking<Value>(_ field: PendingField<Value>?) -> Value? {
+        func overtaking<Value>(_ field: DeliveredField<Value>?) -> Value? {
             guard let field, field.capturedAt >= capturedAt else { return nil }
             return field.value
         }
@@ -394,14 +408,17 @@ public final class PendingEdits {
     }
 
     /// A write of `patch` — its fields' values captured as in `captures` — just landed: remembers,
-    /// per field, the newest value the server now holds and its capture. Called inside the item's
-    /// write slot, so the next write to the item sees it.
+    /// per field, the newest value the server now holds, its capture, and where the delivery stands
+    /// in the running count (`deliveryCount`). Called inside the item's write slot, so the next
+    /// write to the item sees it.
     private func noteDelivered(_ itemId: UUID, patch: ItemPatch, captures: PendingEdit) {
+        deliveryCount += 1
+        let sequence = deliveryCount
         var landed = delivered[itemId] ?? DeliveredFields()
-        func newest<Value>(_ known: PendingField<Value>?, _ value: Value?, _ capture: Date?) -> PendingField<Value>? {
+        func newest<Value>(_ known: DeliveredField<Value>?, _ value: Value?, _ capture: Date?) -> DeliveredField<Value>? {
             guard let value, let capture else { return known }
             if let known, known.capturedAt > capture { return known }
-            return PendingField(value, capturedAt: capture)
+            return DeliveredField(value: value, capturedAt: capture, sequence: sequence)
         }
         landed.title = newest(landed.title, patch.title, captures.title?.capturedAt)
         landed.description = newest(landed.description, patch.description, captures.description?.capturedAt)
@@ -618,15 +635,24 @@ public struct SheetSave: Equatable, Sendable {
 }
 
 /// The newest value of each field a write that landed put on the server, with its capture (review
-/// P-3, Task 4e) — `PendingEdits`' record of what a later, older patch must not overwrite, and of
-/// what the server holds for a field such a patch leaves out.
+/// P-3, Task 4e) and its place in the running count of deliveries (fix round 2) — `PendingEdits`'
+/// record of what a later, older patch must not overwrite, of what the server holds for a field
+/// such a patch leaves out, and of what a row read earlier doesn't show.
 struct DeliveredFields: Equatable, Sendable {
-    var title: PendingField<String>?
-    var description: PendingField<String>?
-    var content: PendingField<String>?
-    var supplementalNote: PendingField<String>?
-    var isPublic: PendingField<Bool>?
-    var attributes: PendingField<ItemAttributes>?
+    var title: DeliveredField<String>?
+    var description: DeliveredField<String>?
+    var content: DeliveredField<String>?
+    var supplementalNote: DeliveredField<String>?
+    var isPublic: DeliveredField<Bool>?
+    var attributes: DeliveredField<ItemAttributes>?
+}
+
+/// One field of `DeliveredFields`.
+struct DeliveredField<Value: Codable & Equatable & Sendable>: Equatable, Sendable {
+    var value: Value
+    var capturedAt: Date
+    /// `PendingEdits.deliveryCount` just after the write that delivered it.
+    var sequence: Int
 }
 
 // MARK: - Location writes (final wave B)

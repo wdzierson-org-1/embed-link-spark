@@ -80,3 +80,34 @@ final class PlainNoteDraftTests: XCTestCase {
         XCTAssertNil(queue.edit(for: row.id))
     }
 }
+
+/// Fix round 2 (4e re-review): a rich note's box once a save of its text is saved —
+/// `RichNoteBox.landing`, the bookkeeping `ItemDetailView.flushNotes` runs. Guards for its edge
+/// cases; the overlapping-saves sequences themselves are in `DetailFieldEditsTests`.
+final class RichNoteBoxTests: XCTestCase {
+    func testASavedTextLeavesTheBoxWithTheSpaceAfterItAndWhatWasTypedSinceStays() {
+        XCTAssertEqual(RichNoteBox.landing(of: "abc", removedSince: "", box: "abc").box, "")
+        let next = RichNoteBox.landing(of: "abc", removedSince: "", box: "abc def")
+        XCTAssertEqual(next.box, "def")
+        XCTAssertEqual(next.removed, "abc ", "what it took off, the space after it included")
+    }
+
+    /// The overlap: an earlier save's landing took "abc " off the box after this save took "abc
+    /// def"; only "def" is still there to take.
+    func testASaveTakesOnlyWhatEarlierLandingsLeftOfItsText() {
+        let next = RichNoteBox.landing(of: "abc def", removedSince: "abc ", box: "def ghi")
+        XCTAssertEqual(next.box, "ghi")
+        XCTAssertEqual(next.removed, "def ")
+        XCTAssertEqual(RichNoteBox.landing(of: "def", removedSince: "def", box: "").box, "",
+                       "a save whose text is all gone already takes nothing")
+        XCTAssertEqual(RichNoteBox.landing(of: "def", removedSince: "def", box: "xyz").box, "xyz")
+    }
+
+    /// A box edited at its start since the save took its text no longer starts with that text: it
+    /// is left as it is (as `removeSavedPrefix` always did).
+    func testABoxEditedAtItsStartIsLeftAsItIs() {
+        XCTAssertEqual(RichNoteBox.landing(of: "abc", removedSince: "", box: "Xabc").box, "Xabc")
+        XCTAssertEqual(RichNoteBox.landing(of: "abc def", removedSince: "zzz", box: "abc def").box, "",
+                       "removals that don't match the save's text are ignored: the whole text is taken")
+    }
+}

@@ -158,7 +158,18 @@ final class DetailSheetServices: ObservableObject {
     var isClosed = false
     /// A rich-note draft queued by `journalUnconfirmedEdits` (app backgrounded mid-draft): once the
     /// server echoes that exact content back, the draft is in the document and leaves the field.
-    var journaledRichDraft: (typed: String, content: String)?
+    /// `removedAt` is `notesBoxRemoved` as the journal took the text (fix round 2).
+    var journaledRichDraft: (typed: String, content: String, removedAt: String)?
+    /// Everything taken off the start of a rich note's box so far, in order (fix round 2, 4e
+    /// re-review) — append-only. A note save records it as it takes the box's text; when the save
+    /// lands, what was taken since is gone from the box already, and only the rest of its text
+    /// leaves it (`RichNoteBox.landing`). Removing the whole text left a second, overlapping save's
+    /// remainder in the box, to be appended a second time.
+    var notesBoxRemoved = ""
+    /// `pendingEdits.deliveryCount` when the sheet last read the server's row for its Sharing value
+    /// (fix round 2, 4e re-review M-4): set as the sheet opens and at every server row it adopts. A
+    /// failed toggle counts what the queue delivered after it (`undoingFailedToggle`).
+    var sharingKnownThrough: Int
     /// The patches of this sheet's saves whose PATCH hasn't returned, by save generation — the
     /// `sending` of `ItemDetailView.fieldEdits` (Task 4e, 4d review P-1). A flush queued ahead of
     /// one of them can deliver its value and confirm it before the save's turn; a field the save
@@ -177,8 +188,10 @@ final class DetailSheetServices: ObservableObject {
 
     init(item: Item, userId: UUID) {
         editor = DetailEditorFactory.make()
-        pendingEdits = PendingEdits.shared(for: userId)
+        let queue = PendingEdits.shared(for: userId)
+        pendingEdits = queue
         notesModel = NotesEditorModel(item: item)
+        sharingKnownThrough = queue.deliveryCount
     }
 
     /// 400 ms after the last title/description/sticky keystroke. `--uitest-field-debounce-seconds
@@ -810,7 +823,7 @@ struct ItemDetailView: View {
                                                   at: pendingEdits.captureTime(), sending: Array(services.sending.values),
                                                   typedSinceSave: services.typedSinceSave, apply: store.applyDetail)
             if services.isLatest(generation) {
-                adopt(landed.row, fields: landed.fields)
+                adopt(landed.row, fields: landed.fields, isServerRow: sheetSave.item != nil)
             } else {
                 let carried = DetailFieldEdits.carrying(sheetSave, landed: landed, local: item, snapshot: snapshot)
                 item = carried.local
@@ -890,19 +903,20 @@ struct ItemDetailView: View {
     ///   flush; the cost is one PATCH of a value the server usually holds already. If the sheet has
     ///   closed meanwhile (the PATCH outlives it), nothing changes: the close journaled the toggle
     ///   the user last saw, and its flush retries it (plan 15).
-    /// - Fix round 1 (review M-2): with the sheet open, that flush starts at once, so an item
-    ///   published underneath the sheet stays public only as long as the network takes — not until
-    ///   the sheet closes or the app next refreshes. A share made on another device before it is
-    ///   undone by it (privacy first).
-    /// - Fix round 1 (review M-4): a failed SHARE settles on what the server actually holds. A
-    ///   Sharing value queued as the toggle started (`queuedBefore`) that a flush delivered
-    ///   meanwhile counts, so a sheet opened on a queued un-share and turned on shows private and
-    ///   the error — never on, with no error, over a private item.
+    /// - Fix round 1 (review M-2): with the sheet open, that flush starts at once — one attempt. If
+    ///   it gets through, an item published underneath the sheet is private again right away; if it
+    ///   fails too (a dead link is the usual reason the toggle failed), private goes out at the close
+    ///   or the app's next refresh, as before. A share made on another device before it lands is
+    ///   undone by it (privacy first). The sheet adopts the row it delivers (fix round 2).
+    /// - Fix rounds 1–2 (review M-4): "what the server holds" is what the client knows of it — the
+    ///   sheet's last server row, or a Sharing value the app's queue delivered after that row was read
+    ///   (`services.sharingKnownThrough`), in whatever order that happened. A sheet opened on a
+    ///   queued un-share that a flush delivered, then turned on, shows private and the error when the
+    ///   share fails — never on, with no error, over an item the app made private.
     @MainActor
     private func setPublic(_ isPublic: Bool) async -> Bool {
         let pendingEdits = services.pendingEdits
         let noteBefore = item.supplementalNote
-        let queuedBefore = pendingEdits.edit(for: item.id)?.isPublic
         let patch = services.editor.togglePublic(item: item, to: isPublic)
         item.isPublic = isPublic
         if patch.supplementalNote == "" { item.supplementalNote = nil }
@@ -915,21 +929,38 @@ struct ItemDetailView: View {
                                                   sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime(),
                                                   sending: Array(services.sending.values),
                                                   typedSinceSave: services.typedSinceSave, apply: store.applyDetail)
-            if services.isLatest(generation) { adopt(saved, fields: landed) }
+            if services.isLatest(generation) {
+                adopt(saved, fields: landed)
+            } else {
+                // A newer save has started: the toggle's own result still reaches the sheet's last
+                // server row (fix round 2), so a later failed toggle settles on it.
+                snapshot = DetailFieldEdits.carrying(SheetSave(item: saved, patch: patch, serverHolds: patch),
+                                                     landed: (row: saved, fields: landed), local: item,
+                                                     snapshot: snapshot).snapshot
+                services.sharingKnownThrough = pendingEdits.deliveryCount
+            }
             return true
         } catch {
             let sheetIsOpen = !services.isClosed
-            item = DetailFieldEdits.undoingFailedToggle(to: isPublic, noteBefore: noteBefore, queuedBefore: queuedBefore,
+            item = DetailFieldEdits.undoingFailedToggle(to: isPublic, noteBefore: noteBefore,
+                                                        knownDeliveries: services.sharingKnownThrough,
                                                         local: item, baseline: baseline, queue: pendingEdits,
                                                         sheetIsOpen: sheetIsOpen, at: pendingEdits.captureTime())
             if sheetIsOpen, !item.isPublic {
                 // Private was queued again: send it now, not at the close or the app's next
-                // refresh (fix round 1, review M-2).
+                // refresh (fix round 1, review M-2). The sheet adopts the row it delivers (fix
+                // round 2): the flush sends whatever else is queued too — a failed save's "Y" — and
+                // an Ask citation sheet's store never hands it that row, so a later revert to the
+                // old value was measured against a stale row and never sent.
                 let itemId = item.id
                 let editor = services.editor
                 let store = store
+                let services = services
                 Task { @MainActor in
-                    await pendingEdits.flush(editor: editor, itemIds: [itemId]) { store.applyDetail($0) }
+                    await pendingEdits.flush(editor: editor, itemIds: [itemId]) { row in
+                        store.applyDetail(row)
+                        if !services.isClosed { adopt(row) }
+                    }
                 }
             }
             return item.isPublic == isPublic
@@ -968,12 +999,18 @@ struct ItemDetailView: View {
     /// run only when the save returned a row, so a rich draft "abc" stayed in the box after the
     /// flush had delivered it; " def" added later went out as a new paragraph "abc def" — the
     /// note's text in the document twice, and a rich note can't be edited on iOS.
+    ///
+    /// Fix round 2 (4e re-review): saves can overlap — Done with "abc" on a slow link, " def"
+    /// typed, Done again — so a landing takes off the box only what of its text is still there
+    /// (`takeSavedText`); and every landed save brings its document into the sheet, so the next
+    /// note is built on it.
     @MainActor
     private func flushNotes() async {
         guard !services.isClosed else { return }
         let notes = services.notesModel
         guard notes.isRich ? notes.draft != notes.savedDraft : plainNote.needsSave else { return }
         let typed = notes.draft
+        let removedAtSave = services.notesBoxRemoved
         let newContent: String
         if notes.isRich {
             let note = typed.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -989,10 +1026,25 @@ struct ItemDetailView: View {
         }
         guard await save(ItemPatch(content: newContent)).isSaved else { return }
         if notes.isRich {
-            notes.removeSavedPrefix(typed)
+            takeSavedText(typed, removedAt: removedAtSave)
         } else {
             notes.savedDraft = typed
         }
+    }
+
+    /// A rich note's save of `typed` — the box's text when the save took it, with
+    /// `services.notesBoxRemoved` at `removedAt` then — is saved: what of `typed` is still at the
+    /// box's start leaves it, anything typed after stays (`RichNoteBox.landing`; fix round 2, 4e
+    /// re-review). What earlier saves' landings took off the box since is gone already: two
+    /// overlapping saves ("abc", then "abc def") used to leave "def" behind, and the next Done
+    /// appended it a second time.
+    private func takeSavedText(_ typed: String, removedAt: String) {
+        let notes = services.notesModel
+        let next = RichNoteBox.landing(of: typed, removedSince: String(services.notesBoxRemoved.dropFirst(removedAt.count)),
+                                       box: notes.draft)
+        notes.draft = next.box
+        notes.savedDraft = ""
+        services.notesBoxRemoved += next.removed
     }
 
     /// Plan 14 Task 2 ("Transcribe with speakers"). Final wave B: the SERVER's transcription job
@@ -1135,7 +1187,10 @@ struct ItemDetailView: View {
         let (patch, richDraft) = unconfirmedPatch(closing: closing)
         guard !patch.isEmpty else { return }
         services.pendingEdits.record(itemId: item.id, patch: patch, capturedAt: services.pendingEdits.captureTime())
-        if let richDraft { services.journaledRichDraft = richDraft }
+        if let richDraft {
+            services.journaledRichDraft = (typed: richDraft.typed, content: richDraft.content,
+                                           removedAt: services.notesBoxRemoved)
+        }
     }
 
     /// The sheet is gone (X, swipe, or programmatic): queue whatever the server hasn't confirmed —
@@ -1181,10 +1236,15 @@ struct ItemDetailView: View {
     /// has typed back since — or while what the user typed is still in the autosave's debounce
     /// (fix round 1, review M-1: a failed autosave's "Y", or one another sheet left queued,
     /// delivered by a flush inside that debounce).
-    private func adopt(_ incoming: Item, fields: Item? = nil) {
+    ///
+    /// Fix round 2: `isServerRow` — `incoming` was read from the server (not built from `snapshot`
+    /// for a save with nothing left to send), so its Sharing value reflects everything the queue had
+    /// delivered by now (`services.sharingKnownThrough`, for `setPublic`'s failure).
+    private func adopt(_ incoming: Item, fields: Item? = nil, isServerRow: Bool = true) {
         let next = fields ?? fieldEdits.adopting(incoming)
         snapshot = incoming
         item = next
+        if isServerRow { services.sharingKnownThrough = services.pendingEdits.deliveryCount }
         reconcileNotesDraft(with: incoming)
         // A failed save the queue has since delivered (e.g. flushed on foreground) is no longer
         // failed — the caption shouldn't keep saying so.
@@ -1203,7 +1263,7 @@ struct ItemDetailView: View {
         if notes.isRich {
             guard let journaled = services.journaledRichDraft, incoming.content == journaled.content else { return }
             services.journaledRichDraft = nil
-            notes.removeSavedPrefix(journaled.typed)
+            takeSavedText(journaled.typed, removedAt: journaled.removedAt)
         } else if notes.draft != notes.savedDraft, (incoming.content ?? "") == notes.draft {
             notes.savedDraft = notes.draft
         }
