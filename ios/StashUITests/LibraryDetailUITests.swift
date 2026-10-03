@@ -910,22 +910,38 @@ final class LibraryDetailUITests: XCTestCase {
         app.buttons["library.search.cancel"].tap()
 
         // A state pane fills the tab below the search row and centres its content there (review
-        // N-2: sized by its container, not a measured viewport height that starts at 0). One
-        // character nothing contains is below the server search's two-character minimum, so the
-        // local filter answers "No matches" at once; return drops the keyboard.
+        // N-2: sized by its container, not a measured viewport height that starts at 0): the part
+        // of it the keyboard leaves while it is up, all of it once it has gone. One character
+        // nothing contains is below the server search's two-character minimum, so the local filter
+        // answers "No matches" at once; return drops the keyboard.
+        //
+        // Batch B: on iOS 17.0 the pane kept the keyboard-up centring after the keyboard had gone
+        // (here, after the part-way tap above) — 319 pt against 445. Earlier 17.0 passes were
+        // vacuous: a stuck simulator flag hid the software keyboard. Measured with the keyboard up
+        // and after it, so a pane that ignores the keyboard fails as well as one that keeps it.
         field.tap()
-        field.typeText("¶\n")
+        field.typeText("¶")
         // Plan 16: the pane is one VoiceOver element (title, then message); measuring every match
         // together still holds if its identifier ever lands on its parts again.
         let paneParts = app.descendants(matching: .any).matching(identifier: "library.empty")
+        func paneFrame() -> CGRect { paneParts.allElementsBoundByIndex.map(\.frame).reduce(CGRect.null) { $0.union($1) } }
         XCTAssertTrue(paneParts.firstMatch.waitForExistence(timeout: 5), "Expected the No matches pane")
-        let pane = paneParts.allElementsBoundByIndex.map(\.frame).reduce(CGRect.null) { $0.union($1) }
+        XCTAssertTrue(app.keyboards.element.exists, "Expected the keyboard up while the query is typed")
+        sleep(1)
+        let paneWithKeyboard = paneFrame()
+        attachScreenshot(named: "batch-b-no-matches-keyboard-up")
+        field.typeText("\n")
+        XCTAssertTrue(eventually(5) { !app.keyboards.element.exists }, "Expected return to drop the keyboard")
         // Between the search row's bottom (its 10 pt bottom padding) and the tab bar — the scroll
         // view's own accessibility frame runs under both bars, so it can't be the reference.
         let paneTop = restPill.maxY + 10
         let paneBottom = app.tabBars.firstMatch.frame.minY
-        XCTAssertEqual(pane.midY, (paneTop + paneBottom) / 2, accuracy: 30,
-                       "Expected No matches centred below the search row (at \(pane), between \(paneTop) and \(paneBottom))")
+        let centre = (paneTop + paneBottom) / 2
+        let centred = eventually(3) { abs(paneFrame().midY - centre) <= 30 }
+        let pane = paneFrame()
+        XCTAssertTrue(centred, "Expected No matches centred below the search row once the keyboard has gone (at \(pane), between \(paneTop) and \(paneBottom))")
+        XCTAssertGreaterThan(pane.midY, paneWithKeyboard.midY + 60,
+                             "Expected No matches to follow the keyboard down: at \(paneWithKeyboard.midY) with it up, \(pane.midY) after")
         attachScreenshot(named: "task-4-fix-no-matches-pane")
         app.buttons["library.search.clear"].tap()
         XCTAssertTrue(card0.waitForExistence(timeout: 10), "Expected the cards back once the query is cleared")

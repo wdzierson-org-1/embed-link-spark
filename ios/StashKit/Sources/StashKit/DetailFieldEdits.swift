@@ -71,10 +71,11 @@ public enum SheetTextField: Hashable, Sendable {
 /// the moment it is committed (each revert is itself queued, latest-wins — no debounce gap); it
 /// keeps its plain comparison with `baseline`. The Sharing switch is optimistic and never written
 /// ahead: a journal queues a toggle the server hasn't confirmed (`journaledSharing` — never a
-/// share while the sheet stays open), and a toggle that fails in front of the user settles the
-/// switch, and the queue, on what the server holds as far as the client knows — its last server
-/// row, or a Sharing value the app's queue delivered since: a share that isn't there is queued as
-/// private again (`undoingFailedToggle`, Tasks 4d and 4e).
+/// share while the sheet stays open). A share that fails in front of the user settles the switch,
+/// and the queue, on what the server holds as far as the client knows — its last server row, or a
+/// Sharing value the app's queue delivered since; an un-share that fails is never turned back on
+/// by a delivered share; and a switch that settles off has private queued again
+/// (`undoingFailedToggle`, Tasks 4d and 4e).
 public struct DetailFieldEdits {
     public var local: Item
     public var baseline: Item
@@ -276,6 +277,27 @@ public struct DetailFieldEdits {
         return (fields, server)
     }
 
+    /// A Sharing toggle's PATCH (`patch`) succeeded while a newer save had started
+    /// (`ItemDetailView.setPublic`'s `SaveGeneration` gate): the sheet doesn't adopt its row, the
+    /// newest save decides the fields. But what the toggle put on the server must still reach what
+    /// the sheet knows of the server's Sharing value, the one thing a later failed toggle settles on
+    /// (`undoingFailedToggle`, Task 4e fix round 2; in StashKit since batch B):
+    /// - `snapshot`, the sheet's last server row, takes the toggle's fields. Skipped, an un-share
+    ///   that landed this way left the row saying public; when the newer save then failed (so no row
+    ///   was adopted) and a share failed, the switch stayed on with no error over a private item.
+    /// - `knownDeliveries`, the queue's `deliveryCount` when the sheet last learned the server's
+    ///   Sharing value, moves on to now (never back). The toggle's value is newer than anything the
+    ///   queue delivered before it landed. Skipped, a share the queue delivered before that un-share
+    ///   still counted as what the server holds: the switch stayed on with no error, and the close
+    ///   published the item. A delivery that landed between the toggle's PATCH returning and this
+    ///   call counts as seen too: the read-to-adopt approximation `ItemDetailView.adopt` documents.
+    @MainActor
+    public static func carryingToggle(_ patch: ItemPatch, snapshot: Item, knownDeliveries: Int,
+                                      queue: PendingEdits) -> (snapshot: Item, knownDeliveries: Int) {
+        let server = PendingEdit(itemId: snapshot.id, patch: patch, capturedAt: .distantPast).applied(to: snapshot)
+        return (server, max(knownDeliveries, queue.deliveryCount))
+    }
+
     /// `incoming` (a fresher server row — our own save coming back, realtime, the `page_body`
     /// fetch, a transcription) folded into the fields: every field the user has changed keeps what
     /// they typed; everything else takes the server's. A new object-name title reads as empty.
@@ -318,8 +340,11 @@ public struct DetailFieldEdits {
 
     /// A Sharing toggle to `target` FAILED: the fields to show, with the queue settled to match —
     /// the one call `ItemDetailView.setPublic`'s failure makes (review P-4, F1). `local.isPublic ==
-    /// target` afterwards means the switch stays where the user put it — the server already holds
-    /// `target`, as far as the client knows — so there is no error to show.
+    /// target` afterwards means the switch stays where the user put it, so there is no error to
+    /// show: for a share, the server holds `target` as far as the client knows; for an un-share, the
+    /// sheet's last server row (or an un-share the queue delivered) says private, and private is
+    /// queued again — over a share the queue delivered, the item is public until that lands (batch
+    /// B, 4e re-review 2).
     ///
     /// - A closed sheet changes nothing (as `landing`): its journal queued the toggle the user last
     ///   saw, and the close's flush retries it — they never saw it fail.

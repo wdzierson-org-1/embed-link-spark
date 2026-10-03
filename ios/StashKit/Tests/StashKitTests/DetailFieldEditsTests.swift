@@ -1083,6 +1083,77 @@ final class DetailFieldEditsTests: XCTestCase {
         XCTAssertEqual(online.row(server.id)?.isPublic, true)
     }
 
+    /// `setPublic`'s success while a newer save has started, as the sheet takes it (fix round 2):
+    /// the toggle's own PATCH (`ItemEditor.save`, outside the delivered ledger), its landing, and
+    /// then the carry (`carryingToggle`) instead of an adopt. Returns the sheet's Sharing reference.
+    private func landToggleUnderANewerSave(_ patch: ItemPatch, in sheet: inout Sheet, knownDeliveries: Int,
+                                           editor: ItemEditor) async throws -> Int {
+        let capturedAt = queue.captureTime()
+        let saved = try await editor.save(itemId: sheet.local.id, patch: patch)
+        _ = DetailFieldEdits.landing(patch, capturedAt: capturedAt, as: saved, local: sheet.local,
+                                     baseline: ItemDisplay.editableRow(sheet.snapshot), queue: queue,
+                                     sheetIsOpen: true, at: queue.captureTime(), apply: { _ in })
+        let carried = DetailFieldEdits.carryingToggle(patch, snapshot: sheet.snapshot, knownDeliveries: knownDeliveries,
+                                                      queue: queue)
+        sheet.snapshot = carried.snapshot
+        return carried.knownDeliveries
+    }
+
+    /// 4e re-review 2, New Breakage 2: the carry is load-bearing for M-4's one rule. An un-share lands
+    /// while a newer save (the title's autosave) is in flight, so the sheet doesn't adopt its row;
+    /// that autosave then fails, and no row is adopted at all. Then the user turns the switch back on,
+    /// and that share fails. Without the carry the sheet's last server row still said public: the
+    /// switch stayed on with no error over a private item, the share lost without a word.
+    func testAnUnshareThatLandedUnderANewerSaveIsWhatAFailedShareSettlesOn() async throws {
+        let server = textRow(isPublic: true)
+        var sheet = open(server)
+        let online = FakeRowServer(rows: [server])
+        sheet.local.isPublic = false                                     // the un-share, optimistic
+        let knownThrough = try await landToggleUnderANewerSave(ItemPatch(isPublic: false), in: &sheet,
+                                                               knownDeliveries: queue.deliveryCount,
+                                                               editor: onlineEditor(online))
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "precondition: the un-share landed")
+
+        sheet.local.isPublic = true                                      // the share; its PATCH fails
+        let tookEffect = failToggle(to: true, noteBefore: nil, knownDeliveries: knownThrough, in: &sheet, at: 1)
+        XCTAssertFalse(tookEffect, "The share failed: the section says so")
+        XCTAssertFalse(sheet.local.isPublic, "The switch shows what the server holds: private")
+        journal(sheet, closing: true, at: 2)
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "A failed share is never published")
+    }
+
+    /// The carry's other half: the toggle's result moves the sheet's Sharing reference too. An Ask
+    /// citation sheet opens on a queued share (the server private), and the app's flush delivers that
+    /// share in a row the sheet never sees. The user turns the switch off; that un-share lands under a
+    /// newer save. Then a share fails. Measured from the reference the sheet opened with, the
+    /// delivered share counted as what the server holds, though the un-share landed after it: the
+    /// switch stayed on with no error over a private item.
+    func testAnUnshareThatLandedUnderANewerSaveOutranksAShareDeliveredBeforeIt() async throws {
+        let server = textRow()
+        queue.record(itemId: server.id, patch: ItemPatch(isPublic: true), capturedAt: queue.captureTime())   // queued earlier
+        var citation = open(server)
+        let knownAtOpen = queue.deliveryCount
+        XCTAssertTrue(citation.local.isPublic, "precondition: the sheet opens on the queued share")
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)                                   // the app's flush; no row reaches the sheet
+        XCTAssertEqual(online.row(server.id)?.isPublic, true, "precondition: the share is on the server")
+
+        citation.local.isPublic = false                                  // the un-share, optimistic
+        let knownThrough = try await landToggleUnderANewerSave(ItemPatch(isPublic: false), in: &citation,
+                                                               knownDeliveries: knownAtOpen,
+                                                               editor: onlineEditor(online))
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "precondition: the un-share landed")
+
+        citation.local.isPublic = true                                   // the share; its PATCH fails
+        let tookEffect = failToggle(to: true, noteBefore: nil, knownDeliveries: knownThrough, in: &citation, at: 1)
+        XCTAssertFalse(tookEffect, "The share failed: the section says so")
+        XCTAssertFalse(citation.local.isPublic, "The switch shows what the server holds: private")
+        journal(citation, closing: true, at: 2)
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "A failed share is never published")
+    }
+
     /// 4e re-review, M-2's side effect: in an Ask citation sheet "Y"'s autosave failed, so "Y" stays
     /// queued. A share fails, and the flush `setPublic` then starts delivers "Y" along with the
     /// private — in a row the citation store never hands the sheet. The user types "X" (the server's
@@ -1646,6 +1717,305 @@ final class DetailFieldEditsTests: XCTestCase {
         XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "offline", "abc", "def"], "No note lost, none twice")
         XCTAssertEqual(paragraphs(sheet.local.content), ["first", "offline", "abc", "def"], "The sheet shows it")
         XCTAssertEqual(box, "", "The box let go of everything saved")
+    }
+
+    // MARK: - A rich note's text leaves the box once the sheet shows it, in any order (batch B)
+
+    /// One open sheet's rich-note state beside the queue: `ItemDetailView`'s notes box
+    /// (`notesModel.draft`) and its ledger (`services.richNote`), written to from a flush's `apply`
+    /// as the view's state is.
+    @MainActor private final class RichNotes {
+        var sheet: Sheet
+        var box = ""
+        var ledger = RichNoteBox.Ledger()
+        init(_ sheet: Sheet) { self.sheet = sheet }
+    }
+
+    /// One note save `done` started: the box's text it took, the ledger's removals then, and the
+    /// document it built and queued.
+    private struct NoteSave {
+        let typed: String
+        let removedAt: String
+        let document: String
+        let capturedAt: Date
+        let task: Task<SheetSave, Error>
+    }
+
+    private func onlineEditor(_ server: FakeRowServer) -> ItemEditor {
+        ItemEditor(patcher: server, refresher: EmbeddingRefresher(syncer: RecordingSyncer(), idle: .milliseconds(10)),
+                   writeQueue: ItemWriteQueue())
+    }
+
+    /// `flushNotes`, Done: nil when one of its guards returns; otherwise the box's text appended to the
+    /// sheet's document as a new paragraph, recorded first (write-ahead), then sent.
+    private func done(_ n: RichNotes, editor: ItemEditor) -> NoteSave? {
+        let typed = n.box
+        let note = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty else { return nil }
+        if tipTapLastParagraphText(n.sheet.local.content) == note {
+            n.box = ""
+            return nil
+        }
+        let document = appendNoteParagraph(to: n.sheet.local.content, note: note)
+        let at = queue.captureTime()
+        queue.record(itemId: n.sheet.local.id, patch: ItemPatch(content: document), capturedAt: at)
+        let id = n.sheet.local.id
+        let task = Task { try await self.queue.send(ItemPatch(content: document), capturedAt: at, itemId: id, editor: editor) }
+        return NoteSave(typed: typed, removedAt: n.ledger.removed, document: document, capturedAt: at, task: task)
+    }
+
+    /// How that save ends in an Ask citation sheet (`save`, then `flushNotes`). Saved: its landing
+    /// (`landInCitationSheet`), the box reconciled with the document the sheet now shows (`adopt`'s
+    /// `reconcileNotesDraft`), then the save's own text taken. Failed: kept by the ledger, which also
+    /// reconciles it with the document the sheet already shows. Returns whether it was saved.
+    @discardableResult
+    private func finish(_ save: NoteSave, isNewest: Bool, in n: RichNotes) async -> Bool {
+        guard let sent = try? await save.task.value else {
+            n.box = n.ledger.failed(save.typed, document: save.document, removedAt: save.removedAt,
+                                    shown: n.sheet.local.content, box: n.box) ?? n.box
+            return false
+        }
+        landInCitationSheet(sent, capturedAt: save.capturedAt, isNewest: isNewest, in: &n.sheet)
+        n.box = n.ledger.reconcile(shown: n.sheet.local.content, box: n.box) ?? n.box
+        n.box = n.ledger.saved(save.typed, removedAt: save.removedAt, box: n.box)
+        return true
+    }
+
+    private func doneAndWait(_ n: RichNotes, editor: ItemEditor) async {
+        guard let save = done(n, editor: editor) else { return }
+        await finish(save, isNewest: true, in: n)
+    }
+
+    /// A server row reaching the open sheet (the store's `onChange` in a library sheet, or a row of
+    /// the sheet's own flush), as `adopt` folds it in: the fields merged, then the box reconciled
+    /// with the document the sheet now shows.
+    private func adoptRow(_ row: Item, in n: RichNotes) {
+        n.sheet.local = edits(n.sheet).adopting(row)
+        n.sheet.snapshot = row
+        n.box = n.ledger.reconcile(shown: n.sheet.local.content, box: n.box) ?? n.box
+    }
+
+    /// The app leaves the foreground with text in the box: the journal (`unconfirmedPatch`) queues it
+    /// appended to the document the sheet shows, and the ledger keeps that draft.
+    private func journalNote(_ n: RichNotes) {
+        let note = n.box.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty, tipTapLastParagraphText(n.sheet.local.content) != note else { return }
+        let document = appendNoteParagraph(to: n.sheet.local.content, note: note)
+        queue.record(itemId: n.sheet.local.id, patch: ItemPatch(content: document), capturedAt: queue.captureTime())
+        n.ledger.journaled(n.box, document: document)
+    }
+
+    /// A share the user turns on fails too, and settles off: private is queued again (`setPublic`).
+    private func failShare(in n: RichNotes, at time: TimeInterval) {
+        n.sheet.local.isPublic = true
+        _ = failToggle(to: true, noteBefore: nil, knownDeliveries: queue.deliveryCount, in: &n.sheet, at: time)
+    }
+
+    /// 4e re-review 2, New Breakage 1 (library sheets since fix round 1, Ask citation sheets since
+    /// round 2): "abc" is added and Done tapped, and its save fails. The box keeps "abc", and its
+    /// document stays queued. A share fails too, the flush `setPublic` then starts gets through and
+    /// delivers that document, and the sheet adopts the row. Nothing knew the document held the box's
+    /// text: "abc" stayed in the box, " def" was typed, and Done appended "abc def" after "abc".
+    func testAFailedRichNoteThatTheSheetsOwnFlushDeliversIsNeverAppendedTwice() async throws {
+        let row = richRow()
+        let online = FakeRowServer(rows: [row])
+        let editor = onlineEditor(online)
+        let n = RichNotes(open(row))
+        n.box = "abc"
+        online.error = URLError(.notConnectedToInternet)
+        let first = try XCTUnwrap(done(n, editor: editor))
+        let saved = await finish(first, isNewest: true, in: n)
+        XCTAssertFalse(saved, "precondition: the note's save failed")
+        XCTAssertEqual(n.box, "abc", "precondition: the box keeps the note")
+
+        failShare(in: n, at: 1)
+        online.error = nil
+        await queue.flush(editor: editor, itemIds: [row.id]) { incoming in self.adoptRow(incoming, in: n) }
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "abc"],
+                       "precondition: the flush delivered the note, and the sheet shows it")
+        XCTAssertEqual(n.box, "", "The note is in the document the sheet shows: it has left the box")
+
+        n.box += " def"
+        await doneAndWait(n, editor: editor)
+        XCTAssertEqual(paragraphs(online.row(row.id)?.content), ["first", "abc", "def"], "Each note once")
+        XCTAssertEqual(n.box, "")
+    }
+
+    /// The same through realtime, in a library sheet: the note's PATCH reaches the server but its
+    /// response is lost, and the row's realtime echo reaches the sheet (the store's `onChange`)
+    /// before the save reports its failure. The sheet shows ["first", "abc"] with "abc" still in the
+    /// box, and no later row brings that document again.
+    func testARichNoteWhoseEchoReachedTheSheetBeforeItsSaveFailedIsNeverAppendedTwice() async throws {
+        let row = richRow()
+        let online = FakeRowServer(rows: [row])
+        let editor = onlineEditor(online)
+        let n = RichNotes(open(row))
+        n.box = "abc"
+        let first = try XCTUnwrap(done(n, editor: editor))
+        online.update(row.id) { $0.content = first.document }            // the PATCH lands; its response is lost
+        online.error = URLError(.timedOut)
+        adoptRow(try XCTUnwrap(online.row(row.id)), in: n)               // the realtime echo, through the store
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "abc"], "precondition: the sheet shows the echo")
+        XCTAssertEqual(n.box, "abc", "precondition: the save hasn't reported yet")
+        let saved = await finish(first, isNewest: true, in: n)
+        XCTAssertFalse(saved, "precondition: as far as the sheet knows, the save failed")
+        XCTAssertEqual(n.box, "", "The document the sheet shows holds the note: it leaves the box")
+
+        online.error = nil
+        n.box += " def"
+        await doneAndWait(n, editor: editor)
+        XCTAssertEqual(paragraphs(online.row(row.id)?.content), ["first", "abc", "def"], "Each note once")
+    }
+
+    /// Two failed note saves, "abc" and then "abc def" (more typed, Done again), before the sheet's
+    /// own flush delivers the newer document: all of that text leaves the box once the sheet shows it.
+    func testTwoFailedRichNoteSavesTheSheetsOwnFlushDeliversAreAppendedOnce() async throws {
+        let row = richRow()
+        let online = FakeRowServer(rows: [row])
+        let editor = onlineEditor(online)
+        let n = RichNotes(open(row))
+        online.error = URLError(.notConnectedToInternet)
+        n.box = "abc"
+        await doneAndWait(n, editor: editor)
+        n.box += " def"
+        await doneAndWait(n, editor: editor)
+        XCTAssertEqual(n.box, "abc def", "precondition: both saves failed; the box keeps the text")
+
+        failShare(in: n, at: 1)
+        online.error = nil
+        await queue.flush(editor: editor, itemIds: [row.id]) { incoming in self.adoptRow(incoming, in: n) }
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "abc def"],
+                       "precondition: the flush delivered the newer document")
+        XCTAssertEqual(n.box, "", "The text the sheet shows has left the box")
+
+        n.box += " ghi"
+        await doneAndWait(n, editor: editor)
+        XCTAssertEqual(paragraphs(online.row(row.id)?.content), ["first", "abc def", "ghi"], "Each note once")
+    }
+
+    /// "abc"'s save fails, and the sheet's own flush picks its document up on a slow link. While that
+    /// is on its way the user types " def" and taps Done; that save waits behind the flush. The flush
+    /// lands first: "abc" leaves the box at once (a Done then appends only "def"), and the later
+    /// save's landing takes only what is left of its own text. Each note once, and the sheet shows
+    /// what the server holds.
+    func testAFailedRichNoteDeliveredWhileANewerNoteSaveWaitsBehindTheFlushLeavesTheBoxOnce() async throws {
+        let row = richRow()
+        let (server, sheets, flushes) = slowLink([row])
+        server.gated = false
+        server.error = URLError(.notConnectedToInternet)
+        let n = RichNotes(open(row))
+        n.box = "abc"
+        await doneAndWait(n, editor: sheets)
+        XCTAssertEqual(n.box, "abc", "precondition: the save failed")
+
+        failShare(in: n, at: 1)
+        server.error = nil
+        server.gated = true
+        let flush = Task {
+            await self.queue.flush(editor: flushes, itemIds: [row.id]) { incoming in self.adoptRow(incoming, in: n) }
+        }
+        await waitUntil { server.heldCount == 1 }
+        n.box += " def"
+        let second = try XCTUnwrap(done(n, editor: sheets))              // waits behind the flush
+        await settle()
+        server.gated = false
+        server.release()
+        await flush.value
+        XCTAssertEqual(n.box, "def", "The note the flush delivered left the box; what was typed since stays")
+
+        await finish(second, isNewest: true, in: n)
+        let serverDocument = paragraphs(server.row(row.id)?.content)
+        XCTAssertEqual(serverDocument, ["first", "abc def"], "Each note once")
+        XCTAssertEqual(paragraphs(n.sheet.local.content), serverDocument, "The sheet shows what the server holds")
+        XCTAssertEqual(n.box, "")
+    }
+
+    /// The rule's other half: text leaves the box only once the document the sheet SHOWS holds it. A
+    /// sheet opened on a queued, undelivered note ("offline", closed offline) keeps its own copy of
+    /// the document over an incoming row (`adopting`). "abc"'s save fails, and the sheet's own flush
+    /// delivers ["first", "offline", "abc"], yet the sheet still shows ["first", "offline"]. Taken
+    /// off the box then, "abc" would be in neither place the next note is built from, and that note,
+    /// appended to the sheet's copy, would replace the server's document.
+    func testAFailedRichNoteStaysInTheBoxWhileTheSheetShowsItsOwnCopyOfTheDocument() async throws {
+        let row = richRow()
+        queue.record(itemId: row.id, patch: ItemPatch(content: appendNoteParagraph(to: row.content, note: "offline")),
+                     capturedAt: queue.captureTime())                    // closed offline: still queued
+        let online = FakeRowServer(rows: [row])
+        let editor = onlineEditor(online)
+        let n = RichNotes(open(row))
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "offline"], "precondition: the queued note shows")
+        online.error = URLError(.notConnectedToInternet)
+        n.box = "abc"
+        await doneAndWait(n, editor: editor)
+        failShare(in: n, at: 1)
+        online.error = nil
+        await queue.flush(editor: editor, itemIds: [row.id]) { incoming in self.adoptRow(incoming, in: n) }
+        XCTAssertEqual(paragraphs(online.row(row.id)?.content), ["first", "offline", "abc"],
+                       "precondition: the flush delivered it")
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "offline"], "precondition: the sheet keeps its own copy")
+        XCTAssertEqual(n.box, "abc", "Not in the document the sheet shows: it stays in the box")
+
+        n.box += " def"
+        await doneAndWait(n, editor: editor)
+        XCTAssertEqual(paragraphs(online.row(row.id)?.content), ["first", "offline", "abc def"], "Nothing lost, nothing twice")
+    }
+
+    /// The same rule for the journal's draft, which lost a note before (since plan 15, which opened
+    /// sheets on queued values): a library sheet opened on a queued note, "abc" typed with no Done,
+    /// and the app leaves the foreground, so the journal queues "abc" appended to the document the
+    /// sheet shows. The refresh back in the foreground delivers it, and the store hands the sheet the
+    /// row, over which the sheet keeps its own copy. "abc" left the box because the ROW's document
+    /// held it, though the sheet's didn't; the next note, appended to the sheet's copy, then replaced
+    /// the server's document, and "abc" was gone.
+    func testAJournaledRichNoteStaysInTheBoxWhileTheSheetShowsItsOwnCopyOfTheDocument() async throws {
+        let row = richRow()
+        queue.record(itemId: row.id, patch: ItemPatch(content: appendNoteParagraph(to: row.content, note: "offline")),
+                     capturedAt: queue.captureTime())
+        let online = FakeRowServer(rows: [row])
+        let editor = onlineEditor(online)
+        let n = RichNotes(open(row))
+        n.box = "abc"
+        journalNote(n)
+        await queue.flush(editor: editor, itemIds: [row.id]) { incoming in self.adoptRow(incoming, in: n) }
+        XCTAssertEqual(paragraphs(online.row(row.id)?.content), ["first", "offline", "abc"],
+                       "precondition: the refresh delivered it")
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "offline"], "precondition: the sheet keeps its own copy")
+        XCTAssertEqual(n.box, "abc", "Not in the document the sheet shows: it stays in the box")
+
+        n.box += " def"
+        await doneAndWait(n, editor: editor)
+        XCTAssertEqual(paragraphs(online.row(row.id)?.content), ["first", "offline", "abc def"], "The note is never lost")
+    }
+
+    /// Every journaled draft is kept until the sheet shows it, not only the newest (pre-existing since
+    /// plan 15): "abc" in the box, the app leaves the foreground (journaled); back, the refresh's
+    /// flush picks it up on a slow link; " def" is typed and the app leaves again ("abc def"
+    /// journaled). The flush delivers "abc" and the sheet shows it, then the link drops. With only
+    /// the newest draft kept, "abc" stayed in the box, and Done appended "abc def" after it.
+    func testAnEarlierJournaledRichNoteDeliveredAfterALaterOneWasQueuedLeavesTheBox() async throws {
+        let row = richRow()
+        let (server, sheets, flushes) = slowLink([row])
+        let n = RichNotes(open(row))
+        n.box = "abc"
+        journalNote(n)
+        let flush = Task {
+            await self.queue.flush(editor: flushes, itemIds: [row.id]) { incoming in
+                self.adoptRow(incoming, in: n)
+                server.error = URLError(.notConnectedToInternet)          // the link drops after this row
+            }
+        }
+        await waitUntil { server.heldCount == 1 }
+        n.box += " def"
+        journalNote(n)                                                   // the app leaves the foreground again
+        server.gated = false
+        server.release()
+        await flush.value
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "abc"], "precondition: the sheet shows the first draft")
+        XCTAssertEqual(n.box, "def", "The note the sheet shows left the box; what was typed since stays")
+
+        server.error = nil
+        await doneAndWait(n, editor: sheets)
+        XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "abc", "def"], "Each note once")
     }
 
     // MARK: - What the user just typed is never replaced by a flushed row (4e review M-1)

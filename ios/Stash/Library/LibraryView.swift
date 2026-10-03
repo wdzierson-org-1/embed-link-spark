@@ -35,6 +35,16 @@ struct LibraryView: View {
     /// sat above it. 62 is its height at the default text size (plan 16: the pill is at least 44 pt
     /// tall, was a fixed 42); it grows with the text.
     @State private var searchRowHeight: CGFloat = 62
+    /// The scroll view's visible height, inside its safe area — the keyboard's included, so it is
+    /// smaller while the keyboard is up — as measured; nil until its first measurement. A state pane
+    /// fills it below the search row (`stateBody`). Batch B: `containerRelativeFrame`, which sized
+    /// the pane on its own, doesn't follow the keyboard on iOS 17.0. Logged on an iPhone 15 Pro, it
+    /// kept reporting a height read before the keyboard last moved: the whole tab (710 pt) with the
+    /// keyboard up after a fresh tap, and the keyboard-up height (456) after the keyboard had gone
+    /// when the pill had been scrolled back to rest under the keyboard first, so "No matches" stayed
+    /// centred above a keyboard that wasn't there (319 pt against 445). This measurement, logged the
+    /// same way, followed the keyboard both ways (457 ↔ 710).
+    @State private var visibleHeight: CGFloat?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// Plan 16: while VoiceOver runs, the search row's snap stands aside — VoiceOver scrolls to
@@ -176,6 +186,7 @@ struct LibraryView: View {
             // pull to refresh through it), as when only the grid scrolled.
             .accessibilityIdentifier(items.isEmpty ? "library.scroll" : "library.grid")
             .scrollDismissesKeyboard(.immediately)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleHeight = $0 }
         }
     }
 
@@ -192,12 +203,17 @@ struct LibraryView: View {
     @ViewBuilder private func stateBody(_ items: [Item]) -> some View {
         if items.isEmpty {
             // The rest of the tab below the search row, as when the row sat above the pane — at
-            // least the scroll view's height less the row, measured by the container itself (so
-            // the first frame is already centred: no viewport height that starts at 0, review
-            // N-2), and taller when the pane's text needs it.
+            // least the scroll view's visible height less the row, and taller when the pane's text
+            // needs it. That height is `visibleHeight`, which follows the keyboard (batch B); until
+            // its first measurement the container itself supplies it, so the first frame is already
+            // centred (no viewport height that starts at 0, review N-2).
             ZStack {
-                Color.clear
-                    .containerRelativeFrame(.vertical) { length, _ in max(length - searchRowHeight, 0) }
+                if let visibleHeight {
+                    Color.clear.frame(height: max(visibleHeight - searchRowHeight, 0))
+                } else {
+                    Color.clear
+                        .containerRelativeFrame(.vertical) { length, _ in max(length - searchRowHeight, 0) }
+                }
                 statePane
             }
             .frame(maxWidth: .infinity)

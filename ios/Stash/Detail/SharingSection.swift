@@ -19,9 +19,12 @@ import UIKit
 /// Plan 15 (L5): the switch is optimistic — `setPublic` (owned by `ItemDetailView`, which flips
 /// `item.isPublic` at once and saves through the sheet's save generation) returns whether the
 /// switch can stay where the user put it; this section only shows the inline error when it can't.
-/// Plan 16 (Tasks 4d, 4e): a toggle that fails settles the switch on what the server holds as far
-/// as the sheet knows, and queues that — private again, when it settles off — so nothing later
-/// changes the item's visibility to something the user isn't looking at.
+/// Plan 16 (Tasks 4d, 4e): a share that fails settles the switch on what the server holds as far
+/// as the app knows (the sheet's last server row, or a Sharing value the queue delivered after it
+/// was read); an un-share that fails is never turned back on by a share the queue delivered, and
+/// settles off over one with no error. Either way the queue is settled to match the switch —
+/// private again, sent at once, when it settles off — so nothing later changes the item's
+/// visibility to something the user isn't looking at (`ItemDetailView.setPublic`).
 ///
 /// Plan 15 (snappiness): the feed link's username is `SessionStore`'s per-session profile, loaded
 /// once per signed-in session — not refetched every time a public item's sheet opens.
