@@ -119,11 +119,18 @@ sheet read small).
 - **Tracking** stays in points: `.stashTracking(<em>, role: <role>)` — the table's em
   value times the role's Large size (`.stashTracking(-0.014, role: .cardTitle)`) — so it
   tightens in em terms as text grows, as Apple's own tracking does.
-- **Leading grows with the text.** Extra line spacing is `.stashLeading(<em>, role:)`:
-  `em` × the role's size, scaled with the role's text style (a `@ScaledMetric`), so
-  `.stashLeading(0.55, role: .reading)` is 9.35 pt at Large and 20.35 pt at AX3.
-  `em` is the gap on top of the face's own line height, so CSS `line-height: 1.55` is
-  0.55. Never a fixed `lineSpacing(…)`: the old `14 * 0.55` shrank to 0.2 em at AX3.
+- **Leading grows with the text, and tapers at the accessibility sizes.** Extra line
+  spacing is `.stashLeading(<em>, role:)`: `em` × the role's size, scaled with the role's
+  text style (a `@ScaledMetric`). `em` is the gap on top of the face's own line, and Neue
+  Montreal's line is 1.2 em, so CSS `line-height` ≈ 1.2 + `em`: the detail sheet's reading
+  text, `.stashLeading(0.55, role: .reading)`, is ≈ 1.75 (9.35 pt at Large, 12.1 at
+  xxxLarge), and Ask's 0.35 is ≈ 1.55. *2026-10-01 (plan 16):* at the accessibility sizes
+  the gap is capped at 0.35 em — 12.95 pt for reading text at AX3, where 0.55 em was 20.35,
+  so a line's pitch goes from 1.75 to 1.55 em (measured on the detail sheet). A line there
+  holds two to four words, so the eye's return sweep is short and extra leading mostly
+  costs scrolling; Apple's own text styles taper too (body leading ÷ size 1.29 at Large,
+  1.175 at AX3), and 1.55 still clears WCAG 1.4.8's 1.5. Large to xxxLarge don't change.
+  Never a fixed `lineSpacing(…)`: the old `14 * 0.55` shrank to 0.2 em at AX3.
 - **Markdown and TipTap text** (measured, iOS 17.0 and 26.5): put the role on the `Text`
   that draws the `AttributedString` — `Text(attributed).stashFont(.reading)` — and its
   inline runs resolve against that face by themselves: `**strong**` (TipTap bold, TipTap
@@ -220,6 +227,17 @@ and 18.7 pt bold. That is deliberately stricter than Apple's own guidance, which
 - **Violet text** is `violet-600` on white, paper, the page wash and the chip wash, and
   `violet-700` on a type tint or a violet tint. Violet glyphs and fills stay violet-600
   everywhere (3:1).
+- **Links in reading text are underlined.** *2026-10-01 (plan 16; WCAG 2.2 SC 1.4.1, Use of
+  Color).* A link inside reading text — a summary's markdown, an Ask answer's citation — is
+  `violet-600` text with a solid underline in `violet-600` at 50 % alpha (≈ `#b6ade8` on
+  white). Colour alone can't mark it: `violet-600` is 2.93:1 against `ink` body text and
+  1.04:1 against a `muted` quote, where a colour-only link needs 3:1 and a second cue, and
+  no violet clears 3:1 against `ink` while staying 4.5:1 on white. iOS:
+  `Text.LineStyle(pattern: .solid, color: StashColor.violet600.opacity(0.5))` on the link
+  runs (`MarkdownBlocksView.linkUnderline`). Web should adopt it (`text-decoration-line:
+  underline; text-decoration-color: rgb(109 91 208 / 0.5)`). Links that are chrome — a
+  plain "Copy link" or "Learn more" text action — stay as they are. *Supersedes plan 8's
+  violet-without-underline markdown links.*
 - **Nothing but `ink` sits directly on the gradient wash.** Measured behind the Add-tab
   header and the View-tab search row, the wash takes violet-600 to 2.8–3.3:1 and `muted`
   to 3.0–3.4:1. Text over it sits on paper (cards, the search pill, a

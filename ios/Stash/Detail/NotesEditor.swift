@@ -134,13 +134,16 @@ struct NotesEditor: View {
     @ScaledMetric(relativeTo: .body) private var maxEditorHeight: CGFloat = 110
 
     /// Plan 16: the note (rendered TipTap, the field, its placeholder) is reading text — the
-    /// `reading` role, 17 pt, was 14 — and the hint and placeholder are `muted` (were `faint`).
+    /// `reading` role, 17 pt, was 14 — and the hint and placeholder are `muted` (were `faint`). The
+    /// rendered rich note takes the sheet's reading leading too (`stashLeading(0.55)`, like the
+    /// description and summary around it — 2b review N-6: it was set solid).
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.isRich, let content = item.content, !content.isEmpty {
                 Text(model.renderedContent(content))
                     .stashFont(.reading)
                     .foregroundStyle(StashColor.ink)
+                    .stashLeading(0.55, role: .reading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("detail.notesText")
             }

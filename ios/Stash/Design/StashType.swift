@@ -396,24 +396,40 @@ extension View {
     }
 
     /// Line spacing for text set in `role`: `em` × the role's size, scaled with the role's text
-    /// style like the text itself — `.stashLeading(0.55, role: .reading)` is 9.35 pt at the default
-    /// size and 20.35 pt at AX3, so paragraphs keep their proportions (a fixed `lineSpacing` shrinks
-    /// to nothing as text grows). `em` is the gap on top of the face's own line height, so CSS
-    /// `line-height: 1.55` is 0.55. It replaces every `lineSpacing(14 * …)`.
+    /// style like the text itself, so paragraphs keep their proportions as text grows (a fixed
+    /// `lineSpacing` shrinks to nothing). `em` is the gap on top of the face's own line, and Neue
+    /// Montreal's line is 1.2 em, so CSS `line-height` ≈ 1.2 + `em`: the detail sheet's reading
+    /// text, `.stashLeading(0.55, role: .reading)`, is ≈ 1.75 — 9.35 pt at Large, 12.1 at xxxLarge —
+    /// and Ask's 0.35 is ≈ 1.55. It replaces every `lineSpacing(14 * …)`.
+    ///
+    /// At the accessibility sizes the gap tapers: it's capped at 0.35 em — 12.95 pt for reading text
+    /// at AX3, where 0.55 em was 20.35, so a line's pitch goes from 1.75 to 1.55 em (measured on the
+    /// detail sheet). A line there holds two to four words, so the eye's return sweep is short and
+    /// extra leading mostly costs scrolling; Apple's own text styles taper the same way (body
+    /// leading ÷ size 1.29 at Large, 1.175 at AX3). Large to xxxLarge are unchanged, and a gap of
+    /// 0.35 em or less (Ask's bubbles) never changes.
     func stashLeading(_ em: CGFloat, role: StashType.Role) -> some View {
         modifier(StashLeading(em: em, role: role))
     }
 }
 
-/// `stashLeading`: a `@ScaledMetric` built from the role's own size and text style.
+/// `stashLeading`: two `@ScaledMetric`s built from the role's own size and text style — the gap,
+/// and the gap capped at `accessibilityCap` for the accessibility sizes.
 private struct StashLeading: ViewModifier {
+    /// The largest gap at the accessibility sizes, in em (see `stashLeading`).
+    static let accessibilityCap: CGFloat = 0.35
+
     @ScaledMetric private var spacing: CGFloat
+    @ScaledMetric private var accessibilitySpacing: CGFloat
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(em: CGFloat, role: StashType.Role) {
         _spacing = ScaledMetric(wrappedValue: em * role.defaultSize, relativeTo: role.textStyle)
+        _accessibilitySpacing = ScaledMetric(wrappedValue: min(em, Self.accessibilityCap) * role.defaultSize,
+                                             relativeTo: role.textStyle)
     }
 
     func body(content: Content) -> some View {
-        content.lineSpacing(spacing)
+        content.lineSpacing(dynamicTypeSize.isAccessibilitySize ? accessibilitySpacing : spacing)
     }
 }

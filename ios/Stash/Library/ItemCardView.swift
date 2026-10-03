@@ -92,11 +92,12 @@ struct ItemCardView: View {
                 kicker
                 // DESIGN.md's current card heading (2026-09-13 housekeeping mirror, plan 14):
                 // Montreal medium 20/tight · −0.014em tracking (`.stashFont(.cardTitle)`),
-                // superseding the plan-9 serif `editorialTitle()`. The negative `.lineSpacing`
-                // keeps the "tight" leading the old serif treatment also needed — Montreal at
-                // 20pt across a 2-line clamp reads loose under SwiftUI's default line spacing too.
+                // superseding the plan-9 serif `editorialTitle()`. The negative leading keeps the
+                // "tight" leading the old serif treatment also needed — Montreal at 20pt across a
+                // 2-line clamp reads loose under SwiftUI's default line spacing too. −0.1 em: the
+                // old fixed −2 pt at Large, scaling with the title (2b review N-5).
                 Text(title).stashFont(.cardTitle).stashTracking(-0.014, role: .cardTitle)
-                    .lineSpacing(-2).lineLimit(titleLineLimit)
+                    .stashLeading(-0.1, role: .cardTitle).lineLimit(titleLineLimit)
                     // Plan 15 fix: with the negative line spacing, a title that needs both lines
                     // was sometimes handed a one-line height at layout time — rendered as
                     // "…" after one line while the grid row still reserved the second (a ~24pt

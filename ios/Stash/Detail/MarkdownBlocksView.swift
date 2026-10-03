@@ -11,7 +11,8 @@ import SwiftUI
 /// (`stashLeading`), and `**strong**` / `*emphasis*` resolve to the role's Semibold / Book Italic
 /// faces by themselves. A block's role and colour go INTO `inlineText`, which builds the `Text`:
 /// one applied outside it is dead (the inner `Text`'s own font and colour win) — which is why
-/// `##` headings used to render in the Book face and quotes in `ink`.
+/// `##` headings used to render in the Book face and quotes in `ink`. Links are violet-600 and
+/// underlined (`styleLinks`).
 struct MarkdownBlocksView: View {
     let text: String
     // (Plan 15: the `compact` chat-bubble mode is gone — the Ask tab renders its own cached blocks
@@ -93,8 +94,9 @@ struct MarkdownBlocksView: View {
     }
 
     /// One markdown run as a `Text` in `role` and `color` — both passed in, never applied outside
-    /// (see the type's doc). Body line-height per DESIGN.md (~1.55): `stashLeading(0.55)` adds the
-    /// delta on top of the face's own line spacing, scaled with the role's text style.
+    /// (see the type's doc). The detail sheet's reading leading, `stashLeading(0.55)`: 0.55 em on
+    /// top of the face's own 1.2 em line (CSS line-height ≈ 1.75; ≈ 1.55 at the accessibility
+    /// sizes, where `stashLeading` caps the gap at 0.35 em), scaled with the role's text style.
     private func inlineText(_ raw: String, role: StashType.Role = .reading,
                             color: Color = StashColor.ink) -> some View {
         var attributed = (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
@@ -107,14 +109,24 @@ struct MarkdownBlocksView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// DISCLOSED tweak (Plan 8 Task 4): any markdown link rendered through this view uses
-    /// DESIGN.md's violet600 token with no underline, rather than `Text`'s default (system tint)
-    /// plus an underline that default markdown-link styling can add.
+    /// A link's underline in reading text: solid, in violet-600 at 50 % — softer than the link's
+    /// own violet-600 text, so the paragraph stays calm. DESIGN.md › Color › Contrast, "Links in
+    /// reading text are underlined" — the one rule for every link inside reading text, Ask's
+    /// citation links included.
+    static var linkUnderline: Text.LineStyle {
+        Text.LineStyle(pattern: .solid, color: StashColor.violet600.opacity(0.5))
+    }
+
+    /// Every markdown link here is DESIGN.md's violet-600 text WITH an underline (plan 16, WCAG
+    /// 2.2 SC 1.4.1 Use of Color, Level A). Colour alone can't mark a link inside reading text:
+    /// violet-600 is 2.93:1 against `ink` body text and 1.04:1 against a quote's `muted` (3:1 is the
+    /// floor for a colour-only link), and no violet clears 3:1 against `ink` while staying 4.5:1 on
+    /// white. This supersedes plan 8 Task 4's disclosed tweak, which took the underline off.
     private func styleLinks(_ attributed: inout AttributedString) {
         let linkRanges = attributed.runs.filter { $0.link != nil }.map(\.range)
         for range in linkRanges {
             attributed[range].foregroundColor = StashColor.violet600
-            attributed[range].underlineStyle = nil
+            attributed[range].underlineStyle = Self.linkUnderline
         }
     }
 }
