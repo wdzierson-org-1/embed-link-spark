@@ -13,7 +13,9 @@ import StashKit
 /// `detail.autosave.error` in `StashColor.destructive` instead; the unsaved draft (title/
 /// description/notes text/location — whichever field failed) is always left exactly as typed, and
 /// (plan 15) it is already queued in `PendingEdits`, so closing the sheet can't lose it. The NEXT
-/// successful save on any field — or the queue delivering it — clears this back to `.saved`.
+/// successful save on any field clears this back to `.saved`, and so does everything that failed
+/// since then landing some other way: a flush or a later write delivering it, or a server row the
+/// sheet adopts already holding it (`ItemDetailView.settleSaveCaption`; batch B fix round 1).
 enum SaveStatus: Equatable {
     case idle, saving, saved
     case failed(String)
@@ -43,6 +45,9 @@ enum DetailEditorFactory {
     private static var patcher: ItemPatching {
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
+        if let failures = UITestWriteFailures.shared {
+            return FailingItemPatcher(failures: failures)
+        }
         if arguments.contains("--uitest-stall-item-writes") {
             return StalledItemPatcher()
         }
@@ -120,6 +125,67 @@ private struct SlowItemPatcher: ItemPatching {
         try await real.suggestTags(title: title, content: content, description: description, available: available)
     }
 }
+
+/// `--uitest-fail-item-writes <item id> <n>` (UI tests only, compiled out of Release): the first
+/// `n` PATCHes of that item fail at once, as offline, and every later one really goes out — a link
+/// that drops and comes back between two writes. `LibraryDetailUITests` fails a note's save and a
+/// share this way, and lets the flush the failed share starts through (batch B fix round 1, review
+/// I-1). Every other item, and every read, delete and tag call, is untouched.
+private struct FailingItemPatcher: ItemPatching {
+    private let real = SupabaseItemPatcher()
+    let failures: UITestWriteFailures
+
+    func patch(itemId: UUID, patch: ItemPatch) async throws -> Item {
+        if failures.failsNextWrite(of: itemId) { throw URLError(.notConnectedToInternet) }
+        return try await real.patch(itemId: itemId, patch: patch)
+    }
+
+    func currentAttributes(itemId: UUID) async throws -> ItemAttributes? {
+        try await real.currentAttributes(itemId: itemId)
+    }
+
+    func deleteItemCascade(itemId: UUID) async throws { try await real.deleteItemCascade(itemId: itemId) }
+    func itemTags(itemId: UUID) async throws -> [StashTag] { try await real.itemTags(itemId: itemId) }
+    func addTag(named: String, userId: UUID, itemId: UUID) async throws {
+        try await real.addTag(named: named, userId: userId, itemId: itemId)
+    }
+    func removeTag(tagId: UUID, itemId: UUID) async throws { try await real.removeTag(tagId: tagId, itemId: itemId) }
+    func suggestTags(title: String, content: String, description: String, available: [String]) async throws -> [String] {
+        try await real.suggestTags(title: title, content: content, description: description, available: available)
+    }
+}
+
+/// `--uitest-fail-item-writes`' budget: one count for the whole app, read from the launch arguments
+/// once, because every editor the app makes (each sheet's, the app-scope flusher's) builds its own
+/// patcher, and the writes to fail are counted across all of them.
+private final class UITestWriteFailures: @unchecked Sendable {
+    static let shared: UITestWriteFailures? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--uitest-fail-item-writes"), index + 2 < arguments.count,
+              let itemId = UUID(uuidString: arguments[index + 1]), let count = Int(arguments[index + 2])
+        else { return nil }
+        return UITestWriteFailures(itemId: itemId, count: count)
+    }()
+
+    private let itemId: UUID
+    private let lock = NSLock()
+    private var remaining: Int
+
+    private init(itemId: UUID, count: Int) {
+        self.itemId = itemId
+        remaining = count
+    }
+
+    /// Whether this write of `itemId` fails: one of the item's first `count` writes.
+    func failsNextWrite(of itemId: UUID) -> Bool {
+        guard itemId == self.itemId else { return false }
+        return lock.withLock {
+            guard remaining > 0 else { return false }
+            remaining -= 1
+            return true
+        }
+    }
+}
 #endif
 
 /// Everything one open detail sheet saves through — built ONCE per sheet (plan 15, L9). These used
@@ -153,6 +219,10 @@ final class DetailSheetServices: ObservableObject {
     /// toggle or transcription (which bump the generation) can never leave "Saving…" stuck.
     var savesInFlight = 0
     var lastSaveFailed = false
+    /// The saves that failed since the last one that worked — what "Couldn't save — try again."
+    /// reports (batch B fix round 1, review I-1). Its values stay queued, so a later write can
+    /// deliver them; once every one has landed, the error goes (`settleSaveCaption`).
+    var failedSaves: [FailedSave] = []
     /// Set when the sheet goes away: from then on its debounced autosaves stay quiet and the
     /// dismiss-time journal + flush own anything unsaved (plan 15, H5).
     var isClosed = false
@@ -395,6 +465,13 @@ struct ItemDetailView: View {
             if transcriptSettled, updated.pageBody == nil, !TranscriptionActivity.shared.isRunning(item.id) {
                 Task { await loadDetailIfNeeded(force: true) }
             }
+        }
+        // A write of this item landed (batch B fix round 1, review I-1): a flush whose rows this
+        // sheet's store never hands it (the app's refresh, under an Ask citation sheet) can deliver a
+        // save that failed in front of the user, and its error must go.
+        .onReceive(NotificationCenter.default.publisher(for: .stashPendingEditDelivered)) { note in
+            guard note.userInfo?["itemId"] as? UUID == item.id else { return }
+            settleSaveCaption()
         }
         // Leaving the foreground with the sheet still open (app switcher, lock, Control Center):
         // queue what's unsaved now. `.inactive` too — a kill from the app switcher isn't
@@ -830,12 +907,41 @@ struct ItemDetailView: View {
             }
             outcome = DetailSaveOutcome(sheetSave)
         }
+        if outcome == .failed {
+            services.failedSaves.append(FailedSave(patch: patch, capturedAt: capturedAt))
+        } else {
+            services.failedSaves.removeAll()
+        }
         services.lastSaveFailed = outcome == .failed
         services.savesInFlight -= 1
         if services.savesInFlight == 0 {
             saveStatus = services.lastSaveFailed ? .failed("Couldn't save — try again.") : .saved
+            // The sheet's server row may hold it already: a realtime echo of this PATCH whose
+            // response was lost (batch B fix round 1).
+            settleSaveCaption()
         }
         return outcome
+    }
+
+    /// "Couldn't save — try again." reports the saves that failed since the last one that worked
+    /// (`services.failedSaves`). Once every one of them has landed, the error has nothing left to
+    /// report, and the caption goes back to "Changes saved automatically" (batch B fix round 1,
+    /// review I-1). Landed means a flush or a later write delivered each field — the sheet's own
+    /// Sharing flush, the app's refresh — or the sheet's last server row already holds it: a realtime
+    /// echo of a PATCH whose response was lost (`DetailFieldEdits.haveLanded`). Checked wherever
+    /// that can change: as a save fails, as a row is adopted, and as the queue says a write of the
+    /// item landed (`.stashPendingEditDelivered`).
+    ///
+    /// It used to be checked only in `adopt`, for "nothing left queued for the item". A flush hands
+    /// its row to `adopt` before it updates the queue's entry, so the error stayed up over a note the
+    /// flush had just delivered, with the box empty under it, and nothing checked again.
+    private func settleSaveCaption() {
+        guard case .failed = saveStatus, services.savesInFlight == 0,
+              DetailFieldEdits.haveLanded(services.failedSaves, snapshot: snapshot, queue: services.pendingEdits)
+        else { return }
+        services.failedSaves.removeAll()
+        services.lastSaveFailed = false
+        saveStatus = .saved
     }
 
     /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
@@ -1256,41 +1362,37 @@ struct ItemDetailView: View {
     /// everything the queue had delivered when the row is ADOPTED (`services.sharingKnownThrough`,
     /// for `setPublic`'s failure). That is an approximation (batch B, 4e re-review 2): the ledger
     /// counts deliveries, not when a row was read, so one that lands between the row's read and this
-    /// call counts as seen though the row predates it. The window is about one round trip wide. In
-    /// it, a failed share can be left on with no error over an item a queued un-share made private;
-    /// nothing publishes it — the server stays private — but the user is told nothing. Closing it
-    /// would need a delivery number on every row.
+    /// call counts as seen though the row predates it. The window is normally about one round trip
+    /// wide. For the row a sheet opened on it can be longer (fix round 1, review m-3b, by reading):
+    /// an Ask citation sheet's own saves and flushes update only its own store, and a library row
+    /// stays the server's copy from before a delivery while other fields of the item are still
+    /// queued. In it, a failed share can be left on with no error over an item a queued un-share
+    /// made private; nothing publishes it — the server stays private — but the user is told nothing.
+    /// Closing it would need a delivery number on every row.
     private func adopt(_ incoming: Item, fields: Item? = nil, isServerRow: Bool = true) {
         let next = fields ?? fieldEdits.adopting(incoming)
         snapshot = incoming
         item = next
         if isServerRow { services.sharingKnownThrough = services.pendingEdits.deliveryCount }
         reconcileNotesDraft(with: incoming)
-        // A failed save the queue has since delivered (e.g. flushed on foreground) is no longer
-        // failed — the caption shouldn't keep saying so.
-        if case .failed = saveStatus, services.savesInFlight == 0, unconfirmedPatch(closing: true).patch.isEmpty,
-           services.pendingEdits.edit(for: item.id) == nil {
-            services.lastSaveFailed = false
-            saveStatus = .saved
-        }
+        // A failed save this row — or the queue — has since delivered is no longer failed.
+        settleSaveCaption()
     }
 
-    /// Keeps the notes draft honest when the server's content catches up with it: a plain draft the
-    /// server now holds (`incoming`) counts as saved. A rich note's text leaves the box once the
-    /// document the sheet SHOWS (`item.content`, already folded in by the caller) is one it was
-    /// queued as — the journal's draft or a failed save (`RichNoteBox.Ledger.reconcile`; batch B).
-    /// Never `incoming`'s document: a sheet opened on a queued note keeps its own copy over the row,
-    /// and text taken off the box then was in neither place the next note is built from, so that
-    /// note, appended to the sheet's copy, replaced the server's document.
+    /// Keeps the notes draft honest when the server's content catches up with it, once the caller
+    /// has folded the row into the fields: a plain draft the server now holds counts as saved, and a
+    /// rich note's text leaves the box once the document the sheet SHOWS is one it was queued as —
+    /// the journal's draft or a failed save (batch B). Both choices are StashKit's
+    /// (`RichNoteBox.Ledger.adopting`), handed the row as it arrived and the fields as they now
+    /// stand (fix round 1, review m-2). Reading the row's document for a rich note lost one: a sheet
+    /// opened on a queued note keeps its own copy over the row, and the next note, appended to that
+    /// copy, replaced the server's document.
     private func reconcileNotesDraft(with incoming: Item) {
         let notes = services.notesModel
-        if notes.isRich {
-            guard let box = services.richNote.reconcile(shown: item.content, box: notes.draft) else { return }
-            notes.draft = box
-            notes.savedDraft = ""
-        } else if notes.draft != notes.savedDraft, (incoming.content ?? "") == notes.draft {
-            notes.savedDraft = notes.draft
-        }
+        let next = services.richNote.adopting(incoming, shown: item, isRich: notes.isRich,
+                                              notes: NotesDraftState(draft: notes.draft, savedDraft: notes.savedDraft))
+        if next.draft != notes.draft { notes.draft = next.draft }
+        if next.savedDraft != notes.savedDraft { notes.savedDraft = next.savedDraft }
     }
 
     @MainActor

@@ -2,6 +2,16 @@ import Foundation
 import os.log
 import Supabase
 
+public extension Notification.Name {
+    /// Posted (on the main actor) every time a write of an item lands — a flush, or a detail sheet's
+    /// own save through the queue — once the queue's delivered ledger holds it. `userInfo["itemId"]`
+    /// is the item's `UUID`. Batch B fix round 1 (review I-1): an open detail sheet settles its
+    /// footer's "Couldn't save — try again." on it. A flush whose rows its store never hands it (the
+    /// app's refresh, under an Ask citation sheet) can deliver a save that failed in front of the
+    /// user, and nothing else would tell the sheet.
+    static let stashPendingEditDelivered = Notification.Name("it.gostash.stash.pendingEditDelivered")
+}
+
 /// One field of a queued edit: the value the user left, and when it was read from the editor.
 /// `capturedAt` is the latest-wins key — a value captured later always replaces an earlier one,
 /// whatever order the two are recorded in.
@@ -376,6 +386,15 @@ public final class PendingEdits {
         return SheetSave(item: outcome.item, patch: outcome.patch, serverHolds: outcome.context)
     }
 
+    /// What of `patch` (captured at `capturedAt`) no write that landed this session has put on the
+    /// server for `itemId` with that capture or a later one: the fields still to be delivered, as a
+    /// detail sheet's save checks at its turn (`send`). A field delivered with a later value counts
+    /// as delivered: what the user has moved on to is on the server. Batch B fix round 1 (review
+    /// I-1): `DetailFieldEdits.haveLanded` asks this of the saves the footer's error reports.
+    public func undelivered(_ patch: ItemPatch, capturedAt: Date, itemId: UUID) -> ItemPatch {
+        unsuperseded(patch, itemId: itemId, capturedAt: capturedAt).kept
+    }
+
     /// `patch`, captured at `capturedAt`, at its turn: `kept`, without each field a landed write
     /// already put on the server with that capture or a later one — and `serverHolds`, each of the
     /// patch's fields as the server holds it once `kept` lands: that write's value for each field
@@ -410,7 +429,8 @@ public final class PendingEdits {
     /// A write of `patch` — its fields' values captured as in `captures` — just landed: remembers,
     /// per field, the newest value the server now holds, its capture, and where the delivery stands
     /// in the running count (`deliveryCount`). Called inside the item's write slot, so the next
-    /// write to the item sees it.
+    /// write to the item sees it. Then posts `.stashPendingEditDelivered` for the item (batch B fix
+    /// round 1).
     private func noteDelivered(_ itemId: UUID, patch: ItemPatch, captures: PendingEdit) {
         deliveryCount += 1
         let sequence = deliveryCount
@@ -428,6 +448,7 @@ public final class PendingEdits {
         landed.isPublic = newest(landed.isPublic, patch.isPublic, captures.isPublic?.capturedAt)
         landed.attributes = newest(landed.attributes, patch.attributes, captures.attributes?.capturedAt)
         delivered[itemId] = landed
+        NotificationCenter.default.post(name: .stashPendingEditDelivered, object: nil, userInfo: ["itemId": itemId])
     }
 
     // MARK: - Flush

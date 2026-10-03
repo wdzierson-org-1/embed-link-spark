@@ -1613,64 +1613,31 @@ final class DetailFieldEditsTests: XCTestCase {
 
     // MARK: - Overlapping rich-note saves deliver each note once (4e re-review)
 
-    /// One rich-note save the test has started: the box's text it took and the notes box's
-    /// removal record as it took it (`ItemDetailView.flushNotes`).
-    private struct RichSave {
-        let typed: String
-        let removedAtSave: String
-        let capturedAt: Date
-        let task: Task<SheetSave, Error>
-    }
-
-    /// `flushNotes`, Done: the box's text appended to the sheet's document and saved through the
-    /// queue — recorded first, then sent.
-    private func startRichSave(box: String, removed: String, sheet: Sheet, sheets: ItemEditor) -> RichSave {
-        let document = appendNoteParagraph(to: sheet.local.content, note: box.trimmingCharacters(in: .whitespacesAndNewlines))
-        let at = queue.captureTime()
-        queue.record(itemId: sheet.local.id, patch: ItemPatch(content: document), capturedAt: at)
-        let itemId = sheet.local.id
-        let task = Task { try await self.queue.send(ItemPatch(content: document), capturedAt: at, itemId: itemId, editor: sheets) }
-        return RichSave(typed: box, removedAtSave: removed, capturedAt: at, task: task)
-    }
-
-    /// `flushNotes`' bookkeeping once that save is saved: what of its text is still at the box's
-    /// start leaves the box (`RichNoteBox.landing`), and the removal is recorded.
-    private func boxAfterLanding(of save: RichSave, box: inout String, removed: inout String) {
-        let next = RichNoteBox.landing(of: save.typed, removedSince: String(removed.dropFirst(save.removedAtSave.count)),
-                                       box: box)
-        box = next.box
-        removed += next.removed
-    }
-
     /// 4e re-review (pre-existing, plan 15): two overlapping rich-note saves. Done with "abc" on a
     /// slow link; " def" typed; Done again while the first is on its way — that save carries "abc
     /// def" on the same base document. "abc" lands and leaves the box, "def" left; then "abc def"
     /// lands, but its removal — the whole "abc def" — no longer matched the box, so "def" stayed,
     /// and the next Done (or the close's journal) appended it a second time. A landing removes what
-    /// of its text is still at the box's start, after what earlier landings took.
+    /// of its text is still at the box's start, after what earlier landings took. Driven through
+    /// the bookkeeping the sheet ships (`RichNoteBox.Ledger`; batch B fix round 1, review m-1).
     func testTwoOverlappingRichNoteSavesDeliverTheNotesTextOnce() async throws {
         let row = richRow()
         let (server, sheets, _) = slowLink([row])
-        var sheet = open(row)
-        var box = "abc"
-        var removed = ""
-        let first = startRichSave(box: box, removed: removed, sheet: sheet, sheets: sheets)
+        let n = RichNotes(open(row))
+        n.box = "abc"
+        let first = try XCTUnwrap(done(n, editor: sheets))
         await waitUntil { server.heldCount == 1 }
-        box = "abc def"                                                  // typed while "abc" is on its way
-        let second = startRichSave(box: box, removed: removed, sheet: sheet, sheets: sheets)
+        n.box = "abc def"                                                // typed while "abc" is on its way
+        let second = try XCTUnwrap(done(n, editor: sheets))
         await settle()
 
         server.gated = false
         server.release()
-        let firstSent = try await first.task.value
-        landInCitationSheet(firstSent, capturedAt: first.capturedAt, isNewest: false, in: &sheet)
-        if DetailSaveOutcome(firstSent).isSaved { boxAfterLanding(of: first, box: &box, removed: &removed) }
-        let secondSent = try await second.task.value
-        landInCitationSheet(secondSent, capturedAt: second.capturedAt, isNewest: true, in: &sheet)
-        if DetailSaveOutcome(secondSent).isSaved { boxAfterLanding(of: second, box: &box, removed: &removed) }
-        XCTAssertEqual(box, "", "Every character the saves carried has left the box")
+        await finish(first, isNewest: false, in: n)
+        await finish(second, isNewest: true, in: n)
+        XCTAssertEqual(n.box, "", "Every character the saves carried has left the box")
 
-        try await addNote(box, to: sheet, server: server, sheets: sheets)   // the next Done: nothing to add
+        await doneAndWait(n, editor: sheets)                             // the next Done: nothing to add
         XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "abc def"], "Each note once")
     }
 
@@ -1679,44 +1646,38 @@ final class DetailFieldEditsTests: XCTestCase {
     /// its way), and, once "abc" has landed, the box's "def" (Done again). The landing of "abc"
     /// kept the sheet's document as it was — another note save was still queued — so the third save
     /// was built without "abc", and it landed last: "abc" was deleted from the server. A landed
-    /// note document is the sheet's from then on, a queued one or not.
+    /// note document is the sheet's from then on, a queued one or not. Driven through the shipped
+    /// bookkeeping, as above.
     func testOverlappingNoteSavesInASheetOpenedOnAQueuedDocumentNeverLoseANote() async throws {
         let row = richRow()
         queue.record(itemId: row.id, patch: ItemPatch(content: appendNoteParagraph(to: row.content, note: "offline")),
                      capturedAt: queue.captureTime())                    // closed offline: still queued
         let (server, sheets, _) = slowLink([row])
-        var sheet = open(row)
-        XCTAssertEqual(paragraphs(sheet.local.content), ["first", "offline"], "precondition: the queued note shows")
-        var box = "abc"
-        var removed = ""
-        let first = startRichSave(box: box, removed: removed, sheet: sheet, sheets: sheets)
+        let n = RichNotes(open(row))
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "offline"], "precondition: the queued note shows")
+        n.box = "abc"
+        let first = try XCTUnwrap(done(n, editor: sheets))
         await waitUntil { server.heldCount == 1 }
-        box = "abc def"
-        let second = startRichSave(box: box, removed: removed, sheet: sheet, sheets: sheets)
+        n.box = "abc def"
+        let second = try XCTUnwrap(done(n, editor: sheets))
         await settle()
 
         server.release()                                                 // "abc" lands; "abc def" is held next
-        let firstSent = try await first.task.value
-        landInCitationSheet(firstSent, capturedAt: first.capturedAt, isNewest: false, in: &sheet)
-        if DetailSaveOutcome(firstSent).isSaved { boxAfterLanding(of: first, box: &box, removed: &removed) }
-        XCTAssertEqual(paragraphs(sheet.local.content), ["first", "offline", "abc"], "The sheet shows the landed document")
-        XCTAssertEqual(box, "def")
-        let third = startRichSave(box: box, removed: removed, sheet: sheet, sheets: sheets)   // Done a third time
+        await finish(first, isNewest: false, in: n)
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "offline", "abc"], "The sheet shows the landed document")
+        XCTAssertEqual(n.box, "def")
+        let third = try XCTUnwrap(done(n, editor: sheets))               // Done a third time
         await waitUntil { server.heldCount == 1 }
         await settle()
 
         server.gated = false
         server.release()
-        let secondSent = try await second.task.value
-        landInCitationSheet(secondSent, capturedAt: second.capturedAt, isNewest: false, in: &sheet)
-        if DetailSaveOutcome(secondSent).isSaved { boxAfterLanding(of: second, box: &box, removed: &removed) }
-        let thirdSent = try await third.task.value
-        landInCitationSheet(thirdSent, capturedAt: third.capturedAt, isNewest: true, in: &sheet)
-        if DetailSaveOutcome(thirdSent).isSaved { boxAfterLanding(of: third, box: &box, removed: &removed) }
+        await finish(second, isNewest: false, in: n)
+        await finish(third, isNewest: true, in: n)
 
         XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "offline", "abc", "def"], "No note lost, none twice")
-        XCTAssertEqual(paragraphs(sheet.local.content), ["first", "offline", "abc", "def"], "The sheet shows it")
-        XCTAssertEqual(box, "", "The box let go of everything saved")
+        XCTAssertEqual(paragraphs(n.sheet.local.content), ["first", "offline", "abc", "def"], "The sheet shows it")
+        XCTAssertEqual(n.box, "", "The box let go of everything saved")
     }
 
     // MARK: - A rich note's text leaves the box once the sheet shows it, in any order (batch B)
@@ -2016,6 +1977,191 @@ final class DetailFieldEditsTests: XCTestCase {
         server.error = nil
         await doneAndWait(n, editor: sheets)
         XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "abc", "def"], "Each note once")
+    }
+
+    // MARK: - The notes box reads the document the sheet shows, in StashKit (batch B fix round 1, review m-2)
+
+    /// A rich box after a row is folded into a sheet that keeps its own copy of the document (one opened on a queued
+    /// note): the row's document holds the journaled "abc", the sheet's doesn't, so the box keeps it. The view used to
+    /// make this choice itself, one innocent edit away from reading the row it was handed: "abc" then left the box
+    /// into neither place the next note is built from (`testAJournaledRichNoteStaysInTheBox…`).
+    func testARichBoxIsReconciledWithTheDocumentTheSheetShowsNotTheRowItWasHanded() {
+        var ledger = RichNoteBox.Ledger()
+        let own = appendNoteParagraph(to: richRow().content, note: "offline")      // the sheet's copy
+        let journaled = appendNoteParagraph(to: own, note: "abc")
+        ledger.journaled("abc", document: journaled)
+        var incoming = richRow()
+        incoming.content = journaled
+        var shown = incoming
+        shown.content = own
+        let kept = ledger.adopting(incoming, shown: shown, isRich: true, notes: NotesDraftState(draft: "abc", savedDraft: ""))
+        XCTAssertEqual(kept, NotesDraftState(draft: "abc", savedDraft: ""), "Not in the document the sheet shows: it stays in the box")
+        shown.content = journaled
+        XCTAssertEqual(ledger.adopting(incoming, shown: shown, isRich: true, notes: kept), NotesDraftState(draft: "", savedDraft: ""),
+                       "Once the sheet shows it, it leaves the box")
+    }
+
+    /// The plain note's half of the same function: a plain draft the SERVER holds (the row) counts as saved, whatever
+    /// copy of the note the sheet shows.
+    func testAPlainDraftTheRowHoldsCountsAsSavedWhateverTheSheetShows() {
+        var ledger = RichNoteBox.Ledger()
+        var incoming = textRow()
+        incoming.content = "abc"
+        var shown = incoming
+        shown.content = "offline"
+        XCTAssertEqual(ledger.adopting(incoming, shown: shown, isRich: false, notes: NotesDraftState(draft: "abc", savedDraft: "offline")),
+                       NotesDraftState(draft: "abc", savedDraft: "abc"))
+    }
+
+    // MARK: - The save error clears once what it reports has landed (batch B fix round 1, review I-1)
+
+    /// A sheet's save of `patch`, recorded first (write-ahead) and then refused at the link: what the footer's
+    /// "Couldn't save — try again." reports.
+    private func failSave(_ patch: ItemPatch, itemId: UUID, server: FakeRowServer) async -> FailedSave {
+        let at = queue.captureTime()
+        queue.record(itemId: itemId, patch: patch, capturedAt: at)
+        server.error = URLError(.notConnectedToInternet)
+        _ = try? await queue.send(patch, capturedAt: at, itemId: itemId, editor: onlineEditor(server))
+        server.error = nil
+        return FailedSave(patch: patch, capturedAt: at)
+    }
+
+    /// Values seen from inside a flush's `apply` or a notification (`@MainActor`, so a `@Sendable` closure can write).
+    @MainActor private final class Seen {
+        var values: [Bool] = []
+        var ids: [UUID] = []
+    }
+
+    /// 4e batch B review I-1, trigger A (both sheet kinds): a note's save fails, so "Couldn't save — try again." goes up,
+    /// and a share fails too; the flush `setPublic` then starts gets through and delivers the note. The sheet adopts that
+    /// row inside the flush's `apply`, before the queue updates its entry, and the old check (nothing queued for the item)
+    /// kept the error. Nothing asked again: an Ask citation sheet is never handed a row, and a library sheet's store
+    /// already held the one it adopted. The note was on the server, and the box was empty under the error.
+    func testTheSaveErrorClearsWhenAFailedSharesFlushDeliversTheFailedNote() async throws {
+        let row = richRow()
+        let online = FakeRowServer(rows: [row])
+        var sheet = open(row)
+        let failed = await failSave(ItemPatch(content: appendNoteParagraph(to: sheet.local.content, note: "abc")),
+                                    itemId: row.id, server: online)
+        sheet.local.isPublic = true
+        _ = failToggle(to: true, noteBefore: nil, knownDeliveries: queue.deliveryCount, in: &sheet, at: 1)
+        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue),
+                       "precondition: nothing has delivered the note yet")
+
+        let seen = Seen()
+        await queue.flush(editor: onlineEditor(online), itemIds: [row.id]) { incoming in
+            seen.values.append(DetailFieldEdits.haveLanded([failed], snapshot: incoming, queue: self.queue))   // `adopt`
+        }
+        XCTAssertEqual(seen.values, [true], "Inside the flush's apply, as the sheet adopts its row, the note is on the server")
+        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue),
+                      "…and so it is for a sheet that never sees the row (an Ask citation sheet), once the queue has delivered it")
+    }
+
+    /// Trigger B, a library sheet: the note's PATCH reaches the server but its response is lost, and the row's realtime
+    /// echo reaches the sheet before the save reports its failure. The sheet's last server row holds the note when the
+    /// error would go up, so it shouldn't: the write-ahead copy is still queued, and the old check waited for the queue.
+    func testTheSaveErrorNeverStaysWhenTheSheetsServerRowAlreadyHoldsTheFailedNote() async throws {
+        let row = richRow()
+        let online = FakeRowServer(rows: [row])
+        var sheet = open(row)
+        let document = appendNoteParagraph(to: sheet.local.content, note: "abc")
+        online.update(row.id) { $0.content = document }                  // the PATCH lands; its response is lost
+        adopt(try XCTUnwrap(online.row(row.id)), in: &sheet)              // the realtime echo, through the store
+        let failed = await failSave(ItemPatch(content: document), itemId: row.id, server: online)
+        XCTAssertNotNil(queue.edit(for: row.id)?.content, "precondition: the write-ahead copy is still queued")
+        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue),
+                      "The sheet's last server row holds the note: no error")
+    }
+
+    /// A guard: a failed note nothing has delivered keeps its error.
+    func testTheSaveErrorStaysWhileTheFailedNoteIsOnlyQueued() async {
+        let row = richRow()
+        let sheet = open(row)
+        let failed = await failSave(ItemPatch(content: appendNoteParagraph(to: sheet.local.content, note: "abc")),
+                                    itemId: row.id, server: FakeRowServer(rows: [row]))
+        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue))
+    }
+
+    /// The error reports every save that failed since the last one that worked, not only the newest: a title save
+    /// fails, then a note save. The note's echo shows it on the server, but the title is only queued, so the error stays
+    /// until a flush delivers the title too.
+    func testTheSaveErrorWaitsForEverySaveThatFailedSinceTheLastOneThatWorked() async throws {
+        let row = richRow()
+        let online = FakeRowServer(rows: [row])
+        var sheet = open(row)
+        let title = await failSave(ItemPatch(title: "Standup notes"), itemId: row.id, server: online)
+        let document = appendNoteParagraph(to: sheet.local.content, note: "abc")
+        online.update(row.id) { $0.content = document }                  // the note's PATCH lands; its response is lost
+        adopt(try XCTUnwrap(online.row(row.id)), in: &sheet)
+        let note = await failSave(ItemPatch(content: document), itemId: row.id, server: online)
+        XCTAssertFalse(DetailFieldEdits.haveLanded([title, note], snapshot: sheet.snapshot, queue: queue),
+                       "The title is still only queued")
+        await queue.flush(editor: onlineEditor(online), itemIds: [row.id])
+        XCTAssertTrue(DetailFieldEdits.haveLanded([title, note], snapshot: sheet.snapshot, queue: queue),
+                      "Both are on the server once the flush delivered the title")
+    }
+
+    /// A newer value of the same field, delivered, settles a save of it that failed: "Y"'s autosave failed, "Z" was
+    /// typed and journaled as the app left the foreground, and the refresh delivered "Z". The error was about a value
+    /// the user had moved on from; the sheet (an Ask citation sheet) never saw the row.
+    func testTheSaveErrorClearsWhenANewerValueOfItsFieldIsDelivered() async throws {
+        let row = textRow(title: "X")
+        let online = FakeRowServer(rows: [row])
+        let failed = await failSave(ItemPatch(title: "Y"), itemId: row.id, server: online)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Z"), capturedAt: queue.captureTime())   // the journal
+        await queue.flush(editor: onlineEditor(online), itemIds: [row.id])
+        XCTAssertEqual(online.row(row.id)?.title, "Z", "precondition: the newer value is on the server")
+        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: row, queue: queue))
+    }
+
+    /// Honest the other way round: an edit the queue gave up on (refused by the server `maxRejections` times, then
+    /// dropped with an error log) never landed, so its error stays. The old check, which waited only for the queue to be
+    /// empty for the item, cleared it once the edit was dropped.
+    func testTheSaveErrorStaysWhenTheQueueGivesUpOnTheFailedEdit() async throws {
+        var clock = t0
+        let dropping = PendingEdits(userId: userId, directory: directory.appendingPathComponent("dropping", isDirectory: true),
+                                    now: { clock }, session: FakeSession(signedIn: userId))
+        let row = textRow(title: "X")
+        let online = FakeRowServer(rows: [row])
+        let at = dropping.captureTime()
+        dropping.record(itemId: row.id, patch: ItemPatch(title: "Y"), capturedAt: at)
+        online.error = NSError(domain: "PostgREST", code: 400)             // refused, not a dead link
+        for _ in 0..<PendingEdits.maxRejections where dropping.edit(for: row.id) != nil {
+            await dropping.flush(editor: onlineEditor(online), itemIds: [row.id])
+            clock = clock.addingTimeInterval(PendingEdits.longestBackoff + 1)
+        }
+        XCTAssertNil(dropping.edit(for: row.id), "precondition: the queue gave the edit up")
+        XCTAssertFalse(DetailFieldEdits.haveLanded([FailedSave(patch: ItemPatch(title: "Y"), capturedAt: at)],
+                                                   snapshot: row, queue: dropping),
+                       "It never landed: the error stays")
+    }
+
+    /// The queue says when a write of an item has landed, once its delivered ledger holds it, so an open sheet can settle
+    /// its error whatever delivered the write: a flush its store never hands it a row from (an Ask citation sheet and
+    /// the app's refresh), or a save of its own.
+    func testTheQueuePostsEachLandedWriteOfAnItemOnceItsLedgerHoldsIt() async throws {
+        let row = textRow(title: "X")
+        let rowId = row.id
+        let online = FakeRowServer(rows: [row])
+        let seen = Seen()
+        let watched: PendingEdits = queue
+        let titleAt = queue.captureTime()
+        let observer = NotificationCenter.default.addObserver(forName: .stashPendingEditDelivered, object: nil, queue: nil) { note in
+            let id = note.userInfo?["itemId"] as? UUID
+            MainActor.assumeIsolated {
+                if let id { seen.ids.append(id) }
+                seen.values.append(watched.undelivered(ItemPatch(title: "Y"), capturedAt: titleAt, itemId: rowId).isEmpty)
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Y"), capturedAt: titleAt)
+        await queue.flush(editor: onlineEditor(online), itemIds: [row.id])                    // a flush
+        let at = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(description: "Notes"), capturedAt: at)
+        _ = try await queue.send(ItemPatch(description: "Notes"), capturedAt: at, itemId: row.id,
+                                 editor: onlineEditor(online))                                // a sheet's own save
+        XCTAssertEqual(seen.ids, [row.id, row.id], "One post per landed write, naming its item")
+        XCTAssertEqual(seen.values, [true, true], "Each post comes once the delivered ledger holds that write")
     }
 
     // MARK: - What the user just typed is never replaced by a flushed row (4e review M-1)

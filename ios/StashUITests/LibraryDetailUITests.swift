@@ -798,6 +798,80 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertEqual(after, serverTitle, "Closing must not write the title back")
     }
 
+    // MARK: - The save error clears once what it reports has landed (batch B fix round 1)
+
+    /// Review I-1, trigger A, end to end: a rich note's save fails ("Couldn't save — try again."), a
+    /// share fails too, and the flush the failed share starts gets through and delivers the note. The
+    /// error stayed up, though the note was on the server and the box was empty under it: the sheet
+    /// adopted the flush's row before the queue had updated its entry, and nothing checked again.
+    /// `--uitest-fail-item-writes <id> 2`: the note's PATCH and the share's fail, as offline; the
+    /// third, the flush's, goes out. A note added afterwards lands once, after "abc".
+    @MainActor
+    func testTheSaveErrorClearsOnceTheFlushOfAFailedShareDeliversTheFailedNote() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-caption"
+        let first = #"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"first"}]}]}"#
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": first])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password, extraArguments: ["--uitest-fail-item-writes", id, "2"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let box = app.textViews["detail.notes.editor"]
+        XCTAssertTrue(box.waitForExistence(timeout: 10), "Notes box not found")
+        tapUntilFocused(box)
+        box.typeText("abc")
+        app.buttons["detail.dismissKeyboard"].tap()                      // the box lets go: its save (PATCH 1) fails
+        let error = app.staticTexts["detail.autosave.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 10), "precondition: the note's save failed in front of the user")
+
+        let toggle = sharingSwitch(app)
+        A11yScreens.scrollIntoView(app, toggle)
+        toggle.tap()                                                     // the share (PATCH 2) fails; its flush goes out
+        XCTAssertTrue(app.descendants(matching: .any)["detail.public.error"].waitForExistence(timeout: 10),
+                      "precondition: the share failed in front of the user")
+        XCTAssertTrue(waitUntilGone(error, timeout: 6),
+                      "Expected \"Couldn't save — try again.\" gone once the flush delivered the note")
+        XCTAssertTrue(app.staticTexts["detail.autosave"].exists, "Expected the resting caption back")
+        attachScreenshot(named: "batch-b-fr1-caption-cleared")
+        let delivered = try await serverParagraphs(of: id, rest: rest, waitingFor: ["first", "abc"])
+        XCTAssertEqual(delivered, ["first", "abc"], "Expected the flush to have delivered the note")
+        XCTAssertEqual((box.value as? String) ?? "", "", "The delivered note has left the box")
+
+        A11yScreens.scrollIntoView(app, box)
+        tapUntilFocused(box)
+        box.typeText("def")
+        app.buttons["detail.dismissKeyboard"].tap()
+        let notes = try await serverParagraphs(of: id, rest: rest, waitingFor: ["first", "abc", "def"])
+        XCTAssertEqual(notes, ["first", "abc", "def"], "Each note once, in order")
+        let isPublic = try await rest.isPublic(id)
+        XCTAssertFalse(isPublic, "The failed share never reached the server")
+    }
+
+    /// The seeded row's rich note as paragraphs, polled until they are `expected` (up to 15 s): the
+    /// last read either way.
+    private func serverParagraphs(of id: String, rest: P16Rest, waitingFor expected: [String]) async throws -> [String] {
+        var read: [String] = []
+        for _ in 0..<30 {
+            read = Self.paragraphs(try await rest.column("content", of: id))
+            if read == expected { break }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+        return read
+    }
+
+    /// A TipTap document's paragraphs, in order.
+    private static func paragraphs(_ content: String?) -> [String] {
+        guard let data = content?.data(using: .utf8),
+              let document = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let blocks = document["content"] as? [[String: Any]]
+        else { return [] }
+        return blocks.map { (($0["content"] as? [[String: Any]]) ?? []).compactMap { $0["text"] as? String }.joined() }
+    }
+
     // MARK: - Search pill
 
     /// Scrolls the View tab in small slow steps and samples the pill's and the first card's frames

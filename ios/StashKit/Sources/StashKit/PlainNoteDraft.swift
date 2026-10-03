@@ -69,6 +69,18 @@ public enum RichNoteBox {
     }
 }
 
+/// A notes editor's two strings: the draft as the user left it, and what it was last saved as
+/// (`NotesEditorModel.draft`, `.savedDraft`).
+public struct NotesDraftState: Equatable, Sendable {
+    public var draft: String
+    public var savedDraft: String
+
+    public init(draft: String, savedDraft: String) {
+        self.draft = draft
+        self.savedDraft = savedDraft
+    }
+}
+
 extension RichNoteBox {
     /// A note document a detail sheet queued without seeing it land: `typed`, the box's text then,
     /// appended to the document the sheet showed, as `document`. Either the dismiss/background
@@ -98,9 +110,17 @@ extension RichNoteBox {
     ///   undelivered note keeps its own copy over a row (`DetailFieldEdits.adopting`). Text taken
     ///   off the box when only the row held it was in neither place, and the next note, appended to
     ///   the sheet's copy, replaced the server's document (pre-existing for the journal's draft).
-    /// - Every draft is kept until the sheet shows its document, not only the newest: a flush can
-    ///   be delivering an older one while a newer one is queued (pre-existing for the journal).
-    ///   A draft whose document the sheet never shows is never matched, and costs nothing else.
+    /// - Every draft is kept until the sheet shows its document or closes, not only the newest: a
+    ///   flush can be delivering an older one while a newer one is queued (pre-existing for the
+    ///   journal). A draft whose document the sheet never shows is never matched, and costs nothing
+    ///   else.
+    /// - **A match is an exact string match** (fix round 1, review m-3a). `appendNoteParagraph`
+    ///   serializes without sorted keys, so two copies of the same document can differ in key order
+    ///   (the journal's and a failed save's): they are kept as two drafts, and either string the
+    ///   sheet shows matches its own. That holds while `items.content` is TEXT: what a sheet is shown
+    ///   is always one of the exact strings it queued. Anything that re-serializes `content` (a
+    ///   jsonb column, a server-side rewrite) would make every match miss without a word, and the
+    ///   duplication this ledger fixes would come back.
     public struct Ledger: Equatable, Sendable {
         /// Everything taken off the start of the box so far, in order (fix round 2): append-only. A
         /// save notes it as it takes the box's text; when that save lands, what was taken since is
@@ -108,7 +128,7 @@ extension RichNoteBox {
         /// box twice.
         public private(set) var removed = ""
         /// The documents queued from the box that the sheet hasn't shown yet, oldest first; one
-        /// per document.
+        /// per serialized document string (see "A match is an exact string match" above).
         public private(set) var queued: [QueuedDraft] = []
 
         public init() {}
@@ -140,6 +160,25 @@ extension RichNoteBox {
             guard let document, let index = queued.firstIndex(where: { $0.document == document }) else { return nil }
             let draft = queued.remove(at: index)
             return take(draft.typed, removedAt: draft.removedAt, from: box)
+        }
+
+        /// The notes editor once a server row was folded into the sheet: `incoming` as it arrived,
+        /// `shown` the sheet's fields after the merge (`ItemDetailView.adopt`, or a save's carry). The
+        /// one place each kind of note picks the document it reads (batch B fix round 1, review m-2:
+        /// the view picked, and its rich branch had to ignore the row it was handed, so an edit that
+        /// "used the parameter" would have brought a lost note back without failing a test).
+        /// - A RICH note (`isRich`): what of a queued draft's text is still in the box leaves it once
+        ///   the document the sheet SHOWS is one it was queued as (`reconcile(shown:box:)`). Never
+        ///   `incoming`'s: a sheet opened on a queued note keeps its own copy over the row, and text
+        ///   taken off the box then is in neither place the next note is built from.
+        /// - A PLAIN note: a draft the SERVER now holds (`incoming`) counts as saved.
+        public mutating func adopting(_ incoming: Item, shown: Item, isRich: Bool, notes: NotesDraftState) -> NotesDraftState {
+            if isRich {
+                guard let box = reconcile(shown: shown.content, box: notes.draft) else { return notes }
+                return NotesDraftState(draft: box, savedDraft: "")
+            }
+            guard notes.draft != notes.savedDraft, (incoming.content ?? "") == notes.draft else { return notes }
+            return NotesDraftState(draft: notes.draft, savedDraft: notes.draft)
         }
 
         private mutating func keep(_ draft: QueuedDraft) {

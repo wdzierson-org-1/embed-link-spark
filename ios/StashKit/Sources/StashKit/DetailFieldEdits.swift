@@ -24,6 +24,20 @@ public enum DetailSaveOutcome: Equatable, Sendable {
     public var isSaved: Bool { self != .failed }
 }
 
+/// A detail-sheet save that FAILED, as the footer's "Couldn't save — try again." reports it: what it
+/// sent and when that was captured (`ItemDetailView.save`; batch B fix round 1, review I-1). Its
+/// values stay queued (write-ahead), so a later write can still deliver them —
+/// `DetailFieldEdits.haveLanded` says when that has happened.
+public struct FailedSave: Equatable, Sendable {
+    public let patch: ItemPatch
+    public let capturedAt: Date
+
+    public init(patch: ItemPatch, capturedAt: Date) {
+        self.patch = patch
+        self.capturedAt = capturedAt
+    }
+}
+
 /// The detail sheet's text fields that the queue-aware rules cover.
 public enum SheetTextField: Hashable, Sendable {
     case title, description, supplementalNote
@@ -296,6 +310,28 @@ public struct DetailFieldEdits {
                                       queue: PendingEdits) -> (snapshot: Item, knownDeliveries: Int) {
         let server = PendingEdit(itemId: snapshot.id, patch: patch, capturedAt: .distantPast).applied(to: snapshot)
         return (server, max(knownDeliveries, queue.deliveryCount))
+    }
+
+    /// Whether every save the footer's error reports (`failed`: those that failed since the last
+    /// one that worked) has landed, as far as the sheet knows: each field each one carried is on the
+    /// server because a write that landed since put it there with that capture or a later one
+    /// (`PendingEdits.undelivered`: the sheet's own Sharing flush, the app's refresh, a later save),
+    /// or because the sheet's last server row (`snapshot`) already holds it — a realtime echo of a
+    /// PATCH whose response was lost, or the row a flush delivered. When it has, the error has
+    /// nothing left to report (batch B fix round 1, review I-1).
+    ///
+    /// The footer used to ask instead whether nothing was left queued for the item, from `adopt`
+    /// only. A flush hands `adopt` its row before it updates the queue's entry, so the error stayed
+    /// up over a note the flush had just delivered — with the box empty under it, inviting a retype.
+    /// And an edit the queue drops undelivered (refused `maxRejections` times) left nothing queued,
+    /// so the error went away though nothing had landed.
+    @MainActor
+    public static func haveLanded(_ failed: [FailedSave], snapshot: Item, queue: PendingEdits) -> Bool {
+        failed.allSatisfy { save in
+            let rest = queue.undelivered(save.patch, capturedAt: save.capturedAt, itemId: snapshot.id)
+            return rest.isEmpty
+                || PendingEdit(itemId: snapshot.id, patch: rest, capturedAt: .distantPast).applied(to: snapshot) == snapshot
+        }
     }
 
     /// `incoming` (a fresher server row — our own save coming back, realtime, the `page_body`
