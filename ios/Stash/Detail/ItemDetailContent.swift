@@ -54,16 +54,32 @@ struct ItemDetailContent: View {
     var onGenerateSummary: () -> Void
 
     #if DEBUG
-    /// `--uitest-detail-busy-actions` (UI tests only, compiled out of Release): "Transcribe again"
-    /// and "Generate summary" draw their busy state — the progress label — with no job behind it,
-    /// so a test can sample the labels' pixels (2b review M-2, recipe R-2: a real
-    /// `summarize-content` call can answer, or fail, within a frame).
-    private static let drawsBusyActions = ProcessInfo.processInfo.arguments.contains("--uitest-detail-busy-actions")
-    #else
-    private static let drawsBusyActions = false
+    /// `--uitest-detail-busy-on-tap` (UI tests only, compiled out of Release): a tap on "Transcribe
+    /// again" or "Generate summary" turns it busy (its progress label) and keeps it busy, with no job
+    /// behind it. So a test can watch the idle → busy swap and sample the busy label's pixels (2b
+    /// review M-2, recipe R-2). A real `summarize-content` call answers, or fails, within about a
+    /// frame.
+    private static let busyOnTap = ProcessInfo.processInfo.arguments.contains("--uitest-detail-busy-on-tap")
+    @State private var uitestBusyActions: Set<String> = []
     #endif
-    private var showsTranscribing: Bool { isTranscribing || Self.drawsBusyActions }
-    private var showsGeneratingSummary: Bool { isGeneratingSummary || Self.drawsBusyActions }
+
+    /// DEBUG: whether `--uitest-detail-busy-on-tap` has turned the inline action `identifier` busy.
+    private func uitestShowsBusy(_ identifier: String) -> Bool {
+        #if DEBUG
+        return uitestBusyActions.contains(identifier)
+        #else
+        return false
+        #endif
+    }
+
+    /// What an inline action's tap runs: its own action, or (DEBUG, `--uitest-detail-busy-on-tap`)
+    /// a stand-in that only marks it busy.
+    private func uitestAction(_ identifier: String, _ action: @escaping () -> Void) -> () -> Void {
+        #if DEBUG
+        if Self.busyOnTap { return { _ = uitestBusyActions.insert(identifier) } }
+        #endif
+        return action
+    }
 
     private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
     private var tabs: [ContentTab] { config.tabs.filter { $0.key != .notes } }
@@ -146,46 +162,41 @@ struct ItemDetailContent: View {
     /// never claimed real speaker identities and no longer mentions speakers at all: as of
     /// 2026-09-29 the server does not diarize, so the button only promises a rebuild.
     ///
-    /// Plan 16: an inline action — `inlineButton` (Medium 15) with a 44 pt target (`.stashPlain`).
+    /// Plan 16: an inline action — `inlineButton` (Medium 15) with a 44 pt target (`InlineActionStyle`).
     /// Busy, its label is the progress ("Transcribing…"), which people read: `busyInlineAction`.
     private var transcribeButton: some View {
         // Identifier deliberately unchanged: stable UI-test contract. A mild misnomer
         // since the server no longer diarizes — renaming churns StashUITests for no user benefit.
-        busyInlineAction("Transcribe again", busy: "Transcribing…", isBusy: showsTranscribing,
+        busyInlineAction("Transcribe again", busy: "Transcribing…", isBusy: isTranscribing,
                          identifier: "detail.transcribeSpeakers", action: onTranscribeWithSpeakers)
     }
 
-    /// An inline action that turns into its own progress while it runs — "Transcribe again" →
-    /// "Transcribing…", "Generate summary" → "Generating summary…" with a small spinner. Idle, a
-    /// violet-600 `inlineButton` with a 44 pt target (`.stashPlain`). Busy, the same disabled button
-    /// — VoiceOver hears "…, dimmed, button" — but drawn as is, in `muted` (5.38:1): `.plain` dims a
-    /// disabled button's label to half (measured #b1b5ba, 2.06:1 — 2b review M-2), and this label
-    /// is the progress people need to read. Same place, same identifier in both states.
-    @ViewBuilder
+    /// An inline action that turns into its own progress while it runs: "Transcribe again" →
+    /// "Transcribing…", "Generate summary" → "Generating summary…" with a small spinner.
+    /// - Idle: violet-600 `inlineButton` text with a 44 pt target.
+    /// - Busy: the same button, disabled, so VoiceOver hears "…, dimmed, button". It is drawn as
+    ///   is, in `muted` (5.38:1). `.plain` would dim a disabled label to half (#b1b5ba, 2.06:1;
+    ///   2b review M-2), and this label is the progress people need to read.
+    /// - ONE `Button` in one style for both states; only its label changes. Two buttons in an
+    ///   `if` were two views, so turning busy replaced the control VoiceOver's cursor was on (2bf
+    ///   review m1). It keeps its place and identifier.
     private func busyInlineAction(_ title: String, busy busyTitle: String, isBusy: Bool, identifier: String,
                                   action: @escaping () -> Void) -> some View {
-        if isBusy {
-            Button(action: action) {
-                HStack(spacing: 6) {
+        let busy = isBusy || uitestShowsBusy(identifier)
+        return Button(action: uitestAction(identifier, action)) {
+            HStack(spacing: 6) {
+                if busy {
                     ProgressView()
                         .controlSize(.mini)
-                    Text(busyTitle)
-                        .stashFont(.inlineButton)
                 }
-            }
-            .buttonStyle(BusyInlineActionStyle())
-            .foregroundStyle(StashColor.muted)
-            .disabled(true)
-            .accessibilityIdentifier(identifier)
-        } else {
-            Button(action: action) {
-                Text(title)
+                Text(busy ? busyTitle : title)
                     .stashFont(.inlineButton)
             }
-            .buttonStyle(.stashPlain)
-            .foregroundStyle(StashColor.violet600)
-            .accessibilityIdentifier(identifier)
         }
+        .buttonStyle(InlineActionStyle())
+        .foregroundStyle(busy ? StashColor.muted : StashColor.violet600)
+        .disabled(busy)
+        .accessibilityIdentifier(identifier)
     }
 
     private var attachmentsSection: some View {
@@ -268,7 +279,7 @@ struct ItemDetailContent: View {
     /// label (an action keeps its name through the flow — DESIGN.md §Voice). Plan 16:
     /// `busyInlineAction` — busy, its progress label stays readable.
     private var generateSummaryButton: some View {
-        busyInlineAction("Generate summary", busy: "Generating summary…", isBusy: showsGeneratingSummary,
+        busyInlineAction("Generate summary", busy: "Generating summary…", isBusy: isGeneratingSummary,
                          identifier: "detail.generateSummary", action: onGenerateSummary)
     }
 
@@ -327,12 +338,17 @@ struct ItemDetailContent: View {
     }
 }
 
-/// A busy inline action's button style: the label exactly as drawn — no disabled dimming, which a
-/// custom `ButtonStyle` never gets (`.plain` halves a disabled label's opacity) — with the same
-/// 44 pt target as `.stashPlain`, so the control keeps its frame between its two states. The
-/// button stays `.disabled(true)`: VoiceOver still hears it dimmed. Only `busyInlineAction` uses it.
-private struct BusyInlineActionStyle: ButtonStyle {
+/// An inline action's button style, idle and busy alike (`busyInlineAction`): the label as drawn,
+/// with `.stashPlain`'s 44 pt target. While enabled, a press dims it, as `.plain`'s does. Disabled
+/// (busy), it isn't dimmed at all: a custom `ButtonStyle` gets no automatic disabled look, whereas
+/// `.plain` halves a disabled label's opacity, and a busy label is the progress people read. The
+/// button itself is still `.disabled`, so VoiceOver hears it dimmed.
+private struct InlineActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.stashMinimumHitTarget()
+        configuration.label
+            .opacity(isEnabled && configuration.isPressed ? 0.4 : 1)
+            .stashMinimumHitTarget()
     }
 }

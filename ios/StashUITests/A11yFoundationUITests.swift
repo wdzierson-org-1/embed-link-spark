@@ -383,8 +383,9 @@ final class A11yFoundationUITests: XCTestCase {
     }
 
     /// Fix wave (M3): `.stashLeading(0.55, role: .reading)` adds 0.55 em of the role's size between
-    /// lines and scales it with the role's text style, like the text — 9.35 pt at Large, 20.35 at
-    /// AX3 — where the old `lineSpacing(14 * 0.55)` constant stayed 7.7 pt at every size.
+    /// lines and scales it with the role's text style, like the text — 9.35 pt at Large — where the
+    /// old `lineSpacing(14 * 0.55)` constant stayed 7.7 pt at every size. 2b fix wave: at the
+    /// accessibility sizes the gap tapers to at most 0.35 em (12.95 pt at AX3; it was 20.35).
     @MainActor
     func testStashLeadingScalesWithTheRolesTextStyle() throws {
         continueAfterFailure = true
@@ -394,9 +395,11 @@ final class A11yFoundationUITests: XCTestCase {
             let none = app.staticTexts["specimen.leading.none"], leading = app.staticTexts["specimen.leading.reading055"]
             XCTAssertTrue(none.exists && leading.exists, "\(variant): leading rows missing")
             let measured = leading.frame.height - none.frame.height
-            let expected = UIFontMetrics(forTextStyle: .body).scaledValue(for: 0.55 * 17, compatibleWith: variant.traits)
+            // The taper keys on SwiftUI's `isAccessibilitySize` (AX1–AX5), so any AX variant expects 0.35.
+            let em: CGFloat = variant.category.contains("Accessibility") ? 0.35 : 0.55
+            let expected = UIFontMetrics(forTextStyle: .body).scaledValue(for: em * 17, compatibleWith: variant.traits)
             print("A11Y leading \(variant) measured=\(Self.fmt(measured)) expected=\(Self.fmt(expected))")
-            XCTAssertEqual(measured, expected, accuracy: 0.5, "\(variant): the line spacing should be 0.55 em of the scaled reading size")
+            XCTAssertEqual(measured, expected, accuracy: 0.5, "\(variant): the line spacing should be \(em) em of the scaled reading size")
         }
     }
 

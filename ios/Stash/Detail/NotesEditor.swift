@@ -134,16 +134,19 @@ struct NotesEditor: View {
     @ScaledMetric(relativeTo: .body) private var maxEditorHeight: CGFloat = 110
 
     /// Plan 16: the note (rendered TipTap, the field, its placeholder) is reading text — the
-    /// `reading` role, 17 pt, was 14 — and the hint and placeholder are `muted` (were `faint`). The
-    /// rendered rich note takes the sheet's reading leading too (`stashLeading(0.55)`, like the
-    /// description and summary around it — 2b review N-6: it was set solid).
+    /// `reading` role, 17 pt, was 14 — and the hint and placeholder are `muted` (were `faint`).
+    ///
+    /// The rendered rich note stays set solid, without the sheet's reading leading (2bf review m2).
+    /// `TipTapRenderer` separates blocks with a blank line, so `stashLeading(0.55)` made each
+    /// paragraph break a 1.75 em blank line: about 59 pt at Large, against 41 solid and 32 between
+    /// the summary's blocks. Per-block rendering with a `blockGap`, as `MarkdownBlocksView` does, is
+    /// deferred.
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if model.isRich, let content = item.content, !content.isEmpty {
                 Text(model.renderedContent(content))
                     .stashFont(.reading)
                     .foregroundStyle(StashColor.ink)
-                    .stashLeading(0.55, role: .reading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("detail.notesText")
             }

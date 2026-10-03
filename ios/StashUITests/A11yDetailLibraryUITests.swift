@@ -394,7 +394,8 @@ final class A11yDetailLibraryUITests: XCTestCase {
     /// three-line "Original Content", both plain reading text. Their heights give the gap between
     /// lines, (h3 − 3·h1) / 2. It is 0.55 em of the scaled reading size at the standard sizes (9.35
     /// pt at Large, 12.1 at xxxLarge) and 0.35 em at the accessibility sizes (12.95 pt at AX3, where
-    /// 0.55 em was 20.35 — a line's pitch 1.77 em): the foundation's taper (2b review).
+    /// 0.55 em was 20.35): the foundation's taper (2b review). Measured at AX3, a line's pitch goes
+    /// from 1.75 em to 1.55.
     @MainActor
     func testDetailReadingLeadingTapersAtAccessibilitySizes() async throws {
         let seeded = try await seedLinkRow("Leading probe", fields: [
@@ -515,9 +516,10 @@ final class A11yDetailLibraryUITests: XCTestCase {
     /// WCAG 1.4.1, Use of Color (2b review; coordinator decision): a link in reading text is
     /// underlined — colour alone can't mark it (violet-600 is 2.93:1 against ink body text and
     /// 1.04:1 against a muted quote). Checked in the pixels, in body text and inside a quote, at
-    /// Large and with Bold Text: under each link's word runs a line in the soft violet underline
-    /// colour (violet-600 at 50 % over white, ≈ #b6ade8), far longer than any stroke edge of a
-    /// violet glyph. The link words have no descenders, so nothing crosses the line.
+    /// Large and with Bold Text: under each link's word runs a line in the shared underline colour
+    /// (`StashColor.linkUnderline`: violet-600 at 80 % over white, ≈ #8a7cd9, 3.52:1), far longer
+    /// than any stroke edge of a violet glyph. The link words have no descenders, so nothing
+    /// crosses the line. The old 50 % underline and a missing one both fail (`isLinkUnderline`).
     @MainActor
     func testLinksInReadingTextAreUnderlined() async throws {
         let seeded = try await seedLinkRow("Link probe", fields: [
@@ -552,7 +554,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
                 XCTAssertTrue(block.exists, "\(variant): no '\(words)' block")
                 let run = pixels.longestRun(in: block.frame, where: ScreenPixels.isLinkUnderline)
                 print("A11Y underline \(variant) '\(words)…': block \(block.frame) · longest underline-colour run "
-                      + "\(String(format: "%.1f", run.points)) pt at y \(String(format: "%.1f", run.y))")
+                      + "\(String(format: "%.1f", run.points)) pt at y \(String(format: "%.1f", run.y)), colour \(run.hex)")
                 if run.points < 30 {
                     failures.append("\(variant) '\(words)…': longest underline-colour run \(run.points) pt")
                 }
@@ -562,13 +564,20 @@ final class A11yDetailLibraryUITests: XCTestCase {
         XCTAssertTrue(failures.isEmpty, "Links in reading text should be underlined:\n" + failures.joined(separator: "\n"))
     }
 
-    /// 2b review M-2, recipe R-2: "Generating summary…" is the progress people read while a summary
-    /// is made, so it keeps `muted`'s contrast — #646b76, 5.38:1 on white — and isn't dimmed by the
-    /// disabled button it stands in for; VoiceOver still hears a dimmed button. Sampled in the
-    /// pixels of the busy label (its middle band, past the spinner: the 44 pt target's overhang
-    /// reaches the "No summary yet" line above). The busy state comes from the DEBUG
-    /// `--uitest-detail-busy-actions` (no job behind it): a real `summarize-content` call can
-    /// answer — or fail — within a frame (measured: the label showed for one frame of the recording).
+    /// 2b review M-2 (recipe R-2), and the 2bf review's m1:
+    /// - "Generating summary…" is the progress people read while a summary is made. So it keeps
+    ///   `muted`'s contrast (#646b76, 5.38:1 on white) and isn't dimmed by its disabled button.
+    ///   It's sampled in the label's middle band, past the spinner; the 44 pt target's overhang
+    ///   reaches the "No summary yet" line above.
+    /// - VoiceOver still hears a button, dimmed (not enabled).
+    /// - It turns busy from a tap, as a person does it, and stays ONE control in place: the same
+    ///   identifier on one element, with the same origin and height (m1: one `Button` for both
+    ///   states).
+    /// - That last check passes for the old two-button form too. Whether VoiceOver's cursor stays
+    ///   on the control is the device check (task-2bf-report.md, "Fix round 1").
+    /// - The busy state comes from the DEBUG `--uitest-detail-busy-on-tap`: the tap turns the
+    ///   action busy with no job behind it. A real `summarize-content` call answers, or fails,
+    ///   within about a frame (one frame of a recording).
     @MainActor
     func testTheBusySummaryLabelKeepsItsContrast() async throws {
         let seeded = try await seedLinkRow("Busy probe", fields: [
@@ -579,14 +588,25 @@ final class A11yDetailLibraryUITests: XCTestCase {
         ])
         let screens = A11yScreens(self)
         try screens.signIn()
-        let app = screens.launch(.large, tab: .view, arguments: ["--uitest-detail-busy-actions"])
+        let app = screens.launch(.large, tab: .view, arguments: ["--uitest-detail-busy-on-tap"])
         openDetail(app, query: seeded.marker, cardText: "Busy probe", variant: .large)
         let busy = element(app, "detail.generateSummary")
         XCTAssertTrue(busy.waitForExistence(timeout: 15), "no Generate summary")
-        XCTAssertTrue(A11yScreens.waitForLabel(busy, "Generating summary", timeout: 10),
-                      "Expected the busy label, got '\(busy.label)'")
         A11yScreens.scrollIntoView(app, busy)
         sleep(1)
+        XCTAssertEqual(busy.label, "Generate summary", "Expected the idle action before the tap")
+        XCTAssertTrue(busy.isEnabled, "The idle action should be enabled")
+        let idleFrame = busy.frame
+        busy.tap()
+        XCTAssertTrue(A11yScreens.waitForLabel(busy, "Generating summary", timeout: 10),
+                      "Expected the busy label after the tap, got '\(busy.label)'")
+        sleep(1)
+        let sameIdentifier = app.descendants(matching: .any).matching(identifier: "detail.generateSummary").count
+        print("A11Y busy swap: idle \(idleFrame) → busy \(busy.frame) · elements with its identifier: \(sameIdentifier)")
+        XCTAssertEqual(sameIdentifier, 1, "Idle and busy should be one control")
+        XCTAssertEqual(busy.frame.minX, idleFrame.minX, accuracy: 0.5, "The action shouldn't move when it turns busy")
+        XCTAssertEqual(busy.frame.minY, idleFrame.minY, accuracy: 0.5, "The action shouldn't move when it turns busy")
+        XCTAssertEqual(busy.frame.height, idleFrame.height, accuracy: 0.5, "The action should keep its 44 pt target")
         let shot = XCUIScreen.main.screenshot()
         let frame = busy.frame
         let window = app.windows.firstMatch.frame
@@ -877,6 +897,11 @@ final class A11yDetailLibraryUITests: XCTestCase {
 
     private static var isIOS26: Bool { ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 26 }
 
+    /// Xcode's "Audit failed to complete in time" (`performAccessibilityAudit` gave up).
+    private static func isAuditTimeout(_ error: NSError) -> Bool {
+        error.domain == "com.apple.xcode.xctest.accessibilityAudit" && error.code == -56
+    }
+
     /// AX1–AX5 (SwiftUI's `dynamicTypeSize.isAccessibilitySize`).
     private static func isAccessibilitySize(_ variant: A11yVariant) -> Bool {
         variant.category.contains("Accessibility")
@@ -1067,7 +1092,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
         let top = window.minY + 50
         let name = (Self.isIOS26 ? "ios26-" : "") + screen
         var findings: [(line: String, contrastFrame: CGRect?)] = []
-        try app.performAccessibilityAudit(for: [.hitRegion, .dynamicType, .contrast, .textClipped]) { issue in
+        let record: (XCUIAccessibilityAuditIssue) throws -> Bool = { issue in
             let element = issue.element
             let frame = element?.frame ?? .zero
             let place = element == nil ? "no-element"
@@ -1078,6 +1103,31 @@ final class A11yDetailLibraryUITests: XCTestCase {
                 + "id=\(element?.identifier ?? "-") label=\"\(label)\" frame=\(frame.integral)\(detail)"
             findings.append((line, issue.auditType == .contrast && element != nil ? frame : nil))
             return true
+        }
+        let types: XCUIAccessibilityAuditType = [.hitRegion, .dynamicType, .contrast, .textClipped]
+        do {
+            try app.performAccessibilityAudit(for: types, record)
+        } catch let error as NSError where Self.isAuditTimeout(error) {
+            // The audit itself can give up ("Audit failed to complete in time", about 15 s, nothing
+            // reported). iOS 26.5 did, 2 runs of 2, on the detail facts screen at xxxL, which 17.2
+            // audits in 2 s. It's a failure of the tool, not a finding, and this helper never fails
+            // the test (above). So: say so loudly, nudge the scroll 30 pt and audit once more. A
+            // second timeout leaves this screen without findings, logged. A hung app would still
+            // fail the test at the drag or at the next step.
+            print("A11Y audit \(name) \(variant) | AUDIT TIMED OUT (\(error.localizedDescription)); "
+                  + "scrolling 30 pt and auditing again")
+            findings.removeAll()
+            let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -30)))
+            sleep(1)
+            do {
+                try app.performAccessibilityAudit(for: types, record)
+                print("A11Y audit \(name) \(variant) | the second audit completed")
+            } catch let error as NSError where Self.isAuditTimeout(error) {
+                print("A11Y audit \(name) \(variant) | AUDIT TIMED OUT AGAIN: no findings for this screen "
+                      + "(its shot is attached)")
+                return
+            }
         }
         let pixels = findings.contains { $0.contrastFrame != nil }
             ? ScreenPixels(XCUIScreen.main.screenshot(), pointWidth: window.width) : nil
@@ -1159,31 +1209,52 @@ private struct ScreenPixels {
     }
 
     /// The longest unbroken horizontal run of pixels that `matches` inside `frame`: its length and
-    /// its row, in screen points (2b fix wave: a link's underline).
-    func longestRun(in frame: CGRect, where matches: (UInt8, UInt8, UInt8) -> Bool) -> (points: CGFloat, y: CGFloat) {
-        guard let (x0, x1, y0, y1) = pixelBounds(frame) else { return (0, 0) }
-        var best = 0, bestRow = 0
+    /// its row, in screen points, and the colour at its middle (2b fix wave: a link's underline).
+    func longestRun(in frame: CGRect, where matches: (UInt8, UInt8, UInt8) -> Bool)
+        -> (points: CGFloat, y: CGFloat, hex: String) {
+        guard let (x0, x1, y0, y1) = pixelBounds(frame) else { return (0, 0, "-") }
+        var best = 0, bestRow = 0, bestEnd = 0
         for y in y0..<y1 {
             var run = 0
             for x in x0..<x1 {
                 let i = (y * width + x) * 4
                 if matches(bytes[i], bytes[i + 1], bytes[i + 2]) {
                     run += 1
-                    if run > best { (best, bestRow) = (run, y) }
+                    if run > best { (best, bestRow, bestEnd) = (run, y, x) }
                 } else {
                     run = 0
                 }
             }
         }
-        return (CGFloat(best) / scale, CGFloat(bestRow) / scale)
+        guard best > 0 else { return (0, 0, "-") }
+        let i = (bestRow * width + bestEnd - best / 2) * 4
+        return (CGFloat(best) / scale, CGFloat(bestRow) / scale,
+                String(format: "#%02x%02x%02x", bytes[i], bytes[i + 1], bytes[i + 2]))
     }
 
-    /// The link underline's colour — violet-600 (#6d5bd0) at 50 % over white, ≈ #b6ade8 — give or
-    /// take antialiasing. Never white, a grey, `ink`, `muted` or a violet-600 glyph's core. (A
-    /// violet glyph's antialiased edges match too, but only in runs as short as a stroke.)
+    /// Mirrors `StashColor.linkUnderline` (`StashDesign.swift`): the underline is violet-600 at
+    /// this alpha. A UI test can't import the app, so change the two together.
+    static let linkUnderlineAlpha = 0.8
+    /// violet-600, #6d5bd0 (`StashColor.violet600`).
+    private static let violet600: (r: Double, g: Double, b: Double) = (109, 91, 208)
+
+    /// The link underline's colour: violet-600 at `linkUnderlineAlpha` over the white sheet,
+    /// ≈ #8a7cd9, within 6 levels a channel. Rendering and the screenshot move it by 1–2.
+    /// - Only fully covered pixels: the underline is 2 px rows at @3x with white directly above and
+    ///   below (both OSes, L and L-bold), so a whole row always lands. A partly covered pixel lies
+    ///   on the line toward white, where the old 50 % underline also lies, so taking those would
+    ///   pass it.
+    /// - RED-capable both ways: the old 50 % underline (#b6ade8) is 44 levels off in red, and a
+    ///   missing underline leaves nothing but glyphs. A violet-600 core (#6d5bd0) is 29 off; white,
+    ///   `ink`, `muted` and their antialiased greys miss the hue.
+    /// - A violet glyph's antialiased edge can match, but only in runs as short as a stroke, and
+    ///   the caller asks for 30 pt.
     static func isLinkUnderline(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool {
-        let (r, g, b) = (Int(r), Int(g), Int(b))
-        return (150...230).contains(r) && (140...225).contains(g) && b >= 215 && b - r >= 18 && b - g >= 22
+        let a = linkUnderlineAlpha, tolerance = 6.0
+        func expected(_ c: Double) -> Double { 255 - a * (255 - c) }
+        return abs(Double(r) - expected(violet600.r)) <= tolerance
+            && abs(Double(g) - expected(violet600.g)) <= tolerance
+            && abs(Double(b) - expected(violet600.b)) <= tolerance
     }
 
     private func pixelBounds(_ frame: CGRect) -> (Int, Int, Int, Int)? {
@@ -1260,8 +1331,9 @@ private struct Rest2b: Sendable {
     /// `UITEST-P16-2b-` in the title or description (the voice note carries it in its description)
     /// created more than `age` ago — 30 minutes, three times the longest test here (the detail
     /// matrix, ~10), so a run going on the other simulator keeps its rows. Each row is re-checked
-    /// before its delete, and a
-    /// `UITEST-FIXTURE` row is never touched. Logs each delete; a failure only logs.
+    /// before its delete, and a `UITEST-FIXTURE` row is never touched. It logs how many stale rows
+    /// it found, 0 included (2bf review m5: an empty lookup was silent), and each delete; a failure
+    /// only logs.
     func deleteStaleSeededRows(olderThan age: TimeInterval = 30 * 60) async {
         let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-age))
         let query = [
@@ -1276,6 +1348,7 @@ private struct Rest2b: Sendable {
                 print("A11yDetailLibraryUITests janitor: the lookup failed (status \((response as? HTTPURLResponse)?.statusCode ?? -1))")
                 return
             }
+            print("A11yDetailLibraryUITests janitor: \(rows.count) stale UITEST-P16-2b- row(s) created before \(cutoff)")
             for row in rows {
                 guard let id = row["id"] as? String else { continue }
                 let title = row["title"] as? String ?? "", description = row["description"] as? String ?? ""

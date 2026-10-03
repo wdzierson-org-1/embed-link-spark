@@ -39,6 +39,12 @@ enum StashColor {
     /// the due chip) — ≥ 5.4:1 on every one; 6.40 on white. Not for the gradient wash.
     static let violet700 = Color(hex: 0x5D49CB)
     static let violet300 = Color(hex: 0xB6A8EF)
+    /// The underline under a link in reading text (plan 16; DESIGN.md › Color › Contrast, "Links in
+    /// reading text are underlined"): violet-600 at 80 %, ≈ #8a7cd9 on white or paper (3.52:1) and
+    /// ≈ #8879d8 on Ask's #f2f2f7 answer bubble (3.26:1). So the cue that isn't colour clears 3:1
+    /// wherever reading text sits. The link's own text stays `violet600`. Drawn with
+    /// `Text.LineStyle.stashLinkUnderline`, the one style for every surface.
+    static let linkUnderline = StashColor.violet600.opacity(0.8)
     static let destructive = Color(hex: 0xC93A3A)
     /// DESIGN.md §Color "Intent colors" (2026-09-04, plan 11) — first legitimate need for a
     /// green: confirmation icons/labels (share-sheet "Saved to Stash" outcome, Ask's saved-chip
@@ -119,6 +125,16 @@ extension Color {
             blue: Double(hex & 0xFF) / 255
         )
     }
+}
+
+extension Text.LineStyle {
+    /// The underline of a link inside reading text (plan 16; WCAG 2.2 SC 1.4.1, Use of Color):
+    /// solid, in `StashColor.linkUnderline`, under `violet600` link text. One style for every
+    /// surface: the detail sheet's markdown (`MarkdownBlocksView`) now, Ask's answers next. Set it
+    /// on each link run: `attributed[range].underlineStyle = Text.LineStyle.stashLinkUnderline`.
+    /// It is spelled out, not `.stashLinkUnderline`, because UIKit's `underlineStyle` shares the
+    /// key.
+    static let stashLinkUnderline = Text.LineStyle(pattern: .solid, color: StashColor.linkUnderline)
 }
 
 /// DESIGN.md §Space, radius, elevation.

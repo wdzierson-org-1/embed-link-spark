@@ -229,15 +229,18 @@ and 18.7 pt bold. That is deliberately stricter than Apple's own guidance, which
   everywhere (3:1).
 - **Links in reading text are underlined.** *2026-10-01 (plan 16; WCAG 2.2 SC 1.4.1, Use of
   Color).* A link inside reading text — a summary's markdown, an Ask answer's citation — is
-  `violet-600` text with a solid underline in `violet-600` at 50 % alpha (≈ `#b6ade8` on
-  white). Colour alone can't mark it: `violet-600` is 2.93:1 against `ink` body text and
-  1.04:1 against a `muted` quote, where a colour-only link needs 3:1 and a second cue, and
-  no violet clears 3:1 against `ink` while staying 4.5:1 on white. iOS:
-  `Text.LineStyle(pattern: .solid, color: StashColor.violet600.opacity(0.5))` on the link
-  runs (`MarkdownBlocksView.linkUnderline`). Web should adopt it (`text-decoration-line:
-  underline; text-decoration-color: rgb(109 91 208 / 0.5)`). Links that are chrome — a
-  plain "Copy link" or "Learn more" text action — stay as they are. *Supersedes plan 8's
-  violet-without-underline markdown links.*
+  `violet-600` text with a solid underline in `violet-600` at 80 % alpha: ≈ `#8a7cd9` on
+  white or paper (3.52:1) and ≈ `#8879d8` on Ask's `#f2f2f7` answer bubble (3.26:1). So the
+  underline, the cue that isn't colour, clears 3:1 wherever reading text sits; 75 % would be
+  2.99:1 on the bubble. Colour alone can't mark the link: `violet-600` is 2.93:1 against
+  `ink` body text and 1.04:1 against a `muted` quote, where a colour-only link needs 3:1 and
+  a second cue, and no violet clears 3:1 against `ink` while staying 4.5:1 on white. iOS:
+  one shared style, `Text.LineStyle.stashLinkUnderline` (colour token
+  `StashColor.linkUnderline`, `StashDesign.swift`), set on each link run. Web should adopt
+  it (`text-decoration-line: underline; text-decoration-color: rgb(109 91 208 / 0.8)`).
+  Links that are chrome — a plain "Copy link" or "Learn more" text action — stay as they
+  are. *Supersedes plan 8's violet-without-underline markdown links. Fix round 1
+  (2026-10-03): 80 %, was 50 % (2.07:1 on white).*
 - **Nothing but `ink` sits directly on the gradient wash.** Measured behind the Add-tab
   header and the View-tab search row, the wash takes violet-600 to 2.8–3.3:1 and `muted`
   to 3.0–3.4:1. Text over it sits on paper (cards, the search pill, a
