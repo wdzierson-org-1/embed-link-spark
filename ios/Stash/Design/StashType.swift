@@ -362,9 +362,12 @@ extension View {
     }
 
     /// A section micro-label (DESIGN.md): Semibold 12 (`.caption`), caps, +0.11em, `muted` unless
-    /// told otherwise — the whole recipe in one call. Pass the text in its natural case;
-    /// `.textCase(.uppercase)` draws caps while VoiceOver still reads words, not letters. The colour
-    /// is set here, so a later `.foregroundStyle` can't change it — pass it instead.
+    /// told otherwise — the whole recipe in one call. Pass the text in its natural case.
+    /// `.textCase(.uppercase)` draws the caps and reaches the accessibility label too: the
+    /// onboarding kicker "Step 1" is labelled "STEP 1", as the all-caps literal it replaced was.
+    /// VoiceOver reads a word like that as a word, so nothing is lost; a label that has to read
+    /// differently needs its own `.accessibilityLabel`. The colour is set here, so a later
+    /// `.foregroundStyle` can't change it — pass it instead.
     func stashMicroLabel(_ color: Color = StashColor.muted) -> some View {
         stashFont(.microLabel)
             .textCase(.uppercase)

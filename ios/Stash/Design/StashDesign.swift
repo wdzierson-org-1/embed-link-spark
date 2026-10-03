@@ -383,12 +383,15 @@ struct CircleSubmitIcon: View {
 ///
 /// Plan 16: the header has no tappable parts of its own — each accessory brings its own 44 pt
 /// target (`CircleIcon`, `StashCancelButton`), and those targets OVERHANG instead of growing the
-/// row. So a `StashCancelButton` appearing beside the 20 pt wordmark while a field has focus moves
-/// nothing: the row takes the word's own line (20.67 pt at the default text size), and the header
-/// goes from 32 to 32.67 pt (measured on iOS 17.0 and 26.5; `A11yFoundationUITests` asserts
-/// ≤ 1 pt). No
-/// height needs reserving at rest. At larger text sizes the word outgrows the wordmark and the
-/// header grows with the text, as it should. The Cancel's target reaches ~12 pt above and below
+/// row. So at the default text size a `StashCancelButton` appearing beside the 20 pt wordmark
+/// while a field has focus moves nothing: the row takes the word's own line (20.67 pt), and the
+/// header goes from 32 to 32.67 pt (measured on iOS 17.0 and 26.5; `A11yFoundationUITests` asserts
+/// ≤ 1 pt). At larger text sizes the word outgrows the wordmark and the row grows with the text
+/// (Cancel's line is about 45 pt at AX3), so an accessory that appears with the keyboard would
+/// make the header jump at those sizes unless the caller reserves the line. The Add tab does: a
+/// hidden, zero-width "Cancel" in its accessory (`CaptureComposerView`) holds the line's height at
+/// rest, so its header never jumps as the keyboard rises. It is 0.67 pt taller at Large and about
+/// 25 pt taller at AX3 (DESIGN.md › Controls). The Cancel's target reaches ~12 pt above and below
 /// the word — past these 8/4 pt insets — so keep other tappable things ≥ 44 pt from its centre.
 struct StashHeader<Accessory: View>: View {
     @ViewBuilder var accessory: Accessory
