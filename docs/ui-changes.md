@@ -8,6 +8,397 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-09-30 · iOS accessibility pass, Ask keyboard, white-S icon (plan 16)
+
+Will's 2026-09-30 on-device review of the plan-15 build, answered in four parts: two Ask
+keyboard fixes; a Human Interface Guidelines + accessibility pass over every iOS surface
+(Dynamic Type, Bold Text, 44 pt targets, WCAG 2.2 AA contrast, VoiceOver); the S on every
+icon turned white; and two visual bugs from his screenshots (a raw UUID file name as the
+detail title, and the View-tab search pill half-covered by the first card as it hid).
+iOS-only except the icon, which every surface shares. Look and feel is otherwise kept
+(palette, layout, components, every accessibility identifier, 1 px strokes, light-only);
+visible changes are called out where they happen. Plan:
+`docs/superpowers/plans/2026-09-30-ios-plan-16-accessibility-ask-keyboard-white-icon.md`
+(its Outcome lists commits, rulings and open items). Rules and tokens are in `DESIGN.md`
+(Typography › iOS type roles, Color › Contrast, Components › Controls (iOS)); this entry is
+the contract for the other platforms, and "For web and macOS" at the end flags what web
+should adopt or consider. In order: Ask keyboard · typography · controls · contrast · links ·
+detail sheet · edit queue and sharing · View tab · Add tab, Settings, onboarding, share sheet ·
+Ask · the white S · for web and macOS.
+
+**Ask keyboard (iOS; web has no on-screen keyboard).**
+- While `ask.input` has the keyboard, the header's right side shows "Cancel"
+  (`ask.dismissKeyboard`, the shared `StashCancelButton`) in place of New chat and History.
+  Tap = dismiss the keyboard only; the draft is kept.
+- The keyboard is put away before anything is shown over or in place of the composer:
+  Conversations (History), a restored conversation (the restore banner) and a citation sheet;
+  a Conversations row tap clears the search field's focus first. So choosing an earlier
+  conversation can no longer leave a keyboard up with no composer.
+- Cause, for the record (iOS 26.5 only; 17.5 doesn't do it): with the composer focused,
+  pushing Conversations hid the keyboard, and when the stack popped iOS 26 handed the keyboard
+  back to the composer while SwiftUI's keyboard avoidance missed it. The composer sat behind the
+  keyboard with nothing on screen to dismiss it. The fix is an explicit `@FocusState` on
+  `AskView`, cleared before each of those screens.
+
+**Typography (iOS; web keeps its desktop scale).** iOS sets every piece of text with a role
+(`.stashFont(.reading)`), never a raw point size: a Neue Montreal face at Apple's default
+(Large) size for its text style, scaled with the user's text size
+(`Font.custom(_:size:relativeTo:)`).
+- Large sizes: `reading` 17 (was 14: the detail description, notes, summary and transcript;
+  chat bubbles and the Ask composer; the Add editor; the share-sheet note; search fields;
+  markdown headings in Semibold; the user's own words in Italic) · `secondary` 15 (card
+  descriptions, previews and notes; settings secondary lines; conversation previews; row
+  titles) · `meta` 13 (was 12: dates, facts, footers, status lines) · `chip`, `microLabel` and
+  `kicker` 12 (were 11) · `textButton` 17 (Cancel and plain text buttons; the one primary text
+  action is Medium) · `inlineButton` 15 Medium (inline text actions, never smaller).
+- Titles keep their sizes and now scale: display 32 · panel 28 · screen title (Ask's) 22 ·
+  card 20. Nothing a person reads is below 11 pt at the default size; smaller is decorative
+  art, hidden from VoiceOver.
+- At xxxLarge reading text is 22 and at AX3 it is 37 (iOS scales custom faces on
+  `UIFontMetrics`' curve, slightly flatter than SF's own 23 / 40). Full table: DESIGN.md ›
+  Typography › iOS type roles.
+- **Bold Text.** SwiftUI does not embolden bundled faces (measured on iOS 17.0 and 26.5), so
+  with Bold Text on every role draws the next heavier face (Book → Medium, Medium → Semibold;
+  Semibold and Book Italic have no heavier bundled face and stay), live, with no rebuild of the
+  view tree. SF text follows the setting by itself.
+- **Leading.** Extra line spacing is an em fraction of the role's size, scaled with its text
+  style, never a fixed `lineSpacing`. The detail sheet's reading text is 0.55 em; on Neue
+  Montreal's 1.2 em line that is CSS line-height ≈ 1.75 (not the 1.55 an earlier note said),
+  and Ask's 0.35 em is ≈ 1.55. At the accessibility sizes the gap is capped at 0.35 em, so
+  reading text tapers from ≈ 1.75 to ≈ 1.55 (measured at AX3: 57.3 pt per line, was 64.7);
+  xSmall to xxxLarge are unchanged.
+
+**Controls (iOS).** Rules: DESIGN.md › Components › Controls (iOS).
+- **44 × 44 pt targets.** Every tappable element takes touches across at least 44 × 44 pt
+  whatever it looks like: a smaller visual keeps its size and position and its target
+  overhangs it instead of growing the layout (the circles stay 36 / 40 pt; `PillTabs` take
+  taps across the whole pill, where an unselected tab used to take them on its word only,
+  36.7 × 17 pt). Pill tabs grow with the text up to xxxLarge and use the Large Content Viewer
+  beyond. A text field takes taps across its whole box (a `TextField`'s own target is its line
+  of text): the composers, the View-tab search pill, the title, description and sticky note,
+  the sign-in fields and the share note. Web keeps WCAG's 24 px floor.
+- **One keyboard Cancel.** `StashCancelButton`: 17 pt text, violet-600, a 44 pt target that
+  overhangs the word, one line that never breaks. It is the only Cancel shown while a field has
+  the keyboard: Ask (`ask.dismissKeyboard`), the Add tab (`capture.dismissKeyboard`) and the
+  View-tab search (`library.search.cancel`, which also clears the query). Over the gradient wash
+  it sits on an opaque paper capsule (violet-600 straight on the wash measures 2.8–3.3:1;
+  visible change). ⌘. cancels from a hardware keyboard. After Cancel, VoiceOver's focus returns
+  to the field (Add, View search) or to the last answer on screen (Ask).
+- **The header at accessibility sizes.** The word outgrows the wordmark, so the header would
+  jump when Cancel appears. The Add tab reserves Cancel's line height at rest (a hidden,
+  zero-width "Cancel": the resting header is 0.67 pt taller at Large and about 25 pt taller at
+  AX3) so nothing moves as the keyboard rises; Ask reserves both states' sizes, with the
+  controls on a row of their own above the title; the View tab's header grows (Cancel goes
+  under the pill and the cards move about 57 pt at AX3, an accepted trade-off).
+- **Names and state.** Every icon-only control has a VoiceOver label and shows its name in the
+  Large Content Viewer at accessibility sizes (`stashIconControl`); a toggle such as the
+  location pin says On / Off; pill tabs carry the Selected trait; section labels and markdown
+  headings carry the header trait; decorative glyphs and art are hidden.
+- **Text grows, containers follow.** Anything holding text uses `minHeight`; screens that can
+  overflow scroll; at accessibility sizes a row that can't fit reflows (HStack → VStack)
+  instead of truncating what the user needs to read. System-styled controls keep SF (the delete
+  sheet's Cancel and Delete everything, Settings' phone "Add").
+
+**Contrast (iOS now; web can adopt it as is).** Text a person reads meets 4.5:1 on the
+background it actually sits on (3:1 once large: 24 pt, or 18.7 pt bold); a control's only glyph
+and other graphics that carry meaning meet 3:1; disabled controls and pure decoration are exempt.
+- **Meta text is `muted` `#646b76`** (5.38:1 on white, at least 4.54 on every type tint):
+  dates, facts, footers, section labels, the autosave line, placeholders. **`faint` `#959ba6`
+  (2.79:1) is decorative or disabled only**, never text a person reads; an enabled control's
+  only glyph is `muted` or `ink`. The system placeholder colour (1.7:1) is replaced by a
+  `muted` prompt.
+- **New token `violet-700` `#5d49cb`** (`StashColor.violet700`) for violet text on a type tint
+  or a violet tint (session pill, due chip), where violet-600 text falls to 4.37–4.50:1.
+  Violet glyphs and fills stay violet-600.
+- Nothing but `ink` sits directly on the gradient wash; text over it sits on paper. A wash or
+  tint stacked on a non-white surface needs its own check (a chip wash on `#f2f2f7` takes
+  `muted` to 4.36). The full table of pairs is in DESIGN.md › Color › Contrast.
+- Measured fixes on iOS: card dates and places 1.73 → 5.38; section labels, facts, autosave
+  and hints 2.79 → 5.38; field placeholders 1.7 → 5.38; the error banner's white on orange
+  2.20 → ink 6.89; Settings red 3.55 → `destructive` 5.06; Settings captions 3.30 → 4.82.
+
+**Links in reading text are underlined (WCAG 1.4.1).** One shared style on the detail sheet's
+markdown and in Ask answers: `violet-600` text with a solid underline in `violet-600` at 80 %
+alpha (≈ `#8a7cd9` on white or paper, 3.52:1; ≈ `#8879d8` on Ask's `#f2f2f7` bubble, 3.26:1, so
+the underline itself clears 3:1 where reading text sits; 75 % would be 2.99 on the bubble).
+Colour alone can't mark a link: violet-600 is 2.93:1 against `ink` body text and 1.04:1 against
+a `muted` quote. iOS: `Text.LineStyle.stashLinkUnderline` (`StashColor.linkUnderline`,
+`StashDesign.swift`). **Web CSS:** `text-decoration-line: underline; text-decoration-color:
+rgb(109 91 208 / 0.8)`. Links that are chrome ("Copy link", "Learn more") are unchanged.
+Supersedes plan 8's violet-without-underline links. (A visible change; Will can veto it.)
+
+**Detail sheet (iOS).**
+- **Title fallback.** On audio, image, video and file items, a title that is empty, or only a
+  storage object name (`<uuid>.<ext>`, or a 10–17-digit timestamp name), reads as the item's
+  type label ("Voice note" / "Recording", "Photo" / "Screenshot", "Video", "File"): on the card
+  and as the detail title field's placeholder. Text and link items (and legacy
+  collection / unknown) keep "Untitled". Before plan 16 the sheet showed the raw file name.
+- **The title field.** An object-name title opens as an empty field with the type label as its
+  placeholder. Opening and closing the sheet writes nothing; typing a title saves it; clearing a
+  title that was already sent writes `""`, which the server still treats as a placeholder
+  (`isPlaceholderTitle("")`), so the transcription job's AI title can fill it. The field wraps
+  but stays one line of text: Return is "done", even over a selection or an autocorrection, and
+  ends editing; a pasted line break becomes a space. A title the server sends while the field
+  has focus is shown as the server has it.
+- **URL bar.** Standard sizes: one line, middle-truncated, scheme included. Accessibility
+  sizes: at most 3 lines, without the scheme (the host starts line 1), middle-truncated (the
+  test URL went from 11.2 lines at AX3 to 3). A long press always previews the whole URL,
+  wrapped after "/", "." and "-", with Copy link and Open link (the preview used to be clipped);
+  VoiceOver reads the whole URL.
+- **Busy inline actions** ("Transcribing…", "Generating summary…") are one control in both
+  states, drawn `muted` (5.38:1) and never dimmed, still disabled to VoiceOver, so VoiceOver's
+  cursor stays on it.
+- **Details header and facts.** A long collapsed summary (a long domain) is shortened beside
+  DETAILS at standard sizes and moves under the label at accessibility sizes; DETAILS is a
+  heading. Facts show label and value side by side at standard sizes and label over value at
+  accessibility sizes.
+- **Footer at accessibility sizes.** Only "Delete item" shows: the resting "Changes saved
+  automatically" caption is hidden. Up to AX3, "Saving…" is a spinner in the Delete row
+  (VoiceOver: "Saving…"), never taller than the row. At AX4 and AX5 there is no "Saving…"
+  (measured at AX5: the row needs 326 pt without a spinner, against 335 on a 375 pt phone).
+  The footer keeps its height and position through every save; only an error takes a line
+  under Delete.
+- **Also.** The sticky note gets the sheet's hide-keyboard control and VoiceOver reads its name
+  once; the location editor types at 15 pt; card titles' tight leading is −0.1 em and scales
+  with the title; the rendered rich note stays set solid (its blank-line paragraph breaks would
+  double at the reading leading; per-block rendering is deferred).
+
+**The detail sheet's edit queue and sharing rules (iOS).** Closing the sheet never waits on the
+network (plan 15's durable pending-edits queue); these are the rules it follows.
+- **Last value wins.**
+  - A field needs saving when it differs from the server's value or from a value still queued
+    for it (in flight or failed): title, description, sticky note, and a plain note through its
+    draft. So a clear or a revert made after another value was sent supersedes it, even when
+    the sheet is closed straight away, and the sent value's response never refills the field.
+    Rich notes are append-only.
+  - A queue confirm never drops a later value that equals an earlier one; only capture times
+    decide. X → Y → X ends at X (one redundant PATCH when Y never landed).
+  - A sheet's save never lands over a later value a flush already delivered. A save with
+    nothing left to send counts as saved and lands against the values that flush delivered: a
+    field the user has moved on from since is queued and sent, and a rich note's paragraph
+    leaves the box and is never appended twice.
+  - A flushed row never replaces a field while the user's change to it is still on its way:
+    typed and in the autosave's debounce, being sent, or queued. A sheet adopts the rows its own
+    flushes deliver.
+  - Every saved landing brings the server's note document into the sheet: the newest save or
+    not, a sheet opened on a queued note or not, another note save still queued or not. With
+    saves overlapping (Done, more typing, Done again) each note is delivered once, and the next
+    note is appended to the document the server holds, in Ask citation sheets too.
+- **A rich note is delivered once.** Its text leaves the notes box when its own save lands, and
+  also when the document the sheet shows becomes one the sheet queued that text as: the
+  journal's draft (the app left the foreground), or a note save that failed. That holds
+  whatever delivers the document, in whatever order: the sheet's own Sharing flush, the app's
+  refresh, or a realtime echo of a PATCH whose response was lost, even one that reached the
+  sheet before the save reported its failure. It is the document the sheet shows, never an
+  incoming row's: a sheet opened on a queued note keeps its own copy, and the text stays in the
+  box to go out with the next note (so does an Ask citation sheet that never sees the row that
+  delivered it). Every such draft is kept until the sheet shows it or closes.
+- **Sharing is privacy-first.** A share that failed is never published later; a failed un-share
+  keeps the item public with its note.
+  - *The journal.* When the sheet closes, or the app leaves the foreground, the journal queues
+    what the switch shows whenever the server hasn't confirmed it: when it differs from the
+    sheet's last server row, or from a Sharing value still queued, including a switch turned
+    back to the server's value over a queued share.
+  - *Never while open.* A share is never queued while the sheet stays open. Leaving the app
+    mid-share doesn't queue it, and a kill then leaves the item private. An un-share is
+    always queued.
+  - *A failed share* leaves the switch at what the server holds, as far as the app knows: the
+    sheet's last server row, or a Sharing value the app's queue delivered after that row was
+    read, in whatever order that happened. An inline error shows unless that is the user's
+    choice. So a failed share never stays on, with no error, over an item the app made
+    private, up to one approximation: a delivery that lands between a row being read and the
+    sheet taking it (normally about one round trip) counts as seen. In that window the switch
+    can stay on with no error while the item is private; nothing publishes it.
+  - *A failed un-share* leaves the switch at the sheet's last server row, or off when the
+    app's queue delivered an un-share after that row was read; a share the queue delivered
+    never turns it back on. When it goes back on, an inline error shows and the sticky note
+    comes back (while the sheet is open; closing during the un-share leaves it and its note
+    removal queued and retried). When it settles off no error shows, and over a share the
+    queue delivered the item is public until the re-asserted private lands (next point).
+  - *Settling off (the A-3 fail-safe).* When the switch settles off, private is queued again and
+    sent at once, in one attempt, so it is re-asserted whatever reached the server meanwhile: a
+    flush an Ask citation sheet never saw, or a share the server applied whose response was
+    lost. Cost: one PATCH of a value the server usually holds already. If that attempt also
+    fails (a dead link is the usual reason the toggle failed), private goes out at the close or
+    at the app's next refresh; until then an Ask citation sheet can show Private with no error
+    while the item is still public, and a share made on another device before that PATCH lands
+    is undone by it. *Settling on* takes any other queued Sharing value back.
+  - A toggle that lands while a newer save has started isn't adopted by the sheet, but its
+    result is still what a later failed toggle settles on.
+  - A sticky note typed while a share is in flight is saved like any field. If the share then
+    fails the note stays on the private item and is published with the next share. This is
+    intended: it's the user's own text.
+- **Known residuals (honest).**
+  - Ask citation sheets only, pre-existing: when a flush the sheet neither started nor saw the
+    row of delivers one of its queued values, a later revert to the sheet's old server value
+    isn't sent, so the server keeps the value the user reverted away from (visible on reopen,
+    re-editable).
+  - Pre-existing, not widened: a failed un-share whose sticky note matches neither the
+    server's nor the queue's (another device changed it mid-flight) isn't restored, and the
+    next autosave clears the server's note.
+  - TODO(wrap): known gap, until the batch B fix round lands: after a save fails, "Couldn't
+    save — try again." can stay in the footer until the next save even once what failed is on
+    the server (a failed share's follow-up send delivered it, or, in a library sheet, a note's
+    realtime echo arrived before its save reported the failure). Nothing is lost or sent twice.
+    Delete this bullet if that fix ships.
+- **Edit queue:** a refused edit's backoff never ends more than 6 h from now, even after the
+  clock is set back.
+
+**View tab (iOS).**
+- **The search pill scrolls away cleanly.** The tab is one scroll view for every state (cards,
+  loading, searching, empty, no matches, error) and the search row is its first element, so it
+  scrolls away with the content and a card can never overlap it. The row fades by its own
+  position, 1:1 with the scroll, down to a floor of 1 % opacity so it stays in the
+  accessibility tree (SwiftUI drops a view at exactly 0). A resting position part-way out snaps
+  to the nearer end, so the pill never rests half-faded (the snap stands aside under
+  VoiceOver). A status-bar scrim in the page's own background colour covers the top band once
+  the row is gone: it reads as a white band over the wash (visible change; masking the content
+  instead would cost an offscreen pass per scroll frame). Tapping into a part-way pill scrolls
+  it back to rest, typing never moves it, and pull-to-refresh now works in every state. Plan
+  12's keyboard behaviours and every identifier are kept.
+- **The search field.** The whole 44 pt pill focuses the field; the clear × is a 44 pt target
+  that stops 2 pt short of the field, so tapping the end of a long query places the caret;
+  Cancel is the shared `StashCancelButton` on a paper capsule, and clearing and Return are
+  unchanged. At accessibility sizes Cancel sits under the pill and the row grows when the
+  field is focused.
+- **State panes follow the keyboard.** "No matches", "Nothing here yet" and "Couldn't load"
+  centre below the search row, in the part of the tab the keyboard leaves while it is up and in
+  all of it once the keyboard has gone, on iOS 17 and 26. On iOS 17.0 the pane used to keep
+  whichever height it had read last (centred above a keyboard that had gone, or in the whole tab
+  while the keyboard was up).
+- **Cards.** The card title is unclamped at accessibility sizes; the description and note are
+  15 pt with twice the lines at accessibility sizes; the footer stacks there; dates and places
+  are `muted`; the sticky badge is capped at Large.
+
+**Add tab, Settings, onboarding, sign-in, share sheet (iOS).**
+- **Toasts (Add tab).** A paper pill (white, hairline, card shadow) with an intent glyph and ink
+  text; it wraps at large sizes, lasts 3 s and is announced to VoiceOver. Glyphs: a success
+  check `#2f9e63`; an amber warning triangle `#7a4b00` for a save that dropped files; a
+  violet-600 clock for offline / will sync; a `destructive` circle for refused. Only a saved
+  toast is tappable (it opens View); every other toast lets taps through to the controls under
+  it. It replaces white text on a coloured pill (white on `success` is 3.39:1, on orange 2.20).
+  Other surfaces: the same intent mapping, never white text on a coloured pill.
+- **Outbox badge.** The system orange (no token) with ink digits (6.9:1 on iOS 17's orange, 6.6
+  on iOS 26's; it was white digits). VoiceOver says "N captures waiting to sync". It rests at
+  the header's trailing edge and moves left of Cancel, at its own width, while composing.
+- **Add header.** At the accessibility sizes it reserves the Cancel line's height (not its
+  width) at rest, so nothing jumps as the keyboard rises; the View tab's header grows instead
+  (see Controls).
+- **Delete-account sheet (Settings).** On iOS 26 it has an opaque paper background instead of
+  the half-height glass, which let the Settings list show through its copy and buttons so AA
+  couldn't be promised there (visible change). It opens full height at accessibility sizes, and
+  its controls are 46 pt (44.2 on screen at iOS 26's medium-detent scale).
+- **Settings.** A row stacks its label over its value when they don't fit (the email breaks
+  after the "@"); section captions are `muted` and Sign Out and Delete account use
+  `destructive`; legal links are 15 pt Medium text actions in 44 pt rows; a registered phone
+  number wraps instead of truncating (two lines at AX3 and AX5).
+- **Voice recorder.** The sheet scrolls; its Cancel, Stop, Re-record and Save buttons are large
+  system buttons, 50 pt tall and tinted violet-700 (violet-600 text on its own tint was 4.05:1,
+  now 4.87), stacked at xxxLarge and above (they used to be 34.3 pt tall and broke mid-word at
+  AX3); the record glyph grows with the text, capped at 44 pt.
+- **Sign-in.** Placeholders are a `muted` prompt; fields are at least 44 pt tall and take taps
+  across the whole field (the padding above and below the text line used to be dead); the "@"
+  sits beside the username instead of overlaid (2.57 → 4.95:1); Forgot password is 15 pt with a
+  44 pt target.
+- **Onboarding.** The card hugs its content and is measured from the tallest panel (a fixed 490
+  pt height clipped every larger size); it scrolls at large sizes; the art is a fixed-scale
+  picture hidden from VoiceOver (the title and caption say what it shows); "Step N" is a
+  micro-label. Skip and Next both take taps to their edges (Skip's 44 pt target starts at
+  Next's bottom edge). **The step-3 art** is re-shot at native resolution (344×688 @2x,
+  516×1032 @3x; the old art was upscaled ≈ 2.2×) and shows today's share card: the new
+  wordmark, example.com, no personal data (visible change).
+- **Attachments.** The remove × is a 44 pt target, moved 6 pt toward its chip so it clears the
+  edge of the row's scroll view (on iOS 17 the top ~5 pt of taps are lost there); the tile's
+  file name is ink (`muted` measures 4.44:1 on the tile) and capped at xxxLarge inside its fixed
+  64 pt tile (VoiceOver reads it whole).
+- **Share sheet.** The note is 17 pt reading text with a `muted` placeholder, and a tap
+  anywhere on its card focuses it; Save is at least 52 pt tall and grows with the text (60.7 at
+  AX3); the location pin is a toggle; each file tile is one accessibility element.
+
+**Ask (iOS).**
+- **Text.** Answers, the welcome text and the composer are `reading` 17 pt (was 14), with
+  0.35 em leading (≈ 1.55) at every size; status lines are `meta` in `muted`; markdown headings
+  in answers are Semibold (they rendered Book); a quote's `muted` colour now applies (it drew
+  ink). Links in answers use the shared underline above.
+- **Controls.** New chat and History keep their 36 pt circles with 44 pt targets, 44 apart;
+  read-aloud, Helpful and Not helpful are 44 × 44 targets, 44 apart (they were 18.3 × 13.3), and
+  a given rating is selected and disables both; the composer's whole pill focuses the field,
+  padding included, and Send is named; source chips are 44 pt tall; the session pill is
+  violet-700 on its tint (5.46:1, violet-600 was 4.41); banner text uses `destructive`
+  (5.06:1).
+- **Header and Conversations.** At accessibility sizes the controls take a row above the title,
+  and the header doesn't jump when Cancel swaps in, at any size. Conversations titles are 15 pt
+  Medium and wrap to two lines above Large, previews 15, dates and counts 13 in `muted`;
+  section headers are micro-labels with the header trait; rows stack at accessibility sizes.
+- **The thread always lands on its last message.** Sending from far up a long thread, or
+  opening or restoring a long conversation, now lands on the last message (it used to land
+  blank on iOS 17 and 18 and could hang on iOS 26: the lazy thread estimates the height of rows
+  it hasn't built, and every jump aimed at an estimate). The end of the thread is laid out in
+  full; far jumps cut with no ease and a hop within one screen eases. What you are reading
+  stays put when the keyboard comes up, on rotation and on a text-size change. The resting gap
+  under the last bubble is 14 pt (was 19 at rest, 15 while streaming).
+- **Leaving the end.** Only a drag used to stop the thread following a streaming answer. Now a
+  status-bar tap, or a VoiceOver or Switch Control scroll, leaves the end too, so the answer
+  stops pulling the reader back. A status-bar tap cuts to the top of the thread instead of
+  animating through it (the animated scroll could freeze the app on iOS 26.5 in a long thread
+  while an answer streamed). While VoiceOver or Switch Control runs every row is laid out, so
+  focus reaches the whole history in order. Reduce Motion turns the near-send ease into a cut
+  and the streaming cursor static; the cursor no longer drifts over the answer's text.
+- iOS only; no web impact. **TODO(wrap): T1d's thread changes (the tail's shed rules, the
+  hold-health gate, the put-back fix, the unheld Voice Control / Full Keyboard Access scrolls,
+  and the per-answer perf numbers) go here once it commits; source `task-1d-report.md`.**
+
+**The white S (every surface).** The wordmark's first S on the purple→blue wash is now `#ffffff`
+instead of ink `#22262f`: the iOS app icon and the share extension's, the onboarding tile, the
+favicons (`.svg`, `.ico`, 16, 32), the Apple touch icon, the PWA 192 / 512 icons and the Chrome
+extension's 16 / 32 / 48 / 128. The wash and the 62 % scale are unchanged and the "Stash"
+wordmark stays ink. White measures at least 3.44:1 against the wash under every part of the S
+(WCAG's floor for graphics is 3:1); keep it above that if the wash stops ever change. The only
+sources are `brand/icon-src.html` and `brand/build.mjs`; `node brand/build.mjs` regenerates the
+15 files, and a run on the unchanged sources reproduced the old files byte for byte, so the
+diff is purely the S colour. Chrome extension 1.2.0 → 1.2.1: the hosted zip and the
+install-page stamps are refreshed (`extension/scripts/publish-hosted-zip.sh`) and the store
+docs name 1.2.1; the Chrome Web Store submission (B13) is still pending. **macOS lives in
+another repo (`stash-mac`)** and doesn't follow until that repo re-runs the source
+(`brand/icon-src.html#size=1024`). Supersedes the ink-S description in the 2026-09-15 entry.
+The App Store screenshots and the extension store screenshots 02 and 04 still show older art.
+
+**For web and macOS (flagged).**
+- **WEB SHOULD ADOPT: the link underline** (above), for links in summaries, notes and answers.
+- **WEB SHOULD ADOPT: the contrast token.** Micro-labels and dates → `muted` (web still renders
+  `faint` there; DESIGN.md › Typography); `faint` decorative only; placeholders `muted`
+  (`src/components/EditItemTitleSection.tsx` draws its "Untitled" in `#959ba6`, 2.79:1);
+  `violet-700` for violet text on tints; the stacked-background rule; WCAG's "large" read as
+  24 / 18.66 CSS px.
+- **WEB SHOULD ADOPT: empty media titles read as their type.** On audio, image, video and file
+  items an empty or object-name title reads as the type label, on the card and as the title
+  field's placeholder, and clearing writes `""`. `src/utils/titlePolicy.ts` already has the
+  narrow tests (`isUuidObjectName`, `isStorageTimestampName`); `isPlaceholderTitle` is broader
+  (any filename-shaped title). `src/components/EditItemTitleSection.tsx` still shows an
+  object-name title as it is, with an "Untitled" placeholder, and Task 4's report says the card
+  title needs the same (not re-checked here).
+- **WEB MAY WANT: toasts.** The same intent mapping, never white text on a coloured pill.
+- **WEB MAY WANT: the edit-queue rules.** The web edit sheet has no durable queue. Its
+  equivalents are "a revert while a save is in flight must still be sent" and "a failed share
+  toggle shows the server's value and never retries the opposite".
+- **WEB CONVERSION NOTE: leading.** 0.55 em on Neue Montreal's 1.2 em line is line-height 1.75,
+  not 1.55; Ask's 0.35 em is ≈ 1.55. The web has no accessibility sizes, so there is no taper
+  to mirror.
+- **SERVER, every client: Ask's source chips.** The chip shows the server's `title`, and
+  `chat-with-all-content` sends the literal "Untitled" for an empty one
+  (`supabase/functions/chat-with-all-content/index.ts:274`), so a cleared voice note's chip
+  reads "Untitled" while its card reads "Voice note", and a fresh voice note's chip shows its
+  object name. The fix is server-side: send the raw title (null when empty) and use a type
+  label in the model's context. Carried to Will.
+- **macOS:** the menubar icon (above).
+
+**TODO(wrap): the whole-branch review's fixes.** Record any behaviour change the final fix wave
+makes, including the batch B fix for the stale "Couldn't save — try again." caption (see the
+Known residuals above).
+
+**TODO(wrap): release.** Build number, the TestFlight groups and the App Store version once
+build 10 ships, and the re-shot App Store screenshots.
+
 ## 2026-09-29 · Enrichment quality loop on main · transcript summaries unified · one correction
 
 Housekeeping wave, mostly server-side. Five completed-but-unmerged branches were

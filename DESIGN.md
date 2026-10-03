@@ -91,7 +91,7 @@ sheet read small).
 | `meta` · `metaMedium` | Book · Medium | 13 | 17 | 29 | `.footnote` | dates, facts, footers, status lines |
 | `chip` | Medium | 12 | 17 | 29 | `.caption` | chips, badges |
 | `microLabel` · `kicker` | Semibold | 12 | 17 | 29 | `.caption` | section labels / eyebrows, caps, +0.11em / +0.10em — `.stashMicroLabel()` / `.stashKicker()` apply face, caps, tracking and colour in one call |
-| `textButton` | Book | 17 | 22 | 37 | `.body` | the keyboard Cancel (`StashCancelButton`) and other plain text buttons |
+| `textButton` | Book | 17 | 22 | 37 | `.body` | the keyboard Cancel (`StashCancelButton`) and other plain text buttons (not controls the system styles itself: see Controls) |
 | `textButtonProminent` | Medium | 17 | 22 | 37 | `.body` | the one primary text action on a screen (the share sheet's Save, a Done); filled-button labels |
 | `inlineButton` | Medium | 15 | 20 | 32 | `.subheadline` | inline text actions in content ("Retry", "Copy link") — never smaller |
 | `mono(<style>)` | SF Mono | the style's | | | any | format/size chips, file names, URLs, timers |
@@ -474,10 +474,19 @@ rest; violet wash on hover; wash + ring on focus.
 - **One keyboard Cancel.** `StashCancelButton` is the only Cancel shown while a field has
   the keyboard (Ask, the Add tab, the View-tab search): the `textButton` role, violet-600,
   and ⌘. on a hardware keyboard (plain Esc stays with the focused field). Its 44 pt target
-  overhangs the word, so it appears without moving anything — no height to reserve: a
-  `StashHeader` changes by under 1 pt (32 → 32.67 pt at Large, measured), and beside a
-  42 pt search pill the row keeps the pill's height (the word lays out 20.67 pt tall).
-  The word never breaks or truncates (it is one line at full width,
+  overhangs the word instead of growing the layout, so at the default text size it appears
+  without moving anything: a `StashHeader` changes by under 1 pt (32 → 32.67 pt at Large,
+  measured), and beside the 44 pt search pill the row keeps the pill's height (the word
+  lays out 20.67 pt tall). At the accessibility sizes the word is taller than the
+  wordmark, and each surface meets that its own way. **The Add tab reserves Cancel's
+  line:** a hidden, zero-width "Cancel" holds its height at rest (the resting header is
+  0.67 pt taller at Large and about 25 pt taller at AX3), so the header never jumps as the
+  keyboard rises; it reserves no width, so the outbox badge still rests at the trailing
+  edge. **Ask reserves both states' sizes** (the New chat and History circles, or Cancel),
+  and at the accessibility sizes the controls take a row of their own above the title.
+  **The View tab's header grows:** at the accessibility sizes Cancel goes on its own line
+  under the pill, so focusing the search moves the cards (about 57 pt at AX3, an accepted
+  trade-off). The word never breaks or truncates (it is one line at full width,
   and claims its width before a flexible neighbour). Over the gradient wash it is
   `StashCancelButton(onWash: true)`, an opaque paper capsule whose vertical padding is
   drawn, not laid out (see Contrast). What it does is the caller's action; the VoiceOver
@@ -495,6 +504,12 @@ rest; violet wash on hover; wash + ring on focus.
 - **Every icon-only control has a VoiceOver label.** Decorative images are
   `accessibilityHidden`. State that is only visual — which tab is selected, whether a
   toggle is on — is also given to VoiceOver (the Selected trait; a toggle's On/Off value).
+- **System-styled controls keep SF.** A control the system draws and styles itself keeps
+  the system face (SF, system body, scaling with Dynamic Type) rather than the `textButton`
+  role: the delete-account sheet's Cancel and Delete everything, and Settings' phone "Add".
+  They were SF before plan 16, so their look is unchanged. They still meet the 44 pt target
+  (46 pt in the delete sheet: iOS 26 draws a medium-detent sheet at about 0.96 scale, and 46
+  measures 44.2 on screen).
 
 ## Motion
 
