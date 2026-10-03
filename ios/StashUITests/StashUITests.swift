@@ -1084,8 +1084,16 @@ final class StashUITests: XCTestCase {
         /// identifier, read in order (one element, if they are ever combined). Reading `.label` off
         /// `anyElement(id)` fails with "multiple matching elements" once an answer has two blocks.
         func bubbleText(_ identifier: String) -> String {
-            app.descendants(matching: .any).matching(identifier: identifier).allElementsBoundByIndex
-                .map(\.label).joined(separator: "\n")
+            // One snapshot, not index-bound elements: a streaming answer's blocks come and go between the
+            // count and the read.
+            guard let snapshot = try? app.snapshot() else { return "" }
+            var labels: [String] = []
+            func visit(_ node: XCUIElementSnapshot) {
+                if node.identifier == identifier { labels.append(node.label) }
+                node.children.forEach(visit)
+            }
+            visit(snapshot)
+            return labels.joined(separator: "\n")
         }
 
         let input = anyElement("ask.input")
@@ -2066,7 +2074,9 @@ final class StashUITests: XCTestCase {
         // — any Ask test in the last 3 h leaves one (seen 2026-10-01: the thread opened on
         // `testAskSmoke`'s persimmons answer). Start a new chat first when it opened on one.
         let bubble = anyElement("ask.emptyState")
-        let continuedThread = app.descendants(matching: .any).matching(identifier: "ask.bubble.0").firstMatch
+        // Any row: a long continued thread opens at its end, and its first row is in the lazy history, not built.
+        let continuedThread = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "ask.bubble.")).firstMatch
         if !bubble.waitForExistence(timeout: 5), continuedThread.exists {
             newChatButton.tap()
         }

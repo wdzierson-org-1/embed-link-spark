@@ -30,6 +30,9 @@ struct ConversationsListView: View {
     @State private var searchInput = ""
     @State private var openingId: UUID?
     @FocusState private var searchFocused: Bool
+    /// The search field's own frame in the pill (`searchPillSpace`): the hole in the pill's tap ring.
+    @State private var searchFieldFrame: CGRect = .zero
+    private static let searchPillSpace = "convos.searchPill"
 
     init(store: ChatStore) {
         self.store = store
@@ -74,6 +77,9 @@ struct ConversationsListView: View {
                 .textInputAutocapitalization(.never)
                 .submitLabel(.search)
                 .accessibilityIdentifier("convos.search")
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.searchPillSpace)) } action: {
+                    searchFieldFrame = $0
+                }
             if !searchInput.isEmpty {
                 Button { searchInput = "" } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -88,13 +94,17 @@ struct ConversationsListView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
         .frame(minHeight: 44)
+        .coordinateSpace(.named(Self.searchPillSpace))
         .background {
-            // The whole pill focuses the field — the magnifier (above) and the padding too (the field's
-            // own frame is just its text line) — as the View tab's search pill does (plan 16). The
-            // padding only: over the field itself the gesture would take the field's own taps, as it
-            // did the composer's on iOS 18.5 (`AskPillPadding`). In front of the fill, or it takes the tap.
+            // The whole pill focuses the field — the magnifier (above) and everything around the field
+            // too (the field's own frame is just its text line) — as the View tab's search pill does
+            // (plan 16). Not over the field itself: there the gesture would take the field's own taps, as
+            // it did the composer's on iOS 18.5 (`AskPillPadding`). So the ring's hole is the field's own
+            // frame, measured (task 2d fix round 1, M-1): a hole of the 44 pt pill less its 4 pt padding
+            // left a band 5–7 pt above and below the field's line that focused nothing (iOS 26.5). In
+            // front of the fill, or the fill takes the tap.
             Color.clear
-                .contentShape(AskPillPadding(horizontal: 16, vertical: 4), eoFill: true)
+                .contentShape(AskPillRing(hole: searchFieldFrame), eoFill: true)
                 .onTapGesture { searchFocused = true }
                 .accessibilityHidden(true)
         }
@@ -271,5 +281,20 @@ private struct ConversationRowLabel: View {
                 .foregroundStyle(StashColor.muted)
                 .lineLimit(lines)
         }
+    }
+}
+
+/// The search pill less the field itself (plan 16, task 2d fix round 1, M-1): the hole is the field's own
+/// frame, measured in the pill, so a tap anywhere else on the pill can focus the field while a tap on the
+/// field always reaches the field. No ring until the field has been measured: a pill with no hole would take
+/// the field's own taps.
+private struct AskPillRing: Shape {
+    let hole: CGRect
+
+    func path(in rect: CGRect) -> Path {
+        guard !hole.isEmpty else { return Path() }
+        var path = Path(rect)
+        path.addRect(hole)
+        return path
     }
 }

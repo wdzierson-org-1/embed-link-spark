@@ -98,6 +98,21 @@ final class A11yAskUITests: XCTestCase {
         XCTAssertTrue(unaccepted.isEmpty, "Accessibility audit findings:\n" + unaccepted.joined(separator: "\n"))
     }
 
+    /// The matrix's contrast gate (task 2d review, M-4): a finding on a named element passes only when the
+    /// screen's own pixels measure 4.5:1 or more in its frame, or when it's a row of the thread scrolled
+    /// wholly out of the thread's frame (judged by geometry in `audit`). A faint text measures low too, so
+    /// a low measurement is never taken for "no text there". Launches no app.
+    func testTheContrastGateNeverPassesFaintText() {
+        let named = "ask-answer L | Contrast failed | id=ask.bubble.1 label=\"Your starter notes\" frame=(28.0, 300.0, 300.0, 22.0)"
+        XCTAssertFalse(Self.isAccepted(named + " | measured 1.40"), "A 1.4:1 text on screen must fail the audit")
+        XCTAssertFalse(Self.isAccepted(named + " | measured 4.40"), "A 4.4:1 text must fail the audit")
+        XCTAssertFalse(Self.isAccepted(named + " | measured none"), "A finding that couldn't be measured must fail the audit")
+        XCTAssertTrue(Self.isAccepted(named + " | measured 4.64"), "A 4.64:1 text passes")
+        XCTAssertTrue(Self.isAccepted("ask-long-thread L-bold | Contrast failed | id=ask.bubble.14 label=\"Long question 8\" "
+                                      + "frame=(243.0, 109.0, 120.0, 21.0) | outside the thread"),
+                      "A row scrolled under the header shows nothing of its own to measure")
+    }
+
     /// The long prose thread at the smallest text size, on the largest phone (run it on the Pro Max):
     /// the tail's height budget at its widest, landed on the last line.
     @MainActor
@@ -123,8 +138,8 @@ final class A11yAskUITests: XCTestCase {
     /// 44 × 44 pt (an icon control's accessibility frame is its target) and says what it is (items 4, 5
     /// and 10). An answer's read-aloud and thumbs are 44 pt apart centre to centre (they were 19 × 14 and
     /// 16 × 17 pt, 26–32 pt apart); a given thumb reads as selected, and neither can be given again. A tap
-    /// on the composer pill's padding — outside the field's own text line — focuses the field. The
-    /// search's clear button clears it.
+    /// on the composer pill's padding — outside the field's own text line — focuses the field, and so does
+    /// one on the Conversations search pill's. The search's clear button clears it.
     @MainActor
     func testAskControlsTakeTapsAcross44Points() throws {
         let screens = A11yScreens(self)
@@ -162,6 +177,14 @@ final class A11yAskUITests: XCTestCase {
         history.tap()
         let search = app.textFields["convos.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 10), "No Conversations search")
+        sleep(1)
+        // 6 pt above the field's own line, inside the 44 pt pill (task 2d review, M-1): the band the pill's
+        // padding ring used to leave dead, between the field's own touch area (up to 4 pt out, iOS 26.5) and
+        // the ring (7 pt out and beyond, from the pill's 4 pt padding).
+        A11yScreens.tap(app, at: CGPoint(x: search.frame.minX + 30, y: search.frame.minY - 6))
+        let searchFocused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: search)
+        XCTAssertEqual(XCTWaiter().wait(for: [searchFocused], timeout: 3), .completed,
+                       "A tap on the search pill's padding should focus the field")
         A11yScreens.tapUntilFocused(search)
         search.typeText("conversation")
         let clear = app.buttons["convos.search.clear"]
@@ -175,8 +198,9 @@ final class A11yAskUITests: XCTestCase {
     /// WCAG 1.4.1, Use of Color (coordinator, from the 2b review): a link in an answer's text — an inline
     /// citation — is underlined, as in the detail sheet, since colour alone can't mark it (violet-600 is
     /// 2.93:1 against ink body text). Checked in the pixels at Large and with Bold Text: under "starter
-    /// notes" in the seeded answer runs a line in the soft underline violet (violet-600 at 50 % over the
-    /// answer's #f2f2f7, ≈ #b0a7e4), far longer than any stroke edge of a violet glyph.
+    /// notes" in the seeded answer runs a line in the shared underline violet (`stashLinkUnderline`:
+    /// violet-600 at 80 % over the answer's #f2f2f7, ≈ #8879d8, 3.26:1), far longer than any stroke edge
+    /// of a violet glyph.
     @MainActor
     func testLinksInAnswersAreUnderlined() throws {
         let screens = A11yScreens(self)
@@ -249,24 +273,36 @@ final class A11yAskUITests: XCTestCase {
     /// stay there: through the rest of the answer and the settle after it. The thread used to keep
     /// following — only a drag turned that off — so the next streamed update pinned it back to the
     /// end within a tenth of a second. First, at rest, a control: the tap does reach the thread.
+    ///
+    /// Each tap is a cut to the top — the thread's own jump to a laid-out target — and UIKit never animates
+    /// it (task 2d fix round 1, C-1): on iOS 26.5, UIKit's animated scroll through the lazy history, while an
+    /// answer grew below, stopped the app's main thread for minutes now and then. The DEBUG scroll log
+    /// (`--uitest-scroll-log`) counts the frames of scrolls UIKit animated that the thread didn't start, and
+    /// the cuts. One tap each, never a second try: a tap the thread absorbs is the bug (task 2d review, M-4).
     @MainActor
     func testAStatusBarTapWhileAnAnswerStreamsLeavesTheEnd() throws {
         let screens = A11yScreens(self)
         try screens.signIn()
-        let app = screens.launch(.large, tab: .ask, arguments: ["--uitest-scripted-chat", "--uitest-scripted-long-thread"])
+        let app = screens.launch(.large, tab: .ask, arguments: ["--uitest-scripted-chat", "--uitest-scripted-long-thread",
+                                                                "--uitest-scroll-log"])
         let thread = app.scrollViews["ask.thread"]
         XCTAssertTrue(thread.waitForExistence(timeout: 10), "Ask thread did not appear")
         XCTAssertTrue(Self.element(app, "ask.bubble.15.thumbsUp").waitForExistence(timeout: 10), "The long thread should load")
+        let scrollLog = Self.element(app, "ask.debug.scrollLog")
+        XCTAssertTrue(scrollLog.waitForExistence(timeout: 5), "The DEBUG scroll log is missing")
         sleep(2)
         let top = Self.element(app, "ask.bubble.0")
         Self.tapStatusBar(app)
         XCTAssertTrue(Self.waitUntilVisible(top, in: thread, timeout: 5),
                       "Control: at rest, a status-bar tap should scroll the thread to its top")
+        XCTAssertEqual(scrollLog.label, "animated 0 · cut 1",
+                       "At rest, a status-bar tap should cut the thread to its top, never animate through it")
 
         let answer = try startAnAnswerFromTheEnd(app, thread, question: "Status bar question")
-        XCTAssertTrue(leaveTheEnd("status-bar tap", timeout: 5, { Self.tapStatusBar(app) },
-                                  left: { Self.isVisible(top, in: thread) }),
+        XCTAssertTrue(leaveTheEnd({ Self.tapStatusBar(app) }, timeout: 5, left: { Self.isVisible(top, in: thread) }),
                       "A status-bar tap should scroll the thread to its top")
+        XCTAssertEqual(scrollLog.label, "animated 0 · cut 2",
+                       "While an answer streams, a status-bar tap should cut the thread to its top, never animate through it")
         XCTAssertTrue(Self.isStreaming(app, answer: answer), "The status-bar tap must land while the answer streams")
         sleep(3)   // a dozen streamed updates
         XCTAssertTrue(Self.isVisible(top, in: thread),
@@ -300,8 +336,7 @@ final class A11yAskUITests: XCTestCase {
         let scrollToEnd = app.buttons["ask.debug.voiceOverScrollToEnd"]
         XCTAssertTrue(scrollUp.exists && scrollToEnd.exists, "The DEBUG accessibility-scroll controls are missing")
 
-        XCTAssertTrue(leaveTheEnd("VoiceOver page up", timeout: 3, { scrollUp.tap() },
-                                  left: { !Self.isVisible(streamingEnd, in: thread) }),
+        XCTAssertTrue(leaveTheEnd({ scrollUp.tap() }, timeout: 3, left: { !Self.isVisible(streamingEnd, in: thread) }),
                       "An accessibility scroll up should move the thread off its end")
         usleep(500_000)   // the page scroll's animation
         XCTAssertTrue(Self.isStreaming(app, answer: answer), "The scroll must land while the answer streams")
@@ -412,21 +447,14 @@ final class A11yAskUITests: XCTestCase {
         return answer
     }
 
-    /// Makes a scroll that isn't a drag from the end of a streaming answer, and waits until `left` holds.
-    /// One can be absorbed: a streamed update's end hold that lands between the scroll's start and its
-    /// first frame (before UIKit reports it as animating) retargets the animation to the end, and the
-    /// reader simply never leaves — as if there had been no tap or swipe; a second one works (task 2d
-    /// report, with the traces). So an absorbed first try is logged (`A11Y absorbed …`) and made once
-    /// more. A reader pulled back to the end — the M-6 bug — still fails: both tries would be.
+    /// Makes a scroll that isn't a drag from the end of a streaming answer — once — and waits until `left`
+    /// holds. Never a second try (task 2d review, M-4): a scroll the thread absorbs, a hold landing between
+    /// its start and its first frame, leaves the reader at the end as surely as a pull back does, and both
+    /// are the bug.
     @MainActor
-    private func leaveTheEnd(_ name: String, timeout: TimeInterval, _ scroll: () -> Void, left: () -> Bool) -> Bool {
-        for attempt in 1...2 {
-            scroll()
-            if Self.waitUntil(timeout: timeout, left) { return true }
-            print("A11Y absorbed \(name): try \(attempt) left the reader at the end")
-            XCTContext.runActivity(named: "\(name): absorbed (try \(attempt))") { _ in }
-        }
-        return false
+    private func leaveTheEnd(_ scroll: () -> Void, timeout: TimeInterval, left: () -> Bool) -> Bool {
+        scroll()
+        return Self.waitUntil(timeout: timeout, left)
     }
 
     /// The tag this OS's screenshots carry after `2d-`.
@@ -442,23 +470,34 @@ final class A11yAskUITests: XCTestCase {
     /// Xcode's hit-region, Dynamic Type, contrast and clipped-text audit of the screen on show, each
     /// finding logged (`A11Y audit …`) and returned as one line. A contrast finding carries the contrast
     /// measured in the screen's own pixels inside the flagged element's frame (`| measured …`; see
-    /// `isAccepted`), worked out once the audit is over: the audit has a time limit, and the handler runs
-    /// inside it. An audit that doesn't complete is tried once more, then returned as a finding of its
-    /// own (never accepted) — so the matrix still shoots and audits every other screen.
+    /// `isAccepted`) — unless the element is a row of the thread whose frame lies wholly outside the thread's
+    /// frame (`| outside the thread`): it's scrolled under the header or the composer, and what its frame
+    /// shows on screen is theirs, not its text.
+    ///
+    /// Both are worked out once the audit is over (the handler runs inside the audit's time limit), from a
+    /// screenshot and a snapshot of the app taken together: each flagged element is found again in the
+    /// snapshot by its identifier and label, and judged where it is then. The frames the audit itself reports
+    /// can be off what the screen shows before or after it (task 2d fix round 1: iOS 17.5's long thread, a
+    /// question reported 39 pt above where it's drawn, so a screenshot from before the audit showed nothing in
+    /// its frame — read as "no text" before M-4). Several matches: the best-measured one. None: the audit's
+    /// own frame, in that screenshot.
+    ///
+    /// An audit that doesn't complete is tried once more, then returned as a finding of its own (never
+    /// accepted) — so the matrix still shoots and audits every other screen.
     @MainActor
     private static func audit(_ app: XCUIApplication, screen: String, variant: A11yVariant) -> [String] {
         var failure = ""
         for attempt in 1...2 {
-            let pixels = AskScreenPixels(XCUIScreen.main.screenshot(), pointWidth: app.frame.width)
-            var found: [(line: String, contrastFrame: CGRect?)] = []
+            var found: [(line: String, contrast: (identifier: String, label: String, frame: CGRect?)?)] = []
             do {
                 try app.performAccessibilityAudit(for: [.hitRegion, .dynamicType, .contrast, .textClipped]) { issue in
                     let element = issue.element
                     let frame = element?.frame
-                    let label = String((element?.label ?? "").prefix(48)).replacingOccurrences(of: "\n", with: " ")
+                    let fullLabel = element?.label ?? ""
+                    let label = String(fullLabel.prefix(48)).replacingOccurrences(of: "\n", with: " ")
                     let line = "\(screen) \(variant) | \(issue.compactDescription) | id=\(element?.identifier ?? "-") "
                         + "label=\"\(label)\" frame=\(frame.map { "\($0.integral)" } ?? "-")"
-                    found.append((line, issue.auditType == .contrast ? frame : nil))
+                    found.append((line, issue.auditType == .contrast ? (element?.identifier ?? "", fullLabel, frame) : nil))
                     return true
                 }
             } catch {
@@ -467,11 +506,25 @@ final class A11yAskUITests: XCTestCase {
                 sleep(3)
                 continue
             }
+            let measures = found.contains { $0.contrast != nil }
+            if measures { usleep(500_000) }   // the screen settles from whatever the audit did to it
+            let pixels = measures ? AskScreenPixels(XCUIScreen.main.screenshot(), pointWidth: app.frame.width) : nil
+            let snapshot = measures ? try? app.snapshot() : nil
+            let thread = app.scrollViews["ask.thread"]
+            let threadFrame = measures && thread.exists ? thread.frame : nil
             return found.map { finding in
                 var line = finding.line
-                if line.contains("| Contrast failed |") {
-                    let measured = finding.contrastFrame.flatMap { pixels?.contrast(in: $0) }
-                    line += " | measured " + (measured.map { String(format: "%.2f", $0) } ?? "none")
+                if let contrast = finding.contrast {
+                    let now = snapshot.map { Self.frames(in: $0, identifier: contrast.identifier, label: contrast.label) } ?? []
+                    let frames = now.isEmpty ? [contrast.frame].compactMap { $0 } : now
+                    if let threadFrame, contrast.identifier.hasPrefix("ask.bubble."), !frames.isEmpty,
+                       frames.allSatisfy({ !$0.isEmpty && !$0.intersects(threadFrame) }) {
+                        line += " | outside the thread"
+                    } else {
+                        let measured = frames.compactMap { pixels?.contrast(in: $0) }.max()
+                        line += " | measured " + (measured.map { String(format: "%.2f", $0) } ?? "none")
+                            + (now.isEmpty ? "" : " now at \(frames.map { "\($0.integral)" }.joined(separator: ", "))")
+                    }
                 }
                 print("A11Y audit \(line)")
                 return line
@@ -480,14 +533,26 @@ final class A11yAskUITests: XCTestCase {
         return ["\(screen) \(variant) | Audit did not complete | \(failure)"]
     }
 
+    /// The frames of the elements in `snapshot` with `identifier` and `label`.
+    private static func frames(in snapshot: XCUIElementSnapshot, identifier: String, label: String) -> [CGRect] {
+        var frames: [CGRect] = []
+        var stack = [snapshot]
+        while let node = stack.popLast() {
+            if node.identifier == identifier, node.label == label { frames.append(node.frame) }
+            stack.append(contentsOf: node.children)
+        }
+        return frames
+    }
+
     /// Audit findings accepted, with the reason (the task 2d report has the evidence). Everything else —
     /// any hit-region finding, a contrast finding the pixels confirm, Dynamic Type or clipped text on any
     /// named element of the Ask tab, an audit that didn't complete — fails the matrix.
     /// - Contrast, where the screen's own pixels inside the flagged frame — its darkest against its
     ///   lightest — pass AA (4.5:1). Xcode's check flags text whose real colours pass: `muted` dates and
     ///   section labels on white (5.38:1), a question's white on violet-600 (5.18:1), text partly under the
-    ///   header or the floating tab bar. Also where the frame shows no text at all (under 1.5:1: the
-    ///   element is scrolled under the header's paper, so there is nothing to read there), and where the
+    ///   header or the floating tab bar. Also where the element is a row of the thread scrolled wholly out
+    ///   of the thread's frame, under the header's paper (`| outside the thread`, judged by geometry — a
+    ///   low measurement alone is never taken for "no text": a faint text measures low too), and where the
     ///   audit names no element at all (nothing to measure; every element it names is measured).
     /// - Clipped text and "Dynamic Type partially unsupported" on a Conversations row's own texts (no
     ///   identifier): iOS 17's audit flags every text of a row whose one-line preview is cut short — the
@@ -511,11 +576,11 @@ final class A11yAskUITests: XCTestCase {
             // No element, so nothing to measure (1 run in 3, Conversations at AX3 on iOS 17.5): accepted
             // because every element the audit can name is measured here, and every informational text
             // on these screens measures 4.6:1 or more in the shots (the task 2d report's table).
-            if unnamed { return true }
+            if unnamed || finding.hasSuffix("| outside the thread") { return true }
             guard let marker = finding.range(of: "| measured "),
                   let measured = Double(finding[marker.upperBound...].prefix { $0.isNumber || $0 == "." })
             else { return false }
-            return measured >= 4.5 || measured < 1.5
+            return measured >= 4.5
         }
         if finding.contains("| Text clipped |") {
             return unnamed || conversationsRowText || finding.contains("| id=convos.search ")
@@ -728,13 +793,14 @@ private struct AskScreenPixels {
         return (CGFloat(best) / scale, CGFloat(bestRow) / scale)
     }
 
-    /// The link underline's colour — violet-600 (#6d5bd0) at 50 % over an answer's #f2f2f7, ≈ #b0a7e4 (or
-    /// over white, ≈ #b6ade8) — give or take antialiasing. Never the bubble, white, a grey, `ink`, `muted`
-    /// or a violet-600 glyph's core; a violet glyph's antialiased edges match too, but only in runs as
-    /// short as a stroke.
+    /// The link underline's colour — the shared `Text.LineStyle.stashLinkUnderline`, violet-600 (#6d5bd0)
+    /// at 80 % over an answer's #f2f2f7, ≈ #8879d8 (or over white, ≈ #8a7cd9) — give or take
+    /// antialiasing. Never the bubble, white, a grey, `ink`, `muted`, a violet-600 glyph's core
+    /// (#6d5bd0) or the old 50 % underline (≈ #b0a7e4); a violet glyph's antialiased edges match too, but
+    /// only in runs as short as a stroke.
     static func isLinkUnderline(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool {
         let (r, g, b) = (Int(r), Int(g), Int(b))
-        return (150...230).contains(r) && (140...225).contains(g) && b >= 215 && b - r >= 18 && b - g >= 22
+        return (124...150).contains(r) && (110...136).contains(g) && (206...228).contains(b) && b - r >= 60
     }
 
     private func pixelBounds(_ frame: CGRect) -> (Int, Int, Int, Int)? {

@@ -560,8 +560,9 @@ private struct ChatAnswerText: View {
 
     /// One markdown run as a `Text` in `role` and `color` — both passed in, never applied outside (see
     /// the type's doc). Links — the answer's inline citations — in DESIGN.md violet600 (4.64:1 on the
-    /// bubble), underlined in a softer violet (plan 16, WCAG 1.4.1: colour alone can't mark a link —
-    /// violet-600 against ink body text is 2.93:1, against a quote's `muted` 1.04:1). The same rule as
+    /// bubble), underlined with the shared link underline, `Text.LineStyle.stashLinkUnderline` (violet-600 at
+    /// 80 %, ≈ #8879d8 on the bubble's #f2f2f7, 3.26:1; plan 16, WCAG 1.4.1: colour alone can't mark a link —
+    /// violet-600 against ink body text is 2.93:1, against a quote's `muted` 1.04:1). The same style as
     /// the detail sheet's `MarkdownBlocksView`.
     private func inlineText(_ parsed: AttributedString, role: StashType.Role = .reading,
                             color: Color = StashColor.ink) -> some View {
@@ -569,7 +570,7 @@ private struct ChatAnswerText: View {
         let linkRanges = attributed.runs.filter { $0.link != nil }.map(\.range)
         for range in linkRanges {
             attributed[range].foregroundColor = StashColor.violet600
-            attributed[range].underlineStyle = Text.LineStyle(pattern: .solid, color: StashColor.violet600.opacity(0.5))
+            attributed[range].underlineStyle = Text.LineStyle.stashLinkUnderline
         }
         return Text(attributed)
             .chatBubbleText(role)
