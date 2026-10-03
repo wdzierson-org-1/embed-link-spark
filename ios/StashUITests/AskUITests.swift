@@ -474,7 +474,10 @@ final class AskUITests: XCTestCase {
             XCTAssertTrue(thread.waitForExistence(timeout: 10), "\(variant): Ask thread did not appear")
             XCTAssertTrue(element(app, "ask.bubble.15.thumbsUp").waitForExistence(timeout: 10),
                           "\(variant): the restored prose thread should load")
-            XCTAssertTrue(waitUntilVisible(lastLine(app, "Long question 8"), in: thread),
+            // Its last line, not the whole closing paragraph: at AX5 that paragraph alone is 355 pt of
+            // the 427 left beside the actions row (plan 16's 17 pt reading text and the header's own
+            // row for its controls), so its top is above the screen when the thread is at its end.
+            XCTAssertTrue(waitUntilShowsTheEnd(of: lastLine(app, "Long question 8"), in: thread),
                           "\(variant): the restored prose thread should open on its last answer's last line")
             XCTAssertTrue(isVisible(element(app, "ask.bubble.15.thumbsUp"), in: thread),
                           "\(variant): the restored prose thread should open on its last answer's actions row")
@@ -601,8 +604,9 @@ final class AskUITests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Expected Cancel while composing")
         XCTAssertTrue(cancel.isHittable, "Cancel should be tappable while composing")
         XCTAssertEqual(cancel.label, "Cancel")
-        XCTAssertGreaterThanOrEqual(cancel.frame.width, 44, "Cancel's hit area is narrower than 44 pt")
-        XCTAssertGreaterThanOrEqual(cancel.frame.height, 44, "Cancel's hit area is shorter than 44 pt")
+        // 43.5, not 44: iOS 26.5 reports the 44 pt target as 43.99999999999994 (plan 16, task 2a).
+        XCTAssertGreaterThanOrEqual(cancel.frame.width, 43.5, "Cancel's hit area is narrower than 44 pt")
+        XCTAssertGreaterThanOrEqual(cancel.frame.height, 43.5, "Cancel's hit area is shorter than 44 pt")
         XCTAssertFalse(newChat.exists, "New chat should give way to Cancel while composing")
         XCTAssertFalse(history.exists, "History should give way to Cancel while composing")
         XCTAssertTrue(app.keyboards.firstMatch.exists, "Expected the keyboard while composing")
@@ -618,7 +622,118 @@ final class AskUITests: XCTestCase {
         attachScreenshot(app, named: "ask-after-cancel")
     }
 
+    /// Plan 16 (task 2d; task 1 review M1): a citation opens the cited item's detail sheet, and when the
+    /// sheet is closed no keyboard is left up — even though the composer held the keyboard when the
+    /// citation was tapped. (A presentation over a focused composer is the kind of transition that, on
+    /// iOS 26, handed the keyboard back when it ended — the stuck-keyboard bug — so `openCitation` puts
+    /// it away at the tap and again as the sheet presents.) `--uitest-seed-citation-bubble` seeds an
+    /// answer with an inline citation and a leftover source chip, and `--uitest-seed-citation-ids`
+    /// points both at permanent `UITEST-FIXTURE` items of the test account, looked up read-only by REST
+    /// — so the sheet is the real one, and nothing reaches the model or changes a fixture.
+    func testOpeningACitationLeavesNoKeyboardUp() throws {
+        let ids = try fixtureItemIds(titled: ["UITEST-FIXTURE: link one", "UITEST-FIXTURE: note two"])
+        let app = XCUIApplication()
+        try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat", "--uitest-seed-citation-bubble",
+                                               "--uitest-seed-citation-ids=\(ids.joined(separator: ","))"])
+        openAskTab(app)
+        let chip = app.buttons["ask.sources.1.chip.0"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "The seeded answer's source chip didn't show")
+        // The inline-citation marker `testAskSmoke` relies on, drawn over the answer since plan 16.
+        XCTAssertTrue(element(app, "ask.bubble.1.hasLinks").exists, "The answer's inline-citation marker is missing")
+        let done = app.buttons["detail.done"]
+        let draft = "a half-typed follow-up"
+
+        // The chip, tapped while composing: the sheet opens over no keyboard, and closes to none.
+        let input = element(app, "ask.input")
+        input.tap()
+        input.typeText(draft)
+        XCTAssertTrue(app.buttons["ask.dismissKeyboard"].waitForExistence(timeout: 5), "Expected Cancel while composing")
+        chip.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 15), "The cited item's detail sheet didn't open")
+        XCTAssertTrue(noKeyboard(app), "No keyboard should be up over the citation's detail sheet")
+        attachScreenshot(app, named: "ask-citation-sheet")
+        done.tap()
+        assertComposerReachableWithNoKeyboard(app, draft: draft, "after closing the chip's detail sheet")
+
+        // The inline citation — a link in the answer's text — goes the same way.
+        input.tap()
+        XCTAssertTrue(app.buttons["ask.dismissKeyboard"].waitForExistence(timeout: 5), "Expected Cancel while composing")
+        let link = app.links["Feeding Log"]
+        if link.waitForExistence(timeout: 5) {
+            link.tap()
+        } else {
+            // iOS 17 shows XCUITest a block of answer text as one static text, with no element per link
+            // (iOS 18 and later add one): tap the link's words where they're drawn — "Feeding Log" right
+            // after "Per " (about 31 pt at the default size) on the first line.
+            let block = app.staticTexts.matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@",
+                                                             "ask.bubble.1", "Per Feeding Log")).firstMatch
+            XCTAssertTrue(block.waitForExistence(timeout: 5), "The answer's cited paragraph is missing")
+            XCTContext.runActivity(named: "No link element (\(ProcessInfo.processInfo.operatingSystemVersionString)): tapping the words in \(block.frame)") { _ in }
+            block.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 60, dy: 11)).tap()
+        }
+        XCTAssertTrue(done.waitForExistence(timeout: 15), "The inline citation's detail sheet didn't open")
+        XCTAssertTrue(noKeyboard(app), "No keyboard should be up over the inline citation's detail sheet")
+        done.tap()
+        assertComposerReachableWithNoKeyboard(app, draft: draft, "after closing the inline citation's detail sheet")
+    }
+
     // MARK: - Helpers
+
+    /// The ids of the test account's items titled exactly `titles`, in order: a read-only REST lookup
+    /// with the account's own password grant (the app's public client config — the same project URL and
+    /// anon key as `StashUITests`' fixture helpers). Fixtures are never written here.
+    private func fixtureItemIds(titled titles: [String]) throws -> [String] {
+        let environment = ProcessInfo.processInfo.environment
+        guard let email = environment["STASH_TEST_EMAIL"], let password = environment["STASH_TEST_PASSWORD"],
+              !email.isEmpty, !password.isEmpty
+        else { throw FixtureLookupError("STASH_TEST_EMAIL / STASH_TEST_PASSWORD were not set in the test runner environment") }
+        let base = URL(string: "https://uqqsgmwkvslaomzxptnp.supabase.co")!
+        let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXNnbXdrdnNsYW9tenhwdG5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2MjU0ODcsImV4cCI6MjA2NjIwMTQ4N30.vGWb1EdshtLFLpUHQ54Vy2CDmuPVCTbvc8UYW6_cvmE"
+
+        func send(_ request: URLRequest) throws -> Any {
+            var result: Result<Data, Error> = .failure(URLError(.timedOut))
+            let done = DispatchSemaphore(value: 0)
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error {
+                    result = .failure(error)
+                } else if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let data {
+                    result = .success(data)
+                } else {
+                    result = .failure(URLError(.badServerResponse))
+                }
+                done.signal()
+            }.resume()
+            _ = done.wait(timeout: .now() + 20)
+            return try JSONSerialization.jsonObject(with: result.get())
+        }
+
+        var auth = URLRequest(url: base.appending(path: "/auth/v1/token")
+            .appending(queryItems: [URLQueryItem(name: "grant_type", value: "password")]))
+        auth.httpMethod = "POST"
+        auth.setValue(anonKey, forHTTPHeaderField: "apikey")
+        auth.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        auth.httpBody = try JSONSerialization.data(withJSONObject: ["email": email, "password": password])
+        guard let token = (try send(auth) as? [String: Any])?["access_token"] as? String else {
+            throw FixtureLookupError("Couldn't sign the test account in over REST to look up its fixtures")
+        }
+        return try titles.map { title in
+            var lookup = URLRequest(url: base.appending(path: "/rest/v1/items").appending(queryItems: [
+                URLQueryItem(name: "title", value: "eq.\(title)"),
+                URLQueryItem(name: "select", value: "id"),
+            ]))
+            lookup.setValue(anonKey, forHTTPHeaderField: "apikey")
+            lookup.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            guard let rows = try send(lookup) as? [[String: Any]], let id = rows.first?["id"] as? String else {
+                throw FixtureLookupError("The permanent fixture \"\(title)\" isn't on the test account")
+            }
+            return id
+        }
+    }
+
+    private struct FixtureLookupError: Error, CustomStringConvertible {
+        let description: String
+        init(_ description: String) { self.description = description }
+    }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
         app.descendants(matching: .any)[identifier]
@@ -854,6 +969,21 @@ final class AskUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.25)
         } while Date() < deadline
         return isVisible(element, in: container)
+    }
+
+    /// `element`'s last line is on screen: its bottom edge inside the thread's viewport (1 pt tolerance),
+    /// wherever its top is — for a paragraph that can be taller than what's left of the screen. Polled
+    /// for up to `timeout`.
+    private func waitUntilShowsTheEnd(of element: XCUIElement, in container: XCUIElement, timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if element.exists {
+                let frame = element.frame, viewport = container.frame
+                if !frame.isEmpty, frame.maxY <= viewport.maxY + 1, frame.maxY >= viewport.minY + 20 { return true }
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        return false
     }
 
     /// Entirely inside the thread's viewport (1 pt tolerance) — XCUITest still reports frames for

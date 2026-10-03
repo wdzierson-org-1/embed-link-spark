@@ -13,6 +13,14 @@ import StashKit
 /// debounced search restarting as you type) is no longer shown as "Couldn't load conversations."
 /// with the list wiped, and a page for a superseded query is dropped instead of replacing or
 /// being appended to the current results.
+///
+/// Plan 16 (task 2d, accessibility): text takes the type roles and scales with Dynamic Type — row
+/// titles 15 Medium, previews 15, dates and counts 13 in `muted` (they were `faint`, 2.79:1), bucket
+/// headers the section micro-label (and VoiceOver headings); the search field reads at 17 with a
+/// `muted` placeholder, in a pill at least 44 pt tall that grows with it and focuses the field
+/// wherever it's tapped, and its clear button takes taps across 44 pt;
+/// "Try again" is an inline action at 15 pt; and at accessibility sizes a row stacks its date and count
+/// under its title, which wraps instead of being cut.
 struct ConversationsListView: View {
     let store: ChatStore
 
@@ -51,10 +59,16 @@ struct ConversationsListView: View {
 
     private var searchPill: some View {
         HStack(spacing: 8) {
+            // The field's own glyph, at the supporting size it always had (15 pt), now scaling.
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 15))
-                .foregroundStyle(searchFocused ? StashColor.violet600 : StashColor.faint)
-            TextField("Search conversations", text: $searchInput)
+                .stashFont(.secondary)
+                .foregroundStyle(searchFocused ? StashColor.violet600 : StashColor.muted)
+                .contentShape(Rectangle())
+                .onTapGesture { searchFocused = true }
+                .accessibilityHidden(true)
+            TextField("Search conversations", text: $searchInput,
+                      prompt: Text("Search conversations").foregroundStyle(StashColor.muted))
+                .stashFont(.reading)
                 .focused($searchFocused)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -62,15 +76,38 @@ struct ConversationsListView: View {
                 .accessibilityIdentifier("convos.search")
             if !searchInput.isEmpty {
                 Button { searchInput = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(StashColor.faint)
+                    Image(systemName: "xmark.circle.fill")
+                        .stashFont(.secondary)
+                        .foregroundStyle(StashColor.muted)
                 }
+                .buttonStyle(.stashPlain)
+                .stashIconControl("Clear search", systemImage: "xmark.circle.fill")
+                .accessibilityIdentifier("convos.search.clear")
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 40)
-        .background(Color(.systemBackground), in: Capsule())
-        .overlay(Capsule().strokeBorder(searchFocused ? StashColor.violet300 : StashColor.hairline,
-                                        lineWidth: 1))
+        .padding(.vertical, 4)
+        .frame(minHeight: 44)
+        .background {
+            // The whole pill focuses the field — the magnifier (above) and the padding too (the field's
+            // own frame is just its text line) — as the View tab's search pill does (plan 16). The
+            // padding only: over the field itself the gesture would take the field's own taps, as it
+            // did the composer's on iOS 18.5 (`AskPillPadding`). In front of the fill, or it takes the tap.
+            Color.clear
+                .contentShape(AskPillPadding(horizontal: 16, vertical: 4), eoFill: true)
+                .onTapGesture { searchFocused = true }
+                .accessibilityHidden(true)
+        }
+        .background {
+            Capsule()
+                .fill(Color(.systemBackground))
+                .accessibilityHidden(true)
+        }
+        .overlay {
+            Capsule()
+                .strokeBorder(searchFocused ? StashColor.violet300 : StashColor.hairline, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
         .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
     }
 
@@ -80,15 +117,23 @@ struct ConversationsListView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let loadError = pager.loadError {
             VStack(spacing: 8) {
-                Text(loadError).font(StashType.meta()).foregroundStyle(StashColor.muted)
+                Text(loadError)
+                    .stashFont(.meta)
+                    .foregroundStyle(StashColor.muted)
+                    .multilineTextAlignment(.center)
                 Button("Try again") { Task { await pager.loadFirstPage(query: searchInput) } }
-                    .font(StashType.bodyMedium(12))
+                    .stashFont(.inlineButton)
+                    .foregroundStyle(StashColor.violet600)
+                    .buttonStyle(.stashPlain)
             }
+            .padding(.horizontal, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if rows.isEmpty {
             Text(searchInput.isEmpty ? "No conversations yet — ask something!" : "No matches.")
-                .font(StashType.meta())
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("convos.empty")
         } else {
@@ -100,10 +145,9 @@ struct ConversationsListView: View {
                         // bucket boundary — same one-pass grouping as web `bucketConversations`.
                         let label = ChatSessions.bucketLabel(for: row.lastMessageAt, now: now)
                         if index == 0 || label != ChatSessions.bucketLabel(for: rows[index - 1].lastMessageAt, now: now) {
-                            Text(label.uppercased())
-                                .font(StashType.microLabel())
-                                .stashTracking(0.11, size: 11)
-                                .foregroundStyle(StashColor.faint)
+                            Text(label)
+                                .stashMicroLabel()
+                                .accessibilityAddTraits(.isHeader)
                                 .padding(.top, index == 0 ? 2 : 10)
                         }
                         rowButton(row, index: index)
@@ -138,43 +182,15 @@ struct ConversationsListView: View {
                 dismiss()
             }
         } label: {
-            HStack(alignment: .top, spacing: 10) {
-                // Web's `ConversationsView.tsx` violet-300 dot (`h-2 w-2 rounded-full
-                // bg-violet-300`) — purely decorative, so it's excluded from the row's a11y tree.
-                Circle()
-                    .fill(StashColor.violet300)
-                    .frame(width: 8, height: 8)
-                    .padding(.top, 5)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(row.title ?? "Untitled")
-                        .font(StashType.bodyMedium())
-                        .italic(row.title == nil)
-                        .foregroundStyle(row.title == nil ? StashColor.muted : StashColor.ink)
-                        .lineLimit(1)
-                    if let preview = row.preview, !preview.isEmpty {
-                        Text(preview)
-                            .font(StashType.meta())
-                            .foregroundStyle(StashColor.muted)
-                            .lineLimit(1)
-                    }
+            ConversationRowLabel(row: row, date: Self.rowDateFormatter.string(from: row.lastMessageAt))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: StashRadius.card))
+                .overlay(RoundedRectangle(cornerRadius: StashRadius.card).strokeBorder(StashColor.hairline, lineWidth: 1))
+                .stashCardShadow()
+                .overlay {
+                    if openingId == row.id { ProgressView() }
                 }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(Self.rowDateFormatter.string(from: row.lastMessageAt))
-                    Text("\(row.messageCount) message\(row.messageCount == 1 ? "" : "s")")
-                }
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.faint)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: StashRadius.card))
-            .overlay(RoundedRectangle(cornerRadius: StashRadius.card).strokeBorder(StashColor.hairline, lineWidth: 1))
-            .stashCardShadow()
-            .overlay {
-                if openingId == row.id { ProgressView() }
-            }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("convos.row.\(index)")
@@ -186,4 +202,74 @@ struct ConversationsListView: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter
     }()
+}
+
+/// One conversation's row: the web's violet dot, its title and preview, and its date and message count
+/// — on the right up to the largest standard text size, under the preview at accessibility sizes, where
+/// the title and preview wrap to a few lines rather than being cut at one (plan 16, task 2d). Above the
+/// default size the title may take two lines beside the date.
+private struct ConversationRowLabel: View {
+    let row: ConversationListRow
+    let date: String
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The title's first line (18 pt at the default size), grown with it: the dot is centred on it.
+    @ScaledMetric(relativeTo: .subheadline) private var titleLine: CGFloat = 18
+    private var dotTop: CGFloat { (titleLine - 8) / 2 }
+
+    var body: some View {
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        HStack(alignment: .top, spacing: 10) {
+            // Web's `ConversationsView.tsx` violet-300 dot (`h-2 w-2 rounded-full bg-violet-300`) —
+            // purely decorative, so it's excluded from the row's a11y tree.
+            Circle()
+                .fill(StashColor.violet300)
+                .frame(width: 8, height: 8)
+                .padding(.top, dotTop)
+                .accessibilityHidden(true)
+            if stacked {
+                VStack(alignment: .leading, spacing: 3) {
+                    title(lines: 3)
+                    preview(lines: 3)
+                    Text("\(date) · \(count)")
+                        .stashFont(.meta)
+                        .foregroundStyle(StashColor.muted)
+                }
+                Spacer(minLength: 0)
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    // One line at the default size, as before; two above it, where the date beside it
+                    // leaves a title only half its width ("Scripted long conv…" at xxxLarge).
+                    title(lines: dynamicTypeSize > .large ? 2 : 1)
+                    preview(lines: 1)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(date)
+                    Text(count)
+                }
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
+            }
+        }
+    }
+
+    private var count: String { "\(row.messageCount) message\(row.messageCount == 1 ? "" : "s")" }
+
+    /// An untitled conversation reads "Untitled" in the italic face, `muted`.
+    private func title(lines: Int) -> some View {
+        Text(row.title ?? "Untitled")
+            .stashFont(row.title == nil ? .secondaryItalic : .secondaryMedium)
+            .foregroundStyle(row.title == nil ? StashColor.muted : StashColor.ink)
+            .lineLimit(lines)
+    }
+
+    @ViewBuilder private func preview(lines: Int) -> some View {
+        if let preview = row.preview, !preview.isEmpty {
+            Text(preview)
+                .stashFont(.secondary)
+                .foregroundStyle(StashColor.muted)
+                .lineLimit(lines)
+        }
+    }
 }

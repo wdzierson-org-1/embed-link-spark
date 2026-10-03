@@ -32,10 +32,22 @@ import AVFoundation
 /// composer when the stack pops, and SwiftUI's keyboard avoidance misses that returning keyboard —
 /// it sat up over a composer left at its resting position, hidden behind it, with nothing on
 /// screen to put it away (reproduced on the iOS 26.5 simulator; iOS 17.5 restores nothing).
+///
+/// Plan 16 (task 2d, accessibility): text takes the type roles and scales with Dynamic Type (bubbles
+/// and the composer at the 17 pt reading size), every control takes taps across at least 44 × 44 pt,
+/// informational text meets AA contrast, and VoiceOver names every control. The header never jumps
+/// when Cancel swaps in, at any text size (`AskHeader`), and VoiceOver goes to the end of the last
+/// answer when Cancel goes. A scroll that isn't a drag — VoiceOver's, a status-bar tap — leaves the
+/// thread's end like a drag does (`AskThreadScrollObserver`). Under Reduce Motion the thread's eased
+/// jumps are cuts and the streaming cursor doesn't blink.
 struct AskView: View {
     let userId: UUID
 
     @Environment(SubscriptionStore.self) private var subscription
+    /// VoiceOver and Switch Control move through the thread element by element: while either runs,
+    /// every row is laid out (`AskThreadTail.historyCount`, plan 16 task 2d).
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControlEnabled
 
     @State private var store: ChatStore
     @State private var input = ""
@@ -50,6 +62,8 @@ struct AskView: View {
     /// The composer holds the keyboard. Drives the header's Cancel swap; cleared before the
     /// Conversations list, a restored conversation or a citation sheet is shown (plan 16).
     @FocusState private var inputFocused: Bool
+    /// Where VoiceOver's focus goes when Cancel goes away with the keyboard (plan 16, task 2d).
+    @AccessibilityFocusState private var accessibilityFocus: AskAccessibilityFocus?
 
     // Thread-follow state (M2, review fix).
     /// The thread's UIScrollView, so a follow-scroll never lands under a moving finger; and whether
@@ -102,8 +116,16 @@ struct AskView: View {
     /// history, so nothing reaches or is saved on the server and the subscription gate (a client
     /// check guarding a server call that never happens here) is bypassed. Compiled out of Release.
     private static let usesScriptedChat = ProcessInfo.processInfo.arguments.contains("--uitest-scripted-chat")
+    /// `--uitest-assistive-layout` (UI tests only): the thread lays out every row, as it does while
+    /// VoiceOver or Switch Control runs — neither can run on the Simulator.
+    private static let forcesAssistiveLayout = ProcessInfo.processInfo.arguments.contains("--uitest-assistive-layout")
+    /// `--uitest-a11y-hooks` (UI tests only): two controls that scroll the thread the way VoiceOver
+    /// does — a page up, as its three-finger swipe does, and to the end — which XCUITest can't do
+    /// itself (`emulateVoiceOverScroll(toEnd:)`).
+    private static let showsAccessibilityHooks = ProcessInfo.processInfo.arguments.contains("--uitest-a11y-hooks")
     #else
     private static let usesScriptedChat = false
+    private static let forcesAssistiveLayout = false
     #endif
 
     init(userId: UUID) {
@@ -118,8 +140,11 @@ struct AskView: View {
             let arguments = ProcessInfo.processInfo.arguments
             let longThread = arguments.contains("--uitest-scripted-long-thread")
             let prose = arguments.contains("--uitest-scripted-prose")
+            // `--uitest-scripted-slow` (plan 16, task 2d): 500 ms chunks, an answer of about 23 s — room
+            // for a test that does several slow things while one streams.
+            let interval = arguments.contains("--uitest-scripted-slow") ? 500 : longThread ? 250 : 110
             return ChatStore(userId: userId,
-                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(longThread ? 250 : 110), prose: prose),
+                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(interval), prose: prose),
                              history: ScriptedChatHistory(longThread: longThread, prose: prose),
                              accessToken: { "scripted" })
         }
@@ -135,13 +160,32 @@ struct AskView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                askHeader
-                sessionTitlePill
+                // Plan 16 (task 2d): when the column runs short — the keyboard up at the largest text
+                // sizes — the thread gives way, never the header, the pill or the composer (the
+                // header's title was cut from two lines to "Chat with your…" at AX5, and the header
+                // seemed to jump).
+                askHeader.layoutPriority(1)
+                sessionTitlePill.layoutPriority(1)
                 thread
                 Divider()
-                composerArea
+                composerArea.layoutPriority(1)
             }
             .background(Color(.systemBackground))
+            #if DEBUG
+            .overlay(alignment: .topLeading) {
+                if Self.showsAccessibilityHooks {
+                    HStack(spacing: 4) {
+                        Button("VO↑") { emulateVoiceOverScroll(toEnd: false) }
+                            .accessibilityIdentifier("ask.debug.voiceOverScrollUp")
+                        Button("VO⤓") { emulateVoiceOverScroll(toEnd: true) }
+                            .accessibilityIdentifier("ask.debug.voiceOverScrollToEnd")
+                    }
+                    .font(.caption2)
+                    .buttonStyle(.stashPlain)
+                    .background(.yellow)
+                }
+            }
+            #endif
             // Registered-but-hidden: no visible title anywhere on this tab (Will's call — no
             // wordmark on View/Ask/Settings), but the nav title still feeds the pushed
             // Conversations screen's back button ("‹ Ask").
@@ -165,6 +209,7 @@ struct AskView: View {
             await store.loadHistoryOnce()
             #if DEBUG
             seedCitationScreenshotFixtureIfRequested()
+            seedMarkdownAnswerFixtureIfRequested()
             #endif
         }
         .onChange(of: store.errorRestoredInput) { _, restored in
@@ -200,45 +245,27 @@ struct AskView: View {
     /// composer is focused the two circles give way to `StashCancelButton` (`ask.dismissKeyboard`)
     /// — keyboard away, draft kept. It also means History can't be opened while the composer holds
     /// the keyboard (the stuck-keyboard path; see the type doc), though it clears focus anyway.
+    /// Plan 16 (task 2d): the row's layout is `AskHeader`'s; Cancel sends VoiceOver to the thread.
     private var askHeader: some View {
-        HStack(spacing: 8) {
-            Text("Chat with your Stash")
-                .font(StashType.medium(size: 22))
-                .foregroundStyle(StashColor.ink)
-            Spacer()
-            if inputFocused {
-                StashCancelButton(identifier: "ask.dismissKeyboard") {
-                    inputFocused = false
-                }
-            } else {
-                Button {
-                    store.startNewChat()
-                } label: {
-                    CircleIcon(systemImage: "square.and.pencil", size: 36)
-                }
-                .buttonStyle(.plain)
-                .disabled(store.isStreaming)
-                .accessibilityLabel("Start new chat")
-                .accessibilityIdentifier("ask.newChat")
+        AskHeader(isComposing: inputFocused, isStreaming: store.isStreaming,
+                  onNewChat: { store.startNewChat() },
+                  onHistory: {
+                      inputFocused = false
+                      showConversations = true
+                  },
+                  onCancel: cancelComposing)
+    }
 
-                Button {
-                    inputFocused = false
-                    showConversations = true
-                } label: {
-                    CircleIcon(systemImage: "clock", size: 36)
-                }
-                .buttonStyle(.plain)
-                .disabled(store.isStreaming)
-                .accessibilityLabel("Earlier conversations")
-                .accessibilityIdentifier("ask.history")
-            }
-        }
-        // A 44 pt row so the Cancel's hit area fits without the header changing height when it
-        // swaps in; with the insets below the 36 pt circles and the title sit exactly where they
-        // did before (top 8 + 36 + bottom 4 = 48 = top 4 + 44).
-        .frame(minHeight: 44)
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
+    /// The header's Cancel: the keyboard goes, the draft stays. Cancel goes too (the circles come back
+    /// in its place), so VoiceOver is sent somewhere it can read on (plan 16, task 2d): the last element
+    /// of the last answer — what's on screen at the thread's end, in the laid-out tail rather than the
+    /// lazy history — or, with nothing to read there yet or the reader away from the end, the composer.
+    private func cancelComposing() {
+        inputFocused = false
+        let lastAnswer = isFollowing ? store.messages.last(where: { $0.role == .assistant }) : nil
+        let target = lastAnswer.flatMap(AskAccessibilityFocus.lastElement(of:)) ?? .composer
+        // On the next turn, once the circles have replaced Cancel.
+        DispatchQueue.main.async { accessibilityFocus = target }
     }
 
     // MARK: - Session chrome (title pill + restore banner)
@@ -247,22 +274,7 @@ struct AskView: View {
     /// that replies will continue that session (gap-exempt) rather than today's thread.
     @ViewBuilder private var sessionTitlePill: some View {
         if store.isExplicitSession, let title = store.sessionTitle {
-            HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "clock").font(.system(size: 11))
-                    Text(title).lineLimit(1).truncationMode(.tail)
-                }
-                .font(StashType.meta())
-                .foregroundStyle(StashColor.violet600)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(StashColor.violet600.opacity(0.12), in: Capsule())
-                .overlay(Capsule().strokeBorder(StashColor.violet300.opacity(0.6), lineWidth: 1))
-                .accessibilityIdentifier("ask.sessionPill")
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 2)
+            AskSessionPill(title: title)
         }
     }
 
@@ -271,29 +283,30 @@ struct AskView: View {
     /// Disabled while a send is in flight — it's still on screen while that send resolves its
     /// session, and the store refuses the switch then anyway (H4). Puts the keyboard away first
     /// (plan 16): the restored conversation is shown to be read.
+    /// Plan 16 (task 2d): meta text and glyph scale together; the title stays violet-600 (4.64:1 on
+    /// the banner's #f2f2f7); the banner takes taps across at least 44 pt of height (`.stashPlain`).
     @ViewBuilder private var restoreBanner: some View {
         if store.messages.isEmpty, let previous = store.lastLoaded {
             Button {
                 inputFocused = false
                 Task { await store.restorePrevious() }
             } label: {
-                HStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 12))
-                        .foregroundStyle(StashColor.muted)
+                        .accessibilityHidden(true)
                     (Text("Load previous conversation — ")
                         + Text(previous.title ?? "Untitled").foregroundStyle(StashColor.violet600))
-                        .font(StashType.meta())
-                        .foregroundStyle(StashColor.muted)
                     Spacer(minLength: 0)
                 }
+                .stashFont(.meta)
+                .foregroundStyle(StashColor.muted)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14)
                     .strokeBorder(StashColor.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.stashPlain)
             .disabled(store.isStreaming)
             .accessibilityIdentifier("ask.restoreBanner")
             .padding(.bottom, Self.rowGap)
@@ -316,7 +329,8 @@ struct AskView: View {
         let messages = store.messages
         let questions = Self.precedingQuestions(in: messages)
         let lastIndex = messages.indices.last
-        let historyCount = tail.historyCount(for: messages)
+        let historyCount = tail.historyCount(for: messages,
+                                             laysOutEverything: voiceOverEnabled || switchControlEnabled || Self.forcesAssistiveLayout)
         return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -332,7 +346,7 @@ struct AskView: View {
                     }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { threadScroll.tailHeight = $0 }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, ChatBubbleLayout.threadInset)
                 .padding(.top, 12)
                 // M2: the user's own drags decide whether the thread keeps following, and the
                 // observer holds what the reader sees through changes of size. Must sit inside the
@@ -400,6 +414,7 @@ struct AskView: View {
                 showsRetry: showsRetry,
                 speech: speech,
                 ratings: ratings,
+                accessibilityFocus: $accessibilityFocus,
                 onCitationTap: openCitation,
                 onRetry: { retryTapped(messageId: message.id) }
             )
@@ -410,10 +425,11 @@ struct AskView: View {
     }
 
     /// Web's welcome bubble copy, verbatim (`ChatMole.tsx:494`). Shown for every new
-    /// conversation (Will's call — kept even with the header chrome removed).
+    /// conversation (Will's call — kept even with the header chrome removed). Plan 16: at the
+    /// bubbles' reading size; `muted` is 4.82:1 on its #f2f2f7.
     private var emptyState: some View {
         Text("Ask anything about what you've saved — answers cite the cards they came from.")
-            .font(StashType.body())
+            .stashFont(.reading)
             .foregroundStyle(StashColor.muted)
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -463,8 +479,12 @@ struct AskView: View {
         // A new question sent from up to a screen away eases in; from further, the jump cuts, and so
         // does a send from the end, where the held end has already brought the new rows into view.
         // Growth of the streaming answer pins without animation, so a scroll is never still in
-        // flight when the user puts a finger on the thread.
-        scrollToEnd(proxy, animated: rowsChanged && jump.animated)
+        // flight when the user puts a finger on the thread — and not for a beat after a scroll that
+        // isn't a drag has started away from the end (plan 16, task 2d; `pinsHeldOff`).
+        // Nor while UIKit animates a scroll the thread didn't start (`foreignScrollIsAnimating`).
+        if rowsChanged || !(threadScroll.pinsHeldOff || threadScroll.foreignScrollIsAnimating) {
+            scrollToEnd(proxy, animated: rowsChanged && jump.animated)
+        }
         if answerCompleted {
             // Task 1c: the reader followed the answer to its end, so the tail sheds back to its
             // budget — the last exchange and a screen and a half — and the next answer streams with
@@ -491,11 +511,11 @@ struct AskView: View {
     private func settleAtTheEnd(_ proxy: ScrollViewProxy) {
         Task { @MainActor in
             guard isFollowing, !threadScroll.userIsScrolling else { return }
-            scrollToEnd(proxy)
+            if !(threadScroll.pinsHeldOff || threadScroll.foreignScrollIsAnimating) { scrollToEnd(proxy) }
             try? await Task.sleep(for: .milliseconds(150))
             for _ in 0..<13 {
                 guard isFollowing, !threadScroll.userIsScrolling else { return }
-                scrollToEnd(proxy)
+                if !(threadScroll.pinsHeldOff || threadScroll.foreignScrollIsAnimating) { scrollToEnd(proxy) }
                 try? await Task.sleep(for: .milliseconds(100))
             }
         }
@@ -512,10 +532,15 @@ struct AskView: View {
     /// then landed past the last real row, and the thread stayed blank until the user dragged back
     /// up (iOS 17.5, 18.5 and 26.5). On 26.5 a long thread could instead send the lazy stack's
     /// placement into a loop at full CPU, and on 18.5 a restored thread could stop short of its end.
+    ///
+    /// Plan 16 (task 2d): under Reduce Motion the one eased jump — a send from up to a screen away —
+    /// cuts too. (Read from UIKit at the call: no environment value to go stale in a view whose body
+    /// never reads it.)
     private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool = false) {
         let target = store.messages.last?.id ?? Self.threadTopID
         let anchor: UnitPoint = store.messages.isEmpty ? .top : .bottom
-        if animated {
+        if animated && !UIAccessibility.isReduceMotionEnabled {
+            threadScroll.ownScrollAnimationAt = CACurrentMediaTime()
             withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: anchor) }
         } else {
             proxy.scrollTo(target, anchor: anchor)
@@ -548,27 +573,35 @@ struct AskView: View {
             if let citationErrorMessage {
                 banner(citationErrorMessage, identifier: "ask.citationError") { self.citationErrorMessage = nil }
             }
-            ChatComposerBar(text: $input, isFocused: $inputFocused, isSending: store.isStreaming, onSend: sendTapped)
+            ChatComposerBar(text: $input, isFocused: $inputFocused, accessibilityFocus: $accessibilityFocus,
+                            isSending: store.isStreaming, onSend: sendTapped)
         }
         .padding(12)
     }
 
     /// L2: tap anywhere on a banner to dismiss it (same look at rest; the plain button style's
     /// press dim is the only feedback). Every banner also clears on the next send.
+    ///
+    /// Plan 16 (task 2d): white on DESIGN.md's `destructive` red, 5.06:1 (on the system red it was
+    /// 3.55, below AA for 13 pt text); the whole message shows, wrapping at any size (it was cut at two
+    /// lines); the glyph scales with the text; and the banner takes taps across at least 44 pt of
+    /// height (`.stashPlain`).
     private func banner(_ text: String, identifier: String, dismiss: @escaping () -> Void) -> some View {
         Button(action: dismiss) {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
-                Text(text).font(StashType.meta()).lineLimit(2)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .accessibilityHidden(true)
+                Text(text)
                 Spacer(minLength: 0)
             }
+            .stashFont(.meta)
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color.red, in: RoundedRectangle(cornerRadius: 10))
+            .background(StashColor.destructive, in: RoundedRectangle(cornerRadius: 10))
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.stashPlain)
         .accessibilityHint("Dismisses this message")
         .accessibilityIdentifier(identifier)
     }
@@ -631,11 +664,20 @@ struct AskView: View {
     /// `chat-with-all-content/index.ts`), so the per-source chip filter renders too: one inline
     /// link plus exactly one leftover chip, not all-or-nothing. Never reachable without this exact
     /// launch argument; compiled out of Release.
+    ///
+    /// Plan 16 (task 2d): `--uitest-seed-citation-ids=<linked>,<chip>` points the two sources at real
+    /// items of the signed-in account (a UI test looks up permanent `UITEST-FIXTURE` items by REST),
+    /// so a tap opens the real detail sheet instead of "Couldn't load that item". Without it, the ids
+    /// are made up, as before.
     private func seedCitationScreenshotFixtureIfRequested() {
-        guard ProcessInfo.processInfo.arguments.contains("--uitest-seed-citation-bubble") else { return }
-        let linkedSource = ChatSource(id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--uitest-seed-citation-bubble") else { return }
+        let realIds = arguments.first { $0.hasPrefix("--uitest-seed-citation-ids=") }
+            .map { $0.dropFirst("--uitest-seed-citation-ids=".count).split(separator: ",").compactMap { UUID(uuidString: String($0)) } }
+            ?? []
+        let linkedSource = ChatSource(id: realIds.first ?? UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
                                       title: "Persimmon Feeding Notes", type: "text", url: nil, n: 1)
-        let extraSource = ChatSource(id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+        let extraSource = ChatSource(id: realIds.dropFirst().first ?? UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
                                      title: "Fruit Tree Almanac", type: "text", url: nil, n: nil)
         let question = ChatMessage(id: "fixture-u", role: .user,
                                    content: "What do my saved items say about persimmons?")
@@ -643,6 +685,76 @@ struct AskView: View {
                                  content: "Per [Feeding Log](#1), persimmons should be introduced gradually [1] to avoid stomach upset.",
                                  sources: [linkedSource, extraSource])
         store.seedForScreenshot([question, answer])
+    }
+
+    /// Plan 16 (task 2d): `--uitest-seed-markdown-answer` seeds a finished exchange whose answer has
+    /// every block an answer can draw — a heading, a paragraph with strong and emphasised text and an
+    /// inline citation, a bulleted list, a numbered list and a quote — plus one source it doesn't cite,
+    /// shown as a chip: the accessibility pass's screenshots and audits look at all of them at once.
+    /// The sources' ids match no item, so nothing is fetched unless one is tapped. Compiled out of
+    /// Release.
+    private func seedMarkdownAnswerFixtureIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("--uitest-seed-markdown-answer") else { return }
+        let cited = ChatSource(id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+                               title: "Sourdough Starter Notes", type: "text", url: nil, n: 1)
+        let extra = ChatSource(id: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+                               title: "Bread Baking Basics", type: "link", url: nil, n: nil)
+        let question = ChatMessage(id: "fixture-md-u", role: .user, content: "How do I look after my sourdough starter?")
+        let answer = ChatMessage(id: "fixture-md-a", role: .assistant, content: """
+            ## Feeding schedule
+            Your [starter notes](#1) say to feed it **twice a day** while it lives on the counter, and *once a week* once it moves to the fridge.
+
+            - Discard half before each feeding
+            - Use equal weights of flour and water
+            - A warm spot makes it rise faster
+
+            1. Mix 50 g of flour with 50 g of water
+            2. Wait four to six hours
+            3. Bake with it at its peak
+
+            > Bubbles all the way through means it's ready.
+            """, sources: [cited, extra])
+        store.seedForScreenshot([question, answer])
+    }
+
+    /// `--uitest-a11y-hooks` (plan 16, task 2d): scrolls the thread the way VoiceOver does — a page up,
+    /// as its three-finger swipe does (UIKit's accessibility scroll on the thread's scroll view), or to
+    /// the end, as moving its focus to the last answer does — neither of them a drag. For the UI tests of
+    /// following after scrolls that aren't drags (task 1c review, M-6). Test scaffolding standing in for
+    /// an assistive technology, never the app's own scrolling (that goes through `scrollToEnd` only).
+    /// Compiled out of Release.
+    private func emulateVoiceOverScroll(toEnd: Bool) {
+        guard let scrollView = threadScroll.scrollView else {
+            NSLog("A11YHOOK no scroll view")
+            return
+        }
+        let insets = scrollView.adjustedContentInset
+        if toEnd {
+            // Not animated: an animation to an offset fixed at its start lands short when the lazy history
+            // re-measures on the way (measured: 357 pt short of the end). And again until it's there, as
+            // VoiceOver's scroll to the last element ends on that element: a jump to the end can make the
+            // history re-measure under it (iOS 26.5: it came to rest short of the end, now and then).
+            func jump(_ attempt: Int) {
+                let end = max(-insets.top, scrollView.contentSize.height + insets.bottom - scrollView.bounds.height)
+                guard abs(scrollView.contentOffset.y - end) > 1, attempt < 6 else { return }
+                NSLog("A11YHOOK to the end (%d) from offset=%.0f end=%.0f", attempt, scrollView.contentOffset.y, end)
+                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: end), animated: false)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { jump(attempt + 1) }
+            }
+            jump(0)
+            return
+        }
+        let handled = scrollView.accessibilityScroll(.up)
+        NSLog("A11YHOOK accessibilityScroll(up) handled=%@ offset=%.0f", handled ? "true" : "false",
+              scrollView.contentOffset.y)
+        if !handled {
+            // What UIKit's own accessibility scroll does (it isn't loaded while no assistive technology
+            // runs): an animated page.
+            let page = scrollView.bounds.height - insets.top - insets.bottom
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x,
+                                                y: max(-insets.top, scrollView.contentOffset.y - page)),
+                                        animated: true)
+        }
     }
     #endif
 
@@ -672,6 +784,137 @@ struct AskView: View {
                 citationErrorMessage = "Couldn't load that item — try again."
             }
         }
+    }
+}
+
+/// The Ask header (plan 16, task 2d): "Chat with your Stash" and, on the right, New chat and History —
+/// or, while the composer holds the keyboard, the keyboard Cancel in their place.
+///
+/// It never jumps when Cancel swaps in, at any text size: the right side is always as big as the
+/// bigger of its two states (both sizes are reserved; only the live one is drawn), so the title beside
+/// it wraps the same way whichever shows, and the row keeps its height. Cancel's 44 pt target, like the
+/// circles', overhangs instead of growing the row (`StashCancelButton`), so nothing needs reserving for
+/// it. At the default size the row is exactly as before: 8 + 36 + 4 pt, circles 16 pt from the edge
+/// and 44 pt apart centre to centre.
+///
+/// At accessibility sizes the title would wrap to two or three lines in what's left beside the
+/// controls, so the controls take a row of their own above it — a large-title navigation bar's
+/// arrangement — and the title wraps across the whole width.
+private struct AskHeader: View {
+    let isComposing: Bool
+    let isStreaming: Bool
+    let onNewChat: () -> Void
+    let onHistory: () -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private static let circleSize: CGFloat = 36
+    private static let circleSpacing: CGFloat = 8
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        controls
+                    }
+                    title
+                }
+            } else {
+                HStack(spacing: 8) {
+                    title
+                    Spacer(minLength: 0)
+                    controls
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+
+    private var title: some View {
+        Text("Chat with your Stash")
+            .stashFont(.screenTitle)
+            .foregroundStyle(StashColor.ink)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The circles, or Cancel, over the size of both.
+    private var controls: some View {
+        ZStack(alignment: .trailing) {
+            // Sizing only, never drawn: the circles' row, and Cancel's word in its role
+            // (`StashCancelButton`'s layout is the word alone). A ZStack takes its size from its
+            // highest-priority children, and `StashCancelButton` carries `layoutPriority(1)` (for the
+            // title beside it to give way first) — so these outrank it, or the stack would be just
+            // Cancel's word while it shows, and the row 9 pt shorter.
+            Color.clear
+                .frame(width: Self.circleSize * 2 + Self.circleSpacing, height: Self.circleSize)
+                .layoutPriority(2)
+            Text("Cancel")
+                .stashFont(.textButton)
+                .lineLimit(1)
+                .fixedSize()
+                .hidden()
+                .layoutPriority(2)
+            if isComposing {
+                StashCancelButton(identifier: "ask.dismissKeyboard", action: onCancel)
+            } else {
+                HStack(spacing: Self.circleSpacing) {
+                    Button(action: onNewChat) {
+                        CircleIcon(systemImage: "square.and.pencil", size: Self.circleSize)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isStreaming)
+                    .stashIconControl("Start new chat", systemImage: "square.and.pencil")
+                    .accessibilityIdentifier("ask.newChat")
+
+                    Button(action: onHistory) {
+                        CircleIcon(systemImage: "clock", size: Self.circleSize)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isStreaming)
+                    .stashIconControl("Earlier conversations", systemImage: "clock")
+                    .accessibilityIdentifier("ask.history")
+                }
+            }
+        }
+        .fixedSize()
+    }
+}
+
+/// Shown while an explicitly opened old conversation is on screen (see `AskView.sessionTitlePill`).
+/// Plan 16 (task 2d): violet-700 text on its violet tint (5.46:1; violet-600 was 4.41), the clock in the
+/// text's role so it grows with it, and at accessibility sizes the title wraps to a second line rather
+/// than being cut.
+private struct AskSessionPill: View {
+    let title: String
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        HStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "clock")
+                    .accessibilityHidden(true)
+                Text(title)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    .truncationMode(.tail)
+            }
+            .stashFont(.meta)
+            .foregroundStyle(StashColor.violet700)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(StashColor.violet600.opacity(0.12), in: Capsule())
+            .overlay(Capsule().strokeBorder(StashColor.violet300.opacity(0.6), lineWidth: 1))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("ask.sessionPill")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 2)
     }
 }
 
@@ -901,6 +1144,10 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
         private var settingOffset = false
         /// True while a report is scheduled on the main queue (see `userScrolled`).
         private var reportScheduled = false
+        /// When the viewport last changed size (the keyboard, a rotation) — see `movedWithoutADrag`.
+        private var viewportChangedAt: CFTimeInterval = 0
+        /// Where the last tail hold aimed, unrounded (plan 16, task 2d) — see `tailDistance`.
+        private var tailHoldTarget: CGFloat?
 
         init(handle: AskThreadScrollHandle) {
             self.handle = handle
@@ -913,8 +1160,8 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
                 if let scrollView = candidate as? UIScrollView {
                     handle.scrollView = scrollView
                     observations = [
-                        scrollView.observe(\.contentOffset, options: []) { [weak self] scrollView, _ in
-                            self?.offsetChanged(scrollView)
+                        scrollView.observe(\.contentOffset, options: [.old]) { [weak self] scrollView, change in
+                            self?.offsetChanged(scrollView, from: change.oldValue?.y)
                         },
                         scrollView.observe(\.contentSize, options: [.prior]) { [weak self] scrollView, change in
                             guard let self else { return }
@@ -947,25 +1194,46 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
         /// left alone: the lazy stack keeps its own visible rows still, and a hold on top of that would
         /// move them twice. A viewport-size change is only held at the end: a reader who has scrolled
         /// away keeps their place from the top when the keyboard comes or goes, as before.
+        ///
+        /// Plan 16 (task 2d): nothing is held while UIKit animates a scroll the thread didn't start
+        /// (`AskThreadScrollHandle.foreignScrollIsAnimating`) — a write would retarget it.
         private func hold(_ scrollView: UIScrollView, followingOnly: Bool = false) -> Hold? {
+            if handle.foreignScrollIsAnimating { return nil }
             let distance = Self.distanceFromEnd(scrollView)
             if handle.isFollowing, !handle.userIsScrolling, distance < AskThreadScrollHandle.endSlack {
                 return .end(distance: max(0, distance))
             }
             guard !followingOnly, let tailHeight,
                   distance + Self.visibleHeight(scrollView) <= tailHeight + 0.5 else { return nil }
-            return .tail(distance: distance)
+            return .tail(distance: tailDistance(scrollView, measured: distance))
+        }
+
+        /// A tail hold's distance from the end, measured from where the last tail hold aimed rather than
+        /// from where the viewport is, while nothing else has moved it (plan 16, task 2d). A hold's
+        /// offset isn't always set exactly — UIKit puts it on the pixel grid, and `setOffset` skips a move
+        /// of half a point or less — and measuring the next hold from the viewport kept what was lost.
+        /// Over the history's animated re-estimate as the composer takes focus (a small growth every
+        /// frame for half a second) that added up to a drop of 1–3 pt in the line being read (iOS 17.5:
+        /// 4 runs of 4 with plan 16's taller answers, 1 of 5 with task 1c's).
+        private func tailDistance(_ scrollView: UIScrollView, measured: CGFloat) -> CGFloat {
+            guard let target = tailHoldTarget, !handle.userIsScrolling,
+                  abs(scrollView.contentOffset.y - target) <= 0.5 else { return measured }
+            return Self.endOffset(scrollView) - target
         }
 
         private func contentSizeChanged(_ scrollView: UIScrollView) {
             let newTailHeight = handle.tailHeight
             switch contentHold {
             case .end(let distance)?:
+                tailHoldTarget = nil
                 keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - distance), following: true)
             case .tail(let distance)?:
                 let tailGrowth = newTailHeight - (tailHeight ?? newTailHeight)
-                keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - (distance + tailGrowth)), following: false)
+                let target = setOffset(scrollView, Self.endOffset(scrollView) - (distance + tailGrowth))
+                tailHoldTarget = target
+                keepHeld(target, following: false)
             case nil:
+                tailHoldTarget = nil
                 held = nil
             }
             contentHold = nil
@@ -973,6 +1241,7 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
         }
 
         private func viewportSizeChanged(_ scrollView: UIScrollView) {
+            viewportChangedAt = CACurrentMediaTime()
             if case .end(let distance)? = viewportHold {
                 keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - distance), following: true)
             }
@@ -995,9 +1264,10 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
         /// tail hold (the reader doesn't follow): any move, since then nothing else moves the offset
         /// programmatically. An end hold (the reader follows): a move up, away from the end, or past
         /// it — a follower's own jumps and pins only ever go to the end, and those stand.
-        private func offsetChanged(_ scrollView: UIScrollView) {
+        private func offsetChanged(_ scrollView: UIScrollView, from oldOffset: CGFloat?) {
+            var putBack = false
             if !settingOffset, let held, heldRestores < 4, !handle.userIsScrolling,
-               handle.isFollowing == held.following {
+               handle.isFollowing == held.following, !handle.foreignScrollIsAnimating {
                 let offset = scrollView.contentOffset.y
                 let lastOffset = max(-scrollView.adjustedContentInset.top, Self.endOffset(scrollView))
                 let undone = held.following
@@ -1005,14 +1275,72 @@ private struct AskThreadScrollObserver: UIViewRepresentable {
                     : abs(offset - held.offset) > 0.5
                 if undone {
                     heldRestores += 1
+                    // A move up undone under an end hold may be the first frame of a scroll that isn't
+                    // a drag: the next pin waits a beat, so it can go on (see `movedWithoutADrag`).
+                    if held.following, offset < held.offset { handle.movedAwayWithoutADragAt = CACurrentMediaTime() }
                     setOffset(scrollView, held.offset)
+                    putBack = true
                 }
             }
-            // Only a drag or the glide after one may turn following on or off — never a touch-down
-            // that hasn't moved, a programmatic scroll, content growth or a hold. Two flag reads are
-            // safe inside a layout pass.
-            guard scrollView.isDragging || scrollView.isDecelerating else { return }
-            userScrolled(scrollView)
+            // A drag or the glide after one turns following on or off on the next turn
+            // (`userScrolled`) — never a touch-down that hasn't moved, content growth or a hold. Two
+            // flag reads are safe inside a layout pass.
+            if scrollView.isDragging || scrollView.isDecelerating {
+                userScrolled(scrollView)
+            } else if !settingOffset, !putBack, let oldOffset {
+                movedWithoutADrag(scrollView, from: oldOffset)
+            }
+        }
+
+        /// Plan 16 (task 2d; task 1c review, M-6): a scroll that isn't a drag leaves the thread's end, or
+        /// comes back to it, as a drag does. VoiceOver scrolls what it moves its focus to into view, and
+        /// scrolls a page at a three-finger swipe; a tap on the status bar scrolls to the top; Switch
+        /// Control, Voice Control and Full Keyboard Access scroll too — none of them a drag, so none
+        /// turned following off, and the follow pins and the settle after each answer pulled the reader
+        /// straight back to the end.
+        ///
+        /// Leaving is any such move AWAY from the end that starts at it (within `endSlack`) — the first
+        /// frame of an animated scroll is enough, and it has to be: VoiceOver's page scroll moves a point
+        /// or two in its first frames, and a pin landing before it had gone further cancelled it. Small
+        /// moves count too: a VoiceOver reader moving up to the paragraph before the one streaming keeps
+        /// it where it is. Nothing else that moves the offset without a finger can be taken for one:
+        /// - the thread's own scrolls (`AskView.scrollToEnd`) only ever go to the end, and only while the
+        ///   reader follows;
+        /// - the holds are this coordinator's own writes (`settingOffset`), and SwiftUI undoing one is put
+        ///   back above, first; in a turn that has made a hold (`held`), no move is taken as a reader's —
+        ///   SwiftUI's own writes come in those turns (task 1c), and VoiceOver's scroll in one is put back
+        ///   anyway;
+        /// - UIKit clamping the offset as the content shrinks or the viewport grows keeps the viewport at
+        ///   the end, never further from it;
+        /// - a scroll that starts away from the end — the thread's first layout before its landing —
+        ///   isn't leaving it;
+        /// - for a moment after the viewport changes size, no move is a reader's: as the keyboard comes or
+        ///   goes, SwiftUI sets offsets of its own — 2,681 and 3,149 pt up, on iOS 26.5 — which the holds
+        ///   put back when they land in the hold's turn, and which otherwise read as leaving the end.
+        /// Coming back is any such move toward the end that ends within its reach. (Not just the move
+        /// that crosses into it: an animated scroll's frame that lands in a turn with a tail hold is put
+        /// back, and if that was the frame that crossed, the frames after it are already inside.)
+        /// It's decided at once, not on the next turn as a drag is: the next streamed update would pin the
+        /// reader back first. And any move away from the end while the reader follows — even one put back,
+        /// or in a held turn — holds the pins off for a beat (`AskThreadScrollHandle.pinsHeldOff`): the
+        /// first frame of an animated scroll can land in a held turn, and a pin before the next frame would
+        /// cancel the scroll (iOS 26.5: a status-bar tap mid-answer, now and then).
+        private func movedWithoutADrag(_ scrollView: UIScrollView, from oldOffset: CGFloat) {
+            guard !scrollView.isTracking else { return }   // a finger is down: its drag decides
+            guard CACurrentMediaTime() - viewportChangedAt > 0.4 else { return }
+            let slack = AskThreadScrollHandle.endSlack
+            let before = Self.endOffset(scrollView) - oldOffset
+            let after = Self.distanceFromEnd(scrollView)
+            // While UIKit animates a scroll the thread didn't start, nothing holds the end, so a streamed
+            // update can grow the content past the end's reach before its first frame: a follower is
+            // still leaving the end (iOS 17.5: 266 pt below at a status-bar tap's first frame).
+            let fromTheEnd = before < slack || handle.foreignScrollIsAnimating
+            if handle.isFollowing, fromTheEnd, after > max(before, 0) + 0.5 {
+                handle.movedAwayWithoutADragAt = CACurrentMediaTime()
+                if held == nil { handle.isFollowing = false }
+            } else if !handle.isFollowing, after < slack, after < before {
+                handle.isFollowing = true
+            }
         }
 
         /// Keeps a hold's offset for the rest of this run-loop turn (the update it was made in, and
@@ -1097,6 +1425,30 @@ final class AskThreadScrollHandle {
     weak var scrollView: UIScrollView?
     /// The reader follows the thread (see `AskView.isFollowing`).
     var isFollowing = true
+    /// When a scroll that isn't a drag last moved the viewport away from the end while the reader
+    /// followed (plan 16, task 2d) — VoiceOver's, a status-bar tap's. See `pinsHeldOff`.
+    var movedAwayWithoutADragAt: CFTimeInterval = 0
+
+    /// A streamed update doesn't pin the end for a beat after such a move: the scroll is animated, and a
+    /// pin cancels it. Its first frames can land in a turn whose hold puts them back, so it may not have
+    /// left the end yet; a frame or two later it has, and following is off. (Sends and retries still
+    /// jump.)
+    var pinsHeldOff: Bool { CACurrentMediaTime() - movedAwayWithoutADragAt < 0.12 }
+    /// When the thread's own eased jump last started (`AskView.scrollToEnd(_:animated: true)`).
+    var ownScrollAnimationAt: CFTimeInterval = 0
+
+    /// UIKit is animating a scroll the thread didn't start: a status-bar tap's scroll to the top,
+    /// VoiceOver's page or scroll-to-visible (plan 16, task 2d). While it runs, nothing holds, puts back
+    /// or pins — it's let run, and where it goes decides following (`movedWithoutADrag`). A write to the
+    /// offset before its first frame retargets it to that offset, and the scroll is lost: on iOS 17.5 a
+    /// streamed update's end hold landed between a status-bar tap and its first frame in 4 runs of 8,
+    /// and UIKit then animated to the held end for 200 ms. iOS 17.4 and later (`isScrollAnimating`);
+    /// before that nothing tells, and a scroll can still be lost that way.
+    var foreignScrollIsAnimating: Bool {
+        guard #available(iOS 17.4, *) else { return false }
+        guard let scrollView, scrollView.isScrollAnimating else { return false }
+        return CACurrentMediaTime() - ownScrollAnimationAt > 0.4
+    }
     /// The laid-out tail's height (task 1c), measured as it changes — how far above the end the
     /// tail's first row is, for the observer's tail hold and a send's classification
     /// (`ChatThreadTail.sendJump`).
@@ -1167,15 +1519,25 @@ private struct AskBubbleTextGauge: View {
 ///
 /// A moved row is rebuilt and loses its own state, as a lazy row scrolled far away sometimes does
 /// anyway; a given rating lives in `ChatRatings`, so it stays.
+///
+/// Plan 16 (task 2d): while VoiceOver or Switch Control runs, there is no lazy history — every row is
+/// in the laid-out tail (`laysOutEverything`). Both move through the thread one element at a time, in
+/// the order of the accessibility tree, and a lazy stack's tree holds only the rows it has built near
+/// the screen, while the tail is always in it, after them. So from the last element of the last row the
+/// history had built, the next was the tail's first — every row in between skipped. Measured on iOS
+/// 26.5 (`A11yAskUITests`, long prose thread): with an answer's last element at the thread's bottom
+/// edge, the least VoiceOver scrolls to show it, the next question wasn't built in 1 of 4 places. The
+/// cost is the one the tail was bounded to avoid — every row redrawn as an answer streams — paid only
+/// while one of them runs.
 @Observable
 final class AskThreadTail {
-    /// The thread's horizontal padding (16 pt each side) plus an answer bubble's own: its trailing
-    /// spacer (40 pt) and spacing (8 pt), and its padding (12 pt each side). What's left of the
-    /// thread's width is a line of bubble text.
-    static let bubbleTextInset: CGFloat = 32 + 40 + 8 + 24
+    /// What a line of bubble text is left with of the thread's width (`ChatBubbleLayout`): the
+    /// thread's padding, an answer bubble's far-side gap and spacing, and its own padding.
+    static let bubbleTextInset: CGFloat = ChatBubbleLayout.answerTextInset
 
     @ObservationIgnored private var threadKey: String?
     @ObservationIgnored private var historyEnd = 0
+    @ObservationIgnored private var laysOutEverything = false
     /// `AskBubbleTextGauge`'s measurements: one line of sample prose, and three short lines.
     @ObservationIgnored var gaugeSample: CGSize = .zero
     @ObservationIgnored var gaugeThreeLines: CGFloat = 0
@@ -1203,13 +1565,15 @@ final class AskThreadTail {
     }
 
     /// How many leading rows of `messages` are lazy history. The rest are the tail, which always
-    /// holds at least the last row.
-    func historyCount(for messages: [ChatMessage]) -> Int {
+    /// holds at least the last row — and every row, while `laysOutEverything` (VoiceOver or Switch
+    /// Control runs; see the type doc).
+    func historyCount(for messages: [ChatMessage], laysOutEverything: Bool) -> Int {
         _ = sheds
         let key = messages.first?.id
-        if key != threadKey {
+        if key != threadKey || laysOutEverything != self.laysOutEverything {
             threadKey = key
-            historyEnd = ChatThreadTail.tailStart(in: messages, metrics: metrics)
+            self.laysOutEverything = laysOutEverything
+            historyEnd = laysOutEverything ? 0 : ChatThreadTail.tailStart(in: messages, metrics: metrics)
         }
         // A rollback (a question that failed before its first token) can leave the split past the
         // last row. Stored back, so the next rows appended stay in the tail rather than moving
@@ -1218,8 +1582,10 @@ final class AskThreadTail {
         return historyEnd
     }
 
-    /// Moves the rows the tail no longer needs into the history — only at the two moments above.
+    /// Moves the rows the tail no longer needs into the history — only at the two moments above, and
+    /// never while every row is laid out.
     func shed(_ messages: [ChatMessage]) {
+        guard !laysOutEverything else { return }
         let start = ChatThreadTail.tailStart(in: messages, metrics: metrics)
         guard messages.first?.id == threadKey, start > historyEnd else { return }
         historyEnd = start
