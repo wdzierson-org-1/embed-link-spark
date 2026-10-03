@@ -78,18 +78,22 @@ struct PhoneSection: View {
     }
 
     /// Plan 16: the number, its "Verified" note and the remove button on one line while they fit;
-    /// at the larger text sizes the note and the button go under the number.
+    /// at the larger text sizes the note and the button go under the number, which then has the
+    /// row's whole width and wraps when even that is too narrow — at AX3 "+1 (555) 123-4567" in
+    /// mono is wider than the row — instead of truncating to "+1 (555) 123-45…" (fix round 1).
     private func row(_ number: PhoneNumberRow) -> some View {
         let display = formatStoredPhoneNumber(number.phoneNumber)
         return ViewThatFits(in: .horizontal) {
             HStack {
                 phoneText(display)
+                    .lineLimit(1)
                 if number.verified { verifiedText }
                 Spacer()
                 removeButton(number, display: display)
             }
             VStack(alignment: .leading, spacing: 4) {
                 phoneText(display)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     if number.verified { verifiedText }
                     Spacer()
@@ -101,11 +105,11 @@ struct PhoneSection: View {
     }
 
     /// Tabular mono for the formatted digits — same sanctioned system-monospace exception as the
-    /// capture-recorder timer (15 pt, `.subheadline`).
+    /// capture-recorder timer (15 pt, `.subheadline`). One line beside the other controls, as
+    /// many as it needs on its own (`row`).
     private func phoneText(_ display: String) -> some View {
         Text(display)
             .stashFont(.mono(.subheadline))
-            .lineLimit(1)
     }
 
     private var verifiedText: some View {
@@ -158,6 +162,12 @@ struct PhoneSection: View {
     /// load phone numbers." nor ends the first-load spinner over an empty list; the next
     /// appearance simply loads again.
     private func load() async {
+        // UI tests only (`CaptureTestHooks.phoneFixture`; always nil in Release): one made-up row.
+        if let fixture = CaptureTestHooks.phoneFixture {
+            numbers = [PhoneNumberRow(id: fixture.id, phoneNumber: fixture.phoneNumber, verified: true)]
+            isLoading = false
+            return
+        }
         if await reload() { isLoading = false }
     }
 

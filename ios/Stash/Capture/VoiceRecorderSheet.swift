@@ -22,6 +22,12 @@ struct VoiceRecorderSheet: View {
     /// caller wiring up cancellation without rediscovering this exact bug.
     @State private var saveTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
+    /// The record button's mic glyph grows with the text like `.title` (28 pt at the default size),
+    /// up to `Self.recordGlyphMaximum`.
+    @ScaledMetric(relativeTo: .title) private var recordGlyphSize: CGFloat = 28
+    /// About half the 84 pt button — reached between AX2 and AX3, where `.title` itself goes on to
+    /// 58 pt and would crowd the circle.
+    private static let recordGlyphMaximum: CGFloat = 44
 
     init(userId: UUID, viewModel: CaptureViewModel, onFinished: @escaping (CaptureOutcome?) -> Void) {
         self.viewModel = viewModel
@@ -102,11 +108,12 @@ struct VoiceRecorderSheet: View {
                     .fill(Color.red)
                     .frame(width: 84, height: 84)
                     .overlay {
-                        // Icon chrome (DESIGN.md › Controls (iOS)): the 84 pt button and its
-                        // glyph keep their size at every text size; the Large Content Viewer
-                        // (`stashIconControl`) shows it large. A system font, so Bold Text applies.
+                        // The 84 pt button keeps its size at every text size; its glyph is no bar
+                        // chrome, so it grows with the text as it did before plan 16, but stops at
+                        // 44 pt (fix round 1). The Large Content Viewer (`stashIconControl`) shows
+                        // it large. A system font, so Bold Text applies.
                         Image(systemName: "mic.fill")
-                            .font(.system(size: 28))
+                            .font(.system(size: min(recordGlyphSize, Self.recordGlyphMaximum)))
                             .foregroundStyle(.white)
                     }
             }

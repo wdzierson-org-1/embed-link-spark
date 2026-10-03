@@ -12,6 +12,9 @@ import XCTest
 ///   screen at every size, logged as `A11Y audit …` lines.
 /// - The Add tab's Cancel contract: the shared `StashCancelButton` on a paper capsule, a 44 pt
 ///   target, one line at accessibility sizes, and appearing without moving the header.
+/// - Fix round 1 (the 2c review): targets proven by taps where a frame can't show them (the
+///   attachment ×'s top edge, Next's bottom edge, a tap through a refusal toast), the onboarding
+///   card's height, the Outbox badge's place, and a phone number that wraps instead of truncating.
 ///
 /// The share sheet is its own process (launched by Safari), so launch arguments can't reach it:
 /// `testShareComposeScreenshot` is host-orchestrated — see its doc comment.
@@ -109,25 +112,85 @@ final class A11yAppUITests: XCTestCase {
             // batch's refusal toasts once the loads are done; each load is held 4 s
             // (`--uitest-slow-attachment-load`) so the 3 s toast comes after the relaunch has
             // settled — unslowed, it toasts and goes while the launch is still being waited on.
-            let toastApp = screens.launch(variant, tab: .add,
-                                          arguments: ["--uitest-slow-attachment-load=4000",
-                                                      "--uitest-import-file=clip.mov:30", "--uitest-import-file=lecture.mov:101"])
+            let toastApp = screens.launch(variant, tab: .add, arguments: Self.refusedImportArguments)
             let toast = Self.element(toastApp, "capture.toast")
+            var toastLiesOverTheMic = false
             if toast.waitForExistence(timeout: 20) {
                 usleep(700_000)   // past its slide-in, so the shot shows it at rest (it stays 3 s)
                 shoot("add-toast", variant)
-                print("A11Y toast \(variant) frame=\(toast.frame) label=\(toast.label) "
-                      + "tabBarTop=\(toastApp.tabBars.firstMatch.frame.minY)")
+                let toastFrame = toast.frame, tabBarTop = toastApp.tabBars.firstMatch.frame.minY
+                print("A11Y toast \(variant) frame=\(toastFrame) label=\(toast.label) tabBarTop=\(tabBarTop)")
                 XCTAssertEqual(toast.label, "Couldn't add “lecture.mov” — it's over the 100 MB limit")
-                XCTAssertLessThanOrEqual(toast.frame.maxY, toastApp.tabBars.firstMatch.frame.minY + 0.5,
-                                         "\(variant): the toast sits under the tab bar")
+                XCTAssertLessThanOrEqual(toastFrame.maxY, tabBarTop + 0.5, "\(variant): the toast sits under the tab bar")
                 assertTarget(toast, "capture.toast", variant)   // before it goes (3 s)
                 audit(toastApp, "add-toast", variant)
-                // The attached file's ×: a 44 pt target inside its scroll view.
+                // The bottom bar's circles the toast lies over: at AX3, the lower part of all of them.
+                let covered = Self.bottomBarControls.filter { id in
+                    let control = Self.element(toastApp, id)
+                    return control.exists && Self.overlaps(toastFrame, control.frame)
+                }
+                print("A11Y toast \(variant) lies over: \(covered)")
+                toastLiesOverTheMic = covered.contains("capture.voice")
+                // The attached file's ×: a 44 pt target inside its scroll view — measured, then
+                // (once the toast has gone) tapped at its top edge.
                 assertTarget(Self.element(toastApp, "capture.attachment.remove"), "capture.attachment.remove", variant)
+                _ = toast.waitForNonExistence(timeout: 6)
+                assertAttachmentRemoveTargetTakesATapAtItsTopEdge(toastApp, variant)
             } else {
                 XCTFail("\(variant): no toast for the refused file")
             }
+            if toastLiesOverTheMic {
+                assertARefusalToastLetsTapsThroughToTheMic(screens, variant)
+            }
+        }
+    }
+
+    /// The Outbox badge (fix round 1, M-4): at rest it sits at the header's trailing edge — the
+    /// hidden "Cancel" line beside it holds the header's height, not its width — and while composing
+    /// it sits 12 pt before Cancel at its own width (at AX3 it used to be squeezed 3.3 pt there), the
+    /// wordmark unmoved. The DEBUG `--uitest-outbox-badge=2` shows
+    /// the badge as if 2 captures were waiting to sync (nothing is queued). Shot as `add-badge` /
+    /// `add-badge-composing`: the badge's look — orange with ink digits — is read off those.
+    @MainActor
+    func testOutboxBadgeRestsAtTheHeaderEdge() throws {
+        continueAfterFailure = true
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        for variant in [A11yVariant.large, .ax3] {
+            let app = screens.launch(variant, tab: .add, arguments: ["--uitest-outbox-badge=2"])
+            let editor = app.textViews["capture.editor"]
+            XCTAssertTrue(editor.waitForExistence(timeout: 10), "\(variant): Add editor missing")
+            let badge = Self.element(app, "capture.outboxBadge")
+            XCTAssertTrue(badge.waitForExistence(timeout: 5), "\(variant): the Outbox badge didn't show")
+            let wordmark = app.images.matching(NSPredicate(format: "label == %@", "Stash")).firstMatch
+            XCTAssertTrue(wordmark.waitForExistence(timeout: 5), "\(variant): header wordmark missing")
+            sleep(2)   // the backdrop's blurred tier fades in
+            shoot("add-badge", variant)
+            let restingBadge = badge.frame, restingMark = wordmark.frame
+            // The header's trailing edge: `StashHeader`'s 16 pt inset plus the Add tab's own 2 pt.
+            let headerTrailing = app.frame.maxX - 18
+            print("A11Y badge \(variant) rest: badge=\(restingBadge) wordmark=\(restingMark) headerTrailing=\(headerTrailing)")
+            XCTAssertEqual(badge.label, "2 captures waiting to sync")
+            XCTAssertEqual(restingBadge.maxX, headerTrailing, accuracy: 1,
+                           "\(variant): at rest the badge should sit at the header's trailing edge")
+            XCTAssertEqual(restingBadge.midY, restingMark.midY, accuracy: 1, "\(variant): the badge should centre on the header row")
+
+            A11yScreens.tapUntilFocused(editor)
+            editor.typeText("draft")
+            let cancel = app.buttons["capture.dismissKeyboard"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5), "\(variant): no Cancel while composing")
+            sleep(1)
+            shoot("add-badge-composing", variant)
+            let composingBadge = badge.frame, composingMark = wordmark.frame, cancelFrame = cancel.frame
+            print("A11Y badge \(variant) composing: badge=\(composingBadge) cancel=\(cancelFrame) wordmark=\(composingMark)")
+            XCTAssertLessThanOrEqual(composingBadge.maxX, cancelFrame.minX - 11.5,
+                                     "\(variant): while composing the badge should sit 12 pt before Cancel")
+            XCTAssertEqual(composingBadge.width, restingBadge.width, accuracy: 0.5,
+                           "\(variant): the badge is squeezed beside Cancel (\(composingBadge.width) pt wide, \(restingBadge.width) at rest)")
+            XCTAssertEqual(composingMark.midY, restingMark.midY, accuracy: 0.5,
+                           "\(variant): the header moved when Cancel appeared beside the badge")
+            if cancel.exists { cancel.tap() }
+            XCTAssertTrue(cancel.waitForNonExistence(timeout: 5), "\(variant): Cancel should go with the keyboard")
         }
     }
 
@@ -236,16 +299,60 @@ final class A11yAppUITests: XCTestCase {
         }
     }
 
+    /// A registered phone number is never cut off (fix round 1, M-3): on one line beside its
+    /// "Verified" note and remove button while they fit, and at the larger sizes on its own line
+    /// under them, where it wraps rather than truncating ("+1 (555) 123-45…" at AX3 before). The
+    /// DEBUG `--uitest-phone-fixture` shows one made-up, verified number in place of the account's
+    /// (none is registered on the shared test account, and nothing is written). Shot as
+    /// `settings-phone`.
+    @MainActor
+    func testPhoneNumberIsNeverTruncated() throws {
+        continueAfterFailure = true
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        let shown = "+1 (555) 123-4567"
+        for variant in [A11yVariant.large, .ax3, .ax5] {
+            let app = screens.launch(variant, tab: .settings, arguments: ["--uitest-phone-fixture"])
+            let number = app.staticTexts.matching(NSPredicate(format: "label == %@", shown)).firstMatch
+            // At the largest sizes the row starts below the fold, where the List hasn't built it yet.
+            _ = app.staticTexts.firstMatch.waitForExistence(timeout: 15)
+            Self.bringIntoView(app, number)
+            XCTAssertTrue(number.waitForExistence(timeout: 5), "\(variant): the fixture number's row didn't show")
+            sleep(1)
+            shoot("settings-phone", variant)
+            // The number's own width on one line, in the font the row sets (`.mono(.subheadline)`,
+            // SF Mono at this size), against the frame it was given.
+            let size = UIFont.preferredFont(forTextStyle: .subheadline, compatibleWith: variant.traits).pointSize
+            let font = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+            let oneLine = (shown as NSString).size(withAttributes: [.font: font]).width
+            let frame = number.frame
+            print(String(format: "A11Y phone %@: frame=(%.1f, %.1f, %.1f, %.1f) one-line width=%.1f line height=%.1f",
+                         variant.token, frame.minX, frame.minY, frame.width, frame.height, oneLine, font.lineHeight))
+            if oneLine > frame.width + 1 {
+                // Narrower than the number: it must have wrapped onto a second line.
+                XCTAssertGreaterThanOrEqual(frame.height, 1.6 * font.lineHeight,
+                                            "\(variant): the number needs \(oneLine) pt on one line but got \(frame.width) pt "
+                                            + "and one line (\(frame.height) pt tall) — it's truncated")
+            }
+            // By its name: the row's own identifier, set on the whole row, reaches the button too.
+            let remove = app.buttons.matching(NSPredicate(format: "label == %@", "Remove \(shown)")).firstMatch
+            assertTarget(remove, "settings.phone remove", variant)
+        }
+    }
+
     // MARK: - Onboarding
 
     /// "How to stash" (Settings › How to stash): panels 1–3, each from the top; at the larger sizes
-    /// also scrolled to its buttons.
+    /// also scrolled to its buttons. Fix round 1: at the default size the card hugs its content
+    /// (I-1, `assertCarouselHugsItsTallestPanel`), and a tap on Next's very bottom edge is Next's,
+    /// at every size (M-2: Skip's 44 pt target, which reaches up into Next's fill at the default
+    /// size, used to take it and dismiss the panel).
     @MainActor
     func testOnboardingScreensAtEveryTextSize() throws {
         continueAfterFailure = true
         let screens = A11yScreens(self)
         try screens.signIn()
-        for variant in A11yVariant.matrix {
+        variants: for variant in A11yVariant.matrix {
             let app = screens.launch(variant, tab: .settings)
             let row = app.buttons["settings.howToStash"]
             Self.bringIntoView(app, row)
@@ -256,13 +363,31 @@ final class A11yAppUITests: XCTestCase {
                 sleep(1)
                 shoot("onboarding-\(panel)", variant)
                 audit(app, "onboarding-\(panel)", variant)
+                if panel == 2, variant == .large || variant == .largeBold {
+                    assertCarouselHugsItsTallestPanel(app, primary, variant)
+                }
                 Self.bringIntoView(app, primary)
                 if variant != .large, variant != .largeBold {
                     shoot("onboarding-\(panel)-end", variant)
                 }
                 XCTAssertEqual(primary.label, panel < 3 ? "Next" : "Got it", "\(variant): panel \(panel)'s button")
-                if panel < 3 {
+                if panel == 1 {
                     primary.tap()
+                } else if panel == 2 {
+                    // 1 pt inside Next's bottom edge: Next's fill, and — at the default size — inside
+                    // Skip's overhanging target too. Next must take it and move on to panel 3.
+                    let next = primary.frame
+                    A11yScreens.tap(app, at: CGPoint(x: next.midX, y: next.maxY - 1))
+                    let advanced = A11yScreens.waitForLabel(primary, "Got it", condition: "==", timeout: 4)
+                    let skip = app.buttons["onboarding.skip"]
+                    print("A11Y onboarding next-edge tap \(variant): next=\(next) "
+                          + "skip=\(skip.exists ? "\(skip.frame)" : "gone") advanced=\(advanced)")
+                    guard advanced else {
+                        XCTFail("\(variant): a tap 1 pt inside Next's bottom edge didn't move to panel 3 (Skip took it?)")
+                        continue variants
+                    }
+                }
+                if panel < 3 {
                     for _ in 0..<3 { app.swipeDown() }   // back to the top for the next panel's shot
                 }
             }
@@ -309,8 +434,9 @@ final class A11yAppUITests: XCTestCase {
             print("A11Y onboarding-art panel \(panel): texts=\(texts) images=\(images)")
             XCTAssertTrue(texts.isEmpty, "Panel \(panel): art text in the accessibility tree: \(texts)")
             XCTAssertTrue(images.isEmpty, "Panel \(panel): art image in the accessibility tree: \(images)")
-            // What VoiceOver does get: the step (drawn in caps, read as words), the title (a
-            // heading) and the caption.
+            // What VoiceOver does get: the step — its label uppercased like the drawing ("STEP 1":
+            // `.textCase` reaches the label too, and VoiceOver reads "step" as a word), so the match
+            // ignores case — the title (a heading) and the caption.
             let step = app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Step \(panel)")).firstMatch
             XCTAssertTrue(step.exists, "Panel \(panel): its \"Step \(panel)\" label should be readable")
             print("A11Y onboarding-art panel \(panel): step label=\"\(step.exists ? step.label : "-")\"")
@@ -384,6 +510,11 @@ final class A11yAppUITests: XCTestCase {
     /// `L` | `xxxL` | `AX3` | `L-bold`; add `TEST_RUNNER_A11Y_SHARE_SIGN_IN=1` on the first run to
     /// sign in (the extension reads the app's stored session). The card is held for its shot,
     /// audited, checked that Save stays reachable, and cancelled — nothing is saved.
+    ///
+    /// `ios/scripts/a11y-share-shots.sh <udid> <derived-data> <results-dir>` runs all four sizes
+    /// that way, and an EXIT trap puts the simulator's text size back to `large` however the run
+    /// ends: `trap 'xcrun simctl ui "$UDID" content_size large' EXIT` (a killed shell skips even
+    /// that — `testSimulatorTextSettingsAreTheDefaults` then reports the leak).
     @MainActor
     func testShareComposeScreenshot() throws {
         let environment = ProcessInfo.processInfo.environment
@@ -491,19 +622,149 @@ final class A11yAppUITests: XCTestCase {
 
     /// Xcode's hit-region, Dynamic Type, contrast and clipped-text findings for what's on screen,
     /// logged as `A11Y audit <screen> <size> | …` (never fails the test; the report lists them).
+    ///
+    /// An issue Xcode can't tie to an element (`id=-`) is logged with its detailed description,
+    /// and the screen once with what an unattributed contrast issue is usually about (fix round 1,
+    /// N-4): the texts and buttons that lie under the tab bar — a translucent bar on iOS 17,
+    /// floating glass on iOS 26, which a scrolled list's rows show through — and the disabled
+    /// buttons, whose text is drawn faint on purpose.
     @MainActor
     private func audit(_ app: XCUIApplication, _ screen: String, _ variant: A11yVariant) {
+        var unattributed = 0
         do {
             try app.performAccessibilityAudit(for: [.hitRegion, .dynamicType, .contrast, .textClipped]) { issue in
                 let element = issue.element
                 let label = String((element?.label ?? "").prefix(60)).replacingOccurrences(of: "\n", with: " ")
                 print("A11Y audit \(Self.osPrefix)\(screen) \(variant) | \(issue.compactDescription) | "
                       + "id=\(element?.identifier ?? "-") label=\"\(label)\" frame=\(element.map { "\($0.frame.integral)" } ?? "-")")
+                if element == nil {
+                    unattributed += 1
+                    print("A11Y audit-detail \(Self.osPrefix)\(screen) \(variant) | "
+                          + String(issue.detailedDescription.prefix(200)).replacingOccurrences(of: "\n", with: " "))
+                }
                 return true
             }
         } catch {
             print("A11Y audit \(Self.osPrefix)\(screen) \(variant) | audit error: \(error)")
         }
+        guard unattributed > 0 else { return }
+        // One snapshot of the tree (one round trip, not one per element).
+        func flatten(_ node: XCUIElementSnapshot) -> [XCUIElementSnapshot] { [node] + node.children.flatMap(flatten) }
+        let nodes = (try? app.snapshot()).map(flatten) ?? []
+        let barFrame = nodes.first { $0.elementType == .tabBar }?.frame ?? .null
+        // Includes the bar's own items (Add, Ask, View, Settings), which read fine on it.
+        let underBar = barFrame.isNull ? [] : nodes.filter {
+            ($0.elementType == .staticText || $0.elementType == .button) && Self.overlaps($0.frame, barFrame)
+        }
+        let disabled = nodes.filter { $0.elementType == .button && !$0.isEnabled }
+        func describe(_ found: [XCUIElementSnapshot]) -> String {
+            found.map { "\"\(String($0.label.prefix(30)))\" \($0.frame.integral)" }.joined(separator: ", ")
+        }
+        print("A11Y audit-unattributed \(Self.osPrefix)\(screen) \(variant) | \(unattributed) issue(s) | "
+              + "tab bar \(barFrame.isNull ? "-" : "\(barFrame.integral)") | under it: [\(describe(underBar))] | "
+              + "disabled: [\(describe(disabled))]")
+    }
+
+    /// The composer's toast fixture: a 30 MB movie that attaches and a 101 MB one it refuses, each
+    /// load held 4 s (see the toast step in `testAddScreensAtEveryTextSize`).
+    private static let refusedImportArguments = ["--uitest-slow-attachment-load=4000", "--uitest-import-file=clip.mov:30",
+                                                 "--uitest-import-file=lecture.mov:101"]
+
+    /// The bottom bar's controls, by identifier (the camera's is absent on a simulator).
+    private static let bottomBarControls = ["capture.photosPicker", "capture.cameraButton", "capture.fileButton",
+                                            "capture.voice", "capture.pin", "capture.save"]
+
+    /// Whether two frames share more than a sliver (≥ 1 pt each way) — touching edges don't count.
+    private static func overlaps(_ a: CGRect, _ b: CGRect) -> Bool {
+        let shared = a.intersection(b)
+        return !shared.isNull && shared.width >= 1 && shared.height >= 1
+    }
+
+    /// The attachment ×'s target reaches up past its glyph (fix round 1, M-5) — proven by a tap, not
+    /// a frame: a horizontal scroll view takes taps only inside its own bounds, so the part of a
+    /// 44 pt target that overhangs the row's top is lost to taps while the accessibility frame
+    /// (`assertTarget`'s) keeps it. The row's 19 pt top padding keeps the target inside. The tap:
+    /// 16 pt above the glyph's centre — 6 pt inside the target's top edge, well off the 18 pt glyph.
+    ///
+    /// Measured with a probe (2026-10-03, taps every few points above the glyph's centre): with the
+    /// 19 pt padding the target takes taps up to 18 pt above the centre on iOS 17.5 (the scroll
+    /// view's top ~5 pt take no taps there) and at least 20 on iOS 26.5; with the old 10 pt padding,
+    /// up to about 9 (17.5) and 12 (26.5) — so this tap misses on the old layout on both. Not
+    /// checked: the trailing edge. A tap 2 pt inside it worked even with the old 8 pt trailing
+    /// padding, since a row narrower than its scroll view isn't cut there; that padding matters
+    /// only once the row overflows and is scrolled to its end.
+    @MainActor
+    private func assertAttachmentRemoveTargetTakesATapAtItsTopEdge(_ app: XCUIApplication, _ variant: A11yVariant) {
+        let remove = Self.element(app, "capture.attachment.remove")
+        guard remove.waitForExistence(timeout: 10) else {
+            XCTFail("\(variant): the attached movie's × is missing")
+            return
+        }
+        let frame = remove.frame
+        A11yScreens.tap(app, at: CGPoint(x: frame.midX, y: frame.midY - 16))
+        let removed = remove.waitForNonExistence(timeout: 5)
+        print("A11Y attachment-x top-edge tap \(variant): target=\(frame) removed=\(removed)")
+        XCTAssertTrue(removed, "\(variant): a tap 16 pt above the ×'s centre (inside its target, off the glyph) should remove its chip")
+    }
+
+    /// A toast that doesn't navigate lets taps through to what it lies over (fix round 1, M-1). At
+    /// AX3 the refusal toast covers the lower part of the bottom bar's circles for its 3 s: a tap
+    /// on the mic where the toast lies over it must open the voice recorder — it used to land on
+    /// the toast, which only closed. A launch of its own, so the tap comes well inside the 3 s;
+    /// nothing is saved (the take is never started, and the recorder is closed).
+    @MainActor
+    private func assertARefusalToastLetsTapsThroughToTheMic(_ screens: A11yScreens, _ variant: A11yVariant) {
+        let app = screens.launch(variant, tab: .add, arguments: Self.refusedImportArguments)
+        let toast = Self.element(app, "capture.toast")
+        guard toast.waitForExistence(timeout: 20) else {
+            XCTFail("\(variant): no toast for the tap-through check")
+            return
+        }
+        usleep(500_000)   // past its slide-in
+        let mic = Self.element(app, "capture.voice")
+        let toastFrame = toast.frame, micFrame = mic.frame
+        guard Self.overlaps(toastFrame, micFrame) else {
+            XCTFail("\(variant): this time the toast didn't lie over the mic (toast \(toastFrame), mic \(micFrame))")
+            return
+        }
+        let spot = toastFrame.intersection(micFrame)
+        let toastStillUp = toast.exists
+        A11yScreens.tap(app, at: CGPoint(x: spot.midX, y: spot.midY))
+        let record = Self.element(app, "capture.voice.record")
+        let opened = record.waitForExistence(timeout: 5)
+        print("A11Y toast tap-through \(variant): toast=\(toastFrame) mic=\(micFrame) tap=(\(spot.midX), \(spot.midY)) "
+              + "toastUp=\(toastStillUp) recorderOpened=\(opened)")
+        XCTAssertTrue(toastStillUp, "\(variant): the toast had gone before the tap — the check didn't run")
+        XCTAssertTrue(opened, "\(variant): a tap on the mic where the refusal toast lies over it should reach the mic")
+        if opened {
+            let close = app.buttons["capture.voice.close"]
+            if close.waitForExistence(timeout: 3) { close.tap() }
+            XCTAssertTrue(record.waitForNonExistence(timeout: 5), "\(variant): the recorder didn't close")
+        }
+    }
+
+    /// The onboarding carousel is exactly as tall as its tallest panel (fix round 1, I-1) — at the
+    /// default text size panel 2, the one with a hint under its caption, which fills it — so the
+    /// card keeps its natural height and sits centred, as with the old fixed 490 pt. Panel 2's hint
+    /// then sits one card spacing (14 pt) above the 6 pt dots, and they 14 pt above Next: 34 pt
+    /// from the hint to Next. (While the carousel absorbed the screen's spare height, the review
+    /// measured 46.7 / 65.7 pt of blank from the hint to the dots on iOS 17.5 / 26.5, against 20.3
+    /// before plan 16.)
+    @MainActor
+    private func assertCarouselHugsItsTallestPanel(_ app: XCUIApplication, _ primary: XCUIElement, _ variant: A11yVariant) {
+        let hint = app.staticTexts.matching(NSPredicate(format: "label == %@",
+                                                        "Don't see Stash? Tap More, then add Stash to your favorites.")).firstMatch
+        guard hint.waitForExistence(timeout: 3) else {
+            XCTFail("\(variant): panel 2's hint isn't on screen")
+            return
+        }
+        let hintFrame = hint.frame, nextFrame = primary.frame
+        let gap = nextFrame.minY - hintFrame.maxY
+        print(String(format: "A11Y onboarding hint-to-next %@: %.1f pt (hint maxY %.1f, next minY %.1f)",
+                     variant.token, gap, hintFrame.maxY, nextFrame.minY))
+        XCTAssertLessThanOrEqual(gap, 40, "\(variant): \(gap) pt from panel 2's hint to Next (34 expected) — "
+                                 + "the carousel is taller than its tallest panel")
+        XCTAssertGreaterThanOrEqual(gap, 30, "\(variant): \(gap) pt from panel 2's hint to Next (34 expected) — panel 2 is cut short")
     }
 
     @MainActor

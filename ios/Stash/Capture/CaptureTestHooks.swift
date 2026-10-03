@@ -1,8 +1,35 @@
 import Foundation
 
-/// Launch-argument hooks for `ComposerUITests` (plan 15 6D). Every hook body is `#if DEBUG`, so a
-/// Release build only ever sees the no-op answers below.
+/// Launch-argument hooks for `ComposerUITests` (plan 15 6D) and `A11yAppUITests` (plan 16). Every
+/// hook body is `#if DEBUG`, so a Release build only ever sees the no-op answers below — and none
+/// of the argument strings.
 enum CaptureTestHooks {
+    /// `--uitest-outbox-badge=<n>` (`A11yAppUITests.testOutboxBadgeRestsAtTheHeaderEdge`): the Add
+    /// tab's header shows the Outbox badge with `n`, as if `n` captures were waiting to sync — its
+    /// place and look, checked without queueing a real capture offline. The Outbox is untouched.
+    static var outboxBadgeCount: Int? {
+        #if DEBUG
+        return intArgument("--uitest-outbox-badge=")
+        #else
+        return nil
+        #endif
+    }
+
+    /// `--uitest-phone-fixture` (`A11yAppUITests.testPhoneNumberIsNeverTruncated`): Settings ›
+    /// Phone Numbers shows one made-up, verified number — "+1 (555) 123-4567" — in place of the
+    /// account's, so the row's layout can be checked at every text size without registering a
+    /// number on the shared test account. Display only: `PhoneSection` loads nothing then, and the
+    /// tests never act on the row (its id matches no real row). A Settings hook kept here with the
+    /// app's other test hooks.
+    static var phoneFixture: (id: UUID, phoneNumber: String)? {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("--uitest-phone-fixture") else { return nil }
+        return (UUID(uuidString: "00000000-0000-4000-8000-000000005555")!, "15551234567")
+        #else
+        return nil
+        #endif
+    }
+
     /// `--uitest-slow-attachment-load=<ms>`: every composer attachment load BLOCKS its loading
     /// thread for `ms` before finishing — a slow disk or iCloud read in miniature. Blocking rather
     /// than an async sleep on purpose: if a load ever ran on the main thread again, the composer

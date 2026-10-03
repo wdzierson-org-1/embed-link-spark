@@ -128,21 +128,24 @@ struct CaptureComposerView: View {
                     // the View-tab search use) — 17 pt, a 44 pt target that overhangs the word, and,
                     // on this gradient wash, `onWash`'s opaque paper capsule (violet-600 straight on
                     // the wash is ~3.3:1).
-                    HStack(spacing: 12) {
-                        if viewModel.pendingOutboxCount > 0 {
-                            outboxBadge(viewModel.pendingOutboxCount)
-                        }
-                        ZStack(alignment: .trailing) {
-                            // Holds Cancel's line at rest, so it appearing never moves the header at
-                            // any text size (at Large the line is 20.67 pt beside the 20 pt wordmark;
-                            // at AX3 it's ~45 pt, which would otherwise push the card down as the
-                            // keyboard rises). Not a button: nothing to tap, nothing for VoiceOver.
-                            Text("Cancel")
-                                .stashFont(.textButton)
-                                .lineLimit(1)
-                                .fixedSize()
-                                .hidden()
-                                .accessibilityHidden(true)
+                    HStack(spacing: 0) {
+                        // Holds Cancel's line HEIGHT at rest, so it appearing never moves the
+                        // header at any text size (at Large the line is 20.67 pt beside the 20 pt
+                        // wordmark; at AX3 it's ~45 pt, which would otherwise push the card down
+                        // as the keyboard rises). Zero width (fix round 1): it reserves no room
+                        // across, so the Outbox badge rests at the header's trailing edge, as it
+                        // did before plan 16. Not a button: nothing to tap, nothing for VoiceOver.
+                        Text("Cancel")
+                            .stashFont(.textButton)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .hidden()
+                            .frame(width: 0)
+                            .accessibilityHidden(true)
+                        HStack(spacing: 12) {
+                            if outboxBadgeCount > 0 {
+                                outboxBadge(outboxBadgeCount)
+                            }
                             if editorFocused {
                                 StashCancelButton(identifier: "capture.dismissKeyboard", onWash: true) {
                                     editorFocused = false
@@ -517,19 +520,31 @@ struct CaptureComposerView: View {
         .accessibilityIdentifier("capture.save")
     }
 
-    /// Captures still waiting to sync (the Outbox). Violet-600 — DESIGN.md's "will sync" intent (the
-    /// share sheet's queued state) — with white text, 5.18:1; it used to be white on a bare
-    /// `.orange`, 2.2:1 and no token. 12 pt Semibold, scaling with `.caption`.
+    /// Captures still waiting to sync (the Outbox): the orange badge it has always been, with `ink`
+    /// digits since plan 16 — 6.9:1 on iOS 17's orange (#ff9500), where white digits were 2.2:1.
+    /// Only the digits' contrast needed fixing, so the fill keeps its look. 12 pt Semibold,
+    /// scaling with `.caption`.
     private func outboxBadge(_ count: Int) -> some View {
         Text("\(count)")
             .stashFont(.custom(.semibold, size: 12))
             .monospacedDigit()
-            .foregroundStyle(.white)
+            // Its own width, never less: at AX3, beside Cancel (which claims its width first), the
+            // row squeezed it 3.3 pt and the digits touched the capsule's ends.
+            .lineLimit(1)
+            .fixedSize()
+            .foregroundStyle(StashColor.ink)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(StashColor.violet600, in: Capsule())
+            // .orange has no DESIGN.md token yet — the system orange this badge has always used.
+            .background(Color.orange, in: Capsule())
             .accessibilityLabel(count == 1 ? "1 capture waiting to sync" : "\(count) captures waiting to sync")
             .accessibilityIdentifier("capture.outboxBadge")
+    }
+
+    /// What the Outbox badge shows: the captures waiting to sync (or, in UI tests,
+    /// `CaptureTestHooks.outboxBadgeCount`).
+    private var outboxBadgeCount: Int {
+        CaptureTestHooks.outboxBadgeCount ?? viewModel.pendingOutboxCount
     }
 
     // MARK: - Actions
@@ -653,7 +668,8 @@ struct CaptureComposerView: View {
         }
     }
 
-    /// A saved toast opens the View tab; any toast goes away.
+    /// A saved toast opens the View tab; any toast goes away. (Only a saved toast takes taps; for
+    /// the others this is VoiceOver's action — see `toastView`.)
     private func tapToast(_ toast: CaptureToast) {
         if toast.opensLibrary { switchToView() }
         withAnimation { self.toast = nil }
@@ -687,6 +703,12 @@ struct CaptureComposerView: View {
             // (on the pill, not the margins around it).
             .stashMinimumHitTarget()
             .onTapGesture { tapToast(toast) }
+            // Only a toast that goes somewhere takes taps (fix round 1). The rest — a refusal, a
+            // failed pick, "Offline — will sync", the messages that grow long — let a tap through
+            // to whatever they lie over: at the accessibility sizes a long one covers the lower
+            // part of the bottom bar's circles for its 3 s, and a tap meant for the mic or Save
+            // used to hit the toast instead. They go by themselves, and VoiceOver hears each one.
+            .allowsHitTesting(toast.opensLibrary)
             // One element that reads exactly the message (tests read `capture.toast`'s label);
             // a saved toast is a button to VoiceOver too.
             .accessibilityElement(children: .ignore)
@@ -719,11 +741,14 @@ private enum CaptureToast: Equatable {
         return false
     }
 
-    // Plan 16: the state is carried by the glyph, in DESIGN.md's intent tokens — a clean save is
-    // `success` (fix round: a partially dropped save must not read as an unqualified success), an
-    // offline save that will sync is violet-600 (the share sheet's queued state), and anything that
-    // didn't make it is `destructive`. Glyphs need 3:1 on the paper pill: success 3.39, violet-600
-    // 5.18, destructive 5.06. (These replace the pills' old bare `.orange`, which had no token.)
+    // Plan 16: the state is carried by the glyph, in DESIGN.md's tokens — a clean save is
+    // `success`; a save that dropped some files is a warning, in the gate strip's amber ink
+    // (`gateText`, #7a4b00; fix round: a partially dropped save must not read as an unqualified
+    // success, and fix round 1: nor as a refusal — red means only "refused"); an offline save
+    // that will sync is violet-600 (the share sheet's queued state); and anything that didn't
+    // make it is `destructive`. Glyphs need 3:1 on the paper pill: success 3.39, amber 7.41,
+    // violet-600 5.18, destructive 5.06. The text is always `ink`. (These replace the pills' old
+    // bare `.orange` fill, which had no token.)
     var systemImage: String {
         switch self {
         case .saved(_, let hadDrops): hadDrops ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
@@ -734,7 +759,7 @@ private enum CaptureToast: Equatable {
 
     var glyphColor: Color {
         switch self {
-        case .saved(_, let hadDrops): hadDrops ? StashColor.destructive : StashColor.success
+        case .saved(_, let hadDrops): hadDrops ? StashColor.gateText : StashColor.success
         case .queued: StashColor.violet600
         case .rejected: StashColor.destructive
         }

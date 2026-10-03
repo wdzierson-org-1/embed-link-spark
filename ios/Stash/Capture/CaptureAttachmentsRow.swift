@@ -38,7 +38,11 @@ struct CaptureAttachmentsRow: View {
             // Plan 16: the × takes a 44 pt target (`.stashPlain`), and a target only works inside
             // the scroll view's own bounds (UIKit doesn't hit-test a scroll view's subviews past
             // its edge, drawn or not) — so the × centre sits 22 pt inside the top edge (it was 13)
-            // and the last chip's 22 pt inside the trailing end (it was 11).
+            // and the last chip's 22 pt inside the trailing end (it was 11; that end clips once
+            // the row overflows and is scrolled to it). Measured by taps (fix round 1): the target
+            // takes taps up to 18 pt above the glyph's centre on iOS 17.5 — the scroll view's top
+            // ~5 pt take none there — and at least 20 on iOS 26.5; with the old 10 pt, about 9 and
+            // 12. `A11yAppUITests.assertAttachmentRemoveTargetTakesATapAtItsTopEdge` taps at 16.
             .padding(.top, 19)
             .padding(.trailing, 19)
         }

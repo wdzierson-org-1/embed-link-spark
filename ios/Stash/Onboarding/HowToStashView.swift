@@ -49,8 +49,11 @@ struct HowToStashView: View {
     // Until plan 16 that height was a fixed 490 pt, measured at the default text size — so any
     // larger size clipped the panels' titles and captions, and at the accessibility sizes the card
     // cut them off mid-art. It is now MEASURED: `carousel` lays the three panels out invisibly at
-    // the current text size and the TabView takes the tallest one's height (≈ 490 pt at Large, as
-    // before); taller at bigger sizes, where the whole card scrolls.
+    // the current text size, each at its own height (`fixedSize`), and the TabView takes the
+    // tallest one's: panel 2's at the default size, which it fills exactly, so the card keeps its
+    // natural height and sits centred on the screen, as it did at 490; taller at bigger sizes,
+    // where the whole card scrolls. (Fix round 1: without the `fixedSize` the panels' flexible
+    // columns made the carousel absorb all the spare height, and the card filled the screen.)
     //
     // (History: an earlier, taller card — a 508 pt panel plus more generous outer/card padding —
     // pushed `skipButton`, at the very bottom, to only ~25pt above the screen edge on an 852pt-tall
@@ -100,7 +103,9 @@ struct HowToStashView: View {
             dots
 
             VStack(spacing: 10) {
-                primaryButton
+                // Above Skip, whose 44 pt target reaches up into this button's fill (see
+                // `skipButton`): the overlap is the primary button's.
+                primaryButton.zIndex(1)
                 skipButton
             }
         }
@@ -126,6 +131,11 @@ struct HowToStashView: View {
             PickStashPanel()
             SavePanel()
         }
+        // Each panel at its own content height, not the card's: the panels' columns are flexible
+        // (`OnboardingPanelChrome`'s `maxHeight: .infinity`, so a shorter page can fill the
+        // tallest one's box in the TabView), and unfixed they took every spare point the card was
+        // offered — the full screen at the default text size (fix round 1).
+        .fixedSize(horizontal: false, vertical: true)
         .hidden()
         .accessibilityHidden(true)
         .overlay {
@@ -189,6 +199,8 @@ struct HowToStashView: View {
                 .stashFont(.textButtonProminent)
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, minHeight: 52)
+                // The whole violet fill takes the tap, to its edges — not only the word.
+                .contentShape(RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
         }
         .foregroundStyle(.white)
         .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
@@ -197,8 +209,11 @@ struct HowToStashView: View {
 
     /// Marks the panel seen (see this type's own doc comment for why Skip is not "later") and
     /// dismisses immediately regardless of which panel is showing. Plan 16: a 17 pt text button
-    /// (`textButton`, `muted` 5.38:1) with a 44 pt target (`.stashPlain`); its centre sits 47 pt
-    /// below the primary button's.
+    /// (`textButton`, `muted` 5.38:1) with a 44 pt target (`.stashPlain`) that overhangs the word.
+    /// Its centre sits about 46 pt below the primary button's, but that button is 52 pt tall, so
+    /// at the default text size the target reaches about 1.7 pt up into its fill (more at the
+    /// smaller sizes) — and the later sibling wins an overlap. The primary button is drawn above
+    /// Skip (`zIndex`), so a tap on Next's bottom edge is Next's, never a dismissal (fix round 1).
     private var skipButton: some View {
         Button {
             OnboardingState.markHowToStashSeen()
@@ -237,8 +252,9 @@ private struct OnboardingPanelChrome<Art: View>: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            // "Step 1" in its natural case: drawn in caps, read as words. Violet-600 on white is
-            // 5.18:1.
+            // The kicker, drawn in caps by `stashMicroLabel`. Its `.textCase(.uppercase)` reaches
+            // the accessibility label too ("STEP 1", as the old `Text("STEP \(step)")` had), which
+            // VoiceOver reads as the word "step". Violet-600 on white is 5.18:1.
             Text("Step \(step)")
                 .stashMicroLabel(StashColor.violet600)
 
