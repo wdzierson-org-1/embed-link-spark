@@ -234,10 +234,12 @@ final class DetailSheetServices: ObservableObject {
     /// the box (`reconcileNotesDraft`). A failed save's document used to be forgotten, so the
     /// sheet's own flush delivered it, the sheet showed it, and the next Done appended the text again.
     var richNote = RichNoteBox.Ledger()
-    /// `pendingEdits.deliveryCount` when the sheet last read the server's row for its Sharing value
-    /// (fix round 2, 4e re-review M-4): set as the sheet opens and at every server row it adopts. A
-    /// failed toggle counts what the queue delivered after it (`undoingFailedToggle`).
-    var sharingKnownThrough: Int
+    /// `pendingEdits.deliveryCount` when the sheet last READ the server's row (fix round 2, 4e
+    /// re-review M-4; batch B fix round 2, re-review N-1): set as the sheet opens and at every server
+    /// row it adopts, and nowhere else — a carried toggle or save leaves it. Whatever the queue
+    /// delivered after it, `snapshot` doesn't show, and the delivered ledger does: a failed toggle
+    /// (`undoingFailedToggle`) and the save error (`haveLanded`) read those fields from the ledger.
+    var knownDeliveries: Int
     /// The patches of this sheet's saves whose PATCH hasn't returned, by save generation — the
     /// `sending` of `ItemDetailView.fieldEdits` (Task 4e, 4d review P-1). A flush queued ahead of
     /// one of them can deliver its value and confirm it before the save's turn; a field the save
@@ -259,7 +261,7 @@ final class DetailSheetServices: ObservableObject {
         let queue = PendingEdits.shared(for: userId)
         pendingEdits = queue
         notesModel = NotesEditorModel(item: item)
-        sharingKnownThrough = queue.deliveryCount
+        knownDeliveries = queue.deliveryCount
     }
 
     /// 400 ms after the last title/description/sticky keystroke. `--uitest-field-debounce-seconds
@@ -926,18 +928,26 @@ struct ItemDetailView: View {
     /// "Couldn't save — try again." reports the saves that failed since the last one that worked
     /// (`services.failedSaves`). Once every one of them has landed, the error has nothing left to
     /// report, and the caption goes back to "Changes saved automatically" (batch B fix round 1,
-    /// review I-1). Landed means a flush or a later write delivered each field — the sheet's own
-    /// Sharing flush, the app's refresh — or the sheet's last server row already holds it: a realtime
-    /// echo of a PATCH whose response was lost (`DetailFieldEdits.haveLanded`). Checked wherever
-    /// that can change: as a save fails, as a row is adopted, and as the queue says a write of the
-    /// item landed (`.stashPendingEditDelivered`).
+    /// review I-1). Landed means a write delivered each field, or a newer value of it — the sheet's
+    /// own Sharing flush, the app's refresh, a later save, or a Sharing toggle (an un-share removes
+    /// the sticky note) — or what the server holds as far as the app knows already holds it: the
+    /// sheet's last server row, with whatever the queue delivered after that row was read laid over
+    /// it (`DetailFieldEdits.haveLanded`). Checked wherever that can change: as a save fails, as a
+    /// row is adopted, and as the queue says a write of the item landed (`.stashPendingEditDelivered`).
     ///
     /// It used to be checked only in `adopt`, for "nothing left queued for the item". A flush hands
     /// its row to `adopt` before it updates the queue's entry, so the error stayed up over a note the
     /// flush had just delivered, with the box empty under it, and nothing checked again.
+    ///
+    /// Fix round 2: the row alone used to vouch, though the queue may have delivered the field since
+    /// it was read (re-review N-1: a revert to "Y" that failed right after the app's refresh
+    /// delivered "Z" read as saved); and a toggle's PATCH went out past the queue's ledger, so an
+    /// un-share that removed a sticky note whose save failed left the error up with nothing to retry
+    /// (N-2).
     private func settleSaveCaption() {
         guard case .failed = saveStatus, services.savesInFlight == 0,
-              DetailFieldEdits.haveLanded(services.failedSaves, snapshot: snapshot, queue: services.pendingEdits)
+              DetailFieldEdits.haveLanded(services.failedSaves, snapshot: snapshot,
+                                          knownDeliveries: services.knownDeliveries, queue: services.pendingEdits)
         else { return }
         services.failedSaves.removeAll()
         services.lastSaveFailed = false
@@ -1014,16 +1024,23 @@ struct ItemDetailView: View {
     ///   undone by it (privacy first). The sheet adopts the row it delivers (fix round 2).
     /// - Fix rounds 1–2 (review M-4): for a failed SHARE, "what the server holds" is what the app
     ///   knows of it — the sheet's last server row, or a Sharing value the app's queue delivered
-    ///   after that row was read (`services.sharingKnownThrough`), in whatever order that happened.
+    ///   after that row was read (`services.knownDeliveries`), in whatever order that happened.
     ///   A sheet opened on a queued un-share that a flush delivered, then turned on, shows private
     ///   and the error when the share fails. It is never left on, with no error, over an item the
     ///   app made private — except inside the read-to-adopt window `adopt` documents, where the
     ///   server still stays private. A failed UN-share is never turned back on by a share the queue
     ///   delivered: over one, it settles off with no error, and the item is public until the
     ///   re-asserted private lands (above).
-    /// - A toggle that lands while a newer save has started isn't adopted, but its result is
-    ///   carried into what the sheet knows of the server's Sharing value
-    ///   (`DetailFieldEdits.carryingToggle`, fix round 2; in StashKit and tested since batch B).
+    /// - Batch B fix round 2 (re-review N-2): the PATCH goes out through the queue's write slot, as
+    ///   before, and lands in its delivered ledger like every other write of the item
+    ///   (`PendingEdits.sendToggle`; still never written ahead). An un-share that removes a sticky
+    ///   note whose save failed is the newer value of the note, so "Couldn't save — try again." goes
+    ///   once it lands; and a later failed toggle finds this one among the queue's deliveries.
+    /// - A toggle that lands while a newer save has started isn't adopted, but the sheet's last
+    ///   server row takes its fields (`DetailFieldEdits.carryingToggle`, fix round 2 of 4e; in
+    ///   StashKit and tested since batch B). The reference stays where the last row read put it:
+    ///   the ledger shows the toggle as delivered after it. (It used to move on to the queue's count
+    ///   here, which hid any other field the queue had delivered since the row was read.)
     @MainActor
     private func setPublic(_ isPublic: Bool) async -> Bool {
         let pendingEdits = services.pendingEdits
@@ -1034,7 +1051,8 @@ struct ItemDetailView: View {
         let capturedAt = pendingEdits.captureTime()
         let generation = services.nextGeneration()
         do {
-            let saved = try await services.editor.save(itemId: item.id, patch: patch)
+            let saved = try await pendingEdits.sendToggle(patch, capturedAt: capturedAt, itemId: item.id,
+                                                          editor: services.editor)
             let landed = DetailFieldEdits.landing(patch, capturedAt: capturedAt, as: saved, local: item,
                                                   baseline: baseline, queue: pendingEdits,
                                                   sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime(),
@@ -1043,20 +1061,16 @@ struct ItemDetailView: View {
             if services.isLatest(generation) {
                 adopt(saved, fields: landed)
             } else {
-                // A newer save has started: the toggle's own result still reaches what the sheet
-                // knows of the server's Sharing value (fix round 2), so a later failed toggle
-                // settles on it.
-                let carried = DetailFieldEdits.carryingToggle(patch, snapshot: snapshot,
-                                                              knownDeliveries: services.sharingKnownThrough,
-                                                              queue: pendingEdits)
-                snapshot = carried.snapshot
-                services.sharingKnownThrough = carried.knownDeliveries
+                // A newer save has started: the sheet's last server row still takes the toggle's
+                // fields (the carry), so a later failed toggle settles on them. The reference stays
+                // put: the ledger shows the toggle as delivered after the row was read.
+                snapshot = DetailFieldEdits.carryingToggle(patch, snapshot: snapshot)
             }
             return true
         } catch {
             let sheetIsOpen = !services.isClosed
             item = DetailFieldEdits.undoingFailedToggle(to: isPublic, noteBefore: noteBefore,
-                                                        knownDeliveries: services.sharingKnownThrough,
+                                                        knownDeliveries: services.knownDeliveries,
                                                         local: item, baseline: baseline, queue: pendingEdits,
                                                         sheetIsOpen: sheetIsOpen, at: pendingEdits.captureTime())
             if sheetIsOpen, !item.isPublic {
@@ -1358,9 +1372,10 @@ struct ItemDetailView: View {
     /// delivered by a flush inside that debounce).
     ///
     /// Fix round 2: `isServerRow` — `incoming` was read from the server (not built from `snapshot`
-    /// for a save with nothing left to send), and the sheet takes its Sharing value as reflecting
-    /// everything the queue had delivered when the row is ADOPTED (`services.sharingKnownThrough`,
-    /// for `setPublic`'s failure). That is an approximation (batch B, 4e re-review 2): the ledger
+    /// for a save with nothing left to send), and the sheet takes it as reflecting everything the
+    /// queue had delivered when the row is ADOPTED (`services.knownDeliveries`): `setPublic`'s
+    /// failure, and since batch B fix round 2 the save error's check, read every field delivered
+    /// after that from the ledger. That is an approximation (batch B, 4e re-review 2): the ledger
     /// counts deliveries, not when a row was read, so one that lands between the row's read and this
     /// call counts as seen though the row predates it. The window is normally about one round trip
     /// wide. For the row a sheet opened on it can be longer (fix round 1, review m-3b, by reading):
@@ -1368,12 +1383,14 @@ struct ItemDetailView: View {
     /// stays the server's copy from before a delivery while other fields of the item are still
     /// queued. In it, a failed share can be left on with no error over an item a queued un-share
     /// made private; nothing publishes it — the server stays private — but the user is told nothing.
+    /// And a failed save of a field such a delivery changed can lose its error when its value is
+    /// what the stale row shows; it stays queued, and goes out at the close or the next refresh.
     /// Closing it would need a delivery number on every row.
     private func adopt(_ incoming: Item, fields: Item? = nil, isServerRow: Bool = true) {
         let next = fields ?? fieldEdits.adopting(incoming)
         snapshot = incoming
         item = next
-        if isServerRow { services.sharingKnownThrough = services.pendingEdits.deliveryCount }
+        if isServerRow { services.knownDeliveries = services.pendingEdits.deliveryCount }
         reconcileNotesDraft(with: incoming)
         // A failed save this row — or the queue — has since delivered is no longer failed.
         settleSaveCaption()

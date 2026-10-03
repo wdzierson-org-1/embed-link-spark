@@ -851,6 +851,67 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertFalse(isPublic, "The failed share never reached the server")
     }
 
+    /// Re-review N-2, end to end (batch B fix round 2): a sticky note's save fails ("Couldn't save —
+    /// try again."), then the user makes the item private, confirming that the note is removed, and
+    /// that un-share lands. The server holds what they last asked for, with nothing left to retry,
+    /// yet the error stayed up: the toggle's PATCH went out past the queue's delivered ledger, so its
+    /// removal of the note didn't count as the newer value of the note it is.
+    /// `--uitest-fail-item-writes <id> 1`: only the note's PATCH fails, as offline; the un-share's
+    /// goes out. Hiding the keyboard saves the sticky note again (its text is written back as the
+    /// field lets go, measured on 17.0: a re-save that worked cleared the error before the un-share,
+    /// and this test passed on the unfixed app). So the keyboard goes inside a 3 s field debounce
+    /// (`--uitest-field-debounce-seconds`): the typing and that write-back are one save, the one
+    /// that fails, and the un-share is the next write of the item.
+    @MainActor
+    func testTheSaveErrorClearsOnceAnUnshareRemovesTheStickyNoteWhoseSaveFailed() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-unsharecaption"
+        let note = "\(marker) note"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": "", "supplemental_note": note],
+                                           isPublic: true)
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password,
+               extraArguments: ["--uitest-fail-item-writes", id, "1", "--uitest-field-debounce-seconds", "3"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let sticky = app.descendants(matching: .any)["detail.public.sticky"]
+        XCTAssertTrue(sticky.waitForExistence(timeout: 10), "Expected the sticky note field on a public item")
+        A11yScreens.scrollIntoView(app, sticky)
+        A11yScreens.tapUntilFocused(sticky)
+        sticky.typeText(" more")
+        let typed = (sticky.value as? String) ?? ""
+        XCTAssertNotEqual(typed, note, "precondition: the note was edited")
+        app.buttons["detail.dismissKeyboard"].tap()                      // inside the debounce
+        let error = app.staticTexts["detail.autosave.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 10), "precondition: the note's save (PATCH 1) failed in front of the user")
+        sleep(2)                                                         // nothing else saves the note meanwhile
+        XCTAssertTrue(error.exists, "precondition: the error is still up before the un-share")
+        let seedStands = try await rest.column("supplemental_note", of: id)
+        XCTAssertEqual(seedStands, note, "precondition: the typed note never reached the server")
+
+        let toggle = sharingSwitch(app)
+        A11yScreens.scrollIntoView(app, toggle)
+        XCTAssertEqual(toggle.value as? String, "1", "precondition: the seeded item is public")
+        toggle.tap()
+        let makePrivate = app.buttons["Make Private"]
+        XCTAssertTrue(makePrivate.waitForExistence(timeout: 5), "Expected the un-share confirmation")
+        makePrivate.tap()                                                // the un-share (PATCH 2) goes out
+        let landed = try await rest.waitForPublic(id, equalTo: false, timeout: 15)
+        XCTAssertTrue(landed, "precondition: the un-share landed")
+        XCTAssertTrue(waitUntilGone(error, timeout: 6),
+                      "Expected \"Couldn't save — try again.\" gone once the un-share removed the note")
+        XCTAssertTrue(app.staticTexts["detail.autosave"].exists, "Expected the resting caption back")
+        XCTAssertFalse(app.descendants(matching: .any)["detail.public.error"].exists, "The un-share itself worked")
+        XCTAssertEqual(toggle.value as? String, "0", "The switch shows private")
+        attachScreenshot(named: "batch-b-fr2-unshare-caption-cleared")
+        let serverNote = try await rest.column("supplemental_note", of: id)
+        XCTAssertNil(serverNote, "The note the user agreed to remove is gone")
+    }
+
     /// The seeded row's rich note as paragraphs, polled until they are `expected` (up to 15 s): the
     /// last read either way.
     private func serverParagraphs(of id: String, rest: P16Rest, waitingFor expected: [String]) async throws -> [String] {

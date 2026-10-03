@@ -1083,39 +1083,36 @@ final class DetailFieldEditsTests: XCTestCase {
         XCTAssertEqual(online.row(server.id)?.isPublic, true)
     }
 
-    /// `setPublic`'s success while a newer save has started, as the sheet takes it (fix round 2):
-    /// the toggle's own PATCH (`ItemEditor.save`, outside the delivered ledger), its landing, and
-    /// then the carry (`carryingToggle`) instead of an adopt. Returns the sheet's Sharing reference.
-    private func landToggleUnderANewerSave(_ patch: ItemPatch, in sheet: inout Sheet, knownDeliveries: Int,
-                                           editor: ItemEditor) async throws -> Int {
+    /// `setPublic`'s success while a newer save has started, as the sheet takes it: the toggle's PATCH
+    /// through the queue's write slot and into its delivered ledger (`PendingEdits.sendToggle`, batch B
+    /// fix round 2), its landing, and then the carry (`carryingToggle`) instead of an adopt. The sheet's
+    /// reference stays where the last row it read put it: the ledger shows the toggle as delivered after it.
+    private func landToggleUnderANewerSave(_ patch: ItemPatch, in sheet: inout Sheet, editor: ItemEditor) async throws {
         let capturedAt = queue.captureTime()
-        let saved = try await editor.save(itemId: sheet.local.id, patch: patch)
+        let saved = try await queue.sendToggle(patch, capturedAt: capturedAt, itemId: sheet.local.id, editor: editor)
         _ = DetailFieldEdits.landing(patch, capturedAt: capturedAt, as: saved, local: sheet.local,
                                      baseline: ItemDisplay.editableRow(sheet.snapshot), queue: queue,
                                      sheetIsOpen: true, at: queue.captureTime(), apply: { _ in })
-        let carried = DetailFieldEdits.carryingToggle(patch, snapshot: sheet.snapshot, knownDeliveries: knownDeliveries,
-                                                      queue: queue)
-        sheet.snapshot = carried.snapshot
-        return carried.knownDeliveries
+        sheet.snapshot = DetailFieldEdits.carryingToggle(patch, snapshot: sheet.snapshot)
     }
 
-    /// 4e re-review 2, New Breakage 2: the carry is load-bearing for M-4's one rule. An un-share lands
-    /// while a newer save (the title's autosave) is in flight, so the sheet doesn't adopt its row;
-    /// that autosave then fails, and no row is adopted at all. Then the user turns the switch back on,
-    /// and that share fails. Without the carry the sheet's last server row still said public: the
-    /// switch stayed on with no error over a private item, the share lost without a word.
+    /// 4e re-review 2, New Breakage 2: an un-share lands while a newer save (the title's autosave) is in
+    /// flight, so the sheet doesn't adopt its row; that autosave then fails, and no row is adopted at all.
+    /// Then the user turns the switch back on, and that share fails. The sheet's last server row still
+    /// said public: the switch stayed on with no error over a private item, the share lost without a
+    /// word. Two things now tell the sheet what the toggle put on the server: the carry (its last server
+    /// row takes the toggle's fields) and the delivered ledger (the toggle goes through it, fix round 2).
     func testAnUnshareThatLandedUnderANewerSaveIsWhatAFailedShareSettlesOn() async throws {
         let server = textRow(isPublic: true)
         var sheet = open(server)
+        let known = queue.deliveryCount                                  // the row the sheet opened on was read here
         let online = FakeRowServer(rows: [server])
         sheet.local.isPublic = false                                     // the un-share, optimistic
-        let knownThrough = try await landToggleUnderANewerSave(ItemPatch(isPublic: false), in: &sheet,
-                                                               knownDeliveries: queue.deliveryCount,
-                                                               editor: onlineEditor(online))
+        try await landToggleUnderANewerSave(ItemPatch(isPublic: false), in: &sheet, editor: onlineEditor(online))
         XCTAssertEqual(online.row(server.id)?.isPublic, false, "precondition: the un-share landed")
 
         sheet.local.isPublic = true                                      // the share; its PATCH fails
-        let tookEffect = failToggle(to: true, noteBefore: nil, knownDeliveries: knownThrough, in: &sheet, at: 1)
+        let tookEffect = failToggle(to: true, noteBefore: nil, knownDeliveries: known, in: &sheet, at: 1)
         XCTAssertFalse(tookEffect, "The share failed: the section says so")
         XCTAssertFalse(sheet.local.isPublic, "The switch shows what the server holds: private")
         journal(sheet, closing: true, at: 2)
@@ -1123,12 +1120,13 @@ final class DetailFieldEditsTests: XCTestCase {
         XCTAssertEqual(online.row(server.id)?.isPublic, false, "A failed share is never published")
     }
 
-    /// The carry's other half: the toggle's result moves the sheet's Sharing reference too. An Ask
-    /// citation sheet opens on a queued share (the server private), and the app's flush delivers that
-    /// share in a row the sheet never sees. The user turns the switch off; that un-share lands under a
-    /// newer save. Then a share fails. Measured from the reference the sheet opened with, the
-    /// delivered share counted as what the server holds, though the un-share landed after it: the
-    /// switch stayed on with no error over a private item.
+    /// The ledger half: an Ask citation sheet opens on a queued share (the server private), and the app's
+    /// flush delivers that share in a row the sheet never sees. The user turns the switch off; that
+    /// un-share lands under a newer save. Then a share fails. Measured from the reference the sheet opened
+    /// with, the delivered share counted as what the server holds, though the un-share landed after it:
+    /// the switch stayed on with no error over a private item. The un-share goes through the delivered
+    /// ledger now (fix round 2), as the newer of the two. (Round 2 of 4e moved the reference past every
+    /// delivery here instead, which also hid a delivery of any other field: re-review N-1.)
     func testAnUnshareThatLandedUnderANewerSaveOutranksAShareDeliveredBeforeIt() async throws {
         let server = textRow()
         queue.record(itemId: server.id, patch: ItemPatch(isPublic: true), capturedAt: queue.captureTime())   // queued earlier
@@ -1140,18 +1138,37 @@ final class DetailFieldEditsTests: XCTestCase {
         XCTAssertEqual(online.row(server.id)?.isPublic, true, "precondition: the share is on the server")
 
         citation.local.isPublic = false                                  // the un-share, optimistic
-        let knownThrough = try await landToggleUnderANewerSave(ItemPatch(isPublic: false), in: &citation,
-                                                               knownDeliveries: knownAtOpen,
-                                                               editor: onlineEditor(online))
+        try await landToggleUnderANewerSave(ItemPatch(isPublic: false), in: &citation, editor: onlineEditor(online))
         XCTAssertEqual(online.row(server.id)?.isPublic, false, "precondition: the un-share landed")
 
         citation.local.isPublic = true                                   // the share; its PATCH fails
-        let tookEffect = failToggle(to: true, noteBefore: nil, knownDeliveries: knownThrough, in: &citation, at: 1)
+        let tookEffect = failToggle(to: true, noteBefore: nil, knownDeliveries: knownAtOpen, in: &citation, at: 1)
         XCTAssertFalse(tookEffect, "The share failed: the section says so")
         XCTAssertFalse(citation.local.isPublic, "The switch shows what the server holds: private")
         journal(citation, closing: true, at: 2)
         await deliverQueue(to: online)
         XCTAssertEqual(online.row(server.id)?.isPublic, false, "A failed share is never published")
+    }
+
+    /// The carry half (fix round 2): a share lands while a newer save is in flight, so the sheet doesn't
+    /// adopt its row. The user turns the switch off, and that un-share fails. The server is public, as the
+    /// carried row says: the switch goes back on with the error. Without the carry the row still said
+    /// private, and a share the queue delivered never turns a failed un-share back on (the A-3
+    /// fail-safe): the switch settled off with no error over a public item.
+    func testAShareThatLandedUnderANewerSaveIsWhatAFailedUnshareGoesBackTo() async throws {
+        let server = textRow()
+        var sheet = open(server)
+        let known = queue.deliveryCount
+        let online = FakeRowServer(rows: [server])
+        sheet.local.isPublic = true                                      // the share, optimistic
+        try await landToggleUnderANewerSave(ItemPatch(isPublic: true), in: &sheet, editor: onlineEditor(online))
+        XCTAssertEqual(online.row(server.id)?.isPublic, true, "precondition: the share landed")
+
+        sheet.local.isPublic = false                                     // the un-share; its PATCH fails
+        let tookEffect = failToggle(to: false, noteBefore: nil, knownDeliveries: known, in: &sheet, at: 1)
+        XCTAssertFalse(tookEffect, "The un-share failed: the section says so")
+        XCTAssertTrue(sheet.local.isPublic, "The switch shows what the server holds: public")
+        XCTAssertNil(queue.edit(for: server.id)?.isPublic, "Nothing queued changes the item's visibility")
     }
 
     /// 4e re-review, M-2's side effect: in an Ask citation sheet "Y"'s autosave failed, so "Y" stays
@@ -2041,19 +2058,21 @@ final class DetailFieldEditsTests: XCTestCase {
         let row = richRow()
         let online = FakeRowServer(rows: [row])
         var sheet = open(row)
+        let known = queue.deliveryCount                                  // the row the sheet opened on was read here
         let failed = await failSave(ItemPatch(content: appendNoteParagraph(to: sheet.local.content, note: "abc")),
                                     itemId: row.id, server: online)
         sheet.local.isPublic = true
-        _ = failToggle(to: true, noteBefore: nil, knownDeliveries: queue.deliveryCount, in: &sheet, at: 1)
-        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue),
+        _ = failToggle(to: true, noteBefore: nil, knownDeliveries: known, in: &sheet, at: 1)
+        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue),
                        "precondition: nothing has delivered the note yet")
 
         let seen = Seen()
         await queue.flush(editor: onlineEditor(online), itemIds: [row.id]) { incoming in
-            seen.values.append(DetailFieldEdits.haveLanded([failed], snapshot: incoming, queue: self.queue))   // `adopt`
+            seen.values.append(DetailFieldEdits.haveLanded([failed], snapshot: incoming,
+                                                           knownDeliveries: self.queue.deliveryCount, queue: self.queue))   // `adopt`
         }
         XCTAssertEqual(seen.values, [true], "Inside the flush's apply, as the sheet adopts its row, the note is on the server")
-        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue),
+        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue),
                       "…and so it is for a sheet that never sees the row (an Ask citation sheet), once the queue has delivered it")
     }
 
@@ -2067,9 +2086,10 @@ final class DetailFieldEditsTests: XCTestCase {
         let document = appendNoteParagraph(to: sheet.local.content, note: "abc")
         online.update(row.id) { $0.content = document }                  // the PATCH lands; its response is lost
         adopt(try XCTUnwrap(online.row(row.id)), in: &sheet)              // the realtime echo, through the store
+        let known = queue.deliveryCount                                  // …read here
         let failed = await failSave(ItemPatch(content: document), itemId: row.id, server: online)
         XCTAssertNotNil(queue.edit(for: row.id)?.content, "precondition: the write-ahead copy is still queued")
-        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue),
+        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue),
                       "The sheet's last server row holds the note: no error")
     }
 
@@ -2077,9 +2097,10 @@ final class DetailFieldEditsTests: XCTestCase {
     func testTheSaveErrorStaysWhileTheFailedNoteIsOnlyQueued() async {
         let row = richRow()
         let sheet = open(row)
+        let known = queue.deliveryCount
         let failed = await failSave(ItemPatch(content: appendNoteParagraph(to: sheet.local.content, note: "abc")),
                                     itemId: row.id, server: FakeRowServer(rows: [row]))
-        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, queue: queue))
+        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue))
     }
 
     /// The error reports every save that failed since the last one that worked, not only the newest: a title save
@@ -2093,11 +2114,12 @@ final class DetailFieldEditsTests: XCTestCase {
         let document = appendNoteParagraph(to: sheet.local.content, note: "abc")
         online.update(row.id) { $0.content = document }                  // the note's PATCH lands; its response is lost
         adopt(try XCTUnwrap(online.row(row.id)), in: &sheet)
+        let known = queue.deliveryCount
         let note = await failSave(ItemPatch(content: document), itemId: row.id, server: online)
-        XCTAssertFalse(DetailFieldEdits.haveLanded([title, note], snapshot: sheet.snapshot, queue: queue),
+        XCTAssertFalse(DetailFieldEdits.haveLanded([title, note], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue),
                        "The title is still only queued")
         await queue.flush(editor: onlineEditor(online), itemIds: [row.id])
-        XCTAssertTrue(DetailFieldEdits.haveLanded([title, note], snapshot: sheet.snapshot, queue: queue),
+        XCTAssertTrue(DetailFieldEdits.haveLanded([title, note], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue),
                       "Both are on the server once the flush delivered the title")
     }
 
@@ -2107,11 +2129,12 @@ final class DetailFieldEditsTests: XCTestCase {
     func testTheSaveErrorClearsWhenANewerValueOfItsFieldIsDelivered() async throws {
         let row = textRow(title: "X")
         let online = FakeRowServer(rows: [row])
+        let known = queue.deliveryCount                                  // the sheet's row, read before anything landed
         let failed = await failSave(ItemPatch(title: "Y"), itemId: row.id, server: online)
         queue.record(itemId: row.id, patch: ItemPatch(title: "Z"), capturedAt: queue.captureTime())   // the journal
         await queue.flush(editor: onlineEditor(online), itemIds: [row.id])
         XCTAssertEqual(online.row(row.id)?.title, "Z", "precondition: the newer value is on the server")
-        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: row, queue: queue))
+        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: row, knownDeliveries: known, queue: queue))
     }
 
     /// Honest the other way round: an edit the queue gave up on (refused by the server `maxRejections` times, then
@@ -2123,6 +2146,7 @@ final class DetailFieldEditsTests: XCTestCase {
                                     now: { clock }, session: FakeSession(signedIn: userId))
         let row = textRow(title: "X")
         let online = FakeRowServer(rows: [row])
+        let known = dropping.deliveryCount
         let at = dropping.captureTime()
         dropping.record(itemId: row.id, patch: ItemPatch(title: "Y"), capturedAt: at)
         online.error = NSError(domain: "PostgREST", code: 400)             // refused, not a dead link
@@ -2132,7 +2156,7 @@ final class DetailFieldEditsTests: XCTestCase {
         }
         XCTAssertNil(dropping.edit(for: row.id), "precondition: the queue gave the edit up")
         XCTAssertFalse(DetailFieldEdits.haveLanded([FailedSave(patch: ItemPatch(title: "Y"), capturedAt: at)],
-                                                   snapshot: row, queue: dropping),
+                                                   snapshot: row, knownDeliveries: known, queue: dropping),
                        "It never landed: the error stays")
     }
 
@@ -2162,6 +2186,157 @@ final class DetailFieldEditsTests: XCTestCase {
                                  editor: onlineEditor(online))                                // a sheet's own save
         XCTAssertEqual(seen.ids, [row.id, row.id], "One post per landed write, naming its item")
         XCTAssertEqual(seen.values, [true, true], "Each post comes once the delivered ledger holds that write")
+    }
+
+    // MARK: - A stale row never vouches for a failed save; a landed toggle counts (batch B fix round 2)
+
+    /// Re-review N-1, an Ask citation sheet (its store never hands it a row): "Z" is queued from an earlier session, and the
+    /// sheet opens on the server's "Y" (its field shows "Z"). The app's refresh is sending "Z" when the user types "Y" back;
+    /// that revert is saved — it differs from the queued "Z" — and waits behind the flush. The flush lands, and the revert
+    /// fails right after it. The server holds "Z", but the sheet's last server row, read before the flush, says "Y", and it
+    /// vouched for the failed revert: "Changes saved automatically" over the user's older value. The delivered ledger knew
+    /// that row was stale: it delivered "Z" after the row was read.
+    func testTheSaveErrorStaysWhenARevertFailsRightAfterTheRefreshDeliversTheQueuedValue() async throws {
+        let row = textRow(title: "Y")
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Z"), capturedAt: queue.captureTime())   // an earlier session's
+        let (server, sheets, flushes) = slowLink([row])
+        var sheet = open(row)
+        let known = queue.deliveryCount                                  // the row the sheet opened on was read here
+        XCTAssertEqual(sheet.local.title, "Z", "precondition: the field shows the queued title")
+        let refresh = Task { await self.queue.flush(editor: flushes, itemIds: [row.id]) }
+        await waitUntil { server.heldCount == 1 }                        // the refresh's "Z" is on its way
+        sheet.local.title = "Y"                                          // typed back
+        let patch = edits(sheet).textPatch
+        XCTAssertEqual(patch, ItemPatch(title: "Y"), "precondition: a revert over a queued value is saved")
+        let at = queue.captureTime()
+        queue.record(itemId: row.id, patch: patch, capturedAt: at)
+        let save = Task { try await self.queue.send(patch, capturedAt: at, itemId: row.id, editor: sheets) }
+        await settle()
+        server.release()                                                 // "Z" lands…
+        await waitUntil { self.queue.deliveryCount > known && server.heldCount == 1 }
+        server.error = URLError(.notConnectedToInternet)                 // …and the link drops under the revert's PATCH
+        server.gated = false
+        server.release()
+        let outcome = try? await save.value
+        await refresh.value                                              // its second round (the revert) fails too
+        XCTAssertNil(outcome, "precondition: the revert's save failed")
+        XCTAssertEqual(server.row(row.id)?.title, "Z", "precondition: the server holds the older value")
+        let failed = FailedSave(patch: patch, capturedAt: at)
+
+        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue),
+                       "The ledger delivered \"Z\" after the sheet's row was read: the revert isn't on the server")
+        var library = sheet
+        adopt(try XCTUnwrap(server.row(row.id)), in: &library)           // a library sheet, handed the flush's row
+        XCTAssertFalse(DetailFieldEdits.haveLanded([failed], snapshot: library.snapshot,
+                                                   knownDeliveries: queue.deliveryCount, queue: queue),
+                       "…nor in a sheet that took the flush's row")
+    }
+
+    /// N-1 inside one sheet: "Z"'s autosave fails offline, the app's refresh is sending it when the user types "Y" — the
+    /// server's value — back, and that revert fails right after the refresh delivered "Z". "Z" landed, "Y" didn't: the
+    /// error stays. The sheet's last server row still said "Y".
+    func testTheSaveErrorStaysWhenARevertTypedWhileTheRefreshSendsTheFailedValueFailsToo() async throws {
+        let row = textRow(title: "Y")
+        let (server, sheets, flushes) = slowLink([row])
+        var sheet = open(row)
+        let known = queue.deliveryCount
+        sheet.local.title = "Z"
+        let zPatch = edits(sheet).textPatch
+        let zAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: zPatch, capturedAt: zAt)
+        server.error = URLError(.notConnectedToInternet)
+        server.gated = false
+        _ = try? await queue.send(zPatch, capturedAt: zAt, itemId: row.id, editor: sheets)   // "Z"'s autosave fails offline
+        server.error = nil
+        server.gated = true
+        let refresh = Task { await self.queue.flush(editor: flushes, itemIds: [row.id]) }
+        await waitUntil { server.heldCount == 1 }                        // the refresh's "Z" is on its way
+        sheet.local.title = "Y"
+        let yPatch = edits(sheet).textPatch
+        XCTAssertEqual(yPatch, ItemPatch(title: "Y"), "precondition: the revert is saved")
+        let yAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: yPatch, capturedAt: yAt)
+        let save = Task { try await self.queue.send(yPatch, capturedAt: yAt, itemId: row.id, editor: sheets) }
+        await settle()
+        let before = queue.deliveryCount
+        server.release()                                                 // "Z" lands…
+        await waitUntil { self.queue.deliveryCount > before && server.heldCount == 1 }
+        server.error = URLError(.notConnectedToInternet)                 // …and the revert's PATCH fails
+        server.gated = false
+        server.release()
+        let outcome = try? await save.value
+        await refresh.value
+        XCTAssertNil(outcome, "precondition: the revert's save failed")
+        XCTAssertEqual(server.row(row.id)?.title, "Z", "precondition: the server holds the failed autosave's value")
+        let failed = [FailedSave(patch: zPatch, capturedAt: zAt), FailedSave(patch: yPatch, capturedAt: yAt)]
+        XCTAssertFalse(DetailFieldEdits.haveLanded(failed, snapshot: sheet.snapshot, knownDeliveries: known, queue: queue))
+    }
+
+    /// A guard for N-1's rule: the ledger outranks the sheet's last server row only for what it delivered AFTER that row
+    /// was read. Here the refresh delivered "Z" and the sheet took that row; then "Y"'s PATCH reached the server with its
+    /// response lost, and the row's realtime echo — read after the delivery — holds "Y". No error, as for any echo
+    /// (trigger B).
+    func testTheSaveErrorTrustsARowReadAfterTheLedgersDeliveryOfTheField() async throws {
+        let row = textRow(title: "X")
+        let online = FakeRowServer(rows: [row])
+        var sheet = open(row)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Z"), capturedAt: queue.captureTime())   // the journal
+        await queue.flush(editor: onlineEditor(online), itemIds: [row.id])          // the refresh delivers "Z"
+        adopt(try XCTUnwrap(online.row(row.id)), in: &sheet)                         // the store's `onChange`
+        sheet.local.title = "Y"
+        online.update(row.id) { $0.title = "Y" }                                    // "Y"'s PATCH lands; its response is lost
+        adopt(try XCTUnwrap(online.row(row.id)), in: &sheet)                         // its realtime echo
+        let known = queue.deliveryCount                                              // …the sheet's last server row
+        let failed = await failSave(ItemPatch(title: "Y"), itemId: row.id, server: online)
+        XCTAssertTrue(DetailFieldEdits.haveLanded([failed], snapshot: sheet.snapshot, knownDeliveries: known, queue: queue),
+                      "The row read after the delivery holds \"Y\": no error")
+    }
+
+    /// Re-review N-2: a sticky note's save fails, so "Couldn't save — try again." goes up. The link is back, and the user
+    /// makes the item private, confirming that the note is removed; the un-share lands. The server holds what they last
+    /// asked for — private, no note — and nothing is left to retry for the note, yet the error stayed up: the toggle's
+    /// PATCH went out past the delivered ledger, so its removal of the note didn't count as the newer value of the field it
+    /// is. The toggle goes through the ledger now (`PendingEdits.sendToggle`), and it counts from the moment it lands (the
+    /// queue's post), whether the sheet then adopts its row or carries it under a newer save.
+    func testTheSaveErrorClearsWhenAnUnshareThatRemovesTheFailedStickyNoteLands() async throws {
+        let row = textRow(note: "For you", isPublic: true)
+        let online = FakeRowServer(rows: [row])
+        var sheet = open(row)
+        let known = queue.deliveryCount
+        sheet.local.supplementalNote = "For you all"
+        let note = await failSave(edits(sheet).textPatch, itemId: row.id, server: online)
+        let title = await failSave(ItemPatch(title: "Standup notes"), itemId: row.id, server: online)
+        let editor = onlineEditor(online)
+        let toggle = editor.togglePublic(item: sheet.local, to: false)
+        XCTAssertEqual(toggle, ItemPatch(supplementalNote: "", isPublic: false), "precondition: the un-share removes the note")
+        sheet.local.isPublic = false
+        sheet.local.supplementalNote = nil                               // optimistic, as `setPublic` does
+        let seen = Seen()
+        let shown = sheet.snapshot
+        let watched: PendingEdits = queue
+        let observer = NotificationCenter.default.addObserver(forName: .stashPendingEditDelivered, object: nil, queue: nil) { _ in
+            MainActor.assumeIsolated {
+                seen.values.append(DetailFieldEdits.haveLanded([note], snapshot: shown, knownDeliveries: known, queue: watched))
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let at = queue.captureTime()
+        let saved = try await queue.sendToggle(toggle, capturedAt: at, itemId: row.id, editor: editor)
+        sheet.local = DetailFieldEdits.landing(toggle, capturedAt: at, as: saved, local: sheet.local,
+                                               baseline: ItemDisplay.editableRow(sheet.snapshot), queue: queue,
+                                               sheetIsOpen: true, at: queue.captureTime(), apply: { _ in })
+        sheet.snapshot = saved                                           // `adopt`
+        let adopted = queue.deliveryCount
+        XCTAssertEqual(online.row(row.id)?.isPublic, false, "precondition: the un-share landed")
+        XCTAssertNil(online.row(row.id)?.supplementalNote, "precondition: …and removed the note")
+        XCTAssertNil(queue.edit(for: row.id)?.supplementalNote, "precondition: nothing is left to retry for the note")
+
+        XCTAssertEqual(seen.values, [true], "As the toggle lands (the queue's post), the failed note has been superseded")
+        XCTAssertTrue(DetailFieldEdits.haveLanded([note], snapshot: sheet.snapshot, knownDeliveries: adopted, queue: queue),
+                      "…and so it stays once the sheet takes the toggle's row")
+        XCTAssertFalse(DetailFieldEdits.haveLanded([note, title], snapshot: sheet.snapshot, knownDeliveries: adopted,
+                                                   queue: queue),
+                       "A failed save of a field the toggle didn't carry keeps the error")
     }
 
     // MARK: - What the user just typed is never replaced by a flushed row (4e review M-1)

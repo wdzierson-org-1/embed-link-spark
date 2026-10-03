@@ -4,11 +4,12 @@ import Supabase
 
 public extension Notification.Name {
     /// Posted (on the main actor) every time a write of an item lands — a flush, or a detail sheet's
-    /// own save through the queue — once the queue's delivered ledger holds it. `userInfo["itemId"]`
-    /// is the item's `UUID`. Batch B fix round 1 (review I-1): an open detail sheet settles its
-    /// footer's "Couldn't save — try again." on it. A flush whose rows its store never hands it (the
-    /// app's refresh, under an Ask citation sheet) can deliver a save that failed in front of the
-    /// user, and nothing else would tell the sheet.
+    /// own save or Sharing toggle through the queue — once the queue's delivered ledger holds it.
+    /// `userInfo["itemId"]` is the item's `UUID`. Batch B fix round 1 (review I-1): an open detail
+    /// sheet settles its footer's "Couldn't save — try again." on it. A flush whose rows its store
+    /// never hands it (the app's refresh, under an Ask citation sheet) can deliver a save that failed
+    /// in front of the user, and nothing else would tell the sheet; and an un-share that removes a
+    /// sticky note supersedes a failed save of it (fix round 2), whether or not the sheet adopts its row.
     static let stashPendingEditDelivered = Notification.Name("it.gostash.stash.pendingEditDelivered")
 }
 
@@ -220,10 +221,10 @@ public final class PendingEdits {
     private let session: PendingEditsSession
     private var flushing: Set<UUID> = []
     /// Per item, the newest value — and its capture — of each field that a write which LANDED this
-    /// session put on the server (`send`, `flush`): what a detail sheet's save checks at its turn
-    /// (review P-3), and what it then reports the server holds for each field it leaves out (Task
-    /// 4e). In memory only: it matters only while writes to the item are in flight. (Internal so
-    /// tests can see it.)
+    /// session put on the server (`send`, `flush`, `sendToggle`): what a detail sheet's save checks
+    /// at its turn (review P-3), and what it then reports the server holds for each field it leaves
+    /// out (Task 4e). In memory only: it matters only while writes to the item are in flight.
+    /// (Internal so tests can see it.)
     private(set) var delivered: [UUID: DeliveredFields] = [:]
 
     private static var instances: [UUID: PendingEdits] = [:]
@@ -322,7 +323,7 @@ public final class PendingEdits {
     /// How many landed writes the delivered ledger has recorded this session (fix round 2) — a
     /// running count. A detail sheet notes it whenever it reads the server's row; whatever the queue
     /// delivers after that, the row doesn't reflect (an Ask citation sheet's store never hands it a
-    /// flushed row).
+    /// flushed row), and the sheet reads it from the ledger instead (`deliveries(for:after:)`).
     public private(set) var deliveryCount = 0
 
     /// The newest Sharing value a write that landed this session put on the server for `itemId`, if
@@ -331,6 +332,21 @@ public final class PendingEdits {
     public func deliveredSharing(for itemId: UUID, after count: Int) -> Bool? {
         guard let field = delivered[itemId]?.isPublic, field.sequence > count else { return nil }
         return field.value
+    }
+
+    /// Every field a write that landed this session put on the server for `itemId` after
+    /// `deliveryCount` stood at `count`, at the newest value the ledger holds for it: what the server
+    /// holds that a row read at `count` doesn't show — `deliveredSharing`, for every field (batch B
+    /// fix round 2, re-review N-1). Empty when nothing landed since.
+    public func deliveries(for itemId: UUID, after count: Int) -> ItemPatch {
+        guard let landed = delivered[itemId] else { return ItemPatch() }
+        func since<Value>(_ field: DeliveredField<Value>?) -> Value? {
+            guard let field, field.sequence > count else { return nil }
+            return field.value
+        }
+        return ItemPatch(title: since(landed.title), description: since(landed.description),
+                         content: since(landed.content), supplementalNote: since(landed.supplementalNote),
+                         isPublic: since(landed.isPublic), attributes: since(landed.attributes))
     }
 
     /// Takes back a queued Sharing value other than `shown` — what the detail sheet's switch shows,
@@ -386,6 +402,30 @@ public final class PendingEdits {
         return SheetSave(item: outcome.item, patch: outcome.patch, serverHolds: outcome.context)
     }
 
+    /// A detail sheet's Sharing toggle (`ItemDetailView.setPublic`), sent through `editor` after
+    /// every earlier write to the item: `patch` as it is, captured at `capturedAt` — never written
+    /// ahead (a toggle that fails leaves nothing queued: the sheet settles it in front of the user)
+    /// and never trimmed. Once it lands, the delivered ledger notes it like every other write of the
+    /// item this app makes, and `.stashPendingEditDelivered` is posted (batch B fix round 2,
+    /// re-review N-2). Returns the saved row; throws as the PATCH does.
+    ///
+    /// It used to go out through `ItemEditor.save`, past the ledger. An un-share that removed a
+    /// sticky note whose save had failed didn't count as the newer value of the note it is, so
+    /// "Couldn't save — try again." stayed up with nothing left to retry (`DetailFieldEdits
+    /// .haveLanded`); and a failed toggle after it couldn't see it among the queue's deliveries.
+    public func sendToggle(_ patch: ItemPatch, capturedAt: Date, itemId: UUID,
+                           editor: ItemEditor) async throws -> Item {
+        latestCapture = max(latestCapture, capturedAt)
+        let captures = PendingEdit(itemId: itemId, patch: patch, capturedAt: capturedAt)
+        let outcome = try await editor.saveLatest(itemId: itemId, prepare: { () -> (ItemPatch, Void)? in (patch, ()) },
+                                                  landed: { [weak self] saved in
+            self?.noteDelivered(itemId, patch: saved.patch, captures: captures)
+        })
+        // A toggle's patch always carries `isPublic`; an empty one is refused, as `ItemEditor.save` does.
+        guard let saved = outcome?.item else { throw ItemEditorError.emptyPatch }
+        return saved
+    }
+
     /// What of `patch` (captured at `capturedAt`) no write that landed this session has put on the
     /// server for `itemId` with that capture or a later one: the fields still to be delivered, as a
     /// detail sheet's save checks at its turn (`send`). A field delivered with a later value counts
@@ -426,11 +466,11 @@ public final class PendingEdits {
         return (kept, holds)
     }
 
-    /// A write of `patch` — its fields' values captured as in `captures` — just landed: remembers,
-    /// per field, the newest value the server now holds, its capture, and where the delivery stands
-    /// in the running count (`deliveryCount`). Called inside the item's write slot, so the next
-    /// write to the item sees it. Then posts `.stashPendingEditDelivered` for the item (batch B fix
-    /// round 1).
+    /// A write of `patch` — its fields' values captured as in `captures` — just landed (`send`,
+    /// `flush`, `sendToggle`): remembers, per field, the newest value the server now holds, its
+    /// capture, and where the delivery stands in the running count (`deliveryCount`). Called inside
+    /// the item's write slot, so the next write to the item sees it. Then posts
+    /// `.stashPendingEditDelivered` for the item (batch B fix round 1).
     private func noteDelivered(_ itemId: UUID, patch: ItemPatch, captures: PendingEdit) {
         deliveryCount += 1
         let sequence = deliveryCount

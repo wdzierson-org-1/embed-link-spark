@@ -293,44 +293,57 @@ public struct DetailFieldEdits {
 
     /// A Sharing toggle's PATCH (`patch`) succeeded while a newer save had started
     /// (`ItemDetailView.setPublic`'s `SaveGeneration` gate): the sheet doesn't adopt its row, the
-    /// newest save decides the fields. But what the toggle put on the server must still reach what
-    /// the sheet knows of the server's Sharing value, the one thing a later failed toggle settles on
-    /// (`undoingFailedToggle`, Task 4e fix round 2; in StashKit since batch B):
-    /// - `snapshot`, the sheet's last server row, takes the toggle's fields. Skipped, an un-share
-    ///   that landed this way left the row saying public; when the newer save then failed (so no row
-    ///   was adopted) and a share failed, the switch stayed on with no error over a private item.
-    /// - `knownDeliveries`, the queue's `deliveryCount` when the sheet last learned the server's
-    ///   Sharing value, moves on to now (never back). The toggle's value is newer than anything the
-    ///   queue delivered before it landed. Skipped, a share the queue delivered before that un-share
-    ///   still counted as what the server holds: the switch stayed on with no error, and the close
-    ///   published the item. A delivery that landed between the toggle's PATCH returning and this
-    ///   call counts as seen too: the read-to-adopt approximation `ItemDetailView.adopt` documents.
-    @MainActor
-    public static func carryingToggle(_ patch: ItemPatch, snapshot: Item, knownDeliveries: Int,
-                                      queue: PendingEdits) -> (snapshot: Item, knownDeliveries: Int) {
-        let server = PendingEdit(itemId: snapshot.id, patch: patch, capturedAt: .distantPast).applied(to: snapshot)
-        return (server, max(knownDeliveries, queue.deliveryCount))
+    /// newest save decides the fields. But `snapshot`, the sheet's last server row, takes the
+    /// toggle's fields: what the server holds as far as the sheet knows, which a later failed toggle
+    /// settles on (`undoingFailedToggle`; Task 4e fix round 2, in StashKit since batch B). Skipped, a
+    /// share that landed this way left the row saying private, and a failed un-share after it — the
+    /// item public — settled off with no error, since a share the queue delivered never turns a
+    /// failed un-share back on.
+    ///
+    /// The sheet's reference (`knownDeliveries`, the queue's `deliveryCount` when it last READ a row)
+    /// stays where it is (batch B fix round 2). The toggle went through the delivered ledger
+    /// (`PendingEdits.sendToggle`), so everything that reads the server's value through the
+    /// reference — `undoingFailedToggle`, `haveLanded` — finds the toggle there as delivered after
+    /// it: an un-share that landed under a newer save outranks a share the queue delivered before it.
+    /// The reference used to move on to the queue's count here, while the toggle went out past the
+    /// ledger. That also hid every other field the queue had delivered since the row was read — a
+    /// refresh's "Z" — and the stale row vouched for a failed revert to "Y" (re-review N-1).
+    public static func carryingToggle(_ patch: ItemPatch, snapshot: Item) -> Item {
+        PendingEdit(itemId: snapshot.id, patch: patch, capturedAt: .distantPast).applied(to: snapshot)
     }
 
     /// Whether every save the footer's error reports (`failed`: those that failed since the last
-    /// one that worked) has landed, as far as the sheet knows: each field each one carried is on the
-    /// server because a write that landed since put it there with that capture or a later one
-    /// (`PendingEdits.undelivered`: the sheet's own Sharing flush, the app's refresh, a later save),
-    /// or because the sheet's last server row (`snapshot`) already holds it — a realtime echo of a
-    /// PATCH whose response was lost, or the row a flush delivered. When it has, the error has
-    /// nothing left to report (batch B fix round 1, review I-1).
+    /// one that worked) has landed, as far as the app knows. Each field each one carried:
+    /// - was put on the server by a write that landed since, with that capture or a later one
+    ///   (`PendingEdits.undelivered`: the sheet's own Sharing flush, the app's refresh, a later save,
+    ///   or a Sharing toggle — an un-share removes the sticky note, fix round 2); or
+    /// - is what the server holds as far as the app knows: the sheet's last server row (`snapshot`,
+    ///   read when the queue's `deliveryCount` stood at `knownDeliveries`), with every field the
+    ///   queue delivered after that laid over it (`PendingEdits.deliveries`) — a realtime echo of a
+    ///   PATCH whose response was lost, or the row a flush delivered.
+    /// When it has, the error has nothing left to report (batch B fix round 1, review I-1).
     ///
     /// The footer used to ask instead whether nothing was left queued for the item, from `adopt`
     /// only. A flush hands `adopt` its row before it updates the queue's entry, so the error stayed
     /// up over a note the flush had just delivered — with the box empty under it, inviting a retype.
     /// And an edit the queue drops undelivered (refused `maxRejections` times) left nothing queued,
     /// so the error went away though nothing had landed.
+    ///
+    /// Fix round 2 (re-review N-1): the row alone vouched for a field the queue had delivered since
+    /// it was read. An Ask citation sheet opened on "Y" with "Z" queued; the user typed "Y" back
+    /// while the app's refresh was sending "Z", and the revert failed right after "Z" landed. The
+    /// row said "Y", so "Changes saved automatically" showed while the server held "Z". The rule
+    /// keeps Sharing's read-to-adopt approximation (`ItemDetailView.adopt`): a delivery landing
+    /// between a row's read and the sheet taking it counts as seen.
     @MainActor
-    public static func haveLanded(_ failed: [FailedSave], snapshot: Item, queue: PendingEdits) -> Bool {
-        failed.allSatisfy { save in
+    public static func haveLanded(_ failed: [FailedSave], snapshot: Item, knownDeliveries: Int,
+                                  queue: PendingEdits) -> Bool {
+        let server = PendingEdit(itemId: snapshot.id, patch: queue.deliveries(for: snapshot.id, after: knownDeliveries),
+                                 capturedAt: .distantPast).applied(to: snapshot)
+        return failed.allSatisfy { save in
             let rest = queue.undelivered(save.patch, capturedAt: save.capturedAt, itemId: snapshot.id)
             return rest.isEmpty
-                || PendingEdit(itemId: snapshot.id, patch: rest, capturedAt: .distantPast).applied(to: snapshot) == snapshot
+                || PendingEdit(itemId: snapshot.id, patch: rest, capturedAt: .distantPast).applied(to: server) == server
         }
     }
 
