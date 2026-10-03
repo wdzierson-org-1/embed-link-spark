@@ -19,13 +19,35 @@ import XCTest
 ///   (`testSkipAndNextShareTheirEdgeAndNeitherTakesTheOthersTaps`), and the attachment ×'s target is
 ///   whole on iOS 17 too, up to the row's top edge and in over its chip
 ///   (`testTheAttachmentRemoveTargetIsWholeToTheRowsTopAndOverItsChip`).
+/// - Polish review I-1: an audit that errors fails its test, and one that never completes skips it
+///   (named, "UNVERIFIED, RE-RUN THIS TEST") — the helper used to log every audit error and carry on
+///   (`testAnAuditErrorFailsTheTestAndAnUnfinishedAuditSkipsIt`).
 ///
 /// The share sheet is its own process (launched by Safari), so launch arguments can't reach it:
 /// `testShareComposeScreenshot` is host-orchestrated — see its doc comment.
 final class A11yAppUITests: XCTestCase {
+    /// One pass of Xcode's audit (`XCUIApplication.performAccessibilityAudit`). A parameter of `audit`
+    /// only so that `testAnAuditErrorFailsTheTestAndAnUnfinishedAuditSkipsIt` can stand in a runner that
+    /// errors or gives up, as the real one can (the same seam as `A11yDetailLibraryUITests`).
+    private typealias AuditRun = (_ types: XCUIAccessibilityAuditType,
+                                  _ issueHandler: @escaping (XCUIAccessibilityAuditIssue) throws -> Bool) throws -> Void
+
+    /// The screens whose audit never completed in this test: `audit` records them, a test that audits
+    /// ends with `skipIfAnAuditNeverFinished()`, and `tearDownWithError` fails one that forgot. XCTest
+    /// makes a new instance per test.
+    private var unfinishedAudits: [String] = []
+
     override func setUpWithError() throws {
         continueAfterFailure = false
         MainActor.assumeIsolated { A11yScreens.restoreRealBoldTextIfLeftOn() }
+    }
+
+    override func tearDownWithError() throws {
+        // A screen whose audit never completed must have ended its test as skipped: a test that audits
+        // and forgot its last line would pass over a screen nobody looked at.
+        XCTAssertTrue(unfinishedAudits.isEmpty,
+                      "An audit never completed on \(unfinishedAudits.joined(separator: ", ")), and this test didn't end with "
+                      + "`try skipIfAnAuditNeverFinished()` — it would pass with those screens unaudited")
     }
 
     // MARK: - Simulator state
@@ -147,6 +169,7 @@ final class A11yAppUITests: XCTestCase {
                 assertARefusalToastLetsTapsThroughToTheMic(screens, variant)
             }
         }
+        try skipIfAnAuditNeverFinished()
     }
 
     /// The attachment ×'s 44 × 44 pt target is whole — to the top of its row and in over its chip
@@ -343,6 +366,7 @@ final class A11yAppUITests: XCTestCase {
             }
             XCTAssertTrue(field.waitForNonExistence(timeout: 5), "\(variant): the delete sheet didn't close")
         }
+        try skipIfAnAuditNeverFinished()
     }
 
     /// A registered phone number is never cut off (fix round 1, M-3): on one line beside its
@@ -408,6 +432,9 @@ final class A11yAppUITests: XCTestCase {
             for panel in 1...3 {
                 sleep(1)
                 shoot("onboarding-\(panel)", variant)
+                // KNOWN: at L and L-bold (17.5 and 26.5) this audit flags `onboarding.skip` "Contrast failed". A false
+                // positive — Skip's text is #646b76 on white, 5.38:1 over its whole target in these shots — whose cause is
+                // not established; see `HowToStashView.skipButton`. Nothing here filters it: it stays in the log.
                 audit(app, "onboarding-\(panel)", variant)
                 if panel == 2, variant == .large || variant == .largeBold {
                     assertCarouselHugsItsTallestPanel(app, primary, variant)
@@ -455,6 +482,7 @@ final class A11yAppUITests: XCTestCase {
             XCTAssertTrue(dismissed, "\(variant): Skip didn't dismiss the panel")
             XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5), "\(variant): Skip didn't return to Settings")
         }
+        try skipIfAnAuditNeverFinished()
     }
 
     /// Skip and Next share an edge, and neither takes the other's taps (polish batch, item 2). Skip's
@@ -471,6 +499,10 @@ final class A11yAppUITests: XCTestCase {
     ///   only pages — on panel 3 "Got it" dismisses too;
     /// - a tap 1.5 pt inside Next's bottom edge moves to panel 3, and doesn't dismiss;
     /// - on panel 3, a tap 1.5 pt inside Skip's bottom edge dismisses: all 44 pt are Skip's.
+    ///
+    /// Not asserted here, on purpose: the audit in `testOnboardingScreensAtEveryTextSize` flags Skip's
+    /// contrast at L and L-bold since this target moved. A false positive (the text is 5.38:1 over its whole
+    /// target in the shots) with an unestablished cause: `HowToStashView.skipButton` has the record.
     @MainActor
     func testSkipAndNextShareTheirEdgeAndNeitherTakesTheOthersTaps() throws {
         continueAfterFailure = true
@@ -630,6 +662,7 @@ final class A11yAppUITests: XCTestCase {
             assertTarget(username, "auth.username", variant)
             assertTarget(app.textFields["auth.phone"], "auth.phone", variant)
         }
+        try skipIfAnAuditNeverFinished()
     }
 
     // MARK: - Share sheet (host-orchestrated)
@@ -711,6 +744,7 @@ final class A11yAppUITests: XCTestCase {
         let cancel = safari.buttons["share.cancel"]
         if cancel.waitForExistence(timeout: 5) { cancel.tap() }
         XCTAssertTrue(save.waitForNonExistence(timeout: 10), "\(token): the card didn't close")
+        try skipIfAnAuditNeverFinished()
     }
 
     // MARK: - Tab bar
@@ -736,6 +770,71 @@ final class A11yAppUITests: XCTestCase {
         sleep(2)
     }
 
+    // MARK: - The audit helper
+
+    /// An audit that errors fails its test, and one that never completes skips it — never a pass
+    /// (polish review I-1: this suite's `audit` used to log every audit error and carry on, so a
+    /// screen the audit never looked at left its test green; the policy is now
+    /// `A11yDetailLibraryUITests`': Xcode's own timeout — "Audit failed to complete in time" — gets
+    /// one retry and then a visible skip naming the screen, and any other error FAILS). On the
+    /// signed-out type specimen (no network), with a runner that errors or gives up in the real
+    /// helper's place:
+    /// - an error that isn't the timeout must FAIL the test, once, without a retry. The failure is
+    ///   EXPECTED here (`XCTExpectFailure`, strict), so this test passes only if `audit` records it: a
+    ///   helper that merely logged would fail this test with "failure expected but not found" — the RED;
+    /// - a timeout, then a timeout again → recorded, and `skipIfAnAuditNeverFinished` throws `XCTSkip`
+    ///   whose reason says UNVERIFIED (and the record is cleared: reported once);
+    /// - a timeout, then a completed audit → audited after all: no skip, no failure.
+    @MainActor
+    func testAnAuditErrorFailsTheTestAndAnUnfinishedAuditSkipsIt() throws {
+        continueAfterFailure = true
+        let app = A11yScreens(self).launchSpecimen(.large)
+        let timedOut = NSError(domain: "com.apple.xcode.xctest.accessibilityAudit", code: -56,
+                               userInfo: [NSLocalizedDescriptionKey: "Audit failed to complete in time"])
+        let broken = NSError(domain: "A11yAppUITests.probe", code: 1,
+                             userInfo: [NSLocalizedDescriptionKey: "a real audit error, not the tool's timeout"])
+
+        // 1. A real audit error fails the test, and isn't retried.
+        var runs = 0
+        let expected = XCTExpectedFailure.Options()
+        expected.issueMatcher = { $0.compactDescription.contains("the audit itself failed") }
+        XCTExpectFailure("an audit error that isn't the tool's timeout must fail the test (polish review I-1)",
+                         options: expected) {
+            audit(app, "probe-error", .large) { _, _ in
+                runs += 1
+                throw broken
+            }
+        }
+        XCTAssertEqual(runs, 1, "A real audit error is not retried")
+        XCTAssertTrue(unfinishedAudits.isEmpty, "A real audit error is a failure, not an unfinished audit")
+
+        // 2. The tool's timeout, twice: recorded, and the test must end skipped.
+        runs = 0
+        audit(app, "probe-never-completes", .large) { _, _ in
+            runs += 1
+            throw timedOut
+        }
+        XCTAssertEqual(runs, 2, "A timed-out audit is tried once more — not more, not less")
+        XCTAssertEqual(unfinishedAudits.count, 1, "A double timeout should be recorded")
+        do {
+            try skipIfAnAuditNeverFinished()
+            XCTFail("An audit that timed out twice must end its test as skipped, not let it pass")
+        } catch let skip as XCTSkip {
+            print("A11Y audit probe | the double timeout ended the test as skipped, as it should: \(skip)")
+        }
+        XCTAssertTrue(unfinishedAudits.isEmpty, "The skip reports the unfinished audits once")
+
+        // 3. A timeout, then a completed audit: audited after all.
+        runs = 0
+        audit(app, "probe-completes-on-retry", .large) { _, _ in
+            runs += 1
+            if runs == 1 { throw timedOut }
+        }
+        XCTAssertEqual(runs, 2)
+        XCTAssertTrue(unfinishedAudits.isEmpty, "An audit that completed on its retry was recorded as unfinished")
+        XCTAssertNoThrow(try skipIfAnAuditNeverFinished(), "An audit that completed on its retry is no reason to skip")
+    }
+
     // MARK: - Helpers
 
     /// The smallest standard text size (Settings › Display & Text Size, slider all the way left): the
@@ -757,7 +856,16 @@ final class A11yAppUITests: XCTestCase {
     }
 
     /// Xcode's hit-region, Dynamic Type, contrast and clipped-text findings for what's on screen,
-    /// logged as `A11Y audit <screen> <size> | …` (never fails the test; the report lists them).
+    /// logged as `A11Y audit <screen> <size> | …` (a finding never fails the test; the report lists
+    /// them). An audit that doesn't RUN is another matter — it says nothing about the screen — and is
+    /// never a pass (polish review I-1; this helper used to log every error and carry on). The policy
+    /// is `A11yDetailLibraryUITests.audit`'s:
+    /// - Xcode's own timeout ("Audit failed to complete in time", the tool giving up) gets ONE retry.
+    ///   No scroll nudge here, as the Detail suite makes: no hang is known on these screens, and a drag
+    ///   could move the very state under test (a keyboard, a sheet, a half-typed form).
+    /// - A second timeout is recorded, and the test ends SKIPPED naming the screen
+    ///   (`skipIfAnAuditNeverFinished`) — unless the app has stopped answering, which fails right there.
+    /// - Any OTHER audit error FAILS the test: nothing known makes it the tool's, so it isn't excused.
     ///
     /// An issue Xcode can't tie to an element (`id=-`) is logged with its detailed description,
     /// and the screen once with what an unattributed contrast issue is usually about (fix round 1,
@@ -765,23 +873,53 @@ final class A11yAppUITests: XCTestCase {
     /// floating glass on iOS 26, which a scrolled list's rows show through — and the disabled
     /// buttons, whose text is drawn faint on purpose.
     @MainActor
-    private func audit(_ app: XCUIApplication, _ screen: String, _ variant: A11yVariant) {
+    private func audit(_ app: XCUIApplication, _ screen: String, _ variant: A11yVariant, run: AuditRun? = nil) {
+        let perform: AuditRun = run ?? { types, handler in try app.performAccessibilityAudit(for: types, handler) }
+        let name = "\(Self.osPrefix)\(screen) \(variant)"
+        let types: XCUIAccessibilityAuditType = [.hitRegion, .dynamicType, .contrast, .textClipped]
         var unattributed = 0
+        let record: (XCUIAccessibilityAuditIssue) throws -> Bool = { issue in
+            let element = issue.element
+            let label = String((element?.label ?? "").prefix(60)).replacingOccurrences(of: "\n", with: " ")
+            print("A11Y audit \(name) | \(issue.compactDescription) | "
+                  + "id=\(element?.identifier ?? "-") label=\"\(label)\" frame=\(element.map { "\($0.frame.integral)" } ?? "-")")
+            if element == nil {
+                unattributed += 1
+                print("A11Y audit-detail \(name) | "
+                      + String(issue.detailedDescription.prefix(200)).replacingOccurrences(of: "\n", with: " "))
+            }
+            return true
+        }
         do {
-            try app.performAccessibilityAudit(for: [.hitRegion, .dynamicType, .contrast, .textClipped]) { issue in
-                let element = issue.element
-                let label = String((element?.label ?? "").prefix(60)).replacingOccurrences(of: "\n", with: " ")
-                print("A11Y audit \(Self.osPrefix)\(screen) \(variant) | \(issue.compactDescription) | "
-                      + "id=\(element?.identifier ?? "-") label=\"\(label)\" frame=\(element.map { "\($0.frame.integral)" } ?? "-")")
-                if element == nil {
-                    unattributed += 1
-                    print("A11Y audit-detail \(Self.osPrefix)\(screen) \(variant) | "
-                          + String(issue.detailedDescription.prefix(200)).replacingOccurrences(of: "\n", with: " "))
-                }
-                return true
+            try perform(types, record)
+        } catch let error as NSError where Self.isAuditTimeout(error) {
+            print("A11Y audit \(name) | AUDIT TIMED OUT (\(error.localizedDescription)); auditing again")
+            unattributed = 0
+            sleep(1)
+            do {
+                try perform(types, record)
+                print("A11Y audit \(name) | the second audit completed")
+            } catch let error as NSError where Self.isAuditTimeout(error) {
+                // Twice: nothing was audited, and "no findings" would be a lie. The screen is recorded,
+                // the test carries on (its other checks and shots still count) and ends as SKIPPED — a
+                // skip, not a failure, because a double timeout with the app still answering is the
+                // tool's known hang, not something the app did. If the app has stopped answering it is
+                // not that: fail here and now.
+                let answers = app.state == .runningForeground && app.windows.firstMatch.waitForExistence(timeout: 10)
+                XCTAssertTrue(answers, "\(name): Xcode's audit timed out twice and the app has stopped "
+                              + "answering — a hang in the app, not the audit tool's")
+                print("A11Y audit \(name) | AUDIT NEVER COMPLETED (timed out twice, the app "
+                      + "\(answers ? "still answers" : "does NOT answer")): no findings for this screen (its shot is "
+                      + "attached); the test will end as skipped")
+                unfinishedAudits.append(name)
+                return
+            } catch {
+                XCTFail("\(name): the audit itself failed, on its retry: \(error)")
+                return
             }
         } catch {
-            print("A11Y audit \(Self.osPrefix)\(screen) \(variant) | audit error: \(error)")
+            XCTFail("\(name): the audit itself failed: \(error)")
+            return
         }
         guard unattributed > 0 else { return }
         // One snapshot of the tree (one round trip, not one per element).
@@ -799,6 +937,27 @@ final class A11yAppUITests: XCTestCase {
         print("A11Y audit-unattributed \(Self.osPrefix)\(screen) \(variant) | \(unattributed) issue(s) | "
               + "tab bar \(barFrame.isNull ? "-" : "\(barFrame.integral)") | under it: [\(describe(underBar))] | "
               + "disabled: [\(describe(disabled))]")
+    }
+
+    /// Xcode's "Audit failed to complete in time" (`performAccessibilityAudit` gave up): the one audit
+    /// error that is the tool's own hang — retried, then skipped — as against any other, which fails.
+    private static func isAuditTimeout(_ error: NSError) -> Bool {
+        error.domain == "com.apple.xcode.xctest.accessibilityAudit" && error.code == -56
+    }
+
+    /// Ends the test as SKIPPED — never passed — if an `audit` in it never completed (it timed out,
+    /// then timed out again on its retry, with the app still answering). The last line of every test
+    /// that audits, so a missing audit can't pass for a clean one. The reason starts "UNVERIFIED,
+    /// RE-RUN THIS TEST" so it can't be read as one of the suite's by-design skips (the host-orchestrated
+    /// share test, the env-gated probes), which say what to set instead.
+    private func skipIfAnAuditNeverFinished() throws {
+        guard !unfinishedAudits.isEmpty else { return }
+        let screens = unfinishedAudits.joined(separator: ", ")
+        unfinishedAudits.removeAll()   // reported: nothing is left for `tearDownWithError` to find
+        throw XCTSkip("UNVERIFIED, RE-RUN THIS TEST — Xcode's accessibility audit never completed on \(screens): "
+                      + "it timed out, and again on its retry, while the app kept answering (the audit tool's own hang). "
+                      + "Everything else in this test passed; those screens have no audit findings from this run "
+                      + "(their shots are attached). This is not one of the suite's by-design skips.")
     }
 
     /// The composer's toast fixture: a 30 MB movie that attaches and a 101 MB one it refuses, each

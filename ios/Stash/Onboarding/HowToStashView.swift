@@ -224,6 +224,17 @@ struct HowToStashView: View {
     /// the two buttons share one edge, every tap on it one or the other's
     /// (`A11yAppUITests.testSkipAndNextShareTheirEdgeAndNeitherTakesTheOthersTaps`). At the larger
     /// text sizes the centred target never reached the primary button, and is unchanged.
+    ///
+    /// KNOWN AUDIT FINDING — a false positive, not a defect. At L and L-bold (iOS 17.5 and 26.5) Xcode's
+    /// accessibility audit reports "Contrast failed" for this button (`A11yAppUITests`' onboarding matrix
+    /// logs it as `id=onboarding.skip`). The text is `muted` #646b76 on white: 5.38:1, measured from the
+    /// pixels of the shots over Skip's whole target. The previous, centred target was never flagged, and
+    /// xxxL and AX3, where the target is still centred, aren't either. The CAUSE IS NOT ESTABLISHED: it is
+    /// not the `GeometryReader` (a negative-padding version with the same frame was flagged too) and not
+    /// Next's violet inside the frame (a target starting 1 pt lower was still flagged at L). "The audit
+    /// samples the frame's centre" fits — the target now sits 1.7 pt (3.0 at xS) off the word's layout
+    /// box — but the word's ink is only about 0.5 pt above its frame's centre, so that is a fit, not a
+    /// finding. Don't change Skip's colour, or undo the target, because of it.
     private var skipButton: some View {
         Button {
             OnboardingState.markHowToStashSeen()

@@ -92,14 +92,15 @@ final class A11yFoundationUITests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 5), "Expected Cancel while composing")
 
         app.typeKey(".", modifierFlags: .command)
+        // Said right after the key, before any assertion — a failing run, the one that gets read, still
+        // prints it (`continueAfterFailure` is false: a failed check below ends the test). See the doc comment.
+        print("A11Y state: this test sent a hardware-keyboard event (⌘.). From this simulator's next boot its on-screen "
+              + "keyboard stays minimized until: xcrun simctl spawn <udid> defaults delete "
+              + "com.apple.keyboard.preferences AutomaticMinimizationEnabled (ios/README.md › UI tests)")
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: cancel)
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "⌘. should put the keyboard away like Cancel")
         XCTAssertEqual(input.value as? String, "Keep this draft", "⌘. must keep the draft")
         XCTAssertTrue(app.buttons["ask.history"].waitForExistence(timeout: 5), "The header circles should be back")
-        // Said here, where the failures it causes will be read (see the doc comment above).
-        print("A11Y state: this test sent a hardware-keyboard event (⌘.). From this simulator's next boot its on-screen "
-              + "keyboard stays minimized until: xcrun simctl spawn <udid> defaults delete "
-              + "com.apple.keyboard.preferences AutomaticMinimizationEnabled (ios/README.md › UI tests)")
     }
 
     /// The shared controls in `Design/` — `CircleIcon` (36 pt and its 40 pt default),

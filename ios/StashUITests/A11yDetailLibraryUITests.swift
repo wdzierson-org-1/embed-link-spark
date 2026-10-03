@@ -1209,13 +1209,16 @@ final class A11yDetailLibraryUITests: XCTestCase {
 
     /// Ends the test as SKIPPED — never passed — if an `audit` in it never completed (it timed out,
     /// then timed out again after a scroll, with the app still answering). Call it as the last line
-    /// of every test that audits, so a missing audit can't pass for a clean one.
+    /// of every test that audits, so a missing audit can't pass for a clean one. The reason starts
+    /// "UNVERIFIED, RE-RUN THIS TEST", so it can't be read as one of the suite's by-design skips (the
+    /// env-gated VoiceOver probe, the OS-specific scroll skip), which say what to set or why instead.
     private func skipIfAnAuditNeverFinished() throws {
         guard !unfinishedAudits.isEmpty else { return }
-        throw XCTSkip("Xcode's accessibility audit never completed on \(unfinishedAudits.joined(separator: ", ")): "
-                      + "it timed out, and again after a 30 pt scroll, while the app kept answering — the audit tool's "
-                      + "own hang (seen on iOS 26.5 at xxxL). Everything else in this test passed; those screens have "
-                      + "no audit findings from this run (their shots are attached).")
+        throw XCTSkip("UNVERIFIED, RE-RUN THIS TEST — Xcode's accessibility audit never completed on "
+                      + "\(unfinishedAudits.joined(separator: ", ")): it timed out, and again after a 30 pt scroll, while "
+                      + "the app kept answering — the audit tool's own hang (seen on iOS 26.5 at xxxL). Everything else in "
+                      + "this test passed; those screens have no audit findings from this run (their shots are attached). "
+                      + "This is not one of the suite's by-design skips.")
     }
 }
 

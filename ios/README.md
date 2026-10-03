@@ -33,6 +33,16 @@ runner as `TEST_RUNNER_STASH_TEST_EMAIL` / `TEST_RUNNER_STASH_TEST_PASSWORD`, an
 them. Rows a test seeds carry a `UITEST-P16-` marker and are deleted in its teardown; the
 `UITEST-FIXTURE` rows are permanent — never modify them.
 
+### Reading a run
+
+- Most skips are by design: the host-orchestrated share test, the env-gated probes (VoiceOver, Large
+  Content Viewer), an OS-specific scroll check, missing credentials. Each says what to set, or why.
+- **A skip whose reason starts `UNVERIFIED, RE-RUN THIS TEST` is not one of them.** Xcode's accessibility
+  audit never completed on a screen — it timed out, and again on its retry, while the app kept
+  answering — so that screen is unaudited, though everything else in the test passed. Re-run that test.
+  (A second timeout hasn't been seen in a real run yet; the first is the tool's known hang on iOS 26.5, at
+  the detail facts screen at xxxL.) Any other audit error fails the test.
+
 ### Simulator state a run can leave behind
 
 - **Bold Text and the text size** (`simctl ui <udid> content_size`) are simulator-global and
