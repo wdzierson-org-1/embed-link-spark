@@ -730,9 +730,11 @@ final class DetailFieldEditsTests: XCTestCase {
 
     /// `setPublic`'s failure, as the sheet handles it: the fields to show — and whether the toggle
     /// took effect after all (the server already holds it), so the section shows no error.
-    private func failToggle(to target: Bool, noteBefore: String?, in sheet: inout Sheet, sheetIsOpen: Bool = true,
-                            at time: TimeInterval) -> Bool {
-        sheet.local = DetailFieldEdits.undoingFailedToggle(to: target, noteBefore: noteBefore, local: sheet.local,
+    /// `queuedBefore`: the Sharing value queued as the toggle started (`setPublic` reads it then).
+    private func failToggle(to target: Bool, noteBefore: String?, queuedBefore: PendingField<Bool>? = nil,
+                            in sheet: inout Sheet, sheetIsOpen: Bool = true, at time: TimeInterval) -> Bool {
+        sheet.local = DetailFieldEdits.undoingFailedToggle(to: target, noteBefore: noteBefore, queuedBefore: queuedBefore,
+                                                           local: sheet.local,
                                                            baseline: ItemDisplay.editableRow(sheet.snapshot),
                                                            queue: queue, sheetIsOpen: sheetIsOpen,
                                                            at: t0.addingTimeInterval(time))
@@ -850,8 +852,9 @@ final class DetailFieldEditsTests: XCTestCase {
 
     /// Opened on a share still queued from earlier (the switch on, the server private), the user
     /// turns it off, and that PATCH fails. The server holds private — what they asked for — so the
-    /// switch stays off and the queued share is taken back: nothing publishes it later. A sticky
-    /// note typed meanwhile (queued too) never lands either, as the un-share promised.
+    /// switch stays off and private is queued over the queued share (Task 4e): nothing publishes it
+    /// later. A sticky note typed meanwhile (queued too) never lands either, as the un-share
+    /// promised.
     func testTurningAQueuedShareOffSticksWithoutTheNetwork() async {
         let server = textRow()
         queue.record(itemId: server.id, patch: ItemPatch(isPublic: true), capturedAt: t0)   // an undelivered share
@@ -983,6 +986,31 @@ final class DetailFieldEditsTests: XCTestCase {
         journal(sheet, closing: true, at: 2)
         await deliverQueue(to: online)
         XCTAssertEqual(online.row(server.id)?.isPublic, true)
+    }
+
+    /// 4e review M-4, A-3's mirror: an un-share is queued, undelivered, and the item is opened from an
+    /// Ask citation on its public row — the switch shows off. The user turns it on; a flush ahead of
+    /// that PATCH delivers the queued un-share (the server is private), and the share fails. The
+    /// sheet's last server row said public, so the switch stayed on with no error, and closing
+    /// journaled nothing: the share was lost without a word. A failed share settles on what the
+    /// server actually holds — here the un-share that flush delivered — and says it failed.
+    func testACitationSheetsFailedShareOverADeliveredUnshareSaysSoAndShowsPrivate() async {
+        let server = textRow(isPublic: true)
+        queue.record(itemId: server.id, patch: ItemPatch(isPublic: false), capturedAt: t0)   // an undelivered un-share
+        var citation = open(server)
+        XCTAssertFalse(citation.local.isPublic, "precondition: the citation sheet shows the queued un-share")
+        citation.local.isPublic = true                                   // the share, optimistic
+        let queuedBefore = queue.edit(for: server.id)?.isPublic          // `setPublic` reads it as the toggle starts
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)                                   // a flush ahead of the share
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "precondition: the flush delivered the un-share")
+
+        let tookEffect = failToggle(to: true, noteBefore: nil, queuedBefore: queuedBefore, in: &citation, at: 1)
+        XCTAssertFalse(tookEffect, "The share failed: the section says so")
+        XCTAssertFalse(citation.local.isPublic, "The switch shows what the server holds: private")
+        journal(citation, closing: true, at: 2)
+        await deliverQueue(to: online)
+        XCTAssertEqual(online.row(server.id)?.isPublic, false, "A failed share is never published")
     }
 
     /// Supersede only what moved on: a save that sent the title and the description, where only the
@@ -1268,6 +1296,227 @@ final class DetailFieldEditsTests: XCTestCase {
         sheet.snapshot = row
         XCTAssertEqual(sheet.local.title, "X", "The user's last value stays in the field")
         XCTAssertEqual(edits(sheet).textPatch, ItemPatch(title: "X"), "…and the debounce sends it")
+    }
+
+    // MARK: - Every saved note reaches the sheet's document (4e review C-1)
+
+    /// `ItemDetailView.save`'s tail in an Ask citation sheet, whose store holds no rows (no `onChange`
+    /// adopt ever runs): the landing always runs; the newest save adopts its row and fields; an older
+    /// one hands the sheet what it carried (`DetailFieldEdits.carrying`).
+    private func landInCitationSheet(_ save: SheetSave, capturedAt: Date, isNewest: Bool, in sheet: inout Sheet) {
+        let landed = DetailFieldEdits.landing(save, capturedAt: capturedAt, local: sheet.local, snapshot: sheet.snapshot,
+                                              queue: queue, sheetIsOpen: true, at: queue.captureTime(), apply: { _ in })
+        if isNewest {
+            sheet.local = landed.fields
+            sheet.snapshot = landed.row
+        } else {
+            (sheet.local, sheet.snapshot) = DetailFieldEdits.carrying(save, landed: landed, local: sheet.local,
+                                                                       snapshot: sheet.snapshot)
+        }
+    }
+
+    /// A rich note whose document is ["first"].
+    private func richRow() -> Item {
+        var row = textRow()
+        row.content = appendNoteParagraph(to: "{\"type\":\"doc\",\"content\":[]}", note: "first")
+        return row
+    }
+
+    /// 4e review C-1, its simplest form (probe B2; since 4d), in an Ask citation sheet on ["first"]:
+    /// "abc" is added and Done tapped, and its save goes out slowly. The app comes back to the
+    /// foreground, and its refresh flushes the queue behind the note's save. The user edits the
+    /// title; that autosave records first and queues behind the flush — the newest save now. The
+    /// note's save lands, but it isn't the newest, so the sheet never took its document; the flush
+    /// delivers the title, and the title's save (nothing left to send) lands against the sheet's
+    /// last server row: the old document. "abc" had left the box — it was saved — so "def" was
+    /// appended to ["first"], and the server lost "abc".
+    func testANoteSaveThatIsntTheNewestStillBringsItsDocumentToACitationSheet() async throws {
+        let row = richRow()
+        let (server, sheets, flushes) = slowLink([row])
+        var citation = open(row)
+        var box = "abc"
+        let document = appendNoteParagraph(to: citation.local.content, note: "abc")
+        let noteAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(content: document), capturedAt: noteAt)
+        let noteSave = Task { try await self.queue.send(ItemPatch(content: document), capturedAt: noteAt, itemId: row.id, editor: sheets) }
+        await waitUntil { server.heldCount == 1 }
+        let foregroundFlush = Task { await self.queue.flush(editor: flushes, itemIds: [row.id]) }
+        await settle()
+        citation.local.title = "Standup notes"                    // the newest save from here on
+        let titlePatch = edits(citation).textPatch
+        let titleAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: titlePatch, capturedAt: titleAt)
+        let titleSave = Task { try await self.queue.send(titlePatch, capturedAt: titleAt, itemId: row.id, editor: sheets) }
+        await settle()
+
+        server.gated = false
+        server.release()
+        let noteSent = try await noteSave.value
+        landInCitationSheet(noteSent, capturedAt: noteAt, isNewest: false, in: &citation)
+        if DetailSaveOutcome(noteSent).isSaved { box = "" }      // `flushNotes`: `removeSavedPrefix("abc")`
+        await foregroundFlush.value
+        landInCitationSheet(try await titleSave.value, capturedAt: titleAt, isNewest: true, in: &citation)
+        XCTAssertEqual(paragraphs(citation.local.content), ["first", "abc"], "The sheet shows the document the server holds")
+
+        box += " def"
+        try await addNote(box, to: citation, server: server, sheets: sheets)
+        XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "abc", "def"], "The user's note is never lost")
+    }
+
+    /// C-1, variant A (new in 4e), in an Ask citation sheet: a location save hangs on the slow link,
+    /// and the foreground flush queues behind it. "abc" is added (Done), then the title edited. The
+    /// flush delivers both, so both saves come back with nothing left to send; only the title's is
+    /// the newest, and it lands against the old document. (Before 4e, "abc" stayed in the box and
+    /// went out merged as "abc def"; 4e's `isSaved` empties the box, so "abc" was lost.)
+    func testANoteAFlushDeliveredBeforeALaterSaveStillBringsItsDocumentToACitationSheet() async throws {
+        let row = richRow()
+        let (server, sheets, flushes) = slowLink([row])
+        var citation = open(row)
+        citation.local.attributes.location = CapturedLocation(label: "Brooklyn", source: "manual")
+        let slowPatch = ItemPatch(attributes: citation.local.attributes)
+        let slowAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: slowPatch, capturedAt: slowAt)
+        let location = citation.local.attributes.location
+        let slow = Task { () throws -> SheetSave in   // `saveAttributes`: the save onto the server's attributes
+            let saved = try await sheets.saveLocation(itemId: row.id, location: location)
+            return SheetSave(item: saved, patch: slowPatch, serverHolds: slowPatch)
+        }
+        await waitUntil { server.heldCount == 1 }
+        let foregroundFlush = Task { await self.queue.flush(editor: flushes, itemIds: [row.id]) }
+        await settle()
+
+        var box = "abc"
+        let document = appendNoteParagraph(to: citation.local.content, note: "abc")
+        let noteAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(content: document), capturedAt: noteAt)
+        let noteSave = Task { try await self.queue.send(ItemPatch(content: document), capturedAt: noteAt, itemId: row.id, editor: sheets) }
+        await settle()
+        citation.local.title = "Standup notes"                    // the newest save
+        let titlePatch = edits(citation).textPatch
+        let titleAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: titlePatch, capturedAt: titleAt)
+        let titleSave = Task { try await self.queue.send(titlePatch, capturedAt: titleAt, itemId: row.id, editor: sheets) }
+        await settle()
+
+        server.gated = false
+        server.release()
+        landInCitationSheet(try await slow.value, capturedAt: slowAt, isNewest: false, in: &citation)
+        await foregroundFlush.value
+        let noteSent = try await noteSave.value
+        XCTAssertNil(noteSent.item, "precondition: the flush delivered the note; its save had nothing left")
+        landInCitationSheet(noteSent, capturedAt: noteAt, isNewest: false, in: &citation)
+        if DetailSaveOutcome(noteSent).isSaved { box = "" }
+        let titleSent = try await titleSave.value
+        XCTAssertNil(titleSent.item, "precondition: the flush delivered the title too")
+        landInCitationSheet(titleSent, capturedAt: titleAt, isNewest: true, in: &citation)
+        XCTAssertEqual(paragraphs(citation.local.content), ["first", "abc"], "The sheet shows the document the server holds")
+
+        box += " def"
+        try await addNote(box, to: citation, server: server, sheets: sheets)
+        XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "abc", "def"], "The user's note is never lost")
+    }
+
+    /// Found while fixing C-1 (pre-existing since the sheet opens on queued values, plan 15): a sheet
+    /// opened on a queued, undelivered note document — a note closed offline — shows that document,
+    /// which differs from the server's. A note added and saved there landed, but `adopting` kept the
+    /// sheet's copy (it still differed from the last server row): the document on screen lacked the
+    /// new note, and the next note, appended to that copy, replaced the server's document.
+    func testANoteSavedInASheetOpenedOnAQueuedDocumentReachesThatSheet() async throws {
+        let row = richRow()
+        queue.record(itemId: row.id, patch: ItemPatch(content: appendNoteParagraph(to: row.content, note: "offline")),
+                     capturedAt: queue.captureTime())                // closed offline: the note still queued
+        let server = FakeRowServer(rows: [row])
+        let editor = ItemEditor(patcher: server, refresher: EmbeddingRefresher(syncer: RecordingSyncer(), idle: .milliseconds(10)),
+                                writeQueue: ItemWriteQueue())
+        var sheet = open(row)
+        XCTAssertEqual(paragraphs(sheet.local.content), ["first", "offline"], "precondition: the sheet shows the queued note")
+
+        var box = "abc"
+        let document = appendNoteParagraph(to: sheet.local.content, note: "abc")
+        let at = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(content: document), capturedAt: at)
+        let sent = try await queue.send(ItemPatch(content: document), capturedAt: at, itemId: row.id, editor: editor)
+        landInCitationSheet(sent, capturedAt: at, isNewest: true, in: &sheet)
+        XCTAssertEqual(paragraphs(sheet.local.content), ["first", "offline", "abc"], "The sheet shows the document the server holds")
+        if DetailSaveOutcome(sent).isSaved { box = "" }
+
+        box += " def"
+        try await addNote(box, to: sheet, server: server, sheets: editor)
+        XCTAssertEqual(paragraphs(server.row(row.id)?.content), ["first", "offline", "abc", "def"], "Nothing lost")
+    }
+
+    // MARK: - What the user just typed is never replaced by a flushed row (4e review M-1)
+
+    /// 4e review M-1 (P-1 with no save of the field in flight): "Y"'s autosave failed offline, so "Y"
+    /// stays queued and nothing is sending. Back online, the user types "X" — the server's value —
+    /// and inside that revert's debounce a foreground flush delivers "Y"; the store hands the sheet
+    /// the row. Nothing queued, nothing sending, the field equal to the sheet's last server row:
+    /// `adopt` took "Y" — visibly — and the debounce then sent nothing. A field typed into since its
+    /// last save started stays as the user left it.
+    func testARevertTypedOverAFailedSaveSurvivesAFlushInsideItsDebounce() async throws {
+        let server = textRow(title: "X")
+        var sheet = open(server)
+        sheet.local.title = "Y"
+        queue.record(itemId: server.id, patch: edits(sheet).textPatch, capturedAt: queue.captureTime())   // its PATCH failed
+        sheet.local.title = "X"                                          // typed back, inside the debounce
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)                                   // the foreground flush delivers "Y"
+
+        let row = try XCTUnwrap(online.row(server.id))
+        sheet.local = DetailFieldEdits(local: sheet.local, baseline: ItemDisplay.editableRow(sheet.snapshot),
+                                       queued: queue.edit(for: server.id), typedSinceSave: [.title])
+            .adopting(row)                                               // the store's `onChange` → `adopt`
+        sheet.snapshot = row
+        XCTAssertEqual(sheet.local.title, "X", "The user's last typed value stays in the field")
+        XCTAssertEqual(edits(sheet).textPatch, ItemPatch(title: "X"), "…and the debounce sends it")
+    }
+
+    /// M-1 through a landing: "Y"'s autosave failed, so "Y" stays queued; a flush delivers it, and
+    /// the user types "X" (the server's old value) back. Inside that debounce another field's save
+    /// lands, with the server's row — title "Y". That landing keeps the typed title too.
+    func testARevertTypedInTheDebounceSurvivesAnotherFieldsSaveLandingOnTheFlushedValue() async throws {
+        let server = textRow(title: "X")
+        var sheet = open(server)
+        sheet.local.title = "Y"
+        queue.record(itemId: server.id, patch: edits(sheet).textPatch, capturedAt: queue.captureTime())   // its PATCH failed
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)                                   // a flush delivers "Y"
+        sheet.local.title = "X"                                          // typed back, inside the debounce
+        let descriptionAt = queue.captureTime()
+        queue.record(itemId: server.id, patch: ItemPatch(description: "Notes"), capturedAt: descriptionAt)
+        let sent = try await queue.send(ItemPatch(description: "Notes"), capturedAt: descriptionAt, itemId: server.id,
+                                        editor: ItemEditor(patcher: online,
+                                                           refresher: EmbeddingRefresher(syncer: RecordingSyncer(), idle: .milliseconds(10)),
+                                                           writeQueue: ItemWriteQueue()))
+        XCTAssertEqual(sent.item?.title, "Y", "precondition: the row the description's save lands holds the flushed title")
+
+        let landed = DetailFieldEdits.landing(sent, capturedAt: descriptionAt, local: sheet.local, snapshot: sheet.snapshot,
+                                              queue: queue, sheetIsOpen: true, at: queue.captureTime(),
+                                              typedSinceSave: [.title], apply: { _ in })
+        XCTAssertEqual(landed.fields.title, "X", "The user's last typed value stays in the field")
+    }
+
+    /// M-1 across sheets: sheet 1 closes with "Y" queued; sheet 2 opens on the queued "Y", and the
+    /// user types "X" (the server's value) back. Inside that debounce a flush delivers "Y". Sheet 2
+    /// has no save in flight; the field it typed into keeps the user's value.
+    func testARevertTypedInAReopenedSheetSurvivesTheFlushOfTheValueItOpenedOn() async throws {
+        let server = textRow(title: "X")
+        var first = open(server)
+        first.local.title = "Y"
+        dismiss(first, at: 1)                                            // the close journals "Y"
+        var second = open(server)
+        XCTAssertEqual(second.local.title, "Y", "precondition: sheet 2 opens on the queued title")
+        second.local.title = "X"
+        let online = FakeRowServer(rows: [server])
+        await deliverQueue(to: online)
+
+        let row = try XCTUnwrap(online.row(server.id))
+        second.local = DetailFieldEdits(local: second.local, baseline: ItemDisplay.editableRow(second.snapshot),
+                                        queued: queue.edit(for: server.id), typedSinceSave: [.title])
+            .adopting(row)
+        second.snapshot = row
+        XCTAssertEqual(second.local.title, "X", "The user's last typed value stays in the field")
+        XCTAssertEqual(edits(second).textPatch, ItemPatch(title: "X"), "…and the debounce sends it")
     }
 
     // MARK: - Every other field keeps its plain comparison with the server's row

@@ -24,6 +24,11 @@ public enum DetailSaveOutcome: Equatable, Sendable {
     public var isSaved: Bool { self != .failed }
 }
 
+/// The detail sheet's text fields that the queue-aware rules cover.
+public enum SheetTextField: Hashable, Sendable {
+    case title, description, supplementalNote
+}
+
 /// What an open detail sheet's fields hold that the server hasn't confirmed — the ONE rule its
 /// debounced autosave, its dismiss/background journal and `adopt` (folding a fresher server row
 /// into the open sheet) share (plan 16, Task 4 review I-1; Task 4c).
@@ -38,6 +43,11 @@ public enum DetailSaveOutcome: Equatable, Sendable {
 ///   is read). A flush queued ahead of such a save can deliver its value and confirm it before the
 ///   save's turn, so the queue no longer says the field is outstanding while the save is still on
 ///   its way (Task 4e, 4d review P-1).
+/// - `typedSinceSave`: the fields the user has typed into since their last save started — what is
+///   still in the autosave's debounce, recorded nowhere yet (Task 4e fix round 1, review M-1). A
+///   flush can deliver a value queued earlier — a failed autosave's, or one another sheet left
+///   queued — inside that debounce; without this, a revert typed over it (back to the server's
+///   value) was replaced by the flushed row, visibly, and the debounce then sent nothing.
 ///
 /// **The title, the description and the sticky note read the queue.** Comparing a field with
 /// `baseline` alone can't tell "never edited" from "edited, sent, then put back": a clear of a title
@@ -48,9 +58,9 @@ public enum DetailSaveOutcome: Equatable, Sendable {
 /// - it needs saving when it differs from the server's OR from a value still queued for it
 ///   (`needsSave`) — the revert becomes a patch that supersedes the sent value through the queue's
 ///   latest-wins rule, the close's journal and flush included;
-/// - `adopt` keeps it as the user left it while a write of it is still outstanding — queued, or
-///   still being sent (`keeps`) — the incoming row may predate that write, or be a flush's delivery
-///   of a value the user has since moved on from (P-1);
+/// - `adopt` keeps it as the user left it while their change to it is still on its way — queued,
+///   being sent, or typed and in the debounce (`keeps`) — the incoming row may predate that write,
+///   or be a flush's delivery of a value the user has since moved on from (P-1, M-1);
 /// - a save that lands after the user changed it re-queues the field's value before `adopt` reads
 ///   the queue (`superseding`, run by `landing`), so the confirm never leaves the sheet with
 ///   nothing but the old value to go by — and so does a save a flush had already delivered, landed
@@ -69,12 +79,15 @@ public struct DetailFieldEdits {
     public var baseline: Item
     public var queued: PendingEdit?
     public var sending: [ItemPatch]
+    public var typedSinceSave: Set<SheetTextField>
 
-    public init(local: Item, baseline: Item, queued: PendingEdit?, sending: [ItemPatch] = []) {
+    public init(local: Item, baseline: Item, queued: PendingEdit?, sending: [ItemPatch] = [],
+                typedSinceSave: Set<SheetTextField> = []) {
         self.local = local
         self.baseline = baseline
         self.queued = queued
         self.sending = sending
+        self.typedSinceSave = typedSinceSave
     }
 
     // MARK: - The rule, per field
@@ -87,15 +100,22 @@ public struct DetailFieldEdits {
     }
 
     /// Whether `adopting` keeps a field as the user left it instead of taking an incoming row's: it
-    /// differs from the server's value, or a write of it is still outstanding — queued, or still
-    /// being sent by one of the sheet's own saves (`sending`).
-    public static func keeps(_ local: String, baseline: String, queued: String?, sending: Bool = false) -> Bool {
-        local != baseline || queued != nil || sending
+    /// differs from the server's value, or the user's change to it is still on its way — queued, or
+    /// `inProgress`: being sent by one of the sheet's own saves, or typed and still in the
+    /// autosave's debounce.
+    public static func keeps(_ local: String, baseline: String, queued: String?, inProgress: Bool = false) -> Bool {
+        local != baseline || queued != nil || inProgress
     }
 
     private var localTitle: String { local.title ?? "" }
     private var localDescription: String { local.description ?? "" }
     private var localNote: String { local.supplementalNote ?? "" }
+
+    /// The user typed into `field` since its last save started, or one of the sheet's saves (those
+    /// `carries`) is still sending it.
+    private func inProgress(_ field: SheetTextField, _ carries: (ItemPatch) -> Bool) -> Bool {
+        typedSinceSave.contains(field) || sending.contains(where: carries)
+    }
 
     public var titleNeedsSave: Bool {
         Self.needsSave(localTitle, baseline: baseline.title ?? "", queued: queued?.title?.value)
@@ -103,7 +123,7 @@ public struct DetailFieldEdits {
 
     public var keepsTitle: Bool {
         Self.keeps(localTitle, baseline: baseline.title ?? "", queued: queued?.title?.value,
-                   sending: sending.contains { $0.title != nil })
+                   inProgress: inProgress(.title) { $0.title != nil })
     }
 
     public var descriptionNeedsSave: Bool {
@@ -112,7 +132,7 @@ public struct DetailFieldEdits {
 
     public var keepsDescription: Bool {
         Self.keeps(localDescription, baseline: baseline.description ?? "", queued: queued?.description?.value,
-                   sending: sending.contains { $0.description != nil })
+                   inProgress: inProgress(.description) { $0.description != nil })
     }
 
     public var supplementalNoteNeedsSave: Bool {
@@ -121,7 +141,7 @@ public struct DetailFieldEdits {
 
     public var keepsSupplementalNote: Bool {
         Self.keeps(localNote, baseline: baseline.supplementalNote ?? "", queued: queued?.supplementalNote?.value,
-                   sending: sending.contains { $0.supplementalNote != nil })
+                   inProgress: inProgress(.supplementalNote) { $0.supplementalNote != nil })
     }
 
     // MARK: - Saving, landing, adopting
@@ -161,12 +181,25 @@ public struct DetailFieldEdits {
     ///    NOW stands (review m-1). Laid before the confirm, a row kept a value the confirm then
     ///    dropped — an un-share removes the sticky note in its own PATCH, so a note still queued
     ///    from before it is dropped, yet the store re-lays a row only from what is still queued;
-    /// 4. `saved` is folded into the fields against the same queue (`adopting`).
+    /// 4. `saved` is folded into the fields against the same queue (`adopting`, with the sheet's
+    ///    `sending` and `typedSinceSave`: a field the user has typed into since, or that another
+    ///    of its saves is sending, stays as they left it — fix round 1, review M-1) — and a note
+    ///    document `sent` carried is the server's from here on (below).
     /// Returns the fields to show if the sheet adopts `saved`. Every save and every Sharing toggle
     /// that lands goes through here.
+    ///
+    /// **The note document** (Task 4e fix round 1, found with review C-1). A note is never edited in
+    /// place: the notes editor's draft is appended to the document, or replaces a plain note whole,
+    /// and the save carries the result. So once a save that carried `content` lands, the document
+    /// the server holds is the one the sheet must show — the next note is appended to it — unless a
+    /// newer write of it is still queued. `adopting` alone kept the sheet's copy whenever it differed
+    /// from the last server row: a sheet opened on a queued, undelivered note (closed offline) kept
+    /// that copy after a note saved on top of it landed, and the next note, appended to the copy,
+    /// replaced the server's document.
     @MainActor
     public static func landing(_ sent: ItemPatch, capturedAt: Date, as saved: Item, local: Item,
                                baseline: Item, queue: PendingEdits, sheetIsOpen: Bool, at now: Date,
+                               sending: [ItemPatch] = [], typedSinceSave: Set<SheetTextField> = [],
                                apply: (Item) -> Void) -> Item {
         if sheetIsOpen {
             let moved = DetailFieldEdits(local: local, baseline: baseline, queued: queue.edit(for: saved.id))
@@ -175,7 +208,11 @@ public struct DetailFieldEdits {
         }
         queue.confirm(itemId: saved.id, patch: sent, capturedAt: capturedAt)
         apply(saved)
-        return DetailFieldEdits(local: local, baseline: baseline, queued: queue.edit(for: saved.id)).adopting(saved)
+        let after = DetailFieldEdits(local: local, baseline: baseline, queued: queue.edit(for: saved.id),
+                                     sending: sending, typedSinceSave: typedSinceSave)
+        var fields = after.adopting(saved)
+        if sent.content != nil, after.queued?.content == nil { fields.content = saved.content }
+        return fields
     }
 
     /// A save through the queue (`PendingEdits.send`, captured at `capturedAt`) came back: its
@@ -195,17 +232,42 @@ public struct DetailFieldEdits {
     @MainActor
     public static func landing(_ save: SheetSave, capturedAt: Date, local: Item, snapshot: Item,
                                queue: PendingEdits, sheetIsOpen: Bool, at now: Date,
+                               sending: [ItemPatch] = [], typedSinceSave: Set<SheetTextField> = [],
                                apply: (Item) -> Void) -> (row: Item, fields: Item) {
         let baseline = ItemDisplay.editableRow(snapshot)
         guard let saved = save.item else {
             let row = PendingEdit(itemId: snapshot.id, patch: save.serverHolds, capturedAt: now).applied(to: snapshot)
             let fields = landing(save.serverHolds, capturedAt: capturedAt, as: row, local: local, baseline: baseline,
-                                 queue: queue, sheetIsOpen: sheetIsOpen, at: now, apply: { _ in })
+                                 queue: queue, sheetIsOpen: sheetIsOpen, at: now, sending: sending,
+                                 typedSinceSave: typedSinceSave, apply: { _ in })
             return (row, fields)
         }
         let fields = landing(save.serverHolds, capturedAt: capturedAt, as: saved, local: local, baseline: baseline,
-                             queue: queue, sheetIsOpen: sheetIsOpen, at: now, apply: apply)
+                             queue: queue, sheetIsOpen: sheetIsOpen, at: now, sending: sending,
+                             typedSinceSave: typedSinceSave, apply: apply)
         return (saved, fields)
+    }
+
+    /// A save that landed while a newer one has started (`ItemDetailView.save`'s `SaveGeneration`
+    /// gate): the sheet doesn't adopt its row — the newest save's landing decides the fields — but
+    /// what the server now holds for this save's fields becomes the sheet's last server row now
+    /// (Task 4e fix round 1, review C-1). The newest save may have nothing left to send, and then it
+    /// lands against `snapshot`; a sheet whose store never hands it a flushed row (an Ask citation
+    /// sheet) has no other way to learn what this one delivered. Skipped, a note's save landed
+    /// unseen: "abc" had left the box (it was saved), the newest save landed against the old
+    /// document, and the next note — appended to that — deleted "abc" from the server.
+    ///
+    /// - `snapshot` takes `save.serverHolds`, every field the save covered, as the server holds it.
+    /// - The note document goes into the fields as well — the next note is appended to it — as
+    ///   `landing` decided it (`landed.fields`). The other text fields stay as the user left them:
+    ///   the queue-aware rules keep or take them at the newest save's landing, and a baseline that
+    ///   is stale for them costs at most a redundant send.
+    public static func carrying(_ save: SheetSave, landed: (row: Item, fields: Item), local: Item,
+                                snapshot: Item) -> (local: Item, snapshot: Item) {
+        let server = PendingEdit(itemId: snapshot.id, patch: save.serverHolds, capturedAt: .distantPast).applied(to: snapshot)
+        var fields = local
+        if save.serverHolds.content != nil { fields.content = landed.fields.content }
+        return (fields, server)
     }
 
     /// `incoming` (a fresher server row — our own save coming back, realtime, the `page_body`
@@ -262,6 +324,14 @@ public struct DetailFieldEdits {
     ///   opened on a queued toggle the user has just turned back to the server's value — the toggle
     ///   took effect, and the switch stays where they put it. Flipping it back would have the close
     ///   journal (and the next flush) undo what the server holds: an un-shared item made public.
+    /// - A failed SHARE settles on what the server actually holds (Task 4e fix round 1, review
+    ///   M-4): a Sharing value queued as the toggle started (`queuedBefore`, read by `setPublic`)
+    ///   that a flush delivered meanwhile (`PendingEdits`' delivered ledger) is it — the sheet's last
+    ///   server row can predate that flush (an Ask citation sheet never sees a flushed row). Opened
+    ///   on a queued un-share and turned on, the switch stayed on with no error over a private item,
+    ///   and the user's share was lost without a word; now it shows private and the error. A failed
+    ///   UN-share keeps the fail-safe below instead: whatever reached the server, private is queued
+    ///   again — the user's choice, and the safe one.
     /// - Then the queue must say the same as the switch, so a later flush never changes the item's
     ///   visibility to something the user isn't looking at. Left ON (the server is public): any other
     ///   queued Sharing value is taken back (`PendingEdits.withdrawSharing`). Left OFF: private is
@@ -274,11 +344,16 @@ public struct DetailFieldEdits {
     ///   un-share re-records its note removal too: a note still queued is cleared, never delivered
     ///   to the private item (a later share would publish it again).
     @MainActor
-    public static func undoingFailedToggle(to target: Bool, noteBefore: String?, local: Item, baseline: Item,
+    public static func undoingFailedToggle(to target: Bool, noteBefore: String?, queuedBefore: PendingField<Bool>? = nil,
+                                           local: Item, baseline: Item,
                                            queue: PendingEdits, sheetIsOpen: Bool, at now: Date) -> Item {
         guard sheetIsOpen else { return local }
         var settled = local
         settled.isPublic = baseline.isPublic
+        if target, let before = queuedBefore, let delivered = queue.delivered[local.id]?.isPublic,
+           delivered.capturedAt >= before.capturedAt {
+            settled.isPublic = delivered.value   // what a flush delivered during the share (review M-4)
+        }
         if !target {
             if settled.isPublic {
                 settled = undoingFailedUnshare(noteBefore: noteBefore, local: settled, baseline: baseline,

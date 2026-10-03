@@ -164,6 +164,12 @@ final class DetailSheetServices: ObservableObject {
     /// one of them can deliver its value and confirm it before the save's turn; a field the save
     /// carries must still stay as the user left it when that row arrives.
     var sending: [Int: ItemPatch] = [:]
+    /// The text fields typed into since the field autosave last ran — the `typedSinceSave` of
+    /// `ItemDetailView.fieldEdits` (Task 4e fix round 1, review M-1): what is still in the debounce,
+    /// recorded nowhere yet, so a flushed row arriving meanwhile must not replace it. The field
+    /// bindings add to it; `saveChangedFields` empties it as it records (a field it leaves out
+    /// needs no save, and must take a server value again).
+    var typedSinceSave: Set<SheetTextField> = []
     /// The title as the user last typed, pasted or dictated it into the field (Task 4e, 4d review
     /// N-3): `keepTitleOnOneLine` resolves only a change that came from the field — never a title
     /// the server sends while the field has focus.
@@ -279,10 +285,11 @@ struct ItemDetailView: View {
     /// " x" again — looked like no edit, and the sent value came back into the field and onto the
     /// server. The queue holds every save from the moment it starts until the server confirms it —
     /// or a flush ahead of the save delivers it; the sheet's saves still on their way (`sending`)
-    /// cover that gap (Task 4e, 4d review P-1).
+    /// cover that gap (Task 4e, 4d review P-1), and so does what was typed and is still in the
+    /// autosave's debounce (`typedSinceSave`, fix round 1, review M-1).
     private var fieldEdits: DetailFieldEdits {
         DetailFieldEdits(local: item, baseline: baseline, queued: services.pendingEdits.edit(for: item.id),
-                         sending: Array(services.sending.values))
+                         sending: Array(services.sending.values), typedSinceSave: services.typedSinceSave)
     }
 
     /// A plain note's draft measured against what the server confirmed AND the queue (Task 4c,
@@ -549,7 +556,7 @@ struct ItemDetailView: View {
                     HStack {
                         deleteButton
                         Spacer(minLength: 8)
-                        if saveStatus == .saving {
+                        if saveStatus == .saving, dynamicTypeSize < .accessibility4 {
                             savingIndicator
                         }
                         dismissKeyboardButton
@@ -628,6 +635,13 @@ struct ItemDetailView: View {
     /// its way. It takes the caption's identifier, and VoiceOver reads it as "Saving…". The
     /// spinner scales with the text size (43.7 pt at AX3), so its layout is capped at the row's
     /// 44 pt: uncapped, it made the row 1.3 pt taller at AX3 — measured — and the footer moved.
+    ///
+    /// Only up to AX3 (fix round 1, review M-3). At AX5 — measured on iOS 17.0 — "Delete item" is
+    /// 274 pt wide and the hide-keyboard control 44, so the row needs 326 pt without a spinner and
+    /// ~376 with one: it overflowed even a 393 pt-wide phone, and "Delete item" moved 10 pt left
+    /// while it saved. The narrowest supported phone (375 pt) has 335 inside the insets — no room
+    /// for any spinner, `.controlSize(.small)` included. At AX3 the row with it needs ~303 pt.
+    /// So at AX4 and AX5 there is no "Saving…"; an error still shows under Delete.
     private var savingIndicator: some View {
         ProgressView()
             .tint(StashColor.muted)
@@ -660,6 +674,7 @@ struct ItemDetailView: View {
     private var titleBinding: Binding<String> {
         Binding(get: { item.title ?? "" }, set: { newValue in
             services.typedTitle = newValue
+            services.typedSinceSave.insert(.title)
             item.title = newValue
             scheduleFieldSave()
         })
@@ -687,6 +702,7 @@ struct ItemDetailView: View {
 
     private var descriptionBinding: Binding<String> {
         Binding(get: { item.description ?? "" }, set: { newValue in
+            services.typedSinceSave.insert(.description)
             item.description = newValue
             scheduleFieldSave()
         })
@@ -696,6 +712,7 @@ struct ItemDetailView: View {
     /// title/description — `saveChangedFields` measures it against `baseline` and the queue.
     private var supplementalNoteBinding: Binding<String> {
         Binding(get: { item.supplementalNote ?? "" }, set: { newValue in
+            services.typedSinceSave.insert(.supplementalNote)
             item.supplementalNote = newValue
             scheduleFieldSave()
         })
@@ -755,6 +772,14 @@ struct ItemDetailView: View {
     /// While the PATCH is on its way, the sheet keeps the patch in `services.sending`: if a flush
     /// ahead delivers the value first, its row must not overwrite a field the user has since moved
     /// on from (P-1, `fieldEdits`).
+    ///
+    /// Fix round 1 (review C-1): a save that lands while a newer one has started isn't adopted — the
+    /// newest decides the fields — but what it put on the server is carried into the sheet at once
+    /// (`DetailFieldEdits.carrying`): its fields into `snapshot`, its note document into the fields
+    /// too. The newest save may have nothing left to send and land against `snapshot`, and an Ask
+    /// citation sheet's store never hands it a flushed row; skipped, a note saved under a newer
+    /// title edit landed unseen, left the box, and the next note — appended to the old document —
+    /// deleted it from the server.
     @MainActor
     private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> DetailSaveOutcome {
         let pendingEdits = services.pendingEdits
@@ -782,8 +807,16 @@ struct ItemDetailView: View {
         if let sheetSave {
             let landed = DetailFieldEdits.landing(sheetSave, capturedAt: capturedAt, local: item, snapshot: snapshot,
                                                   queue: pendingEdits, sheetIsOpen: !services.isClosed,
-                                                  at: pendingEdits.captureTime(), apply: store.applyDetail)
-            if services.isLatest(generation) { adopt(landed.row, fields: landed.fields) }
+                                                  at: pendingEdits.captureTime(), sending: Array(services.sending.values),
+                                                  typedSinceSave: services.typedSinceSave, apply: store.applyDetail)
+            if services.isLatest(generation) {
+                adopt(landed.row, fields: landed.fields)
+            } else {
+                let carried = DetailFieldEdits.carrying(sheetSave, landed: landed, local: item, snapshot: snapshot)
+                item = carried.local
+                snapshot = carried.snapshot
+                reconcileNotesDraft(with: carried.snapshot)
+            }
             outcome = DetailSaveOutcome(sheetSave)
         }
         services.lastSaveFailed = outcome == .failed
@@ -799,9 +832,15 @@ struct ItemDetailView: View {
     /// @MainActor deliberately: it's reached through `Debouncer`, its own (non-Main) actor, whose
     /// internal `Task` doesn't inherit the main actor. Quiet once the sheet has closed — the
     /// dismiss-time journal + flush own anything still unsaved then.
+    ///
+    /// Fix round 1 (review M-1): what was typed leaves the debounce here, so the typed-since-save
+    /// flags are cleared as the patch is recorded (`save` records before it first waits). A field
+    /// the patch leaves out needs no save — it equals the server's value and nothing is queued — and
+    /// must take a server value again (an AI title, say); one it carries is protected by the queue.
     @MainActor
     private func saveChangedFields() async {
         guard !services.isClosed else { return }
+        services.typedSinceSave.removeAll()
         let patch = fieldEdits.textPatch
         guard !patch.isEmpty else { return }
         _ = await save(patch)
@@ -851,10 +890,19 @@ struct ItemDetailView: View {
     ///   flush; the cost is one PATCH of a value the server usually holds already. If the sheet has
     ///   closed meanwhile (the PATCH outlives it), nothing changes: the close journaled the toggle
     ///   the user last saw, and its flush retries it (plan 15).
+    /// - Fix round 1 (review M-2): with the sheet open, that flush starts at once, so an item
+    ///   published underneath the sheet stays public only as long as the network takes — not until
+    ///   the sheet closes or the app next refreshes. A share made on another device before it is
+    ///   undone by it (privacy first).
+    /// - Fix round 1 (review M-4): a failed SHARE settles on what the server actually holds. A
+    ///   Sharing value queued as the toggle started (`queuedBefore`) that a flush delivered
+    ///   meanwhile counts, so a sheet opened on a queued un-share and turned on shows private and
+    ///   the error — never on, with no error, over a private item.
     @MainActor
     private func setPublic(_ isPublic: Bool) async -> Bool {
         let pendingEdits = services.pendingEdits
         let noteBefore = item.supplementalNote
+        let queuedBefore = pendingEdits.edit(for: item.id)?.isPublic
         let patch = services.editor.togglePublic(item: item, to: isPublic)
         item.isPublic = isPublic
         if patch.supplementalNote == "" { item.supplementalNote = nil }
@@ -865,13 +913,25 @@ struct ItemDetailView: View {
             let landed = DetailFieldEdits.landing(patch, capturedAt: capturedAt, as: saved, local: item,
                                                   baseline: baseline, queue: pendingEdits,
                                                   sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime(),
-                                                  apply: store.applyDetail)
+                                                  sending: Array(services.sending.values),
+                                                  typedSinceSave: services.typedSinceSave, apply: store.applyDetail)
             if services.isLatest(generation) { adopt(saved, fields: landed) }
             return true
         } catch {
-            item = DetailFieldEdits.undoingFailedToggle(to: isPublic, noteBefore: noteBefore, local: item,
-                                                        baseline: baseline, queue: pendingEdits,
-                                                        sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime())
+            let sheetIsOpen = !services.isClosed
+            item = DetailFieldEdits.undoingFailedToggle(to: isPublic, noteBefore: noteBefore, queuedBefore: queuedBefore,
+                                                        local: item, baseline: baseline, queue: pendingEdits,
+                                                        sheetIsOpen: sheetIsOpen, at: pendingEdits.captureTime())
+            if sheetIsOpen, !item.isPublic {
+                // Private was queued again: send it now, not at the close or the app's next
+                // refresh (fix round 1, review M-2).
+                let itemId = item.id
+                let editor = services.editor
+                let store = store
+                Task { @MainActor in
+                    await pendingEdits.flush(editor: editor, itemIds: [itemId]) { store.applyDetail($0) }
+                }
+            }
             return item.isPublic == isPublic
         }
     }
@@ -1118,7 +1178,9 @@ struct ItemDetailView: View {
     /// after sending "Gro", nor a " x" response a description the user put back — or while one of
     /// this sheet's saves is still sending it (Task 4e, 4d review P-1): a flush queued ahead of
     /// the save can deliver its "Y" and confirm it, and that row must not replace the "X" the user
-    /// has typed back since.
+    /// has typed back since — or while what the user typed is still in the autosave's debounce
+    /// (fix round 1, review M-1: a failed autosave's "Y", or one another sheet left queued,
+    /// delivered by a flush inside that debounce).
     private func adopt(_ incoming: Item, fields: Item? = nil) {
         let next = fields ?? fieldEdits.adopting(incoming)
         snapshot = incoming

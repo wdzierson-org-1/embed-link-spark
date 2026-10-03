@@ -29,7 +29,8 @@ import XCTest
 /// closed on the stalled link is never published; the Sharing tests prove the relaunch's flush ran
 /// (a title edit queued in the same flight lands first) before they read `is_public`; at AX3 the
 /// footer keeps still while it saves and says "Couldn't save" under Delete; a server title arriving
-/// while the title has focus is left as the server has it.
+/// while the title has focus is left as the server has it. Fix round 1 (review M-3): at AX5 too,
+/// and the Delete row fits a 375 pt-wide phone.
 ///
 /// Self-contained like `DetailUITests` (its own sign-in and REST helpers). Seeded rows carry a
 /// `UITEST-P16-` marker and are deleted in teardown blocks, so a failed assertion can't leak them
@@ -600,6 +601,76 @@ final class LibraryDetailUITests: XCTestCase {
     ///   ~400 ms into every pause in typing and shrank it again, covering and moving the note.
     @MainActor
     func testTheFooterKeepsStillWhileItSavesAtAccessibilitySizes() async throws {
+        _ = try await footerWhileSaving(sizeCategory: "UICTContentSizeCategoryAccessibilityXL", size: "AX3",
+                                        shot: "task-4e-ax3-sticky-saving")
+    }
+
+    /// 4e review M-3, at the largest text size, AX5, on the slow link: the Delete row has no room for
+    /// a spinner. Measured on iOS 17.0 at AX5 — "Delete item" 274 pt wide, the hide-keyboard control
+    /// 44, a spinner 56 drawn (44 laid out) — the row with one needed ~376 pt and overflowed even
+    /// this 393 pt-wide phone: "Delete item" moved 10 pt left while it saved. Without one it needs
+    /// 326 pt (no spacing beside a `Spacer`), and the narrowest phone the app supports — 375 pt —
+    /// has 335 inside the sheet's insets: 3 pt to spare, too little for any spinner. So at AX4 and
+    /// AX5 the footer shows no "Saving…" (an error still shows under Delete), never overflows, and
+    /// keeps still through the save.
+    @MainActor
+    func testTheFooterRowFitsTheNarrowestPhoneAtTheLargestTextSize() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-footer5"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""], isPublic: true)
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        app.terminate()
+        app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL",
+                               "--uitest-tab-view", "--uitest-slow-item-writes"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in at AX5")
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let delete = app.buttons["detail.delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "Expected Delete item in the footer")
+        let sticky = app.descendants(matching: .any)["detail.public.sticky"]
+        XCTAssertTrue(sticky.waitForExistence(timeout: 10), "Expected the sticky note field on a public item")
+        A11yScreens.scrollIntoView(app, sticky)
+        A11yScreens.tapUntilFocused(sticky)
+        let hide = app.buttons["detail.dismissKeyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Expected the sticky note focused")
+
+        sticky.typeText("For you")
+        sleep(1)   // past the 400 ms autosave: its PATCH is on its 3 s way
+        let whileSaving = (delete: delete.frame, hide: hide.frame)
+        attachScreenshot(named: "task-4e-ax5-sticky-saving")
+        XCTAssertFalse(app.descendants(matching: .any)["detail.autosave"].exists,
+                       "At AX5 the Delete row has no room for \"Saving…\"")
+        let saved = try await rest.waitFor("supplemental_note", of: id, equalTo: "For you", timeout: 10)
+        XCTAssertTrue(saved, "Expected the sticky note saved")
+        sleep(1)
+        print("A11Y footer AX5 delete while saving \(whileSaving.delete) · after \(delete.frame) · hide while saving "
+              + "\(whileSaving.hide) · after \(hide.frame) · screen \(app.frame)")
+        XCTAssertEqual(delete.frame.minX, whileSaving.delete.minX, accuracy: 1, "Delete must not move while it saves")
+        XCTAssertEqual(delete.frame.minY, whileSaving.delete.minY, accuracy: 1, "The footer must keep its height")
+        XCTAssertGreaterThanOrEqual(whileSaving.delete.minX, 19, "Nothing overflows the sheet's leading inset")
+        // The hide-keyboard control's frame is its 44 pt target, 2 pt past its 40 pt circle on each
+        // side (an overhang, by design): at rest it ends 18 pt from the edge.
+        XCTAssertLessThanOrEqual(whileSaving.hide.maxX, app.frame.maxX - 17, "…nor its trailing one")
+        // What a 375 pt-wide phone gets: Delete, the 8 pt spacer, the hide-keyboard control.
+        let needed = delete.frame.width + 8 + hide.frame.width
+        print("A11Y footer AX5 row needs \(needed) pt of the 335 a 375 pt phone has")
+        XCTAssertLessThanOrEqual(needed, 335, "At AX5 the Delete row must fit a 375 pt-wide phone")
+        closeSheet(app)
+    }
+
+    /// The accessibility-size footer while it saves: a public item seeded, the app launched at
+    /// `sizeCategory` on the slow link, the sticky note typed into. No resting caption; "Saving…"
+    /// in the Delete row; the footer keeps its height through the save. Returns the frames of
+    /// Delete, the spinner and the hide-keyboard control, measured while it saved.
+    @MainActor
+    private func footerWhileSaving(sizeCategory: String, size: String,
+                                   shot: String) async throws -> (delete: CGRect, saving: CGRect, hide: CGRect) {
         let (email, password) = try credentials()
         let rest = try await P16Rest.signIn(email: email, password: password)
         let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-footer"
@@ -609,23 +680,24 @@ final class LibraryDetailUITests: XCTestCase {
         let app = XCUIApplication()
         signIn(app, email: email, password: password)
         app.terminate()
-        app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL",
+        app.launchArguments = ["-UIPreferredContentSizeCategoryName", sizeCategory,
                                "--uitest-tab-view", "--uitest-slow-item-writes"]
         app.launch()
-        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in at AX3")
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in at \(size)")
         let card = libraryCard(app, containing: marker)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
         tapWhenHittable(card)
         let delete = app.buttons["detail.delete"]
         XCTAssertTrue(delete.waitForExistence(timeout: 10), "Expected Delete item in the footer")
         let saving = app.descendants(matching: .any)["detail.autosave"]
-        XCTAssertFalse(saving.exists, "At AX3 the footer has no resting caption")
+        XCTAssertFalse(saving.exists, "At \(size) the footer has no resting caption")
 
         let sticky = app.descendants(matching: .any)["detail.public.sticky"]
         XCTAssertTrue(sticky.waitForExistence(timeout: 10), "Expected the sticky note field on a public item")
         A11yScreens.scrollIntoView(app, sticky)
         A11yScreens.tapUntilFocused(sticky)
-        XCTAssertTrue(app.buttons["detail.dismissKeyboard"].waitForExistence(timeout: 5), "Expected the sticky note focused")
+        let hide = app.buttons["detail.dismissKeyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Expected the sticky note focused")
         // The footer is measured with the keyboard up both times — while "Saving…" shows, and once
         // it has gone. (On the iOS 17.0 simulator the keyboard comes up only with the first typed
         // character, so a frame taken before typing has no keyboard under it.)
@@ -634,9 +706,10 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertEqual(saving.label, "Saving…")
         let whileSaving = delete.frame
         let indicator = saving.frame
-        attachScreenshot(named: "task-4e-ax3-sticky-saving")
+        let hideFrame = hide.frame
+        attachScreenshot(named: shot)
         XCTAssertTrue(waitUntilGone(saving, timeout: 15), "Expected \"Saving…\" gone once the save landed")
-        print("A11Y footer AX3 delete while saving \(whileSaving) · after \(delete.frame) · saving \(indicator)")
+        print("A11Y footer \(size) delete while saving \(whileSaving) · after \(delete.frame) · saving \(indicator) · hide \(hideFrame)")
         XCTAssertEqual(delete.frame.minY, whileSaving.minY, accuracy: 1,
                        "The footer must keep its height through the save — not grow for \"Saving…\" and shrink again")
         XCTAssertEqual(indicator.midY, whileSaving.midY, accuracy: whileSaving.height / 2,
@@ -644,6 +717,7 @@ final class LibraryDetailUITests: XCTestCase {
         let saved = try await rest.waitFor("supplemental_note", of: id, equalTo: "For you", timeout: 10)
         XCTAssertTrue(saved, "Expected the sticky note saved")
         closeSheet(app)
+        return (whileSaving, indicator, hideFrame)
     }
 
     /// 4d review B-4: at AX3 a save that fails says so — "Couldn't save — try again." — on its own
