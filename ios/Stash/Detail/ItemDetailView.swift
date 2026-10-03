@@ -159,6 +159,15 @@ final class DetailSheetServices: ObservableObject {
     /// A rich-note draft queued by `journalUnconfirmedEdits` (app backgrounded mid-draft): once the
     /// server echoes that exact content back, the draft is in the document and leaves the field.
     var journaledRichDraft: (typed: String, content: String)?
+    /// The patches of this sheet's saves whose PATCH hasn't returned, by save generation — the
+    /// `sending` of `ItemDetailView.fieldEdits` (Task 4e, 4d review P-1). A flush queued ahead of
+    /// one of them can deliver its value and confirm it before the save's turn; a field the save
+    /// carries must still stay as the user left it when that row arrives.
+    var sending: [Int: ItemPatch] = [:]
+    /// The title as the user last typed, pasted or dictated it into the field (Task 4e, 4d review
+    /// N-3): `keepTitleOnOneLine` resolves only a change that came from the field — never a title
+    /// the server sends while the field has focus.
+    var typedTitle: String?
 
     init(item: Item, userId: UUID) {
         editor = DetailEditorFactory.make()
@@ -268,9 +277,12 @@ struct ItemDetailView: View {
     /// Task 4c: against `baseline` alone, putting the title, the description or the sticky note back
     /// after another value of it was sent (in flight, or failed and queued) — a clear, or deleting
     /// " x" again — looked like no edit, and the sent value came back into the field and onto the
-    /// server. The queue holds every save from the moment it starts until the server confirms it.
+    /// server. The queue holds every save from the moment it starts until the server confirms it —
+    /// or a flush ahead of the save delivers it; the sheet's saves still on their way (`sending`)
+    /// cover that gap (Task 4e, 4d review P-1).
     private var fieldEdits: DetailFieldEdits {
-        DetailFieldEdits(local: item, baseline: baseline, queued: services.pendingEdits.edit(for: item.id))
+        DetailFieldEdits(local: item, baseline: baseline, queued: services.pendingEdits.edit(for: item.id),
+                         sending: Array(services.sending.values))
     }
 
     /// A plain note's draft measured against what the server confirmed AND the queue (Task 4c,
@@ -517,16 +529,19 @@ struct ItemDetailView: View {
 
     /// Pinned footer bar (hairline top): "Delete item" left, autosave status + hide-keyboard
     /// right — port of `EditItemSheet.tsx`'s footer, plus (final wave, F7) the sheet's one
-    /// keyboard-dismiss control: a pinned SIBLING below the ScrollView, so it's reachable no
-    /// matter which of the three fields (`DetailField`) is focused or where the sheet is
-    /// scrolled.
+    /// keyboard-dismiss control: a pinned SIBLING below the ScrollView, so it's reachable whichever
+    /// of the sheet's text inputs (`DetailField`: title, description, notes, sticky note) is
+    /// focused, wherever the sheet is scrolled.
     ///
     /// Plan 16: at the accessibility sizes the autosave line moves under "Delete item" (a row of
     /// its own, full width) instead of squeezing beside it; below them the row is as before, the
     /// caption wrapping onto a second line if it must. Task 4d (2b review M-3): at those sizes the
-    /// line is there only while it says something that matters — "Saving…" or an error. The
-    /// resting "Changes saved automatically" took two more lines under Delete, and the pinned
-    /// footer about a fifth of the screen at AX3.
+    /// line is there only while it says something that matters. The resting "Changes saved
+    /// automatically" took two more lines under Delete, and the pinned footer about a fifth of the
+    /// screen at AX3. Task 4e (4d review B-3): there, "Saving…" is a spinner in the Delete row
+    /// (`savingIndicator`). As a line under Delete it grew the footer ~400 ms into every pause in
+    /// typing and took it away again — covering the bottom of what was being typed, and moving it.
+    /// An error still takes the line under Delete: it stays until something changes, and matters.
     private var footerBar: some View {
         VStack(alignment: .leading, spacing: 4) {
             if dynamicTypeSize.isAccessibilitySize {
@@ -534,9 +549,15 @@ struct ItemDetailView: View {
                     HStack {
                         deleteButton
                         Spacer(minLength: 8)
+                        if saveStatus == .saving {
+                            savingIndicator
+                        }
                         dismissKeyboardButton
                     }
-                    if !saveStatusIsResting {
+                    // The row is at least its controls' 44 pt, and the spinner never taller, so a
+                    // save never changes the row's height (Task 4e).
+                    .frame(minHeight: 44)
+                    if case .failed = saveStatus {
                         autosaveLabel
                     }
                 }
@@ -602,10 +623,17 @@ struct ItemDetailView: View {
         .accessibilityIdentifier("detail.delete")
     }
 
-    /// Nothing in flight and nothing failed: the caption would only say "Changes saved
-    /// automatically".
-    private var saveStatusIsResting: Bool {
-        saveStatus == .idle || saveStatus == .saved
+    /// "Saving…" at the accessibility sizes (Task 4e, 4d review B-3): a spinner in the Delete row,
+    /// before the hide-keyboard control, so the pinned footer keeps its height while a save is on
+    /// its way. It takes the caption's identifier, and VoiceOver reads it as "Saving…". The
+    /// spinner scales with the text size (43.7 pt at AX3), so its layout is capped at the row's
+    /// 44 pt: uncapped, it made the row 1.3 pt taller at AX3 — measured — and the footer moved.
+    private var savingIndicator: some View {
+        ProgressView()
+            .tint(StashColor.muted)
+            .frame(maxWidth: 44, maxHeight: 44)
+            .accessibilityLabel("Saving…")
+            .accessibilityIdentifier("detail.autosave")
     }
 
     /// `.failed` (final wave, item D) renders as its own `detail.autosave.error` identifier in
@@ -631,6 +659,7 @@ struct ItemDetailView: View {
 
     private var titleBinding: Binding<String> {
         Binding(get: { item.title ?? "" }, set: { newValue in
+            services.typedTitle = newValue
             item.title = newValue
             scheduleFieldSave()
         })
@@ -642,10 +671,16 @@ struct ItemDetailView: View {
     /// bare Return — over a selection too — leaves the title as it was and ends editing, as the
     /// single-line field did; a Return that also accepted an autocorrection keeps the correction
     /// and ends editing; a pasted line break becomes a space. The line break is only ever on
-    /// screen for the one update this takes — the 400 ms autosave never sees it. Titles that arrive
-    /// from the server are left alone (the field isn't focused then).
+    /// screen for the one update this takes — the 400 ms autosave never sees it.
+    ///
+    /// Only a change that came from the field is resolved (`services.typedTitle`, Task 4e — 4d
+    /// review N-3). A title the server sends while the field has focus (an AI title, another
+    /// device) is shown as the server has it: resolved here, one ending in a line break ended
+    /// editing under the user's fingers, and the sheet then wrote its one-line copy back as if the
+    /// user had typed it. The user's own next edit of such a title still makes it one line.
     private func keepTitleOnOneLine(was oldTitle: String?, now newTitle: String?) {
-        guard focusedField == .title, let edit = OneLineTitleEdit.resolve(old: oldTitle, new: newTitle) else { return }
+        guard focusedField == .title, newTitle == services.typedTitle,
+              let edit = OneLineTitleEdit.resolve(old: oldTitle, new: newTitle) else { return }
         item.title = edit.title
         if edit.endsEditing { focusedField = nil }
     }
@@ -690,8 +725,8 @@ struct ItemDetailView: View {
     /// confirmed, and — when no newer save started meanwhile (`SaveGeneration`, fix round 1) — the
     /// sheet adopts it. On failure the typed value stays on screen and in the queue. The footer
     /// says "Saving…" while any autosave is in flight and then reports how the last one ended
-    /// (writes to one item finish in order, so that's the newest). Returns the saved row, or nil
-    /// when the save failed or had nothing left to send.
+    /// (writes to one item finish in order, so that's the newest). Returns how the save ended
+    /// (below).
     ///
     /// `send` replaces the plain PATCH of `patch` — a location edit is written onto the server's
     /// current attributes instead (`saveAttributes`); `patch` is still what gets queued.
@@ -707,44 +742,56 @@ struct ItemDetailView: View {
     /// PATCH goes out through `PendingEdits.send`, which at its turn leaves out any field a write
     /// that landed first (a flush) already put on the server with a later capture — so a save
     /// made before a close, a reopen and a retype never lands over the retyped value (review P-3).
-    /// Nothing left to send is not a failure; there is no row to adopt then (returns nil).
+    ///
+    /// Task 4e (4d review A-2, B-1, P-1): the result is one of three outcomes (`DetailSaveOutcome`).
+    /// - `.landed(row)`: the PATCH went out.
+    /// - `.alreadyDelivered`: nothing was left to send — a flush queued ahead of the save delivered
+    ///   every field already. That is saved, and it lands like any save, against the values the
+    ///   flush delivered (`DetailFieldEdits.landing(_:capturedAt:local:snapshot:…)`): a field the
+    ///   user moved on from meanwhile is queued, and a sheet whose store never sees the flush's row
+    ///   (an Ask citation sheet) learns what the server holds. Read as "not saved", it left a rich
+    ///   note's paragraph in the box, to be appended a second time (A-2).
+    /// - `.failed`.
+    /// While the PATCH is on its way, the sheet keeps the patch in `services.sending`: if a flush
+    /// ahead delivers the value first, its row must not overwrite a field the user has since moved
+    /// on from (P-1, `fieldEdits`).
     @MainActor
-    private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> Item? {
+    private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> DetailSaveOutcome {
         let pendingEdits = services.pendingEdits
         let capturedAt = pendingEdits.captureTime()
         pendingEdits.record(itemId: item.id, patch: patch, capturedAt: capturedAt)
         let generation = services.nextGeneration()
         services.savesInFlight += 1
+        services.sending[generation] = patch
         saveStatus = .saving
-        var saved: Item?
-        var failed = false
+        var sheetSave: SheetSave?
         do {
             let itemId = item.id
             let editor = services.editor
-            let outcome: (row: Item?, sent: ItemPatch)
             if let send {
-                outcome = (try await send(), patch)
+                let row = try await send()
+                sheetSave = SheetSave(item: row, patch: patch, serverHolds: patch)
             } else {
-                let sent = try await pendingEdits.send(patch, capturedAt: capturedAt, itemId: itemId, editor: editor)
-                outcome = (sent.item, sent.patch)
-            }
-            if let result = outcome.row {
-                let landed = DetailFieldEdits.landing(outcome.sent, capturedAt: capturedAt, as: result, local: item,
-                                                      baseline: baseline, queue: pendingEdits,
-                                                      sheetIsOpen: !services.isClosed, at: pendingEdits.captureTime(),
-                                                      apply: store.applyDetail)
-                if services.isLatest(generation) { adopt(result, fields: landed) }
-                saved = result
+                sheetSave = try await pendingEdits.send(patch, capturedAt: capturedAt, itemId: itemId, editor: editor)
             }
         } catch {
-            failed = true
+            sheetSave = nil
         }
-        services.lastSaveFailed = failed
+        services.sending[generation] = nil
+        var outcome = DetailSaveOutcome.failed
+        if let sheetSave {
+            let landed = DetailFieldEdits.landing(sheetSave, capturedAt: capturedAt, local: item, snapshot: snapshot,
+                                                  queue: pendingEdits, sheetIsOpen: !services.isClosed,
+                                                  at: pendingEdits.captureTime(), apply: store.applyDetail)
+            if services.isLatest(generation) { adopt(landed.row, fields: landed.fields) }
+            outcome = DetailSaveOutcome(sheetSave)
+        }
+        services.lastSaveFailed = outcome == .failed
         services.savesInFlight -= 1
         if services.savesInFlight == 0 {
             saveStatus = services.lastSaveFailed ? .failed("Couldn't save — try again.") : .saved
         }
-        return saved
+        return outcome
     }
 
     /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
@@ -786,18 +833,24 @@ struct ItemDetailView: View {
     /// other save. It is not written ahead to `PendingEdits`. Un-sharing an item with a sticky note
     /// clears the note in the same PATCH (the section asks first). The footer caption is left to
     /// the autosaves (`save(_:)`) — this toggle reports in its own section, and never sets or
-    /// strands "Saving…" (plan 15 review). Returns whether the server holds what the user asked for.
+    /// strands "Saving…" (plan 15 review). Returns whether the switch can stay where the user put
+    /// it — false means `SharingSection` shows its error.
     ///
     /// - Landing goes through `DetailFieldEdits.landing`, like every save: the confirm — which
     ///   drops a note queued before an un-share — comes before the list row is laid, so the list
     ///   never keeps showing the dropped note (Task 4d, review m-1).
     /// - Failing goes through `DetailFieldEdits.undoingFailedToggle` (Task 4d, review P-4 and F1).
-    ///   The switch shows what the server holds — normally the old value, with a failed un-share's
-    ///   note back (Task 4c) — and `SharingSection` shows its inline error, unless the server
-    ///   already holds what the user asked for. A Sharing value queued during the flight is taken
-    ///   back, so a share the user saw fail is never published later. If the sheet has closed
-    ///   meanwhile (the PATCH outlives it), nothing changes: the close journaled the toggle the
-    ///   user last saw, and its flush retries it (plan 15).
+    ///   The switch shows what the server holds as far as the sheet knows (its last server row) —
+    ///   normally the old value, with a failed un-share's note back (Task 4c) — and
+    ///   `SharingSection` shows its inline error, unless that row already holds what the user
+    ///   asked for. The queue is settled to match the switch: left on, any other Sharing value
+    ///   queued is taken back; left off, private is queued again (Task 4e, 4d review A-3 and B-2),
+    ///   because that row can be wrong the dangerous way — an Ask citation sheet never sees a flush
+    ///   that published the item underneath it, and a share can reach the server while its
+    ///   response is lost. So a share the user saw fail is never left published past the next
+    ///   flush; the cost is one PATCH of a value the server usually holds already. If the sheet has
+    ///   closed meanwhile (the PATCH outlives it), nothing changes: the close journaled the toggle
+    ///   the user last saw, and its flush retries it (plan 15).
     @MainActor
     private func setPublic(_ isPublic: Bool) async -> Bool {
         let pendingEdits = services.pendingEdits
@@ -849,6 +902,12 @@ struct ItemDetailView: View {
     /// Task 4c: a plain draft is measured against the queue too (`plainNote`) — cleared while its
     /// text was still in flight (or queued after a failed send), it is back at `savedDraft` yet
     /// still has to be sent.
+    ///
+    /// Task 4e (4d review A-2): the bookkeeping runs whenever the text IS saved — `.landed`, and
+    /// `.alreadyDelivered` (a flush queued ahead delivered this very document first). It used to
+    /// run only when the save returned a row, so a rich draft "abc" stayed in the box after the
+    /// flush had delivered it; " def" added later went out as a new paragraph "abc def" — the
+    /// note's text in the document twice, and a rich note can't be edited on iOS.
     @MainActor
     private func flushNotes() async {
         guard !services.isClosed else { return }
@@ -868,7 +927,7 @@ struct ItemDetailView: View {
         } else {
             newContent = typed
         }
-        guard await save(ItemPatch(content: newContent)) != nil else { return }
+        guard await save(ItemPatch(content: newContent)).isSaved else { return }
         if notes.isRich {
             notes.removeSavedPrefix(typed)
         } else {
@@ -986,7 +1045,10 @@ struct ItemDetailView: View {
     /// Task 4d (review P-4): a share still in flight is queued only when the sheet is `closing` —
     /// never when the app merely leaves the foreground with the sheet open, where a failure would
     /// flip the switch back in front of the user while the queued copy published the item anyway
-    /// (`DetailFieldEdits.journaledSharing`).
+    /// (`DetailFieldEdits.journaledSharing`). Task 4e (4d review A-1): the Sharing value counts as
+    /// unconfirmed when it differs from a queued one too — a sheet opened on a queued share and
+    /// turned off journals the off, which the old rule (off equals the server's value) left out, so
+    /// the queued share was published by the next flush.
     private func unconfirmedPatch(closing: Bool) -> (patch: ItemPatch, richDraft: (typed: String, content: String)?) {
         var patch = fieldEdits.textPatch
         patch.isPublic = fieldEdits.journaledSharing(closing: closing)
@@ -1053,7 +1115,10 @@ struct ItemDetailView: View {
     /// transcription job's AI title, via realtime), and a new object name still reads as empty.
     /// The title, the description and the sticky note are each kept while a write of them is
     /// still queued (review I-1, Task 4c): a "Gro" response can't refill a field the user cleared
-    /// after sending "Gro", nor a " x" response a description the user put back.
+    /// after sending "Gro", nor a " x" response a description the user put back — or while one of
+    /// this sheet's saves is still sending it (Task 4e, 4d review P-1): a flush queued ahead of
+    /// the save can deliver its "Y" and confirm it, and that row must not replace the "X" the user
+    /// has typed back since.
     private func adopt(_ incoming: Item, fields: Item? = nil) {
         let next = fields ?? fieldEdits.adopting(incoming)
         snapshot = incoming

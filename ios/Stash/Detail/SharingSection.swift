@@ -17,8 +17,11 @@ import UIKit
 /// with `AccountSection`'s identical Settings-tab row rather than kept as two copies.
 ///
 /// Plan 15 (L5): the switch is optimistic — `setPublic` (owned by `ItemDetailView`, which flips
-/// `item.isPublic` at once, saves through the sheet's save generation, and flips back on failure)
-/// returns whether the save landed; this section only shows the inline error when it didn't.
+/// `item.isPublic` at once and saves through the sheet's save generation) returns whether the
+/// switch can stay where the user put it; this section only shows the inline error when it can't.
+/// Plan 16 (Tasks 4d, 4e): a toggle that fails settles the switch on what the server holds as far
+/// as the sheet knows, and queues that — private again, when it settles off — so nothing later
+/// changes the item's visibility to something the user isn't looking at.
 ///
 /// Plan 15 (snappiness): the feed link's username is `SessionStore`'s per-session profile, loaded
 /// once per signed-in session — not refetched every time a public item's sheet opens.
@@ -213,7 +216,9 @@ struct SharingSection: View {
     ///
     /// Task 4d: focused, the note gets the sheet's hide-keyboard control like every other field
     /// (`focus`). VoiceOver hears its name once — the visible label repeats the field's own name,
-    /// so it is hidden from VoiceOver (2b review N-3) — and the caption is the field's hint.
+    /// so it is hidden from VoiceOver (2b review N-3) — and the caption is the field's hint. That
+    /// hint replaces the text field's default "Double-tap to edit" (4d review N-5): accepted — the
+    /// field keeps its text-field trait, and the caption says what the field is for.
     private var stickyNoteField: some View {
         let caption: LocalizedStringKey = "This note appears as a yellow sticky note on the public feed card."
         return VStack(alignment: .leading, spacing: 4) {

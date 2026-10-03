@@ -456,6 +456,19 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertFalse(fileExists(queue, id))
     }
 
+    /// 4d review N-6: a discarded item (deleted) leaves nothing behind — not even this session's
+    /// record of what landed for it.
+    func testDiscardForgetsWhatLandedForTheItemToo() async {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        let queue = makeQueue(server: server)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "landed"), capturedAt: queue.captureTime())
+        await queue.flush(editor: makeEditor(server))
+        XCTAssertNotNil(queue.delivered[row.id], "precondition: the flush's landing is recorded")
+        queue.discard(itemId: row.id)
+        XCTAssertNil(queue.delivered[row.id])
+    }
+
     // MARK: - Flush
 
     func testFlushSendsQueuedEditsForgetsThemAndRefreshesEmbeddings() async throws {
@@ -532,6 +545,29 @@ final class PendingEditsTests: XCTestCase {
         clock.now = clock.now.addingTimeInterval(61)
         await queue.flush(editor: editor)
         XCTAssertNil(queue.edit(for: row.id), "delivered once the server accepts it")
+    }
+
+    /// 4d review N-4: a backoff is wall-clock time. With the clock set back (a day, say) after a
+    /// refused send, the edit must not wait longer than the longest backoff, 6 h — not the day.
+    func testAClockSetBackNeverHoldsAnEditLongerThanTheLongestBackoff() async {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        server.error = ServerRefusal()
+        let clock = TestClock(t0)
+        let queue = makeQueue(server: server, clock: clock)
+        queue.record(itemId: row.id, patch: ItemPatch(title: "refused"), capturedAt: t0)
+        let editor = makeEditor(server)
+        await queue.flush(editor: editor)
+        XCTAssertEqual(queue.edit(for: row.id)?.nextAttemptAt, t0.addingTimeInterval(30), "precondition: backing off")
+
+        server.error = nil
+        clock.now = t0.addingTimeInterval(-24 * 60 * 60)   // the clock is set back a day
+        await queue.flush(editor: editor)
+        XCTAssertEqual(server.patches.count, 1, "still backing off")
+        clock.now = clock.now.addingTimeInterval(PendingEdits.longestBackoff + 1)
+        await queue.flush(editor: editor)
+        XCTAssertEqual(server.patches.count, 2, "sent once the longest backoff has passed")
+        XCTAssertNil(queue.edit(for: row.id))
     }
 
     func testANewValueIsDueAtOnceEvenWhileAnOlderOneBacksOff() async {
@@ -803,6 +839,8 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertEqual(server.row(row.id)?.title, "ABC", "the user's last value is what the server ends with")
         XCTAssertEqual(server.patches.map(\.1.title), ["A", "ABC"], "the older \"AB\" never goes out after \"ABC\"")
         XCTAssertNil(sentAB.item, "nothing was left for the \"AB\" save to send")
+        XCTAssertEqual(sentAB.serverHolds, ItemPatch(title: "ABC"),
+                       "the save reports what the server got for its field: the newer value the flush delivered (Task 4e)")
         XCTAssertNil(queue.edit(for: row.id))
     }
 
@@ -834,7 +872,38 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertEqual(server.patches.map(\.1), [ItemPatch(description: "slow"), ItemPatch(title: "Gro")],
                        "\"Gro\" goes out once, with the flush")
         XCTAssertNil(sent.item)
+        XCTAssertEqual(sent.serverHolds, ItemPatch(title: "Gro"), "what the server got for the save's field")
         XCTAssertEqual(server.row(row.id)?.title, "Gro")
+    }
+
+    /// Task 4e, per field: a save sends each field no landed write delivered at its capture or later,
+    /// leaves out the rest, and reports what the server holds for all of them — so the sheet lands
+    /// against the server's values, not only against what this PATCH carried.
+    func testASheetSaveReportsWhatTheServerHoldsForEachOfItsFields() async throws {
+        let row = makeItem(title: "")
+        let server = FakeRowServer(rows: [row])
+        let editor = makeEditor(server)
+        let queue = makeQueue(server: server, clock: TestClock(t0))
+        let saveAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Groceries"), capturedAt: queue.captureTime())   // a newer title
+        await queue.flush(editor: editor)                                                                       // delivered first
+
+        let sent = try await queue.send(ItemPatch(title: "Gro", description: "list"), capturedAt: saveAt,
+                                        itemId: row.id, editor: editor)
+        XCTAssertEqual(sent.patch, ItemPatch(description: "list"), "only the field nothing delivered goes out")
+        XCTAssertEqual(sent.item?.title, "Groceries")
+        XCTAssertEqual(sent.serverHolds, ItemPatch(title: "Groceries", description: "list"))
+    }
+
+    /// 4d review N-2: `send` is public, and a capture handed to it is one the queue's clock must stay
+    /// ahead of — whether or not the caller recorded it first.
+    func testTheClockStaysAheadOfACaptureASaveWasSentWith() async throws {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        let queue = makeQueue(server: server, clock: TestClock(t0))
+        let ahead = t0.addingTimeInterval(60)
+        _ = try await queue.send(ItemPatch(title: "ahead"), capturedAt: ahead, itemId: row.id, editor: makeEditor(server))
+        XCTAssertGreaterThan(queue.captureTime(), ahead)
     }
 
     /// The same check never holds back a save no earlier write overtook: two autosaves in a row
@@ -855,6 +924,7 @@ final class PendingEditsTests: XCTestCase {
 
         XCTAssertEqual(savedFirst.item?.title, "Gro")
         XCTAssertEqual(savedSecond.patch, ItemPatch(title: "Groceries", description: "list"))
+        XCTAssertEqual(savedSecond.serverHolds, savedSecond.patch, "nothing left out: the server holds what was sent")
         XCTAssertEqual(savedSecond.item?.title, "Groceries")
         XCTAssertEqual(server.patches.map(\.1.title), ["Gro", "Groceries"])
     }

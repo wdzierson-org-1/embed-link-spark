@@ -25,6 +25,12 @@ import XCTest
 /// "done" over a selected word in the wrapping title keeps the title and ends editing; at AX3 the
 /// footer drops its resting caption.
 ///
+/// Task 4e (4d review A-1, B-3, B-4, N-3): a queued share turned back off in a reopened sheet and
+/// closed on the stalled link is never published; the Sharing tests prove the relaunch's flush ran
+/// (a title edit queued in the same flight lands first) before they read `is_public`; at AX3 the
+/// footer keeps still while it saves and says "Couldn't save" under Delete; a server title arriving
+/// while the title has focus is left as the server has it.
+///
 /// Self-contained like `DetailUITests` (its own sign-in and REST helpers). Seeded rows carry a
 /// `UITEST-P16-` marker and are deleted in teardown blocks, so a failed assertion can't leak them
 /// (a failed delete is reported, never swallowed); `UITEST-FIXTURE` rows are never touched.
@@ -385,7 +391,9 @@ final class LibraryDetailUITests: XCTestCase {
     /// leaves the foreground (Home) and comes back — the journal that runs then used to queue the
     /// share. The PATCH fails: the switch flips back off and the section says it couldn't update.
     /// Once the link is back (a relaunch without the switch, whose launch refresh flushes the
-    /// queue) the item must still be private: a share the user saw fail is never published.
+    /// queue) the item must still be private: a share the user saw fail is never published. A
+    /// title edit queued in the same flight lands first, so the read proves that flush ran (4d
+    /// review B-4).
     @MainActor
     func testAShareThatFailedInFrontOfTheUserIsNeverPublishedLater() async throws {
         let (email, password) = try credentials()
@@ -405,6 +413,7 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "0", "Expected the seeded item private")
         toggle.tap()
         XCTAssertEqual(toggle.value as? String, "1", "The switch turns on at once (optimistic)")
+        let titled = editTitleInTheSameFlight(app)
 
         // Away and back while the share hangs.
         XCUIDevice.shared.press(.home)
@@ -414,14 +423,50 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertTrue(error.waitForExistence(timeout: 25), "Expected the share to fail visibly once its PATCH times out")
         XCTAssertEqual(toggle.value as? String, "0", "The switch is back off")
 
-        app.terminate()
-        app.launchArguments = ["--uitest-tab-view"]
-        app.launch()
-        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in")
-        XCTAssertTrue(libraryCard(app, containing: marker).waitForExistence(timeout: 20), "Expected the card after the relaunch")
-        // The launch refresh flushes the queue before it reads page 1: anything queued goes out now.
-        let published = try await rest.waitForPublic(id, equalTo: true, timeout: 12)
-        XCTAssertFalse(published, "A share the user saw fail must never be published later")
+        try await relaunchAndWaitForTheFlush(app, id: id, title: titled, rest: rest)
+        let isPublic = try await rest.isPublic(id)
+        XCTAssertFalse(isPublic, "A share the user saw fail must never be published later")
+    }
+
+    /// 4d review A-1, on the stalled link: Sharing is turned on and the sheet closed while that PATCH
+    /// hangs — the close queues the share (plan 15). Reopened at once, the sheet shows the queued
+    /// share (on) while the server is still private; the user turns it off, and closes while that
+    /// PATCH hangs too. They last saw it off, so once the link is back the item must still be
+    /// private. Off equals the server's value, so the close used to journal nothing, and the
+    /// relaunch's flush published the queued share.
+    @MainActor
+    func testAQueuedShareTurnedBackOffInAReopenedSheetIsNeverPublished() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-reshare"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password, extraArguments: ["--uitest-stall-item-writes"])
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let toggle = sharingSwitch(app)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Sharing switch not found")
+        A11yScreens.scrollIntoView(app, toggle)
+        XCTAssertEqual(toggle.value as? String, "0", "Expected the seeded item private")
+        toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "1", "The switch turns on at once (optimistic)")
+        closeSheet(app)   // the share still hangs: the close queues it
+
+        tapWhenHittable(libraryCard(app, containing: marker))
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Sharing switch not found on reopen")
+        A11yScreens.scrollIntoView(app, toggle)
+        XCTAssertEqual(toggle.value as? String, "1", "The reopened sheet shows the queued share")
+        toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "0", "Turned back off")
+        let titled = editTitleInTheSameFlight(app)
+        closeSheet(app)   // the off PATCH hangs too
+
+        try await relaunchAndWaitForTheFlush(app, id: id, title: titled, rest: rest)
+        let isPublic = try await rest.isPublic(id)
+        XCTAssertFalse(isPublic, "The user last saw it off: it must never be published")
     }
 
     /// The reverse, on the stalled link: a PUBLIC item with a sticky note is made private ("Make
@@ -429,7 +474,8 @@ final class LibraryDetailUITests: XCTestCase {
     /// foreground and comes back, so the journal queues the un-share. The PATCH fails: the switch
     /// flips back on and the note comes back. Once the link is back, the server must agree with
     /// what the sheet showed — still public, still with its note — not take the queued un-share
-    /// (which made it private while the sheet said public).
+    /// (which made it private while the sheet said public). As above, a title edit queued in the
+    /// same flight proves the relaunch's flush ran before `is_public` is read.
     @MainActor
     func testAnUnshareThatFailedInFrontOfTheUserLeavesTheItemPublicWithItsNote() async throws {
         let (email, password) = try credentials()
@@ -458,6 +504,7 @@ final class LibraryDetailUITests: XCTestCase {
         makePrivate.tap()
         XCTAssertTrue(waitUntilGone(sticky, timeout: 5), "The note field goes with the un-share (optimistic)")
         XCTAssertEqual(toggle.value as? String, "0")
+        let titled = editTitleInTheSameFlight(app)
 
         // Away and back while the un-share hangs.
         XCUIDevice.shared.press(.home)
@@ -469,13 +516,9 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertTrue(sticky.waitForExistence(timeout: 5), "The note field is back")
         XCTAssertEqual(sticky.value as? String, note, "…with the note")
 
-        app.terminate()
-        app.launchArguments = ["--uitest-tab-view"]
-        app.launch()
-        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in")
-        XCTAssertTrue(libraryCard(app, containing: marker).waitForExistence(timeout: 20), "Expected the card after the relaunch")
-        let madePrivate = try await rest.waitForPublic(id, equalTo: false, timeout: 12)
-        XCTAssertFalse(madePrivate, "The server must end as the sheet showed it: public")
+        try await relaunchAndWaitForTheFlush(app, id: id, title: titled, rest: rest)
+        let isPublic = try await rest.isPublic(id)
+        XCTAssertTrue(isPublic, "The server must end as the sheet showed it: public")
         let serverNote = try await rest.column("supplemental_note", of: id)
         XCTAssertEqual(serverNote, note, "…with its sticky note")
     }
@@ -548,16 +591,19 @@ final class LibraryDetailUITests: XCTestCase {
         closeSheet(app)
     }
 
-    /// 2b review M-3 (the coordinator's call): at the accessibility sizes the pinned footer drops
-    /// its resting "Changes saved automatically" — under "Delete item" it took two more lines, a
-    /// fifth of the screen at AX3 — but still says "Saving…" while a save is on its way (slow
-    /// link), and the caption goes again once it lands.
+    /// At the accessibility sizes, on the slow link, typing in the sticky note — the sheet's bottom
+    /// field, right above the pinned footer:
+    /// - 2b review M-3: the footer drops its resting "Changes saved automatically" (under "Delete
+    ///   item" it took two more lines, a fifth of the screen at AX3);
+    /// - 4d review B-3: while a save is on its way it says "Saving…" — a spinner in the Delete row
+    ///   (Task 4e) — and the footer keeps still. "Saving…" as a line under Delete grew the footer
+    ///   ~400 ms into every pause in typing and shrank it again, covering and moving the note.
     @MainActor
-    func testTheFooterDropsItsRestingCaptionAtAccessibilitySizes() async throws {
+    func testTheFooterKeepsStillWhileItSavesAtAccessibilitySizes() async throws {
         let (email, password) = try credentials()
         let rest = try await P16Rest.signIn(email: email, password: password)
         let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-footer"
-        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""], isPublic: true)
         deleteAtTeardown(rest, id)
 
         let app = XCUIApplication()
@@ -570,21 +616,112 @@ final class LibraryDetailUITests: XCTestCase {
         let card = libraryCard(app, containing: marker)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
         tapWhenHittable(card)
-        XCTAssertTrue(app.buttons["detail.delete"].waitForExistence(timeout: 10), "Expected Delete item in the footer")
-        let caption = app.descendants(matching: .any)["detail.autosave"]
-        XCTAssertFalse(caption.exists, "At AX3 the footer has no resting caption")
+        let delete = app.buttons["detail.delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "Expected Delete item in the footer")
+        let saving = app.descendants(matching: .any)["detail.autosave"]
+        XCTAssertFalse(saving.exists, "At AX3 the footer has no resting caption")
+
+        let sticky = app.descendants(matching: .any)["detail.public.sticky"]
+        XCTAssertTrue(sticky.waitForExistence(timeout: 10), "Expected the sticky note field on a public item")
+        A11yScreens.scrollIntoView(app, sticky)
+        A11yScreens.tapUntilFocused(sticky)
+        XCTAssertTrue(app.buttons["detail.dismissKeyboard"].waitForExistence(timeout: 5), "Expected the sticky note focused")
+        // The footer is measured with the keyboard up both times — while "Saving…" shows, and once
+        // it has gone. (On the iOS 17.0 simulator the keyboard comes up only with the first typed
+        // character, so a frame taken before typing has no keyboard under it.)
+        sticky.typeText("For you")
+        XCTAssertTrue(saving.waitForExistence(timeout: 5), "Expected \"Saving…\" while the save is on its way")
+        XCTAssertEqual(saving.label, "Saving…")
+        let whileSaving = delete.frame
+        let indicator = saving.frame
+        attachScreenshot(named: "task-4e-ax3-sticky-saving")
+        XCTAssertTrue(waitUntilGone(saving, timeout: 15), "Expected \"Saving…\" gone once the save landed")
+        print("A11Y footer AX3 delete while saving \(whileSaving) · after \(delete.frame) · saving \(indicator)")
+        XCTAssertEqual(delete.frame.minY, whileSaving.minY, accuracy: 1,
+                       "The footer must keep its height through the save — not grow for \"Saving…\" and shrink again")
+        XCTAssertEqual(indicator.midY, whileSaving.midY, accuracy: whileSaving.height / 2,
+                       "\"Saving…\" sits in the Delete row")
+        let saved = try await rest.waitFor("supplemental_note", of: id, equalTo: "For you", timeout: 10)
+        XCTAssertTrue(saved, "Expected the sticky note saved")
+        closeSheet(app)
+    }
+
+    /// 4d review B-4: at AX3 a save that fails says so — "Couldn't save — try again." — on its own
+    /// line under "Delete item" (an error stays until something changes, so it may take the room),
+    /// on the stalled link. Once the link is back, the queued edit is delivered.
+    @MainActor
+    func testAFailedSaveSaysSoUnderDeleteAtAccessibilitySizes() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-axerror"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        app.terminate()
+        app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL",
+                               "--uitest-tab-view", "--uitest-stall-item-writes"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in at AX3")
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let delete = app.buttons["detail.delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 10), "Expected Delete item in the footer")
 
         let title = detailTitleField(app)
         tapUntilFocused(title)
         title.typeText(" x")   // wherever the caret is: what matters is that a save goes out
         let typed = (title.value as? String) ?? ""
         XCTAssertNotEqual(typed, marker, "Expected the title edited")
-        XCTAssertTrue(caption.waitForExistence(timeout: 5), "Expected \"Saving…\" while the save is on its way")
-        XCTAssertEqual(caption.label, "Saving…")
-        XCTAssertTrue(waitUntilGone(caption, timeout: 15), "Expected the caption gone again once the save landed")
-        let saved = try await rest.waitForTitle(of: id, equalTo: typed, timeout: 10)
-        XCTAssertTrue(saved, "Expected the edit saved")
+        let error = app.descendants(matching: .any)["detail.autosave.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 20), "Expected the failed save to say so once its PATCH times out")
+        XCTAssertEqual(error.label, "Couldn't save — try again.")
+        attachScreenshot(named: "task-4e-ax3-save-error")
+        print("A11Y footer AX3 delete \(delete.frame) error \(error.frame)")
+        XCTAssertGreaterThanOrEqual(error.frame.minY, delete.frame.maxY - 4, "The error sits under Delete item")
+        XCTAssertLessThanOrEqual(error.frame.maxY, app.frame.maxY, "…on screen")
         closeSheet(app)
+
+        try await relaunchAndWaitForTheFlush(app, id: id, title: typed, rest: rest)
+    }
+
+    /// 4d review N-3: a title the server sends while the title field has focus (an AI title,
+    /// another device) is shown as the server has it — the field's line-break handling is for what
+    /// the user types. One ending in a line break used to end editing under the user's fingers, and
+    /// closing the sheet then wrote its one-line copy back as if the user had typed it.
+    @MainActor
+    func testAServerTitleArrivingWhileTheTitleHasFocusIsLeftAsTheServerHasIt() async throws {
+        let (email, password) = try credentials()
+        let rest = try await P16Rest.signIn(email: email, password: password)
+        let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-servertitle"
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        deleteAtTeardown(rest, id)
+
+        let app = XCUIApplication()
+        signIn(app, email: email, password: password)
+        let card = libraryCard(app, containing: marker)
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
+        tapWhenHittable(card)
+        let title = detailTitleField(app)
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "Title field not found")
+        tapUntilFocused(title)
+        let hide = app.buttons["detail.dismissKeyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Expected the title focused")
+
+        let serverTitle = "\(marker) from the server\n"
+        try await rest.setTitle(of: id, to: serverTitle)   // realtime brings it to the open sheet
+        let arrived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "from the server"),
+                                                object: title)
+        XCTAssertEqual(XCTWaiter().wait(for: [arrived], timeout: 30), .completed,
+                       "Expected the server's title in the open sheet, got '\((title.value as? String) ?? "")'")
+        sleep(1)
+        XCTAssertTrue(hide.exists, "A server title ending in a line break must not end editing")
+        closeSheet(app)
+        try await Task.sleep(for: .seconds(4))
+        let after = try await rest.title(of: id)
+        XCTAssertEqual(after, serverTitle, "Closing must not write the title back")
     }
 
     // MARK: - Search pill
@@ -809,6 +946,38 @@ final class LibraryDetailUITests: XCTestCase {
             usleep(200_000)
         }
         return condition()
+    }
+
+    /// Types " t" into the open sheet's title (wherever the caret lands) and waits past its 400 ms
+    /// autosave, so the edit is written ahead to the queue; returns the title as typed. On the
+    /// stalled link it fails with the item's other writes and stays queued — and once the link is
+    /// back, its landing proves the relaunch's flush ran, which carries everything queued for the
+    /// item in that same PATCH (4d review B-4: a negative read alone can't tell "never sent" from
+    /// "not flushed yet").
+    @MainActor
+    private func editTitleInTheSameFlight(_ app: XCUIApplication) -> String {
+        let title = detailTitleField(app)
+        A11yScreens.scrollIntoView(app, title)
+        tapUntilFocused(title)
+        title.typeText(" t")
+        let typed = (title.value as? String) ?? ""
+        XCTAssertTrue(typed.contains(" t"), "Expected \" t\" typed into the title, got '\(typed)'")
+        sleep(1)
+        return typed
+    }
+
+    /// The link is back: runs the app again without the network switches (still signed in) — its
+    /// launch refresh flushes the queue before it reads page 1 — and waits until the queued `title`
+    /// has landed, so whatever else was queued for the item has gone out with it.
+    @MainActor
+    private func relaunchAndWaitForTheFlush(_ app: XCUIApplication, id: String, title: String, rest: P16Rest) async throws {
+        app.terminate()
+        app.launchArguments = ["--uitest-tab-view"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in")
+        let flushed = try await rest.waitForTitle(of: id, equalTo: title, timeout: 30)
+        let serverTitle = try await rest.title(of: id)
+        XCTAssertTrue(flushed, "Expected the relaunch's flush to deliver the queued title, got '\(serverTitle ?? "nil")'")
     }
 
     /// Types `text` into the (empty) title field, waits past its 400 ms autosave — so the typed title
