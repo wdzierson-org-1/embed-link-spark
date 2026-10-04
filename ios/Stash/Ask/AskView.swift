@@ -41,6 +41,14 @@ import AVFoundation
 /// thread's end like a drag does (`AskThreadScrollObserver`); a status-bar tap cuts to the thread's top
 /// instead of animating there through the lazy history (fix round 1). Under Reduce Motion the thread's
 /// eased jumps are cuts and the streaming cursor doesn't blink.
+///
+/// Plan 16 (task 1d): the laid-out tail stays bounded for a reader who drags away while answers stream — it
+/// sheds when they send from the end, or once a send from inside the tail has landed there — and, for one who
+/// follows, sheds the exchange before a streaming answer once that answer's own exchange covers the budget. Rows
+/// move a whole exchange at a time, and every shed above the reader waits until the thread has seen its holds
+/// work (`ChatThreadTail.canShedAtTheEnd`). A long
+/// scroll UIKit would animate across the lazy history (a keyboard's Home or End, Voice Control's "scroll to
+/// top") is a cut, as the status-bar tap is. The thread's scroll machinery is `AskThreadScrolling.swift`.
 struct AskView: View {
     let userId: UUID
 
@@ -79,8 +87,9 @@ struct AskView: View {
     @State private var answerWasStreaming = false
     /// How the jump to the next new question goes, classified at the send from where the reader is
     /// (task 1c, `ChatThreadTail.sendJump`): a hop of up to a screen from up the thread eases, any
-    /// other jump cuts, and only a reader above the whole tail sheds it first.
-    @State private var nextSendJump = ChatThreadTail.SendJump.fromTheEnd
+    /// other jump cuts; a reader above the whole tail, or at the end, sheds it first, and one inside it
+    /// sheds once the jump has landed (task 1d).
+    @State private var nextSendJump = ChatThreadTail.SendJump.cut
     /// Where the thread's lazy history ends and its laid-out tail begins (tasks 1b, 1c).
     @State private var tail = AskThreadTail()
 
@@ -180,6 +189,10 @@ struct AskView: View {
                             .accessibilityIdentifier("ask.debug.voiceOverScrollUp")
                         Button("VO⤓") { emulateVoiceOverScroll(toEnd: true) }
                             .accessibilityIdentifier("ask.debug.voiceOverScrollToEnd")
+                        Button("KB⤒") { emulateKeyboardScroll(toEnd: false) }
+                            .accessibilityIdentifier("ask.debug.keyboardScrollToTop")
+                        Button("KB⤓") { emulateKeyboardScroll(toEnd: true) }
+                            .accessibilityIdentifier("ask.debug.keyboardScrollToEnd")
                     }
                     .font(.caption2)
                     .buttonStyle(.stashPlain)
@@ -332,6 +345,10 @@ struct AskView: View {
         let lastIndex = messages.indices.last
         let historyCount = tail.historyCount(for: messages,
                                              laysOutEverything: voiceOverEnabled || switchControlEnabled || Self.forcesAssistiveLayout)
+        #if DEBUG
+        // The split, for the UI tests (task 1c review, nit N-d): a UIKit label, so this re-renders nothing.
+        threadScroll.scrollLog?.noteSplit(history: historyCount, total: messages.count)
+        #endif
         return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -370,6 +387,8 @@ struct AskView: View {
                 // a tap on the status bar cuts to the content's own top — laid out, whatever the lazy history
                 // holds — without animation (`AskThreadScrollObserver.Coordinator.statusBarTapped`).
                 threadScroll.scrollToTop = { proxy.scrollTo(Self.threadTopID, anchor: .top) }
+                // And a long scroll UIKit would animate to the end is the thread's own jump there (task 1d).
+                threadScroll.scrollToEnd = { scrollToEnd(proxy) }
             }
             .onDisappear { threadVisible = false }
             .task {
@@ -461,9 +480,14 @@ struct AskView: View {
         let answerCompleted = answerWasStreaming && !answerStreaming
         answerWasStreaming = answerStreaming
         let jump = nextSendJump
-        if rowsChanged { nextSendJump = .fromTheEnd }
+        if rowsChanged {
+            nextSendJump = .cut
+            // A send that sheds nothing before its jump sheds once the jump has landed (below; task 1d).
+            tail.shedOnLandingPending = jump.shedsOnLanding
+        }
 
         if threadReplaced {
+            tail.shedOnLandingPending = false
             isFollowing = true
             if threadVisible {
                 scrollToEnd(proxy)
@@ -478,9 +502,31 @@ struct AskView: View {
         // (following stops) or doesn't, and the next publish pins again.
         guard isFollowing, !threadScroll.userIsScrolling else { return }
         // A send from above the whole tail: every row the tail sheds is off screen below the reader,
-        // and the jump below lands on the new rows (task 1c; see `ChatThreadTail.sendJump`). From
-        // inside the tail nothing sheds: the rows above the reader stay as they are.
+        // and the jump below lands on the new rows (task 1c; see `ChatThreadTail.sendJump`). A send
+        // from the end (task 1d, review finding M-1): every row it sheds is above the reader, and the
+        // observer holds the end through the layout pass. From inside the tail nothing sheds before
+        // the jump: the rows above the reader stay as they are.
         if rowsChanged && jump.shedsTail {
+            tail.shed(messages)
+        }
+        // Task 1d (coordinator ruling): a send that shed nothing before its jump sheds once the jump
+        // has landed at the end — a streamed update or two later, the reader following there, the end
+        // hold covering the layout pass, and no scroll animating (the send's own ease included) — as
+        // an answer completing there does. Never on the update that adds the rows, while the reader is
+        // still where they sent from.
+        if !rowsChanged, tail.shedOnLandingPending, canShedAtTheEnd(landed: true) {
+            tail.shedOnLandingPending = false
+            tail.shed(messages)
+        }
+        // Task 1d (the I-1 ruling): while the answer streams with the reader following at the end, once its
+        // exchange alone covers the tail's budget (`ChatThreadTail.lastExchangeCoversTheBudget`), the exchanges
+        // before it shed, as they would when it completes, and the rest of it streams with only its own exchange
+        // laid out and redrawn. Rows move a whole exchange at a time, so without this the exchange before stayed
+        // laid out to the answer's end: 8.5 and 13.5 more dropped frames an answer than before task 1b's tail
+        // (follow5, answers 3–5, iOS 18.5 and 26.5), past the ruling's 10. Once per answer: after it, the tail
+        // already starts at the last question, and `AskThreadTail.shed` only ever moves the split on.
+        if !rowsChanged, answerStreaming, let metrics = tail.metrics,
+           ChatThreadTail.lastExchangeCoversTheBudget(in: messages, metrics: metrics), canShedAtTheEnd(landed: true) {
             tail.shed(messages)
         }
         // A new question sent from up to a screen away eases in; from further, the jump cuts, and so
@@ -496,11 +542,25 @@ struct AskView: View {
             // Task 1c: the reader followed the answer to its end, so the tail sheds back to its
             // budget — the last exchange and a screen and a half — and the next answer streams with
             // no more laid-out rows than this one did. The rows it sheds are above the viewport; the
-            // observer holds the end through that layout pass (the reader follows, and no finger is
-            // on the thread — checked above), so nothing on screen moves.
-            tail.shed(messages)
+            // observer holds the end through that layout pass, so nothing on screen moves. Task 1d
+            // (review finding M-2): only while that hold covers it (`canShedAtTheEnd`) — the reader at
+            // the end, nothing else scrolling, and the holds seen working; without them the tail grows,
+            // as task 1b's did, rather than flash.
+            tail.shedOnLandingPending = false
+            if canShedAtTheEnd(landed: false) { tail.shed(messages) }
             settleAtTheEnd(proxy)
         }
+    }
+
+    /// The tail may shed rows above the reader now: the end hold covers this layout pass (task 1d,
+    /// `ChatThreadTail.canShedAtTheEnd`). `landed`: also no scroll of the thread animating, its own
+    /// eased jump included — a send's jump that hasn't finished landing.
+    private func canShedAtTheEnd(landed: Bool) -> Bool {
+        ChatThreadTail.canShedAtTheEnd(
+            isFollowing: isFollowing,
+            isBeingScrolled: threadScroll.isBeingScrolled || (landed && threadScroll.scrollIsAnimating),
+            distanceFromEnd: threadScroll.endGeometry.map { Double($0.distanceFromEnd) },
+            holdsSeen: threadScroll.holdsSeen)
     }
 
     /// Pins the end a few more times over about 1.5 s, while the reader follows and no finger is on
@@ -543,7 +603,11 @@ struct AskView: View {
     /// Plan 16 (task 2d): under Reduce Motion the one eased jump — a send from up to a screen away —
     /// cuts too. (Read from UIKit at the call: no environment value to go stale in a view whose body
     /// never reads it.)
+    ///
+    /// Task 1d (task 2d re-review, N-2): SwiftUI lands the scroll a layout pass later, so the request is
+    /// noted (`pinRequestedAt`): a status-bar cut made just after it holds its top against it.
     private func scrollToEnd(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        threadScroll.pinRequestedAt = CACurrentMediaTime()
         let target = store.messages.last?.id ?? Self.threadTopID
         let anchor: UnitPoint = store.messages.isEmpty ? .top : .bottom
         if animated && !UIAccessibility.isReduceMotionEnabled {
@@ -643,13 +707,15 @@ struct AskView: View {
     }
 
     /// How the jump to the question about to be sent goes, from where the reader is now (task 1c,
-    /// review finding I1). Read before `isFollowing` is set for the send.
+    /// review finding I1; task 1d, M-1 and M-2). Read before `isFollowing` is set for the send.
     private func classifySendJump() -> ChatThreadTail.SendJump {
         let geometry = threadScroll.endGeometry
         return ChatThreadTail.sendJump(isFollowing: isFollowing,
+                                       isBeingScrolled: threadScroll.isBeingScrolled,
                                        distanceFromEnd: geometry.map { Double($0.distanceFromEnd) },
                                        visibleHeight: geometry.map { Double($0.visibleHeight) },
-                                       tailHeight: Double(threadScroll.tailHeight))
+                                       tailHeight: Double(threadScroll.tailHeight),
+                                       holdsSeen: threadScroll.holdsSeen)
     }
 
     private var canAsk: Bool { subscription.canUseAI || Self.usesScriptedChat }
@@ -762,6 +828,23 @@ struct AskView: View {
                                                 y: max(-insets.top, scrollView.contentOffset.y - page)),
                                         animated: true)
         }
+    }
+
+    /// `--uitest-a11y-hooks` (task 1d; task 2d re-review, "the unheld animated paths"): scrolls the thread the
+    /// way UIKit's own keyboard scrolling does for Home or End (a hardware keyboard, or Full Keyboard Access),
+    /// and Voice Control's "scroll to top" and "scroll to bottom": one animated scroll, the thread's not, all
+    /// the way to its top or end — the scroll the thread cuts short (`cutLongForeignScroll`). XCUITest can
+    /// drive none of those, and a scroll view takes keyboard scrolling only once it has focus. Test
+    /// scaffolding, never the app's own scrolling. Compiled out of Release.
+    private func emulateKeyboardScroll(toEnd: Bool) {
+        guard let scrollView = threadScroll.scrollView else {
+            NSLog("A11YHOOK no scroll view")
+            return
+        }
+        let insets = scrollView.adjustedContentInset
+        let y = toEnd ? max(-insets.top, scrollView.contentSize.height + insets.bottom - scrollView.bounds.height) : -insets.top
+        NSLog("A11YHOOK animated scroll to the %@ from offset=%.0f to %.0f", toEnd ? "end" : "top", scrollView.contentOffset.y, y)
+        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: true)
     }
     #endif
 

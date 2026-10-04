@@ -4,11 +4,12 @@ import Observation
 import StashKit
 
 // The Ask thread's scroll machinery (plan 16): what the thread lays out in full and what it holds still
-// for the reader. Moved here from AskView.swift unchanged (task 1d, review finding M-6); AskView owns the
+// for the reader. Moved here from AskView.swift in task 1d (review finding M-6); AskView owns the
 // thread's view and decides when to follow, shed and jump, and these carry it out:
 // - `AskThreadScrollObserver` and its `Coordinator`: KVO on the thread's UIScrollView — the reader's drags
 //   and other scrolls decide following; the holds keep what the reader sees still through every change of
-//   size; a status-bar tap is the thread's own cut to its top;
+//   size; a status-bar tap, and any long scroll UIKit would animate across the lazy history, is the thread's
+//   own cut to its top or its end;
 // - `AskThreadScrollHandle`: the scroll state AskView and the observer share, unobserved;
 // - `AskThreadStatusBarDelegate`: stands in front of SwiftUI's scroll-view delegate to take status-bar taps;
 // - `AskThreadScrollLog` (DEBUG): what moved the thread without a drag, for the UI tests;
@@ -122,8 +123,14 @@ struct AskThreadScrollObserver: UIViewRepresentable {
         private var held: (offset: CGFloat, following: Bool)?
         private var heldRestores = 0
         private var heldExpiryScheduled = false
-        /// True while the coordinator itself is setting the offset.
-        private var settingOffset = false
+        /// The offset the coordinator is writing at this moment, nil otherwise (task 1d; task 1c review, M-4).
+        /// A change that lands on it while the write runs is that write. Any other change made while it runs
+        /// was made inside it — SwiftUI's delegate answering the move with an offset of its own — and is seen
+        /// once the write returns (`applyHold`), never let stand unnoticed as the old flag let it.
+        private var ownWrite: CGFloat?
+        /// A content-size change's prior notification has come and its after notification hasn't yet: the pair
+        /// every hold rests on (`AskThreadScrollHandle.holdsSeen`; task 1d, review finding M-2).
+        private var contentSizePriorPending = false
         /// True while a report is scheduled on the main queue (see `userScrolled`).
         private var reportScheduled = false
         /// When the viewport last changed size (the keyboard, a rotation) — see `movedWithoutADrag`.
@@ -133,7 +140,8 @@ struct AskThreadScrollObserver: UIViewRepresentable {
         /// Stands in for the scroll view's own delegate (SwiftUI's), to take taps on the status bar
         /// (`statusBarTapped`).
         private var statusBarDelegate: AskThreadStatusBarDelegate?
-        /// Until when a status-bar cut's top is put back, and how many times it has been (`keepCutTop`).
+        /// Until when a cut's top is put back, and how many times it has been (`keepCutTop`): only when a pin was
+        /// pending at the cut (task 2d re-review, N-2), else 0.
         private var cutHeldUntil: CFTimeInterval = 0
         private var cutRestores = 0
         #if DEBUG
@@ -142,6 +150,9 @@ struct AskThreadScrollObserver: UIViewRepresentable {
 
         init(handle: AskThreadScrollHandle) {
             self.handle = handle
+            #if DEBUG
+            handle.scrollLog = scrollLog
+            #endif
         }
 
         func attach(from view: UIView) {
@@ -151,10 +162,27 @@ struct AskThreadScrollObserver: UIViewRepresentable {
 
         /// Puts `AskThreadStatusBarDelegate` between the scroll view and its own delegate, once, and again if
         /// SwiftUI has since given the scroll view a delegate of its own.
+        ///
+        /// Task 1d (task 2d re-review, N-1): the stand-in is kept by the scroll view itself (`retain(on:)`). A
+        /// scroll view holds its delegate weakly, and SwiftUI's delegate is kept only by the stand-in, so neither
+        /// can go while the scroll view lives, whatever becomes of this coordinator. The scroll view's delegate is
+        /// checked again on every scroll and every change of size (`offsetChanged`, `contentSizeChanged`), so a
+        /// delegate SwiftUI assigns can't quietly bring back UIKit's animated scroll to the top for long — and a
+        /// tap that reached UIKit before the check is still cut short (`cutLongForeignScroll`). In DEBUG every
+        /// replacement is logged and counted (`AskThreadScrollLog`, which the status-bar test reads).
         private func takeStatusBarTaps(_ scrollView: UIScrollView) {
             guard let current = scrollView.delegate, current !== statusBarDelegate,
                   !(current is AskThreadStatusBarDelegate) else { return }
+            #if DEBUG
+            if statusBarDelegate != nil {
+                NSLog("ASKTHREAD the thread's scroll view was given a new delegate (%@): taking status-bar taps again",
+                      String(describing: type(of: current)))
+                scrollLog?.noteRewrap()
+            }
+            scrollLog?.noteDelegate(String(describing: type(of: current)))
+            #endif
             let delegate = AskThreadStatusBarDelegate(swiftUIDelegate: current, coordinator: self)
+            delegate.retain(on: scrollView)
             statusBarDelegate = delegate
             scrollView.delegate = delegate
         }
@@ -171,11 +199,22 @@ struct AskThreadScrollObserver: UIViewRepresentable {
                         scrollView.observe(\.contentOffset, options: [.old]) { [weak self] scrollView, change in
                             self?.offsetChanged(scrollView, from: change.oldValue?.y)
                         },
+                    ]
+                    #if DEBUG
+                    // `--uitest-without-holds` (UI tests only; task 1d, review finding M-2): the size-change
+                    // notifications every hold rests on never come, as if UIKit stopped sending them.
+                    if AskThreadScrollHandle.holdsDisabledForTesting { return }
+                    #endif
+                    observations += [
                         scrollView.observe(\.contentSize, options: [.prior]) { [weak self] scrollView, change in
                             guard let self else { return }
                             if change.isPrior {
+                                self.contentSizePriorPending = true
                                 self.contentHold = self.hold(scrollView)
                             } else {
+                                // The first prior/after pair: the holds work (task 1d, review finding M-2).
+                                if self.contentSizePriorPending, !self.handle.holdsSeen { self.handle.holdsSeen = true }
+                                self.contentSizePriorPending = false
                                 self.contentSizeChanged(scrollView)
                             }
                         },
@@ -205,8 +244,16 @@ struct AskThreadScrollObserver: UIViewRepresentable {
         ///
         /// Plan 16 (task 2d): nothing is held while UIKit animates a scroll the thread didn't start
         /// (`AskThreadScrollHandle.foreignScrollIsAnimating`) — a write would retarget it.
+        ///
+        /// Task 1d: nor while a cut's top is held against the pin it followed (`keepCutTop`), the reader no longer
+        /// following. The only rows a hold could keep then are the ones that stray pin landed on. On iOS 26.5 the
+        /// pin landed 88 pt short of the end, in a content size about to shrink by 88; as it shrank, `keepCutTop`
+        /// put the top back, and the tail hold decided before that, from the pin's place, put the reader back by
+        /// the end (3 status-bar runs of 12 on the diag build, 3 of 25 without it, once the mid-stream shed had left
+        /// freshly estimated rows next to the tail).
         private func hold(_ scrollView: UIScrollView, followingOnly: Bool = false) -> Hold? {
             if handle.foreignScrollIsAnimating { return nil }
+            if !handle.isFollowing, CACurrentMediaTime() < cutHeldUntil { return nil }
             let distance = Self.distanceFromEnd(scrollView)
             if handle.isFollowing, !handle.userIsScrolling, distance < AskThreadScrollHandle.endSlack {
                 return .end(distance: max(0, distance))
@@ -230,81 +277,59 @@ struct AskThreadScrollObserver: UIViewRepresentable {
         }
 
         private func contentSizeChanged(_ scrollView: UIScrollView) {
+            if scrollView.delegate !== statusBarDelegate { takeStatusBarTaps(scrollView) }
             let newTailHeight = handle.tailHeight
             switch contentHold {
             case .end(let distance)?:
                 tailHoldTarget = nil
-                keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - distance), following: true)
+                applyHold(scrollView, to: Self.endOffset(scrollView) - distance, following: true)
             case .tail(let distance)?:
                 let tailGrowth = newTailHeight - (tailHeight ?? newTailHeight)
-                let target = setOffset(scrollView, Self.endOffset(scrollView) - (distance + tailGrowth))
-                tailHoldTarget = target
-                keepHeld(target, following: false)
+                tailHoldTarget = applyHold(scrollView, to: Self.endOffset(scrollView) - (distance + tailGrowth),
+                                           following: false)
             case nil:
                 tailHoldTarget = nil
                 held = nil
             }
             contentHold = nil
             tailHeight = newTailHeight
+            #if DEBUG
+            scrollLog?.noteGeometry(scrollView, following: handle.isFollowing)
+            #endif
         }
 
         private func viewportSizeChanged(_ scrollView: UIScrollView) {
             viewportChangedAt = CACurrentMediaTime()
             if case .end(let distance)? = viewportHold {
-                keepHeld(setOffset(scrollView, Self.endOffset(scrollView) - distance), following: true)
+                applyHold(scrollView, to: Self.endOffset(scrollView) - distance, following: true)
             }
             viewportHold = nil
         }
 
-        /// Every move of the offset: the user's drags and glides decide following (`userScrolled`),
-        /// and a hold made this run-loop turn is put back if SwiftUI undoes it.
+        /// Every move of the offset: the user's drags and glides decide following (`userScrolled`), a hold made
+        /// this run-loop turn is put back if SwiftUI undoes it (`putBackIfUndone`), and a long scroll UIKit
+        /// animates across the lazy history becomes a cut (`cutLongForeignScroll`).
         ///
-        /// Why put back: in an update that lays the thread out more than once (the lazy history
-        /// re-estimating as the keyboard comes up, say), SwiftUI can set the offset itself after a
-        /// hold, discarding it. On iOS 18.5, after UIKit had clamped the offset inside
-        /// `setContentSize:` as the content shrank, SwiftUI wrote back the offset the update began
-        /// with: tail holds that had kept a reader's line still through +2,990, −544 and +2,534 pt
-        /// were wiped, and the line dropped 1,990 pt (1 run in 3). On iOS 26.5, right after an end hold
-        /// it set an offset of its own: a restored long thread at rest at its end was left 2,637 pt
-        /// short of it when the keyboard came up, every time.
-        ///
-        /// Put back only what a hold of the same kind would still keep, and never under a finger. A
-        /// tail hold (the reader doesn't follow): any move, since then nothing else moves the offset
-        /// programmatically. An end hold (the reader follows): a move up, away from the end, or past
-        /// it — a follower's own jumps and pins only ever go to the end, and those stand.
+        /// A move made while the coordinator writes the offset is that write, or a write made inside it, which
+        /// the write's caller checks once it returns (`applyHold`; task 1d, review finding M-4) — so neither is a
+        /// move to put back, cut short or take for a reader's here.
         private func offsetChanged(_ scrollView: UIScrollView, from oldOffset: CGFloat?) {
             #if DEBUG
             if handle.foreignScrollIsAnimating { scrollLog?.noteAnimatedFrame() }
+            if let ownWrite, abs(scrollView.contentOffset.y - ownWrite) > 0.5 { scrollLog?.noteNestedWrite() }
+            scrollLog?.noteGeometry(scrollView, following: handle.isFollowing)
             #endif
+            if scrollView.delegate !== statusBarDelegate { takeStatusBarTaps(scrollView) }
+            let writing = ownWrite != nil
+            if !writing, cutLongForeignScroll(scrollView, from: oldOffset) { return }
             if keepCutTop(scrollView) { return }
-            var putBack = false
-            if !settingOffset, let held, heldRestores < 4, !handle.userIsScrolling,
-               handle.isFollowing == held.following, !handle.foreignScrollIsAnimating {
-                let offset = scrollView.contentOffset.y
-                let lastOffset = max(-scrollView.adjustedContentInset.top, Self.endOffset(scrollView))
-                let undone = held.following
-                    ? offset < held.offset - 0.5 || offset > lastOffset + 0.5
-                    : abs(offset - held.offset) > 0.5
-                // Where the put-back would land: UIKit may have put the offset there already — as the content
-                // shrinks it clamps the offset to the new end, where an end hold aimed — and then nothing was
-                // undone, and nothing moved away (task 2d fix round 1, M-2: in the status-bar test's traces on
-                // iOS 26.5, 51 of 52 put-backs were such no-ops, each holding the next pin off for a beat).
-                let target = Self.clampedOffset(scrollView, held.offset)
-                if undone, abs(offset - target) > 0.5 {
-                    heldRestores += 1
-                    // A move up undone under an end hold may be the first frame of a scroll that isn't
-                    // a drag: the next pin waits a beat, so it can go on (see `movedWithoutADrag`).
-                    if held.following, offset < target { handle.movedAwayWithoutADragAt = CACurrentMediaTime() }
-                    setOffset(scrollView, held.offset)
-                    putBack = true
-                }
-            }
+            let putBack = !writing && putBackIfUndone(scrollView)
             // A drag or the glide after one turns following on or off on the next turn
             // (`userScrolled`) — never a touch-down that hasn't moved, content growth or a hold. Two
             // flag reads are safe inside a layout pass.
             if scrollView.isDragging || scrollView.isDecelerating {
                 userScrolled(scrollView)
-            } else if !settingOffset, !putBack, let oldOffset {
+            } else if !writing, !putBack, let oldOffset {
                 movedWithoutADrag(scrollView, from: oldOffset)
             }
         }
@@ -333,7 +358,7 @@ struct AskThreadScrollObserver: UIViewRepresentable {
         /// it where it is. Of the moves that count, none of the thread's own can be taken for one:
         /// - the thread's own scrolls (`AskView.scrollToEnd`) only ever go to the end, and only while the
         ///   reader follows;
-        /// - the holds are this coordinator's own writes (`settingOffset`), and SwiftUI undoing one is put
+        /// - the holds are this coordinator's own writes (`ownWrite`), and SwiftUI undoing one is put
         ///   back above, first; in a turn that has made a hold (`held`), no move is taken as a reader's —
         ///   SwiftUI's own writes come in those turns (task 1c), and VoiceOver's scroll in one is put back
         ///   anyway;
@@ -384,47 +409,139 @@ struct AskThreadScrollObserver: UIViewRepresentable {
         ///   stress run of 48 (SwiftUI's next pass jumped again);
         /// - SwiftUI's own scroll to the same top (`AskThreadScrollHandle.scrollToTop`), so its idea of where
         ///   the thread is agrees with the scroll view's;
-        /// - and the top is held for a moment (`cutHeldUntil`): a scroll SwiftUI had in hand before the tap — a
-        ///   follow pin requested just before it — lands a pass after the cut, at the old end (iOS 26.5: 1 ms and
-        ///   3 ms after it, 10–11 ms after the pin; a held turn had already ended), and is put back. Not past
-        ///   that moment, not under a finger, not while UIKit animates a scroll the thread didn't start, and not
-        ///   once the reader follows again.
+        /// - and, if a follow pin was pending, the top is held against it (`keepCutTop`): a scroll SwiftUI had in
+        ///   hand before the tap — a follow pin requested just before it — lands a pass after the cut, at the old
+        ///   end (iOS 26.5: 1 ms and 3 ms after it, 10–11 ms after the pin; a held turn had already ended), and is
+        ///   put back.
         ///
         /// Never under a finger. Returns whether the thread took the tap — not before `AskView` has handed over
         /// its scroll to the top, when UIKit's own scroll runs.
         func statusBarTapped(_ scrollView: UIScrollView) -> Bool {
-            guard let scrollToTop = handle.scrollToTop else { return false }
+            guard handle.scrollToTop != nil else { return false }
             guard !scrollView.isTracking, !scrollView.isDragging else { return true }
-            let top = -scrollView.adjustedContentInset.top
-            handle.isFollowing = scrollView.contentSize.height <= Self.visibleHeight(scrollView)
-                || Self.endOffset(scrollView) - top < AskThreadScrollHandle.endSlack
-            held = nil
-            heldRestores = 0
-            tailHoldTarget = nil
-            settingOffset = true
-            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: top), animated: false)
-            settingOffset = false
-            cutHeldUntil = CACurrentMediaTime() + Self.cutHold
-            cutRestores = 0
-            scrollToTop()
+            cutToTop(scrollView)
             #if DEBUG
             scrollLog?.noteCut()
             #endif
             return true
         }
 
-        /// How long after a status-bar cut the top is put back if something else moves the viewport off it.
-        private static let cutHold: CFTimeInterval = 0.25
+        /// The thread's cut to its top, for a status-bar tap (`statusBarTapped`) or a long scroll heading there
+        /// (`cutLongForeignScroll`), in the order the status-bar cut has always taken: following decided from where
+        /// the cut lands; this turn's hold, its restores and the tail target dropped; the coordinator's own write to
+        /// the top (`cutWrite`); SwiftUI told the same top; and the top held against a pin that was pending.
+        private func cutToTop(_ scrollView: UIScrollView) {
+            let top = -scrollView.adjustedContentInset.top
+            handle.isFollowing = scrollView.contentSize.height <= Self.visibleHeight(scrollView)
+                || Self.endOffset(scrollView) - top < AskThreadScrollHandle.endSlack
+            held = nil
+            heldRestores = 0
+            tailHoldTarget = nil
+            let now = CACurrentMediaTime()
+            cutHeldUntil = now - handle.pinRequestedAt < Self.pendingPinWindow ? now + Self.cutHold : 0
+            cutRestores = 0
+            cutWrite(scrollView, top)
+            handle.scrollToTop?()
+        }
 
-        /// A status-bar cut's top, put back (see `statusBarTapped`): true when this move was undone.
+        /// At most how long after a cut its top is held against the pin it followed.
+        private static let cutHold: CFTimeInterval = 0.25
+        /// A follow pin requested this recently before a cut may not have landed yet (it lands in the next layout
+        /// pass: 10–11 ms after it in the traces, so this leaves room for a busy main thread).
+        private static let pendingPinWindow: CFTimeInterval = 0.3
+
+        /// A cut's top, put back against the pin it followed (see `statusBarTapped`): true when this move was undone.
+        ///
+        /// Task 1d (task 2d re-review, N-2): the hold is the pending pin's, not a clock's. It's set only if a pin was
+        /// requested just before the cut (`pendingPinWindow`), and it puts back only the pin's own move — back to
+        /// the old end, within `endSlack` of it — at most until `cutHold`. Any other move stands: a reader's scroll,
+        /// and an assistive technology's — VoiceOver's scroll to the element it moves to after the tap lands next to
+        /// that element, never at the end it left. (Before, any move off the top within 0.25 s was undone, a
+        /// VoiceOver scroll-to-visible included.) Not under a finger, not while UIKit animates a scroll the thread
+        /// didn't start, and not once the reader follows again.
         private func keepCutTop(_ scrollView: UIScrollView) -> Bool {
-            guard !settingOffset, cutRestores < 4, CACurrentMediaTime() < cutHeldUntil, !handle.isFollowing,
+            guard ownWrite == nil, cutRestores < 4, CACurrentMediaTime() < cutHeldUntil, !handle.isFollowing,
                   !handle.userIsScrolling, !handle.foreignScrollIsAnimating else { return false }
             let top = -scrollView.adjustedContentInset.top
-            guard scrollView.contentOffset.y > top + 0.5 else { return false }
+            guard scrollView.contentOffset.y > top + 0.5,
+                  Self.distanceFromEnd(scrollView) < AskThreadScrollHandle.endSlack else { return false }
             cutRestores += 1
             setOffset(scrollView, top)
             return true
+        }
+
+        /// A scroll UIKit animates that the thread didn't start, moving more than a screen in one frame
+        /// (`longScrollStep`), becomes the thread's own cut (task 1d; task 2d re-review, "the unheld animated
+        /// paths"): the status-bar tap's fix, for the scrolls that don't ask the delegate first. A scroll to the top or the end from a hardware keyboard
+        /// (Home and End, ⌘↑ and ⌘↓, which UIKit animates: `allowsKeyboardScrolling`), under Full Keyboard Access too;
+        /// Voice Control's "scroll to top" and "scroll to bottom"; a scroll-to-visible of something screens away.
+        /// Such an animation crosses the lazy history in jumps of up to thousands of points a frame, into rows it
+        /// can only estimate, while an answer may grow below and nothing holds — and on iOS 26.5 the status-bar
+        /// animation's first such jump, 1,659 pt, sent SwiftUI's own lazy-stack placement into a loop that never
+        /// returned to the run loop (task 2d fix round 1, R-1's samples: one `GraphHost.flushTransactions` holding
+        /// the main thread, in `LazyLayoutViewCache.updateItemPhases` and `LazyVStackLayout.sizeThatFits`).
+        ///
+        /// This runs in such a frame's own KVO callback, as UIKit sets the offset, before SwiftUI lays the far rows
+        /// out. Upward it's the cut to the top (`cutToTop`, the status-bar tap's); downward, a cut to the end
+        /// (`cutToEnd`), where the reader follows again. Scrolls that move less than that a frame run as before: VoiceOver's three-finger page, Page Up
+        /// and Page Down, the arrow keys, a scroll-to-visible nearby — and a fling, which UIKit doesn't animate. A
+        /// scroll-to-visible of a row screens away lands at the top or the end rather than on the row: UIKit doesn't
+        /// say where its animation is headed. Never under a finger.
+        ///
+        /// It needs iOS 17.4's `isScrollAnimating` (`AskThreadScrollHandle.foreignScrollIsAnimating`). On iOS
+        /// 17.0–17.3 nothing tells the thread such a scroll is UIKit's, so while an answer streams the holds take it
+        /// back and the reader stays at the end (task 2d's trade-off; measured on 17.0 in task 1d): it never crosses
+        /// the history there; once the answer is done it runs uncut, as before plan 16.
+        private func cutLongForeignScroll(_ scrollView: UIScrollView, from oldOffset: CGFloat?) -> Bool {
+            // While VoiceOver or Switch Control runs every row is laid out (`AskThreadTail.historyCount`), so there
+            // are no estimates to cross, and VoiceOver's long scrolls (a rotor jump) go where its focus goes.
+            guard !UIAccessibility.isVoiceOverRunning, !UIAccessibility.isSwitchControlRunning else { return false }
+            // Not a clamp inside `setContentSize:` (`contentSizePriorPending`): that moves the offset by the content's
+            // change, not by the animation. (Steps between UIKit's frames do come with content-size changes — the lazy
+            // stack re-measuring as rows come into view — and they are the animation's own: SwiftUI doesn't write
+            // offsets of its own during it, in the traces of task 2d.)
+            guard handle.foreignScrollIsAnimating, !contentSizePriorPending, let oldOffset, handle.scrollToTop != nil,
+                  handle.scrollToEnd != nil, !scrollView.isTracking, !scrollView.isDragging else { return false }
+            let step = scrollView.contentOffset.y - oldOffset
+            guard abs(step) > Self.longScrollStep * Self.visibleHeight(scrollView) else { return false }
+            if step < 0 { cutToTop(scrollView) } else { cutToEnd(scrollView) }
+            #if DEBUG
+            scrollLog?.noteLongScrollCut()
+            #endif
+            return true
+        }
+
+        /// A frame of a scroll UIKit animates that moves more than this many screens is a long scroll's
+        /// (`cutLongForeignScroll`): one screen, so two frames' viewports don't even overlap and each lands in rows the
+        /// lazy stack has to place from estimates — the hazard R-1's samples show (the status-bar animation's first
+        /// frame jumped 2.7 screens, 1,659 pt of 616, on iOS 26.5). An animated scroll to the top of the long thread
+        /// moves about 900 pt a frame (17,000 pt in 19); a page scroll a screen in all, over all its frames, so even
+        /// a busy main thread delivering it in one frame isn't more than a screen; a fling, which UIKit doesn't
+        /// animate, and a scroll-to-visible nearby much less a frame. (Speed between KVO callbacks is no measure: two
+        /// offset changes can land in one frame, and a VoiceOver page scroll read as 12 screens a second was cut.)
+        private static let longScrollStep: CGFloat = 1
+
+        /// The thread's cut to its end, for a long scroll heading there (`cutLongForeignScroll`): the reader follows
+        /// again, this turn's holds are dropped, the coordinator writes the content's end at once (`cutWrite`, which
+        /// stops UIKit's animation), and SwiftUI lands on the last row (`AskThreadScrollHandle.scrollToEnd`: the
+        /// thread's own `scrollToEnd`, a laid-out target).
+        private func cutToEnd(_ scrollView: UIScrollView) {
+            handle.isFollowing = true
+            held = nil
+            heldRestores = 0
+            tailHoldTarget = nil
+            cutHeldUntil = 0
+            cutWrite(scrollView, Self.clampedOffset(scrollView, Self.endOffset(scrollView)))
+            handle.scrollToEnd?()
+        }
+
+        /// A cut's own write: `setContentOffset(_:animated: false)`, which also stops a glide or a scroll UIKit is
+        /// animating, as UIKit's own scroll to the top stops them.
+        private func cutWrite(_ scrollView: UIScrollView, _ y: CGFloat) {
+            let outer = ownWrite
+            ownWrite = y
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: false)
+            ownWrite = outer
         }
 
         /// Keeps a hold's offset for the rest of this run-loop turn (the update it was made in, and
@@ -447,11 +564,65 @@ struct AskThreadScrollObserver: UIViewRepresentable {
         private func setOffset(_ scrollView: UIScrollView, _ y: CGFloat) -> CGFloat {
             let target = Self.clampedOffset(scrollView, y)
             if abs(scrollView.contentOffset.y - target) > 0.5 {
-                settingOffset = true
+                let outer = ownWrite
+                ownWrite = target
                 scrollView.contentOffset.y = target
-                settingOffset = false
+                ownWrite = outer
             }
             return target
+        }
+
+        /// A hold (task 1d; task 1c review, M-4). The offset it keeps is recorded for the turn BEFORE it's written,
+        /// so that a write SwiftUI makes inside this one — its delegate answering the move — is an undo like any
+        /// other in a held turn: once the write returns, an offset left elsewhere is put back (`putBackIfUndone`), at
+        /// most 4 times a turn. (Before, a change made during the coordinator's own write was skipped whatever it
+        /// was, and the hold recorded only after it, so a write inside one could stand.) Returns where the hold
+        /// keeps the viewport.
+        @discardableResult
+        private func applyHold(_ scrollView: UIScrollView, to y: CGFloat, following: Bool) -> CGFloat {
+            let target = Self.clampedOffset(scrollView, y)
+            keepHeld(target, following: following)
+            setOffset(scrollView, target)
+            while putBackIfUndone(scrollView) {}
+            return held?.offset ?? target
+        }
+
+        /// Puts this turn's hold back if the offset now undoes it, and returns whether it did — after any move that
+        /// isn't the coordinator's own (`offsetChanged`), and once a hold's own write returns (`applyHold`).
+        ///
+        /// Why put back: in an update that lays the thread out more than once (the lazy history
+        /// re-estimating as the keyboard comes up, say), SwiftUI can set the offset itself after a
+        /// hold, discarding it. On iOS 18.5, after UIKit had clamped the offset inside
+        /// `setContentSize:` as the content shrank, SwiftUI wrote back the offset the update began
+        /// with: tail holds that had kept a reader's line still through +2,990, −544 and +2,534 pt
+        /// were wiped, and the line dropped 1,990 pt (1 run in 3). On iOS 26.5, right after an end hold
+        /// it set an offset of its own: a restored long thread at rest at its end was left 2,637 pt
+        /// short of it when the keyboard came up, every time.
+        ///
+        /// Put back only what a hold of the same kind would still keep, and never under a finger. A
+        /// tail hold (the reader doesn't follow): any move, since then nothing else moves the offset
+        /// programmatically. An end hold (the reader follows): a move up, away from the end, or past
+        /// it — a follower's own jumps and pins only ever go to the end, and those stand.
+        private func putBackIfUndone(_ scrollView: UIScrollView) -> Bool {
+            guard let held, heldRestores < 4, !handle.userIsScrolling, handle.isFollowing == held.following,
+                  !handle.foreignScrollIsAnimating else { return false }
+            let offset = scrollView.contentOffset.y
+            let lastOffset = max(-scrollView.adjustedContentInset.top, Self.endOffset(scrollView))
+            let undone = held.following
+                ? offset < held.offset - 0.5 || offset > lastOffset + 0.5
+                : abs(offset - held.offset) > 0.5
+            // Where the put-back would land: UIKit may have put the offset there already — as the content
+            // shrinks it clamps the offset to the new end, where an end hold aimed — and then nothing was
+            // undone, and nothing moved away (task 2d fix round 1, M-2: in the status-bar test's traces on
+            // iOS 26.5, 51 of 52 put-backs were such no-ops, each holding the next pin off for a beat).
+            let target = Self.clampedOffset(scrollView, held.offset)
+            guard undone, abs(offset - target) > 0.5 else { return false }
+            heldRestores += 1
+            // A move up undone under an end hold may be the first frame of a scroll that isn't
+            // a drag: the next pin waits a beat, so it can go on (see `movedWithoutADrag`).
+            if held.following, offset < target { handle.movedAwayWithoutADragAt = CACurrentMediaTime() }
+            setOffset(scrollView, held.offset)
+            return true
         }
 
         /// `y`, kept between the content's top and its end, as `setOffset` writes it.
@@ -508,8 +679,9 @@ struct AskThreadScrollObserver: UIViewRepresentable {
 /// writing to it never re-renders anything.
 final class AskThreadScrollHandle {
     /// Within this distance of the content's end the viewport is at the end: a drag that comes to
-    /// rest there keeps following, and the end hold applies.
-    static let endSlack: CGFloat = 80
+    /// rest there keeps following, the end hold applies, and so may a shed above the reader (task 1d:
+    /// StashKit's `ChatThreadTail.endSlack`, so the hold and the shed's rule can't disagree about the end).
+    static let endSlack = CGFloat(ChatThreadTail.endSlack)
 
     weak var scrollView: UIScrollView?
     /// The reader follows the thread (see `AskView.isFollowing`).
@@ -528,7 +700,8 @@ final class AskThreadScrollHandle {
 
     /// UIKit is animating a scroll the thread didn't start: VoiceOver's page or scroll-to-visible, Voice
     /// Control's or Full Keyboard Access's (plan 16, task 2d) — not a status-bar tap's, which the thread
-    /// takes itself as a cut (`AskThreadScrollObserver.Coordinator.statusBarTapped`). While it runs, nothing
+    /// takes itself as a cut (`AskThreadScrollObserver.Coordinator.statusBarTapped`); and one that moves more
+    /// than a screen in a frame is cut short at once (task 1d, `cutLongForeignScroll`). While it runs, nothing
     /// holds, puts back or pins — it's let run, and where it goes decides following (`movedWithoutADrag`).
     /// A write to the offset before its first frame retargets it to that offset, and the scroll is lost: on
     /// iOS 17.5 a streamed update's end hold landed between a status-bar tap and its first frame in 4 runs
@@ -553,11 +726,29 @@ final class AskThreadScrollHandle {
     }
     #if DEBUG
     private static let standsInForAssistiveTechnology = ProcessInfo.processInfo.arguments.contains("--uitest-a11y-hooks")
+    /// `--uitest-without-holds` (UI tests only; task 1d, review finding M-2): the observer never subscribes to the
+    /// size-change notifications its holds rest on — a stand-in for UIKit no longer sending them.
+    static let holdsDisabledForTesting = ProcessInfo.processInfo.arguments.contains("--uitest-without-holds")
+    /// The coordinator's `--uitest-scroll-log`, for `AskView` to report the thread's split to (nit N-d).
+    var scrollLog: AskThreadScrollLog?
     #endif
 
     /// SwiftUI's scroll to the thread's top, set by `AskView` from inside its `ScrollViewReader`: the
     /// thread's cut when the status bar is tapped (`AskThreadScrollObserver.Coordinator.statusBarTapped`).
     var scrollToTop: (() -> Void)?
+    /// SwiftUI's scroll to the thread's end — the last row, as `AskView.scrollToEnd` lands it — set beside
+    /// `scrollToTop`: the thread's cut to its end for a long scroll heading there (task 1d,
+    /// `AskThreadScrollObserver.Coordinator.cutLongForeignScroll`).
+    var scrollToEnd: (() -> Void)?
+    /// When `AskView` last asked SwiftUI to scroll to the end (a pin, a send's jump, a landing). SwiftUI lands it a
+    /// layout pass later, so a cut made just after one holds its top against it (task 2d re-review, N-2).
+    var pinRequestedAt: CFTimeInterval = 0
+    /// The scroll observer has seen the notifications its holds rest on: a content-size change's prior and after
+    /// notifications, in that order (task 1d, review finding M-2). Every shed above the reader waits for it
+    /// (`ChatThreadTail.canShedAtTheEnd`): if UIKit stopped sending them, the holds would vanish without a sound
+    /// and each such shed would show displaced for a frame, where no shed only lets the tail grow — as task 1b's
+    /// did — which moves nothing.
+    var holdsSeen = false
     /// The laid-out tail's height (task 1c), measured as it changes — how far above the end the
     /// tail's first row is, for the observer's tail hold and a send's classification
     /// (`ChatThreadTail.sendJump`).
@@ -571,6 +762,18 @@ final class AskThreadScrollHandle {
     var userIsScrolling: Bool {
         guard let scrollView else { return false }
         return scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
+    }
+
+    /// Something other than the thread's own jumps moves it now — a finger, the glide after one, or a scroll
+    /// UIKit animates that the thread didn't start — so the end hold doesn't apply (task 1d; StashKit's
+    /// `ChatThreadTail.canShedAtTheEnd`).
+    var isBeingScrolled: Bool { userIsScrolling || foreignScrollIsAnimating }
+
+    /// Any scroll of the thread is animating, the thread's own eased jump included (iOS 17.4 and later; before
+    /// that nothing tells): a jump that hasn't landed yet (task 1d).
+    var scrollIsAnimating: Bool {
+        guard #available(iOS 17.4, *), let scrollView else { return false }
+        return scrollView.isScrollAnimating
     }
 
     /// Where the viewport is: its bottom's distance from the content's end (never negative), and its
@@ -587,14 +790,22 @@ final class AskThreadScrollHandle {
 /// on to it, except a tap on the status bar (plan 16, task 2d fix round 1, C-1): the thread takes that itself
 /// (`AskThreadScrollObserver.Coordinator.statusBarTapped`), so UIKit's animated scroll to the top never runs
 /// across the lazy history. SwiftUI's delegate is kept here, strongly: the scroll view only holds this one
-/// weakly, and a message forwarded to a delegate that had gone would crash.
+/// weakly, and a message forwarded to a delegate that had gone would crash. And this one is kept by the scroll
+/// view itself (`retain(on:)`, task 1d; task 2d re-review, N-1), so it — and SwiftUI's delegate with it — lives
+/// exactly as long as the scroll view, whatever becomes of the coordinator that made it.
 private final class AskThreadStatusBarDelegate: NSObject, UIScrollViewDelegate {
     let swiftUIDelegate: any UIScrollViewDelegate
     private weak var coordinator: AskThreadScrollObserver.Coordinator?
+    private static var retainKey: UInt8 = 0
 
     init(swiftUIDelegate: any UIScrollViewDelegate, coordinator: AskThreadScrollObserver.Coordinator) {
         self.swiftUIDelegate = swiftUIDelegate
         self.coordinator = coordinator
+    }
+
+    /// Kept by `scrollView` from now on (an associated object): a later stand-in replaces this one there.
+    func retain(on scrollView: UIScrollView) {
+        objc_setAssociatedObject(scrollView, &Self.retainKey, self, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
     override func responds(to aSelector: Selector!) -> Bool {
@@ -614,26 +825,38 @@ private final class AskThreadStatusBarDelegate: NSObject, UIScrollViewDelegate {
 }
 
 #if DEBUG
-/// `--uitest-scroll-log` (UI tests only; plan 16, task 2d fix round 1): what moved the thread without a drag —
-/// the frames of scrolls UIKit animated that the thread didn't start, and the status-bar taps it cut to the
-/// top — as the label of an invisible element on the thread's window, `ask.debug.scrollLog`: "animated N ·
-/// cut M". A UIKit view, so updating it re-renders nothing. Compiled out of Release.
-private final class AskThreadScrollLog {
+/// `--uitest-scroll-log` (UI tests only; plan 16, task 2d fix round 1; task 1d): what moved the thread without a
+/// drag, and how its delegate stand-in fares, as the label of an invisible element on the thread's window,
+/// `ask.debug.scrollLog`: "animated N · cut M · long L · rewrap R · nested W" — the frames of scrolls UIKit
+/// animated that the thread didn't start, the status-bar taps it cut to the top, the long animated scrolls it cut
+/// short (`cutLongForeignScroll`), the times the scroll view was given a new delegate (`takeStatusBarTaps`), and
+/// the writes made inside the coordinator's own (review finding M-4). Its value is the class of the delegate the
+/// stand-in wraps — SwiftUI's — probed on each OS. A second element, `ask.debug.tail`, is the thread's split
+/// (task 1c review, nit N-d): "history H · rows R", the lazy history's rows and the laid-out tail's. UIKit views,
+/// so updating them re-renders nothing. Compiled out of Release.
+final class AskThreadScrollLog {
     static let isEnabled = ProcessInfo.processInfo.arguments.contains("--uitest-scroll-log")
 
-    private let element: UIView = {
+    private let element = AskThreadScrollLog.marker("ask.debug.scrollLog")
+    private let tailElement = AskThreadScrollLog.marker("ask.debug.tail")
+    private var animatedFrames = 0
+    private var cuts = 0
+    private var longScrollCuts = 0
+    private var rewraps = 0
+    private var nestedWrites = 0
+
+    private static func marker(_ identifier: String) -> UIView {
         let view = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
         view.isUserInteractionEnabled = false
         view.isAccessibilityElement = true
-        view.accessibilityIdentifier = "ask.debug.scrollLog"
+        view.accessibilityIdentifier = identifier
         return view
-    }()
-    private var animatedFrames = 0
-    private var cuts = 0
+    }
 
     func attach(to window: UIWindow?) {
         guard let window, element.window !== window else { return }
         window.addSubview(element)
+        window.addSubview(tailElement)
         update()
     }
 
@@ -647,8 +870,42 @@ private final class AskThreadScrollLog {
         update()
     }
 
+    func noteLongScrollCut() {
+        longScrollCuts += 1
+        update()
+    }
+
+    func noteRewrap() {
+        rewraps += 1
+        update()
+    }
+
+    func noteNestedWrite() {
+        nestedWrites += 1
+        update()
+    }
+
+    func noteDelegate(_ name: String) {
+        element.accessibilityValue = name
+    }
+
+    func noteSplit(history: Int, total: Int) {
+        tailElement.accessibilityLabel = "history \(history) · rows \(total - history)"
+    }
+
+    /// The thread's geometry as the app has it, as the tail element's value: for a UI test's failure diagnostics
+    /// (task 1d; task 2d review, I-2) to set against the frames XCUITest reports.
+    func noteGeometry(_ scrollView: UIScrollView, following: Bool) {
+        let insets = scrollView.adjustedContentInset
+        let endGap = scrollView.contentSize.height + insets.bottom - scrollView.bounds.height - scrollView.contentOffset.y
+        tailElement.accessibilityValue = String(format: "offset %.1f · content %.1f · viewport %.1f · end gap %.1f · %@",
+                                                scrollView.contentOffset.y, scrollView.contentSize.height,
+                                                scrollView.bounds.height, endGap, following ? "following" : "not following")
+    }
+
     private func update() {
-        element.accessibilityLabel = "animated \(animatedFrames) · cut \(cuts)"
+        element.accessibilityLabel = "animated \(animatedFrames) · cut \(cuts) · long \(longScrollCuts) · rewrap \(rewraps)"
+            + " · nested \(nestedWrites)"
     }
 }
 #endif
@@ -686,15 +943,21 @@ struct AskBubbleTextGauge: View {
 /// holds the split for the thread on screen and the measurements the rule needs.
 ///
 /// The split is read during `body`, and set there for a new thread (keyed by its first row), so a
-/// thread's first render already has it. Rows only ever move from the tail into the history, at two
-/// moments, both when the rows that move are off screen:
+/// thread's first render already has it. Rows only ever move from the tail into the history, a whole
+/// exchange at a time (task 1d: `ChatThreadTail.tailStart` never starts the tail at an answer whose
+/// question is just before it), and only when the rows that move are off screen:
 /// - a send from above the whole tail (`ChatThreadTail.sendJump`): they're below the reader, and the
 ///   jump lands on the new rows;
-/// - an answer completing with the reader following at its end: they're above the reader, and the
-///   scroll observer holds the end through that layout pass (`AskThreadScrollObserver`). Task 1b
-///   measured a one-frame flash of 1,070–1,517 pt when it shed there without the hold, so it didn't:
-///   new exchanges piled up in the tail while the reader followed, and each one kept laid out added
-///   about ten dropped frames to every later streamed answer.
+/// - with the reader following at the end, the scroll observer holding the end through that layout pass
+///   (`AskThreadScrollObserver`; `ChatThreadTail.canShedAtTheEnd`), the rows being above the reader: when an
+///   answer completes there (task 1c); (task 1d, review finding M-1) when a question is sent from there,
+///   or, sent from inside the tail, once its jump has landed there (`shedOnLandingPending`) — so a reader who
+///   drags away while answers stream no longer keeps every exchange laid out; and (task 1d, the I-1 ruling)
+///   while an answer streams there, once its exchange alone covers the budget
+///   (`ChatThreadTail.lastExchangeCoversTheBudget`). Task 1b measured a one-frame
+///   flash of 1,070–1,517 pt when it shed at the end without the hold, so it didn't: new exchanges piled up in
+///   the tail while the reader followed, and each one kept laid out added about ten dropped frames to every
+///   later streamed answer. None of these sheds happens until the observer has seen its holds work (M-2).
 ///
 /// A moved row is rebuilt and loses its own state, as a lazy row scrolled far away sometimes does
 /// anyway; a given rating lives in `ChatRatings`, so it stays.
@@ -726,6 +989,10 @@ final class AskThreadTail {
     @ObservationIgnored private var tallestViewport: CGFloat = 0
     /// Bumped by `shed`, so the thread re-renders with the new split.
     private var sheds = 0
+    /// The last send shed nothing before its jump (`ChatThreadTail.SendJump.shedsOnLanding`), so the tail sheds
+    /// once the jump has landed at the end (task 1d; `AskView.followThread`). Unobserved: setting it re-renders
+    /// nothing.
+    @ObservationIgnored var shedOnLandingPending = false
 
     func noteViewport(_ size: CGSize) {
         viewport = size
@@ -761,7 +1028,7 @@ final class AskThreadTail {
         return historyEnd
     }
 
-    /// Moves the rows the tail no longer needs into the history — only at the two moments above, and
+    /// Moves the rows the tail no longer needs into the history — only at the moments above, and
     /// never while every row is laid out.
     func shed(_ messages: [ChatMessage]) {
         guard !laysOutEverything else { return }

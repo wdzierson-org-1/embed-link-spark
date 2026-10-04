@@ -178,13 +178,21 @@ final class A11yAskUITests: XCTestCase {
         let search = app.textFields["convos.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 10), "No Conversations search")
         sleep(1)
-        // 6 pt above the field's own line, inside the 44 pt pill (task 2d review, M-1): the band the pill's
-        // padding ring used to leave dead, between the field's own touch area (up to 4 pt out, iOS 26.5) and
-        // the ring (7 pt out and beyond, from the pill's 4 pt padding).
-        A11yScreens.tap(app, at: CGPoint(x: search.frame.minX + 30, y: search.frame.minY - 6))
-        let searchFocused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: search)
-        XCTAssertEqual(XCTWaiter().wait(for: [searchFocused], timeout: 3), .completed,
-                       "A tap on the search pill's padding should focus the field")
+        // 5, 6 and 7 pt above the field's own line, inside the 44 pt pill (task 2d review, M-1): the band the
+        // pill's padding ring used to leave dead, between the field's own touch area (up to 4 pt out, iOS 26.5)
+        // and the ring (7 pt out and beyond, from the pill's 4 pt padding). A tap a point apart across the band,
+        // each from an unfocused field (task 2d re-review, N-3: one tap at 6 pt missed the band when the field
+        // was reported 2 pt off, and passed on the code it guards against).
+        for gap in [5, 6, 7] as [CGFloat] {
+            A11yScreens.tap(app, at: CGPoint(x: search.frame.minX + 30, y: search.frame.minY - gap))
+            let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: search)
+            XCTAssertEqual(XCTWaiter().wait(for: [focused], timeout: 3), .completed,
+                           "A tap \(gap) pt above the search field, on the pill's padding, should focus the field")
+            search.typeText("\n")   // Return ends the edit: the next tap starts from an unfocused field
+            let unfocused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == false"), object: search)
+            XCTAssertEqual(XCTWaiter().wait(for: [unfocused], timeout: 3), .completed,
+                           "Return should take the search field's focus away")
+        }
         A11yScreens.tapUntilFocused(search)
         search.typeText("conversation")
         let clear = app.buttons["convos.search.clear"]
@@ -277,8 +285,14 @@ final class A11yAskUITests: XCTestCase {
     /// Each tap is a cut to the top — the thread's own jump to a laid-out target — and UIKit never animates
     /// it (task 2d fix round 1, C-1): on iOS 26.5, UIKit's animated scroll through the lazy history, while an
     /// answer grew below, stopped the app's main thread for minutes now and then. The DEBUG scroll log
-    /// (`--uitest-scroll-log`) counts the frames of scrolls UIKit animated that the thread didn't start, and
-    /// the cuts. One tap each, never a second try: a tap the thread absorbs is the bug (task 2d review, M-4).
+    /// (`--uitest-scroll-log`) counts the frames of scrolls UIKit animated that the thread didn't start, the
+    /// cuts the status bar asked for, and the long animated scrolls the thread cut short. One tap each, never a
+    /// second try: a tap the thread absorbs is the bug (task 2d review, M-4).
+    ///
+    /// Task 1d (task 2d re-review, N-1): the cut must come from the thread's delegate stand-in taking the tap —
+    /// `cut`, never `long` (the backstop that cuts UIKit's animation short once it has started) — and the scroll
+    /// view must keep the stand-in throughout (`rewrap 0`): the test fails the moment the interception stops.
+    /// The class the stand-in wraps — SwiftUI's own delegate — is printed for each OS.
     @MainActor
     func testAStatusBarTapWhileAnAnswerStreamsLeavesTheEnd() throws {
         let screens = A11yScreens(self)
@@ -290,19 +304,21 @@ final class A11yAskUITests: XCTestCase {
         XCTAssertTrue(Self.element(app, "ask.bubble.15.thumbsUp").waitForExistence(timeout: 10), "The long thread should load")
         let scrollLog = Self.element(app, "ask.debug.scrollLog")
         XCTAssertTrue(scrollLog.waitForExistence(timeout: 5), "The DEBUG scroll log is missing")
+        print("A11Y the thread's scroll view delegate, wrapped: \(scrollLog.value as? String ?? "none") "
+              + "(\(ProcessInfo.processInfo.operatingSystemVersionString))")
         sleep(2)
         let top = Self.element(app, "ask.bubble.0")
         Self.tapStatusBar(app)
         XCTAssertTrue(Self.waitUntilVisible(top, in: thread, timeout: 5),
                       "Control: at rest, a status-bar tap should scroll the thread to its top")
-        XCTAssertEqual(scrollLog.label, "animated 0 · cut 1",
-                       "At rest, a status-bar tap should cut the thread to its top, never animate through it")
+        Self.assertScrollLog(scrollLog, ["animated": 0, "cut": 1, "long": 0, "rewrap": 0],
+                             "At rest, a status-bar tap should cut the thread to its top, never animate through it")
 
         let answer = try startAnAnswerFromTheEnd(app, thread, question: "Status bar question")
         XCTAssertTrue(leaveTheEnd({ Self.tapStatusBar(app) }, timeout: 5, left: { Self.isVisible(top, in: thread) }),
                       "A status-bar tap should scroll the thread to its top")
-        XCTAssertEqual(scrollLog.label, "animated 0 · cut 2",
-                       "While an answer streams, a status-bar tap should cut the thread to its top, never animate through it")
+        Self.assertScrollLog(scrollLog, ["animated": 0, "cut": 2, "long": 0, "rewrap": 0],
+                             "While an answer streams, a status-bar tap should cut the thread to its top, never animate through it")
         XCTAssertTrue(Self.isStreaming(app, answer: answer), "The status-bar tap must land while the answer streams")
         sleep(3)   // a dozen streamed updates
         XCTAssertTrue(Self.isVisible(top, in: thread),
@@ -311,6 +327,9 @@ final class A11yAskUITests: XCTestCase {
         sleep(2)   // past the completion's settle pins
         XCTAssertTrue(Self.isVisible(top, in: thread),
                       "The settle after the answer pulled the reader back to the end after a status-bar tap")
+        Self.assertScrollLog(scrollLog, ["rewrap": 0], "The thread's scroll view kept its delegate stand-in throughout")
+        // `nested`: writes made inside the coordinator's own (task 1c review, M-4), for the record.
+        print("A11Y scroll log at the end: \(scrollLog.label)")
     }
 
     /// VoiceOver's three-finger swipe while an answer streams scrolls the thread up a page, and the
@@ -319,16 +338,22 @@ final class A11yAskUITests: XCTestCase {
     /// accessibility scroll, so DEBUG controls (`--uitest-a11y-hooks`) scroll the thread's scroll view
     /// as VoiceOver does — UIKit's own `accessibilityScroll(.up)`, or its animated page when that isn't
     /// loaded (no assistive technology runs on the Simulator) — never a drag.
+    ///
+    /// On iOS 17.0–17.3 the page scroll is taken back (`threadSeesForeignScrollAnimations`): OPEN there, and
+    /// expected — this checks the reader stays at the end, following, instead.
     @MainActor
     func testAVoiceOverScrollUpWhileAnAnswerStreamsLeavesTheEnd() throws {
         let screens = A11yScreens(self)
         try screens.signIn()
         // `--uitest-scripted-slow`: a 23 s answer, room for the slow snapshots below while it streams.
         let app = screens.launch(.large, tab: .ask, arguments: ["--uitest-scripted-chat", "--uitest-scripted-long-thread",
-                                                                "--uitest-scripted-slow", "--uitest-a11y-hooks"])
+                                                                "--uitest-scripted-slow", "--uitest-a11y-hooks",
+                                                                "--uitest-scroll-log"])
         let thread = app.scrollViews["ask.thread"]
         XCTAssertTrue(thread.waitForExistence(timeout: 10), "Ask thread did not appear")
         XCTAssertTrue(Self.element(app, "ask.bubble.15.thumbsUp").waitForExistence(timeout: 10), "The long thread should load")
+        let scrollLog = Self.element(app, "ask.debug.scrollLog")
+        XCTAssertTrue(scrollLog.waitForExistence(timeout: 5), "The DEBUG scroll log is missing")
         sleep(2)
         let answer = try startAnAnswerFromTheEnd(app, thread, question: "VoiceOver question")
         let streamingEnd = app.buttons["ask.bubble.\(answer).speak"]   // the streaming answer's actions row
@@ -336,9 +361,16 @@ final class A11yAskUITests: XCTestCase {
         let scrollToEnd = app.buttons["ask.debug.voiceOverScrollToEnd"]
         XCTAssertTrue(scrollUp.exists && scrollToEnd.exists, "The DEBUG accessibility-scroll controls are missing")
 
-        XCTAssertTrue(leaveTheEnd({ scrollUp.tap() }, timeout: 3, left: { !Self.isVisible(streamingEnd, in: thread) }),
-                      "An accessibility scroll up should move the thread off its end")
+        let left = leaveTheEnd({ scrollUp.tap() }, timeout: 3, left: { !Self.isVisible(streamingEnd, in: thread) })
+        guard Self.threadSeesForeignScrollAnimations else {
+            expectAbsorbed(left, "An accessibility scroll up should move the thread off its end", streamingEnd, thread)
+            return
+        }
+        XCTAssertTrue(left, "An accessibility scroll up should move the thread off its end")
         usleep(500_000)   // the page scroll's animation
+        // A page at a time is never taken for a long scroll (task 1d, `cutLongForeignScroll`): it runs as UIKit
+        // animates it, never cut short to the top.
+        Self.assertScrollLog(scrollLog, ["long": 0, "cut": 0], "A VoiceOver page scroll should never be cut short")
         XCTAssertTrue(Self.isStreaming(app, answer: answer), "The scroll must land while the answer streams")
         let reading = try XCTUnwrap(Self.centredLine(of: "ask.bubble.", in: thread),
                                     "The page scroll should land on the thread's text")
@@ -356,9 +388,82 @@ final class A11yAskUITests: XCTestCase {
                       "Scrolling to the end should reach the end")
         XCTAssertTrue(Self.isStreaming(app, answer: answer), "Back at the end while the answer still streams")
         sleep(2)
-        XCTAssertTrue(Self.isVisible(streamingEnd, in: thread),
+        // Until seen, for up to 2 s: one read of a streaming answer's end can catch XCUITest's lagging frame
+        // (see `startAnAnswerFromTheEnd`).
+        XCTAssertTrue(Self.waitUntilVisible(streamingEnd, in: thread, timeout: 2),
                       "Back at the end without a drag, the reader should follow the answer again")
         XCTAssertTrue(Self.waitUntilEnabled(app.buttons["ask.newChat"], timeout: 20), "The answer never completed")
+        sleep(2)
+        XCTAssertTrue(Self.isVisible(app.buttons["ask.bubble.\(answer).thumbsUp"], in: thread),
+                      "Following again, the thread should end on the finished answer's actions")
+    }
+
+    /// Task 1d (task 2d re-review, "the unheld animated paths"): a scroll UIKit animates all the way to the top or
+    /// to the end while an answer streams in a long thread — what a keyboard's Home and End do (a hardware
+    /// keyboard, Full Keyboard Access), and Voice Control's "scroll to top" and "scroll to bottom" — is the
+    /// thread's own cut, as the status-bar tap is. UIKit's animation, thousands of points a frame across the lazy
+    /// history while the answer grows, is what set off SwiftUI's lazy-stack loop on iOS 26.5 (task 2d fix round 1,
+    /// R-1's samples). The thread cuts it at its first frame that jumps more than a screen (`long 1`); the
+    /// reader stays
+    /// at the top while the answer streams on; and from there the scroll to the end
+    /// lands on the streaming answer, which they follow again. XCUITest can drive none of those, so DEBUG controls
+    /// (`--uitest-a11y-hooks`) start UIKit's animated scroll to the top and to the end as they do.
+    ///
+    /// The cut needs iOS 17.4's `isScrollAnimating`. On iOS 17.0–17.3 the scroll is taken back instead
+    /// (`threadSeesForeignScrollAnimations`) — it never crosses the history, so there's nothing to cut: OPEN there,
+    /// and expected — this checks the reader stays at the end, following, instead.
+    @MainActor
+    func testALongAnimatedScrollWhileAnAnswerStreamsIsACut() throws {
+        let screens = A11yScreens(self)
+        try screens.signIn()
+        // `--uitest-scripted-slow`: a 23 s answer, room for both scrolls and the checks while it streams.
+        let app = screens.launch(.large, tab: .ask, arguments: ["--uitest-scripted-chat", "--uitest-scripted-long-thread",
+                                                                "--uitest-scripted-slow", "--uitest-a11y-hooks",
+                                                                "--uitest-scroll-log"])
+        let thread = app.scrollViews["ask.thread"]
+        XCTAssertTrue(thread.waitForExistence(timeout: 10), "Ask thread did not appear")
+        XCTAssertTrue(Self.element(app, "ask.bubble.15.thumbsUp").waitForExistence(timeout: 10), "The long thread should load")
+        let scrollLog = Self.element(app, "ask.debug.scrollLog")
+        XCTAssertTrue(scrollLog.waitForExistence(timeout: 5), "The DEBUG scroll log is missing")
+        sleep(2)
+        let answer = try startAnAnswerFromTheEnd(app, thread, question: "Keyboard question")
+        let toTop = app.buttons["ask.debug.keyboardScrollToTop"]
+        let toEnd = app.buttons["ask.debug.keyboardScrollToEnd"]
+        XCTAssertTrue(toTop.exists && toEnd.exists, "The DEBUG keyboard-scroll controls are missing")
+
+        let top = Self.element(app, "ask.bubble.0")
+        toTop.tap()
+        let reachedTheTop = Self.waitUntilVisible(top, in: thread, timeout: 5)
+        guard Self.threadSeesForeignScrollAnimations else {
+            expectAbsorbed(reachedTheTop, "The scroll to the top should reach the top",
+                           app.buttons["ask.bubble.\(answer).speak"], thread)
+            return
+        }
+        XCTAssertTrue(reachedTheTop, "The scroll to the top should reach the top")
+        Self.assertScrollLog(scrollLog, ["long": 1, "cut": 0, "rewrap": 0],
+                             "The animated scroll to the top should be cut short at once")
+        // Cut at its first frame that jumps more than a screen, so no such jump into the history's estimates ever
+        // lands: how many smaller frames came first depends on UIKit's curve and the frame timing, so it's recorded,
+        // not asserted. Without the cut, `long 0` (the RED run: 19 frames to the top).
+        print("A11Y the scroll to the top, cut: \(scrollLog.label)")
+        XCTAssertTrue(Self.isStreaming(app, answer: answer), "The scroll to the top must land while the answer streams")
+        sleep(3)   // half a dozen streamed updates
+        XCTAssertTrue(Self.isVisible(top, in: thread),
+                      "The streaming answer pulled the reader back to the end after the scroll to the top")
+
+        let streamingEnd = app.buttons["ask.bubble.\(answer).speak"]
+        toEnd.tap()
+        XCTAssertTrue(Self.waitUntilVisible(streamingEnd, in: thread, timeout: 5),
+                      "The scroll to the end should reach the streaming answer's end")
+        Self.assertScrollLog(scrollLog, ["long": 2, "cut": 0, "rewrap": 0],
+                             "The animated scroll to the end should be cut short at once")
+        print("A11Y the scroll to the end, cut: \(scrollLog.label)")
+        XCTAssertTrue(Self.isStreaming(app, answer: answer), "Back at the end while the answer still streams")
+        sleep(3)
+        // Until seen, for up to 2 s (see `startAnAnswerFromTheEnd`).
+        XCTAssertTrue(Self.waitUntilVisible(streamingEnd, in: thread, timeout: 2),
+                      "Back at the end, the reader should follow the answer again")
+        XCTAssertTrue(Self.waitUntilEnabled(app.buttons["ask.newChat"], timeout: 30), "The answer never completed")
         sleep(2)
         XCTAssertTrue(Self.isVisible(app.buttons["ask.bubble.\(answer).thumbsUp"], in: thread),
                       "Following again, the thread should end on the finished answer's actions")
@@ -442,9 +547,80 @@ final class A11yAskUITests: XCTestCase {
         XCTAssertTrue(newChat.waitForExistence(timeout: 5), "The circles should be back", file: file, line: line)
         sleep(1)
         XCTAssertTrue(Self.isStreaming(app, answer: answer), "The answer should still be streaming", file: file, line: line)
-        XCTAssertTrue(Self.isVisible(app.buttons["ask.bubble.\(answer).speak"], in: thread),
-                      "The reader should be following the answer", file: file, line: line)
+        // Looked for until seen, for up to 2 s (task 1d; task 2d review, I-2): while an answer streams, XCUITest
+        // is now and then handed a frame for its actions that lags the screen by what last streamed in (266.7 pt
+        // just after the scripted ten-line burst, on iOS 26.5) — with the row drawn at the bottom of the screen
+        // in every display frame and the next read right. One read failed the check in 1–4 of 10 far sends, with
+        // or without the thread's holds. A thread that really isn't following still fails it.
+        let following = Self.waitUntilVisible(app.buttons["ask.bubble.\(answer).speak"], in: thread, timeout: 2)
+        if !following { recordTheEnd(app, thread, answer: answer, "the reader should be following the answer") }
+        XCTAssertTrue(following, "The reader should be following the answer", file: file, line: line)
         return answer
+    }
+
+    /// When the check that the reader follows a streaming answer fails (task 1d; task 2d review, I-2), what the
+    /// screen and the app held then, so a blank thread, a short one and a misread right one can be told apart:
+    /// a screenshot at once, before any other query; from ONE snapshot of the app, the answer's own elements'
+    /// frames, the thread's frame and the rows centred in it; and, under `--uitest-scroll-log`, the app's own
+    /// split and geometry (`ask.debug.tail`: the viewport's distance from the content's end, following or not).
+    @MainActor
+    private func recordTheEnd(_ app: XCUIApplication, _ thread: XCUIElement, answer: Int, _ context: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "end not shown: \(context)"
+        shot.lifetime = .keepAlways
+        add(shot)
+        var report = "\(context):"
+        if let snapshot = try? app.snapshot() {
+            var threadFrame = CGRect.null
+            var rows: [(identifier: String, frame: CGRect)] = []
+            func visit(_ node: XCUIElementSnapshot) {
+                if node.identifier == "ask.thread", node.elementType == .scrollView { threadFrame = node.frame }
+                if node.identifier.hasPrefix("ask.bubble.") { rows.append((node.identifier, node.frame)) }
+                node.children.forEach(visit)
+            }
+            visit(snapshot)
+            let own = rows.filter { $0.identifier == "ask.bubble.\(answer)" || $0.identifier.hasPrefix("ask.bubble.\(answer).") }
+            let centred = Set(rows.filter { threadFrame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+                .map { $0.identifier.split(separator: ".").prefix(3).joined(separator: ".") })
+            report += " thread \(threadFrame.integral); answer \(answer)'s elements "
+                + own.suffix(6).map { "\($0.identifier) \($0.frame.integral)" }.joined(separator: ", ")
+                + "; rows centred in the thread \(centred.sorted())"
+        } else {
+            report += " no snapshot of the app"
+        }
+        for identifier in ["ask.debug.tail", "ask.debug.scrollLog"] {
+            let marker = Self.element(app, identifier)
+            if marker.exists { report += "; \(identifier) \"\(marker.label)\" [\(marker.value as? String ?? "")]" }
+        }
+        print("A11Y end not shown: \(report)")
+        XCTContext.runActivity(named: "End not shown — \(report)") { _ in }
+    }
+
+    /// Whether the thread can tell that UIKit is animating a scroll it didn't start — `UIScrollView.isScrollAnimating`,
+    /// iOS 17.4 and later (`AskThreadScrollHandle.foreignScrollIsAnimating`). On iOS 17.0–17.3 it can't, so while an
+    /// answer streams its holds take each frame of such a scroll back, and the reader stays at the end, following,
+    /// until the answer completes: task 2d's disclosed trade-off, for a keyboard's or Voice Control's scroll and —
+    /// with `--uitest-a11y-hooks` standing in — VoiceOver's page scroll too. OPEN on those versions. Measured on
+    /// iOS 17.0 (task 1d, `probe170-170`): after the keyboard's scroll to the top, and after VoiceOver's page up,
+    /// the thread was 0.0 pt from its end, following, at every read over the next 3.2 s, the answer streaming on
+    /// and the app answering each query (no stall); HEAD's code failed the page up the same way, 2 runs of 2.
+    static var threadSeesForeignScrollAnimations: Bool {
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 17, minorVersion: 4, patchVersion: 0))
+    }
+
+    /// iOS 17.0–17.3 (`threadSeesForeignScrollAnimations`): the scroll's check is an expected failure, strict — the
+    /// day the scroll gets through there, this fails and says so — and the reader must still be at the end,
+    /// following the streaming answer: taken back, not stalled. Ends the test's checks.
+    @MainActor
+    private func expectAbsorbed(_ moved: Bool, _ check: String, _ streamingEnd: XCUIElement, _ thread: XCUIElement,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        continueAfterFailure = true
+        XCTExpectFailure("OPEN on iOS 17.0–17.3: while an answer streams, the thread's holds take back a scroll UIKit "
+                         + "animates (no isScrollAnimating before 17.4)") {
+            XCTAssertTrue(moved, check, file: file, line: line)
+        }
+        XCTAssertTrue(Self.waitUntilVisible(streamingEnd, in: thread, timeout: 2),
+                      "Taken back, the reader should be at the end still, following the answer", file: file, line: line)
     }
 
     /// Makes a scroll that isn't a drag from the end of a streaming answer — once — and waits until `left`
@@ -514,7 +690,12 @@ final class A11yAskUITests: XCTestCase {
             let threadFrame = measures && thread.exists ? thread.frame : nil
             return found.map { finding in
                 var line = finding.line
-                if let contrast = finding.contrast {
+                if let contrast = finding.contrast, contrast.identifier.isEmpty, contrast.label.isEmpty, contrast.frame == nil {
+                    // The audit named no element (task 2d re-review, N-4): nothing on screen to find or to measure.
+                    // (Matching on an empty identifier and label found every unnamed node, whole windows among
+                    // them, and logged their contrast as this finding's.)
+                    line += " | no element, not measured"
+                } else if let contrast = finding.contrast {
                     let now = snapshot.map { Self.frames(in: $0, identifier: contrast.identifier, label: contrast.label) } ?? []
                     let frames = now.isEmpty ? [contrast.frame].compactMap { $0 } : now
                     if let threadFrame, contrast.identifier.hasPrefix("ask.bubble."), !frames.isEmpty,
@@ -533,8 +714,10 @@ final class A11yAskUITests: XCTestCase {
         return ["\(screen) \(variant) | Audit did not complete | \(failure)"]
     }
 
-    /// The frames of the elements in `snapshot` with `identifier` and `label`.
+    /// The frames of the elements in `snapshot` with `identifier` and `label` — none for an element with neither,
+    /// which would match every unnamed node (task 2d re-review, N-4).
     private static func frames(in snapshot: XCUIElementSnapshot, identifier: String, label: String) -> [CGRect] {
+        guard !identifier.isEmpty || !label.isEmpty else { return [] }
         var frames: [CGRect] = []
         var stack = [snapshot]
         while let node = stack.popLast() {
@@ -687,6 +870,28 @@ final class A11yAskUITests: XCTestCase {
     @MainActor
     static func tapStatusBar(_ app: XCUIApplication) {
         A11yScreens.tap(app, at: CGPoint(x: 40, y: 18))
+    }
+
+    /// The DEBUG scroll log's counts, by name (`AskThreadScrollLog`: "animated N · cut M · long L · rewrap R ·
+    /// nested W").
+    static func scrollLogCounts(_ label: String) -> [String: Int] {
+        var counts: [String: Int] = [:]
+        for part in label.components(separatedBy: " · ") {
+            let words = part.split(separator: " ")
+            if words.count == 2, let value = Int(words[1]) { counts[String(words[0])] = value }
+        }
+        return counts
+    }
+
+    /// Each count named in `expected` is the scroll log's.
+    @MainActor
+    static func assertScrollLog(_ log: XCUIElement, _ expected: [String: Int], _ message: String,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        let label = log.label
+        let counts = scrollLogCounts(label)
+        for (name, value) in expected.sorted(by: { $0.key < $1.key }) {
+            XCTAssertEqual(counts[name], value, "\(message): \(name) (log \"\(label)\")", file: file, line: line)
+        }
     }
 }
 

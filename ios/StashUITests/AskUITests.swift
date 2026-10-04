@@ -315,6 +315,13 @@ final class AskUITests: XCTestCase {
                       "The send from just up should follow its answer to the end")
         XCTAssertTrue(isVisible(element(app, "ask.bubble.\(answer).thumbsUp"), in: thread),
                       "The send from just up should end on its answer's actions row")
+
+        // Task 1d (task 1c review, M-3, V-b): back up the thread from the end, the reader crosses the lazy
+        // history's estimates; six slow drags up each land on rows of the thread, never on blank estimated space.
+        for swipe in 1...6 {
+            thread.swipeDown(velocity: .slow)
+            assertThreadShowsABubble(app, thread, "after slow drag \(swipe) up from the end")
+        }
     }
 
     /// Task 1c: a reader who has scrolled a little way up the last answer — inside the laid-out tail,
@@ -451,6 +458,45 @@ final class AskUITests: XCTestCase {
         }
         XCTAssertTrue(isVisible(thumbsUp, in: thread), "Couldn't scroll back up to answer 1's thumbs")
         XCTAssertFalse(thumbsUp.isEnabled, "The thumb given to answer 1 should still be given after answer 2")
+    }
+
+    /// Task 1d (review findings M-2 and M-1; nit N-d): after each answer the reader follows to its end, the
+    /// laid-out tail is back to its budget — the last exchange, two rows here — and only because the scroll
+    /// observer's holds work. `--uitest-without-holds` stands in for UIKit no longer sending the size-change
+    /// notifications they rest on: then nothing sheds above the reader, and the tail grows by an exchange an
+    /// answer, as task 1b's did (which never moves what the reader sees), while the reader still follows each
+    /// answer to its end. Before, every followed completion shed whether or not a hold covered it, and nothing
+    /// would have noticed the holds were gone. The DEBUG marker `ask.debug.tail` (`--uitest-scroll-log`) reports
+    /// the split: "history H · rows R".
+    func testTheTailShedsAfterEachFollowedAnswerOnlyWhileItsHoldsWork() throws {
+        for holdsWork in [true, false] {
+            let app = XCUIApplication()
+            try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat", "--uitest-scroll-log"]
+                       + (holdsWork ? [] : ["--uitest-without-holds"]))
+            openAskTab(app)
+            let thread = app.scrollViews["ask.thread"]
+            XCTAssertTrue(thread.waitForExistence(timeout: 5), "Ask thread did not appear")
+            let tail = element(app, "ask.debug.tail")
+            let newChat = app.buttons["ask.newChat"]
+            for n in 1...3 {
+                let question = "Tail question \(n)"
+                ask(app, question)
+                XCTAssertTrue(element(app, "ask.bubble.\(2 * n - 1).speak").waitForExistence(timeout: 10),
+                              "Holds \(holdsWork): answer \(n) never started")
+                putKeyboardAway(app, "mid-answer \(n), holds \(holdsWork)")
+                XCTAssertTrue(waitUntilEnabled(newChat, timeout: 20), "Holds \(holdsWork): answer \(n) never completed")
+                sleep(2)   // past the completion's settle pins
+                XCTAssertTrue(isVisible(lastLine(app, question), in: thread),
+                              "Holds \(holdsWork): answer \(n)'s last line should be on screen once it completes")
+                XCTAssertTrue(isVisible(element(app, "ask.bubble.\(2 * n - 1).thumbsUp"), in: thread),
+                              "Holds \(holdsWork): answer \(n)'s actions row should be on screen once it completes")
+                XCTAssertTrue(tail.exists, "The DEBUG tail marker is missing")
+                XCTAssertEqual(tail.label, holdsWork ? "history \(2 * n - 2) · rows 2" : "history 0 · rows \(2 * n)",
+                               holdsWork ? "After answer \(n), the tail should be back to the last exchange"
+                                         : "Without working holds nothing sheds: after answer \(n) the tail holds every row")
+            }
+            app.terminate()
+        }
     }
 
     /// Task 1c (review finding I3): the laid-out tail is sized by height, and the end is held while
@@ -680,15 +726,15 @@ final class AskUITests: XCTestCase {
     // MARK: - Helpers
 
     /// The ids of the test account's items titled exactly `titles`, in order: a read-only REST lookup
-    /// with the account's own password grant (the app's public client config — the same project URL and
-    /// anon key as `StashUITests`' fixture helpers). Fixtures are never written here.
+    /// with the account's own password grant (the app's public client config, `StashTestProject`, shared
+    /// with `StashUITests`' fixture helpers — task 1d; task 2d review, M-6). Fixtures are never written here.
     private func fixtureItemIds(titled titles: [String]) throws -> [String] {
         let environment = ProcessInfo.processInfo.environment
         guard let email = environment["STASH_TEST_EMAIL"], let password = environment["STASH_TEST_PASSWORD"],
               !email.isEmpty, !password.isEmpty
         else { throw FixtureLookupError("STASH_TEST_EMAIL / STASH_TEST_PASSWORD were not set in the test runner environment") }
-        let base = URL(string: "https://uqqsgmwkvslaomzxptnp.supabase.co")!
-        let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXNnbXdrdnNsYW9tenhwdG5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2MjU0ODcsImV4cCI6MjA2NjIwMTQ4N30.vGWb1EdshtLFLpUHQ54Vy2CDmuPVCTbvc8UYW6_cvmE"
+        let base = StashTestProject.baseURL
+        let anonKey = StashTestProject.anonKey
 
         func send(_ request: URLRequest) throws -> Any {
             var result: Result<Data, Error> = .failure(URLError(.timedOut))

@@ -176,8 +176,8 @@ final class StashUITests: XCTestCase {
     /// StashKit per `project.yml` (a UI-test bundle only depends on the `Stash` app target and
     /// drives it purely through the accessibility tree in a separate process — it cannot
     /// `import` the host app's own module or its package dependencies).
-    private static let fixtureRepairBaseURL = URL(string: "https://uqqsgmwkvslaomzxptnp.supabase.co")!
-    private static let fixtureRepairAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXNnbXdrdnNsYW9tenhwdG5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2MjU0ODcsImV4cCI6MjA2NjIwMTQ4N30.vGWb1EdshtLFLpUHQ54Vy2CDmuPVCTbvc8UYW6_cvmE"
+    private static let fixtureRepairBaseURL = StashTestProject.baseURL
+    private static let fixtureRepairAnonKey = StashTestProject.anonKey
 
     private struct FixtureRepairError: Error, CustomStringConvertible {
         let description: String
@@ -3382,4 +3382,13 @@ final class StashUITests: XCTestCase {
         closeDetailAndClearSearch("link one")
     }
 
+}
+
+/// The Supabase project the UI tests run against, as the app's public client config has it — the same
+/// project URL and anon-role key `StashConfig.swift` (StashKit) ships; not a secret, it ships in the
+/// committed web client too. One copy for the UI tests' REST fixture helpers (task 1d; task 2d review, M-6):
+/// `StashUITests` and `AskUITests` read it here, since a UI-test bundle can't import the app's packages.
+enum StashTestProject {
+    static let baseURL = URL(string: "https://uqqsgmwkvslaomzxptnp.supabase.co")!
+    static let anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXNnbXdrdnNsYW9tenhwdG5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2MjU0ODcsImV4cCI6MjA2NjIwMTQ4N30.vGWb1EdshtLFLpUHQ54Vy2CDmuPVCTbvc8UYW6_cvmE"
 }
