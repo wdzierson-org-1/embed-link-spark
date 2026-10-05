@@ -1,5 +1,11 @@
 # Stash iOS Plan 16: Ask keyboard fixes, HIG + accessibility pass, white-S icon
 
+> **October 4 completion update:** The user approved a bounded stabilization pass and local
+> integration. [Completion report](../../ios-plan-16-completion.md) is the current status source.
+> The unfinished checkboxes and October 3 Outcome below are historical. The original open-ended
+> review/fix rounds and two complete test passes have been replaced by the report's fixed
+> acceptance set. TestFlight publishing remains a separate step.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Fix the Ask tab's stuck keyboard / missing composer after picking a previous conversation, give Ask the same "Cancel" affordance as the Add tab, bring every control and text style up to Apple's Human Interface Guidelines and accessibility expectations (Dynamic Type, 44 pt targets, contrast), make the icon's S white on every surface, fix two visual bugs seen in Will's device screenshots, then ship TestFlight build 10.

@@ -8,6 +8,25 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-04 · iOS plan 16 stabilization and local integration
+
+The interrupted Ask scrolling follow-ups are now included. The rendered tail moves whole
+question-and-answer exchanges. Shedding above a reader at the end requires working scroll holds;
+a send from above the tail can move offscreen rows before jumping. On iOS 17.4 and later, long system scrolls jump across
+unbuilt history; the known iOS 17.0–17.3 streaming/assistive-scroll limitation remains.
+
+Location saves now join the pending-edit delivery record inside the item's serialized write.
+For example, after Brooklyn was delivered and Queens was saved, a failed change back to Brooklyn
+continues to show its save error; an older Brooklyn delivery cannot make it read as saved.
+The write still merges only location into the latest server attributes, preserving enrichment.
+
+The live Ask smoke test now waits for a new assistant response using role-specific identifiers
+from one snapshot. It starts a fresh conversation without deleting history. This corrects a test
+that selected an old response even when the new cited answer was visible.
+
+See [completion and remaining release checks](ios-plan-16-completion.md) for the fixed acceptance
+scope, results, and explicitly deferred limitations. No wire contract or backend deployment changes.
+
 ## 2026-09-30 · iOS accessibility pass, Ask keyboard, white-S icon (plan 16)
 
 Will's 2026-09-30 on-device review of the plan-15 build, answered in four parts: two Ask
@@ -236,11 +255,6 @@ network (plan 15's durable pending-edits queue); these are the rules it follows.
   - Pre-existing, not widened: a failed un-share whose sticky note matches neither the
     server's nor the queue's (another device changed it mid-flight) isn't restored, and the
     next autosave clears the server's note.
-  - TODO(wrap): known gap, until the batch B fix round lands: after a save fails, "Couldn't
-    save — try again." can stay in the footer until the next save even once what failed is on
-    the server (a failed share's follow-up send delivered it, or, in a library sheet, a note's
-    realtime echo arrived before its save reported the failure). Nothing is lost or sent twice.
-    Delete this bullet if that fix ships.
 - **Edit queue:** a refused edit's backoff never ends more than 6 h from now, even after the
   clock is set back.
 
@@ -344,9 +358,13 @@ network (plan 15's durable pending-edits queue); these are the rules it follows.
   while an answer streamed). While VoiceOver or Switch Control runs every row is laid out, so
   focus reaches the whole history in order. Reduce Motion turns the near-send ease into a cut
   and the streaming cursor static; the cursor no longer drifts over the answer's text.
-- iOS only; no web impact. **TODO(wrap): T1d's thread changes (the tail's shed rules, the
-  hold-health gate, the put-back fix, the unheld Voice Control / Full Keyboard Access scrolls,
-  and the per-answer perf numbers) go here once it commits; source `task-1d-report.md`.**
+- **Tail follow-up (completed October 4).** Shedding above a reader at the end requires working
+  scroll holds. A send from above the tail can shed offscreen exchanges before jumping, without
+  holds; a send from inside the tail waits to shed until it lands. Corrections of overwritten offsets are bounded. A status-bar cut
+  prevents a queued follow-scroll from pulling the reader back down.
+- **Known platform limit.** On iOS 17.0–17.3, animated keyboard/assistive scrolls can still be
+  pulled back during streaming. This is explicitly covered by expected-failure checks, not
+  claimed as resolved. See `docs/ios-plan-16-completion.md`. iOS only; no web impact.
 
 **The white S (every surface).** The wordmark's first S on the purple→blue wash is now `#ffffff`
 instead of ink `#22262f`: the iOS app icon and the share extension's, the onboarding tile, the
@@ -392,12 +410,10 @@ The App Store screenshots and the extension store screenshots 02 and 04 still sh
   label in the model's context. Carried to Will.
 - **macOS:** the menubar icon (above).
 
-**TODO(wrap): the whole-branch review's fixes.** Record any behaviour change the final fix wave
-makes, including the batch B fix for the stale "Couldn't save — try again." caption (see the
-Known residuals above).
-
-**TODO(wrap): release.** Build number, the TestFlight groups and the App Store version once
-build 10 ships, and the re-shot App Store screenshots.
+**October 4 disposition.** Batch B's stale-error fixes and the final location-delivery fix are
+included. The bounded completion review and acceptance results are in
+`docs/ios-plan-16-completion.md`. TestFlight build 10, App Store screenshots and physical-device
+accessibility checks remain separate release work; no upload or App Store submission is implied.
 
 ## 2026-09-29 · Enrichment quality loop on main · transcript summaries unified · one correction
 

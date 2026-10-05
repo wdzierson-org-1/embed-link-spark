@@ -40,8 +40,10 @@ them. Rows a test seeds carry a `UITEST-P16-` marker and are deleted in its tear
 - **A skip whose reason starts `UNVERIFIED, RE-RUN THIS TEST` is not one of them.** Xcode's accessibility
   audit never completed on a screen — it timed out, and again on its retry, while the app kept
   answering — so that screen is unaudited, though everything else in the test passed. Re-run that test.
-  (A second timeout hasn't been seen in a real run yet; the first is the tool's known hang on iOS 26.5, at
-  the detail facts screen at xxxL.) Any other audit error fails the test.
+  Repeated timeouts were also reproduced on iOS 17.0's Ask composer at xxxLarge during the
+  October 4 completion pass. The Ask matrix reports this as a failed test; it is still unaudited,
+  not an accepted accessibility finding. See `../docs/ios-plan-16-completion.md` for the exact
+  disposition. Any other audit error fails the test.
 
 ### Simulator state a run can leave behind
 
