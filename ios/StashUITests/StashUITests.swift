@@ -1063,12 +1063,9 @@ final class StashUITests: XCTestCase {
     /// shows a source, with a one-shot RAG-variance retry (Task 8 hardening — see its call site).
     /// Returns the app and the answer's `ask.bubble.<N>` identifier.
     ///
-    /// Deliberately does NOT assume `ask.bubble.0` is the user question / `ask.bubble.1` is the
-    /// assistant reply: chat history is durable (Task 2 persists every exchange to
-    /// `conversations`/`messages`), so a second run against the same account restores prior turns
-    /// first and appends after them — the indices a run lands on depend on how much history already
-    /// exists. Instead this finds whichever `ask.bubble.*`/`ask.sources.*` elements are LAST in the
-    /// tree right after sending, which are always the freshly-appended ones.
+    /// Starts a new conversation so another test's durable history cannot become this test's answer.
+    /// Each send waits for a new assistant-only status/action identifier from one accessibility
+    /// snapshot; traversal order and the user's identically-prefixed text identifier are irrelevant.
     private func askAboutPersimmons() throws -> (app: XCUIApplication, bubbleId: String) {
         let (email, password) = try testCredentials()
         let app = XCUIApplication()
@@ -1096,46 +1093,31 @@ final class StashUITests: XCTestCase {
             return labels.joined(separator: "\n")
         }
 
+        let newChat = app.buttons["ask.newChat"]
+        XCTAssertTrue(newChat.waitForExistence(timeout: 10), "New chat button did not appear")
+        newChat.tap()
+        XCTAssertTrue(anyElement("ask.emptyState").waitForExistence(timeout: 10),
+                      "Expected a new conversation before the live Ask smoke")
+
         let input = anyElement("ask.input")
         XCTAssertTrue(input.waitForExistence(timeout: 10), "Ask input field did not appear")
 
-        // Whichever `ask.bubble.<N>` is currently LAST in the tree right after sending is the
-        // freshly-appended assistant reply (appended immediately after the user's own bubble,
-        // well before the network stream produces its first token) — see the doc comment above.
-        //
-        // Needs to match the identifier EXACTLY as "<prefix><digits>", not just BEGINSWITH: an
-        // assistant bubble also carries sibling identifiers like "ask.bubble.5.speak",
-        // "ask.bubble.5.thumbsUp" for its action row, which themselves begin with the exact same
-        // "ask.bubble." prefix — a plain BEGINSWITH query matches those too, and once the action
-        // row renders (as soon as any content has streamed in) one of THEM sorts last in the tree,
-        // not the bare bubble text. Confirmed live: this silently resolved to "ask.bubble.5.speak"
-        // on a real second-suite run, which made the derived "ask.sources.5.speak" lookup fail
-        // (never existing) — the assistant's actual reply/sources were fine; only this query was
-        // wrong. A first fix attempt used an NSPredicate `MATCHES` (regex) — confirmed live that
-        // XCUITest's identifier-query predicate translation doesn't support it (matched nothing at
-        // all, "Assistant bubble did not appear"). A second fix attempt used BEGINSWITH (which IS
-        // well-supported) filtered to an all-digit suffix in plain Swift, but held onto the
-        // resulting `XCUIElement` (from `allElementsBoundByIndex`) and polled `.label` on it
-        // directly — that's still an INDEX-bound reference under the hood, and the thread's
-        // `LazyVStack` virtualizes bubbles that scroll out of the rendered window as the answer
-        // streams in and auto-scroll keeps pace; the match count shifting from under it broke
-        // re-resolution mid-poll ("Failed to get matching snapshot: No matches found for Element at
-        // index 20"). Fix: resolve the identifier STRING once via this filter, then look the
-        // element back up by EXACT identifier for every subsequent read — an identity-based lookup
-        // re-resolves correctly regardless of how the surrounding query's result set shifts,
-        // exactly like every other identifier lookup in this file already does.
-        func lastBubbleIdentifier(timeout: TimeInterval) -> String? {
-            let prefix = "ask.bubble."
+        func bubbleIdentifiers() -> [String] {
+            guard let snapshot = try? app.snapshot() else { return [] }
+            var identifiers: [String] = []
+            func visit(_ node: XCUIElementSnapshot) {
+                identifiers.append(node.identifier)
+                node.children.forEach(visit)
+            }
+            visit(snapshot)
+            return identifiers
+        }
+
+        func newAssistantIdentifier(after previousIndex: Int, timeout: TimeInterval) -> String? {
             let deadline = Date().addingTimeInterval(timeout)
             repeat {
-                let candidates = app.descendants(matching: .any)
-                    .matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
-                    .allElementsBoundByIndex
-                if let match = candidates.last(where: { el in
-                    let suffix = el.identifier.dropFirst(prefix.count)
-                    return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
-                })?.identifier {
-                    return match
+                if let identifier = Self.assistantBubbleIdentifier(in: bubbleIdentifiers(), after: previousIndex) {
+                    return identifier
                 }
                 usleep(300_000)
             } while Date() < deadline
@@ -1156,12 +1138,14 @@ final class StashUITests: XCTestCase {
             let sendButton = app.buttons["ask.send"]
             XCTAssertTrue(sendButton.waitForExistence(timeout: 5), "Send button not found")
             XCTAssertTrue(sendButton.isEnabled, "Expected Send to be enabled for non-empty input")
+            let previousAssistant = Self.assistantBubbleIdentifier(in: bubbleIdentifiers(), after: -1)
+            let previousIndex = previousAssistant.flatMap { Int($0.dropFirst("ask.bubble.".count)) } ?? -1
             sendButton.tap()
 
             // Gate-vs-RAG disambiguation (final review, plan-4): on a lapsed-subscription
             // account, `AskView.sendTapped`'s `guard subscription.canUseAI` (AskView.swift:196-199)
             // returns before `ChatStore.send` is ever called — no new bubble is appended, so
-            // `lastBubbleIdentifier` below would silently resolve to a stale, already-on-screen
+            // a bare bubble lookup could silently resolve to a stale, already-on-screen
             // RESTORED history bubble instead (`ChatHistoryAPI.loadHistory` never persists/reloads
             // `sources`, so a restored bubble is sourceless by construction) — misreadable as a RAG
             // failure. Fail loudly and specifically instead. See the plan-5 handoff in
@@ -1170,8 +1154,8 @@ final class StashUITests: XCTestCase {
             XCTAssertFalse(anyElement("ask.gateError").waitForExistence(timeout: 2),
                            "Ask send was subscription-gate-blocked — adjudicate as gate, not RAG")
 
-            guard let bubbleId = lastBubbleIdentifier(timeout: 30) else {
-                XCTFail("Assistant bubble did not appear")
+            guard let bubbleId = newAssistantIdentifier(after: previousIndex, timeout: 30) else {
+                XCTFail("A new assistant answer did not appear")
                 return ""
             }
 
@@ -1228,7 +1212,7 @@ final class StashUITests: XCTestCase {
         // run. Root cause, per those reports' own investigation: the SSE `.done` event genuinely
         // carries an empty `sources` array some fraction of the time — retrieval variance against
         // the same fixture content on the server side, not an XCUITest race (that's a *different*,
-        // already-fixed bug, documented above in `lastBubbleIdentifier`'s comment). One in-test
+        // separately guarded by the assistant-only snapshot lookup above). One in-test
         // retry absorbs that variance without weakening the assertion: if the first attempt's
         // bubble has real text but no source chip within 10s, ask the IDENTICAL question again as
         // a fresh message (a brand-new user+assistant bubble pair, found and awaited exactly like
@@ -1242,6 +1226,31 @@ final class StashUITests: XCTestCase {
                 "Expected the persimmons answer to show a source (a chip, or an inline citation link) — sourceless on both the initial attempt and the RAG-variance retry")
         }
         return (app, bubbleId)
+    }
+
+    /// Status and action suffixes belong only to assistant rows. Snapshot traversal order can change
+    /// while SwiftUI moves rows between the history and tail, so compare their numeric indices.
+    private static func assistantBubbleIdentifier(in identifiers: [String], after previousIndex: Int) -> String? {
+        let prefix = "ask.bubble."
+        let latest = identifiers.compactMap { identifier -> Int? in
+            guard identifier.hasPrefix(prefix) else { return nil }
+            let parts = identifier.dropFirst(prefix.count).split(separator: ".", omittingEmptySubsequences: false)
+            guard parts.count == 2, let index = Int(parts[0]), index > previousIndex,
+                  ["status", "speak", "retry"].contains(String(parts[1])) else { return nil }
+            return index
+        }.max()
+        return latest.map { "\(prefix)\($0)" }
+    }
+
+    /// Regression: an older row can be last in the tree, and the new user's question has the same
+    /// base identifier shape as an answer. Neither may satisfy the live-answer wait.
+    func testAskReplySelectionIgnoresHistoryUserAndTraversalOrder() {
+        let identifiers = ["ask.bubble.27.status", "ask.bubble.25.speak", "ask.bubble.26",
+                           "ask.bubble.19", "ask.bubble.19.speak"]
+        XCTAssertEqual(Self.assistantBubbleIdentifier(in: identifiers, after: 25), "ask.bubble.27")
+        XCTAssertNil(Self.assistantBubbleIdentifier(in: ["ask.bubble.25.speak", "ask.bubble.26"], after: 25))
+        XCTAssertEqual(Self.assistantBubbleIdentifier(in: ["ask.bubble.27.speak", "ask.bubble.19.speak"], after: 25),
+                       "ask.bubble.27")
     }
 
     /// Voice notes (Task 6): record → Stop → Save → success toast → View tab shows the new item.
