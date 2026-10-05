@@ -1079,6 +1079,88 @@ final class PendingEditsTests: XCTestCase {
 
     // MARK: - Direct location saves (final wave B)
 
+    /// N-3: a citation sheet carries a successful location save without advancing its server-read
+    /// count. The older flush must not vouch for a later revert that failed.
+    func testASheetLocationSaveOutranksAnOlderDeliveryWhenARevertFails() async throws {
+        let brooklyn = CapturedLocation(label: "Brooklyn", source: "manual")
+        let queens = CapturedLocation(label: "Queens", source: "manual")
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        let editor = makeEditor(server)
+        let queue = makeQueue(server: server, clock: TestClock(t0))
+        let knownDeliveries = queue.deliveryCount
+        let brooklynPatch = ItemPatch(attributes: ItemAttributes(location: brooklyn))
+        queue.record(itemId: row.id, patch: brooklynPatch, capturedAt: queue.captureTime())
+        await queue.flush(editor: editor)
+
+        let queensAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: ItemPatch(attributes: ItemAttributes(location: queens)),
+                     capturedAt: queensAt)
+        let saved = try await queue.sendLocation(queens, capturedAt: queensAt, itemId: row.id, editor: editor)
+        let deliveredBeforeFailure = queue.deliveryCount
+        XCTAssertEqual(queue.deliveries(for: row.id, after: knownDeliveries).attributes?.location, queens)
+
+        let revertAt = queue.captureTime()
+        queue.record(itemId: row.id, patch: brooklynPatch, capturedAt: revertAt)
+        server.gated = true
+        let revert = Task {
+            try await queue.sendLocation(brooklyn, capturedAt: revertAt, itemId: row.id, editor: editor)
+        }
+        await waitUntil { server.heldCount == 1 }
+        server.error = ServerRefusal()
+        server.gated = false
+        server.release()
+        do {
+            _ = try await revert.value
+            XCTFail("the revert must fail")
+        } catch {
+            XCTAssertTrue(error is ServerRefusal)
+        }
+
+        XCTAssertEqual(queue.deliveryCount, deliveredBeforeFailure, "a failed save is never delivered")
+        XCTAssertEqual(server.row(row.id)?.attributes.location, queens)
+        XCTAssertEqual(queue.edit(for: row.id)?.attributes?.value.location, brooklyn, "the retry stays queued")
+        XCTAssertFalse(DetailFieldEdits.haveLanded([FailedSave(patch: brooklynPatch, capturedAt: revertAt)],
+                                                  snapshot: saved, knownDeliveries: knownDeliveries, queue: queue),
+                       "an older delivered Brooklyn must not hide the failed revert over saved Queens")
+    }
+
+    func testASheetLocationReadsAndRecordsItsDeliveryInsideTheItemsWriteSlot() async throws {
+        let row = makeItem()
+        let server = FakeRowServer(rows: [row])
+        let editor = makeEditor(server)
+        let queue = makeQueue(server: server, clock: TestClock(t0))
+        let newerAttributes = ItemAttributes(media: MediaAttributes(durationS: 30))
+        server.gated = true
+        let earlier = Task { try await editor.save(itemId: row.id, patch: ItemPatch(attributes: newerAttributes)) }
+        await waitUntil { server.heldCount == 1 }
+
+        let location = CapturedLocation(label: "Queens", source: "manual")
+        let capturedAt = queue.captureTime()
+        let locationSave = Task {
+            try await queue.sendLocation(location, capturedAt: capturedAt, itemId: row.id, editor: editor)
+        }
+        await settle()
+        let later = Task {
+            try await editor.saveLatest(itemId: row.id, prepare: { () -> (ItemPatch, Void)? in
+                XCTAssertEqual(queue.deliveries(for: row.id, after: 0).attributes?.location, location,
+                               "the next write sees the successful location delivery")
+                return nil
+            })
+        }
+        await settle()
+        XCTAssertEqual(server.patches.count, 1, "the location save waits for the earlier write")
+
+        server.gated = false
+        server.release()
+        _ = try await earlier.value
+        let saved = try await locationSave.value
+        _ = try await later.value
+
+        XCTAssertEqual(saved.attributes.location, location)
+        XCTAssertEqual(saved.attributes.media, newerAttributes.media, "the read happens after the earlier write lands")
+    }
+
     /// The detail sheet's own location save goes onto the server's CURRENT attributes, never the
     /// sheet's copy: keys production wrote meanwhile (the transcription job's `media.transcript`,
     /// enrichment's `enrichment.*`) are not rolled back.
@@ -1095,8 +1177,10 @@ final class PendingEditsTests: XCTestCase {
             $0.attributes.extra["enrichment"] = enrichment
         }
         let lisbon = CapturedLocation(label: "Lisbon", source: "manual")
+        let queue = makeQueue(server: server, clock: TestClock(t0))
+        let editor = makeEditor(server)
 
-        let saved = try await makeEditor(server).saveLocation(itemId: row.id, location: lisbon)
+        let saved = try await queue.sendLocation(lisbon, capturedAt: queue.captureTime(), itemId: row.id, editor: editor)
 
         let sent = try XCTUnwrap(server.patches.first?.1)
         XCTAssertEqual(sent, ItemPatch(attributes: server.row(row.id)?.attributes), "one attributes-only PATCH")
@@ -1105,24 +1189,29 @@ final class PendingEditsTests: XCTestCase {
         XCTAssertEqual(saved.attributes.media?.extra["kind"], .string("voice_note"))
         XCTAssertEqual(saved.attributes.extra["enrichment"], enrichment, "enrichment state survives")
         XCTAssertEqual(saved.attributes.media?.durationS, 30)
+        XCTAssertEqual(queue.deliveries(for: row.id, after: 0).attributes, saved.attributes,
+                       "the ledger holds the merged attributes actually written")
 
         // Removing it works the same way.
-        let cleared = try await makeEditor(server).saveLocation(itemId: row.id, location: nil)
+        let cleared = try await queue.sendLocation(nil, capturedAt: queue.captureTime(), itemId: row.id, editor: editor)
         XCTAssertNil(cleared.attributes.location)
         XCTAssertEqual(cleared.attributes.extra["enrichment"], enrichment)
+        XCTAssertEqual(queue.deliveries(for: row.id, after: 0).attributes, cleared.attributes)
     }
 
     func testSaveLocationOnAnUnreadableRowFailsWithoutWriting() async {
         let row = makeItem()
         let server = FakeRowServer(rows: [row])
+        let queue = makeQueue(server: server)
         server.rlsHidesRows = true
         do {
-            _ = try await makeEditor(server).saveLocation(itemId: row.id,
-                                                         location: CapturedLocation(label: "Lisbon", source: "manual"))
+            _ = try await queue.sendLocation(CapturedLocation(label: "Lisbon", source: "manual"),
+                                              capturedAt: queue.captureTime(), itemId: row.id, editor: makeEditor(server))
             XCTFail("expected itemNotFound")
         } catch {
             XCTAssertEqual(error as? ItemEditorError, .itemNotFound)
         }
         XCTAssertTrue(server.patches.isEmpty, "no blind whole-blob write when the current one can't be read")
+        XCTAssertEqual(queue.deliveryCount, 0)
     }
 }

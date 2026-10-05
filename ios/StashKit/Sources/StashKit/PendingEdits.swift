@@ -371,7 +371,7 @@ public final class PendingEdits {
     // MARK: - A detail sheet's own saves (plan 16 review P-3)
 
     /// Sends one detail-sheet save through `editor`, after every earlier write to the item: `patch`
-    /// (title, description, notes, sticky note — a location goes through `ItemEditor.saveLocation`),
+    /// (title, description, notes, sticky note — a location goes through `sendLocation`),
     /// captured at `capturedAt` — a capture from `captureTime()`, recorded here first (write-ahead);
     /// the clock stays ahead of it either way (4d review N-2). Returns what it did (`SheetSave`):
     /// the saved row, or `item == nil` when nothing was left to send, and what the server holds
@@ -400,6 +400,27 @@ public final class PendingEdits {
         // `prepare` never returns nil, so neither does `saveLatest`.
         guard let outcome else { return SheetSave(item: nil, patch: ItemPatch(), serverHolds: patch) }
         return SheetSave(item: outcome.item, patch: outcome.patch, serverHolds: outcome.context)
+    }
+
+    /// A detail sheet's location save: merge only the location into the server's current
+    /// attributes, then record the merged delivery before releasing the item's write slot.
+    /// Like `send`, the caller records the edit first with this same capture. Failed reads or
+    /// writes leave it queued and never count as a delivery (batch B re-review N-3).
+    public func sendLocation(_ location: CapturedLocation?, capturedAt: Date, itemId: UUID,
+                             editor: ItemEditor) async throws -> Item {
+        latestCapture = max(latestCapture, capturedAt)
+        let outcome = try await editor.saveLatest(itemId: itemId, prepare: {
+            guard var attributes = try await editor.currentAttributes(itemId: itemId) else {
+                throw ItemEditorError.itemNotFound
+            }
+            attributes.location = location
+            return (ItemPatch(attributes: attributes), ())
+        }, landed: { [weak self] saved in
+            let captures = PendingEdit(itemId: itemId, patch: saved.patch, capturedAt: capturedAt)
+            self?.noteDelivered(itemId, patch: saved.patch, captures: captures)
+        })
+        guard let saved = outcome?.item else { throw ItemEditorError.itemNotFound }
+        return saved
     }
 
     /// A detail sheet's Sharing toggle (`ItemDetailView.setPublic`), sent through `editor` after
@@ -467,7 +488,7 @@ public final class PendingEdits {
     }
 
     /// A write of `patch` — its fields' values captured as in `captures` — just landed (`send`,
-    /// `flush`, `sendToggle`): remembers, per field, the newest value the server now holds, its
+    /// `flush`, `sendLocation`, `sendToggle`): remembers, per field, the newest value the server now holds, its
     /// capture, and where the delivery stands in the running count (`deliveryCount`). Called inside
     /// the item's write slot, so the next write to the item sees it. Then posts
     /// `.stashPendingEditDelivered` for the item (batch B fix round 1).

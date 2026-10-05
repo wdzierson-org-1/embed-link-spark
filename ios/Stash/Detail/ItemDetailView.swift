@@ -871,7 +871,7 @@ struct ItemDetailView: View {
     /// title edit landed unseen, left the box, and the next note — appended to the old document —
     /// deleted it from the server.
     @MainActor
-    private func save(_ patch: ItemPatch, send: (() async throws -> Item)? = nil) async -> DetailSaveOutcome {
+    private func save(_ patch: ItemPatch, send: ((Date) async throws -> Item)? = nil) async -> DetailSaveOutcome {
         let pendingEdits = services.pendingEdits
         let capturedAt = pendingEdits.captureTime()
         pendingEdits.record(itemId: item.id, patch: patch, capturedAt: capturedAt)
@@ -884,7 +884,7 @@ struct ItemDetailView: View {
             let itemId = item.id
             let editor = services.editor
             if let send {
-                let row = try await send()
+                let row = try await send(capturedAt)
                 sheetSave = SheetSave(item: row, patch: patch, serverHolds: patch)
             } else {
                 sheetSave = try await pendingEdits.send(patch, capturedAt: capturedAt, itemId: itemId, editor: editor)
@@ -980,7 +980,8 @@ struct ItemDetailView: View {
     /// see `PendingEdits.flush`) instead of vanishing when the sheet closes.
     ///
     /// Final wave B: the save itself goes onto the server's current attributes too
-    /// (`ItemEditor.saveLocation` — read in the item's write slot, only `location` replaced). The
+    /// (`PendingEdits.sendLocation` — read in the item's write slot, only `location` replaced,
+    /// with the successful write recorded in the delivered ledger). The
     /// sheet's blob can be minutes old while production writes `attributes` asynchronously (the
     /// transcription job's `media.transcript`, enrichment's `enrichment.*`); PATCHing it whole
     /// rolled those back and re-queued enrichment.
@@ -990,8 +991,9 @@ struct ItemDetailView: View {
         let itemId = item.id
         let location = attributes.location
         let editor = services.editor
-        _ = await save(ItemPatch(attributes: attributes)) {
-            try await editor.saveLocation(itemId: itemId, location: location)
+        let pendingEdits = services.pendingEdits
+        _ = await save(ItemPatch(attributes: attributes)) { capturedAt in
+            try await pendingEdits.sendLocation(location, capturedAt: capturedAt, itemId: itemId, editor: editor)
         }
     }
 
