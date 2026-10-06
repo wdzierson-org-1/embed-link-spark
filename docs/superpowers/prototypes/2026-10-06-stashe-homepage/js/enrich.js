@@ -22,7 +22,6 @@
   const chipX = chip.querySelector('[data-file-x]');
   const card = stage.querySelector('.scard');
   const media = card.querySelector('.scard-media');
-  const mediaImg = card.querySelector('.scard-img');
   const kindEl = card.querySelector('.scard-kind');
   const titleEl = card.querySelector('.scard-title');
   const descEl = card.querySelector('.scard-desc');
@@ -120,17 +119,113 @@
     nodesEl.textContent = '';
     svg.textContent = '';
     card.classList.remove('is-in', 'is-note');
-    media.classList.remove('is-loading');
-    media.querySelector('.doc-glyph')?.remove();
-    mediaImg.hidden = true;
-    mediaImg.removeAttribute('src');
+    resetMedia();
     stage.style.height = '';
     nodeCount = 0;
     titleFromAI = false;
   }
 
-  /** Show the card in its "reading" state. mode: 'image' | 'loading' | 'doc' | 'note'. */
-  function cardStart({ tag, title, m1: a = '', busy, mode, docLabel }) {
+  /* ---------------- the card's picture ----------------
+     Every run starts from an empty frame, and a slow image from an earlier run can't paint over a
+     later one (mediaRun). A link gets MEDIA_DEADLINE to produce its own image; after that a
+     placeholder for the kind of thing it is stands in, and if the real image turns up later it
+     resolves over the placeholder. (v0.3: the card used to keep the previous example's picture.) */
+  const MEDIA_DEADLINE = 750;
+  const PH_DWELL = 550; // the least time a placeholder is shown before a late image replaces it
+  let mediaRun = 0;
+
+  // Pixel glyphs for the placeholders: 14×14, '#' = ink, drawn as crisp SVG runs.
+  const GLYPHS = {
+    page: ['##############', '#.#.#........#', '##############', '#............#', '#.#######....#', '#............#', '#.##########.#',
+      '#.##########.#', '#.##########.#', '#............#', '#.#########..#', '#.#######....#', '#............#', '##############'],
+    article: ['..##########..', '..#........#..', '..#.######.#..', '..#.######.#..', '..#........#..', '..#.######.#..', '..#........#..',
+      '..#.######.#..', '..#........#..', '..#.####...#..', '..#........#..', '..#.######.#..', '..#........#..', '..##########..'],
+    video: ['..............', '..............', '.############.', '##############', '#####.########', '#####..#######', '#####...######',
+      '#####....#####', '#####...######', '#####..#######', '#####.########', '##############', '.############.', '..............'],
+    repo: ['..............', '..............', '........#.....', '...#....#.#...', '..#.....#..#..', '.#.....#....#.', '#......#.....#',
+      '#.....#......#', '.#....#.....#.', '..#...#....#..', '...#.#....#...', '.....#........', '..............', '..............'],
+    book: ['..##########..', '..##.......#..', '..##.#####.#..', '..##.......#..', '..##.####..#..', '..##.......#..', '..##.......#..',
+      '..##...#...#..', '..##..###..#..', '..##.#####.#..', '..##.......#..', '..##########..', '...#########..', '..............'],
+    social: ['..............', '..............', '.############.', '#............#', '#.##########.#', '#............#', '#.#######....#',
+      '#............#', '.##.#########.', '...##.........', '...#..........', '..............', '..............', '..............'],
+    place: ['.....####.....', '...########...', '..###....###..', '.###......###.', '.##...##...##.', '.##..####..##.', '.##...##...##.',
+      '.###......###.', '..###....###..', '...###..###...', '....######....', '.....####.....', '......##......', '..............'],
+  };
+  function glyphSvg(rows) {
+    let d = '';
+    rows.forEach((row, y) => {
+      for (let x = 0; x < row.length;) {
+        if (row[x] !== '#') { x++; continue; }
+        let e = x;
+        while (row[e] === '#') e++;
+        d += `M${x} ${y}h${e - x}v1h-${e - x}z`;
+        x = e;
+      }
+    });
+    return `<svg viewBox="0 0 ${rows[0].length} ${rows.length}" shape-rendering="crispEdges" aria-hidden="true"><path d="${d}"/></svg>`;
+  }
+  // Places don't have a flavor of their own in the endpoint; their hosts give them away.
+  const PLACE = /^((maps\.)?google\.[a-z.]+\/maps|maps\.google\.|maps\.apple\.com|maps\.app\.goo\.gl|goo\.gl\/maps|yelp\.[a-z.]+\/biz|opentable\.|resy\.com|tripadvisor\.|airbnb\.[a-z.]+\/rooms|booking\.com\/hotel)/i;
+  const linkGlyph = (flavor, where) => (PLACE.test(where) ? 'place'
+    : { repo: 'repo', video: 'video', book: 'book', social: 'social', article: 'article' }[flavor] || 'page');
+
+  function resetMedia() {
+    mediaRun++;
+    pix.img = null;
+    pix.lens = null;
+    pix.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    pix.ctx.clearRect(0, 0, pix.canvas.width, pix.canvas.height);
+    media.classList.remove('is-loading');
+    media.querySelectorAll('.ph').forEach((n) => n.remove());
+  }
+
+  /** A stand-in picture for the kind of thing this is: a pixel glyph and the site for a link
+      ({ glyph, label, favicon }), or a page for a document ({ page: true, tag, text?, title? }). */
+  function showPlaceholder(spec) {
+    media.classList.remove('is-loading');
+    let ph = [...media.querySelectorAll('.ph')].find((n) => !n.classList.contains('is-out'));
+    if (!ph) { ph = document.createElement('div'); ph.shownAt = performance.now(); media.appendChild(ph); }
+    ph.className = spec.page ? 'ph ph-doc' : 'ph';
+    ph.textContent = '';
+    if (spec.page) {
+      const page = document.createElement('div');
+      page.className = 'ph-page';
+      if (spec.title) { const h = document.createElement('b'); h.className = 'ph-title'; h.textContent = spec.title; page.appendChild(h); }
+      if (spec.text) {
+        for (const line of spec.text.split('\n').slice(0, 18)) {
+          const p = document.createElement('p');
+          if (/^#{1,6}\s/.test(line)) p.className = 'h';
+          p.textContent = line.replace(/^#{1,6}\s+/, '').trim() || ' ';
+          page.appendChild(p);
+        }
+      } else {
+        page.insertAdjacentHTML('beforeend', '<i></i><i style="width:84%"></i><i></i><i style="width:62%"></i><i></i><i style="width:76%"></i><i></i><i style="width:58%"></i><i></i><i style="width:80%"></i>');
+      }
+      const ext = document.createElement('span');
+      ext.className = 'tag ph-ext';
+      ext.textContent = spec.tag;
+      page.appendChild(ext);
+      ph.appendChild(page);
+    } else {
+      ph.insertAdjacentHTML('beforeend', glyphSvg(GLYPHS[spec.glyph] || GLYPHS.page));
+      const label = document.createElement('span');
+      label.className = 'ph-label';
+      if (spec.favicon) {
+        const icon = new Image();
+        icon.alt = '';
+        icon.onerror = () => icon.remove();
+        icon.src = spec.favicon;
+        label.appendChild(icon);
+      }
+      label.append(spec.label || '');
+      ph.appendChild(label);
+    }
+    return ph;
+  }
+
+  /** Show the card in its "reading" state. mode: 'loading' (a picture is on its way), 'media'
+      (a placeholder will stand in) or 'note' (no picture at all). */
+  function cardStart({ tag, title, m1: a = '', busy, mode = 'loading' }) {
     kindEl.textContent = tag;
     m1.textContent = a;
     m2.textContent = '';
@@ -143,13 +238,6 @@
     descEl.innerHTML = '<span class="skel">······························</span><span class="skel">·····················</span>';
     card.classList.toggle('is-note', mode === 'note');
     media.classList.toggle('is-loading', mode === 'loading');
-    if (mode === 'doc') {
-      const g = document.createElement('div');
-      g.className = 'doc-glyph';
-      g.innerHTML = '<i></i><i style="width:80%"></i><i></i><i style="width:64%"></i><i></i><i style="width:72%"></i><b></b>';
-      g.querySelector('b').textContent = docLabel || 'PDF';
-      media.appendChild(g);
-    }
     if (mode === 'note') { titleEl.textContent = title; descEl.textContent = ''; }
     card.dataset.pendingTitle = title || '';
     card.classList.add('is-in');
@@ -162,14 +250,29 @@
     if (b !== undefined) m2.textContent = b;
   }
 
+  /** Resolve an image into the card block by block. False if it failed or a newer run took over. */
   async function resolveImage(src, focus, t) {
-    try { await pix.set(src, focus); } catch { return false; }
+    const run = mediaRun;
+    let img;
+    try { img = await S.loadImage(src); } catch { return false; }
+    if (run !== mediaRun || (t && t.cancelled) || !img.naturalWidth) return false;
+    // A placeholder that has only just appeared stays up a moment, so a late image reads as the
+    // next step rather than a flicker.
+    const ph = media.querySelector('.ph:not(.is-out)');
+    const dwell = ph ? PH_DWELL - (performance.now() - ph.shownAt) : 0;
+    if (dwell > 0) await new Promise((r) => setTimeout(r, dwell));
+    if (run !== mediaRun) return false;
+    pix.img = img;
+    pix.focus = focus || [0.5, 0.5];
+    pix.resize();
     media.classList.remove('is-loading');
-    if (t && t.cancelled) return false;
+    ph?.classList.add('is-out');
     for (const block of [26, 18, 12, 8, 5, 3, 1]) {
+      if (run !== mediaRun) return false;
       pix.render(block);
       await (t ? S.wait(95, t) : new Promise((r) => setTimeout(r, 95)));
     }
+    ph?.remove();
     return true;
   }
 
@@ -347,7 +450,11 @@
     card.dataset.aiTitle = '0';
     showDemoText('');
     cardStart({ tag: ex.tag, title: ex.meta.title, m1: ex.meta.m1, busy: ex.busy, mode: 'loading' });
-    try { await pix.set(ex.img, ex.focus); media.classList.remove('is-loading'); pix.render(1); } catch { /* keep the dither */ }
+    const run = mediaRun;
+    try {
+      const img = await S.loadImage(ex.img);
+      if (run === mediaRun) { pix.img = img; pix.focus = ex.focus; pix.resize(); media.classList.remove('is-loading'); pix.render(1); }
+    } catch { /* keep the dither */ }
     cardMeta(ex.meta);
     for (const [k, l, v] of ex.fields) await addField({ k, l, v }, false);
   }
@@ -441,9 +548,16 @@
     chipName.textContent = f.name;
     chipSize.textContent = S.prettyBytes(f.size);
     if (/^image\//.test(f.type)) { chipThumb.style.backgroundImage = `url("${fileUrl}")`; chipThumb.textContent = ''; }
-    else { chipThumb.style.backgroundImage = ''; chipThumb.textContent = /pdf/i.test(f.type + f.name) ? 'PDF' : 'TXT'; }
+    else { chipThumb.style.backgroundImage = ''; chipThumb.textContent = extLabel(f); }
     enterLive();
     refresh();
+  }
+
+  /** PDF, MD, TXT…: a document's kind, short enough for a tag. */
+  function extLabel(f) {
+    if (/pdf/i.test(f.type + f.name)) return 'PDF';
+    const ext = (f.name.match(/\.([a-z0-9]+)$/i) || [])[1] || 'txt';
+    return /^(md|markdown)$/i.test(ext) ? 'MD' : ext.slice(0, 4).toUpperCase();
   }
 
   function clearFile() {
@@ -474,18 +588,40 @@
     hasResult = true;
     const status = say('<span data-spin>|</span> reading…', 'is-status');
     let host = '';
-    if (kind === 'link') { try { host = new URL(/^https?:/i.test(text) ? text : `https://${text}`).hostname.replace(/^www\./, ''); } catch { host = text; } }
+    let where = '';
+    if (kind === 'link') {
+      try {
+        const u = new URL(/^https?:/i.test(text) ? text : `https://${text}`);
+        host = u.hostname.replace(/^www\./, '');
+        where = host + u.pathname;
+      } catch { host = where = text; }
+    }
     card.dataset.aiTitle = kind === 'link' ? '0' : '1';
+    const run = mediaRun;
+    const isPdf = kind === 'doc' && /pdf/i.test(file.type + file.name);
+    let linkPh = null; // a link's placeholder, refined as the stream says more about it
     if (kind === 'image') {
-      cardStart({ tag: 'image', title: file.name, m1: 'your image', busy: 'looking at the image', mode: 'loading' });
+      cardStart({ tag: 'image', title: file.name, m1: 'your image', busy: 'looking at the image' });
       resolveImage(fileUrl, [0.5, 0.5], null);
     } else if (kind === 'doc') {
-      cardStart({ tag: /pdf/i.test(file.type + file.name) ? 'pdf' : 'doc', title: file.name, m1: S.prettyBytes(file.size), busy: 'reading the document', mode: 'doc', docLabel: /pdf/i.test(file.type + file.name) ? 'PDF' : 'TXT' });
+      const ext = extLabel(file);
+      cardStart({ tag: isPdf ? 'pdf' : 'doc', title: file.name, m1: S.prettyBytes(file.size), busy: 'reading the document', mode: 'media' });
+      if (isPdf) showPlaceholder({ page: true, tag: ext });
+      else {
+        // A text file can preview itself: its first lines, on a page.
+        file.text()
+          .then((t) => { if (run === mediaRun) showPlaceholder({ page: true, tag: ext, text: t.slice(0, 1600) }); })
+          .catch(() => { if (run === mediaRun) showPlaceholder({ page: true, tag: ext }); });
+      }
     } else if (kind === 'note') {
       cardStart({ tag: 'note', title: text.length > 120 ? text.slice(0, 118) + '…' : text, m1: 'your note', busy: 'reading the note', mode: 'note' });
     } else {
-      cardStart({ tag: 'link', title: host, m1: host, busy: 'reading the page', mode: 'loading' });
+      cardStart({ tag: 'link', title: host, m1: host, busy: 'reading the page' });
+      linkPh = { glyph: linkGlyph('generic', where), label: host, favicon: null };
+      setTimeout(() => { if (run === mediaRun && !pix.img) showPlaceholder(linkPh); }, MEDIA_DEADLINE);
     }
+    // Refresh a link's placeholder if it's already standing in (and no real image has landed).
+    const refreshPh = () => { if (linkPh && run === mediaRun && !pix.img && media.querySelector('.ph:not(.is-out)')) showPlaceholder(linkPh); };
     if (kind !== 'link') setTimeout(() => { if (titleEl.querySelector('.busy')) { titleEl.textContent = card.dataset.pendingTitle; } }, 300);
 
     // Findings can arrive faster than their windows animate in: queue them so each still lands
@@ -514,11 +650,28 @@
     let networkDone = 0;
     await S.enrich(payload, (event, data) => {
       if (controller.signal.aborted) return;
-      if (event === 'meta') {
+      if (event === 'start') {
+        if (linkPh && data.flavor) { linkPh.glyph = linkGlyph(data.flavor, where); refreshPh(); }
+      } else if (event === 'meta') {
         setStatus('found it, gathering the background…');
-        cardMeta({ title: data.title || undefined, desc: data.description || '', m1: data.site || host });
-        if (data.image) resolveImage(data.image, [0.5, 0.42], null).then((ok) => { if (!ok) media.classList.remove('is-loading'); });
-        else media.classList.remove('is-loading');
+        if (!linkPh) {
+          // Only a PDF sends meta besides a link: its own title, which then stays the card's title.
+          if (data.title) { cardMeta({ title: data.title }); card.dataset.aiTitle = '0'; }
+        } else {
+          cardMeta({ title: data.title || undefined, desc: data.description || '', m1: data.site || host });
+        }
+        if (linkPh) {
+          if (data.flavor) linkPh.glyph = linkGlyph(data.flavor, where);
+          if (data.favicon) linkPh.favicon = data.favicon;
+          if (data.image) {
+            refreshPh();
+            // GitHub's cards put the repo's name at the left edge; most others centre what matters.
+            const focus = /^github\.com\//.test(where) ? [0.36, 0.5] : [0.5, 0.42];
+            resolveImage(data.image, focus, null).then((ok) => { if (!ok && run === mediaRun && !pix.img) showPlaceholder(linkPh); });
+          } else if (run === mediaRun && !pix.img) showPlaceholder(linkPh); // no picture of its own: stand in now
+        } else if (isPdf && data.title && run === mediaRun) {
+          showPlaceholder({ page: true, tag: 'PDF', title: data.title }); // the PDF's own title, on its page
+        }
       } else if (event === 'field') {
         if (!modelStarted && data.k === 'fact') {
           instant.push((FORMAT[data.l] || ((v) => v))(data.v));
@@ -533,6 +686,7 @@
       } else if (event === 'error') {
         failed = true;
         media.classList.remove('is-loading');
+        if (linkPh && run === mediaRun && !pix.img) showPlaceholder(linkPh);
         if (titleEl.querySelector('.busy')) titleEl.textContent = card.dataset.pendingTitle || '';
         descEl.textContent = '';
         say(`${escapeHtml(data.message || 'Something went wrong.')} <button type="button" data-again>Try another one</button>`, 'is-error');

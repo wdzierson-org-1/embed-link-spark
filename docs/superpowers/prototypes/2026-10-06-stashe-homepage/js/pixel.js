@@ -4,19 +4,6 @@
    and the "take your saves with you" memories stay fuzzy until you point at them. */
 (() => {
   const S = window.Stash;
-  const cache = new Map();
-  S.loadImage = (src) => {
-    if (!cache.has(src)) {
-      cache.set(src, new Promise((res, rej) => {
-        const im = new Image();
-        im.decoding = 'async';
-        im.onload = () => res(im);
-        im.onerror = () => rej(new Error('image failed: ' + src));
-        im.src = src;
-      }));
-    }
-    return cache.get(src);
-  };
 
   class PixelImage {
     constructor(canvas, opts = {}) {

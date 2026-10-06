@@ -142,10 +142,12 @@
   if (close) {
     const canvas = close.querySelector('canvas');
     // v0.2: denser field, and the wordmark set in dots along the bottom (duotone, like a print).
+    // v0.3: the footer is columns now; each column is knocked out as one block.
+    const mark = close.querySelector('.close-mark');
     const ht = new Halftone(canvas, {
       cell: 12, cellSmall: 6, dot: 1, scale: 3.2, octaves: 3, min: 0.3, max: 0.7, sx: 0.035, sy: 0.02, knockPad: 40,
-      knockout: () => [...close.querySelectorAll('.t-giant, .close-cta .btn, .close-cta .px, .foot a, .foot span, .foot .wordmark')],
-      maskFrom: { area: close.querySelector('.close-mark'), symbol: document.getElementById('st4sh-wordmark') },
+      knockout: () => [...close.querySelectorAll('.t-giant, .close-cta .btn, .close-cta .px, .foot-brand, .foot-col, .notify-msg, .foot-legal')],
+      maskFrom: mark ? { area: mark, symbol: document.getElementById('st4sh-wordmark') } : null,
     });
     let t = 0, raf = 0, live = false, inView = false;
     const frame = () => {

@@ -1,0 +1,246 @@
+<!doctype html>
+<!-- Source for img/shot-maps.jpg — an iPhone screenshot of a maps app (light mode) showing a
+     walking route to Chez Colette. The restaurant is sample content; 12 Perry St is a real West
+     Village address, but the street layout below is stylised, not surveyed. The map is drawn by
+     the seeded script at the bottom (streets, building lots carved around them, route, pin). -->
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+html,body{margin:0;width:390px;height:844px;overflow:hidden;background:#F3EFE7;position:relative;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased;color:#000}
+#map{position:absolute;left:0;top:0}
+#map text{font-family:inherit}
+
+/* status bar */
+.scrim{position:absolute;left:0;top:0;width:390px;height:64px;background:linear-gradient(rgba(255,255,255,.72),rgba(255,255,255,.35) 60%,rgba(255,255,255,0))}
+.sb{position:absolute;left:0;top:0;width:390px;height:54px}
+.sb-t{position:absolute;left:0;top:14px;width:132px;text-align:center;font-weight:600;font-size:17px;line-height:20px;letter-spacing:-.4px}
+.sb-r{position:absolute;right:28px;top:18px;display:flex;gap:6px;align-items:center}
+.sb-r svg{display:block}
+
+/* map controls */
+.ctl{position:absolute;right:10px;top:62px;width:44px;height:88px;border-radius:10px;background:rgba(255,255,255,.96);
+  box-shadow:0 1px 4px rgba(0,0,0,.16);display:flex;flex-direction:column}
+.ctl span{flex:1;display:grid;place-items:center}
+.ctl span+span{border-top:1px solid rgba(60,60,67,.18)}
+.wx{position:absolute;left:12px;top:516px;width:50px;height:44px;border-radius:9px;background:rgba(255,255,255,.96);
+  box-shadow:0 1px 4px rgba(0,0,0,.16);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.wx b{display:flex;align-items:center;gap:3px;font-weight:600;font-size:14px;line-height:17px;letter-spacing:-.2px}
+.wx small{display:flex;align-items:center;gap:3px;font-size:10px;line-height:12px;font-weight:500;color:rgba(60,60,67,.7)}
+.wx small i{width:6px;height:6px;border-radius:50%;background:#34C759}
+
+/* sheet */
+.sheet{position:absolute;left:0;top:576px;width:390px;height:268px;background:#fff;border-radius:12px 12px 0 0;
+  box-shadow:0 -.5px 0 rgba(0,0,0,.10),0 -3px 14px rgba(0,0,0,.10)}
+.grab{position:absolute;left:177px;top:5px;width:36px;height:5px;border-radius:3px;background:rgba(60,60,67,.3)}
+.ttl{position:absolute;left:16px;top:17px;font-weight:700;font-size:26px;line-height:31px;letter-spacing:.1px}
+.hb{position:absolute;right:16px;top:18px;display:flex;gap:10px}
+.hb span{width:30px;height:30px;border-radius:50%;background:rgba(118,118,128,.12);display:grid;place-items:center}
+.sub{position:absolute;left:16px;top:50px;font-size:15px;line-height:20px;color:rgba(60,60,67,.6);letter-spacing:-.2px}
+.rule{position:absolute;left:16px;right:0;top:82px;height:1px;background:rgba(60,60,67,.14)}
+.rt{position:absolute;left:16px;top:95px}
+.rt .t{font-size:22px;line-height:27px;font-weight:700;letter-spacing:.2px}
+.rt .t span{font-weight:400;color:rgba(60,60,67,.6)}
+.rt .m{display:flex;align-items:center;gap:5px;margin-top:2px;font-size:14px;line-height:18px;color:rgba(60,60,67,.6);letter-spacing:-.1px}
+.go{position:absolute;right:16px;top:95px;width:104px;height:48px;border-radius:12px;background:#007AFF;color:#fff;
+  font-weight:600;font-size:18px;line-height:48px;text-align:center;letter-spacing:-.2px}
+.acts{position:absolute;left:16px;right:16px;top:158px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.acts div{height:54px;border-radius:10px;background:rgba(118,118,128,.12);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:4px;color:#007AFF;font-weight:600;font-size:12px;line-height:14px}
+.acts svg{display:block}
+.hi{position:absolute;left:128px;top:831px;width:134px;height:5px;border-radius:3px;background:#000}
+</style></head><body>
+
+<svg id="map" width="390" height="600" viewBox="0 0 390 600"></svg>
+<div class="scrim"></div>
+
+<div class="sb">
+  <span class="sb-t">11:41</span>
+  <span class="sb-r">
+    <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="7.6" width="3.2" height="4.4" rx="1"/><rect x="4.9" y="5.2" width="3.2" height="6.8" rx="1"/><rect x="9.8" y="2.6" width="3.2" height="9.4" rx="1"/><rect x="14.7" y="0" width="3.2" height="12" rx="1"/></svg>
+    <svg width="16" height="12" viewBox="0 0 16 12"><path d="M.93 4.13A10 10 0 0 1 15.07 4.13M3.47 6.67A6.4 6.4 0 0 1 12.53 6.67" fill="none" stroke="#000" stroke-width="2.2"/><path d="M8 11.4 5.7 9A3.3 3.3 0 0 1 10.3 9Z"/></svg>
+    <svg width="28" height="13" viewBox="0 0 28 13"><rect x=".5" y=".5" width="24" height="12" rx="3.8" fill="none" stroke="#000" stroke-opacity=".35"/><rect x="2" y="2" width="16" height="9" rx="2.3"/><path d="M26 4.3v4.4c.9-.35 1.5-1.2 1.5-2.2S26.9 4.65 26 4.3Z" fill-opacity=".4"/></svg>
+  </span>
+</div>
+
+<div class="ctl">
+  <span><svg width="20" height="18" viewBox="0 0 20 18" fill="none" stroke="#007AFF" stroke-width="1.6" stroke-linejoin="round"><path d="M1.5 3.5 6.8 1.5l6.4 2.2 5.3-2v13l-5.3 2-6.4-2.2-5.3 2z"/><path d="M6.8 1.5v13M13.2 3.7v13"/></svg></span>
+  <span><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#007AFF" stroke-width="1.6" stroke-linejoin="round"><path d="M16 2 2 8.3l6.4 1.3L9.7 16z"/></svg></span>
+</div>
+
+<div class="wx">
+  <b><svg width="13" height="13" viewBox="0 0 14 14"><circle cx="7" cy="7" r="3" fill="#FFB800"/><g stroke="#FFB800" stroke-width="1.4" stroke-linecap="round"><path d="M7 .9v1.5M7 11.6v1.5M.9 7h1.5M11.6 7h1.5M2.7 2.7l1 1M10.3 10.3l1 1M2.7 11.3l1-1M10.3 3.7l1-1"/></g></svg>64°</b>
+  <small>AQI 28<i></i></small>
+</div>
+
+<div class="sheet">
+  <div class="grab"></div>
+  <div class="ttl">Chez Colette</div>
+  <div class="hb">
+    <span><svg width="14" height="16" viewBox="0 0 14 16" fill="none" stroke="#7C7C80" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 1.5v8.7M4 4.3 7 1.3l3 3M4.6 6.6H2.6v8h8.8v-8h-2"/></svg></span>
+    <span><svg width="11" height="11" viewBox="0 0 11 11" stroke="#7C7C80" stroke-width="2" stroke-linecap="round"><path d="m1.5 1.5 8 8m0-8-8 8"/></svg></span>
+  </div>
+  <div class="sub">French Restaurant · 12 Perry St</div>
+  <div class="rule"></div>
+  <div class="rt">
+    <div class="t">14 min <span>· 0.6 mi</span></div>
+    <div class="m"><svg width="10" height="14" viewBox="0 0 12 16" fill="none" stroke="rgba(60,60,67,.6)" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.6" cy="2" r="1.7" fill="rgba(60,60,67,.6)" stroke="none"/><path d="M7 4.8 5.9 9.4" stroke-width="2.3"/><path d="M5.9 9.4 3.8 12.2 2.8 15M5.9 9.4l1.9 2.6.7 3M6.8 5.4 4.5 7.6M6.8 5.4l1.9 2 1.8.7" stroke-width="1.7"/></svg>Walk · Fairly flat</div>
+  </div>
+  <div class="go">Go</div>
+  <div class="acts">
+    <div><svg width="18" height="18" viewBox="0 0 18 18"><path fill="#007AFF" d="M4.6 1.4c.7-.5 1.6-.4 2.1.3l1.7 2.3c.5.6.4 1.5-.1 2.1l-1 1c.8 1.6 2.1 2.9 3.6 3.7l1-1c.6-.6 1.5-.6 2.1-.1l2.3 1.7c.7.5.8 1.5.3 2.1l-1 1.3c-.7.9-1.9 1.3-3 1-4.7-1.4-8.4-5.1-9.7-9.8-.3-1.1.1-2.3 1-3z"/></svg>Call</div>
+    <div><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#007AFF" stroke-width="1.5"><circle cx="9" cy="9" r="7.3"/><ellipse cx="9" cy="9" rx="3.2" ry="7.3"/><path d="M1.9 9h14.2M3 5h12M3 13h12"/></svg>Website</div>
+    <div><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#007AFF" stroke-linecap="round"><path d="M3.2 1v4.1c0 1.2 1 2.1 2.3 2.1s2.3-.9 2.3-2.1V1M5.5 1v4" stroke-width="1.2"/><path d="M5.5 7.4V15M12.2 8.4V15" stroke-width="1.7"/><path d="M11.6 1c1.6.9 2.3 3 2.3 5.3 0 1.1-.5 1.9-1.1 2.2h-1.2z" fill="#007AFF" stroke="none"/></svg>Menu</div>
+    <div><svg width="20" height="18" viewBox="0 0 20 18" fill="#007AFF"><circle cx="4" cy="9" r="1.8"/><circle cx="10" cy="9" r="1.8"/><circle cx="16" cy="9" r="1.8"/></svg>More</div>
+  </div>
+</div>
+<div class="hi"></div>
+
+<script>
+(function () {
+  const NS = 'http://www.w3.org/2000/svg', svg = document.getElementById('map');
+  const el = (t, a, p) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); (p || svg).appendChild(e); return e; };
+  const layer = () => el('g', {});
+  const Lland = layer(), Lbld = layer(), Lpark = layer(), Lwater = layer(), Lcase = layer(), Lfill = layer(),
+        Lroute = layer(), Llab = layer(), Lpoi = layer(), Ltop = layer();
+
+  // Seeded PRNG so every render is identical.
+  let s = 20261006;
+  const rnd = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+
+  // Geometry: cross streets rise 11.9° to the east (y = b - K x); north-south streets lean 3° (x = c + T y).
+  const K = 0.21, T = 0.05, TH = Math.atan(K);
+  const ew = (b, x0, x1) => [[x0, b - K * x0], [x1, b - K * x1]];
+  const ns = (c, y0, y1) => [[c + T * y0, y0], [c + T * y1, y1]];
+  const W = { minor: 6.4, mid: 8.2, art: 10, hwy: 12 };            // fill widths
+  const FILL = { minor: '#fff', mid: '#fff', art: '#FCE7A6', hwy: '#F8D47C' };
+  const CASE = { minor: '#D9D2C4', mid: '#D3CBBC', art: '#E7C773', hwy: '#E0B45A' };
+
+  const streets = [
+    { k: 'minor', p: ns(100, -20, 620) },                                   // Washington St
+    ...[96, 151, 206, 261, 316, 371, 481, 536, 591].map(b => ({ k: 'minor', p: ew(b, 50, 400) })),
+    { k: 'minor', p: ew(426, 50, 373.4) },                                  // Perry St ends at Greenwich Ave
+    { k: 'minor', p: [[167, 239.3], [380, 608]] },                          // W 4th St
+    { k: 'mid', p: ns(155, -20, 620) },                                     // Hudson St
+    { k: 'mid', p: [[163.2, 164.1], [440, 405.9]] },                        // Greenwich Ave
+    { k: 'art', p: [[226, 620], [402, 235]] },                              // 7th Ave S
+    { k: 'hwy', p: ns(50, -20, 620) },                                      // West St
+  ];
+
+  // Land, river, riverside park and piers.
+  el('rect', { x: 0, y: 0, width: 390, height: 600, fill: '#F3EFE7' }, Lland);
+  const shore = y => 30 + T * y;
+  el('path', { d: `M0 -20H${shore(-20)}L${shore(620)} 620H0Z`, fill: '#A6D2F2' }, Lwater);
+  el('path', { d: `M${shore(-20)} -20H${shore(-20) + 16}L${shore(620) + 16} 620H${shore(620)}Z`, fill: '#C9E6B9' }, Lpark);
+  [[118, 11], [262, 9], [372, 12], [510, 10]].forEach(([y, h]) => {
+    const x = shore(y);
+    el('rect', { x: x - 26, y: y - h / 2, width: 30, height: h, rx: 1.5, fill: '#C9E6B9', stroke: '#B6D9A3', 'stroke-width': .8 }, Lpark);
+  });
+  // A park block (Abingdon Square) between Washington and Hudson, Jane and W 12th.
+  el('path', { d: 'M109.2 183.1 163.6 171.6 166.3 226.1 111.9 237.5Z', fill: '#C9E6B9' }, Lpark);
+
+  // Building lots: rows laid along each cross street, dropped wherever they would touch a street.
+  const dist = (px, py, [[ax, ay], [bx, by]]) => {
+    const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+  };
+  const clear = (x, y) => x > 60 + T * y && streets.every(st => dist(x, y, st.p) > W[st.k] / 2 + 2.1);
+  const toG = (xl, yl) => [xl * Math.cos(TH) + yl * Math.sin(TH), -xl * Math.sin(TH) + yl * Math.cos(TH)];
+  const bs = [41, 96, 151, 206, 261, 316, 371, 426, 481, 536, 591, 646];
+  for (let i = 0; i < bs.length - 1; i++) {
+    const y0 = bs[i] * Math.cos(TH) + 5.7, y1 = bs[i + 1] * Math.cos(TH) - 5.7;
+    const depth = (y1 - y0) / 2;
+    [[y0, 1], [y1, -1]].forEach(([edge, dir]) => {
+      let xl = -140 + rnd() * 10;
+      while (xl < 470) {
+        const w = 6 + rnd() * 9, d = depth - 1 - rnd() * 8;
+        if (rnd() > 0.06) {
+          const a = edge, b = edge + dir * d;
+          const pts = [toG(xl, a), toG(xl + w, a), toG(xl + w, b), toG(xl, b)];
+          const mids = [toG(xl + w / 2, a), toG(xl + w / 2, b), toG(xl, (a + b) / 2), toG(xl + w, (a + b) / 2), toG(xl + w / 2, (a + b) / 2)];
+          if ([...pts, ...mids].every(([x, y]) => clear(x, y)) && pts.some(([x, y]) => x > -5 && x < 395 && y > -5 && y < 605)) {
+            const tone = ['#EAE4D9', '#E8E2D6', '#ECE6DC'][Math.floor(rnd() * 3)];
+            el('path', { d: 'M' + pts.map(p => p.map(v => v.toFixed(1)).join(' ')).join('L') + 'Z', fill: tone, stroke: '#DFD8CA', 'stroke-width': .6 }, Lbld);
+          }
+        }
+        xl += w;
+      }
+    });
+  }
+
+  // Streets: all casings, then fills in hierarchy order.
+  const line = (p, stroke, width, parent) => el('path', { d: `M${p[0][0]} ${p[0][1]}L${p[1][0]} ${p[1][1]}`, stroke, 'stroke-width': width, 'stroke-linecap': 'round', fill: 'none' }, parent);
+  streets.forEach(st => line(st.p, CASE[st.k], W[st.k] + 1.8, Lcase));
+  streets.forEach(st => line(st.p, FILL[st.k], W[st.k], Lfill));
+
+  // Walking route: W 10th St east, Hudson St north, Perry St east to the door.
+  const route = [[96, 515.8], [179.9, 498.2], [174.5, 389.4], [275, 368.3]];
+  const rd = 'M' + route.map(p => p.join(' ')).join('L');
+  el('path', { d: rd, stroke: '#1D61D4', 'stroke-width': 10.5, fill: 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, Lroute);
+  el('path', { d: rd, stroke: '#3E8DF7', 'stroke-width': 7, fill: 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, Lroute);
+
+  // Labels with Apple-Maps-style white halos.
+  const label = (txt, x, y, rot, o = {}) => {
+    const t = el('text', {
+      x: 0, y: 0, transform: `translate(${x} ${y}) rotate(${rot})`, 'text-anchor': 'middle', 'dominant-baseline': 'central',
+      'font-size': o.size || 10.5, 'font-weight': o.weight || 500, fill: o.fill || '#5D5952', 'letter-spacing': o.ls || 0,
+      stroke: o.halo === false ? 'none' : '#fff', 'stroke-width': 2.8, 'stroke-linejoin': 'round', 'paint-order': 'stroke'
+    }, o.layer || Llab);
+    t.textContent = txt; return t;
+  };
+  const RE = -TH * 180 / Math.PI;                  // cross-street angle
+  const RN = Math.atan2(-1, -T) * 180 / Math.PI;   // north-south streets, read bottom-to-top
+  label('Perry St', 146, 395.2, RE);
+  label('Charles St', 228, 433.1, RE);
+  label('W 11th St', 128, 344.1, RE);
+  label('Bank St', 232, 267.3, RE);
+  label('W 4th St', 202.6, 301, 60);
+  label('Greenwich Ave', 246.5, 236.8, 41.1, { weight: 600 });
+  label('7th Ave S', 278, 505, -65.4, { weight: 600 });
+  label('Hudson St', 170.4, 308, RN, { weight: 600 });
+  label('West St', 66.5, 330, RN, { weight: 600, fill: '#6B5A35' });
+  label('Hudson River', 14, 300, -90, { fill: '#4C85BD', size: 11, halo: false, ls: .6 });
+  label('Abingdon', 138, 199, RE, { fill: '#3D8B3D', size: 9.5, weight: 600 });
+  label('Square', 139.5, 209.5, RE, { fill: '#3D8B3D', size: 9.5, weight: 600 });
+  label('WEST VILLAGE', 300, 176, 0, { fill: '#8A8378', size: 10.5, weight: 600, ls: 2.4 });
+
+  // A few neighbourhood places (illustrative names).
+  const poi = (x, y, color, glyph, name, side) => {
+    el('circle', { cx: x, cy: y, r: 7.5, fill: color, stroke: '#fff', 'stroke-width': 1.2 }, Lpoi);
+    el('path', { d: glyph, fill: '#fff', transform: `translate(${x - 4.5} ${y - 4.5})` }, Lpoi);
+    label(name, side === 'l' ? x - 10 : x + 10, y, 0, { size: 10, weight: 600, fill: color, layer: Lpoi }).setAttribute('text-anchor', side === 'l' ? 'end' : 'start');
+  };
+  const CUP = 'M1 2.2h5.6v3.3A2.4 2.4 0 0 1 4.2 7.9H3.4A2.4 2.4 0 0 1 1 5.5ZM6.6 3h.7a1.3 1.3 0 0 1 0 2.6h-.7v-.9h.6a.4.4 0 0 0 0-.8h-.6Z';
+  const BOOK = 'M1 1.6c1.3-.4 2.6-.2 3.5.6v6.3C3.6 7.8 2.3 7.6 1 8ZM8 1.6c-1.3-.4-2.6-.2-3.5.6v6.3c.9-.7 2.2-.9 3.5-.5Z';
+  const BAG = 'M1.6 3h5.8l.5 5.4H1.1ZM3 3V2.4a1.5 1.5 0 0 1 3 0V3h-.8v-.6a.7.7 0 0 0-1.4 0V3Z';
+  poi(316, 448, '#F0932B', CUP, 'Little Fern', 'r');
+  poi(92, 258, '#B9893F', BOOK, 'Hollis Books', 'r');
+  poi(248, 556, '#E0559A', BAG, 'Marlow & Co', 'r');
+
+  // Current location: heading cone, halo, white ring, blue dot.
+  const [px, py] = route[0];
+  el('path', { d: `M${px} ${py}L${px + 9} ${py - 26}A27 27 0 0 1 ${px + 27} ${py - 6}Z`, fill: 'rgba(0,122,255,.16)' }, Ltop);
+  el('circle', { cx: px, cy: py, r: 10.5, fill: '#fff', style: 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))' }, Ltop);
+  el('circle', { cx: px, cy: py, r: 7.5, fill: '#0A7AFF' }, Ltop);
+
+  // Travel-time callout on the route.
+  el('path', { d: 'M108 432h50a8 8 0 0 1 8 8v1l6 3-6 3v1a8 8 0 0 1-8 8h-50a8 8 0 0 1-8-8v-8a8 8 0 0 1 8-8Z', fill: '#0A7AFF', style: 'filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))' }, Ltop);
+  const walker = el('g', { transform: 'translate(108.5 437.5) scale(.82)', fill: 'none', stroke: '#fff', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, Ltop);
+  el('circle', { cx: 7.6, cy: 2, r: 1.7, fill: '#fff', stroke: 'none' }, walker);
+  el('path', { d: 'M7 4.8 5.9 9.4', 'stroke-width': 2.3 }, walker);
+  el('path', { d: 'M5.9 9.4 3.8 12.2 2.8 15M5.9 9.4l1.9 2.6.7 3M6.8 5.4 4.5 7.6M6.8 5.4l1.9 2 1.8.7', 'stroke-width': 1.7 }, walker);
+  const ct = el('text', { x: 121, y: 444.5, 'dominant-baseline': 'central', 'font-size': 12.5, 'font-weight': 600, fill: '#fff' }, Ltop);
+  ct.textContent = '14 min';
+
+  // Destination marker: red balloon with a fork-and-knife glyph, name below.
+  const [mx, my] = route[route.length - 1], cy = my - 27;
+  el('ellipse', { cx: mx, cy: my, rx: 5, ry: 2, fill: 'rgba(0,0,0,.22)' }, Ltop);
+  el('path', { d: `M${mx} ${my}L${mx - 12.9} ${cy + 9.5}A16 16 0 1 1 ${mx + 12.9} ${cy + 9.5}Z`, fill: '#F0453A', stroke: '#fff', 'stroke-width': 2, 'stroke-linejoin': 'round', style: 'filter:drop-shadow(0 2px 3px rgba(0,0,0,.28))' }, Ltop);
+  const fk = el('g', { transform: `translate(${mx - 8} ${cy - 8})`, fill: 'none', stroke: '#fff', 'stroke-linecap': 'round' }, Ltop);
+  el('path', { d: 'M3.2 1v4.1c0 1.2 1 2.1 2.3 2.1s2.3-.9 2.3-2.1V1M5.5 1v4', 'stroke-width': 1.2 }, fk);
+  el('path', { d: 'M5.5 7.4V15M12.2 8.4V15', 'stroke-width': 1.7 }, fk);
+  el('path', { d: 'M11.6 1c1.6.9 2.3 3 2.3 5.3 0 1.1-.5 1.9-1.1 2.2h-1.2z', fill: '#fff', stroke: 'none' }, fk);
+  label('Chez Colette', mx, my + 13, 0, { size: 12, weight: 700, fill: '#E23B30', layer: Ltop });
+})();
+</script>
+</body></html>

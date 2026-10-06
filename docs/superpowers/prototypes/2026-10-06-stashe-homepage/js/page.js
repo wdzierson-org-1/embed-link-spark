@@ -38,6 +38,21 @@
   };
   S.frame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
+  /* Images, loaded once each and shared: the pool's picture tiles, the try-it card, the memories. */
+  const images = new Map();
+  S.loadImage = (src) => {
+    if (!images.has(src)) {
+      images.set(src, new Promise((res, rej) => {
+        const im = new Image();
+        im.decoding = 'async';
+        im.onload = () => res(im);
+        im.onerror = () => rej(new Error(`image failed: ${src}`));
+        im.src = src;
+      }));
+    }
+    return images.get(src);
+  };
+
   /* Decrypt: text arrives as scrambled glyphs that settle left to right (the machine voice
      handing over to a clean reading). Resolves when the text is final. */
   const SCRAMBLE = 'abcdefghijklmnopqrstuvwxyz0123456789#%&*+=<>/\\|{}[]';

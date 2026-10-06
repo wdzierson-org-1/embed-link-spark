@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en" data-spot="lime">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install Stash it in Chrome · Stash exploration v0.3</title>
+<meta name="description" content="Stash it, the Chrome extension: save the page you're on, a selection or an image in one click. Install steps.">
+<link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body data-page="extension">
+<!--
+  The Chrome extension install page, redesigned in the homepage's v0.3 direction (Will, round 3).
+  Same facts as the live page (public/extension/index.html, unlisted at gostash.it/extension), which
+  is untouched: the version and size there are kept current by extension/scripts/publish-hosted-zip.sh,
+  so the "1.2.1, 33 KB" below is a copy and would need the same treatment if this page shipped.
+-->
+<div data-site-nav></div>
+
+<main>
+  <header class="page-hero">
+    <div class="wrap page-grid">
+      <div class="page-copy">
+        <p class="kicker"><span class="tag">chrome extension</span></p>
+        <h1 class="t-page">Save any page in one click.</h1>
+        <p class="lead">Stash it puts Stash in your toolbar. Click it to save the page you’re on; right-click to save a selection or an image. Stash reads it in the background, the same as everything else you save.</p>
+        <a class="get" href="https://www.gostash.it/stash-it-extension.zip" download>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+          <b>Download stash-it-extension.zip</b>
+          <small>version 1.2.1, 33 KB</small>
+        </a>
+        <p class="page-note">It isn’t on the Chrome Web Store yet, so it installs from a zip. About two minutes, in Chrome, Arc, Brave or Edge.</p>
+      </div>
+      <div class="page-art">
+        <figure class="art-stage crop" aria-hidden="true">
+          <span class="crop-b"></span>
+          <div class="browser">
+            <div class="br-bar">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="br-url">medium.com/@garrethow/how-to-remember-more</span>
+              <span class="br-ext"><svg viewBox="0 0 724 764"><use href="#st4sh-symbol"/></svg><i class="br-badge"></i></span>
+              <svg class="br-puzzle" viewBox="0 0 24 24"><path d="M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4a2 2 0 0 0-2 2v3.8h1.5a2.7 2.7 0 0 1 0 5.4H2V20a2 2 0 0 0 2 2h3.8v-1.5a2.7 2.7 0 0 1 5.4 0V22H17a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"/></svg>
+            </div>
+            <div class="br-page">
+              <p class="br-pub">Medium</p>
+              <h3>How to remember more of what you read</h3>
+              <p class="br-by">Garret How, 2 min read</p>
+              <div class="br-img"></div>
+              <p class="br-text">You finished the book three weeks ago, and you liked it. <mark>Asked what it said, you can offer a sentence, maybe two.</mark> That isn’t a failing of memory so much as a failure of practice.</p>
+              <div class="br-menu">
+                <span>Copy</span>
+                <span class="is-hi"><svg viewBox="0 0 724 764"><use href="#st4sh-symbol"/></svg>Stash it</span>
+                <span>Search Google for “Asked what it said…”</span>
+                <hr>
+                <span>Print…</span>
+                <span>Inspect</span>
+              </div>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </div>
+  </header>
+
+  <section class="page-sec" aria-labelledby="install-h">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2 id="install-h">Install it</h2>
+        <p>Six steps, once. After that it updates the same way it installed.</p>
+      </div>
+      <ol class="howto">
+        <li><h3>Unzip it, and move the folder somewhere permanent</h3><p>Chrome runs the extension straight from that folder, so if you delete it later the extension stops working. Documents is a good home. Downloads is not.</p></li>
+        <li><h3>Open the extensions page</h3><p>Paste <code class="inline">chrome://extensions</code><button class="chip-btn" type="button" data-copy="chrome://extensions">copy</button> into the address bar. A web page can’t link there, so it has to be pasted. In Chrome’s menu it’s Extensions, then Manage extensions.</p></li>
+        <li><h3>Turn on Developer mode</h3><p>It’s the switch in the top-right corner of that page. Three new buttons appear.</p></li>
+        <li><h3>Click Load unpacked and pick the folder</h3><p>Choose the <code class="inline">stash-it-extension</code> folder itself, the one that contains <code class="inline">manifest.json</code>. Stash it appears in the list, switched on.</p></li>
+        <li><h3>Pin it to the toolbar</h3><p>Click the puzzle-piece icon to the right of the address bar, then the pin next to Stash it.</p></li>
+        <li><h3>Sign in once</h3><p>Click the Stash it button. A sign-in page opens; use your Stash email and password. From then on, one click saves the page you’re on.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="page-sec" aria-labelledby="ways-h">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2 id="ways-h">Three ways to save</h2>
+        <p>A badge on the icon says how it went: a green check when the save landed, a red mark when it didn’t. Nothing is added to the page you’re reading.</p>
+      </div>
+      <div class="wins">
+        <div class="win"><div class="win-bar"><span>toolbar button</span><i></i></div><div class="win-body"><b>Click the Stash it button</b><p>Saves the page you’re on as a link. Its title, description and text are filled in a few seconds later.</p></div></div>
+        <div class="win"><div class="win-bar"><span>selected text</span><i></i></div><div class="win-body"><b>Select text, right-click, Stash it</b><p>Saves the selection as a note, line breaks and all.</p></div></div>
+        <div class="win"><div class="win-bar"><span>an image</span><i></i></div><div class="win-body"><b>Right-click an image, Stash it</b><p>Saves the image itself, not just its address. Stash reads any words in it.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page-sec" aria-label="Good to know, and updating">
+    <div class="wrap cols-2">
+      <div>
+        <h3>Good to know</h3>
+        <ul class="ticks">
+          <li>Chrome may show a “Disable developer mode extensions” notice when it starts. Close it or choose Cancel; the extension keeps working.</li>
+          <li>Firefox and Safari aren’t supported. Any browser built on Chromium is fine.</li>
+          <li>If a save shows the red mark, click the icon to check you’re still signed in. Forgot the password? The sign-in page has a reset link.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Updating</h3>
+        <p>When there’s a new version, the download above changes and its version number goes up. Download the zip again, unzip it, and replace the contents of your <code class="inline">stash-it-extension</code> folder. Then open <code class="inline">chrome://extensions</code> and click the reload arrow on the Stash it card. You stay signed in.</p>
+        <p>Removing the extension and loading it again also works, but you’ll need to sign in again.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<section class="s-close is-slim" aria-label="Stash">
+  <canvas aria-hidden="true"></canvas>
+  <div class="close-mark" aria-hidden="true"></div>
+  <div data-site-footer></div>
+</section>
+
+<script src="js/site.js"></script>
+<script src="js/page.js"></script>
+<script src="js/halftone.js"></script>
+</body>
+</html>

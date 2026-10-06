@@ -27,8 +27,10 @@
   const stepList = document.querySelector('.steps');
   const toggle = document.querySelector('[data-phone-toggle]');
   const LAND = '../../../src/assets/landing/';
-  const BOOK_BG = 'linear-gradient(160deg,#8a6a4c,#5b4330 60%,#3d2c20)';
+  // v0.3: real pictures — the book was photographed on a café table; the screenshots are screenshots.
+  const BOOK_BG = 'url(2026-10-06-stashe-homepage/img/table-latte.jpg) 30% 60% / cover';
   const MINI_BOOK = '<span class="mini-book"></span>';
+  const shotOf = (cell) => `url(${cell.querySelector('img').getAttribute('src')}) center / cover`;
 
   /* Centre of an element in screen coordinates (layout space, so the tilt doesn't skew it). */
   function centre(el) {
@@ -108,11 +110,11 @@
     }
     await S.wait(260, t);
     await tap(shareOf(photos), t);
-    openSheet({ html: picks[0].querySelector('.ss').outerHTML, title: '4 Photos Selected', sub: 'Options ›' });
+    openSheet({ bg: shotOf(picks[0]), title: '4 Photos Selected', sub: 'Options ›' });
     await S.wait(900, t);
     await tap(stashApp, t, 540);
     sheet.classList.remove('is-on'); lift();
-    await saveFlow(t, { html: picks[1].querySelector('.ss').outerHTML, busyTitle: '4 screenshots', busySub: 'saving', doneTitle: '4 screenshots saved', doneSub: 'reading the text in each one' });
+    await saveFlow(t, { bg: shotOf(picks[3]), busyTitle: '4 screenshots', busySub: 'saving', doneTitle: '4 screenshots saved', doneSub: 'reading the text in each one' });
     picks.forEach((p) => p.classList.remove('on')); sel.classList.remove('on'); sel.textContent = 'Select'; count.textContent = 'Photos';
   }
 
@@ -220,7 +222,7 @@
       show('photos');
       picks.forEach((p) => p.classList.add('on'));
       sel.classList.add('on'); sel.textContent = 'Cancel'; count.textContent = '4 Photos Selected';
-      openSheet({ html: picks[0].querySelector('.ss').outerHTML, title: '4 Photos Selected', sub: 'Options ›' });
+      openSheet({ bg: shotOf(picks[0]), title: '4 Photos Selected', sub: 'Options ›' });
       const [x, y] = centre(stashApp); fingerTo(x, y, true); finger.classList.add('on');
     } else if (name === 'book') {
       show('viewer');

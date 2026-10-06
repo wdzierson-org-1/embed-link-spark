@@ -3,38 +3,36 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stash — smarter saving · homepage exploration v0.2</title>
-<meta name="description" content="Homepage exploration for Stash, after typesafe.ai: clean objects, DIY machinery. v0.2 adds live enrichment.">
+<title>Stash — save it fast, find it when you need it · homepage exploration v0.3</title>
+<meta name="description" content="Homepage exploration for Stash, after typesafe.ai: clean objects, DIY machinery. v0.3: new headline, a textured hero, labelled drops and picture tiles, honest card pictures, footer pages.">
 <link rel="icon" href="2026-10-06-stashe-homepage/logo/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="2026-10-06-stashe-homepage/style.css">
 <script>document.documentElement.classList.add('js')</script>
 </head>
-<body>
+<body data-page="home">
 <!--
-  Stash homepage — exploration v0.2 · 2026-10-06 (v0.1 shipped the same day as "Stashe"; see git)
-  v0.2 (Will's round 2): back to Stash with the ST4SH logo kit; $4.99/month, no trial; a live
-  "try it" composer wired to the homepage-enrich endpoint; slower hero whose pool reacts to each
-  drop (neon pulse + decrypted enrichment); Cursor and Claude windows; phone section moved up and
-  cleaned of occlusions; more duotone at the bottom; the library screenshot is parked for later.
+  Stash homepage — exploration v0.3 · 2026-10-06 (v0.1 "Stashe" and v0.2 shipped the same day; see git)
+  v0.3 (Will's round 3): "Save it fast. Find it when you need it."; a quiet stippled texture behind
+  the pool; saves hang labelled ("link: …") for half a second before they drop, and pictures drop as
+  low-res tiles (photo, place, paper, book); the ripple lives only in the ASCII; an eyebrow over the
+  statement; the try-it card shows the real og:image or, after 0.75 s, a placeholder for the kind of
+  thing it is; realistic screenshots on the phone; a column footer and three pages of their own
+  (Chrome extension, MCP, iPhone). The sprite, nav, footer and review panel come from js/site.js.
   Deep links (hash): spot=lime|violet · ex=link|shot|article|paper|tiktok ·
   scene=shots|book|article|library · ai=cursor|claude · still (freeze for renders)
 -->
-<svg class="sprite" aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute"><symbol id="st4sh-wordmark" viewBox="30 30 3095.4 730"><g fill="currentColor" transform="translate(32 32) scale(1)"> <g transform="translate(-42.814 713.012) scale(1 -1)"> <path transform="translate(0 0)" fill-rule="evenodd" d="M42.814 207.887H163.883Q170.446 149.361 215.834 117.46Q261.223 85.559 340.587 85.559Q382.401 85.559 414.364 97.972Q446.328 110.385 463.734 134.142Q481.141 157.899 481.141 190.287Q481.141 220.113 466.578 238.239Q452.016 256.364 425.034 268.139Q398.052 279.915 349.502 293.34Q323.801 301.052 297.101 307.765Q277.389 313.765 256.963 319.052Q191.963 338.915 151.032 360.133Q110.101 381.352 86.095 418.433Q62.089 455.514 62.089 513.389Q62.089 570.976 93.739 616.488Q125.389 662 181.976 687.506Q238.563 713.012 310.3 713.012Q385.761 713.012 444.642 685.862Q503.523 658.713 539.672 607.419Q575.822 556.125 584.098 486.263H463.465Q453.627 544.352 411.951 579.396Q370.275 614.441 308.887 614.441Q270.498 614.441 241.885 603.097Q213.272 591.753 198.003 570.99Q182.733 550.227 182.733 522.401Q182.733 493.713 196.584 476.3Q210.434 458.887 238.347 446.468Q266.26 434.049 320.822 418.761L364.073 406.911Q452.486 382.336 503.124 355.911Q553.761 329.486 577.842 291.905Q601.923 254.324 601.923 198.587Q601.923 134.287 569.78 86.425Q537.636 38.563 478.699 12.775Q419.761 -13.012 341.737 -13.012Q251.575 -13.012 185.775 12.85Q119.976 38.713 83.538 88.294Q47.101 137.875 42.814 207.887Z"/> <path transform="translate(610 0)" fill-rule="evenodd" d="M264.465 596.554H35.113V700H614.324V596.554H384.972V0H264.465Z"/> <path transform="translate(1150 0)" fill-rule="evenodd" d="M0 0 448 700H568V280H660V177H568V0H448V177H232L119 0ZM297 280H448V516Z"/> <path transform="translate(1835 0)" fill-rule="evenodd" d="M42.814 207.887H163.883Q170.446 149.361 215.834 117.46Q261.223 85.559 340.587 85.559Q382.401 85.559 414.364 97.972Q446.328 110.385 463.734 134.142Q481.141 157.899 481.141 190.287Q481.141 220.113 466.578 238.239Q452.016 256.364 425.034 268.139Q398.052 279.915 349.502 293.34Q323.801 301.052 297.101 307.765Q277.389 313.765 256.963 319.052Q191.963 338.915 151.032 360.133Q110.101 381.352 86.095 418.433Q62.089 455.514 62.089 513.389Q62.089 570.976 93.739 616.488Q125.389 662 181.976 687.506Q238.563 713.012 310.3 713.012Q385.761 713.012 444.642 685.862Q503.523 658.713 539.672 607.419Q575.822 556.125 584.098 486.263H463.465Q453.627 544.352 411.951 579.396Q370.275 614.441 308.887 614.441Q270.498 614.441 241.885 603.097Q213.272 591.753 198.003 570.99Q182.733 550.227 182.733 522.401Q182.733 493.713 196.584 476.3Q210.434 458.887 238.347 446.468Q266.26 434.049 320.822 418.761L364.073 406.911Q452.486 382.336 503.124 355.911Q553.761 329.486 577.842 291.905Q601.923 254.324 601.923 198.587Q601.923 134.287 569.78 86.425Q537.636 38.563 478.699 12.775Q419.761 -13.012 341.737 -13.012Q251.575 -13.012 185.775 12.85Q119.976 38.713 83.538 88.294Q47.101 137.875 42.814 207.887Z"/> <path transform="translate(2470 0)" fill-rule="evenodd" d="M74.077 700H194.584V411.073H543.692V700H664.199V0H543.692V307.627H194.584V0H74.077Z"/> </g></g></symbol><symbol id="st4sh-symbol" viewBox="0 0 724 764"><path fill="currentColor" fill-rule="evenodd" transform="translate(32 732) scale(1.0 -1.0)" d="M0 0 448 700H568V280H660V177H568V0H448V177H232L119 0ZM297 280H448V516Z"/></symbol></svg>
 
-<nav class="nav" aria-label="Main">
-  <div class="nav-group"><a class="brand" href="#top" aria-label="Stash, home"><svg class="wordmark" aria-hidden="true"><use href="#st4sh-wordmark"/></svg></a></div>
-  <div class="nav-group nav-mid"><a href="#how">Try it</a><a href="#phone">On your phone</a><a href="#ai">With your AI</a><a href="#anywhere">Anywhere</a></div>
-  <div class="nav-group"><a class="nav-signin" href="#start">Sign in</a><a class="nav-cta" href="#start">Get Stash</a></div>
-</nav>
+<div data-site-nav></div>
 
 <!-- ============ 1 · Hero ============ -->
 <header class="hero" id="top">
+  <canvas class="hero-tex" aria-hidden="true"></canvas>
   <canvas class="hero-ascii" aria-hidden="true"></canvas>
   <div class="hero-drops" aria-hidden="true"></div>
   <div class="hero-inner wrap">
-    <h1 class="t-hero">Save first.<br>Ask later.</h1>
+    <h1 class="t-hero">Save it fast.<br>Find it when<br>you need it.</h1>
     <div class="hero-aside">
-      <p class="hero-lead">Stash is smarter saving. Drop in a link, a screenshot, a TikTok — we gather the background, so you can find it, ask about it, and take it anywhere.</p>
+      <p class="hero-lead">Stash is smarter saving. Drop in a link, a screenshot, a TikTok — we gather the background, so later you can ask about it in your own words and take it anywhere.</p>
       <div class="hero-cta"><a class="btn btn-ink" href="#start">Get Stash</a><a class="btn btn-line" href="#how">Try it</a></div>
       <p class="hero-note px">$4.99 a month</p>
     </div>
@@ -47,6 +45,7 @@
 <!-- ============ 2 · Try it: a live enrichment ============ -->
 <section class="s-enrich" id="how" aria-labelledby="how-h">
   <div class="wrap">
+    <p class="kicker"><span class="tag">Stash enriches your items automatically</span></p>
     <h2 id="how-h" class="t-statement">You save anything — <span class="nw">a <button class="word" data-ex="link" aria-pressed="false">link</button>,</span> <span class="nw">a <button class="word" data-ex="shot" aria-pressed="false">screenshot</button>,</span> <span class="nw">an <button class="word" data-ex="article" aria-pressed="false">article</button>,</span> <span class="nw">a <button class="word" data-ex="paper" aria-pressed="false">paper</button>,</span> <span class="nw">a <button class="word" data-ex="tiktok" aria-pressed="false">TikTok</button>.</span> We gather all of the background.</h2>
 
     <div class="enrich-stage crop" data-stage>
@@ -64,7 +63,7 @@
         <input type="file" data-file-input accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,text/markdown,.md,.txt" hidden>
       </form>
       <article class="scard" aria-live="polite" aria-atomic="false">
-        <div class="scard-media"><canvas aria-hidden="true"></canvas><img class="scard-img" alt="" hidden><span class="tag scard-kind"></span></div>
+        <div class="scard-media"><canvas aria-hidden="true"></canvas><span class="tag scard-kind"></span></div>
         <div class="scard-body">
           <h3 class="scard-title"></h3>
           <p class="scard-desc"></p>
@@ -110,20 +109,20 @@
               <div class="ph-top"><h4>Recents</h4><span class="sel">Select</span></div>
               <div class="ph-grid">
                 <div><img src="../../../src/assets/landing/cover-recipe.jpg" alt=""><span class="ph-check"></span></div>
-                <div data-pick="1"><div class="ss"><i style="width:50%"></i><div class="blk" style="background:#d5e6d8"></div><i></i><i style="width:64%"></i></div><span class="ph-check"></span></div>
-                <div><div class="ss dark"><i style="width:44%"></i><i style="width:62%;height:14px;border-radius:7px;background:#2f7cf6;align-self:flex-end"></i><i style="width:54%;height:14px;border-radius:7px"></i><i style="width:40%;height:14px;border-radius:7px;background:#2f7cf6;align-self:flex-end"></i></div><span class="ph-check"></span></div>
-                <div data-pick="2"><div class="ss"><i style="width:30%;height:16px;border-radius:50%"></i><i></i><i style="width:80%"></i><div class="blk" style="background:#e9dccb"></div></div><span class="ph-check"></span></div>
+                <div data-pick="1"><img src="2026-10-06-stashe-homepage/img/shot-maps.jpg" alt=""><span class="ph-check"></span></div>
+                <div><img src="2026-10-06-stashe-homepage/img/shot-messages.jpg" alt=""><span class="ph-check"></span></div>
+                <div data-pick="2"><img src="2026-10-06-stashe-homepage/img/shot-thread.jpg" alt=""><span class="ph-check"></span></div>
                 <div><img src="../../../src/assets/landing/cover-restaurant.jpg" alt=""><span class="ph-check"></span></div>
-                <div data-pick="3"><div class="ss" style="align-items:center"><i style="width:40%"></i><i style="width:70%"></i><i style="width:70%"></i><i style="width:70%"></i><i style="width:70%"></i><i style="width:46%;height:8px;background:#999"></i></div><span class="ph-check"></span></div>
+                <div data-pick="3"><img src="2026-10-06-stashe-homepage/img/shot-receipt.jpg" alt=""><span class="ph-check"></span></div>
                 <div><img src="../../../src/assets/landing/cover-inspiration.jpg" alt=""><span class="ph-check"></span></div>
-                <div data-pick="4"><div class="ss"><div class="blk" style="flex:none;height:34px;background:#3a6fd8"></div><i style="width:60%;height:10px"></i><i style="width:80%"></i><i style="width:44%"></i></div><span class="ph-check"></span></div>
+                <div data-pick="4"><img src="2026-10-06-stashe-homepage/img/shot-boarding.jpg" alt=""><span class="ph-check"></span></div>
                 <div><img src="../../../src/assets/landing/cover-article.jpg" alt=""><span class="ph-check"></span></div>
-                <div><div class="ss dark"><div class="blk" style="background:#3b2f4a"></div><i style="width:70%"></i><i style="width:50%"></i></div><span class="ph-check"></span></div>
+                <div><img src="2026-10-06-stashe-homepage/img/shot-colette.jpg" alt=""><span class="ph-check"></span></div>
                 <div><img src="2026-10-06-stashe-homepage/img/mood-tile.jpg" alt=""><span class="ph-check"></span></div>
-                <div><div class="ss"><i style="width:56%"></i><i></i><i></i><i style="width:70%"></i><i></i></div><span class="ph-check"></span></div>
+                <div><img src="2026-10-06-stashe-homepage/img/hotel-rooftops.jpg" alt=""><span class="ph-check"></span></div>
                 <div><img src="2026-10-06-stashe-homepage/img/mood-leather.jpg" alt=""><span class="ph-check"></span></div>
-                <div><div class="ss"><div class="blk" style="background:#f0d9d9"></div><i style="width:70%"></i></div><span class="ph-check"></span></div>
                 <div><img src="2026-10-06-stashe-homepage/img/bag.jpg" alt=""><span class="ph-check"></span></div>
+                <div><img src="2026-10-06-stashe-homepage/img/hotel-garden.jpg" alt=""><span class="ph-check"></span></div>
               </div>
               <div class="ph-bottom"><span class="share-btn" data-share><svg class="share-ico" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg></span><span class="ph-count">Photos</span><svg class="share-ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/></svg></div>
               <div class="home-ind"></div>
@@ -175,11 +174,11 @@
               <div class="lib-chips"><span>All</span><span>Links</span><span>Images</span><span>Notes</span><span>Voice</span></div>
               <div class="lib-grid">
                 <div class="lcard" data-l="article"><div class="lm" style="background-image:url(../../../src/assets/landing/cover-article.jpg)"><span class="tag">article</span></div><div class="lb"><div class="lt">How to remember more of what you read</div><div class="ls px">medium.com, 2 min</div></div></div>
-                <div class="lcard" data-l="book"><div class="lm" style="background:linear-gradient(160deg,#8a6a4c,#5b4330)"><span class="mini-book"></span><span class="tag">photo</span></div><div class="lb"><div class="lt">Walden, Henry David Thoreau</div><div class="ls px">book cover</div></div></div>
-                <div class="lcard" data-l="s1"><div class="lm" style="background:#d5e6d8"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Directions to Chez Colette</div><div class="ls px">maps</div></div></div>
-                <div class="lcard" data-l="s2"><div class="lm" style="background:#e9dccb"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Thread: keeping a sourdough starter alive</div><div class="ls px">social post</div></div></div>
-                <div class="lcard" data-l="s3"><div class="lm" style="background:#ecebe6"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Receipt, Blue Bottle, $6.50</div><div class="ls px">receipt</div></div></div>
-                <div class="lcard" data-l="s4"><div class="lm" style="background:#3a6fd8"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Boarding pass, BOS to SFO, Fri</div><div class="ls px">travel</div></div></div>
+                <div class="lcard" data-l="book"><div class="lm" style="background:url(2026-10-06-stashe-homepage/img/table-latte.jpg) 30% 60% / cover"><span class="mini-book"></span><span class="tag">photo</span></div><div class="lb"><div class="lt">Walden, Henry David Thoreau</div><div class="ls px">book cover</div></div></div>
+                <div class="lcard" data-l="s1"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-maps.jpg)"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Directions to Chez Colette</div><div class="ls px">maps</div></div></div>
+                <div class="lcard" data-l="s2"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-thread.jpg)"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Thread: keeping a sourdough starter alive</div><div class="ls px">social post</div></div></div>
+                <div class="lcard" data-l="s3"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-receipt.jpg);background-position:center 41%"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Receipt, Blue Bottle, $6.50</div><div class="ls px">receipt</div></div></div>
+                <div class="lcard" data-l="s4"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-boarding.jpg);background-position:center 24%"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Boarding pass, BOS to SFO, Fri</div><div class="ls px">travel</div></div></div>
               </div>
               <div class="home-ind"></div>
             </div>
@@ -330,20 +329,10 @@
     <div class="close-cta"><a class="btn btn-ink" href="#start">Get Stash</a><p class="px">$4.99 a month.</p></div>
   </div>
   <div class="close-mark" aria-hidden="true"></div>
-  <footer class="wrap foot">
-    <svg class="wordmark" role="img" aria-label="Stash"><use href="#st4sh-wordmark"/></svg>
-    <a href="#">Privacy</a><a href="#">Terms</a><a href="mailto:hello@gostash.it">Contact</a><span>© 2026</span>
-  </footer>
+  <div data-site-footer></div>
 </section>
 
-<aside class="review" aria-label="Prototype controls">
-  <span>stash home v0.2</span>
-  <span role="group" aria-label="Spot colour">
-    <button data-spot-btn="lime" aria-pressed="true"><i style="background:#a3f53b"></i>lime</button>
-    <button data-spot-btn="violet" aria-pressed="false"><i style="background:#6d5bd0"></i>violet</button>
-  </span>
-</aside>
-
+<script src="2026-10-06-stashe-homepage/js/site.js"></script>
 <script src="2026-10-06-stashe-homepage/js/page.js"></script>
 <script src="2026-10-06-stashe-homepage/js/api.js"></script>
 <script src="2026-10-06-stashe-homepage/js/liquid.js"></script>

@@ -1,0 +1,107 @@
+<!doctype html>
+<!-- Source for img/shot-boarding.jpg — an iPhone screenshot of a boarding pass open in a
+     Wallet-style pass view (light mode). "Northline", its mark, the passenger and the flight are
+     illustrative. The QR is a decorative grid (real finder/timing/alignment structure, random
+     data) drawn by the script at the bottom; it does not decode to anything. -->
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+html,body{margin:0;width:390px;height:844px;overflow:hidden;background:#F2F2F7;position:relative;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased;color:#000}
+svg{display:block}
+
+.sb{position:absolute;left:0;top:0;width:390px;height:54px}
+.sb-t{position:absolute;left:0;top:14px;width:132px;text-align:center;font-weight:600;font-size:17px;line-height:20px;letter-spacing:-.4px}
+.sb-r{position:absolute;right:28px;top:18px;display:flex;gap:6px;align-items:center}
+
+.done{position:absolute;left:16px;top:65px;color:#007AFF;font-weight:600;font-size:17px;line-height:22px;letter-spacing:-.4px}
+.more{position:absolute;right:16px;top:61px;width:30px;height:30px;border-radius:50%;background:rgba(118,118,128,.12);display:grid;place-items:center}
+
+.pass{position:absolute;left:14px;top:108px;width:362px;height:534px;border-radius:14px;overflow:hidden;color:#fff;
+  background:radial-gradient(120% 60% at 30% 0%,#1F55AE 0%,rgba(31,85,174,0) 70%),linear-gradient(#1648A0,#0E3A86);
+  box-shadow:0 1px 2px rgba(0,0,0,.12),0 6px 18px rgba(14,58,134,.18)}
+.lab{font-size:10.5px;line-height:13px;font-weight:600;letter-spacing:.5px;color:rgba(214,227,250,.82);text-transform:uppercase}
+.val{font-size:18px;line-height:23px;font-weight:400;letter-spacing:-.2px}
+.logo{position:absolute;left:16px;top:16px;display:flex;align-items:center;gap:8px;font-weight:600;font-size:20px;line-height:28px;letter-spacing:-.3px}
+.hf{position:absolute;top:15px;text-align:right}
+.city{position:absolute;top:102px;font-size:13px;line-height:16px;color:rgba(214,227,250,.9);letter-spacing:-.1px}
+.code{position:absolute;top:120px;font-weight:300;font-size:56px;line-height:58px;letter-spacing:-.8px}
+.plane{position:absolute;left:166px;top:136px}
+.f{position:absolute}
+.qrbox{position:absolute;left:96px;top:308px;width:170px;height:194px;border-radius:10px;background:#fff;padding:12px 12px 0}
+.qrbox p{margin:6px 0 0;text-align:center;color:#3C3C43;font-size:11px;line-height:14px;letter-spacing:.3px}
+
+.stack{position:absolute;left:14px;width:362px;height:60px;border-radius:12px}
+.hi{position:absolute;left:128px;top:831px;width:134px;height:5px;border-radius:3px;background:#000}
+</style></head><body>
+
+<div class="sb">
+  <span class="sb-t">6:02</span>
+  <span class="sb-r">
+    <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="7.6" width="3.2" height="4.4" rx="1"/><rect x="4.9" y="5.2" width="3.2" height="6.8" rx="1"/><rect x="9.8" y="2.6" width="3.2" height="9.4" rx="1"/><rect x="14.7" y="0" width="3.2" height="12" rx="1"/></svg>
+    <svg width="16" height="12" viewBox="0 0 16 12"><path d="M.93 4.13A10 10 0 0 1 15.07 4.13M3.47 6.67A6.4 6.4 0 0 1 12.53 6.67" fill="none" stroke="#000" stroke-width="2.2"/><path d="M8 11.4 5.7 9A3.3 3.3 0 0 1 10.3 9Z"/></svg>
+    <svg width="28" height="13" viewBox="0 0 28 13"><rect x=".5" y=".5" width="24" height="12" rx="3.8" fill="none" stroke="#000" stroke-opacity=".35"/><rect x="2" y="2" width="21" height="9" rx="2.3"/><path d="M26 4.3v4.4c.9-.35 1.5-1.2 1.5-2.2S26.9 4.65 26 4.3Z" fill-opacity=".4"/></svg>
+  </span>
+</div>
+
+<div class="done">Done</div>
+<div class="more"><svg width="18" height="18" viewBox="0 0 18 18" fill="#007AFF"><circle cx="3.5" cy="9" r="1.6"/><circle cx="9" cy="9" r="1.6"/><circle cx="14.5" cy="9" r="1.6"/></svg></div>
+
+<div class="pass">
+  <div class="logo">
+    <svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="12.6" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M14 5.6 18.6 18.4 14 15.6 9.4 18.4Z" fill="#fff"/><path d="M8.4 21.4h11.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
+    Northline
+  </div>
+  <div class="hf" style="right:76px"><div class="lab">Gate</div><div class="val" style="font-size:20px">B12</div></div>
+  <div class="hf" style="right:16px"><div class="lab">Seat</div><div class="val" style="font-size:20px">14C</div></div>
+
+  <div class="city" style="left:16px">Boston</div>
+  <div class="code" style="left:14px">BOS</div>
+  <svg class="plane" width="30" height="30" viewBox="0 0 30 30"><path fill="#fff" d="M27.6 15c0-1-1-1.7-2.2-1.7h-6.2L12.6 3.6h-2.4l3.5 9.7H7.5L5.4 10.4H3.4l1.5 4.6-1.5 4.6h2l2.1-2.9h6.2L10.2 26.4h2.4l6.6-9.7h6.2c1.2 0 2.2-.7 2.2-1.7Z"/></svg>
+  <div class="city" style="right:16px;text-align:right">San Francisco</div>
+  <div class="code" style="right:15px">SFO</div>
+
+  <div class="f" style="left:16px;top:198px"><div class="lab">Passenger</div><div class="val">ALEX MORGAN</div></div>
+  <div class="f" style="left:208px;top:198px"><div class="lab">Group</div><div class="val">3</div></div>
+  <div class="f" style="right:16px;top:198px;text-align:right"><div class="lab">Class</div><div class="val">Main</div></div>
+
+  <div class="f" style="left:16px;top:248px"><div class="lab">Departs</div><div class="val">7:05 AM</div></div>
+  <div class="f" style="left:110px;top:248px"><div class="lab">Date</div><div class="val">FRI OCT 9</div></div>
+  <div class="f" style="left:208px;top:248px"><div class="lab">Boards</div><div class="val">6:25 AM</div></div>
+  <div class="f" style="right:16px;top:248px;text-align:right"><div class="lab">Flight</div><div class="val">NL 214</div></div>
+
+  <div class="qrbox"><svg id="qr" width="145" height="145" viewBox="0 0 29 29" shape-rendering="crispEdges"></svg><p>NL 214 · SEQ 087</p></div>
+</div>
+
+<div class="stack" style="top:774px;background:#2C2C2E"></div>
+<div class="stack" style="top:782px;background:#1F6F5C;box-shadow:0 -1px 2px rgba(0,0,0,.18)"></div>
+<div class="stack" style="top:790px;background:#fff;box-shadow:0 -1px 3px rgba(0,0,0,.16)"></div>
+<div class="hi"></div>
+
+<script>
+(function () {
+  // Version-3 QR layout (29×29): three finder squares, timing lines, one alignment square, random data.
+  const N = 29, m = Array.from({ length: N }, () => Array(N).fill(null));
+  const finder = (r, c) => { for (let i = -1; i <= 7; i++) for (let j = -1; j <= 7; j++) {
+    const y = r + i, x = c + j; if (y < 0 || x < 0 || y >= N || x >= N) continue;
+    const ring = Math.max(Math.abs(i - 3), Math.abs(j - 3));
+    m[y][x] = ring === 4 ? 0 : ring === 3 ? 1 : ring === 2 ? 0 : 1; } };
+  finder(0, 0); finder(0, N - 7); finder(N - 7, 0);
+  for (let i = 8; i < N - 8; i++) { m[6][i] = m[i][6] = i % 2 === 0 ? 1 : 0; }
+  for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) { const ring = Math.max(Math.abs(i), Math.abs(j)); m[22 + i][22 + j] = ring === 1 ? 0 : 1; }
+  m[N - 8][8] = 1;                                   // the always-dark module
+  let s = 9142026;
+  const rnd = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    if (m[y][x] !== null) continue;
+    const fmt = (y === 8 && (x < 9 || x > N - 9)) || (x === 8 && (y < 9 || y > N - 9));
+    m[y][x] = fmt ? (rnd() < .5 ? 1 : 0) : (rnd() < .48 ? 1 : 0);
+  }
+  let d = '';
+  for (let y = 0; y < N; y++) { let x = 0; while (x < N) { if (m[y][x] === 1) { let w = 1; while (x + w < N && m[y][x + w] === 1) w++; d += `M${x} ${y}h${w}v1h-${w}z`; x += w; } else x++; } }
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', d); p.setAttribute('fill', '#000');
+  document.getElementById('qr').appendChild(p);
+})();
+</script>
+</body></html>
