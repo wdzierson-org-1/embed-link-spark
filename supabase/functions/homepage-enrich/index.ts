@@ -286,7 +286,7 @@ const linkFindings = async (url: URL): Promise<LinkFindings | null> => {
   // The reader proxy (Jina) gets past Medium-style walls but is slower, so it races the direct
   // fetch: started at once for hosts known to wall crawlers, otherwise after 1.2 s of silence.
   let readerP: Promise<ExtractedPage | null> | null = null;
-  const startReader = () => (readerP ??= fetchViaJinaReader(url.toString(), 6000).catch(() => null));
+  const startReader = () => (readerP ??= fetchViaJinaReader(url.toString(), 9000).catch(() => null));
   const walled = WALLED_HOSTS.test(host);
   if (walled) startReader();
   const readerTimer = setTimeout(startReader, 1200);
