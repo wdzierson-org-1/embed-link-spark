@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Install Stash it in Chrome · Stash exploration v0.3</title>
+<title>Install Stash it in Chrome · Stash exploration v0.4</title>
 <meta name="description" content="Stash it, the Chrome extension: save the page you're on, a selection or an image in one click. Install steps.">
 <link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
@@ -35,29 +35,7 @@
       <div class="page-art">
         <figure class="art-stage crop" aria-hidden="true">
           <span class="crop-b"></span>
-          <div class="browser">
-            <div class="br-bar">
-              <span class="dots"><i></i><i></i><i></i></span>
-              <span class="br-url">medium.com/@garrethow/how-to-remember-more</span>
-              <span class="br-ext"><svg viewBox="0 0 724 764"><use href="#st4sh-symbol"/></svg><i class="br-badge"></i></span>
-              <svg class="br-puzzle" viewBox="0 0 24 24"><path d="M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4a2 2 0 0 0-2 2v3.8h1.5a2.7 2.7 0 0 1 0 5.4H2V20a2 2 0 0 0 2 2h3.8v-1.5a2.7 2.7 0 0 1 5.4 0V22H17a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z"/></svg>
-            </div>
-            <div class="br-page">
-              <p class="br-pub">Medium</p>
-              <h3>How to remember more of what you read</h3>
-              <p class="br-by">Garret How, 2 min read</p>
-              <div class="br-img"></div>
-              <p class="br-text">You finished the book three weeks ago, and you liked it. <mark>Asked what it said, you can offer a sentence, maybe two.</mark> That isn’t a failing of memory so much as a failure of practice.</p>
-              <div class="br-menu">
-                <span>Copy</span>
-                <span class="is-hi"><svg viewBox="0 0 724 764"><use href="#st4sh-symbol"/></svg>Stash it</span>
-                <span>Search Google for “Asked what it said…”</span>
-                <hr>
-                <span>Print…</span>
-                <span>Inspect</span>
-              </div>
-            </div>
-          </div>
+          <div data-browser></div>
         </figure>
       </div>
     </div>
@@ -121,6 +99,7 @@
 
 <script src="js/site.js"></script>
 <script src="js/page.js"></script>
+<script src="js/browser.js"></script>
 <script src="js/halftone.js"></script>
 </body>
 </html>

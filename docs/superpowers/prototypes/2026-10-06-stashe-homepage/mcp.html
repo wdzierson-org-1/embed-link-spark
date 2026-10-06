@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect your AI to Stash (MCP) · Stash exploration v0.3</title>
+<title>Connect your AI to Stash (MCP) · Stash exploration v0.4</title>
 <meta name="description" content="Add Stash's MCP server to Claude, ChatGPT, Cursor, VS Code or Claude Code, and your AI can search everything you've saved. Read-only.">
 <link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
@@ -35,14 +35,7 @@
       <div class="page-art">
         <figure class="art-stage crop" aria-hidden="true">
           <span class="crop-b"></span>
-          <div class="mcp-demo win">
-            <div class="win-bar"><span>claude.ai</span><span>stash connected</span></div>
-            <div class="mcp-demo-body">
-              <p class="cl-user">What was that design repo I saved last month?</p>
-              <p class="cl-tool is-done"><svg class="ico" viewBox="0 0 724 764"><use href="#st4sh-symbol"/></svg>Searched Stash <em>search_stash("design repo")</em></p>
-              <p class="mcp-ans">It’s <b>pbakaus/impeccable</b>. You saved it on Sep 28 with the note “the design language that makes your AI harness better at design,” and Stash has its README, so I can walk you through setting it up.</p>
-            </div>
-          </div>
+          <div data-ask></div>
         </figure>
       </div>
     </div>
@@ -132,6 +125,7 @@
 
 <script src="js/site.js"></script>
 <script src="js/page.js"></script>
+<script src="js/ask.js"></script>
 <script src="js/halftone.js"></script>
 </body>
 </html>

@@ -61,6 +61,7 @@
     constructor(canvas, o) {
       this.canvas = canvas; this.ctx = canvas.getContext('2d'); this.o = o;
       this.knock = []; this.pointer = null; this.mask = null;
+      this.calmY = null; this.calm = 0; // the footer's quiet zone, and how far it's dialled back now
       this.resize();
     }
     resize() {
@@ -75,6 +76,9 @@
           return { x0: b.left - cr.left, y0: b.top - cr.top, x1: b.right - cr.left, y1: b.bottom - cr.top };
         });
       }
+      // The footer's rule: below it there's no pointer heat, and the field dials back on hover.
+      const calm = this.o.calmBelow && this.o.calmBelow();
+      this.calmY = calm ? calm.getBoundingClientRect().top - this.canvas.getBoundingClientRect().top : null;
       // A shape the dots fill in completely: the wordmark, set into its band (1 px per sample).
       this.mask = null;
       if (this.o.maskFrom) {
@@ -114,6 +118,15 @@
           const inside = this.maskAt(x, y);
           if (inside) v = Math.max(v, inside * (0.86 + 0.14 * n));
           else if (this.mask && y > this.mask.y0 && y < this.mask.y1) v *= 0.32; // quiet around the letters
+          // Pointer heat, kept above the footer's rule. (v0.4: it used to be added after the knockouts,
+          // so hovering the footer links grew dots right over their text.)
+          if (this.pointer && (this.calmY === null || y < this.calmY - 24)) {
+            const dx = x - this.pointer.x, dy = y - this.pointer.y;
+            v = Math.min(1, v + 0.55 * Math.exp(-(dx * dx + dy * dy) / (2 * 110 * 110)));
+          }
+          // While the pointer is down in the footer, the field below the rule dials back.
+          if (this.calmY !== null && this.calm > 0.01) v *= 1 - 0.75 * this.calm * smooth(this.calmY - 60, this.calmY, y);
+          // Knockouts last, so nothing ever draws over the words.
           if (this.knock.length) {
             let k = 1;
             for (const r of this.knock) {
@@ -122,10 +135,6 @@
               k = Math.min(k, smooth(o.knockPad * 0.25, o.knockPad, d));
             }
             v *= k;
-          }
-          if (this.pointer) {
-            const dx = x - this.pointer.x, dy = y - this.pointer.y;
-            v = Math.min(1, v + 0.55 * Math.exp(-(dx * dx + dy * dy) / (2 * 110 * 110)));
           }
           const r = v * maxR;
           if (r < 0.35) continue;
@@ -148,12 +157,16 @@
       cell: 12, cellSmall: 6, dot: 1, scale: 3.2, octaves: 3, min: 0.3, max: 0.7, sx: 0.035, sy: 0.02, knockPad: 40,
       knockout: () => [...close.querySelectorAll('.t-giant, .close-cta .btn, .close-cta .px, .foot-brand, .foot-col, .notify-msg, .foot-legal')],
       maskFrom: mark ? { area: mark, symbol: document.getElementById('st4sh-wordmark') } : null,
+      calmBelow: () => close.querySelector('.foot'),
     });
+    // Is the pointer down in the footer (just above its rule, or below it)?
+    const inFoot = () => !!(ht.pointer && ht.calmY !== null && ht.pointer.y > ht.calmY - 30);
     let t = 0, raf = 0, live = false, inView = false;
     const frame = () => {
       raf = 0;
       if (!live) return;
       t += 1 / 60;
+      ht.calm += ((inFoot() ? 1 : 0) - ht.calm) * 0.12;
       ht.render(t);
       raf = requestAnimationFrame(frame);
     };
@@ -161,9 +174,9 @@
     close.addEventListener('pointermove', (e) => {
       const r = canvas.getBoundingClientRect();
       ht.pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
-      if (S.reduced()) ht.render(t);
+      if (S.reduced()) { ht.calm = inFoot() ? 1 : 0; ht.render(t); }
     });
-    close.addEventListener('pointerleave', () => { ht.pointer = null; if (S.reduced()) ht.render(t); });
+    close.addEventListener('pointerleave', () => { ht.pointer = null; if (S.reduced()) { ht.calm = 0; ht.render(t); } });
     document.fonts.ready.then(() => { ht.resize(); ht.render(0); });
     S.watch(close, (seen) => { inView = seen; sync(); }, 0.02);
     document.addEventListener('visibilitychange', sync);

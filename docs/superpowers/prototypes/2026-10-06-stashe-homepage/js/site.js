@@ -55,7 +55,7 @@
   <p class="foot-legal">© 2026 Stash</p>
 </footer>`);
 
-  const label = { home: 'stash home v0.3', extension: 'stash v0.3 · extension', mcp: 'stash v0.3 · mcp', iphone: 'stash v0.3 · iphone' }[here];
+  const label = { home: 'stash home v0.4', extension: 'stash v0.4 · extension', mcp: 'stash v0.4 · mcp', iphone: 'stash v0.4 · iphone' }[here];
   document.body.insertAdjacentHTML('beforeend', `
 <aside class="review" aria-label="Prototype controls">
   <span>${label}</span>

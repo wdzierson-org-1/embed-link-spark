@@ -1,10 +1,19 @@
-# Stash homepage — exploration v0.3 (2026-10-06)
+# Stash homepage — exploration v0.4 (2026-10-06)
 
 Open `../2026-10-06-stashe-homepage.html` from a repo checkout, or serve the repo root
 (`python3 -m http.server 8090`) and visit
 `http://localhost:8090/docs/superpowers/prototypes/2026-10-06-stashe-homepage.html`.
 (The folder keeps its v0.1 "stashe" name so the history stays in one place.) The footer pages
 sit in this folder: `extension.html`, `mcp.html`, `iphone.html`.
+
+## v0.4: Will's round 4
+
+| Ask | What changed |
+|---|---|
+| Use the updated logo/brand assets | **Not done: the attachment didn't arrive.** The message carried no file, `~/Documents` (where the round-2 kit came from) is now closed to this session ("Operation not permitted"), and there's nothing new in Downloads or on the Desktop. The wordmark is still the round-2 ST4SH kit, and it lives in one place (the sprite in `js/site.js`), so swapping it is a one-file change once the files are reachable. |
+| A section under "take it with you" with three panels: Chrome plugin (a short video of a successful save), iOS app (Android coming soon), MCP (writing to Stash coming soon), each with "more >>" | **"Stash, wherever you are."** Three running pictures on dotted stages, each with a title, a line, and a `more >>` link to its page:<br>- **Chrome** (`js/browser.js`): the pointer clicks the pinned Stash it button and a spinner gives way to the green check and "✓ saved link: medium.com"; then it drags across a sentence, right-clicks, chooses Stash it, and the note lands the same way. About 12 s, looping.<br>- **iPhone**: a copy of the phone above, cloned by `js/phone.js`, plays only Safari → Share → Stash → saved → the library. It's tagged "android: coming soon".<br>- **MCP** (`js/ask.js`): a Claude-style window cycles three questions answered from the stash (the design repo, Friday's seat from the boarding-pass screenshot, the Lisbon hotels). It's tagged "saving from your AI: soon".<br>The extension and MCP pages now run the same two pictures from the same scripts, so there's one source each. Reduced motion and `#still` show one explanatory frame of each. |
+| The footer's duotone covers the footer text; dial it back under the rule when hovering the links | Root cause: the pointer's "heat" was added after the text knockouts, so hovering the links grew dots straight over their words. Now the heat comes first and the knockouts last, so nothing ever draws over the words. Below the rule there's no heat at all. While the pointer is in the footer, the dots below the rule ease down to a quarter of their size and come back when it leaves. Verified by sampling the canvas under every footer word while hovering: zero ink. |
+| Remove "click to stir" and the "paste a link" text from the hero | The hint is gone. Clicking still drops a save, and pasting a link anywhere still runs the live enrichment; neither is announced. |
 
 ## v0.3: Will's round 3
 
@@ -85,7 +94,8 @@ spot colour, lime `#a3f53b` by default, violet `#6d5bd0` on the toggle.
 3. **Saving takes one tap.** CSS iPhone: four screenshots, a book cover, a Medium article, then the library.
 4. **Your stash, inside every AI you use.** Cursor / Claude tabs; three points; Works with (12 clients); `gostash.it/mcp`.
 5. **Take your saves with you.** Pixel-reveal memories (repo, bag, moodboard).
-6. **Stash is smarter saving.** Halftone close with the dotted wordmark, then the column footer.
+6. **Stash, wherever you are.** Chrome, iPhone and MCP, each a running picture with `more >>`.
+7. **Stash is smarter saving.** Halftone close with the dotted wordmark, then the column footer.
 
 Footer pages, same system, same close: `extension.html` (install Stash it in Chrome), `mcp.html` (connect your
 AI), `iphone.html` (in beta; Notify me).
@@ -146,3 +156,5 @@ v0.2's card too); swap in an illustrative café before anything ships. The stree
    `extension.html` is its redesign in this direction. Port it when a direction is picked, keeping
    `extension/scripts/publish-hosted-zip.sh` in charge of the version and size (copied here as 1.2.1, 33 KB).
 9. Your round-2 note ended at "maybe we could pick a" — what was the rest?
+10. **The updated brand assets** from round 4 never arrived. Re-attach them, or put them somewhere this
+    session can read (`~/Downloads` or the repo), and they replace the sprite in `js/site.js`.

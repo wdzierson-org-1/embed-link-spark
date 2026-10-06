@@ -79,6 +79,41 @@
     });
   };
 
+  /* Chat windows (the AI section, the "wherever you are" panel, the MCP page): text that types
+     or streams in, keeping the newest line in view the way the real apps scroll. */
+  S.follow = (node) => { const box = node.closest('.cl-thread, .cw-msgs'); if (box) box.scrollTop = box.scrollHeight; };
+  S.typeInto = async (node, text, tok, cps = 42) => {
+    node.classList.add('caret');
+    for (let i = 1; i <= text.length; i++) { node.textContent = text.slice(0, i); S.follow(node); await S.wait(1000 / cps, tok); }
+    node.classList.remove('caret');
+  };
+  /** Stream words in; `**bold**` spans become <b>. */
+  S.streamInto = async (node, text, tok, wps = 16) => {
+    const parts = text.split(/(\*\*[^*]+\*\*)/).filter(Boolean);
+    node.classList.add('caret');
+    for (const part of parts) {
+      const bold = /^\*\*/.test(part);
+      const target = bold ? node.appendChild(document.createElement('b')) : node;
+      for (const w of (bold ? part.slice(2, -2) : part).split(/(\s+)/)) {
+        if (bold) target.textContent += w; else target.append(document.createTextNode(w));
+        if (w.trim()) { S.follow(node); await S.wait(1000 / wps, tok); }
+      }
+    }
+    node.classList.remove('caret');
+  };
+  S.bold = (text) => text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+
+  /** Keep a fixed-size drawing scaled to fit its box (it stays centred; its layout size doesn't change). */
+  S.fit = (box, child, pad = 24) => {
+    const fit = () => {
+      const k = Math.min(1, (box.clientWidth - pad * 2) / child.offsetWidth, (box.clientHeight - pad * 2) / child.offsetHeight);
+      child.style.scale = String(Math.max(0.2, k));
+    };
+    new ResizeObserver(fit).observe(box);
+    fit();
+    return fit;
+  };
+
   /* Visibility: run callbacks with true/false as an element enters/leaves the viewport. */
   S.watch = (el, fn, threshold = 0.15) => {
     const io = new IntersectionObserver((entries) => entries.forEach((e) => fn(e.isIntersecting)), { threshold });

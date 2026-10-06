@@ -3,15 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stash — save it fast, find it when you need it · homepage exploration v0.3</title>
-<meta name="description" content="Homepage exploration for Stash, after typesafe.ai: clean objects, DIY machinery. v0.3: new headline, a textured hero, labelled drops and picture tiles, honest card pictures, footer pages.">
+<title>Stash — save it fast, find it when you need it · homepage exploration v0.4</title>
+<meta name="description" content="Homepage exploration for Stash, after typesafe.ai: clean objects, DIY machinery. v0.4 adds the three ways in (Chrome, iPhone, your AI) as running pictures and a calmer footer.">
 <link rel="icon" href="2026-10-06-stashe-homepage/logo/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="2026-10-06-stashe-homepage/style.css">
 <script>document.documentElement.classList.add('js')</script>
 </head>
 <body data-page="home">
 <!--
-  Stash homepage — exploration v0.3 · 2026-10-06 (v0.1 "Stashe" and v0.2 shipped the same day; see git)
+  Stash homepage — exploration v0.4 · 2026-10-06 (v0.1 "Stashe", v0.2 and v0.3 the same day; see git)
+  v0.4 (Will's round 4): a "Stash, wherever you are" section under "Take your saves with you", with
+  three running pictures (the Chrome extension saving a page and a selection; the iPhone saving from
+  Safari, a copy of the phone above; Claude answering from the stash over MCP), each with more >>;
+  the footer's halftone no longer draws over its text and dials back while you're in it; the hero
+  hint is gone. The updated brand assets didn't arrive with the message (see NOTES.md).
   v0.3 (Will's round 3): "Save it fast. Find it when you need it."; a quiet stippled texture behind
   the pool; saves hang labelled ("link: …") for half a second before they drop, and pictures drop as
   low-res tiles (photo, place, paper, book); the ripple lives only in the ASCII; an eyebrow over the
@@ -37,7 +42,6 @@
       <p class="hero-note px">$4.99 a month</p>
     </div>
   </div>
-  <p class="hero-hint px">Click to stir. Paste a link anywhere on this page and watch it go in.</p>
   <p class="hero-toast px" role="status" aria-live="polite"></p>
 </header>
 
@@ -319,9 +323,39 @@
     <p class="carry-hint px">Fuzzy until you need it. Hover a save to bring it back into focus.</p>
   </div>
 </section>
+
+<!-- ============ 6 · Stash, wherever you are (v0.4) ============ -->
+<section class="s-surfaces" id="apps" aria-labelledby="apps-h">
+  <div class="wrap">
+    <div class="surf-head">
+      <h2 id="apps-h" class="t-h2">Stash, wherever you are.</h2>
+      <p class="lead">Save from Chrome in one click and from any app on your iPhone, then ask your AI about all of it.</p>
+    </div>
+    <div class="surfaces">
+      <article class="surface" aria-labelledby="surf-chrome">
+        <div class="surface-stage crop"><span class="crop-b" aria-hidden="true"></span><div class="surface-fit" data-browser="fit" role="img" aria-label="Stash it in Chrome: one click saves the page, then a right-click saves a selected sentence"></div></div>
+        <h3 id="surf-chrome">Chrome extension</h3>
+        <p>One click saves the page you’re on; right-click saves a selection or an image. A green check on the icon says it landed.</p>
+        <a class="more" href="2026-10-06-stashe-homepage/extension.html" aria-label="More about the Chrome extension">more &gt;&gt;</a>
+      </article>
+      <article class="surface" aria-labelledby="surf-ios">
+        <div class="surface-stage crop"><span class="crop-b" aria-hidden="true"></span><div class="surface-fit phone-mini" data-phone-mini></div></div>
+        <h3 id="surf-ios">iPhone app <span class="tag soon">android: coming soon</span></h3>
+        <p>Share to Stash from any app: Safari, Photos, TikTok, Maps. It saves in the background and reads everything for you.</p>
+        <a class="more" href="2026-10-06-stashe-homepage/iphone.html" aria-label="More about the iPhone app">more &gt;&gt;</a>
+      </article>
+      <article class="surface" aria-labelledby="surf-mcp">
+        <div class="surface-stage crop"><span class="crop-b" aria-hidden="true"></span><div class="surface-fit" data-ask role="img" aria-label="Claude answering questions from things saved to Stash"></div></div>
+        <h3 id="surf-mcp">Your AI, over MCP <span class="tag soon">saving from your AI: soon</span></h3>
+        <p>Claude, ChatGPT, Cursor and more can search everything you’ve saved. Soon they’ll be able to save to your stash too.</p>
+        <a class="more" href="2026-10-06-stashe-homepage/mcp.html" aria-label="More about connecting your AI over MCP">more &gt;&gt;</a>
+      </article>
+    </div>
+  </div>
+</section>
 </main>
 
-<!-- ============ 6 · Close ============ -->
+<!-- ============ 7 · Close ============ -->
 <section class="s-close" id="start" aria-labelledby="close-h">
   <canvas aria-hidden="true"></canvas>
   <div class="wrap close-inner">
@@ -341,5 +375,7 @@
 <script src="2026-10-06-stashe-homepage/js/ai.js"></script>
 <script src="2026-10-06-stashe-homepage/js/halftone.js"></script>
 <script src="2026-10-06-stashe-homepage/js/phone.js"></script>
+<script src="2026-10-06-stashe-homepage/js/browser.js"></script>
+<script src="2026-10-06-stashe-homepage/js/ask.js"></script>
 </body>
 </html>
