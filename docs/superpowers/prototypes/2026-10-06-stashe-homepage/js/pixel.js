@@ -1,9 +1,9 @@
 /* Pixel reveal (after React Bits Pro "Pixelate Hover", written from scratch).
    An image drawn as big blocks; a lens of progressively finer blocks brings part of it back
-   into focus. Used two ways: the enrichment card resolves block-by-block as Stashe reads it,
+   into focus. Used two ways: the enrichment card resolves block-by-block as Stash reads it,
    and the "take your saves with you" memories stay fuzzy until you point at them. */
 (() => {
-  const S = window.Stashe;
+  const S = window.Stash;
   const cache = new Map();
   S.loadImage = (src) => {
     if (!cache.has(src)) {

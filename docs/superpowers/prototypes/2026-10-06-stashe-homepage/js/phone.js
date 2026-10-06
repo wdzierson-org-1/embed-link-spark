@@ -1,8 +1,8 @@
 /* "Saving takes one tap": three share-sheet saves on a CSS iPhone (after React Bits Pro
    "Device": a light parallax tilt on hover), then the library with the new saves arriving.
-   A touch indicator plays the person; every step is Share → Stashe → saved. */
+   A touch indicator plays the person; every step is Share → Stash → saved. */
 (() => {
-  const S = window.Stashe;
+  const S = window.Stash;
   const stage = document.querySelector('.phone-stage');
   if (!stage) return;
   const device = stage.querySelector('.device');
@@ -12,7 +12,7 @@
   const sbar = screen.querySelector('.sbar');
   const sheet = screen.querySelector('[data-sheet]');
   const shThumb = sheet.querySelector('[data-sh-thumb]'), shTitle = sheet.querySelector('[data-sh-title]'), shSub = sheet.querySelector('[data-sh-sub]');
-  const stasheApp = sheet.querySelector('[data-stashe-app]');
+  const stashApp = sheet.querySelector('[data-stash-app]');
   const save = screen.querySelector('[data-save]');
   const saveThumb = save.querySelector('[data-save-thumb]'), saveTitle = save.querySelector('[data-save-title]'), saveSub = save.querySelector('[data-save-sub]'), mark = save.querySelector('[data-saved-mark]');
   const finger = screen.querySelector('.finger');
@@ -110,7 +110,7 @@
     await tap(shareOf(photos), t);
     openSheet({ html: picks[0].querySelector('.ss').outerHTML, title: '4 Photos Selected', sub: 'Options ›' });
     await S.wait(900, t);
-    await tap(stasheApp, t, 540);
+    await tap(stashApp, t, 540);
     sheet.classList.remove('is-on'); lift();
     await saveFlow(t, { html: picks[1].querySelector('.ss').outerHTML, busyTitle: '4 screenshots', busySub: 'saving', doneTitle: '4 screenshots saved', doneSub: 'reading the text in each one' });
     picks.forEach((p) => p.classList.remove('on')); sel.classList.remove('on'); sel.textContent = 'Select'; count.textContent = 'Photos';
@@ -134,7 +134,7 @@
     await tap(shareOf(viewer), t);
     openSheet({ html: MINI_BOOK, bg: BOOK_BG, title: '1 Photo Selected', sub: 'Options ›' });
     await S.wait(900, t);
-    await tap(stasheApp, t, 540);
+    await tap(stashApp, t, 540);
     sheet.classList.remove('is-on'); lift();
     await saveFlow(t, { html: MINI_BOOK, bg: BOOK_BG, busyTitle: 'Photo', busySub: 'reading the cover', doneTitle: 'Walden, Henry David Thoreau', doneSub: 'a book, found from its cover' });
   }
@@ -147,11 +147,11 @@
     await S.wait(1100, t);
     await tap(shareOf(safari), t);
     const img = `url(${LAND}cover-article.jpg) center/cover`;
-    openSheet({ bg: img, title: 'Why you remember so little of what you read', sub: 'medium.com' });
+    openSheet({ bg: img, title: 'How to remember more of what you read', sub: 'medium.com' });
     await S.wait(900, t);
-    await tap(stasheApp, t, 540);
+    await tap(stashApp, t, 540);
     sheet.classList.remove('is-on'); lift();
-    await saveFlow(t, { bg: img, busyTitle: 'Why you remember so little of what you read', busySub: 'saving the full text', doneTitle: 'Why you remember so little of what you read', doneSub: 'saved with the full text, 9 min read' });
+    await saveFlow(t, { bg: img, busyTitle: 'How to remember more of what you read', busySub: 'saving the full text', doneTitle: 'How to remember more of what you read', doneSub: 'saved with the full text, 2 min read' });
   }
 
   async function library(t) {
@@ -221,7 +221,7 @@
       picks.forEach((p) => p.classList.add('on'));
       sel.classList.add('on'); sel.textContent = 'Cancel'; count.textContent = '4 Photos Selected';
       openSheet({ html: picks[0].querySelector('.ss').outerHTML, title: '4 Photos Selected', sub: 'Options ›' });
-      const [x, y] = centre(stasheApp); fingerTo(x, y, true); finger.classList.add('on');
+      const [x, y] = centre(stashApp); fingerTo(x, y, true); finger.classList.add('on');
     } else if (name === 'book') {
       show('viewer');
       setThumb(saveThumb, { html: MINI_BOOK, bg: BOOK_BG });
@@ -230,7 +230,7 @@
     } else if (name === 'article') {
       show('safari');
       setThumb(saveThumb, { bg: `url(${LAND}cover-article.jpg) center/cover` });
-      saveTitle.textContent = 'Why you remember so little of what you read'; saveSub.textContent = 'saved with the full text, 9 min read';
+      saveTitle.textContent = 'How to remember more of what you read'; saveSub.textContent = 'saved with the full text, 2 min read';
       mark.textContent = 'saved'; mark.classList.add('is-done'); save.classList.add('is-on');
     } else {
       show('library');

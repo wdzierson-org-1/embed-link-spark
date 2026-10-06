@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title desc">
+<title id="title">ST4SH app icon</title>
+<desc id="desc">Light A/4 monogram on a charcoal rounded square.</desc>
+<rect width="512" height="512" rx="112" fill="#171b1a"/><path fill="#f3f2ee" fill-rule="evenodd" transform="translate(100 421) scale(0.4714285714285714 -0.4714285714285714)" d="M0 0 448 700H568V280H660V177H568V0H448V177H232L119 0ZM297 280H448V516Z"/>
+</svg>

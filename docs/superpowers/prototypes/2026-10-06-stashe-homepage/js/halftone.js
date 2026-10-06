@@ -3,7 +3,7 @@
    - the closing section, where the dots knock out around the headline like a print knockout;
    - the "with your AI" panel, as still dot clouds behind the windows (typesafe's dither). */
 (() => {
-  const S = window.Stashe;
+  const S = window.Stash;
 
   // Value noise with a fixed seed, so every render of the page matches.
   const P = new Uint8Array(512);
@@ -32,10 +32,35 @@
   }
   const smooth = (a, b, v) => { const t = S.clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
+  /** Draws an SVG <symbol> (paths under translate/scale groups) into a 2D context with Path2D,
+      so its shape can be sampled without tainting the canvas. */
+  function drawSymbol(g, symbol, x, y, w, h) {
+    const [vx, vy, vw, vh] = symbol.getAttribute('viewBox').split(/[\s,]+/).map(Number);
+    const s = Math.min(w / vw, h / vh);
+    g.save();
+    g.translate(x + (w - vw * s) / 2, y + (h - vh * s));
+    g.scale(s, s);
+    g.translate(-vx, -vy);
+    const walk = (node) => {
+      for (const child of node.children) {
+        g.save();
+        for (const [, fn, args] of (child.getAttribute('transform') || '').matchAll(/(translate|scale)\(([^)]*)\)/g)) {
+          const [a, b] = args.split(/[\s,]+/).map(Number);
+          if (fn === 'translate') g.translate(a, b || 0); else g.scale(a, b === undefined || Number.isNaN(b) ? a : b);
+        }
+        if (child.tagName.toLowerCase() === 'path') g.fill(new Path2D(child.getAttribute('d')), child.getAttribute('fill-rule') === 'evenodd' ? 'evenodd' : 'nonzero');
+        else walk(child);
+        g.restore();
+      }
+    };
+    walk(symbol);
+    g.restore();
+  }
+
   class Halftone {
     constructor(canvas, o) {
       this.canvas = canvas; this.ctx = canvas.getContext('2d'); this.o = o;
-      this.knock = []; this.pointer = null;
+      this.knock = []; this.pointer = null; this.mask = null;
       this.resize();
     }
     resize() {
@@ -50,21 +75,45 @@
           return { x0: b.left - cr.left, y0: b.top - cr.top, x1: b.right - cr.left, y1: b.bottom - cr.top };
         });
       }
+      // A shape the dots fill in completely: the wordmark, set into its band (1 px per sample).
+      this.mask = null;
+      if (this.o.maskFrom) {
+        const area = this.o.maskFrom.area.getBoundingClientRect();
+        const cr = this.canvas.getBoundingClientRect();
+        const m = document.createElement('canvas');
+        m.width = Math.max(1, Math.round(this.w)); m.height = Math.max(1, Math.round(this.h));
+        const g = m.getContext('2d');
+        g.fillStyle = '#000';
+        const pad = Math.max(16, area.width * 0.02);
+        drawSymbol(g, this.o.maskFrom.symbol, area.left - cr.left + pad, area.top - cr.top + 8, area.width - pad * 2, area.height - 34);
+        this.mask = { data: g.getImageData(0, 0, m.width, m.height).data, w: m.width, h: m.height,
+          y0: area.top - cr.top, y1: area.bottom - cr.top };
+      }
+    }
+    maskAt(x, y) {
+      const m = this.mask;
+      if (!m) return 0;
+      const xi = x | 0, yi = y | 0;
+      if (xi < 0 || yi < 0 || xi >= m.w || yi >= m.h) return 0;
+      return m.data[(yi * m.w + xi) * 4 + 3] / 255;
     }
     render(t) {
       const { ctx, w, h, dpr, o } = this;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = S.css('--ascii') || '#000';
-      const cell = o.cell, maxR = cell * o.dot * 0.5;
+      const cell = w < 700 && o.cellSmall ? o.cellSmall : o.cell, maxR = cell * o.dot * 0.5;
       const cols = Math.ceil(w / cell) + 1, rows = Math.ceil(h / cell) + 1;
       const sc = o.scale / Math.max(w, 1);
       ctx.beginPath();
       for (let j = 0; j < rows; j++) {
         for (let i = 0; i < cols; i++) {
           const x = i * cell + (j % 2 ? cell / 2 : 0), y = j * cell;
-          let v = fbm(x * sc + t * o.sx, y * sc + t * o.sy, o.octaves);
-          v = smooth(o.min, o.max, v);
+          const n = fbm(x * sc + t * o.sx, y * sc + t * o.sy, o.octaves);
+          let v = smooth(o.min, o.max, n);
+          const inside = this.maskAt(x, y);
+          if (inside) v = Math.max(v, inside * (0.86 + 0.14 * n));
+          else if (this.mask && y > this.mask.y0 && y < this.mask.y1) v *= 0.32; // quiet around the letters
           if (this.knock.length) {
             let k = 1;
             for (const r of this.knock) {
@@ -92,9 +141,11 @@
   const close = document.querySelector('.s-close');
   if (close) {
     const canvas = close.querySelector('canvas');
+    // v0.2: denser field, and the wordmark set in dots along the bottom (duotone, like a print).
     const ht = new Halftone(canvas, {
-      cell: 13, dot: 0.92, scale: 3.2, octaves: 3, min: 0.38, max: 0.78, sx: 0.035, sy: 0.02, knockPad: 46,
-      knockout: () => [...close.querySelectorAll('.t-giant, .close-cta .btn, .close-cta .px, .foot')],
+      cell: 12, cellSmall: 6, dot: 1, scale: 3.2, octaves: 3, min: 0.3, max: 0.7, sx: 0.035, sy: 0.02, knockPad: 40,
+      knockout: () => [...close.querySelectorAll('.t-giant, .close-cta .btn, .close-cta .px, .foot a, .foot span, .foot .wordmark')],
+      maskFrom: { area: close.querySelector('.close-mark'), symbol: document.getElementById('st4sh-wordmark') },
     });
     let t = 0, raf = 0, live = false, inView = false;
     const frame = () => {

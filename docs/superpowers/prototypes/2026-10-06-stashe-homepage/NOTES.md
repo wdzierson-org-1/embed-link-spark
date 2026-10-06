@@ -1,122 +1,102 @@
-# Stashe homepage — exploration v0.1 (2026-10-06)
+# Stash homepage — exploration v0.2 (2026-10-06)
 
 Open `../2026-10-06-stashe-homepage.html` from a repo checkout, or serve the repo root
 (`python3 -m http.server 8090`) and visit
 `http://localhost:8090/docs/superpowers/prototypes/2026-10-06-stashe-homepage.html`.
+(The folder keeps its v0.1 "stashe" name so the history stays in one place.)
 
-## The brief (Will, 2026-10-06)
+## v0.2: Will's round 2
 
-Rename to **Stashe** (domain `stashe.it`). Start from typesafe.ai's DIY/retro register, but
-the app itself is not retro: show screenshots of an app direction that is clean and unfussy
-with hints of DIY. Keep the basics: an ASCII-animation hero in purple or lime; a plain
-statement of the use case with a paste → enrichment animation; MCP with a "Works with" logo
-row and why enrichment matters there; "take your saves with you"; phone saving through the
-share sheet; "Stashe is smarter saving." Try the React Bits Pro effects (Liquid Ascii,
-Device, Pixelate Hover, Halftone Wave).
+| Ask | What changed |
+|---|---|
+| Use the logo assets; back to **Stash** | The ST4SH kit (`logo/`, from `st4sh-logo-concept.zip`) is an SVG sprite: wordmark in the nav, footer, phone and save panel; the A/4 symbol is the Stash app icon in the share sheet and the tool-call mark in Cursor and Claude. Copy says Stash everywhere. |
+| $4.99/month, no free trial | "Get Stash" CTAs; "$4.99 a month". No trial copy anywhere. |
+| Slower, cooler "paste a link" component with rounded lines | Leader lines have rounded elbows (S-curves for small offsets) with a spark that travels each line as it draws; values decrypt in; examples run ~30% slower. |
+| Make it live UI, with instruction lines and an up-arrow Send | Focusing the composer stops the examples, lifts the field with a spot-colour ring and shows "Give it a try! Paste a link, drop in an image, or add a doc (under 2 MB) and watch the enrichment:". Once something is in, that line rises and fades and "Now press [↑] to watch this link/image/doc/note get more valuable" replaces it; the arrow is the Send button (aria-label "Send"). Paste, type, "+" to attach, or drag a file onto the stage. |
+| Hook up the real enrichment API, as fast as possible | New edge function **`homepage-enrich`** (see below), wired in `js/api.js`. Results are disclosed as they stream: the page's own facts in ~0.5–2 s, then the model's findings one window at a time, then "Gathered in N s". |
+| Park the app screenshot | Removed (v0.1 is in git at `f60a8a8a`). |
+| AI section: Cursor-like and Claude-like, animated | Two tabs over the dither panel. Cursor: three panes after cursor.com's own window; the agent finds **pbakaus/impeccable** (real) in Stash and applies a red/green diff to `PricingCard.tsx`. Claude: a trip-planning chat that pulls three saved Lisbon hotels (illustrative names) and answers in Claude's serif. |
+| Move "Saving takes one tap" under "try it" | Done. |
+| Tighten the phone, fix occlusions | Real status bar (signal, Wi-Fi, battery) and home indicator; an opaque status-bar cover in Safari so the scrolled "Medium" header can't collide; iOS-style share sheet (grabber, close button, recognisable app icons, Stash = the A/4 icon); a Photos viewer bar. Kept as live HTML rather than video: it stays crisp at any size and can still be recorded later. |
+| More duotone at the bottom | Denser halftone, plus the ST4SH wordmark set in dots across the bottom band (rendered from the logo's own paths). |
+| Slower hero; the pool reacts | Pool at 80% speed, gentler and rarer tosses. Each landing sends neon concentric rings through the pool (glow + tinted glyphs), then a black band decrypts what Stash found: e.g. `medium.com/how-to-remember-more >> article about memory and retention with practical tips >> 2 minute read >> author: garret how >>`. **Paste any link on the page** and the band fills with the real enrichment from `homepage-enrich` as it streams. |
 
-## The idea: clean objects, DIY machinery
+## The live endpoint: `supabase/functions/homepage-enrich`
 
-typesafe.ai's look is pixel-OS windows, crop marks, black mono tags, dither fields and huge
-grotesk headlines. Stashe takes that vocabulary but gives it a job:
+Deployed to production (project `uqqsgmwkvslaomzxptnp`, `verify_jwt = false`), committed in
+`4826d2bb`. Public and stateless: nothing is stored.
 
-- **Clean** is everything that belongs to the person: the things they saved (cards, photos,
-  their notes). White surfaces, PP Neue Montreal, soft 12–14px corners.
-- **DIY** is everything Stashe does for them: enrichment, processing, metadata, connections.
-  That is the "machine voice": Departure Mono in black tags, square windows with black title
-  bars, ASCII, dither, dotted-leader receipts.
+- **Input** (JSON POST): `{url}`, `{text}` (a note), or `{file: {name, type, data}}` for a JPG/PNG/WebP/GIF,
+  PDF or text file up to 2 MB.
+- **Output**: Server-Sent Events `start` → `meta` (page/oEmbed/GitHub) → `field {k,l,v}` … → `done {ms, firstField, model}`.
+- **Fast path**: metadata straight from the page (or TikTok/YouTube oEmbed, the GitHub API), page text via
+  the shared `htmlToText`; walled hosts race a crawler-UA fetch against the Jina reader; PDFs are read with
+  `unpdf` (page count + title come from the file). Then ONE call to **gpt-4.1-nano** (fallback gpt-4o-mini)
+  over Chat Completions, streamed; a brace-matching scanner emits each finding the moment its JSON object closes.
+- **Measured on prod** (first field = first model finding): GitHub repo meta 0.67 s, done ≈ 2.5–4 s;
+  essay 0.55 s / 1.4 s / 2.5 s; Medium (Karpathy) meta 0.76 s, done 3.6 s; image done ≈ 2 s; note ≈ 2 s;
+  18-page PDF done ≈ 4 s. Chat Completions beat the Responses API by ~0.6 s to first finding.
+- **Guards**: http(s) public hosts only (no IP literals in private ranges, no odd ports, redirects
+  re-checked), 1.5 MB page cap, body read before any reply. Admission through
+  `homepage_enrich_admit` (migration `20261006150000`, applied + recorded): salted IP hash only;
+  15 per 10 min and 60 per day per IP, 400 per hour overall; RLS on, service role only.
+  Verified: private/metadata/loopback/file URLs refused, HEIC/oversize refused, CORS only echoes
+  gostash.it / st4sh.app / localhost, the burst cap trips at 15.
+- **Cost bound**: ≤ 400 calls/hour × a fraction of a cent (nano, ≤ 640 output tokens).
+- Found while testing: `JINA_API_KEY` is **not set** in production, so the reader runs on Jina's free
+  tier (fine for Medium in ~0.3 s; The Verge takes 7–12 s, so the demo gives the reader 9 s).
 
-So the DIY never decorates; it marks where the machine is working. That is also how it
-carries into the app: the library screenshot is calm and plain, and the only pixel type is in
-the tags, the "| reading…" processing states and the "gathered" receipt.
+## The idea (unchanged): clean objects, DIY machinery
 
-Print logic: paper `#f3f4f1`, black ink, one spot colour. **Lime** `#a3f53b` (the Signal green
-from the fieldnotes studies) is the default; **violet** `#6d5bd0` (today's brand violet) is the
-alternative. On lime the ink is black; on violet it flips to white.
+Anything that is the person's own stays clean (cards, photos, their words: Neue Montreal, white,
+soft corners). Anything Stash does for them speaks in the machine voice (Departure Mono in black
+tags, square windows, ASCII, dither, decrypting text). Print logic: paper `#f3f4f1`, black ink, one
+spot colour, lime `#a3f53b` by default, violet `#6d5bd0` on the toggle.
 
 ## Page
 
-1. **Hero — "Save first. Ask later."** The stash as a tank of liquid drawn in ASCII. Saved
-   things (tags: a TikTok URL, a screenshot filename, an arXiv link…) are tossed in and sink.
-   Pointer stirs, click splashes or tosses, and pasting a link anywhere on the page drops it in.
-   A soft lid under the copy keeps a wild stir from burying the headline.
-2. **"You save anything — a link, a screenshot, an article, a paper, a TikTok. We gather all of
-   the background."** The words are the controls. Each plays its own example: paste → card
-   arrives as dither and resolves as Stashe reads it → enrichment windows pop out on leader
-   lines → the payoff, "find it by", in the spot colour. On phones the windows become an ASCII
-   tree under the card.
-3. **"All of it, in one calm place."** A full library screenshot: the proposed web-app
-   direction (masonry of clean cards, one open in a detail panel with a dotted-leader
-   "gathered" receipt). Re-flows to a phone-sized window under 700px rather than shrinking.
-4. **"Your stash, inside every AI you use."** typesafe-style windows on a lime dither panel:
-   Claude answering from a TikTok's transcript, Claude Code finding a saved repo. Three
-   points (not just links / found by meaning / read-only), then **Works with**: Claude,
-   ChatGPT, Hermes, Cursor, Zed, Claude Code, Codex, Gemini CLI, VS Code, Windsurf, Goose,
-   Raycast, plus the `stashe.it/mcp` connector address.
-5. **"Take your saves with you."** Will's copy, verbatim in spirit. The repo, the bag and the
-   moodboard are fuzzy (pixelated) memories that come into focus under a lens; each has a
-   receipt of where it came back (Cursor, the phone in a shop, Claude).
-6. **"Saving takes one tap."** A CSS iPhone (tilts toward the pointer) runs three real-feeling
-   share-sheet saves: four screenshots from Photos, a photo of a book's cover, a Medium article
-   from Safari. Then the library with the new saves arriving.
-7. **"Stashe is smarter saving."** Lime field, halftone knocked out around the type like a
-   print knockout.
-
-## Effects (React Bits Pro, re-implemented)
-
-The Pro components are licence-gated (the docs show props, not source) and React 19/Tailwind
-4/`motion`, which the Vite app can't import directly (see the reactbits-pro memory). Each one
-here is written from scratch in plain JS with the same parameters, so the look can be judged
-now and the licensed component swapped in later if it's chosen.
-
-| React Bits Pro | Here | File |
-|---|---|---|
-| Liquid Ascii | FLIP fluid (after Ten Minute Physics), ASCII by density, motion and depth | `js/liquid.js` |
-| Pixelate Hover | Stepped lens of finer blocks (not a crossfade); also the card's resolve | `js/pixel.js` |
-| Halftone Wave | FBM value-noise dot field with a knockout; still dot clouds in the AI panel | `js/halftone.js` |
-| Device | CSS iPhone with pointer tilt | `js/phone.js` |
-
-All animation pauses offscreen and in hidden tabs. `prefers-reduced-motion` gets complete,
-static frames: a settled tank, the final enrichment frame, the share sheet. The two loops
-(enrichment, phone) have pause buttons.
+1. **Save first. Ask later.** Liquid-ASCII pool; saves tossed in, neon pulse, decrypted findings; paste anything.
+2. **You save anything… We gather all of the background.** Example loop by word; live composer.
+3. **Saving takes one tap.** CSS iPhone: four screenshots, a book cover, a Medium article, then the library.
+4. **Your stash, inside every AI you use.** Cursor / Claude tabs; three points; Works with (12 clients); `gostash.it/mcp`.
+5. **Take your saves with you.** Pixel-reveal memories (repo, bag, moodboard).
+6. **Stash is smarter saving.** Halftone close with the dotted wordmark.
 
 ## Deep links
 
 `#spot=violet` · `#ex=link|shot|article|paper|tiktok` · `#scene=shots|book|article|library` ·
-`#still` freezes every animation on a representative frame (used for the renders). After
-changing only the hash, reload the page.
+`#ai=cursor|claude` · `#still` (freezes everything on a representative frame, used for the renders).
+Reload after changing only the hash.
 
 ## Sources and licences
 
-- **Departure Mono** (Helena Zhang), SIL OFL 1.1: `fonts/DepartureMono-Regular.woff2` with
-  `fonts/DepartureMono-LICENSE.txt`. PP Neue Montreal is the repo's existing licensed copy.
-- **Logos**: LobeHub icons (`@lobehub/icons-static-svg`, MIT) and Simple Icons (CC0) for Zed,
-  VS Code and Raycast. Inline, one colour. These are trademarks of their owners. Using them on
-  a live page needs the usual care; check each brand's guidelines before shipping.
-- **Photos**: Unsplash (free licence), by photo id: `bag.jpg` = photo-1598532163257,
-  `mood-tile.jpg` = photo-1702014861373, `mood-travertine.jpg` = photo-1648639035105,
-  `mood-kitchen.jpg` = photo-1585128833500, `mood-leather.jpg` = photo-1637759292654.
-  The four landing covers come from `src/assets/landing/`.
-- **Composed samples** (`asset-src/*.html` → `img/` via `sh asset-src/build.sh`): the moodboard,
-  a phone screenshot of a social post, the first page of a paper, and a repo plate.
+- **ST4SH logo kit** (`logo/`, kit README as `logo/KIT-README.md`): outlined PP Mori Semibold lettering.
+  The kit itself notes that public use of a PP Mori–based logo needs Pangram Pangram's **logo licence**.
+- **Departure Mono** (Helena Zhang), SIL OFL 1.1, with its licence in `fonts/`.
+- **Logos** in Works with and the tabs: LobeHub icons (MIT) and Simple Icons (CC0); trademarks of their owners.
+- **Photos**: Unsplash (free licence). `bag.jpg` photo-1598532163257, `mood-tile.jpg` photo-1702014861373,
+  `mood-travertine.jpg` photo-1648639035105, `mood-kitchen.jpg` photo-1585128833500,
+  `mood-leather.jpg` photo-1637759292654, `hotel-courtyard.jpg` photo-1776083928944,
+  `hotel-rooftops.jpg` photo-1704908325704, `hotel-garden.jpg` photo-1654482278660; landing covers from
+  `src/assets/landing/`.
+- **Composed samples** (`asset-src/*.html` → `img/` via `sh asset-src/build.sh`): moodboard, social-post
+  screenshot, paper first page, repo plate.
 
 ## Real vs illustrative
 
-Real: `charmbracelet/gum` (description, Go, MIT, `brew install gum`, `gum choose`,
-`gum confirm`); the paper *Lost in the Middle* (Liu et al., arXiv 2307.03172, July 2023;
-its authors and the U-shaped finding). Illustrative: Chez Colette, @chez.colette,
-@sundaysupper, Ada Whitlock / Notes on Reading, every transcript, quote, note, price and
-timestamp. The paste interaction splashes; nothing is saved.
+Real: `charmbracelet/gum`, `pbakaus/impeccable` (description quoted from GitHub), *Lost in the Middle*
+(Liu et al., arXiv 2307.03172, 18 pages), and everything the live endpoint returns. Illustrative: Garret How,
+Chez Colette, @sundaysupper, the Lisbon hotels (Casa do Pátio, Miradouro 22, Jardim Escondido), every
+note, price, date and transcript in the scripted examples.
 
 ## Open questions for Will
 
-1. **Name:** the brief says "Stache" once and "Stashe" twice; the domain is `stashe.it`.
-   This uses **Stashe**, with a "stashe.it" wordmark where ".it" is set in the pixel face.
-2. **Lime or violet** for the spot colour (toggle bottom-right).
-3. **Claims to confirm before any of this ships:** TikTok transcripts and on-screen text,
-   reading every page of a PDF, and the "Works with" list (memory has Claude Code `/mcp`
-   auth still open). The MCP copy says read-only and "you approve each app", which matches
-   the shipped server.
-4. Does the **library screenshot** (section 3) belong on the homepage, or is it the start of
-   the web-app redesign brief?
-5. Typesafe uses title case and a pixel face for body labels. This keeps sentence case, and
-   uses the pixel face only for the machine voice.
+1. **Domain:** the kit says st4sh.app; the product and MCP endpoint are gostash.it. The page shows
+   `gostash.it/mcp` (true today). Which should the homepage use?
+2. **PP Mori logo licence** before the wordmark goes public.
+3. **Lime or violet.**
+4. **Endpoint limits:** 15/10 min and 60/day per IP, 400/hour overall. Right for launch traffic? To turn the
+   demo off: `supabase functions delete homepage-enrich`; the caps live in `homepage_enrich_admit`.
+5. **Claims to verify before shipping** (unchanged): the scripted examples imply TikTok transcripts and
+   on-screen text; Works with lists clients we haven't all tested.
+6. Your note ended at "maybe we could pick a" — what was the rest?

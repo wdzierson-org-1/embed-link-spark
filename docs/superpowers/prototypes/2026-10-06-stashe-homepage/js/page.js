@@ -1,7 +1,7 @@
-/* Shared helpers for the Stashe homepage prototype: spot colour, deep links, timelines that
-   can pause and cancel, in-view tracking, copy buttons. Everything hangs off window.Stashe. */
+/* Shared helpers for the Stash homepage prototype: spot colour, deep links, timelines that
+   can pause and cancel, in-view tracking, copy buttons. Everything hangs off window.Stash. */
 (() => {
-  const S = (window.Stashe = {});
+  const S = (window.Stash = {});
   const root = document.documentElement;
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
@@ -37,6 +37,32 @@
     }
   };
   S.frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+  /* Decrypt: text arrives as scrambled glyphs that settle left to right (the machine voice
+     handing over to a clean reading). Resolves when the text is final. */
+  const SCRAMBLE = 'abcdefghijklmnopqrstuvwxyz0123456789#%&*+=<>/\\|{}[]';
+  S.decrypt = (el, text, { duration } = {}) => {
+    if (S.reduced()) { el.textContent = text; return Promise.resolve(); }
+    const total = duration || Math.min(1100, 260 + text.length * 7);
+    const reveal = Array.from(text, (_, i) => (i / Math.max(1, text.length)) * total * 0.7 + Math.random() * total * 0.3);
+    const start = performance.now();
+    el.classList.add('is-scrambling');
+    return new Promise((resolve) => {
+      const frame = (now) => {
+        const t = now - start;
+        let out = '';
+        let done = true;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (ch === ' ' || t >= reveal[i]) out += ch;
+          else { done = false; out += SCRAMBLE[(Math.random() * SCRAMBLE.length) | 0]; }
+        }
+        el.textContent = out;
+        if (done) { el.classList.remove('is-scrambling'); resolve(); } else requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+  };
 
   /* Visibility: run callbacks with true/false as an element enters/leaves the viewport. */
   S.watch = (el, fn, threshold = 0.15) => {
