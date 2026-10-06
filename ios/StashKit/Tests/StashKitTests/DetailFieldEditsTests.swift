@@ -137,6 +137,105 @@ final class DetailFieldEditsTests: XCTestCase {
 
     // MARK: - Opening, typing, saving
 
+    @MainActor
+    private final class CitationDelivery {
+        var sheet: Sheet
+        var sawQueuedValue = false
+        init(_ sheet: Sheet) { self.sheet = sheet }
+    }
+
+    private func watchDeliveries(_ citation: CitationDelivery, known: Int,
+                                 sending: [ItemPatch] = [], typed: Set<SheetTextField> = []) -> NSObjectProtocol {
+        let watched: PendingEdits = queue
+        return NotificationCenter.default.addObserver(forName: .stashPendingEditDelivered, object: nil, queue: nil) { note in
+            MainActor.assumeIsolated {
+                guard note.userInfo?["itemId"] as? UUID == citation.sheet.local.id else { return }
+                citation.sawQueuedValue = watched.edit(for: citation.sheet.local.id) != nil
+                guard let received = DetailFieldEdits.receivingDeliveries(local: citation.sheet.local,
+                                                                          snapshot: citation.sheet.snapshot,
+                                                                          knownDeliveries: known, queue: watched,
+                                                                          sending: sending, typedSinceSave: typed) else { return }
+                citation.sheet.snapshot = received.row
+                citation.sheet.local = received.fields
+            }
+        }
+    }
+
+    /// The citation store never receives the app refresh's row. A delivered edit must still move
+    /// the sheet's baseline, or putting each field back to its old value looks like no edit.
+    func testACitationSheetsRevertsAreSentAfterTheAppDeliversItsQueuedFields() async throws {
+        let row = textRow(title: "Original", description: "Original description", note: "Original note", isPublic: true)
+        let queued = ItemPatch(title: "Queued", description: "Queued description", supplementalNote: "Queued note")
+        queue.record(itemId: row.id, patch: queued, capturedAt: queue.captureTime())
+        let receiving = CitationDelivery(open(row))
+        let known = queue.deliveryCount
+        let server = FakeRowServer(rows: [row])
+        let observer = watchDeliveries(receiving, known: known)
+        await deliverQueue(to: server)
+        NotificationCenter.default.removeObserver(observer)
+        XCTAssertTrue(receiving.sawQueuedValue, "delivery notification arrives before the flush confirms")
+        XCTAssertNil(queue.edit(for: row.id))
+        var citation = receiving.sheet
+
+        citation.local.title = row.title
+        citation.local.description = row.description
+        citation.local.supplementalNote = row.supplementalNote
+        let reverted = edits(citation).textPatch
+        XCTAssertEqual(reverted, ItemPatch(title: row.title, description: row.description,
+                                           supplementalNote: row.supplementalNote), "autosave sends the reverts")
+        dismiss(citation, at: 2)
+        XCTAssertEqual(queue.edit(for: row.id)?.fieldPatch, reverted, "closing before autosave journals the same reverts")
+        await deliverQueue(to: server)
+        XCTAssertEqual(server.row(row.id)?.title, row.title)
+        XCTAssertEqual(server.row(row.id)?.description, row.description)
+        XCTAssertEqual(server.row(row.id)?.supplementalNote, row.supplementalNote)
+    }
+
+    func testACitationDeliveryKeepsARevertTypedInsideTheDebounce() async {
+        let row = textRow(title: "Original")
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Queued"), capturedAt: queue.captureTime())
+        let receiving = CitationDelivery(open(row))
+        let known = queue.deliveryCount
+        receiving.sheet.local.title = "Original"
+        let server = FakeRowServer(rows: [row])
+        let observer = watchDeliveries(receiving, known: known, typed: [.title])
+        defer { NotificationCenter.default.removeObserver(observer) }
+        await deliverQueue(to: server)
+        let citation = receiving.sheet
+        XCTAssertTrue(receiving.sawQueuedValue)
+        XCTAssertEqual(citation.local.title, "Original", "the delivery never replaces what the user just typed")
+        XCTAssertEqual(citation.snapshot.title, "Queued", "the baseline records what actually reached the server")
+        XCTAssertEqual(edits(citation).textPatch.title, "Original")
+    }
+
+    func testACitationDeliveryAdoptsAnUntouchedFieldWithoutQueuingARevert() async {
+        let row = textRow(title: "Original")
+        let receiving = CitationDelivery(open(row))
+        let known = queue.deliveryCount
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Delivered elsewhere"), capturedAt: queue.captureTime())
+        let observer = watchDeliveries(receiving, known: known)
+        defer { NotificationCenter.default.removeObserver(observer) }
+        await deliverQueue(to: FakeRowServer(rows: [row]))
+        let citation = receiving.sheet
+        XCTAssertTrue(receiving.sawQueuedValue)
+        XCTAssertEqual(citation.local.title, "Delivered elsewhere")
+        XCTAssertEqual(citation.snapshot.title, "Delivered elsewhere")
+        XCTAssertTrue(edits(citation).textPatch.isEmpty, "advancing the baseline must not make an untouched field dirty")
+    }
+
+    func testACitationDeliveryNeverOverlaysARowReadAfterThatDelivery() async {
+        let row = textRow(title: "Original")
+        queue.record(itemId: row.id, patch: ItemPatch(title: "Delivered earlier"), capturedAt: queue.captureTime())
+        await deliverQueue(to: FakeRowServer(rows: [row]))
+        var newer = row
+        newer.title = "Newer server value"
+        let known = queue.deliveryCount
+
+        XCTAssertNil(DetailFieldEdits.receivingDeliveries(local: newer, snapshot: newer,
+                                                         knownDeliveries: known, queue: queue),
+                     "a delayed notification cannot replace the newer server row")
+    }
+
     func testOpeningAndClosingAnUntouchedObjectNameTitleWritesNothing() {
         let server = audioRow(title: objectName)
         var sheet = open(server)

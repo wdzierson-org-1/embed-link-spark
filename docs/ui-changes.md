@@ -8,6 +8,16 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-05 · Citation detail edits after background delivery
+
+An open Ask citation detail sheet now adopts title, description and sticky-note values that
+finish saving through the shared queue. Changing one back to its earlier value is correctly
+saved, including when the sheet closes before autosave. Text still being typed, newer queued
+edits and saves in flight retain their existing protections. The durable queue is unchanged.
+
+See [completion and remaining release checks](ios-plan-16-completion.md) for verification and
+simulator review details.
+
 ## 2026-10-04 · iOS plan 16 stabilization and local integration
 
 The interrupted Ask scrolling follow-ups are now included. The rendered tail moves whole
@@ -248,10 +258,9 @@ network (plan 15's durable pending-edits queue); these are the rules it follows.
     fails the note stays on the private item and is published with the next share. This is
     intended: it's the user's own text.
 - **Known residuals (honest).**
-  - Ask citation sheets only, pre-existing: when a flush the sheet neither started nor saw the
-    row of delivers one of its queued values, a later revert to the sheet's old server value
-    isn't sent, so the server keeps the value the user reverted away from (visible on reopen,
-    re-editable).
+  - The citation text baseline gap was fixed October 5: values delivered by a shared-queue
+    flush now advance the open sheet's baseline, and subsequent reverts are sent. See the
+    October 5 entry above.
   - Pre-existing, not widened: a failed un-share whose sticky note matches neither the
     server's nor the queue's (another device changed it mid-flight) isn't restored, and the
     next autosave clears the server's note.

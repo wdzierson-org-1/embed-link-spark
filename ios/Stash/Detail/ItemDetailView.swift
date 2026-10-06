@@ -470,10 +470,20 @@ struct ItemDetailView: View {
         }
         // A write of this item landed (batch B fix round 1, review I-1): a flush whose rows this
         // sheet's store never hands it (the app's refresh, under an Ask citation sheet) can deliver a
-        // save that failed in front of the user, and its error must go.
+        // save that failed in front of the user. Adopt those delivered fields as the baseline too,
+        // preserving edits still being typed or sent, so a later revert is measured against what
+        // actually reached the server rather than the citation's stale row.
         .onReceive(NotificationCenter.default.publisher(for: .stashPendingEditDelivered)) { note in
             guard note.userInfo?["itemId"] as? UUID == item.id else { return }
-            settleSaveCaption()
+            if let received = DetailFieldEdits.receivingDeliveries(local: item, snapshot: snapshot,
+                                                                   knownDeliveries: services.knownDeliveries,
+                                                                   queue: services.pendingEdits,
+                                                                   sending: Array(services.sending.values),
+                                                                   typedSinceSave: services.typedSinceSave) {
+                adopt(received.row, fields: received.fields, isServerRow: false)
+            } else {
+                settleSaveCaption()
+            }
         }
         // Leaving the foreground with the sheet still open (app switcher, lock, Control Center):
         // queue what's unsaved now. `.inactive` too — a kill from the app switcher isn't

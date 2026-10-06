@@ -108,6 +108,36 @@ public struct DetailFieldEdits {
 
     // MARK: - The rule, per field
 
+    /// Incorporates text fields the app delivered after this sheet last read its server row. An Ask
+    /// citation's store may never receive the refresh's row; leaving its baseline behind makes a
+    /// later revert to the old value look unchanged to both autosave and the close journal.
+    /// The delivery notification precedes queue confirmation, so already-delivered text values
+    /// no longer protect an untouched field. Newer queued captures, in-flight saves and typing
+    /// inside the debounce still keep the user's value. The durable queue is left untouched.
+    @MainActor
+    public static func receivingDeliveries(local: Item, snapshot: Item, knownDeliveries: Int,
+                                            queue: PendingEdits, sending: [ItemPatch] = [],
+                                            typedSinceSave: Set<SheetTextField> = []) -> (row: Item, fields: Item)? {
+        let latest = queue.deliveries(for: snapshot.id, after: knownDeliveries)
+        let delivered = ItemPatch(title: latest.title, description: latest.description,
+                                  supplementalNote: latest.supplementalNote)
+        guard !delivered.isEmpty else { return nil }
+        let row = PendingEdit(itemId: snapshot.id, patch: delivered, capturedAt: .distantPast).applied(to: snapshot)
+        let pending = queue.edit(for: snapshot.id)
+        var queued = pending
+        func outstanding(_ field: PendingField<String>?, patch: (String) -> ItemPatch) -> PendingField<String>? {
+            guard let field else { return nil }
+            return queue.undelivered(patch(field.value), capturedAt: field.capturedAt, itemId: snapshot.id).isEmpty
+                ? nil : field
+        }
+        queued?.title = outstanding(pending?.title) { ItemPatch(title: $0) }
+        queued?.description = outstanding(pending?.description) { ItemPatch(description: $0) }
+        queued?.supplementalNote = outstanding(pending?.supplementalNote) { ItemPatch(supplementalNote: $0) }
+        let edits = DetailFieldEdits(local: local, baseline: ItemDisplay.editableRow(snapshot), queued: queued,
+                                     sending: sending, typedSinceSave: typedSinceSave)
+        return (row, edits.adopting(row))
+    }
+
     /// Whether a field must be (re)sent: it differs from the server's value, or from a value still
     /// queued for it (a revert that has to supersede a value sent a moment ago). Values are
     /// normalized `?? ""` by the callers; a queued sticky note of `""` is a queued clear.

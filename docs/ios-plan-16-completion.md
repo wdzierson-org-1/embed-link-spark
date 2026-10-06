@@ -1,6 +1,6 @@
 # iOS plan 16 — completion and release handoff
 
-Updated October 4, 2026. This is the current status source for the recovered
+Updated October 5, 2026. This is the current status source for the recovered
 `worktree-ios-plan-16` work. The original plan and `.superpowers` task reports
 retain their historical investigations; their unfinished wrap lists do not
 start a new review cycle.
@@ -30,7 +30,36 @@ commit and integrate locally. TestFlight publication is a separate step.
   fix diff. Neither review found a remaining must-fix issue in those changes.
   This was a completion review, not another redesign or app-wide audit.
 
-## Fresh acceptance results
+## October 5 follow-up — simulator review
+
+The citation-sheet text baseline issue is fixed. When a background flush delivers
+a title, description or sticky note, an open citation sheet now incorporates those
+values into its baseline. A later revert is sent by autosave or the close journal.
+Newer queued values, in-flight saves and text still being typed remain protected.
+The delivery notification occurs before queue confirmation; the fix filters a
+temporary adoption input and never removes durable entries.
+
+- Four new regressions reproduced nine failing assertions before the fix.
+- Full StashKit suite: 881 tests, zero failures or skips.
+- Simulator app, extension and UI-test build: pass.
+- Focused UI validation: three passed, zero failures. The live chip-only check
+  skipped because the answer cited its source inline; the deterministic citation
+  test passed, exercising both a source chip and an inline link.
+- The normal app is installed and launched on the existing iPhone 17 Pro,
+  iOS 26.5, retaining its signed-in session and data. No test launch arguments.
+- Independent review of the three-file fix found no must-fix issues.
+- Evidence is saved locally under /tmp/stash-citation-fix/ and
+  /tmp/stash-ios-review-oct5/. The UI result bundle is
+  /tmp/stash-ios-completion/oct5-citation-ui.xcresult and
+  /tmp/stash-ios-completion/oct5-citation-seeded.xcresult.
+
+The iOS 17.0–17.3 scroll limitation was reassessed. UIKit's public animation-state
+API is available from 17.4, and previous broad workarounds caused streaming
+regressions. No safe small fix was established; physical-device input testing is
+still needed. The deployment target remains 17.0. The simulator audit timeout
+was not rerun unchanged. Device validation and publication remain outstanding.
+
+## October 4 acceptance results
 
 | Check | Result |
 | --- | --- |
@@ -74,19 +103,18 @@ and follow-up work. No claim of complete accessibility certification is made.
    silently raise the deployment target or describe this behavior as fixed.
 2. **The iOS 17.0 audit timeout above.** Recheck on a physical device or a changed
    Xcode/runtime environment; repeated identical simulator runs add no evidence.
-3. **Previously parked citation-sheet baseline case.** If another refresh delivers
-   a queued edit that the citation sheet never adopts, a later revert to the
-   sheet's old value may not be sent. The server's value appears on reopen and can
-   be edited again. The new location-delivery fix does not claim to close this
-   separate baseline/adoption issue. Other pre-existing cross-device sharing
-   residuals remain described in `ui-changes.md`.
+3. **Existing cross-device/read-timing residuals.** The delivered-after-open
+   citation text case above is fixed. A server row read before a concurrent delivery
+   but adopted afterwards can still be treated as including that delivery; existing
+   sequence bookkeeping approximates read timing. Other pre-existing cross-device
+   sharing residuals remain described in ui-changes.md.
 4. **Physical-device accessibility checks.** VoiceOver focus order, hardware
    keyboard/Voice Control behavior and animation feel still need device checks;
    XCUITest's simulated interactions are not a replacement.
 
 ## Release work remaining
 
-- Regenerate the Xcode project after changing checkout: `cd ios && xcodegen generate`.
+- The main checkout’s Xcode project has been regenerated. Repeat after later checkout changes: `cd ios && xcodegen generate`.
 - Perform the physical-device checks and decide the documented older-iOS limits.
 - Archive/sign build 10, refresh App Store screenshots, upload to TestFlight and
   confirm its processing/group availability. No upload or App Store submission
