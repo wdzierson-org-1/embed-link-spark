@@ -38,17 +38,44 @@
   const IMG = '2026-10-06-stashe-homepage/img/';
 
   /* ---------------- examples ---------------- */
+  // v0.5: every example ends with a "make into" window (beta): what Stash can turn the save into.
   const EX = {
     link: {
-      input: 'https://github.com/charmbracelet/gum', tag: 'repo', busy: 'reading the readme', img: IMG + 'repo.png', focus: [0.5, 0.5],
+      input: 'https://inesatelier.co/products/woven-tote', tag: 'link', busy: 'reading the page', img: IMG + 'bag.jpg', focus: [0.5, 0.55],
+      meta: { title: 'The Woven Tote, Tan', desc: 'Hand-woven vegetable-tanned leather, unlined, with a brass buckle.', m1: 'inesatelier.co', m2: '$248' },
+      fields: [
+        ['fact', 'price', '$248, ships in 3–5 days'],
+        ['what', 'what it is', 'product page for a hand-woven leather tote bag'],
+        ['fact', 'materials', 'vegetable-tanned leather, brass hardware'],
+        ['fact', 'colors', 'tan, black, oxblood'],
+        ['summary', 'summary', 'An unlined, hand-woven leather tote in three colors that fits a 14-inch laptop.'],
+        ['find', 'find it by', 'that woven bag / tan leather tote'],
+        ['make', 'make into', ['a wishlist', 'a comparison', 'a to-do list']],
+      ],
+    },
+    repo: {
+      input: 'https://github.com/charmbracelet/gum', tag: 'repo', busy: 'reading the readme', img: IMG + 'og-gum.png', focus: [0.38, 0.45],
       meta: { title: 'charmbracelet/gum', desc: 'A tool for glamorous shell scripts.', m1: 'github.com', m2: 'Go' },
       fields: [
-        ['fact', 'language', 'Go'],
-        ['fact', 'license', 'MIT'],
+        ['fact', 'details', 'Go, MIT license, 24k stars'],
         ['what', 'what it is', 'a kit of prompts, pickers, spinners and inputs for shell scripts'],
         ['summary', 'summary', 'Lets plain shell scripts ask questions and offer choices, with no Go to write.'],
         ['fact', 'install', 'brew install gum'],
         ['find', 'find it by', 'that pretty terminal prompt thing / shell script pickers'],
+        ['make', 'make into', ['a setup checklist', 'a cheat sheet']],
+      ],
+    },
+    reel: {
+      input: 'https://www.instagram.com/reel/DA3daysLisbon/', tag: 'reel', busy: 'watching the reel', img: IMG + 'shot-reel.jpg', focus: [0.5, 0.72],
+      meta: { title: '3 days in Lisbon', desc: 'Where to stay, eat and watch the sunset: Graça, Alfama and Príncipe Real.', m1: 'instagram.com', m2: '0:41' },
+      fields: [
+        ['what', 'what it is', 'travel reel: three days in lisbon'],
+        ['fact', 'places', 'Miradouro da Graça, Alfama, Príncipe Real'],
+        ['fact', 'creator', '@ana.wanders'],
+        ['fact', 'on-screen text', '“3 days in Lisbon”'],
+        ['summary', 'summary', 'Sunset at Miradouro da Graça, dinner in Alfama, and a quiet place to stay in Príncipe Real.'],
+        ['find', 'find it by', 'that lisbon reel / where to watch the sunset in lisbon'],
+        ['make', 'make into', ['an itinerary', 'a map list', 'a packing list']],
       ],
     },
     shot: {
@@ -61,6 +88,7 @@
         ['fact', 'where you were', 'Brooklyn, Thursday 11:42 pm'],
         ['summary', 'summary', 'A West Village bistro: ask for the window table, walk-ins welcome from 5:30.'],
         ['find', 'find it by', 'that french place with the window table / chez colette'],
+        ['make', 'make into', ['a reminder', 'a plan for Thursday']],
       ],
     },
     article: {
@@ -73,6 +101,7 @@
         ['summary', 'summary', 'We forget what we never try to recall. Write one line after each chapter and quiz yourself a day later.'],
         ['fact', 'key idea', 'Retrieval beats rereading.'],
         ['find', 'find it by', 'that article about remembering books / memory tips'],
+        ['make', 'make into', ['flashcards', 'a study guide', 'a to-do list']],
       ],
     },
     paper: {
@@ -85,10 +114,11 @@
         ['fact', 'authors', 'Nelson F. Liu, Kevin Lin, John Hewitt and others'],
         ['fact', 'published', 'arXiv, July 2023'],
         ['find', 'find it by', 'the paper on long context windows / lost in the middle'],
+        ['make', 'make into', ['flashcards', 'a study guide', 'a to-do list']],
       ],
     },
     tiktok: {
-      input: 'https://www.tiktok.com/@sundaysupper/video/7391836274', tag: 'video', busy: 'watching the video', img: LAND + 'cover-recipe.jpg', focus: [0.62, 0.5],
+      input: 'https://www.tiktok.com/@sundaysupper/video/7391836274', tag: 'tiktok', busy: 'watching the video', img: IMG + 'shot-tiktok.jpg', focus: [0.5, 0.72],
       meta: { title: 'Tomato & mozzarella penne', desc: 'A 20-minute weeknight pasta: blistered tomatoes, torn mozzarella, basil.', m1: 'tiktok.com', m2: '0:58' },
       fields: [
         ['what', 'what it is', 'recipe video for a 20-minute tomato and mozzarella pasta'],
@@ -97,10 +127,11 @@
         ['fact', 'creator', '@sundaysupper'],
         ['summary', 'summary', 'Blister cherry tomatoes in olive oil, toss with penne and pasta water, finish with mozzarella and basil.'],
         ['find', 'find it by', 'that tomato pasta tiktok / quick weeknight pasta'],
+        ['make', 'make into', ['a shopping list', 'a recipe card', 'a to-do list']],
       ],
     },
   };
-  const ORDER = ['link', 'shot', 'article', 'paper', 'tiktok'];
+  const ORDER = ['link', 'shot', 'article', 'paper', 'tiktok', 'reel', 'repo'];
 
   /* ---------------- the renderer ---------------- */
   const sides = { L: { top: 0, n: 0 }, R: { top: 0, n: 0 } };
@@ -325,11 +356,13 @@
 
   /** Add one finding: a window beside (or, for "find it by", under) the card, its value decrypting in. */
   async function addField({ k, l, v }, animate = true, fast = false) {
+    if (k === 'make') return addMake({ l, v }, animate);
     const find = k === 'find';
     const el = document.createElement('div');
     el.className = 'node win' + (find ? ' is-find' : '');
     el.innerHTML = `<div class="win-bar"><span></span><span>${find ? 'search' : '↳'}</span></div><div class="node-body"></div>`;
     el.querySelector('.win-bar span').textContent = l;
+    Object.assign(el.dataset, { k, l, v: JSON.stringify(v) });
     const body = el.querySelector('.node-body');
     body.textContent = v;
     nodesEl.appendChild(el);
@@ -381,6 +414,66 @@
     const decrypting = S.decrypt(body, v, fast ? { duration: Math.min(650, 220 + v.length * 4) } : undefined);
     if (!fast) await decrypting;
   }
+
+  /* "make into" (beta): what Stash can turn this save into, as buttons, in a window of its own
+     colour under "find it by". The transformations aren't in this demo, and the window says so. */
+  async function addMake({ l, v }, animate = true) {
+    const el = document.createElement('div');
+    el.className = 'node win is-make';
+    el.innerHTML = '<div class="win-bar"><span></span><span class="beta">beta</span></div><div class="node-body"><div class="mk-opts"></div><p class="mk-note px" role="status"></p></div>';
+    el.querySelector('.win-bar span').textContent = l;
+    Object.assign(el.dataset, { k: 'make', l, v: JSON.stringify(v) });
+    const opts = el.querySelector('.mk-opts');
+    const buttons = v.map((label) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mk';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = label;
+      opts.appendChild(b);
+      return b;
+    });
+    nodesEl.appendChild(el);
+    if (!narrow.matches) {
+      // Under "find it by" if it's there, else under the card; joined by a short leader.
+      const above = [...nodesEl.querySelectorAll('.node.is-find')].pop();
+      const cx = card.offsetLeft + card.offsetWidth / 2;
+      const anchor = above ? above.offsetTop + above.offsetHeight : card.offsetTop + card.offsetHeight;
+      const top = anchor + (above ? 30 : 48);
+      el.style.setProperty('--origin', 'center top');
+      el.style.left = `${cx - el.offsetWidth / 2}px`;
+      el.style.top = `${top}px`;
+      growStage(top + el.offsetHeight);
+      buttons.forEach((b) => (b.style.visibility = 'hidden'));
+      await drawLeader(`M${cx} ${anchor} V${top}`, [cx, anchor], animate, 300);
+    } else {
+      buttons.forEach((b) => (b.style.visibility = 'hidden'));
+    }
+    el.classList.add('is-in');
+    for (const b of buttons) {
+      b.style.visibility = '';
+      if (animate && !S.reduced()) { b.classList.add('is-new'); await new Promise((r) => setTimeout(r, 120)); }
+    }
+  }
+  // One delegated handler for every "make into" button, live or example.
+  nodesEl.addEventListener('click', (e) => {
+    const b = e.target.closest('.mk');
+    if (!b) return;
+    const node = b.closest('.is-make');
+    node.querySelectorAll('.mk').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    node.querySelector('.mk-note').textContent = `${b.textContent}: coming soon in the beta`;
+  });
+  // What a live save could be made into, by the kind of thing it is.
+  const MAKE = {
+    repo: ['a setup checklist', 'a cheat sheet'],
+    video: ['a summary', 'flashcards', 'a to-do list'],
+    social: ['a summary', 'a to-do list'],
+    book: ['a reading plan', 'flashcards'],
+    place: ['an itinerary', 'a reminder'],
+    image: ['a to-do list', 'a reminder', 'flashcards'],
+    note: ['a to-do list', 'a reminder'],
+  };
+  const makeFor = (kind) => MAKE[kind] || ['flashcards', 'a study guide', 'a to-do list'];
 
   function resetSides() { sides.L = { top: 0, n: 0 }; sides.R = { top: 0, n: 0 }; }
 
@@ -693,6 +786,8 @@
       }
     }, controller.signal);
     flushInstant();
+    // Last, what it could be made into (beta), chosen by the kind of thing it is.
+    if (!failed && !controller.signal.aborted) push({ k: 'make', l: 'make into', v: makeFor(kind === 'link' ? linkPh.glyph : kind) });
     if (draining) await draining;
     if (controller.signal.aborted) return;
     running = null;
@@ -770,7 +865,7 @@
     runExamples._r = setTimeout(() => {
       if (!nodesEl.children.length || narrow.matches) return;
       // Re-place the windows that are already out, without animating them again.
-      const done = [...nodesEl.children].map((el) => ({ k: el.classList.contains('is-find') ? 'find' : 'fact', l: el.querySelector('.win-bar span').textContent, v: el.querySelector('.node-body').textContent }));
+      const done = [...nodesEl.children].map((el) => ({ k: el.dataset.k, l: el.dataset.l, v: JSON.parse(el.dataset.v) }));
       nodesEl.textContent = ''; svg.textContent = ''; resetSides(); stage.style.height = '';
       done.reduce((p, f) => p.then(() => addField(f, false)), Promise.resolve());
     }, 160);

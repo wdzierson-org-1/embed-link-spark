@@ -1,10 +1,23 @@
-# Stash homepage — exploration v0.4 (2026-10-06)
+# Stash homepage — exploration v0.5 (2026-10-06)
 
 Open `../2026-10-06-stashe-homepage.html` from a repo checkout, or serve the repo root
 (`python3 -m http.server 8090`) and visit
 `http://localhost:8090/docs/superpowers/prototypes/2026-10-06-stashe-homepage.html`.
 (The folder keeps its v0.1 "stashe" name so the history stays in one place.) The footer pages
 sit in this folder: `extension.html`, `mcp.html`, `iphone.html`.
+
+## v0.5: Will's round 5
+
+| Ask | What changed |
+|---|---|
+| A solid green bar for the card's scanning effect | The scan is a solid 8 px bar of the spot colour (lime by default) with a 1 px ink edge, sweeping the media every 1.4 s. The gradient is gone. |
+| More realistic example images (a TikTok that looks like TikTok) | **TikTok:** a composed For You screen (`asset-src/shot-tiktok.html`: @sundaysupper's pasta video with TikTok's rail, caption, sound and on-video text), cropped where the creator and caption are. **Repo:** GitHub's real social card for charmbracelet/gum (`img/og-gum.png`, what Stash shows for repos), cropped from the left. **Reel:** a new Instagram Reel (`asset-src/shot-reel.html`: @ana.wanders, "3 days in Lisbon"). |
+| Show more of what we enrich; a different-coloured node with "make into: [flashcards] [a study guide] [a to-do list]" (beta) | Every example now ends in a **make into** window under "find it by", joined by a short leader: a black bar with an outlined "beta" label over a spot-coloured body of square black buttons. The buttons suit each kind of save:<br>- article and paper: flashcards, a study guide, a to-do list<br>- recipe TikTok: a shopping list, a recipe card, a to-do list<br>- Reel: an itinerary, a map list, a packing list<br>- repo: a setup checklist, a cheat sheet<br>- screenshot: a reminder, a plan for Thursday<br>- product link: a wishlist, a comparison, a to-do list<br>Live saves get one too, chosen by the kind the endpoint reports. Pressing a button says "…: coming soon in the beta"; nothing is generated. |
+| Something like a TikTok or a Reel in "saving takes one tap" | A fourth scene, **A TikTok or a Reel**: the TikTok video, then Share opens TikTok's own panel (people, Copy link, Messages, Mail, More). More hands off to the iOS sheet, then Stash, then "saved with the transcript". It's accurate to how TikTok sends things to share extensions. The TikTok lands first in the library, which also drops the Blue Bottle receipt card from the first screen. |
+| "Saving takes one tap." → "One tap. Saved." | Done. |
+| "Stash lives in your share sheet" → "Share to Stash from any [share icon] button." | Done, with the iOS share glyph set inline at text size (labelled "Share" for screen readers). The rest of the line now says TikToks where it said videos. |
+| Add TikToks, Reels and repos to the list of things people save | The statement now reads "…a link, a screenshot, an article, a paper, a TikTok, a Reel, a repo." Each word plays its example. Because the gum repo moved to "repo", "link" is now a product page (the hand-woven tote from "take your saves with you", at the illustrative inesatelier.co). |
+| A design.md for other agents, to redesign the web app and then the mobile app | **`DESIGN-v2.md`** at the repo root covers:<br>- the brand (wordmark, symbol, app icon, open decisions)<br>- the two voices (clean objects, DIY machinery)<br>- colour tokens with checked contrast<br>- the two type systems with a product scale mapped to iOS text styles<br>- layout, space and radii, plus every component by prototype selector<br>- imagery, motion, icons, voice and accessibility<br>- per-surface guidance: web app first, then iOS and the share sheet, then the extension<br>- a CSS token block with Tailwind and SwiftUI mappings, do/don't, and a v1 → v2 table<br>It's marked **target, not live**. `DESIGN.md` stays the source of truth for what ships today and now opens with a pointer to v2. |
 
 ## v0.4: Will's round 4
 
@@ -90,8 +103,9 @@ spot colour, lime `#a3f53b` by default, violet `#6d5bd0` on the toggle.
 1. **Save it fast. Find it when you need it.** Liquid-ASCII pool on a stippled sheet; labelled saves (and picture
    tiles) hang, then drop; rings through the glyphs; decrypted findings; paste anything.
 2. **Stash enriches your items automatically / You save anything… We gather all of the background.** Example
-   loop by word; live composer with honest card pictures.
-3. **Saving takes one tap.** CSS iPhone: four screenshots, a book cover, a Medium article, then the library.
+   loop by word (link, screenshot, article, paper, TikTok, Reel, repo); live composer with honest card
+   pictures; every result ends in "make into" (beta).
+3. **One tap. Saved.** CSS iPhone: four screenshots, a book cover, a Medium article, a TikTok, then the library.
 4. **Your stash, inside every AI you use.** Cursor / Claude tabs; three points; Works with (12 clients); `gostash.it/mcp`.
 5. **Take your saves with you.** Pixel-reveal memories (repo, bag, moodboard).
 6. **Stash, wherever you are.** Chrome, iPhone and MCP, each a running picture with `more >>`.
@@ -119,7 +133,16 @@ Reload after changing only the hash. The footer pages take `#spot=violet` too.
   photo-1636875485729 (v0.3, the café table under the book); landing covers from `src/assets/landing/`.
 - **Composed samples** (`asset-src/*.html` → `img/` via `sh asset-src/build.sh`): moodboard, social-post
   screenshot, paper first page, repo plate, and (v0.3) the five phone screenshots `shot-maps`, `shot-thread`,
-  `shot-receipt`, `shot-boarding`, `shot-messages` (390×844, JPEG). The QR code is decorative.
+  `shot-receipt`, `shot-boarding`, `shot-messages` (390×844, JPEG). The QR code is decorative. v0.5 adds
+  `shot-tiktok` and `shot-reel` at 2× (780×1688), since they also appear full-screen in the phone.
+  - **TikTok:** its layout was measured from real 2024 TikTok screenshots, so it has a black status strip.
+    The phone covers that strip so only its own status bar shows, and its share tap is measured at (359, 643).
+  - **Reel:** it follows Instagram's slightly older (2022-era) layout. Its rooftop photo is zoomed 1.43×
+    so the terrace lands in the card crop.
+  - **Both:** the video frames carry a light grade and about 0.45 px of blur to keep the files under
+    260 KB. They read as video.
+- **GitHub's social card** for charmbracelet/gum (`img/og-gum.png`, from opengraph.githubassets.com) is
+  what Stash itself shows for a repo; the stats on it are real as of 2026-10-06.
 - **Pixel art** in the hero's picture tiles (map, arXiv page, *Walden* cover) is drawn in code in `js/liquid.js`.
 - **`img/iphone-share.png`** is rendered from the homepage's own CSS iPhone (`#still&scene=shots`, phone at 1.48×,
   outer shadow off, transparent background) for `iphone.html`; re-render it if the phone changes.
@@ -131,8 +154,10 @@ Real: `charmbracelet/gum`, `pbakaus/impeccable` (description quoted from GitHub)
 Chez Colette, @sundaysupper, the Lisbon hotels (Casa do Pátio, Miradouro 22, Jardim Escondido), every
 note, price, date and transcript in the scripted examples, and in the v0.3 screenshots @breadbykat,
 @flourpowerdan, Maya, Alex Morgan, the airline "Northline", and the map's Hollis Books, Little Fern and
-Marlow & Co. **Blue Bottle Coffee is a real business**, named on the receipt and in a library card (it was in
-v0.2's card too); swap in an illustrative café before anything ships. The street address is real.
+Marlow & Co, plus (v0.5) @ana.wanders, the inesatelier.co tote, and the people in TikTok's share panel
+(Maya, Jules, Sam, Rae, Dev). **Blue Bottle Coffee is a real business**, named on the receipt screenshot
+in the Photos grid. Since v0.5 it's off the library's first screen, but swap in an illustrative café
+before anything ships. The street address is real.
 
 ## Open questions for Will
 

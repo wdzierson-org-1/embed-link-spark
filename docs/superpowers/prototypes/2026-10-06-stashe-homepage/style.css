@@ -269,6 +269,19 @@ button { font: inherit; color: inherit; }
 .node.is-find { border-color: var(--ink); }
 
 .node.is-find { width: 300px; }
+/* v0.5: "make into" (beta) — the one window in a colour of its own: a spot-colour body, black buttons. */
+.node.is-make { width: 330px; pointer-events: auto; border-color: var(--ink); }
+.node.is-make .win-bar .beta { padding: 2px 4px 1px; box-shadow: inset 0 0 0 1px var(--spot); color: var(--spot); }
+[data-spot="violet"] .node.is-make .win-bar .beta { color: #c9bfff; box-shadow: inset 0 0 0 1px #c9bfff; }
+.node.is-make .node-body { min-height: 0; padding: 10px; background: var(--spot); color: var(--on-spot); }
+.mk-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.mk { height: 32px; padding: 0 11px; border: 0; border-radius: 0; background: var(--ink); color: #fff; font: 500 14px/1 var(--sans); letter-spacing: -.005em; cursor: pointer; }
+.mk:hover { background: #2a2a2a; }
+.mk:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.mk[aria-pressed="true"] { background: var(--white); color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.mk.is-new { animation: drop-print .2s steps(3, end) both; }
+.mk-note { margin: 8px 0 0; }
+.mk-note:empty { display: none; }
 .node-body code { font: 11px/1.2 var(--pixel); background: #ecede9; padding: 2px 4px 1px; white-space: nowrap; }
 
 .enrich-foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; margin-top: 30px; }
@@ -329,6 +342,8 @@ button { font: inherit; color: inherit; }
 .phone-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: 24px; align-items: center; }
 .phone-copy { grid-column: 1 / span 5; }
 .phone-copy .lead { margin-top: 28px; }
+/* The share icon, set in the sentence: "Share to Stash from any [share] button." */
+.share-glyph { display: inline-block; width: .95em; height: .95em; margin: 0 .04em; vertical-align: -.12em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .steps { list-style: none; margin: 44px 0 0; padding: 0; border-bottom: 1px solid var(--line); }
 .steps li { border-top: 1px solid var(--line); }
 .steps button {
@@ -343,7 +358,7 @@ button { font: inherit; color: inherit; }
 .steps .bar { position: absolute; left: 26px; right: 0; bottom: -1px; height: 2px; background: var(--ink); transform-origin: left; transform: scaleX(0); }
 .steps button[aria-current="step"] .bar { animation: step-fill var(--dur, 10s) linear forwards; }
 .steps.paused .bar { animation-play-state: paused; }
-.steps.is-still .bar { animation: none; transform: scaleX(0); }
+.steps.is-still .bar, .steps.is-still button[aria-current="step"] .bar { animation: none; transform: scaleX(0); } /* outranks the running step's fill */
 @keyframes step-fill { to { transform: scaleX(1); } }
 .phone-ctrl { margin-top: 18px; }
 
@@ -479,6 +494,33 @@ button { font: inherit; color: inherit; }
 .art-img { margin: 16px -22px 14px; height: 196px; background: url(../../../../src/assets/landing/cover-article.jpg) center/cover; }
 .art p { margin: 0 0 10px; font-size: 17px; line-height: 1.5; color: #242424; }
 
+/* v0.5: TikTok — the screen is the composed screenshot (asset-src/shot-tiktok.html). Its own status
+   bar sits in a black strip, which a black band covers so only the phone's status bar shows; the
+   share target sits over its share icon (measured at 359, 643). TikTok's share panel is drawn here. */
+.tt { background: #000; }
+.tt::before { content: ""; position: absolute; z-index: 1; left: 0; right: 0; top: 0; height: 54px; background: #000; }
+.tt-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.tt-share { position: absolute; left: 359px; top: 643px; width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+.tt-sheet {
+  position: absolute; z-index: 30; left: 0; right: 0; bottom: 0; padding: 16px 0 34px;
+  background: #fff; color: #161823; border-radius: 12px 12px 0 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  transform: translateY(105%); transition: transform .4s var(--ease);
+}
+.tt-sheet.is-on { transform: none; }
+.tt-head { position: relative; padding: 0 16px 14px; text-align: center; font-size: 15px; font-weight: 600; }
+.tt-x { position: absolute; right: 18px; top: -4px; font-size: 24px; font-weight: 400; color: #8a8b91; }
+.tt-people, .tt-apps { display: flex; gap: 16px; padding: 0 16px 16px; border-bottom: 1px solid #ededee; }
+.tt-apps { padding-top: 16px; }
+.tt-people span, .tt-app { width: 58px; display: flex; flex-direction: column; align-items: center; gap: 7px; font-size: 11.5px; color: #4a4b52; text-align: center; white-space: nowrap; }
+.tt-people i { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 600 20px/1 -apple-system, sans-serif; }
+.tt-ic { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; }
+.tt-ic svg { width: 100%; height: 100%; }
+.tt-link, .tt-more { background: #f1f1f2; }
+.tt-link svg { width: 24px; height: 24px; fill: none; stroke: #161823; stroke-width: 2; stroke-linecap: round; }
+.tt-more svg { width: 24px; height: 24px; fill: #161823; }
+.tt-acts { display: flex; gap: 18px; padding: 14px 16px 0; font-size: 12px; color: #4a4b52; white-space: nowrap; overflow: hidden; }
+
 /* Stashe app: library */
 .lib { background: var(--paper); font-family: var(--sans); color: var(--ink); }
 .lib-top { padding: 60px 18px 0; display: flex; align-items: center; justify-content: space-between; }
@@ -596,7 +638,8 @@ button { font: inherit; color: inherit; }
 .scard-media { overflow: hidden; }
 .scard-media .scard-kind { z-index: 2; }
 .scard-media.is-loading { background: repeating-conic-gradient(#d4d7d0 0 25%, #eceee9 0 50%) 0 0 / 8px 8px; }
-.scard-media.is-loading::after { content: ""; position: absolute; left: 0; right: 0; top: -40%; height: 40%; background: linear-gradient(transparent, color-mix(in srgb, var(--spot) 60%, transparent), transparent); animation: scan 1.5s linear infinite; }
+/* v0.5: the scan is a solid bar of the spot colour, edged in ink so it reads on the checker. */
+.scard-media.is-loading::after { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; background: var(--spot); box-shadow: 0 1px 0 var(--ink); animation: scan 1.4s linear infinite; }
 @keyframes scan { to { top: 100%; } }
 /* v0.3: when a save has no picture of its own (or it's slow), Stash draws one for the kind of
    thing it is, in the machine voice: a pixel glyph on the spot colour, the site underneath. */
@@ -964,6 +1007,7 @@ code.inline { font: 11px/1 var(--pixel); background: var(--white); padding: 4px 
   .nodes { position: relative; inset: auto; margin: 20px auto 0; width: min(420px, 100%); display: grid; gap: 10px; }
   .node { position: relative; left: auto !important; top: auto !important; width: auto; margin-left: 28px; transform-origin: left top; }
   .node::before { content: "├─"; position: absolute; left: -28px; top: 4px; font: 11px/1 var(--pixel); color: var(--ink); }
+  .node.is-find, .node.is-make { width: auto; }
   .node:last-child::before { content: "└─"; }
   .ai-demo { height: auto; padding: 50px 10px 14px; }
   .aw { position: relative; inset: auto; display: none; height: 560px; }

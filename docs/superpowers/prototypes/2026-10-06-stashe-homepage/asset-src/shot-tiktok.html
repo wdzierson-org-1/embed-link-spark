@@ -1,0 +1,165 @@
+<!doctype html>
+<!-- Source for img/shot-tiktok.jpg — an iPhone screenshot of a TikTok-style "For You" feed (dark
+     UI) playing a recipe video. @sundaysupper, the counts and the caption are illustrative; the
+     avatar is drawn (no faces) and there is no app logo, only generic UI glyphs drawn in SVG.
+     Layout and type sizes were measured off real 2024 iPhone screenshots (375×812, rescaled):
+     black status-bar strip, video between it and the tab bar, right rail anchored to the bottom.
+     The video frame is src/assets/landing/cover-recipe.jpg cover-fit into the vertical frame.
+     The share icon's wrapper carries data-share (centre 359, 643 in this 390×844 page). -->
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+html,body{margin:0;width:390px;height:844px;overflow:hidden;background:#000;position:relative;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased;color:#fff}
+svg{display:block}
+
+/* status bar (on black: TikTok keeps the video below it) */
+.sb{position:absolute;left:0;top:0;width:390px;height:54px}
+.sb-t{position:absolute;left:0;top:14px;width:132px;text-align:center;font-weight:600;font-size:17px;line-height:20px;letter-spacing:-.4px}
+.sb-r{position:absolute;right:28px;top:18px;display:flex;gap:6px;align-items:center}
+
+/* the video: a landscape photo cover-fit between the status bar and the tab bar */
+.vid{position:absolute;left:0;top:54px;width:390px;height:707px;overflow:hidden;background:#2b2520}
+.vid img{display:block;width:100%;height:100%;object-fit:cover;object-position:84% 50%;
+  filter:brightness(.95) contrast(.95) blur(.45px)}  /* a video frame, not a photo; also keeps the JPEG under budget */
+.vid::before,.vid::after{content:"";position:absolute;left:0;right:0}
+.vid::before{top:0;height:130px;background:linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,0))}
+.vid::after{bottom:0;height:360px;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.12) 38%,rgba(0,0,0,.5))}
+
+.ov{text-shadow:0 1px 2px rgba(0,0,0,.32)}
+.gl{filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.28))}
+
+/* top: LIVE, Following / For You, search */
+.live{position:absolute;left:15px;top:64px}
+.tabs{position:absolute;left:0;right:0;top:65.6px;display:flex;justify-content:center;gap:14px;
+  font-size:16px;line-height:20px;font-weight:700;letter-spacing:-.2px;text-shadow:0 1px 2px rgba(0,0,0,.42)}
+.tabs span{color:rgba(255,255,255,.74)}
+.tabs b{position:relative;font-weight:700}
+.tabs b::after{content:"";position:absolute;left:50%;top:28.4px;width:23px;height:2px;margin-left:-11.5px;border-radius:1px;background:#fff;box-shadow:0 0 1px rgba(0,0,0,.2)}
+.search{position:absolute;left:350.5px;top:64.7px}
+
+/* the creator's text-tool stickers */
+.tt{position:absolute;left:0;right:0;display:flex;justify-content:center}
+.tt span{background:#000;color:#fff;font-weight:800;letter-spacing:.1px;white-space:nowrap}
+.tt1{top:226px}.tt1 span{font-size:23px;line-height:31px;padding:0 10px;border-radius:7px}
+.tt2{top:263px}.tt2 span{font-size:19px;line-height:27px;padding:0 9px;border-radius:6px}
+
+/* right rail: avatar + follow, like, comment, save, share, sound */
+.av{position:absolute;left:337px;top:352px;width:44px;height:44px;border-radius:50%;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.92),0 1px 3px rgba(0,0,0,.25)}
+.av svg{width:44px;height:44px}
+.plus{position:absolute;left:348px;top:385px;width:22px;height:22px;border-radius:50%;background:#FE2C55;display:grid;place-items:center}
+.ic{position:absolute;left:339px;width:40px;height:40px;display:grid;place-items:center}
+.n{position:absolute;left:319px;width:80px;text-align:center;font-size:12px;line-height:14px;font-weight:700;letter-spacing:-.1px}
+.disc{position:absolute;left:337px;top:695px;width:44px;height:44px;border-radius:50%}
+.disc .cv{position:absolute;left:9px;top:9px;width:26px;height:26px;border-radius:50%;overflow:hidden;transform:rotate(-24deg)}
+.disc .cv svg{width:26px;height:26px}
+
+/* bottom-left: who, caption, sound */
+.who{position:absolute;left:12px;top:644px;font-size:17px;line-height:20px;font-weight:700;letter-spacing:-.1px}
+.cap{position:absolute;left:12px;top:674px;width:268px;font-size:15px;line-height:18px;letter-spacing:-.1px}
+.cap b{font-weight:700}
+.snd{position:absolute;left:12px;top:734px;width:236px;height:18px;overflow:hidden;white-space:nowrap;display:flex;align-items:center;gap:6px;font-size:15px;line-height:18px;letter-spacing:-.1px}
+
+/* playback progress, on the bottom edge of the video */
+.prog{position:absolute;left:0;top:759px;width:390px;height:2px;background:rgba(255,255,255,.24)}
+.prog i{display:block;width:38%;height:100%;background:rgba(255,255,255,.92)}
+
+/* tab bar */
+.nav{position:absolute;left:0;top:761px;width:390px;height:83px;background:#000}
+.nav .ni{position:absolute;top:5px;width:28px;height:24px;display:grid;place-items:center}
+.nav .nl{position:absolute;top:31.3px;width:78px;text-align:center;font-size:10.5px;line-height:12px;font-weight:600;color:#BFBFBF;letter-spacing:-.05px}
+.nav .nl.on{color:#fff;font-weight:700}
+.dot{position:absolute;left:125.9px;top:1.5px;width:7.6px;height:7.6px;border-radius:50%;background:#FE2C55}
+.create{position:absolute;left:173.6px;top:8.3px;width:42.8px;height:27.4px}
+.create i{position:absolute;top:0;width:35.4px;height:27.4px;border-radius:8px}
+.create .c{left:0;background:#25F4EE}.create .r{left:7.4px;background:#FE2C55}.create .w{left:3.7px;background:#fff;display:grid;place-items:center}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute">
+  <!-- @sundaysupper's avatar: a drawn bowl of pasta, steam rising -->
+  <symbol id="ss" viewBox="0 0 44 44">
+    <rect width="44" height="44" fill="#F2DFBE"/>
+    <circle cx="22" cy="22" r="22" fill="url(#ssbg)"/>
+    <path d="M16.2 7.6c-1.8 1.8 1.8 3.4 0 5.4M22 6c-1.8 1.8 1.8 3.4 0 5.4M27.8 7.6c-1.8 1.8 1.8 3.4 0 5.4" fill="none" stroke="#B9553A" stroke-width="1.7" stroke-linecap="round"/>
+    <ellipse cx="22" cy="22.6" rx="12.6" ry="5" fill="#D9472B"/>
+    <path d="M12.4 22c3-2.4 6.8-3.2 10.4-2.2M21.4 23.6c2.8-1.4 6.6-1.6 9.6-.2" fill="none" stroke="#F0B562" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="16.4" cy="21" r="2.3" fill="#FBF6EA"/><circle cx="26.6" cy="20.6" r="2" fill="#FBF6EA"/>
+    <path d="M21 19.6c1.8-2.8 5-3.2 6.8-2.2-1.4 2.6-4.4 3.4-6.8 2.2z" fill="#3E7D36"/>
+    <path d="M7.4 23.4h29.2c0 7.6-6.4 13.4-14.6 13.4S7.4 31 7.4 23.4z" fill="#B9553A"/>
+    <path d="M7.6 23.4h28.8" stroke="#9E432C" stroke-width="1.3"/>
+    <defs><radialGradient id="ssbg" cx=".5" cy=".42" r=".62"><stop offset="0" stop-color="#FBEFD8"/><stop offset="1" stop-color="#EBD3A8"/></radialGradient></defs>
+  </symbol>
+</svg>
+
+<div class="vid"><img src="../../../../../src/assets/landing/cover-recipe.jpg" alt=""></div>
+
+<div class="sb">
+  <span class="sb-t">7:18</span>
+  <span class="sb-r">
+    <svg width="18" height="12" viewBox="0 0 18 12" fill="#fff"><rect x="0" y="7.6" width="3.2" height="4.4" rx="1"/><rect x="4.9" y="5.2" width="3.2" height="6.8" rx="1"/><rect x="9.8" y="2.6" width="3.2" height="9.4" rx="1"/><rect x="14.7" y="0" width="3.2" height="12" rx="1"/></svg>
+    <svg width="16" height="12" viewBox="0 0 16 12"><path d="M.93 4.13A10 10 0 0 1 15.07 4.13M3.47 6.67A6.4 6.4 0 0 1 12.53 6.67" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M8 11.4 5.7 9A3.3 3.3 0 0 1 10.3 9Z" fill="#fff"/></svg>
+    <svg width="28" height="13" viewBox="0 0 28 13"><rect x=".5" y=".5" width="24" height="12" rx="3.8" fill="none" stroke="#fff" stroke-opacity=".38"/><rect x="2" y="2" width="15" height="9" rx="2.3" fill="#fff"/><path d="M26 4.3v4.4c.9-.35 1.5-1.2 1.5-2.2S26.9 4.65 26 4.3Z" fill="#fff" fill-opacity=".4"/></svg>
+  </span>
+</div>
+
+<!-- top bar -->
+<svg class="live gl" width="26" height="24" viewBox="0 0 26 24">
+  <defs><mask id="lvm" maskUnits="userSpaceOnUse" x="0" y="0" width="26" height="24"><rect width="26" height="24" fill="#fff"/><text x="13" y="18.3" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10.8" font-weight="800" stroke="#000" stroke-width="3.4" stroke-linejoin="round">LIVE</text></mask></defs>
+  <path d="M8.8 1.6 13 6.4l4.2-4.8" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="3" y="7" width="20" height="14.6" rx="3.6" fill="none" stroke="#fff" stroke-width="1.9" mask="url(#lvm)"/>
+  <text x="13" y="18.3" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10.8" font-weight="800" fill="#fff">LIVE</text>
+</svg>
+<div class="tabs ov"><span>Following</span><b>For You</b></div>
+<svg class="search gl" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="10.4" cy="10.4" r="7.6"/><path d="m16 16 5.6 5.6"/></svg>
+
+<!-- on-video text, TikTok's text tool with a background -->
+<div class="tt tt1"><span>20-MINUTE DINNER</span></div>
+<div class="tt tt2"><span>5 INGREDIENTS</span></div>
+
+<!-- right rail -->
+<div class="av"><svg viewBox="0 0 44 44"><use href="#ss"/></svg></div>
+<span class="plus"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1.2v9.6M1.2 6h9.6" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></span>
+
+<span class="ic gl" style="top:426px"><svg width="30" height="27" viewBox="0 0 30 27"><path fill="#fff" d="M15 26.2c-.4 0-.8-.1-1.1-.4C7.4 20.6.6 15.4.6 8.6.6 4.1 3.9.7 8.1.7c2.8 0 5.3 1.6 6.9 3.9C16.6 2.3 19.1.7 21.9.7c4.2 0 7.5 3.4 7.5 7.9 0 6.8-6.8 12-13.3 17.2-.3.3-.7.4-1.1.4Z"/></svg></span>
+<span class="n ov" style="top:463px">248.1K</span>
+
+<span class="ic gl" style="top:491px"><svg width="28" height="28" viewBox="0 0 28 28"><path fill="#fff" fill-rule="evenodd" d="M15.9 27.4c1.5-1.5 2.6-2.9 4-4.5A13 11.8 0 1 0 15.36 24.13l.24 2.77c.05.6.12.68.3.5ZM7.2 10.3a2.1 2.1 0 1 0 0 4.2 2.1 2.1 0 0 0 0-4.2Zm6.8 0a2.1 2.1 0 1 0 0 4.2 2.1 2.1 0 0 0 0-4.2Zm6.8 0a2.1 2.1 0 1 0 0 4.2 2.1 2.1 0 0 0 0-4.2Z"/></svg></span>
+<span class="n ov" style="top:528px">1,904</span>
+
+<span class="ic gl" style="top:557px"><svg width="22" height="25" viewBox="0 0 22 25"><path fill="#fff" d="M3.6.4h14.8a3 3 0 0 1 3 3v19.5c0 1.7-1 1.5-1.5 1.2L11 18.4l-8.9 5.7c-.5.3-1.5.5-1.5-1.2V3.4a3 3 0 0 1 3-3Z"/></svg></span>
+<span class="n ov" style="top:594px">31.2K</span>
+
+<span class="ic gl" data-share style="top:623px"><svg width="28" height="28" viewBox="0 0 28 28"><path fill="#fff" d="M13.8 1.6c0-1.3.6-1.4 1.2-.6l12 11.6c1 1 1 1.4 0 2.4L15 26.6c-.6.8-1.2.7-1.2-.6V20c-5.2-1.1-9.4.6-12.2 3.4-.8.8-1.3.6-1.1-1 .9-8.5 5.8-14.8 13.3-15.2Z"/></svg></span>
+<span class="n ov" style="top:660px">12.8K</span>
+
+<div class="disc">
+  <svg width="44" height="44" viewBox="0 0 44 44"><defs><radialGradient id="vin" cx=".5" cy=".5" r=".5"><stop offset=".55" stop-color="#2E2E2E"/><stop offset=".8" stop-color="#1A1A1A"/><stop offset="1" stop-color="#101010"/></radialGradient></defs>
+    <circle cx="22" cy="22" r="22" fill="url(#vin)"/><circle cx="22" cy="22" r="17.6" fill="none" stroke="#fff" stroke-opacity=".07"/><circle cx="22" cy="22" r="20.2" fill="none" stroke="#fff" stroke-opacity=".05"/></svg>
+  <span class="cv"><svg viewBox="0 0 44 44"><use href="#ss"/></svg></span>
+</div>
+
+<!-- bottom-left -->
+<div class="who ov">@sundaysupper</div>
+<div class="cap ov">20-minute tomato &amp; mozzarella penne 🍅 save this one for weeknights <b>#pasta</b> <b>#weeknightdinner</b></div>
+<div class="snd ov"><svg class="gl" width="12" height="14" viewBox="0 0 12 14" fill="#fff"><path d="M4.3 2.7 11.6.7v2.3L4.3 5z"/><rect x="4.3" y="2.7" width="1.3" height="8.6"/><rect x="10.3" y=".7" width="1.3" height="8.6"/><ellipse cx="3.2" cy="11.3" rx="2.5" ry="1.9" transform="rotate(-18 3.2 11.3)"/><ellipse cx="9.2" cy="9.3" rx="2.5" ry="1.9" transform="rotate(-18 9.2 9.3)"/></svg><span>original sound - Sunday Supper</span></div>
+
+<div class="prog"><i></i></div>
+
+<!-- tab bar -->
+<nav class="nav">
+  <span class="ni" style="left:25px"><svg width="24" height="22" viewBox="0 0 24 22"><path fill="#fff" d="M10.6 1.1a2.1 2.1 0 0 1 2.8 0l9.4 8.3c.7.6.3 1.6-.6 1.6h-1.4v8.6c0 1-.8 1.8-1.8 1.8h-4.3v-5.6a1.4 1.4 0 0 0-1.4-1.4h-2.6a1.4 1.4 0 0 0-1.4 1.4v5.6H5c-1 0-1.8-.8-1.8-1.8V11H1.8c-.9 0-1.3-1-.6-1.6Z"/></svg></span>
+  <span class="nl on" style="left:0">Home</span>
+
+  <span class="ni" style="left:103px"><svg width="26" height="22" viewBox="0 0 26 22" fill="none" stroke="#BFBFBF" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="6.6" r="4.6"/><path d="M1.6 20.6c.6-4.4 3.8-7.2 7.4-7.2s6.8 2.8 7.4 7.2"/><circle cx="18.2" cy="9.2" r="3.4"/><path d="M15.4 14.4c.9-.4 1.8-.6 2.8-.6 3 0 5.6 2.2 6.1 5.8"/></svg></span>
+  <span class="dot"></span>
+  <span class="nl" style="left:78px">Friends</span>
+
+  <span class="create"><i class="c"></i><i class="r"></i><i class="w"><svg width="13" height="13" viewBox="0 0 13 13"><path d="M6.5 1v11M1 6.5h11" stroke="#161823" stroke-width="2.7" stroke-linecap="round"/></svg></i></span>
+
+  <span class="ni" style="left:259px"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#BFBFBF" stroke-width="2" stroke-linejoin="round"><path d="M4 2h14a2.4 2.4 0 0 1 2.4 2.4v10.2A2.4 2.4 0 0 1 18 17h-4.3L11 20l-2.7-3H4a2.4 2.4 0 0 1-2.4-2.4V4.4A2.4 2.4 0 0 1 4 2Z"/><path d="M7.4 9.6h7.2" stroke-linecap="round"/></svg></span>
+  <span class="nl" style="left:234px">Inbox</span>
+
+  <span class="ni" style="left:337px"><svg width="20" height="22" viewBox="0 0 20 22" fill="none" stroke="#BFBFBF" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="6.4" r="4.8"/><path d="M1.8 20.8c.7-4.6 4-7.4 8.2-7.4s7.5 2.8 8.2 7.4"/></svg></span>
+  <span class="nl" style="left:312px">Profile</span>
+</nav>
+</body></html>

@@ -12,7 +12,8 @@
   const BOOK_BG = 'url(2026-10-06-stashe-homepage/img/table-latte.jpg) 30% 60% / cover';
   const MINI_BOOK = '<span class="mini-book"></span>';
   const shotOf = (cell) => `url(${cell.querySelector('img').getAttribute('src')}) center / cover`;
-  const ALL = ['shots', 'book', 'article', 'library'];
+  const ALL = ['shots', 'book', 'article', 'tiktok', 'library'];
+  const TT_THUMB = 'url(2026-10-06-stashe-homepage/img/shot-tiktok.jpg) center 35% / cover';
 
   // Clone before either film runs, while the phone is still in its first state.
   const mini = document.querySelector('[data-phone-mini]');
@@ -36,6 +37,7 @@
     const screen = device.querySelector('.screen');
     const scr = (name) => screen.querySelector(`[data-scr="${name}"]`);
     const photos = scr('photos'), cam = scr('camera'), viewer = scr('viewer'), safari = scr('safari'), lib = scr('library');
+    const tt = scr('tiktok'), ttSheet = tt.querySelector('[data-tt-sheet]'), ttMore = tt.querySelector('[data-tt-more]');
     const sbar = screen.querySelector('.sbar');
     const sheet = screen.querySelector('[data-sheet]');
     const shThumb = sheet.querySelector('[data-sh-thumb]'), shTitle = sheet.querySelector('[data-sh-title]'), shSub = sheet.querySelector('[data-sh-sub]');
@@ -81,10 +83,11 @@
 
     function show(name) {
       screen.querySelectorAll('.scr').forEach((s) => s.classList.toggle('is-on', s.dataset.scr === name));
-      sbar.classList.toggle('on-dark', name === 'camera');
+      sbar.classList.toggle('on-dark', name === 'camera' || name === 'tiktok');
     }
     function reset() {
       sheet.classList.remove('is-on');
+      ttSheet.classList.remove('is-on');
       save.classList.remove('is-on');
       picks.forEach((p) => p.classList.remove('on'));
       sel.classList.remove('on'); sel.textContent = 'Select'; count.textContent = 'Photos';
@@ -175,15 +178,32 @@
       await saveFlow(t, { bg: img, busyTitle: 'How to remember more of what you read', busySub: 'saving the full text', doneTitle: 'How to remember more of what you read', doneSub: 'saved with the full text, 2 min read' });
     }
 
+    // v0.5: a TikTok — TikTok's own share panel first, then More hands it to the iOS sheet.
+    async function tiktok(t) {
+      reset(); show('tiktok');
+      await S.wait(1500, t);
+      await tap(shareOf(tt), t);
+      ttSheet.classList.add('is-on');
+      await S.wait(950, t);
+      await tap(ttMore, t, 520);
+      ttSheet.classList.remove('is-on');
+      await S.wait(280, t);
+      openSheet({ bg: TT_THUMB, title: 'Tomato & mozzarella penne', sub: 'tiktok.com' });
+      await S.wait(900, t);
+      await tap(stashApp, t, 540);
+      sheet.classList.remove('is-on'); lift();
+      await saveFlow(t, { bg: TT_THUMB, busyTitle: 'TikTok video', busySub: 'watching the video', doneTitle: 'Tomato & mozzarella penne', doneSub: 'saved with the transcript, 0:58' });
+    }
+
     async function library(t) {
       reset(); show('library');
       lcards.forEach((c, i) => {
         c.classList.remove('fresh'); c.getBoundingClientRect();
         c.style.animationDelay = `${i * 90}ms`; c.classList.add('fresh');
         const lt = c.querySelector('.lt');
-        if (c.dataset.l.startsWith('s')) lt.innerHTML = '<span class="px">| reading…</span>';
+        if (c.dataset.l.startsWith('s') || c.dataset.l === 'tiktok') lt.innerHTML = '<span class="px">| reading…</span>';
       });
-      const shotsCards = lcards.filter((c) => c.dataset.l.startsWith('s'));
+      const shotsCards = lcards.filter((c) => c.dataset.l === 'tiktok' || c.dataset.l.startsWith('s'));
       for (let i = 0; i < shotsCards.length; i++) {
         await S.wait(i ? 420 : 900, t);
         const lt = shotsCards[i].querySelector('.lt');
@@ -192,13 +212,13 @@
       await S.wait(2200, t);
     }
 
-    const SCENES = { shots, book, article, library };
+    const SCENES = { shots, book, article, tiktok, library };
     const ORDER = order;
-    const DUR = { shots: 10.2, book: 10.6, article: 11.6 };
+    const DUR = { shots: 10.2, book: 10.6, article: 8.2, tiktok: 13.8 };
 
     function markStep(name) {
-      const stepName = name === 'library' ? 'article' : name;
-      if (name === 'library') return; // the article step's bar already spans the library
+      const stepName = name === 'library' ? 'tiktok' : name;
+      if (name === 'library') return; // the TikTok step's bar already spans the library
       steps.forEach((b) => {
         const on = b.dataset.scene === stepName;
         if (on) {
@@ -233,7 +253,7 @@
     function still(name) {
       reset();
       steps.forEach((b) => {
-        if (b.dataset.scene === (name === 'library' ? 'article' : name)) b.setAttribute('aria-current', 'step');
+        if (b.dataset.scene === (name === 'library' ? 'tiktok' : name)) b.setAttribute('aria-current', 'step');
         else b.removeAttribute('aria-current');
       });
       stepList?.classList.add('is-still');
@@ -252,6 +272,11 @@
         show('safari');
         setThumb(saveThumb, { bg: `url(${LAND}cover-article.jpg) center/cover` });
         saveTitle.textContent = 'How to remember more of what you read'; saveSub.textContent = 'saved with the full text, 2 min read';
+        mark.textContent = 'saved'; mark.classList.add('is-done'); save.classList.add('is-on');
+      } else if (name === 'tiktok') {
+        show('tiktok');
+        setThumb(saveThumb, { bg: TT_THUMB });
+        saveTitle.textContent = 'Tomato & mozzarella penne'; saveSub.textContent = 'saved with the transcript, 0:58';
         mark.textContent = 'saved'; mark.classList.add('is-done'); save.classList.add('is-on');
       } else {
         show('library');
@@ -293,7 +318,7 @@
 
     if (S.reduced()) { if (toggle) toggle.hidden = true; still(first); return; }
     // Until it scrolls into view, show where the first scene begins (Safari, for the panel's copy).
-    show({ shots: 'photos', book: 'camera', article: 'safari', library: 'library' }[first]);
+    show({ shots: 'photos', book: 'camera', article: 'safari', tiktok: 'tiktok', library: 'library' }[first]);
     S.watch(stage, (seen) => {
       inView = seen;
       syncPause();

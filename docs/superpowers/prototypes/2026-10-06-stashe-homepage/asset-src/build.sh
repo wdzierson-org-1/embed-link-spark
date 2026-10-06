@@ -22,10 +22,14 @@ shot shot-thread 390 844 1
 shot shot-receipt 390 844 1
 shot shot-boarding 390 844 1
 shot shot-messages 390 844 1
+# Video saves (TikTok-style feed, Instagram-style Reel): shown full-screen on the phone mock as
+# well as cropped into cards, so 2×.
+shot shot-tiktok 390 844 2
+shot shot-reel 390 844 2
 
 # Anything with a photo in it, and the Photos-grid screenshots, ships as JPEG; other flat
 # UI-like renders stay PNG.
-for f in moodboard shot-colette shot-maps shot-thread shot-receipt shot-boarding shot-messages; do
+for f in moodboard shot-colette shot-maps shot-thread shot-receipt shot-boarding shot-messages shot-tiktok shot-reel; do
   sips -s format jpeg -s formatOptions 82 "$OUT/$f.png" --out "$OUT/$f.jpg" >/dev/null
   rm "$OUT/$f.png"
 done

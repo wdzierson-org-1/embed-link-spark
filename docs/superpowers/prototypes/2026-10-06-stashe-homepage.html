@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stash — save it fast, find it when you need it · homepage exploration v0.4</title>
+<title>Stash — save it fast, find it when you need it · homepage exploration v0.5</title>
 <meta name="description" content="Homepage exploration for Stash, after typesafe.ai: clean objects, DIY machinery. v0.4 adds the three ways in (Chrome, iPhone, your AI) as running pictures and a calmer footer.">
 <link rel="icon" href="2026-10-06-stashe-homepage/logo/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="2026-10-06-stashe-homepage/style.css">
@@ -11,7 +11,12 @@
 </head>
 <body data-page="home">
 <!--
-  Stash homepage — exploration v0.4 · 2026-10-06 (v0.1 "Stashe", v0.2 and v0.3 the same day; see git)
+  Stash homepage — exploration v0.5 · 2026-10-06 (v0.1 "Stashe" through v0.4 the same day; see git)
+  v0.5 (Will's round 5): a solid spot-colour scan bar; realistic example images (GitHub's card for
+  the repo, a TikTok screen, an Instagram Reel); the list gains Reels and repos, and "link" is now a
+  product page; every example ends in a "make into" window (beta); "One tap. Saved." with "Share to
+  Stash from any [share] button" and a TikTok scene in the phone film. The system behind all of
+  this is written down in DESIGN-v2.md at the repo root.
   v0.4 (Will's round 4): a "Stash, wherever you are" section under "Take your saves with you", with
   three running pictures (the Chrome extension saving a page and a selection; the iPhone saving from
   Safari, a copy of the phone above; Claude answering from the stash over MCP), each with more >>;
@@ -50,7 +55,7 @@
 <section class="s-enrich" id="how" aria-labelledby="how-h">
   <div class="wrap">
     <p class="kicker"><span class="tag">Stash enriches your items automatically</span></p>
-    <h2 id="how-h" class="t-statement">You save anything — <span class="nw">a <button class="word" data-ex="link" aria-pressed="false">link</button>,</span> <span class="nw">a <button class="word" data-ex="shot" aria-pressed="false">screenshot</button>,</span> <span class="nw">an <button class="word" data-ex="article" aria-pressed="false">article</button>,</span> <span class="nw">a <button class="word" data-ex="paper" aria-pressed="false">paper</button>,</span> <span class="nw">a <button class="word" data-ex="tiktok" aria-pressed="false">TikTok</button>.</span> We gather all of the background.</h2>
+    <h2 id="how-h" class="t-statement">You save anything — <span class="nw">a <button class="word" data-ex="link" aria-pressed="false">link</button>,</span> <span class="nw">a <button class="word" data-ex="shot" aria-pressed="false">screenshot</button>,</span> <span class="nw">an <button class="word" data-ex="article" aria-pressed="false">article</button>,</span> <span class="nw">a <button class="word" data-ex="paper" aria-pressed="false">paper</button>,</span> <span class="nw">a <button class="word" data-ex="tiktok" aria-pressed="false">TikTok</button>,</span> <span class="nw">a <button class="word" data-ex="reel" aria-pressed="false">Reel</button>,</span> <span class="nw">a <button class="word" data-ex="repo" aria-pressed="false">repo</button>.</span> We gather all of the background.</h2>
 
     <div class="enrich-stage crop" data-stage>
       <span class="crop-b" aria-hidden="true"></span>
@@ -90,19 +95,20 @@
 <section class="s-phone" id="phone" aria-labelledby="phone-h">
   <div class="wrap phone-grid">
     <div class="phone-copy">
-      <h2 id="phone-h" class="t-h2">Saving takes one tap.</h2>
-      <p class="lead">Stash lives in your share sheet. Screenshots, photos, articles, videos — tap Share, tap Stash, and keep going. We do the rest in the background.</p>
+      <h2 id="phone-h" class="t-h2">One tap. Saved.</h2>
+      <p class="lead">Share to Stash from any <svg class="share-glyph" viewBox="0 0 24 24" role="img" aria-label="Share"><path d="M12 3v12M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> button. Screenshots, photos, articles, TikToks — tap Share, tap Stash, and keep going. We do the rest in the background.</p>
       <ol class="steps">
         <li><button data-scene="shots"><b>A week of screenshots, in one go</b><span>Select them in Photos and share once. Stash reads the text in every one.</span><i class="bar" aria-hidden="true"></i></button></li>
         <li><button data-scene="book"><b>A photo of a book</b><span>Snap the cover. Stash works out the title and the author.</span><i class="bar" aria-hidden="true"></i></button></li>
         <li><button data-scene="article"><b>An article from Medium</b><span>Share from Safari. The full text comes along, for whenever you get to it.</span><i class="bar" aria-hidden="true"></i></button></li>
+        <li><button data-scene="tiktok"><b>A TikTok or a Reel</b><span>Tap Share, then More, then Stash. What’s said and shown comes along, not just the link.</span><i class="bar" aria-hidden="true"></i></button></li>
       </ol>
       <div class="phone-ctrl"><button class="chip-btn" data-phone-toggle aria-pressed="false">pause</button></div>
     </div>
 
     <div class="phone-stage">
       <div class="phone-pad" aria-hidden="true"></div>
-      <div class="device-wrap" role="img" aria-label="An iPhone saving screenshots, a photo of a book and a Medium article to Stash from the share sheet">
+      <div class="device-wrap" role="img" aria-label="An iPhone saving screenshots, a photo of a book, a Medium article and a TikTok to Stash from the share sheet">
         <div class="device" aria-hidden="true">
           <div class="screen">
             <div class="island"></div>
@@ -171,17 +177,34 @@
               <div class="home-ind"></div>
             </div>
 
+            <!-- TikTok: a recipe video, shared through TikTok's own panel, then More, then the iOS sheet (v0.5) -->
+            <div class="scr tt" data-scr="tiktok">
+              <img class="tt-frame" src="2026-10-06-stashe-homepage/img/shot-tiktok.jpg" alt="">
+              <span class="tt-share" data-share aria-hidden="true"></span>
+              <div class="tt-sheet" data-tt-sheet>
+                <div class="tt-head"><span>Send to</span><span class="tt-x">×</span></div>
+                <div class="tt-people"><span><i style="background:#f2b84b">M</i>Maya</span><span><i style="background:#8f6fe0">J</i>Jules</span><span><i style="background:#4fb3e8">S</i>Sam</span><span><i style="background:#e8665a">R</i>Rae</span><span><i style="background:#5cbf87">D</i>Dev</span></div>
+                <div class="tt-apps">
+                  <span class="tt-app"><i class="tt-ic tt-link"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></i>Copy link</span>
+                  <span class="tt-app"><i class="tt-ic ic-messages"><svg viewBox="0 0 60 60"><path fill="#fff" d="M30 14c-10.5 0-19 6.9-19 15.4 0 4.6 2.5 8.7 6.4 11.5-.4 2.7-1.8 5.1-3.7 6.9 3.6.1 7.2-1.2 9.8-3.4 2 .6 4.2.9 6.5.9 10.5 0 19-6.9 19-15.4S40.5 14 30 14z"/></svg></i>Messages</span>
+                  <span class="tt-app"><i class="tt-ic ic-mail"><svg viewBox="0 0 60 60" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"><rect x="13" y="19" width="34" height="23" rx="3"/><path d="M14 21l16 12 16-12"/></svg></i>Mail</span>
+                  <span class="tt-app" data-tt-more><i class="tt-ic tt-more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></i>More</span>
+                </div>
+                <div class="tt-acts"><span>Save video</span><span>Duet</span><span>Stitch</span><span>Add to Favorites</span></div>
+              </div>
+            </div>
+
             <!-- Stash: the library, with new saves arriving -->
             <div class="scr lib" data-scr="library">
               <div class="lib-top"><svg class="wordmark" aria-hidden="true"><use href="#st4sh-wordmark"/></svg><span class="av"></span></div>
               <div class="lib-ask">Ask anything you’ve saved</div>
               <div class="lib-chips"><span>All</span><span>Links</span><span>Images</span><span>Notes</span><span>Voice</span></div>
               <div class="lib-grid">
+                <div class="lcard" data-l="tiktok"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-tiktok.jpg);background-position:center 30%"><span class="tag">tiktok</span></div><div class="lb"><div class="lt">Tomato &amp; mozzarella penne</div><div class="ls px">tiktok, 0:58</div></div></div>
                 <div class="lcard" data-l="article"><div class="lm" style="background-image:url(../../../src/assets/landing/cover-article.jpg)"><span class="tag">article</span></div><div class="lb"><div class="lt">How to remember more of what you read</div><div class="ls px">medium.com, 2 min</div></div></div>
                 <div class="lcard" data-l="book"><div class="lm" style="background:url(2026-10-06-stashe-homepage/img/table-latte.jpg) 30% 60% / cover"><span class="mini-book"></span><span class="tag">photo</span></div><div class="lb"><div class="lt">Walden, Henry David Thoreau</div><div class="ls px">book cover</div></div></div>
                 <div class="lcard" data-l="s1"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-maps.jpg)"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Directions to Chez Colette</div><div class="ls px">maps</div></div></div>
                 <div class="lcard" data-l="s2"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-thread.jpg)"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Thread: keeping a sourdough starter alive</div><div class="ls px">social post</div></div></div>
-                <div class="lcard" data-l="s3"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-receipt.jpg);background-position:center 41%"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Receipt, Blue Bottle, $6.50</div><div class="ls px">receipt</div></div></div>
                 <div class="lcard" data-l="s4"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-boarding.jpg);background-position:center 24%"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Boarding pass, BOS to SFO, Fri</div><div class="ls px">travel</div></div></div>
               </div>
               <div class="home-ind"></div>

@@ -1,0 +1,126 @@
+<!doctype html>
+<!-- Source for img/shot-reel.jpg — an iPhone screenshot of an Instagram-style Reel (dark UI): a
+     Lisbon travel video by ana.wanders. The account, counts and caption are illustrative; avatars
+     are drawn (no faces) and there is no app logo, only generic UI glyphs drawn in SVG. Classic
+     Reels layout (Reels title + camera, Home / Search / Reels / Activity / Profile tab bar), with
+     positions measured off a real 390×844 Reels screen recording. The video frame is
+     img/hotel-rooftops.jpg, full-bleed under the status bar (cover-fit, then pushed in; see .vid).
+     The send icon's wrapper carries data-share (centre 361, 629 in this 390×844 page). -->
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}
+html,body{margin:0;width:390px;height:844px;overflow:hidden;background:#000;position:relative;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased;color:#fff}
+svg{display:block}
+
+/* the video, full-bleed down to the tab bar. The photo is cover-fit and then pushed in (×1.43, as
+   a phone video would frame it) so the roof terrace sits in the lower third; a light grade and a
+   touch of softness make it read as a video frame and keep the JPEG under budget. */
+.vid{position:absolute;left:0;top:0;width:390px;height:764px;overflow:hidden;background:#6b5a4a}
+.vid img{position:absolute;left:-608px;top:0;width:1440px;height:1092.8px;max-width:none;
+  filter:contrast(.9) brightness(.96) blur(.45px)}
+.vid::before,.vid::after{content:"";position:absolute;left:0;right:0}
+.vid::before{top:0;height:170px;background:linear-gradient(rgba(0,0,0,.4),rgba(0,0,0,.12) 55%,rgba(0,0,0,0))}
+.vid::after{bottom:0;height:340px;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.16) 38%,rgba(0,0,0,.58))}
+
+.ov{text-shadow:0 1px 2px rgba(0,0,0,.3)}
+.gl{filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.25))}
+
+/* status bar, over the video */
+.sb{position:absolute;left:0;top:0;width:390px;height:54px}
+.sb-t{position:absolute;left:0;top:14px;width:132px;text-align:center;font-weight:600;font-size:17px;line-height:20px;letter-spacing:-.4px}
+.sb-r{position:absolute;right:28px;top:18px;display:flex;gap:6px;align-items:center}
+
+/* header */
+.ttl{position:absolute;left:16px;top:55px;font-size:23px;line-height:28px;font-weight:700;letter-spacing:-.3px}
+.cam{position:absolute;left:349px;top:58px}
+
+/* the creator's on-video text */
+.big{position:absolute;left:0;right:0;top:332px;text-align:center;font-size:37px;line-height:42px;font-weight:800;letter-spacing:-.9px;
+  text-shadow:0 1px 2px rgba(0,0,0,.35),0 2px 14px rgba(0,0,0,.3)}
+.sub{position:absolute;left:0;right:0;top:379px;text-align:center;font-size:17px;line-height:22px;font-weight:600;letter-spacing:-.2px;
+  text-shadow:0 1px 2px rgba(0,0,0,.4),0 1px 10px rgba(0,0,0,.3)}
+
+/* right rail */
+.ic{position:absolute;left:343px;width:36px;height:36px;display:grid;place-items:center}
+.n{position:absolute;left:321px;width:80px;text-align:center;font-size:12px;line-height:14px;font-weight:600;letter-spacing:-.1px}
+.aud{position:absolute;left:348px;top:722px;width:26px;height:26px;border-radius:6px;overflow:hidden;box-shadow:0 0 0 2px #fff,0 1px 3px rgba(0,0,0,.3)}
+.aud svg{width:26px;height:26px}
+
+/* bottom-left: who + Follow, caption, audio */
+.av{position:absolute;left:14px;top:661px;width:30px;height:30px;border-radius:50%;overflow:hidden}
+.av svg{width:30px;height:30px}
+.who{position:absolute;left:53px;top:663px;height:26px;display:flex;align-items:center;gap:10px;font-size:14px;line-height:20px;font-weight:600;letter-spacing:-.1px}
+.fol{height:26px;padding:0 10px;border:1px solid rgba(255,255,255,.9);border-radius:8px;font-size:13px;line-height:24px;font-weight:600;text-shadow:none;background:rgba(0,0,0,.04)}
+.cap{position:absolute;left:14px;top:694px;width:296px;font-size:14px;line-height:18px;letter-spacing:-.1px}
+.cap i{font-style:normal;color:rgba(255,255,255,.72);font-weight:500}
+.au{position:absolute;left:14px;top:734px;display:flex;align-items:center;gap:6px;font-size:13px;line-height:17px;letter-spacing:-.05px}
+
+/* tab bar */
+.nav{position:absolute;left:0;top:764px;width:390px;height:80px;background:#000}
+.nav .ni{position:absolute;top:10.5px;width:28px;height:28px;display:grid;place-items:center}
+.me{width:26px;height:26px;border-radius:50%;overflow:hidden}
+.hi{position:absolute;left:128px;top:831px;width:134px;height:5px;border-radius:3px;background:#fff}
+</style></head><body>
+
+<svg width="0" height="0" style="position:absolute">
+  <!-- ana.wanders's avatar: a drawn sunset over the water, no face -->
+  <symbol id="aw" viewBox="0 0 30 30">
+    <rect width="30" height="30" fill="url(#awsky)"/>
+    <circle cx="15" cy="17.4" r="6" fill="#FFE2A0"/>
+    <path d="M0 18.6c3.6-1.8 6.6-2.4 9.6-1.4 2.2.8 3.6 1.6 5.4 1.6s3.4-.8 5.6-1.6c3.2-1.1 6.2-.4 9.4 1.4V30H0z" fill="#E0703F"/>
+    <rect y="20.2" width="30" height="9.8" fill="#2F5C87"/>
+    <path d="M7.6 23h14.8M10.6 26h8.8" stroke="#FFD58A" stroke-opacity=".75" stroke-width="1.1" stroke-linecap="round"/>
+    <defs><linearGradient id="awsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F59A6B"/><stop offset=".62" stop-color="#F7C27A"/></linearGradient></defs>
+  </symbol>
+  <!-- the viewer's own avatar for the Profile tab: drawn, no face -->
+  <symbol id="me" viewBox="0 0 26 26"><rect width="26" height="26" fill="#C9D6E8"/><circle cx="13" cy="28" r="11" fill="#4F6E96"/><circle cx="13" cy="11.4" r="5.2" fill="#EBC9A6"/><path d="M7.6 10.6c0-3.9 2.5-6 5.4-6s5.4 2.1 5.4 6c-.9-1.9-3-2.8-5.4-2.8s-4.5.9-5.4 2.8z" fill="#3A2C25"/></symbol>
+</svg>
+
+<div class="vid"><img src="../img/hotel-rooftops.jpg" alt=""></div>
+
+<div class="sb">
+  <span class="sb-t">10:05</span>
+  <span class="sb-r">
+    <svg width="18" height="12" viewBox="0 0 18 12" fill="#fff"><rect x="0" y="7.6" width="3.2" height="4.4" rx="1"/><rect x="4.9" y="5.2" width="3.2" height="6.8" rx="1"/><rect x="9.8" y="2.6" width="3.2" height="9.4" rx="1"/><rect x="14.7" y="0" width="3.2" height="12" rx="1"/></svg>
+    <svg width="16" height="12" viewBox="0 0 16 12"><path d="M.93 4.13A10 10 0 0 1 15.07 4.13M3.47 6.67A6.4 6.4 0 0 1 12.53 6.67" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M8 11.4 5.7 9A3.3 3.3 0 0 1 10.3 9Z" fill="#fff"/></svg>
+    <svg width="28" height="13" viewBox="0 0 28 13"><rect x=".5" y=".5" width="24" height="12" rx="3.8" fill="none" stroke="#fff" stroke-opacity=".38"/><rect x="2" y="2" width="12" height="9" rx="2.3" fill="#fff"/><path d="M26 4.3v4.4c.9-.35 1.5-1.2 1.5-2.2S26.9 4.65 26 4.3Z" fill="#fff" fill-opacity=".4"/></svg>
+  </span>
+</div>
+
+<div class="ttl ov">Reels</div>
+<svg class="cam gl" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linejoin="round"><path d="M3.4 6.6h3.2l1.5-2.4c.3-.5.8-.8 1.4-.8h5c.6 0 1.1.3 1.4.8l1.5 2.4h3.2c1 0 1.9.9 1.9 1.9v10.2c0 1-.9 1.9-1.9 1.9H3.4c-1 0-1.9-.9-1.9-1.9V8.5c0-1 .9-1.9 1.9-1.9Z"/><circle cx="12" cy="13.2" r="3.9"/></svg>
+
+<div class="big">3 days in Lisbon</div>
+<div class="sub">where to stay, eat + watch the sunset</div>
+
+<!-- right rail -->
+<span class="ic gl" style="top:478px"><svg width="27" height="25" viewBox="0 0 27 25" fill="none" stroke="#fff" stroke-width="2.1" stroke-linejoin="round"><path d="M13.5 22.6c-.3 0-.5-.1-.7-.2C7.3 18.6 1.6 14.2 1.6 8.5c0-3.6 2.7-6.4 6.1-6.4 2.4 0 4.5 1.3 5.8 3.4 1.3-2.1 3.4-3.4 5.8-3.4 3.4 0 6.1 2.8 6.1 6.4 0 5.7-5.7 10.1-11.2 13.9-.2.1-.4.2-.7.2Z"/></svg></span>
+<span class="n ov" style="top:516px">41.2K</span>
+
+<span class="ic gl" style="top:544px"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#fff" stroke-width="2.1" stroke-linejoin="round"><path d="M22.1 18A10.4 10.4 0 1 0 18 22.1l4.9 1.3Z"/></svg></span>
+<span class="n ov" style="top:581px">312</span>
+
+<span class="ic gl" data-share style="top:611px"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#fff" stroke-width="2.1" stroke-linejoin="round"><path d="M23.6 2.4 2.4 9.6l8.6 4.1 4 8.9Z"/><path d="M23.6 2.4 11 13.7"/></svg></span>
+<span class="n ov" style="top:649px">2,048</span>
+
+<span class="ic gl" style="top:674px"><svg width="22" height="6" viewBox="0 0 22 6" fill="#fff"><circle cx="3.6" cy="3" r="2.1"/><circle cx="11" cy="3" r="2.1"/><circle cx="18.4" cy="3" r="2.1"/></svg></span>
+
+<span class="aud"><svg viewBox="0 0 30 30" preserveAspectRatio="xMidYMid slice"><use href="#aw"/></svg></span>
+
+<!-- bottom-left -->
+<span class="av"><svg viewBox="0 0 30 30"><use href="#aw"/></svg></span>
+<div class="who ov">ana.wanders<span class="fol">Follow</span></div>
+<div class="cap ov">Miradouro da Graça at golden hour, then dinner in Alfama 🇵🇹 <i>…more</i></div>
+<div class="au ov"><svg class="gl" width="11" height="13" viewBox="0 0 12 14" fill="#fff"><path d="M4.3 2.7 11.6.7v2.3L4.3 5z"/><rect x="4.3" y="2.7" width="1.3" height="8.6"/><rect x="10.3" y=".7" width="1.3" height="8.6"/><ellipse cx="3.2" cy="11.3" rx="2.5" ry="1.9" transform="rotate(-18 3.2 11.3)"/><ellipse cx="9.2" cy="9.3" rx="2.5" ry="1.9" transform="rotate(-18 9.2 9.3)"/></svg><span>ana.wanders · Original audio</span></div>
+
+<!-- tab bar: Home, Search, Reels (current), Activity, Profile -->
+<nav class="nav">
+  <span class="ni" style="left:25px"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><path d="M3.6 10.4 13 2.8l9.4 7.6v11.2a1.8 1.8 0 0 1-1.8 1.8h-4.8v-6.8h-5.6v6.8H5.4a1.8 1.8 0 0 1-1.8-1.8Z"/></svg></span>
+  <span class="ni" style="left:103px"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><circle cx="11.4" cy="11.4" r="8"/><path d="m17.3 17.3 5.7 5.7"/></svg></span>
+  <span class="ni" style="left:181px"><svg width="26" height="26" viewBox="0 0 26 26"><rect x="2" y="2" width="22" height="22" rx="6.4" fill="#fff"/><path d="M2.4 8.6h21.2M9 2.4l3 6.2M15.8 2.4l3 6.2" stroke="#000" stroke-width="1.7"/><path d="M10.6 12v8.2l6.8-4.1Z" fill="#000"/></svg></span>
+  <span class="ni" style="left:259px"><svg width="26" height="26" viewBox="0 0 27 25" fill="none" stroke="#fff" stroke-width="2.1" stroke-linejoin="round"><path d="M13.5 22.6c-.3 0-.5-.1-.7-.2C7.3 18.6 1.6 14.2 1.6 8.5c0-3.6 2.7-6.4 6.1-6.4 2.4 0 4.5 1.3 5.8 3.4 1.3-2.1 3.4-3.4 5.8-3.4 3.4 0 6.1 2.8 6.1 6.4 0 5.7-5.7 10.1-11.2 13.9-.2.1-.4.2-.7.2Z"/></svg></span>
+  <span class="ni" style="left:337px"><span class="me"><svg width="26" height="26" viewBox="0 0 26 26"><use href="#me"/></svg></span></span>
+</nav>
+<div class="hi"></div>
+</body></html>
