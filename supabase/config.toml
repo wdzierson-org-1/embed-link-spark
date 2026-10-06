@@ -99,3 +99,8 @@ verify_jwt = false
 # Shared cron secret is verified inside the bounded enrichment worker.
 [functions.enrichment-maintenance]
 verify_jwt = false
+
+# Public homepage "try it" demo: anonymous by design. Admission (per-IP and global caps)
+# is enforced in-function via homepage_enrich_admit; nothing is stored.
+[functions.homepage-enrich]
+verify_jwt = false
