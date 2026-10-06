@@ -21,6 +21,12 @@ stays reachable in git history.
 - Prototypes are explorations, not specs. A chosen direction becomes a `DESIGN.md` and
   `docs/ui-changes.md` change before any code moves.
 
+## 2026-10-06
+
+| Prototype | Version | Status | What it shows | Related |
+|---|---|---|---|---|
+| [stashe-homepage](2026-10-06-stashe-homepage.html) | v0.1 | exploring | Homepage for the **Stashe** rename (`stashe.it`), starting from typesafe.ai: "clean objects, DIY machinery" — the person's things stay clean (Neue Montreal, white cards), Stashe's work speaks in a machine voice (Departure Mono tags, square windows, ASCII, dither, dotted-leader receipts). Hero "Save first. Ask later." is a liquid-ASCII tank (FLIP sim) that saved things are tossed into — stir, click, or paste a link anywhere. Then: the "You save anything…" statement whose words drive a paste → card → enrichment-windows explainer; a library screenshot as the web-app direction; MCP windows on a dither panel + **Works with** (Claude, ChatGPT, Hermes, Cursor, Zed, Claude Code, Codex, Gemini CLI, VS Code, Windsurf, Goose, Raycast); pixel-reveal "take your saves with you"; a CSS iPhone share-sheet film (screenshots, a book cover, a Medium article); halftone-knockout close "Stashe is smarter saving." Lime/violet spot toggle. React Bits Pro effects (Liquid Ascii, Pixelate Hover, Halftone Wave, Device) re-implemented, since the source is licence-gated. Deep links `#spot=violet`, `#ex=link\|shot\|article\|paper\|tiktok`, `#scene=shots\|book\|article\|library`, `#still`. Renders: `…-lime`, `…-violet`, `…-mobile.png`. Rationale, sources and open questions: `2026-10-06-stashe-homepage/NOTES.md`. | Lineage: the fieldnotes studies (`public/prototypes/stash-fieldnotes/` v2–v6, lime "Signal" `#a3f53b`). No DESIGN.md change until a direction is picked. |
+
 ## 2026-09-15
 
 | Prototype | Version | Status | What it shows | Related |

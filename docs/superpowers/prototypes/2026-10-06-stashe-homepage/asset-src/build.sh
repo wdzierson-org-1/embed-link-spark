@@ -1,0 +1,25 @@
+#!/bin/sh
+# Renders the composed sample objects in this folder to ../img with headless Chrome.
+# Usage: sh asset-src/build.sh   (from the prototype folder or anywhere)
+set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
+OUT="$HERE/../img"
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+shot() { # name width height scale
+  "$CHROME" --headless=new --disable-gpu --hide-scrollbars --allow-file-access-from-files \
+    --virtual-time-budget=4000 --force-device-scale-factor="$4" --window-size="$2,$3" \
+    --screenshot="$OUT/$1.png" "file://$HERE/$1.html" 2>/dev/null
+}
+
+shot moodboard 1200 900 1
+shot shot-colette 390 844 2
+shot paper 612 792 1.5
+shot repo 900 620 1
+
+# Anything with a photo in it ships as JPEG; flat UI-like renders stay PNG.
+for f in moodboard shot-colette; do
+  sips -s format jpeg -s formatOptions 82 "$OUT/$f.png" --out "$OUT/$f.jpg" >/dev/null
+  rm "$OUT/$f.png"
+done
+ls -la "$OUT"
