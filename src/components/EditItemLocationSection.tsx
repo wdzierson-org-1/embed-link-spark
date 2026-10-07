@@ -84,7 +84,7 @@ const EditItemLocationSection = ({ itemId, attributes, onSaveAttributes }: EditI
           }
         }}
         placeholder="e.g. Brooklyn, New York"
-        className="h-7 w-52 max-w-full rounded-lg border-black/10 bg-white px-2 text-[13px] md:text-[13px] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0"
+        className="h-7 w-52 max-w-full rounded-none border-ink bg-white px-2 text-[14px] md:text-[14px] focus-visible:ring-[3px] focus-visible:ring-spot focus-visible:ring-offset-0"
       />
     );
   }
@@ -93,7 +93,7 @@ const EditItemLocationSection = ({ itemId, attributes, onSaveAttributes }: EditI
     return (
       <button
         onClick={startEditing}
-        className="inline-flex items-center gap-1 text-[12.5px] font-normal text-[#6d5bd0] transition-opacity hover:opacity-75"
+        className="inline-flex items-center gap-1 text-[14px] text-ink underline-offset-[3px] hover:underline"
       >
         <Plus className="h-3 w-3" />
         Add a location
@@ -106,7 +106,7 @@ const EditItemLocationSection = ({ itemId, attributes, onSaveAttributes }: EditI
       <button
         onClick={startEditing}
         title="Edit location"
-        className="truncate font-medium text-[#22262f] transition-colors hover:text-[#6d5bd0]"
+        className="truncate text-ink underline-offset-[3px] hover:underline"
       >
         {location.label}
       </button>
@@ -114,7 +114,7 @@ const EditItemLocationSection = ({ itemId, attributes, onSaveAttributes }: EditI
         onClick={() => void commit('')}
         title="Remove location"
         aria-label="Remove location"
-        className="grid h-5 w-5 flex-none place-items-center rounded-md text-[#959ba6] opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover/location:opacity-100"
+        className="grid h-6 w-6 flex-none place-items-center text-muted-foreground opacity-0 transition-all hover:bg-error hover:text-white focus-visible:opacity-100 group-hover/location:opacity-100"
       >
         <X className="h-3 w-3" />
       </button>

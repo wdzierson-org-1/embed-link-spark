@@ -69,6 +69,7 @@ vi.mock("@/components/capture/CaptureEditor", async () => {
 
   interface CaptureEditorStubProps {
     onDocChange: (payload: { plainText: string; isEmpty: boolean }) => void;
+    onFocusChange?: (focused: boolean) => void;
   }
 
   const CaptureEditorStub = React.forwardRef<CaptureEditorHandle, CaptureEditorStubProps>((props, ref) => {
@@ -106,7 +107,9 @@ vi.mock("@/components/capture/CaptureEditor", async () => {
 
     return React.createElement("textarea", {
       value,
-      onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      onFocus: () => props.onFocusChange?.(true),
+      onBlur: () => props.onFocusChange?.(false),
+      onChange:(e: React.ChangeEvent<HTMLTextAreaElement>) => {
         setValue(e.target.value);
         setDocOverride(null);
         props.onDocChange({
@@ -141,6 +144,15 @@ describe("UnifiedInputPanel", () => {
 
   afterEach(() => {
     fetchSpy.mockRestore();
+  });
+
+  it("shows the slash hint only while the composer is focused", () => {
+    renderPanel();
+    expect(screen.queryByText("type / for commands")).not.toBeInTheDocument();
+    fireEvent.focus(screen.getByRole("textbox"));
+    expect(screen.getByText("type / for commands")).toBeInTheDocument();
+    fireEvent.blur(screen.getByRole("textbox"));
+    expect(screen.queryByText("type / for commands")).not.toBeInTheDocument();
   });
 
   it("stores the note as content (annotation), keeps og description, and stamps flavor", async () => {
@@ -232,7 +244,7 @@ describe("UnifiedInputPanel", () => {
 
     fireEvent.change(input, { target: { value: "https://example.com" } });
 
-    expect(await screen.findByText("Fetching more details...")).toBeInTheDocument();
+    expect(await screen.findByText("fetching more details…")).toBeInTheDocument();
 
     resolveFast?.({
       data: {
@@ -246,7 +258,7 @@ describe("UnifiedInputPanel", () => {
     expect(await screen.findByText("Fast title")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.queryByText("Fetching more details...")).not.toBeInTheDocument();
+      expect(screen.queryByText("fetching more details…")).not.toBeInTheDocument();
     });
 
     const deepCalls = invokeMock.mock.calls.filter(
@@ -373,7 +385,7 @@ describe("UnifiedInputPanel", () => {
 
     expect(await screen.findByText("YouTube Video")).toBeInTheDocument();
     expect(await screen.findByText("Video link from YouTube")).toBeInTheDocument();
-    expect(await screen.findByText("Fetching more details...")).toBeInTheDocument();
+    expect(await screen.findByText("fetching more details…")).toBeInTheDocument();
   });
 
   it("upgrades YouTube chip text using oEmbed when available", async () => {
@@ -407,11 +419,11 @@ describe("UnifiedInputPanel", () => {
     expect(await screen.findByText(/by CBS News on YouTube/)).toBeInTheDocument();
   });
 
-  it("uses a 6px corner radius for the input panel shell", () => {
+  it("uses the near-square object radius for the input panel shell (DESIGN-v2)", () => {
     renderPanel();
 
     const panelShell = screen.getByTestId("input-panel-shell");
-    expect(panelShell.className).toContain("rounded-[6px]");
+    expect(panelShell.className).toContain("rounded-object");
   });
 
   it("has no minimize control on the capture panel", () => {

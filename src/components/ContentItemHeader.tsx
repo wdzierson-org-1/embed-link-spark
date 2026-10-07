@@ -1,20 +1,17 @@
 
 import React, { useState } from 'react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Badge } from '@/components/ui/badge';
 import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
 import { libraryTitleClass } from '@/utils/libraryPresentation';
-import { domainOfUrl } from '@/utils/linkFlavor';
 import { decodeHtmlEntities } from '@/utils/textHygiene';
 import { useNow } from '@/hooks/useNow';
 import { reminderState } from '@/utils/reminders';
 import {
   AspectAwareImage,
   DocumentHero,
-  FaviconPlate,
   FilePlate,
   LinkCover,
+  LinkPlaceholder,
   PlayerHero,
   RepoPlate,
   VideoPosterHero,
@@ -24,6 +21,9 @@ import {
   formatFileSizeChip,
   mimeExtensionLabel,
 } from '@/components/cards/CardBits';
+import { kindGlyph, kindLabel } from '@/components/cards/ItemTypeChip';
+import { Tag } from '@/components/machine/Machine';
+import { useDecrypt } from '@/components/machine/useDecrypt';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -52,6 +52,10 @@ interface ContentItemHeaderProps {
   isPublicView?: boolean;
   /** Enrichment pieces that just landed — animate them in */
   reveals?: { title?: boolean; preview?: boolean };
+  /** Stash is reading this save right now: its picture stays unresolved until it's done */
+  reading?: boolean;
+  /** The machine's status line for this card ("| gathering more info…"), under the title */
+  status?: React.ReactNode;
 }
 
 const ContentItemHeader = ({
@@ -61,12 +65,17 @@ const ContentItemHeader = ({
   onEditItem,
   onVideoExpand,
   isPublicView = false,
-  reveals
+  reveals,
+  reading = false,
+  status,
 }: ContentItemHeaderProps) => {
   const [linkCoverFailed, setLinkCoverFailed] = useState(false);
   const isProcessing = isDocumentProcessing(item);
   const now = useNow();
   const isDue = !isPublicView && reminderState(item, now) === 'due';
+  const title = item.title ? decodeHtmlEntities(item.title) : '';
+  // A title that lands while the person watches decrypts in; static titles never scramble
+  const decrypted = useDecrypt(title, Boolean(reveals?.title));
 
   const getFileUrl = () => {
     if (item.file_path && !item.file_path.startsWith('http')) {
@@ -85,7 +94,6 @@ const ContentItemHeader = ({
   };
 
   const fileUrl = getFileUrl();
-  const domain = domainOfUrl(item.url);
   const flavor = item.attributes?.link?.flavor ?? 'generic';
   const mediaFileName = item.attributes?.media?.file_name ?? null;
   const fileFactsLine = [mimeExtensionLabel(item.mime_type), formatFileSizeChip(item.file_size)]
@@ -103,6 +111,9 @@ const ContentItemHeader = ({
     return `${SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(item.file_path)}`;
   })();
 
+  // A picture that lands while the person watches resolves in from coarse pixel blocks
+  const arriving = Boolean(reveals?.preview);
+
   /** Object zone per type; null = the card opens with its title */
   const renderHero = (): React.ReactNode => {
     switch (item.type) {
@@ -118,6 +129,7 @@ const ContentItemHeader = ({
             src={fileUrl}
             kind={audioSubtype(item.attributes)}
             durationS={item.attributes?.media?.duration_s}
+            reading={reading}
           />
         );
       }
@@ -134,18 +146,17 @@ const ContentItemHeader = ({
       }
 
       case 'document':
-        return <DocumentHero ext={mimeExtensionLabel(item.mime_type)} />;
+        return <DocumentHero ext={mimeExtensionLabel(item.mime_type)} reading={reading} />;
 
       case 'image': {
-        // Screenshots render full-bleed like any image (the framed-window
-        // treatment was tried and reverted 2026-08-30); the screenshot
-        // identity lives in the tinted type chip instead.
         if (fileUrl && !imageErrors.has(item.id)) {
           return (
             <AspectAwareImage
               src={fileUrl}
               alt={item.title || 'Image'}
               onError={() => onImageError(item.id)}
+              reading={reading}
+              arriving={arriving}
             />
           );
         }
@@ -165,12 +176,13 @@ const ContentItemHeader = ({
               alt={item.title || 'Link preview'}
               tall={tall}
               playOverlay={flavor === 'video'}
-              domainPill={tall ? domain : undefined}
               onFailed={() => setLinkCoverFailed(true)}
+              reading={reading}
+              arriving={arriving}
             />
           );
         }
-        return <FaviconPlate url={item.url} />;
+        return <LinkPlaceholder url={item.url} glyph={kindGlyph(item)} reading={reading} />;
       }
 
       default:
@@ -180,122 +192,73 @@ const ContentItemHeader = ({
 
   const hero = renderHero();
   const isVideoHero = item.type === 'video' && Boolean(fileUrl);
-  const showInlineBadges = !hero && !isPublicView && (isProcessing || item.is_public || isDue);
-  const showKicker = item.type === 'link' && Boolean(domain);
+  // Pictures resolve in from pixel blocks on arrival; drawn heroes print in
+  const heroIsPicture =
+    (item.type === 'image' && Boolean(fileUrl) && !imageErrors.has(item.id)) ||
+    (item.type === 'link' && flavor !== 'repo' && Boolean(linkCoverSource) && !linkCoverFailed && !imageErrors.has(item.id));
+  const kind = kindLabel(item);
+  const stateTags = !isPublicView && (
+    <>
+      {item.is_public && <Tag variant="white">public</Tag>}
+      {isDue && (
+        <Tag data-testid="due-pill">due</Tag>
+      )}
+    </>
+  );
 
   return (
-    <TooltipProvider>
-      <div>
-        {hero ? (
-          <div className={`relative ${reveals?.preview ? 'animate-piece-in' : ''}`}>
-            {isVideoHero ? (
-              hero
-            ) : (
-              <div
-                onClick={!isProcessing ? handleTitleClick : undefined}
-                className={!isProcessing ? 'cursor-pointer' : undefined}
-                title={!isProcessing ? 'Click to edit' : undefined}
-              >
-                {hero}
-              </div>
-            )}
-
-            {/* Badges in top right corner */}
-            {!isPublicView && (
-              <div className="absolute top-2 right-2 z-10 flex gap-2">
-                {isProcessing && (
-                  <Badge variant="secondary" className="animate-pulse">
-                    Processing...
-                  </Badge>
-                )}
-                {item.is_public && (
-                  <div className="bg-primary text-primary-foreground px-2 py-1 rounded text-xs font-medium">
-                    PUBLICLY SHARED
-                  </div>
-                )}
-                {isDue && (
-                  <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-medium text-white shadow-sm" data-testid="due-pill">
-                    Due
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        ) : showInlineBadges ? (
-          <div className="flex gap-2 px-6 pt-4">
-            {isProcessing && (
-              <Badge variant="secondary" className="animate-pulse">
-                Processing...
-              </Badge>
-            )}
-            {item.is_public && (
-              <span className="inline-block rounded bg-primary px-2 py-1 text-xs font-medium text-primary-foreground">
-                PUBLICLY SHARED
-              </span>
-            )}
-            {isDue && (
-              <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-medium text-white shadow-sm" data-testid="due-pill">
-                Due
-              </span>
-            )}
-          </div>
-        ) : null}
-
-        {/* Kicker: the object's source, clickable. One spacing token: hero
-            bottom → body top is 18px for every hero type; 22px without one */}
-        {showKicker && (
-          <div className={`px-6 ${hero ? 'pt-[18px]' : 'pt-[22px]'}`}>
-            <button
-              onClick={() => window.open(item.url, '_blank')}
-              className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-violet-600"
-              title={item.url}
+    <div>
+      {hero ? (
+        <div className={`relative ${arriving && !heroIsPicture ? 'v2-print-in' : ''}`}>
+          {isVideoHero ? (
+            hero
+          ) : (
+            <div
+              onClick={!isProcessing ? handleTitleClick : undefined}
+              className={!isProcessing ? 'cursor-pointer' : undefined}
             >
-              {domain}
-            </button>
-          </div>
-        )}
+              {hero}
+            </div>
+          )}
 
-        {/* Title section with clickable link */}
-        {item.title && (
-          <div className={`mb-3 px-6 ${showKicker ? 'pt-1.5' : hero ? 'pt-[18px]' : 'pt-[22px]'} ${reveals?.title ? 'animate-piece-in' : ''}`}>
-            {!isPublicView ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={handleTitleClick}
-                    disabled={isProcessing}
-                    className={`text-left w-full group/title ${isProcessing ? 'cursor-not-allowed opacity-60' : ''}`}
-                  >
-                    <h3 className={`${libraryTitleClass()} text-xl leading-tight line-clamp-2 ${!isProcessing ? 'group-hover/title:underline transition-all duration-200 cursor-pointer' : ''}`}>
-                      {decodeHtmlEntities(item.title)}
-                    </h3>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="max-w-xs break-words">
-                    {isProcessing ? 'Please wait while content is being extracted' : `Click to edit: ${decodeHtmlEntities(item.title)}`}
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <button
-                onClick={handleTitleClick}
-                className={`text-left w-full group/title ${
-                  item.type === 'link' && item.url ? 'cursor-pointer' : 'cursor-default'
-                }`}
-                disabled={!(item.type === 'link' && item.url)}
-              >
-                <h3 className={`${libraryTitleClass()} text-xl leading-tight line-clamp-2 ${
-                  item.type === 'link' && item.url ? 'group-hover/title:underline transition-all duration-200 text-blue-600' : ''
-                }`}>
-                  {decodeHtmlEntities(item.title)}
-                </h3>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </TooltipProvider>
+          {/* The machine's labels on the object: its kind top-left, its states top-right */}
+          <Tag className="pointer-events-none absolute left-2.5 top-2.5 z-[4]">{kind}</Tag>
+          {stateTags && (item.is_public || isDue) && (
+            <div className="absolute right-2.5 top-2.5 z-[4] flex gap-1">{stateTags}</div>
+          )}
+        </div>
+      ) : (item.is_public || isDue) && !isPublicView ? (
+        <div className="flex gap-1 px-5 pt-4">{stateTags}</div>
+      ) : null}
+
+      {/* Title: the AI's (or the person's) reading of the object, never a filename */}
+      {title ? (
+        <div className={`px-5 ${hero ? 'pt-4' : (item.is_public || isDue) && !isPublicView ? 'pt-3' : 'pt-[18px]'}`}>
+          <button
+            type="button"
+            onClick={handleTitleClick}
+            disabled={isPublicView ? !(item.type === 'link' && item.url) : isProcessing}
+            aria-disabled={!isPublicView && isProcessing}
+            aria-label={decrypted.scrambling ? title : undefined}
+            className={`group/title w-full text-left ${
+              isPublicView && !(item.type === 'link' && item.url) ? 'cursor-default' : isProcessing ? 'cursor-progress' : 'cursor-pointer'
+            }`}
+          >
+            <h3
+              className={`${libraryTitleClass()} line-clamp-2 text-object-title text-ink ${
+                decrypted.scrambling ? 'v2-decrypting' : ''
+              } ${!isProcessing ? 'decoration-1 underline-offset-[3px] group-hover/title:underline' : ''}`}
+            >
+              {decrypted.display}
+            </h3>
+          </button>
+          {status && <div className="mt-1.5">{status}</div>}
+        </div>
+      ) : status ? (
+        // No title yet: the status line stands in for it until enrichment names the save
+        <div className={`px-5 ${hero ? 'pt-4' : 'pt-[18px]'}`}>{status}</div>
+      ) : null}
+    </div>
   );
 };
 

@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
 import { MoreHorizontal, MessageCircle, Eye, EyeOff, MapPin, Flag, Bell, BellOff } from 'lucide-react';
 import { format } from 'date-fns';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
@@ -9,9 +8,10 @@ import CardFeedbackDialog from '@/components/CardFeedbackDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useNow } from '@/hooks/useNow';
 import { saveItem } from '@/utils/itemOperations';
+import { domainOfUrl } from '@/utils/linkFlavor';
 import { ReminderChip } from '@/components/cards/ReminderChip';
+import { formatDurationChip, formatFileSizeChip, mimeExtensionLabel } from '@/components/cards/CardBits';
 import { REMINDER_PRESETS, clearReminderPatch, remindAtForPreset, reminderLabel, reminderState, setReminderPatch, type ReminderPreset } from '@/utils/reminders';
-import { typeChipFor } from '@/components/cards/ItemTypeChip';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -22,6 +22,7 @@ interface ContentItem {
   content?: string;
   url?: string;
   file_path?: string;
+  file_size?: number;
   mime_type?: string;
   created_at: string;
   is_public?: boolean;
@@ -43,6 +44,25 @@ interface ContentItemFooterProps {
   onTogglePrivacy?: (item: ContentItem) => void;
   onCommentClick?: (itemId: string) => void;
 }
+
+/** Where the save came from and the one fact worth knowing at a glance, machine-voiced */
+const sourceAndFact = (item: ContentItem): { source: string; fact: string | null } => {
+  if (item.type === 'link') {
+    const link = item.attributes?.link;
+    const fact =
+      link?.flavor === 'video'
+        ? formatDurationChip(link.duration_s)
+        : typeof link?.read_time_min === 'number' && link.read_time_min > 0
+          ? `${Math.round(link.read_time_min)} min read`
+          : null;
+    return { source: domainOfUrl(item.url) || 'link', fact };
+  }
+  if (item.type === 'text') return { source: 'note', fact: null };
+  if (item.type === 'collection') return { source: 'multi-part', fact: null };
+  const format = [mimeExtensionLabel(item.mime_type), formatFileSizeChip(item.file_size)].filter(Boolean).join(' · ');
+  const duration = item.type === 'audio' || item.type === 'video' ? formatDurationChip(item.attributes?.media?.duration_s) : null;
+  return { source: format.toLowerCase() || item.type, fact: duration };
+};
 
 const ContentItemFooter = ({
   item,
@@ -75,48 +95,69 @@ const ContentItemFooter = ({
   const hasMenu =
     !isPublicView || Boolean(onCommentClick) || Boolean(showOwnerControls && onTogglePrivacy);
 
+  const { source, fact } = sourceAndFact(item);
+  const created = new Date(item.created_at);
+  const dateLabel = format(created, created.getFullYear() === new Date(now).getFullYear() ? 'MMM d' : 'MMM d, yyyy').toLowerCase();
+
   return (
-    <div className="flex items-center justify-between mt-auto">
-      <div className="flex flex-wrap items-center gap-2 min-w-0">
-        <p className="text-xs text-muted-foreground whitespace-nowrap">
-          {format(new Date(item.created_at), 'MMM d, yyyy')}
-        </p>
-        <span className="card-hover-control flex shrink-0 items-center">{typeChipFor(item)}</span>
+    // The meta row (DESIGN-v2 "Object card"): Departure Mono, the source on the left with one
+    // fact; the date, reminder and place after it; the overflow menu on the right
+    <div className="mt-auto flex items-center justify-between gap-3 border-t border-line-soft pt-3 font-pixel text-pixel text-muted-foreground">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+        {item.type === 'link' && item.url ? (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noreferrer"
+            title={item.url}
+            onClick={(event) => event.stopPropagation()}
+            className="min-w-0 max-w-[180px] truncate text-ink underline-offset-2 hover:underline"
+          >
+            {source}
+          </a>
+        ) : (
+          <span className="min-w-0 max-w-[180px] truncate">{source}</span>
+        )}
+        {fact && (
+          <>
+            <span aria-hidden>·</span>
+            <span className="whitespace-nowrap">{fact}</span>
+          </>
+        )}
         {!isPublicView && hasActiveReminder && reminderText && item.remind_at && (
           <ReminderChip state={reminder} label={reminderText} remindAt={item.remind_at} onDismiss={removeReminder} />
         )}
         {item.attributes?.location?.label && (
-          <p
-            className="flex items-center gap-0.5 text-xs text-muted-foreground min-w-0"
+          <span
+            className="flex min-w-0 items-center gap-1"
             title={`posted from ${item.attributes.location.label}`}
           >
-            <MapPin className="h-3 w-3 flex-none" />
-            <span className="truncate max-w-[140px]">{item.attributes.location.label}</span>
-          </p>
+            <MapPin className="h-3 w-3 flex-none" aria-hidden />
+            <span className="max-w-[140px] truncate">{item.attributes.location.label}</span>
+          </span>
         )}
       </div>
-      
-      <div className="flex items-center gap-2">
+
+      <div className="flex flex-none items-center gap-2">
+        <span className="whitespace-nowrap">{dateLabel}</span>
         {/* Comment count with animation */}
         {isPublicView && onCommentClick && (
-          <AnimatedCommentCount 
+          <AnimatedCommentCount
             count={item.comment_count || 0}
             onCommentClick={() => onCommentClick(item.id)}
           />
         )}
-        
-        {/* Menu dropdown */}
+
         {hasMenu && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
+            <button
+              type="button"
               aria-label="Card menu"
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 rounded-full p-0 text-muted-foreground hover:bg-black/5 hover:text-foreground"
+              className="-mr-1 grid h-6 w-6 place-items-center text-muted-foreground transition-colors hover:bg-ink hover:text-white data-[state=open]:bg-ink data-[state=open]:text-white"
             >
               <MoreHorizontal className="h-[15px] w-[15px]" />
-            </Button>
+            </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {isPublicView && onCommentClick && (

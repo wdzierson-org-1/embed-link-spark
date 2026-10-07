@@ -88,7 +88,7 @@ const EditorBubbleMenu = () => {
         placement: 'top',
         moveTransition: 'transform 0.15s ease-out',
       }}
-      className="flex items-center gap-1 p-1 bg-background border rounded-lg shadow-lg"
+      className="flex items-center gap-0.5 border border-ink bg-white p-0.5 shadow-print-sm"
     >
       {/* Text Formatting */}
       {formatButtons.map((button) => (
@@ -96,7 +96,7 @@ const EditorBubbleMenu = () => {
           <Button
             size="sm"
             variant="ghost"
-            className={`h-8 w-8 p-0 ${button.isActive() ? 'bg-accent text-accent-foreground' : ''}`}
+            className={`h-8 w-8 p-0 ${button.isActive() ? 'bg-ink text-white hover:bg-ink hover:text-white' : ''}`}
           >
             <button.icon className="h-4 w-4" />
           </Button>
@@ -111,7 +111,7 @@ const EditorBubbleMenu = () => {
           <Button
             size="sm"
             variant="ghost"
-            className={`h-8 px-2 text-xs font-semibold ${button.isActive() ? 'bg-accent text-accent-foreground' : ''}`}
+            className={`h-8 px-2 text-xs font-semibold ${button.isActive() ? 'bg-ink text-white hover:bg-ink hover:text-white' : ''}`}
           >
             {button.label}
           </Button>
@@ -125,7 +125,7 @@ const EditorBubbleMenu = () => {
         <Button
           size="sm"
           variant="ghost"
-          className={`h-8 w-8 p-0 ${editor.isActive('link') ? 'bg-accent text-accent-foreground' : ''}`}
+          className={`h-8 w-8 p-0 ${editor.isActive('link') ? 'bg-ink text-white hover:bg-ink hover:text-white' : ''}`}
         >
           <Link className="h-4 w-4" />
         </Button>

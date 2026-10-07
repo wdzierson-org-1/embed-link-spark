@@ -61,7 +61,7 @@ it('saves changed content on blur and acknowledges only a confirmed save', async
   await waitFor(() => expect(single).toHaveBeenCalledOnce());
   expect(screen.queryByRole('status')).not.toBeInTheDocument();
   finishSave({ data: { id: 'one' }, error: null });
-  expect(await screen.findByRole('status')).toHaveTextContent('Saved');
+  expect(await screen.findByRole('status')).toHaveTextContent("saved");
 });
 
 it('allows moving focus to Cancel without blur saving the draft', async () => {

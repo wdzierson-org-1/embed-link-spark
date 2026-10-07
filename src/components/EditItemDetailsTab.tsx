@@ -8,19 +8,8 @@ import {
   Lock,
   Trash2,
   ImageUp,
-  Loader2,
   Copy,
   Check,
-  Mic,
-  AudioLines,
-  ScanLine,
-  Video,
-  Image as ImageIcon,
-  FileText,
-  Link2,
-  PenLine,
-  Layers,
-  type LucideIcon,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -37,7 +26,6 @@ import { uploadFile } from '@/utils/fileUploader';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
-import { domainOfUrl } from '@/utils/linkFlavor';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
 import EditItemContentSection from '@/components/EditItemContentSection';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
@@ -47,7 +35,8 @@ import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNo
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
 import EditItemPlayerStrip from '@/components/edit/EditItemPlayerStrip';
 import { SectionHead } from '@/components/edit/EditPanelSection';
-import { audioSubtype, isScreenshotItem } from '@/components/cards/CardBits';
+import { audioSubtype } from '@/components/cards/CardBits';
+import { CropMarks, Spinner } from '@/components/machine/Machine';
 import CollectionAttachments from '@/components/CollectionAttachments';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
@@ -94,58 +83,6 @@ interface EditItemDetailsTabProps {
   onImageChange?: (filePath: string | null) => Promise<void>;
   onAttributesSave?: (attributes: ItemAttributes) => Promise<void>;
 }
-
-const FILE_BACKED_TYPES = new Set(['audio', 'video', 'image', 'document', 'pdf']);
-const NEUTRAL_CHIP = 'bg-[rgba(20,22,30,0.05)] text-[#646b76]';
-
-/** Tinted type chip per the DESIGN.md spectrum table; neutral for the rest */
-const getTypeChip = (
-  item: ContentItem | null,
-): { Icon: LucideIcon; label: string; className: string } => {
-  switch (item?.type) {
-    case 'audio':
-      return audioSubtype(item.attributes) === 'recording'
-        ? {
-            Icon: AudioLines,
-            label: 'recording',
-            className: 'bg-[rgba(139,74,158,0.12)] text-[#7d3d84]',
-          }
-        : { Icon: Mic, label: 'voice note', className: 'bg-[rgba(84,88,178,0.12)] text-[#45408c]' };
-    case 'video':
-      return { Icon: Video, label: 'video', className: NEUTRAL_CHIP };
-    case 'image':
-      return isScreenshotItem(item)
-        ? {
-            Icon: ScanLine,
-            label: 'screenshot',
-            className: 'bg-[rgba(52,132,201,0.12)] text-[#22689c]',
-          }
-        : { Icon: ImageIcon, label: 'image', className: NEUTRAL_CHIP };
-    case 'document':
-    case 'pdf': {
-      const isPdf = item.type === 'pdf' || Boolean(item.mime_type?.includes('pdf'));
-      return {
-        Icon: FileText,
-        label: isPdf ? 'pdf' : 'document',
-        className: 'bg-[rgba(150,70,190,0.11)] text-[#7d3f9e]',
-      };
-    }
-    case 'link': {
-      const flavor = item.attributes?.link?.flavor;
-      return {
-        Icon: Link2,
-        label: flavor && flavor !== 'generic' ? flavor : 'link',
-        className: NEUTRAL_CHIP,
-      };
-    }
-    case 'text':
-      return { Icon: PenLine, label: 'note', className: NEUTRAL_CHIP };
-    case 'collection':
-      return { Icon: Layers, label: 'multi-part', className: NEUTRAL_CHIP };
-    default:
-      return { Icon: PenLine, label: item?.type || 'item', className: NEUTRAL_CHIP };
-  }
-};
 
 const EditItemDetailsTab = ({
   item,
@@ -338,35 +275,10 @@ const EditItemDetailsTab = ({
     );
   }
 
-  const { Icon: ChipIcon, label: chipLabel, className: chipClassName } = getTypeChip(item);
-
-  const shortDate = (() => {
-    if (!item?.created_at) return '';
-    const date = new Date(item.created_at);
-    if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  })();
-  const sourceHint =
-    item?.type === 'link'
-      ? domainOfUrl(item.url)
-      : shortDate
-        ? `${FILE_BACKED_TYPES.has(item?.type ?? '') ? 'uploaded' : 'saved'} · ${shortDate}`
-        : '';
-
   const contentComponent = (
-    <div className="mt-0 px-6 pb-7 sm:px-10">
-      {/* ── Header zone: type eyebrow → title → description ── */}
+    <div className="mt-0 px-4 pb-8 sm:px-10">
+      {/* ── Header zone: title → description (the kind and source sit in the window bar) ── */}
       <div>
-        <div className="mb-3 flex items-center gap-2.5">
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-[11px] py-1 text-[11px] font-semibold uppercase tracking-[0.09em] ${chipClassName}`}
-          >
-            <ChipIcon className="h-3 w-3" />
-            {chipLabel}
-          </span>
-          {sourceHint && <span className="text-xs text-[#959ba6]">{sourceHint}</span>}
-        </div>
-
         <EditItemTitleSection
           title={title}
           onTitleChange={onTitleChange}
@@ -381,7 +293,7 @@ const EditItemDetailsTab = ({
           onChange={(e) => { onDescriptionChange(e.target.value); resizeDescription(); }}
           onBlur={() => void onDescriptionSave(description)}
           placeholder="Add a description..."
-          className="-mx-2 mt-2 min-h-0 w-[calc(100%+16px)] resize-none overflow-hidden rounded-lg border-0 bg-transparent px-2 py-0.5 text-[14.5px] leading-relaxed text-[#646b76] shadow-none transition-colors hover:bg-[rgba(109,91,208,0.05)] focus-visible:bg-[rgba(109,91,208,0.06)] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0 md:text-[14.5px]"
+          className="-mx-2 mt-2.5 min-h-0 w-[calc(100%+16px)] resize-none overflow-hidden rounded-none border-0 bg-transparent px-2 py-0.5 text-[15px] leading-[1.5] text-muted-foreground shadow-none transition-colors hover:bg-fill focus-visible:bg-white focus-visible:text-ink focus-visible:shadow-[inset_0_0_0_1px_var(--ink),0_0_0_3px_rgb(var(--spot-rgb))] focus-visible:ring-0 focus-visible:ring-offset-0 md:text-[15px] v2:bg-transparent v2:hover:bg-fill v2:focus-visible:bg-white v2:focus-visible:ring-0"
         />
       </div>
 
@@ -402,12 +314,13 @@ const EditItemDetailsTab = ({
 
       {/* Inline image for image items and links with images */}
       {showInlineImage && imageUrl && (
-        <div className="mt-6 flex justify-center">
+        <div className="v2-dots relative mx-2.5 mt-8 flex justify-center px-6 py-8">
+          <CropMarks />
           <div className="group/image relative inline-block">
             <img
               src={imageUrl}
               alt={title || 'Content image'}
-              className="h-auto max-h-96 max-w-full cursor-pointer rounded-[14px] shadow-[0_1px_2px_rgba(20,22,30,0.05),0_8px_24px_rgba(30,33,44,0.08)] transition-opacity hover:opacity-95"
+              className="h-auto max-h-96 max-w-full cursor-pointer rounded-object border border-line bg-white shadow-object transition-opacity hover:opacity-95"
               onClick={handleImageClick}
               style={{ objectFit: 'contain' }}
             />
@@ -417,21 +330,23 @@ const EditItemDetailsTab = ({
                   onClick={() => imageFileInputRef.current?.click()}
                   disabled={isImageBusy}
                   title="Replace image"
-                  className="grid h-9 w-9 place-items-center rounded-xl bg-white/95 text-gray-700 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur transition-all hover:bg-white hover:shadow-lg"
+                  aria-label="Replace image"
+                  className="grid h-9 w-9 place-items-center border border-ink bg-white text-ink transition-colors hover:bg-ink hover:text-white"
                 >
-                  {isImageBusy ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <ImageUp className="h-4 w-4" />}
+                  {isImageBusy ? <Spinner className="font-pixel text-pixel-md leading-none" /> : <ImageUp className="h-4 w-4" />}
                 </button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <button
                       disabled={isImageBusy}
                       title="Remove image"
-                      className="grid h-9 w-9 place-items-center rounded-xl bg-white/95 text-[#c93a3a] shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur transition-all hover:bg-white hover:shadow-lg"
+                      aria-label="Remove image"
+                      className="grid h-9 w-9 place-items-center border border-ink bg-white text-error transition-colors hover:bg-error hover:text-white"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-2xl">
+                  <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>Remove this image?</AlertDialogTitle>
                       <AlertDialogDescription>
@@ -440,7 +355,7 @@ const EditItemDetailsTab = ({
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleRemoveImage} className="bg-red-600 hover:bg-red-700">
+                      <AlertDialogAction onClick={handleRemoveImage} className="bg-error hover:bg-error hover:opacity-90">
                         Remove
                       </AlertDialogAction>
                     </AlertDialogFooter>
@@ -461,7 +376,7 @@ const EditItemDetailsTab = ({
 
       {/* Link row — hairline row with favicon, only for link items */}
       {item?.type === 'link' && item?.url && (
-        <div className="mt-2.5">
+        <div className="mt-3">
           <EditItemLinkSection url={item.url} />
         </div>
       )}
@@ -511,19 +426,17 @@ const EditItemDetailsTab = ({
         <SectionHead label="Sharing" className="mb-3.5" />
         <div className="flex items-center gap-3 py-0.5">
           <div
-            className={`grid h-[34px] w-[34px] flex-none place-items-center rounded-[10px] ${
-              localIsPublic
-                ? 'bg-[rgba(109,91,208,0.12)] text-[#6d5bd0]'
-                : 'bg-[rgba(20,22,30,0.05)] text-[#646b76]'
+            className={`grid h-9 w-9 flex-none place-items-center ${
+              localIsPublic ? 'bg-ink text-white' : 'border border-line bg-fill text-ink'
             }`}
           >
             {localIsPublic ? <Globe className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[13.5px] font-semibold text-[#22262f]">
+            <div className="text-[14px] font-medium text-ink">
               {localIsPublic ? 'On your public feed' : 'Private'}
             </div>
-            <div className="text-xs text-[#959ba6]">
+            <div className="text-[13px] text-muted-foreground">
               {localIsPublic
                 ? 'Anyone with your feed link can see this item'
                 : 'Only you can see this item'}
@@ -532,18 +445,18 @@ const EditItemDetailsTab = ({
           <Switch
             checked={localIsPublic}
             onCheckedChange={handlePublicToggle}
-            className="data-[state=checked]:bg-[#6d5bd0] data-[state=unchecked]:bg-[rgba(20,22,30,0.15)] focus-visible:ring-[#b6a8ef]"
+            aria-label="Share on your public feed"
           />
         </div>
 
         {localIsPublic && feedUrl && (
-          <div className="mt-3 flex flex-wrap items-center gap-2.5 pl-[46px] duration-200 animate-in fade-in-0 slide-in-from-top-1 motion-reduce:animate-none">
-            <span className="inline-flex min-w-0 items-center gap-2 rounded-full border border-black/[0.07] bg-white/85 px-3.5 py-[5px] font-mono text-xs text-[#646b76]">
+          <div className="v2-print-in mt-3 flex flex-wrap items-center gap-2.5 pl-12">
+            <span className="inline-flex min-w-0 items-stretch border border-ink bg-white">
               <a
                 href={feedUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="truncate hover:text-[#6d5bd0]"
+                className="truncate px-2.5 py-1.5 font-pixel text-pixel text-ink hover:underline"
               >
                 {feedUrl.replace('https://', '')}
               </a>
@@ -551,12 +464,12 @@ const EditItemDetailsTab = ({
                 onClick={handleCopyFeedUrl}
                 title={copiedFeedUrl ? 'Copied' : 'Copy link'}
                 aria-label="Copy public feed link"
-                className="grid flex-none place-items-center text-[#6d5bd0] transition-opacity hover:opacity-75"
+                className="grid w-8 flex-none place-items-center border-l border-ink text-ink transition-colors hover:bg-ink hover:text-white"
               >
                 {copiedFeedUrl ? <Check className="h-[13px] w-[13px]" /> : <Copy className="h-[13px] w-[13px]" />}
               </button>
             </span>
-            <span className="text-[11.5px] text-[#959ba6]">
+            <span className="text-[13px] text-muted-foreground">
               Turning this off removes it from your feed.
             </span>
           </div>
@@ -564,7 +477,7 @@ const EditItemDetailsTab = ({
 
         {/* Sticky notes ride along with shared items */}
         {localIsPublic && (
-          <div className="mt-4 pl-[46px]">
+          <div className="mt-4 pl-12">
             <EditItemSupplementalNoteSection
               supplementalNote={supplementalNote}
               onSupplementalNoteChange={onSupplementalNoteChange}
@@ -575,7 +488,7 @@ const EditItemDetailsTab = ({
 
       {/* Un-sharing deletes the item's sticky note — confirm before doing it */}
       <AlertDialog open={showUnshareConfirm} onOpenChange={setShowUnshareConfirm}>
-        <AlertDialogContent className="rounded-2xl">
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Make this item private?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -584,7 +497,7 @@ const EditItemDetailsTab = ({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep sharing</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmUnshare} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction onClick={confirmUnshare} className="bg-error hover:bg-error hover:opacity-90">
               Make private
             </AlertDialogAction>
           </AlertDialogFooter>

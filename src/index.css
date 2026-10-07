@@ -65,6 +65,36 @@
   font-display: swap;
 }
 
+/* Departure Mono (Helena Zhang, SIL OFL 1.1; licence beside the file): the machine voice of
+   DESIGN-v2. It is drawn on an 11 px grid, so set it only at 11, 16.5 or 22 px. `block` so a
+   status line never flashes in a fallback mono of a different width. */
+@font-face {
+  font-family: 'Departure Mono';
+  src: url('./assets/fonts/DepartureMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+/* JetBrains Mono (JetBrains, SIL OFL 1.1; licence beside the files): DESIGN-v2's code voice,
+   for literal strings read character by character (URLs, commands, file names, code in notes)
+   and the cipher of the decrypt animations. `swap`: the loading screen must never be blank. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
 @font-face {
   font-family: 'Tobias';
   src: url('https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/fonts/Tobias-TRIAL-Light.woff2') format('woff2');
@@ -205,6 +235,69 @@
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
+
+  /* ── DESIGN-v2 ("clean objects, DIY machinery"): print logic: paper, black ink, one spot
+     colour. The raw palette is always defined; the app routes opt in with
+     <html data-ui="v2"> (src/components/DesignScope.tsx), which re-points shadcn's semantic
+     variables at it, so marketing and auth pages keep v1 until their own redesign.
+     `--muted` already belongs to shadcn (an HSL triple), so v2's muted text is
+     `--ink-muted` here and `text-muted-foreground` in components. */
+  :root {
+    --paper: #f3f4f1;
+    --paper-rgb: 243 244 241;
+    --white: #ffffff;
+    --ink: #000000;
+    --ink-rgb: 0 0 0;
+    --ink-soft: #262626;
+    --ink-muted: #5c6159;
+    --line: #d5d8d1;
+    --line-soft: #e5e7e2;
+    --fill: #ecede9;
+    --dot: rgba(0, 0, 0, 0.13);
+    --spot: #a3f53b;
+    --spot-rgb: 163 245 59;
+    --on-spot: #000000;
+    --spot-ink: #1f4a38;
+    --spot-on-ink: #a3f53b;
+    --ok: #2e9e52;
+    --error: #a1281c;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* The alternative spot (an open brand decision, DESIGN-v2 §1): ?spot=violet, remembered */
+  [data-spot='violet'] {
+    --spot: #6d5bd0;
+    --spot-rgb: 109 91 208;
+    --on-spot: #ffffff;
+    --spot-ink: #5d49cb;
+    --spot-on-ink: #c9bfff;
+  }
+
+  [data-ui='v2'] {
+    --background: 80 12% 95.1%; /* paper */
+    --foreground: 0 0% 0%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 0%;
+    --primary: 0 0% 0%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 75 10% 92.2%; /* fill */
+    --secondary-foreground: 0 0% 0%;
+    --muted: 75 10% 92.2%; /* fill */
+    --muted-foreground: 97 4.3% 36.5%; /* ink-muted: 5.8:1 on paper, 6.4:1 on white */
+    --accent: 75 10% 92.2%;
+    --accent-foreground: 0 0% 0%;
+    --destructive: 5 70.4% 37.1%; /* error */
+    --destructive-foreground: 0 0% 100%;
+    --border: 86 8.2% 83.3%; /* line */
+    --input: 86 8.2% 83.3%;
+    --ring: 0 0% 0%;
+    /* Objects get near-square 2 px corners; shadcn's md/sm radii (radius - 2/4 px) clamp to 0,
+       so controls, menus and inputs come out square: the machine. */
+    --radius: 2px;
+  }
 }
 
 @layer base {
@@ -218,6 +311,17 @@
     background-size: 400px 400px;
     background-repeat: repeat;
     background-attachment: fixed;
+  }
+
+  /* v2 paper is flat: texture belongs to machine moments, not the page */
+  [data-ui='v2'] body {
+    background-image: none;
+    letter-spacing: -0.005em;
+  }
+
+  [data-ui='v2'] ::selection {
+    background: var(--spot);
+    color: var(--on-spot);
   }
 }
 
@@ -488,8 +592,8 @@
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 0 6px 6px 0;
-  background: rgba(109, 91, 208, 0.12);
+  /* v2: a saved note flashes the spot once, square, then settles */
+  background: rgb(var(--spot-rgb) / 0.35);
   pointer-events: none;
   animation: card-note-save-wash 450ms cubic-bezier(0.25, 1, 0.5, 1) both;
 }
@@ -518,4 +622,165 @@
 @media (prefers-reduced-motion: reduce) {
   .card-note-saved::after { animation: none; opacity: 0; }
   .card-note-saved-indicator, .card-note-saved-check { animation: none; }
+}
+
+/* ── DESIGN-v2 machinery ──────────────────────────────────────────────────────
+   What Stash does for the person speaks in the machine voice: dot-grid stages, the scan bar
+   while it reads, a terminal caret, things printing in. One moment of motion per screen, and
+   every effect has a reduced-motion still (DESIGN-v2 §8). */
+@layer components {
+  /* The 16 px dot grid that stages machinery (empty states, the detail panel's media) */
+  .v2-dots {
+    background-image: radial-gradient(var(--dot) 1px, transparent 1.2px);
+    background-size: 16px 16px;
+    background-position: 8px 8px;
+  }
+
+  /* The fine 6 px dots of a placeholder field (the prototype's .ph) */
+  .v2-dots-fine {
+    background-image: radial-gradient(rgba(0, 0, 0, 0.15) 1px, transparent 1.3px);
+    background-size: 6px 6px;
+    background-position: 3px 3px;
+  }
+
+  /* Facts listed the way a terminal lists a tree: `├─` per row, `└─` on the last */
+  .v2-tree-row::before {
+    content: '├─';
+    flex: none;
+    width: 3ch;
+    font-family: 'Departure Mono', ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--ink);
+  }
+  .v2-tree > .v2-tree-row:last-child::before {
+    content: '└─';
+  }
+
+  /* The cutting mat: a 1 px dot every 4 px at 5.5% ink, the base layer of PaperBackdrop. A CSS tile
+     rather than canvas draws: it was most of the backdrop's cost. */
+  .v2-mat {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect x='2' y='2' width='1' height='1' fill-opacity='0.055'/%3E%3C/svg%3E");
+    background-size: 4px 4px;
+  }
+
+  /* Grain: fine monochrome noise so a large paper surface isn't flat (PaperBackdrop). Static,
+     an SVG turbulence tile: black specks whose alpha is the noise, thresholded to read as tooth. */
+  .v2-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.9 -0.3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    background-size: 180px 180px;
+    opacity: 0.12;
+  }
+
+  /* A terminal block cursor after a line (the composer prompt, Ask's launcher) */
+  .v2-caret::after {
+    content: '';
+    display: inline-block;
+    width: 0.52em;
+    height: 1.02em;
+    margin-left: 0.12em;
+    vertical-align: -0.17em;
+    background: currentColor;
+    animation: v2-blink 1.06s steps(1) infinite;
+  }
+
+  /* Streaming text: a thin bar cursor that follows the words */
+  .v2-caret-bar::after {
+    content: '';
+    display: inline-block;
+    width: 1.5px;
+    height: 1.05em;
+    margin-left: 1px;
+    vertical-align: -0.18em;
+    background: currentColor;
+    animation: v2-blink 1s steps(1) infinite;
+  }
+
+  /* The composer waiting for you: a terminal block cursor after its prompt while the editor
+     isn't focused (once it is, the real caret takes over). The app's one idle loop, allowed
+     because it is the invitation to save (DESIGN-v2 §8); it holds still under reduced motion. */
+  [data-ui='v2'] .ProseMirror p.is-empty::before {
+    opacity: 1; /* v2 placeholders are ink-muted at full strength: 6.4:1 on white */
+  }
+  /* The cursor is painted into the placeholder itself (an empty paragraph ends in a <br>, so
+     anything after it would land on the next line). Only while the editor isn't focused: focused,
+     the base rule (float, zero height) keeps the real caret at the start of the line. */
+  [data-ui='v2'] .capture-editor:not(:focus-within) .ProseMirror > p.is-empty:only-child::before {
+    height: auto;
+    padding-right: 0.8em;
+    background: linear-gradient(var(--ink), var(--ink)) no-repeat right 0 bottom 0.22em / 0.5em 1.02em;
+    animation: v2-blink-cursor 1.06s steps(1) infinite;
+  }
+
+  /* Print-in: revealed top to bottom in steps, for tags, tiles and windows arriving */
+  .v2-print-in {
+    animation: v2-print 0.24s steps(4, end) backwards;
+  }
+
+  /* A value mid-decrypt reads as the machine's until it settles */
+  .v2-decrypting {
+    color: var(--ink-muted);
+  }
+
+  /* A fresh save settles into the library: one spot ring that fades (the prototype's .fresh) */
+  .v2-fresh {
+    animation: v2-fresh 1.2s var(--ease) backwards;
+  }
+
+  /* A card that just arrived: it prints in, then the spot ring fades off it */
+  .v2-arrive {
+    animation:
+      v2-print 0.3s steps(5, end) backwards,
+      v2-fresh 1.2s var(--ease) 0.3s backwards;
+  }
+}
+
+@keyframes v2-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@keyframes v2-blink-cursor {
+  50% {
+    background-size: 0 0;
+  }
+}
+@keyframes v2-print {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes v2-fresh {
+  from {
+    box-shadow: 0 0 0 3px var(--spot);
+  }
+  to {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes v2-blink {
+    from,
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes v2-blink-cursor {
+    from,
+    to {
+      background-size: 0.5em 1.02em;
+    }
+  }
+  .v2-caret::after,
+  .v2-caret-bar::after,
+  [data-ui='v2'] .capture-editor:not(:focus-within) .ProseMirror > p.is-empty:only-child::before,
+  .v2-print-in,
+  .v2-fresh,
+  .v2-arrive {
+    animation: none;
+  }
 }

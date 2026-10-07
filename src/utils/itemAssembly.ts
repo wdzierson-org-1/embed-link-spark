@@ -11,7 +11,7 @@
 // are observed indirectly (description/summary land in the same updates).
 
 import type { ItemAttributes } from '@/types/itemAttributes';
-import { isPdfDocument } from '@/utils/documentProcessing';
+import { isDocumentProcessing, isPdfDocument } from '@/utils/documentProcessing';
 
 export type AssemblyPiece = 'title' | 'description' | 'summary' | 'preview';
 
@@ -32,6 +32,13 @@ export const ASSEMBLY_WINDOW_MS = 2.5 * 60 * 1000;
 
 /** How long a landed piece keeps its reveal animation class. */
 export const REVEAL_TTL_MS = 6000;
+
+/**
+ * How long a PDF without its summary counts as still being read. Extraction that fails writes
+ * nothing, so without a limit the card (and the library's status line) would claim work
+ * forever; past this the card says what's true instead (`some info unavailable`).
+ */
+export const DOCUMENT_READING_WINDOW_MS = 10 * 60 * 1000;
 
 const hasText = (value: unknown): boolean =>
   typeof value === 'string' && value.trim().length > 0;
@@ -92,6 +99,10 @@ export const enrichmentState = (item: AssemblySnapshot, nowMs: number): 'pending
 
 export const isAssembling = (item: AssemblySnapshot, nowMs: number): boolean =>
   enrichmentState(item, nowMs) === 'pending';
+
+/** A PDF whose text is still being extracted, within DOCUMENT_READING_WINDOW_MS of its save */
+export const isReadingDocument = (item: AssemblySnapshot, nowMs: number): boolean =>
+  isDocumentProcessing(item) && itemAgeMs(item, nowMs) < DOCUMENT_READING_WINDOW_MS;
 
 /** Pieces that landed between two snapshots of the same item. */
 export const landedPieces = (

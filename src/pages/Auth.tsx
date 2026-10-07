@@ -1,9 +1,12 @@
 
 import { useState } from 'react';
+import { ArrowRight } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import StashWordmark from '@/components/StashWordmark';
+import { AuthShell, AuthTextAction, FieldError } from '@/components/auth/AuthShell';
+import { Spinner } from '@/components/machine/Machine';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -11,15 +14,34 @@ import { useEffect } from 'react';
 import { usePhoneNumber } from '@/hooks/usePhoneNumber';
 import { supabase } from '@/integrations/supabase/client';
 
-// Visual tokens (DESIGN.md): quiet inputs — hairline border, radius 12,
-// 2px violet-300 focus ring — and a solid violet-600 primary CTA.
-const quietInput =
-  'h-11 rounded-xl border-black/[0.07] bg-white px-3.5 text-[15px] text-[#22262f] placeholder:text-[#959ba6] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0';
-const primaryCta =
-  'h-11 w-full rounded-xl bg-[#6d5bd0] text-[15px] font-medium text-white hover:bg-[#5f4ec2] focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0';
+// DESIGN-v2 forms: Montreal labels over square white fields (ink edge and spot ring on focus,
+// from the shared Input), one ink button, quiet machine-voice text actions
+const field = 'h-11 text-[15px] md:text-[15px]';
 
-const textLink =
-  'rounded text-sm text-[#646b76] underline-offset-4 hover:text-[#22262f] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b6a8ef]';
+/** The one ink button: its label, or the machine at work with the spinner */
+const SubmitButton = ({ busy, busyLabel, children, disabled }: { busy: boolean; busyLabel: string; children: React.ReactNode; disabled?: boolean }) => (
+  <Button type="submit" disabled={busy || disabled} className="h-11 w-full justify-between px-4 text-[15px] font-medium">
+    {busy ? (
+      <span className="flex items-baseline gap-[0.5ch] font-pixel text-pixel">
+        <Spinner />
+        {busyLabel}
+      </span>
+    ) : (
+      <>
+        <span>{children}</span>
+        <ArrowRight className="h-4 w-4" />
+      </>
+    )}
+  </Button>
+);
+
+// The person's line and the machine's prompt, per view
+const COPY = {
+  signin: { address: 'stash://sign-in', title: 'Welcome back.', prompt: 'knock knock. who’s there?' },
+  signup: { address: 'stash://sign-up', title: 'Start your stash.', prompt: 'new here? pull up a chair.' },
+  reset: { address: 'stash://reset', title: 'Forgot your password?', prompt: 'happens to the best of us.' },
+  sent: { address: 'stash://reset', title: 'Check your email.', prompt: 'a link is on its way to you.' },
+} as const;
 
 const Auth = () => {
   const [email, setEmail] = useState('');
@@ -37,6 +59,7 @@ const Auth = () => {
   const returnTo = searchParams.get('returnTo');
   const commentItem = searchParams.get('commentItem');
   const [view, setView] = useState<'tabs' | 'reset'>(mode === 'reset' ? 'reset' : 'tabs');
+  const [tab, setTab] = useState<'signin' | 'signup'>(mode === 'signup' ? 'signup' : 'signin');
   const [resetSent, setResetSent] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
 
@@ -110,7 +133,7 @@ const Auth = () => {
     }
     
     if (data) {
-      setUsernameError('This username is already taken. Please choose another.');
+      setUsernameError('that username is taken. try another.');
     } else {
       setUsernameError('');
     }
@@ -137,7 +160,7 @@ const Auth = () => {
     }
     
     if (data) {
-      setPhoneError('This phone number is already registered. Please use a different number.');
+      setPhoneError('that number is already on an account. use another.');
     } else {
       setPhoneError('');
     }
@@ -225,199 +248,193 @@ const Auth = () => {
   };
   const showTabs = () => setView('tabs');
 
+  const copy = view === 'reset' ? (resetSent ? COPY.sent : COPY.reset) : COPY[tab];
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#f7f7f9] font-montreal">
-      {/* Page wash: the app's ambient animated gradient (same class the
-          library uses; sanctioned exception in DESIGN.md, reduced-motion
-          guarded in index.css), faded down toward the card */}
-      <div className="animated-gradient pointer-events-none absolute inset-0 opacity-30" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#f7f7f9]/60 to-[#f7f7f9]" />
-
-      <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
-        {/* One centered surface: white card, radius 20, neutral sheet shadow */}
-        <div className="w-full max-w-[400px] rounded-[20px] border border-black/[0.07] bg-white px-7 py-8 shadow-[0_2px_6px_rgba(20,22,30,0.05),0_24px_70px_rgba(30,33,44,0.16)] sm:px-8">
-          <div className="flex justify-center">
-            <StashWordmark className="h-6 text-[#22262f]" />
+    <AuthShell address={copy.address} title={copy.title} prompt={copy.prompt}>
+      {view === 'reset' ? (
+        resetSent ? (
+          <div className="space-y-5">
+            <p className="text-[15px] leading-[1.55] text-ink">
+              If an account exists for <span className="font-code text-[14px]">{email}</span>, a reset link is
+              on its way. It expires in an hour.
+            </p>
+            <AuthTextAction onClick={showTabs}>back to sign in</AuthTextAction>
           </div>
-          <p className="mt-4 text-center text-sm text-[#646b76]">
-            {view === 'reset' ? 'Reset your password.' : 'Sign in or create your account.'}
-          </p>
+        ) : (
+          <form onSubmit={handleResetRequest} className="space-y-5">
+            <p className="text-[15px] leading-[1.55] text-muted-foreground">
+              Enter your email and we'll send a link to choose a new password.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="reset-email">Email</Label>
+              <Input
+                id="reset-email"
+                type="email"
+                placeholder="you@example.com"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+                className={field}
+              />
+            </div>
+            <SubmitButton busy={resetLoading} busyLabel="sending…">
+              Send reset link
+            </SubmitButton>
+            <AuthTextAction onClick={showTabs}>back to sign in</AuthTextAction>
+          </form>
+        )
+      ) : (
+        <Tabs value={tab} onValueChange={(value) => setTab(value === 'signup' ? 'signup' : 'signin')} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="signin">Sign in</TabsTrigger>
+            <TabsTrigger value="signup">Sign up</TabsTrigger>
+          </TabsList>
 
-          <div className="mt-6">
-            {view === 'reset' ? (
-              resetSent ? (
-                <div className="space-y-4">
-                  <p className="text-[15px] font-medium text-[#22262f]">Check your email</p>
-                  <p className="text-sm text-[#646b76]">
-                    If an account exists for{' '}
-                    <span className="font-medium text-[#22262f]">{email}</span>, a reset link is on
-                    its way. It expires in an hour.
-                  </p>
-                  <button type="button" onClick={showTabs} className={textLink}>
-                    Back to sign in
-                  </button>
+          <TabsContent value="signin" className="mt-6">
+            <form onSubmit={handleSignIn} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="signin-email">Email</Label>
+                <Input
+                  id="signin-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className={field}
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between gap-3">
+                  <Label htmlFor="signin-password">Password</Label>
+                  <AuthTextAction onClick={showReset}>forgot password?</AuthTextAction>
                 </div>
-              ) : (
-                <form onSubmit={handleResetRequest} className="space-y-4">
-                  <p className="text-sm text-[#646b76]">
-                    Enter your email and we'll send a link to choose a new password.
-                  </p>
+                <Input
+                  id="signin-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className={field}
+                />
+              </div>
+              <SubmitButton busy={loading} busyLabel="signing in…">
+                Sign in
+              </SubmitButton>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="signup" className="mt-6">
+            <form onSubmit={handleSignUp} className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="signup-email">Email</Label>
+                <Input
+                  id="signup-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className={field}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="signup-password">Password</Label>
+                <Input
+                  id="signup-password"
+                  type="password"
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className={field}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="signup-username">Username</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 font-code text-[14px] text-muted-foreground">
+                    @
+                  </span>
                   <Input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    id="signup-username"
+                    type="text"
+                    placeholder="username"
+                    autoComplete="off"
+                    value={username}
+                    onChange={(e) => {
+                      const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
+                      setUsername(cleanUsername);
+                      if (cleanUsername.length >= 3) {
+                        checkUsernameUniqueness(cleanUsername);
+                      } else {
+                        setUsernameError('');
+                      }
+                    }}
                     required
-                    autoFocus
-                    className={quietInput}
+                    minLength={3}
+                    maxLength={20}
+                    aria-invalid={Boolean(usernameError)}
+                    aria-describedby={usernameError ? 'signup-username-error' : undefined}
+                    className={`${field} pl-7 font-code md:text-[14px] text-[14px] ${usernameError ? 'v2:border-error' : ''}`}
                   />
-                  <Button type="submit" className={primaryCta} disabled={resetLoading}>
-                    {resetLoading ? 'Sending…' : 'Send reset link'}
-                  </Button>
-                  <div className="text-center">
-                    <button type="button" onClick={showTabs} className={textLink}>
-                      Back to sign in
-                    </button>
-                  </div>
-                </form>
-              )
-            ) : (
-            <Tabs defaultValue={mode === 'reset' ? 'signin' : mode} className="w-full">
-              <TabsList className="grid h-10 w-full grid-cols-2 rounded-full bg-[rgba(20,22,30,0.05)] p-1 text-[#646b76]">
-                <TabsTrigger
-                  value="signin"
-                  className="rounded-full text-sm focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0 data-[state=active]:text-[#22262f]"
-                >
-                  Sign in
-                </TabsTrigger>
-                <TabsTrigger
-                  value="signup"
-                  className="rounded-full text-sm focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0 data-[state=active]:text-[#22262f]"
-                >
-                  Sign up
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="signin" className="mt-5">
-                <form onSubmit={handleSignIn} className="space-y-4">
-                  <div className="space-y-2.5">
-                    <Input
-                      type="email"
-                      placeholder="Email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      className={quietInput}
-                    />
-                    <Input
-                      type="password"
-                      placeholder="Password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className={quietInput}
-                    />
-                  </div>
-                  <Button type="submit" className={primaryCta} disabled={loading}>
-                    {loading ? "Signing in..." : "Sign in"}
-                  </Button>
-                  <div className="text-center">
-                    <button type="button" onClick={showReset} className={textLink}>
-                      Forgot password?
-                    </button>
-                  </div>
-                </form>
-              </TabsContent>
-
-              <TabsContent value="signup" className="mt-5">
-                <form onSubmit={handleSignUp} className="space-y-4">
-                  <div className="space-y-2.5">
-                    <Input
-                      type="email"
-                      placeholder="Email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      className={quietInput}
-                    />
-                    <Input
-                      type="password"
-                      placeholder="Password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className={quietInput}
-                    />
-                    <div className="space-y-1.5">
-                      <div className="relative">
-                        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[15px] text-[#959ba6]">@</span>
-                        <Input
-                          type="text"
-                          placeholder="username"
-                          value={username}
-                          onChange={(e) => {
-                            const cleanUsername = e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '');
-                            setUsername(cleanUsername);
-                            if (cleanUsername.length >= 3) {
-                              checkUsernameUniqueness(cleanUsername);
-                            } else {
-                              setUsernameError('');
-                            }
-                          }}
-                          required
-                          minLength={3}
-                          maxLength={20}
-                          className={`${quietInput} pl-8 ${usernameError ? 'border-[#c93a3a]' : ''}`}
-                        />
-                      </div>
-                      {usernameError && (
-                        <p className="text-xs text-[#c93a3a]">{usernameError}</p>
-                      )}
-                      {username && !usernameError && username.length >= 3 ? (
-                        <p className="text-xs text-[#646b76]">
-                          You'll be <span className="font-medium text-[#22262f]">@{username}</span> on Stash —
-                          your public feed lives at gostash.it/feed/{username}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-[#646b76]">
-                          Your username becomes your @handle and your public feed address.
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Input
-                        type="tel"
-                        placeholder="Phone number (optional)"
-                        value={phoneNumber}
-                        onChange={(e) => {
-                          setPhoneNumber(e.target.value);
-                          if (e.target.value.trim()) {
-                            checkPhoneUniqueness(e.target.value);
-                          } else {
-                            setPhoneError('');
-                          }
-                        }}
-                        className={`${quietInput} ${phoneError ? 'border-[#c93a3a]' : ''}`}
-                      />
-                      {phoneError && (
-                        <p className="text-xs text-[#c93a3a]">{phoneError}</p>
-                      )}
-                      <p className="text-xs text-[#646b76]">
-                        Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.
-                      </p>
-                    </div>
-                  </div>
-                  <Button type="submit" className={primaryCta} disabled={loading || !!usernameError || !!phoneError}>
-                    {loading ? "Creating account..." : "Create account"}
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+                </div>
+                {usernameError ? (
+                  <FieldError id="signup-username-error">{usernameError}</FieldError>
+                ) : (
+                  // Your handle is also an address: say it in the code voice
+                  <p className="text-[13px] leading-snug text-muted-foreground">
+                    Your public feed:{' '}
+                    <span className="font-code text-[12.5px] text-ink">gostash.it/feed/{username || 'you'}</span>
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="signup-phone">
+                  Phone <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="signup-phone"
+                  type="tel"
+                  placeholder="+1 555 010 0100"
+                  autoComplete="tel"
+                  value={phoneNumber}
+                  onChange={(e) => {
+                    setPhoneNumber(e.target.value);
+                    if (e.target.value.trim()) {
+                      checkPhoneUniqueness(e.target.value);
+                    } else {
+                      setPhoneError('');
+                    }
+                  }}
+                  aria-invalid={Boolean(phoneError)}
+                  aria-describedby={phoneError ? 'signup-phone-error' : undefined}
+                  className={`${field} ${phoneError ? 'v2:border-error' : ''}`}
+                />
+                {phoneError ? (
+                  <FieldError id="signup-phone-error">{phoneError}</FieldError>
+                ) : (
+                  <p className="text-[13px] leading-snug text-muted-foreground">
+                    Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions
+                    about your content.
+                  </p>
+                )}
+              </div>
+              <SubmitButton busy={loading} busyLabel="creating your stash…" disabled={!!usernameError || !!phoneError}>
+                Create account
+              </SubmitButton>
+            </form>
+          </TabsContent>
+        </Tabs>
+      )}
+    </AuthShell>
   );
 };
 

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import ContentItem from './ContentItem';
 import LibraryLayout from '@/components/LibraryLayout';
 import ContentItemSkeleton from './ContentItemSkeleton';
+import { CropMarks } from '@/components/machine/Machine';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { itemMatchesSearchQuery } from '@/utils/itemSearch';
@@ -265,11 +266,18 @@ const ContentGrid = ({
   }
 
   // Empty state: no real items and no search active
+  // Empty states are small stages (DESIGN-v2): the dot grid in crop marks, and an invitation
   if (visibleRealItems.length === 0 && optimisticItems.length === 0 && !searchQuery.trim() && !focusActive) {
     return (
-      <div className="text-center py-12 relative z-10">
-        <h2 className="text-2xl font-montreal font-semibold tracking-[-0.02em] text-gray-900 mb-2">Start building your knowledge base</h2>
-        <p className="text-gray-600 mb-8">Capture ideas, notes, and insights to make them searchable and discoverable.</p>
+      <div className="v2-dots relative z-10 mx-2.5 my-6 px-6 py-16 text-center">
+        <CropMarks />
+        <h2 className="mx-auto max-w-[16em] text-[clamp(28px,3vw,40px)] font-medium leading-[1.02] tracking-[-0.04em] text-ink">
+          Save your first thing.
+        </h2>
+        <p className="mx-auto mt-4 max-w-[30em] bg-paper/80 text-[17px] leading-[1.45] text-muted-foreground">
+          Paste a link, drop in a screenshot or a PDF, or type a note up there. Stash reads it and gathers
+          the background, so you can find it again by what it's about.
+        </p>
       </div>
     );
   }
@@ -277,10 +285,16 @@ const ContentGrid = ({
   // Show no results message for search (or a focus request whose cited items aren't loaded)
   if (visibleRealItems.length === 0 && optimisticItems.length === 0 && (searchQuery.trim() || focusActive)) {
     return (
-      <div className="text-center py-12">
-        <h2 className="text-xl font-montreal font-semibold tracking-[-0.02em] text-gray-900 mb-2">No results found</h2>
-        <p className="text-gray-600">
-          {focusActive ? "The cards cited by this answer aren't in your library anymore." : 'Try adjusting your search terms or filters.'}
+      <div className="v2-dots relative mx-2.5 my-6 px-6 py-14 text-center">
+        <CropMarks />
+        <p className="font-pixel text-pixel text-muted-foreground">
+          {focusActive ? '0 cards to show' : `0 saves match “${searchQuery.trim()}”`}
+        </p>
+        <h2 className="mt-3 text-section-title font-medium text-ink">
+          {focusActive ? "Those cards aren't in your stash anymore." : 'Nothing matches that.'}
+        </h2>
+        <p className="mt-2 text-[15px] text-muted-foreground">
+          {focusActive ? 'Clear the focus to see everything again.' : 'Try different words: search reads what your saves are about, not just their titles.'}
         </p>
       </div>
     );

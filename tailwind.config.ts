@@ -1,5 +1,6 @@
 
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 export default {
 	darkMode: ["class"],
@@ -27,8 +28,45 @@ export default {
         'editorial-italic': ['PPEditorialNew-Italic', 'serif'],
         'mori': ['PPMori-Regular', 'sans-serif'],
         'tobias': ['Tobias', 'serif'],
+        // DESIGN-v2's machine voice; only at text-pixel / -md / -lg (11 / 16.5 / 22 px)
+        'pixel': ['"Departure Mono"', 'ui-monospace', '"SF Mono"', 'Menlo', 'monospace'],
+        // DESIGN-v2's code voice: literal strings (URLs, commands, code) and the decrypt cipher
+        'code': ['"JetBrains Mono"', 'ui-monospace', '"SF Mono"', 'Menlo', 'monospace'],
+      },
+      // DESIGN-v2 type: the product scale (Montreal) and Departure Mono's three sizes
+      fontSize: {
+        'pixel': ['11px', { lineHeight: '1.45', letterSpacing: '0' }],
+        'pixel-md': ['16.5px', { lineHeight: '1.3', letterSpacing: '0' }],
+        'pixel-lg': ['22px', { lineHeight: '1.2', letterSpacing: '0' }],
+        'screen-title': ['28px', { lineHeight: '1.1', letterSpacing: '-0.03em' }],
+        'section-title': ['20px', { lineHeight: '1.2', letterSpacing: '-0.02em' }],
+        'object-title': ['18px', { lineHeight: '1.2', letterSpacing: '-0.018em' }],
+        'body': ['15px', { lineHeight: '1.45', letterSpacing: '-0.005em' }],
+        'label': ['13px', { lineHeight: '1.3', letterSpacing: '0' }],
       },
 			colors: {
+				// DESIGN-v2 print palette (src/index.css :root). The spot is a variable (lime by
+				// default, violet as the alternative) so it carries Tailwind's alpha modifier.
+				// paper and ink carry channels too, so opacity modifiers (text-ink/80, bg-paper/80) compile
+				paper: 'rgb(var(--paper-rgb) / <alpha-value>)',
+				ink: {
+					DEFAULT: 'rgb(var(--ink-rgb) / <alpha-value>)',
+					soft: 'var(--ink-soft)',
+					muted: 'var(--ink-muted)',
+				},
+				line: {
+					DEFAULT: 'var(--line)',
+					soft: 'var(--line-soft)',
+				},
+				fill: 'var(--fill)',
+				spot: {
+					DEFAULT: 'rgb(var(--spot-rgb) / <alpha-value>)',
+					on: 'var(--on-spot)',
+					ink: 'var(--spot-ink)',
+					'on-ink': 'var(--spot-on-ink)',
+				},
+				ok: 'var(--ok)',
+				error: 'var(--error)',
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',
@@ -76,7 +114,21 @@ export default {
 			borderRadius: {
 				lg: 'var(--radius)',
 				md: 'calc(var(--radius) - 2px)',
-				sm: 'calc(var(--radius) - 4px)'
+				sm: 'calc(var(--radius) - 4px)',
+				// DESIGN-v2: objects (cards, sheets, the composer) are near-square; machine is 0
+				object: '2px',
+			},
+			boxShadow: {
+				// DESIGN-v2 elevation: an object sits on the paper; hovered, it lifts onto a hard
+				// print shadow (the retro beat); sheets and drawings get the long soft one
+				object: '0 1px 0 rgba(20, 22, 18, 0.04), 0 10px 24px -18px rgba(20, 22, 18, 0.28)',
+				print: '4px 4px 0 0 var(--ink)',
+				'print-sm': '2px 2px 0 0 var(--ink)',
+				drawing: '0 30px 60px -36px rgba(0, 0, 0, 0.45)',
+			},
+			transitionTimingFunction: {
+				'v2': 'cubic-bezier(0.22, 1, 0.36, 1)',
+				'pop': 'cubic-bezier(0.34, 1.56, 0.64, 1)',
 			},
 			keyframes: {
 				'accordion-down': {
@@ -124,5 +176,13 @@ export default {
 			}
 		}
 	},
-	plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+	plugins: [
+		require("tailwindcss-animate"),
+		require("@tailwindcss/typography"),
+		// `v2:` styles shared primitives (shadcn ui/*) only where <html data-ui="v2">, so
+		// marketing and auth pages that use the same components keep their v1 look
+		plugin(({ addVariant }) => {
+			addVariant('v2', '[data-ui="v2"] &');
+		}),
+	],
 } satisfies Config;

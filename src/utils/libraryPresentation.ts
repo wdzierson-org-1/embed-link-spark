@@ -16,7 +16,8 @@ export function libraryLayoutClass(compact = false, presentation = LIBRARY_PRESE
 }
 
 export function libraryTitleClass(presentation = LIBRARY_PRESENTATION): string {
+  // Size and tracking come from the type scale (`text-object-title`, DESIGN-v2 §4)
   return presentation === 'aligned'
     ? 'font-editorial'
-    : 'font-montreal font-medium tracking-[-0.014em]';
+    : 'font-montreal font-medium';
 }

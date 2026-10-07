@@ -1,49 +1,22 @@
 
 import React from 'react';
+import { StatusLine } from '@/components/machine/Machine';
 
 interface EditItemAutoSaveIndicatorProps {
   saveStatus: 'idle' | 'saving' | 'saved';
   lastSaved?: Date | null;
 }
 
+/** The panel's save state, in the machine voice: `| saving…`, then `✓ saved 9:41 pm` */
 const EditItemAutoSaveIndicator = ({ saveStatus, lastSaved }: EditItemAutoSaveIndicatorProps) => {
-  const getSaveStatusText = () => {
-    switch (saveStatus) {
-      case 'saving':
-        return 'Saving changes...';
-      case 'saved':
-        return lastSaved 
-          ? `Last saved at ${lastSaved.toLocaleTimeString()}`
-          : 'All changes saved';
-      default:
-        return 'Changes saved automatically';
-    }
-  };
-
-  const getStatusColor = () => {
-    switch (saveStatus) {
-      case 'saving':
-        return 'text-blue-600';
-      case 'saved':
-        return 'text-green-600';
-      default:
-        return 'text-muted-foreground';
-    }
-  };
-
-  return (
-    <div className="flex flex-shrink-0 items-center gap-2">
-      {saveStatus === 'saving' && (
-        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
-      )}
-      {saveStatus === 'saved' && (
-        <div className="rounded-full h-3 w-3 bg-green-500"></div>
-      )}
-      <p className={`text-xs ${getStatusColor()}`}>
-        {getSaveStatusText()}
-      </p>
-    </div>
-  );
+  if (saveStatus === 'saving') return <StatusLine tone="busy">saving…</StatusLine>;
+  if (saveStatus === 'saved') {
+    const at = lastSaved
+      ? ` ${lastSaved.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase()}`
+      : '';
+    return <StatusLine tone="done">saved{at}</StatusLine>;
+  }
+  return <StatusLine tone="idle" live={false}>changes save automatically</StatusLine>;
 };
 
 export default EditItemAutoSaveIndicator;

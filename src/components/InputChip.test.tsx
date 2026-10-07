@@ -23,7 +23,7 @@ describe("InputChip file rendering", () => {
     );
     expect(screen.getByText("kahn-cerf-88.pdf")).toBeInTheDocument();
     expect(screen.getByText("0.3 MB")).toBeInTheDocument();
-    expect(screen.getByText("Analyzing...")).toBeInTheDocument();
+    expect(screen.getByText("analyzing…")).toBeInTheDocument();
   });
 
   it("shows the facts line instead of bare size once local analysis lands", () => {
@@ -51,7 +51,7 @@ describe("InputChip file rendering", () => {
         uploadProgress={45}
       />
     );
-    expect(screen.getByText("Uploading · 45%")).toBeInTheDocument();
+    expect(screen.getByText("uploading · 45%")).toBeInTheDocument();
   });
 
   it("shows spinner-only uploading text for small files", () => {
@@ -65,8 +65,8 @@ describe("InputChip file rendering", () => {
         uploadProgress={45}
       />
     );
-    expect(screen.getByText("Uploading...")).toBeInTheDocument();
-    expect(screen.queryByText("Uploading · 45%")).not.toBeInTheDocument();
+    expect(screen.getByText("uploading…")).toBeInTheDocument();
+    expect(screen.queryByText("uploading · 45%")).not.toBeInTheDocument();
   });
 
   it("renders AI title, description, and thumbnail when analysis is ready", () => {
@@ -88,7 +88,7 @@ describe("InputChip file rendering", () => {
     expect(screen.getByText("Kahn-Cerf Internet Certificate")).toBeInTheDocument();
     expect(screen.getByText("A 1988 certificate signed by Vint Cerf.")).toBeInTheDocument();
     expect(screen.queryByText("kahn-cerf-88.pdf")).not.toBeInTheDocument();
-    expect(screen.queryByText("Analyzing...")).not.toBeInTheDocument();
+    expect(screen.queryByText("analyzing…")).not.toBeInTheDocument();
     const thumb = document.querySelector('img[src="data:image/png;base64,thumb"]');
     expect(thumb).not.toBeNull();
   });

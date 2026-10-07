@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import TranscriptContent from '@/components/TranscriptContent';
-import { Button } from '@/components/ui/button';
-import { Maximize, Loader2, Sparkles } from 'lucide-react';
+import { Maximize, Sparkles } from 'lucide-react';
+import { StatusLine } from '@/components/machine/Machine';
 import EditItemContentEditor from '@/components/EditItemContentEditor';
 import { SectionHead } from '@/components/edit/EditPanelSection';
-import { useItemSourceContent } from '@/hooks/useItemSourceContent';
+import { canSummarizeSource, useItemSourceContent } from '@/hooks/useItemSourceContent';
 import { getContentTabsConfig, needsSourceContent, type ContentTabKey } from '@/utils/editPanelTabs';
 import {
   isTranscribing,
@@ -41,25 +41,25 @@ const looksLikeMarkdown = (text: string): boolean =>
 const ReadOnlyText = ({ text, capped = true }: { text: string; capped?: boolean }) => (
   <div className={capped ? 'max-h-[420px] overflow-y-auto pr-1' : ''}>
     {looksLikeMarkdown(text) ? (
-      <div className="prose prose-sm max-w-none text-foreground/90">
+      <div className="prose prose-sm max-w-none text-[15px] leading-[1.6] text-ink prose-headings:font-medium prose-a:text-ink">
         <ReactMarkdown>{text}</ReactMarkdown>
       </div>
     ) : (
-      <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{text}</div>
+      <div className="whitespace-pre-wrap text-[15px] leading-[1.6] text-ink">{text}</div>
     )}
   </div>
 );
 
 const TabEmptyState = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 px-6 py-8 text-center text-sm text-[#959ba6]">
+  // An empty source tab is a small stage: the dot grid, and what's true right now
+  <div className="v2-dots flex min-h-[120px] flex-col items-center justify-center gap-3 px-6 py-8 text-center text-[14px] text-muted-foreground">
     {children}
   </div>
 );
 
 const LoadingState = () => (
-  <div className="flex min-h-[120px] items-center justify-center text-sm text-[#959ba6]">
-    <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
-    Loading...
+  <div className="flex min-h-[120px] items-center justify-center">
+    <StatusLine tone="busy">loading…</StatusLine>
   </div>
 );
 
@@ -98,14 +98,12 @@ const EditItemContentSection = ({
   const notesEditor = (
     <div className="relative">
       {isContentLoading ? (
-        <div className="flex min-h-[150px] items-center justify-center text-sm text-[#959ba6]">
-          Loading editor...
+        <div className="flex min-h-[150px] items-center justify-center">
+          <StatusLine tone="busy">loading the editor…</StatusLine>
         </div>
       ) : !mobileEditorReady && isMobile ? (
-        <div className="flex min-h-[150px] items-center justify-center text-sm text-[#959ba6]">
-          <div className="text-center">
-            <div className="animate-pulse motion-reduce:animate-none">Initializing editor...</div>
-          </div>
+        <div className="flex min-h-[150px] items-center justify-center">
+          <StatusLine tone="busy">starting the editor…</StatusLine>
         </div>
       ) : (
         <div>
@@ -118,8 +116,8 @@ const EditItemContentSection = ({
           />
         </div>
       )}
-      <div className="mt-2 text-right text-xs text-[#959ba6]">
-        Press / for formatting options
+      <div className="mt-2 text-right font-pixel text-pixel text-muted-foreground">
+        type / for formatting
       </div>
     </div>
   );
@@ -127,32 +125,28 @@ const EditItemContentSection = ({
   const summaryView = isSourceLoading ? (
     <LoadingState />
   ) : summary ? (
-    <div className="prose prose-sm max-w-none text-foreground/90">
+    <div className="prose prose-sm max-w-none text-[15px] leading-[1.6] text-ink prose-headings:font-medium prose-strong:font-medium prose-a:text-ink">
       <ReactMarkdown>{summary}</ReactMarkdown>
     </div>
-  ) : pageBody ? (
+  ) : canSummarizeSource(pageBody) ? (
     <TabEmptyState>
       <span>No summary yet for this {isDocument ? 'document' : 'link'}.</span>
-      <Button
-        size="sm"
-        onClick={() => void generateSummary()}
-        disabled={isGenerating}
-        className="rounded-xl bg-[#6d5bd0] text-white shadow-sm hover:bg-[#5f4ec2]"
-      >
-        {isGenerating ? (
-          <>
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-            Summarizing...
-          </>
-        ) : (
-          <>
-            <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-            Generate summary
-          </>
-        )}
-      </Button>
-      {generateError && <span className="text-xs text-[#c93a3a]">{generateError}</span>}
+      {isGenerating ? (
+        <StatusLine tone="busy">summarizing…</StatusLine>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void generateSummary()}
+          className="inline-flex h-9 items-center gap-1.5 bg-ink px-3.5 text-[14px] font-medium text-white transition-colors hover:bg-ink-soft"
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          Generate summary
+        </button>
+      )}
+      {generateError && !isGenerating && <StatusLine tone="error">{generateError}</StatusLine>}
     </TabEmptyState>
+  ) : pageBody ? (
+    <TabEmptyState>Too little text was captured to summarize. It's all under Original Content.</TabEmptyState>
   ) : (
     <TabEmptyState>
       {isDocument
@@ -178,17 +172,15 @@ const EditItemContentSection = ({
   ) : pageBody && item ? (
     <>
       {transcript && isTranscribing(transcript) && (
-        <div className="mb-3 flex items-center text-xs text-[#959ba6]">
-          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-          {transcribingLabel(transcript)}
+        <div className="mb-3">
+          <StatusLine tone="busy">{transcribingLabel(transcript).toLowerCase()}</StatusLine>
         </div>
       )}
       <TranscriptContent key={item.id} itemId={item.id} filePath={item.file_path} transcript={pageBody} />
     </>
   ) : transcript && isTranscribing(transcript) ? (
     <TabEmptyState>
-      <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-      {transcribingLabel(transcript)}
+      <StatusLine tone="busy">{transcribingLabel(transcript).toLowerCase()}</StatusLine>
     </TabEmptyState>
   ) : transcript?.status === 'failed' ? (
     <TabEmptyState>{transcriptFailureCopy(transcript)}</TabEmptyState>
@@ -209,7 +201,7 @@ const EditItemContentSection = ({
       <section className="mt-[30px]" aria-label="Notes">
         <SectionHead label="Notes" aside={
           <button onClick={onMaximize} title="Maximize editor" aria-label="Maximize editor"
-            className="grid h-6 w-6 place-items-center rounded-md text-[#959ba6] hover:bg-black/[0.04] hover:text-[#22262f]">
+            className="grid h-6 w-6 place-items-center text-muted-foreground hover:bg-ink hover:text-white">
             <Maximize className="h-3.5 w-3.5" />
           </button>
         } />
@@ -218,12 +210,12 @@ const EditItemContentSection = ({
       {sourceTabs.length > 0 && (
         <section className="mt-[30px]" aria-label={config.title}>
           <SectionHead label={config.title} aside={sourceTabs.length > 1 && (
-            <div className="flex flex-wrap gap-0.5" role="tablist" aria-label="Source content">
+            <div className="-mb-1.5 flex flex-wrap gap-[3px]" role="tablist" aria-label="Source content">
               {sourceTabs.map((tab) => (
                 <button key={tab.key} role="tab" aria-selected={activeTab === tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`rounded-full px-2.5 py-[3px] text-[12.5px] font-medium transition-colors ${
-                    activeTab === tab.key ? 'bg-black/[0.06] text-[#22262f]' : 'text-[#959ba6] hover:text-[#646b76]'
+                  className={`h-7 px-2 font-pixel text-pixel lowercase leading-none transition-colors ${
+                    activeTab === tab.key ? 'bg-ink text-white' : 'text-muted-foreground hover:bg-fill hover:text-ink'
                   }`}>
                   {tab.label}
                 </button>

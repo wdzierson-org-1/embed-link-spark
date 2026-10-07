@@ -16,8 +16,10 @@ import EditItemSheet from '@/components/EditItemSheet';
 import ChatMole from '@/components/ChatMole';
 import ConversationsView from '@/components/ConversationsView';
 import LoadingInterstitial from '@/components/LoadingInterstitial';
+import { PaperBackdrop } from '@/components/machine/PaperBackdrop';
 import { getSuggestedTags as getSuggestedTagsFromApi } from '@/utils/aiOperations';
 import { sweepStagingOrphans } from '@/utils/stagedUploader';
+import { enrichmentState, isReadingDocument } from '@/utils/itemAssembly';
 
 const MOLE_PINNED_KEY = 'stash_mole_pinned';
 
@@ -63,6 +65,18 @@ const Index = () => {
   const [mainView, setMainView] = useState<'cards' | 'chats'>('cards');
   const [focusItemIds, setFocusItemIds] = useState<string[] | null>(null);
   const [openConvoReq, setOpenConvoReq] = useState<{ id: string; title: string | null; token: number } | null>(null);
+
+  // How many saves Stash is still reading, for the toolbar's status line. The assembling
+  // window closes on time alone (no realtime event), so a slow clock ticks while any are open.
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  const readingCount = items.filter(
+    (item) => !item.isOptimistic && (isReadingDocument(item, clockMs) || enrichmentState(item, clockMs) === 'pending')
+  ).length;
+  useEffect(() => {
+    if (!readingCount) return;
+    const timer = setInterval(() => setClockMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [readingCount]);
 
   const getSuggestedTags = async (content) => {
     if (!user) return [];
@@ -142,16 +156,14 @@ const Index = () => {
   const realItemCount = items.filter(item => !item.isOptimistic).length;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="relative isolate min-h-screen bg-paper">
+      {/* DESIGN-v2 paper with tooth: the cutting-mat dots, stippled spheres and grain, fixed so
+          the cards scroll over a still surface */}
+      <PaperBackdrop />
       {/* Header lives INSIDE the dock-padded wrapper so its container centers
           on the same axis as the content below — logo/avatar edges align with
           the capture panel, toolbar, and cards whether or not the mole is pinned */}
       <div className={`relative ${molePinned ? 'transition-[padding] duration-200 sm:pl-[384px]' : 'transition-[padding] duration-200'}`}>
-        {/* Extended animated gradient backdrop — page-level so it survives the
-            capture panel being hidden in conversations/focus states */}
-        <div className="pointer-events-none absolute inset-0 h-[200vh] animated-gradient opacity-30" />
-        <div className="pointer-events-none absolute inset-0 h-[200vh] bg-gradient-to-b from-transparent via-background/50 via-background/30 to-background" />
-
         <HeaderSection
           user={user}
         />
@@ -181,11 +193,12 @@ const Index = () => {
             tags={tags}
             selectedTags={selectedTags}
             onTagFilterChange={setSelectedTags}
+            readingCount={readingCount}
           />
           </div>
         )}
 
-        <main className="container mx-auto px-4 pb-28 bg-white">
+        <main className="container mx-auto px-4 pb-28">
           {mainView === 'chats' ? (
             <ConversationsView
               onOpenConversation={handleOpenConversation}
@@ -194,13 +207,16 @@ const Index = () => {
           ) : (
             <>
               {focusItemIds && (
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-violet-100 py-1 pl-3 pr-1.5 text-xs text-violet-700">
-                  <span>Showing <b>{focusItemIds.length}</b> cards from this answer</span>
+                // The machine saying what it's showing: a black tag with its own way out
+                <div className="mb-4 inline-flex items-center bg-ink font-pixel text-pixel leading-none text-white">
+                  <span className="px-2 pb-[5px] pt-1.5">
+                    showing {focusItemIds.length} {focusItemIds.length === 1 ? 'card' : 'cards'} from this answer
+                  </span>
                   <button
                     onClick={() => setFocusItemIds(null)}
-                    className="rounded-full bg-white px-2.5 py-0.5 text-[11.5px]"
+                    className="self-stretch border-l border-white/25 px-2 pb-[5px] pt-1.5 hover:bg-spot hover:text-spot-on"
                   >
-                    Clear
+                    clear
                   </button>
                 </div>
               )}

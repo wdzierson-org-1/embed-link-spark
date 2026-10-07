@@ -35,10 +35,10 @@ export default function TranscriptContent({ itemId, filePath, transcript }: {
         <Button variant="outline" size="sm" disabled={working} onClick={() => void retranscribe()}>
           {working ? 'Transcribing…' : 'Transcribe again'}
         </Button>
-        <span className="text-xs text-muted-foreground">{working ? 'You can keep reading while this runs.' : 'Rebuild from the original recording.'}</span>
+        <span className="text-[13px] text-muted-foreground">{working ? 'You can keep reading while this runs.' : 'Rebuild from the original recording.'}</span>
       </div>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {text ? <div className="prose prose-sm max-h-[420px] max-w-none overflow-y-auto whitespace-pre-wrap pr-1 text-foreground/90"><ReactMarkdown>{text}</ReactMarkdown></div>
+      {error && <p role="alert" className="text-[14px] text-error">{error}</p>}
+      {text ? <div className="prose prose-sm max-h-[420px] max-w-none overflow-y-auto whitespace-pre-wrap pr-1 text-[15px] leading-[1.6] text-ink"><ReactMarkdown>{text}</ReactMarkdown></div>
         : <p className="py-6 text-sm text-muted-foreground">No transcript available for this recording.</p>}
     </div>
   );

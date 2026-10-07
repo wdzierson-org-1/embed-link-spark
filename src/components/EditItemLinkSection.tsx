@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { domainOfUrl } from '@/utils/linkFlavor';
 
 interface EditItemLinkSectionProps {
   url: string;
 }
 
-/** Hairline link row: favicon · mono url · open — no boxed section */
+/** The source address as a machine strip: favicon · the URL in Departure Mono · open */
 const EditItemLinkSection = ({ url }: EditItemLinkSectionProps) => {
   const [faviconFailed, setFaviconFailed] = useState(false);
   const domain = domainOfUrl(url);
@@ -16,26 +16,28 @@ const EditItemLinkSection = ({ url }: EditItemLinkSectionProps) => {
   };
 
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-black/[0.07] bg-white/70 px-3.5 py-2.5">
-      {domain && !faviconFailed && (
-        <img
-          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
-          alt=""
-          aria-hidden
-          className="h-4 w-4 flex-none rounded"
-          onError={() => setFaviconFailed(true)}
-        />
-      )}
-      <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-[#646b76]">
-        {url}
-      </span>
+    <div className="flex items-stretch border border-ink bg-white">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2">
+        {domain && !faviconFailed && (
+          <img
+            src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
+            alt=""
+            aria-hidden
+            className="h-3.5 w-3.5 flex-none [image-rendering:pixelated]"
+            onError={() => setFaviconFailed(true)}
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate font-code text-[12.5px] text-ink [font-variant-ligatures:none]" title={url}>
+          {url}
+        </span>
+      </div>
       <button
         onClick={handleOpenLink}
         title="Open link"
         aria-label="Open link"
-        className="grid flex-none place-items-center text-[#959ba6] transition-colors hover:text-[#6d5bd0]"
+        className="grid w-10 flex-none place-items-center border-l border-ink text-ink transition-colors hover:bg-ink hover:text-white"
       >
-        <ExternalLink className="h-3.5 w-3.5" />
+        <ArrowUpRight className="h-4 w-4" />
       </button>
     </div>
   );

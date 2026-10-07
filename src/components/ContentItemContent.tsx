@@ -5,12 +5,6 @@ import CollectionAttachmentStrip from '@/components/CollectionAttachmentStrip';
 import type { Attachment } from '@/components/CollectionAttachments';
 import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
 import { cleanMetaText } from '@/utils/textHygiene';
-import {
-  formatDurationChip,
-  formatFileSizeChip,
-  MetaChip,
-  mimeExtensionLabel,
-} from '@/components/cards/CardBits';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -31,18 +25,19 @@ interface ContentItemContentProps {
   onToggleExpansion: (itemId: string) => void;
   isPublicView?: boolean;
   collectionAttachments?: Attachment[];
-  /** The AI description/summary just landed — animate it in */
+  /** The AI description/summary just landed — print it in */
   revealDescription?: boolean;
+  /** Stash is still gathering: hold the description's place with dotted lines */
+  awaitingDescription?: boolean;
   onNoteSaved?: () => void;
 }
 
 const ContentItemContent = ({
   item,
-  expandedContent,
-  onToggleExpansion,
   isPublicView,
   collectionAttachments,
   revealDescription,
+  awaitingDescription,
   onNoteSaved,
 }: ContentItemContentProps) => {
   // Legacy multi-part items: rich note + attachment tiles (frozen design)
@@ -65,53 +60,26 @@ const ContentItemContent = ({
     );
   }
 
-  // Objects: extracted description speaks first; the user's annotation
-  // (content) is visually theirs; extracted facts ride as chips
-
-  // Type identity lives beside the date; facts remain in the body.
-  const chips: React.ReactNode[] = [];
-
-  const facts = [mimeExtensionLabel(item.mime_type), formatFileSizeChip(item.file_size)].filter(Boolean).join(' · ');
-  if (facts && item.type !== 'link') {
-    chips.push(
-      <MetaChip key="facts" mono>
-        {facts}
-      </MetaChip>
-    );
-  }
-
-  const salientFact = (() => {
-    if (item.type === 'audio' || item.type === 'video') {
-      return formatDurationChip(item.attributes?.media?.duration_s);
-    }
-    if (item.type === 'link') {
-      const link = item.attributes?.link;
-      if (link?.flavor === 'video') return formatDurationChip(link.duration_s);
-      if (typeof link?.read_time_min === 'number' && link.read_time_min > 0) {
-        return `${Math.round(link.read_time_min)} min read`;
-      }
-    }
-    return null;
-  })();
-  if (salientFact) {
-    chips.push(<MetaChip key="fact">{salientFact}</MetaChip>);
-  }
+  // Objects: the extracted description speaks first; the person's note (content) is visibly
+  // theirs. Facts (format, size, duration, read time) ride in the meta row below.
+  const description = item.description ? cleanMetaText(extractPlainTextFromNovelContent(item.description)) : '';
 
   return (
-    <div className="space-y-2.5">
-      {item.description && (
-        // Wrapper carries the reveal animation — the clamped paragraph's
-        // -webkit-box/overflow-hidden would clip the highlight wash
-        <div className={revealDescription ? 'animate-piece-in' : undefined}>
-          <p className="text-muted-foreground text-sm line-clamp-3">
-            {cleanMetaText(extractPlainTextFromNovelContent(item.description))}
-          </p>
+    <div className="space-y-3">
+      {description ? (
+        // Wrapper carries the print-in; the clamped paragraph's -webkit-box would clip it
+        <div className={revealDescription ? 'v2-print-in' : undefined}>
+          <p className="line-clamp-3 text-sm leading-[1.42] text-muted-foreground">{description}</p>
         </div>
-      )}
+      ) : awaitingDescription ? (
+        // DESIGN-v2 "while reading": dotted skeleton lines in the machine voice
+        <div aria-hidden className="space-y-0.5 overflow-hidden whitespace-nowrap font-pixel text-pixel tracking-[0.05em] text-[#b9bdb5]">
+          <span className="block">··································</span>
+          <span className="block">·······················</span>
+        </div>
+      ) : null}
 
       <CardInlineNote item={item} readOnly={isPublicView} onSaved={onNoteSaved} />
-
-      {chips.length > 0 && <div className="flex flex-wrap gap-1.5">{chips}</div>}
     </div>
   );
 };

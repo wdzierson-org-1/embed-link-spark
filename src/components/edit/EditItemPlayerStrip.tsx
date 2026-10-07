@@ -4,41 +4,22 @@ import { waveformHeights } from '@/components/cards/CardBits';
 import { formatClock } from '@/utils/itemFacts';
 
 /**
- * The panel's media player (DESIGN.md "Player"): flat type-tint field, solid
- * accent play/pause circle with real playback, deterministic waveform bars
- * (from the item id — there is no analysis pass), tabular-numeral times, and
- * a speed pill cycling 1× → 1.5× → 2×. Standalone on purpose — the card
- * MediaPlayer is a different surface and stays untouched.
+ * The panel's media player (DESIGN-v2): a square ink play button with real playback,
+ * deterministic waveform bars in ink (from the item id; there is no analysis pass), times in
+ * Departure Mono, and a square speed control cycling 1× → 1.5× → 2×. Standalone on purpose —
+ * the card MediaPlayer is a different surface and stays untouched.
  */
 
 const RATES = [1, 1.5, 2];
-const BAR_COUNT = 34;
+const BAR_COUNT = 40;
 
-const PALETTES = {
-  voice: {
-    field: 'rgba(84,88,178,.11)',
-    ring: 'rgba(84,88,178,.06)',
-    accent: '#544eba',
-    accentShadow: 'rgba(84,78,186,.35)',
-    bar: 'rgba(84,78,186,.72)',
-    text: '#45408c',
-    pillBorder: 'rgba(84,78,186,.35)',
-  },
-  warm: {
-    field: 'rgba(126,74,158,.10)',
-    ring: 'rgba(126,74,158,.06)',
-    accent: '#8b4a9e',
-    accentShadow: 'rgba(139,74,158,.3)',
-    bar: 'rgba(139,74,158,.65)',
-    text: '#703c77',
-    pillBorder: 'rgba(139,74,158,.4)',
-  },
-} as const;
+/** Kept for callers: v2 has one player look; voice and recordings differ by tag, not colour */
+const VARIANTS = ['voice', 'warm'] as const;
 
 interface EditItemPlayerStripProps {
   src: string;
   itemId: string;
-  variant: keyof typeof PALETTES;
+  variant: (typeof VARIANTS)[number];
   /** attributes.media.duration_s — used until the element reports metadata */
   durationHint?: number;
   downloadUrl?: string;
@@ -47,11 +28,9 @@ interface EditItemPlayerStripProps {
 const EditItemPlayerStrip = ({
   src,
   itemId,
-  variant,
   durationHint,
   downloadUrl,
 }: EditItemPlayerStripProps) => {
-  const palette = PALETTES[variant];
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -123,17 +102,12 @@ const EditItemPlayerStrip = ({
 
   return (
     <div className="mt-6">
-      <style>{'@keyframes stash-barpulse{0%,100%{opacity:.26}50%{opacity:.44}}'}</style>
       <audio ref={audioRef} src={src} preload="metadata" />
-      <div
-        className="flex items-center gap-3.5 rounded-[14px] px-[18px] py-4"
-        style={{ background: palette.field, boxShadow: `inset 0 0 0 1px ${palette.ring}` }}
-      >
+      <div className="flex items-center gap-3.5 border border-line bg-fill px-4 py-3.5">
         <button
           onClick={togglePlay}
           aria-label={isPlaying ? 'Pause' : 'Play'}
-          className="grid h-11 w-11 flex-none place-items-center rounded-full text-white"
-          style={{ background: palette.accent, boxShadow: `0 2px 10px ${palette.accentShadow}` }}
+          className="grid h-11 w-11 flex-none place-items-center bg-ink text-white transition-colors hover:bg-ink-soft"
         >
           {isPlaying ? (
             <Pause className="h-4 w-4 fill-current" />
@@ -141,10 +115,7 @@ const EditItemPlayerStrip = ({
             <Play className="ml-0.5 h-4 w-4 fill-current" />
           )}
         </button>
-        <span
-          className="text-[11.5px] font-semibold tabular-nums"
-          style={{ color: palette.text }}
-        >
+        <span className="font-pixel text-pixel tabular-nums text-ink">
           {formatClock(currentTime) || '0:00'}
         </span>
         <div
@@ -155,30 +126,21 @@ const EditItemPlayerStrip = ({
           {barHeights.map((height, i) => (
             <i
               key={i}
-              className="flex-1 rounded-[2px] motion-reduce:!animate-none"
+              className="flex-1 bg-ink"
               style={{
                 height: `${height.toFixed(0)}%`,
-                background: palette.bar,
-                opacity: i <= playedTo ? 1 : 0.26,
-                animation:
-                  isPlaying && i > playedTo
-                    ? 'stash-barpulse 1.4s ease-in-out infinite'
-                    : undefined,
+                opacity: i <= playedTo ? 1 : 0.25,
               }}
             />
           ))}
         </div>
-        <span
-          className="text-[11.5px] font-semibold tabular-nums"
-          style={{ color: palette.text }}
-        >
+        <span className="font-pixel text-pixel tabular-nums text-muted-foreground">
           {formatClock(totalSeconds) || '--:--'}
         </span>
         <button
           onClick={cycleRate}
           aria-label="Playback speed"
-          className="rounded-full border px-2 py-0.5 text-[11px] font-bold transition-colors hover:bg-black/[0.04]"
-          style={{ color: palette.text, borderColor: palette.pillBorder }}
+          className="h-7 min-w-[38px] border border-ink px-1.5 font-pixel text-pixel leading-none text-ink transition-colors hover:bg-ink hover:text-white"
         >
           {RATES[rateIndex]}×
         </button>
@@ -189,10 +151,10 @@ const EditItemPlayerStrip = ({
           download
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs text-[#959ba6] transition-colors hover:text-[#6d5bd0]"
+          className="inline-flex items-center gap-1.5 font-pixel text-pixel text-muted-foreground underline-offset-2 transition-colors hover:text-ink hover:underline"
         >
-          <Download className="h-[13px] w-[13px]" />
-          Download original
+          <Download className="h-3 w-3" />
+          download original
         </a>
       </div>
     </div>

@@ -11,7 +11,10 @@ import {
   StickyNote,
 } from 'lucide-react';
 import ContentItem from '@/components/ContentItem';
+import ContentItemSkeleton from '@/components/ContentItemSkeleton';
 import LibraryLayout from '@/components/LibraryLayout';
+import ArrivingSaveDemo from '@/pages/design/ArrivingSaveDemo';
+import { CropMarks, Tag } from '@/components/machine/Machine';
 
 /**
  * Dev-only design review page (/design/cards) — not routed in production.
@@ -431,18 +434,42 @@ const wiredItems = [
 ];
 
 const DesignCardPreview = () => (
-  <div className="min-h-screen bg-gradient-to-b from-[#fdf4fb] to-white">
+  <div className="min-h-screen bg-paper">
     <div className="container mx-auto px-6 py-10">
-      <h1 className="font-montreal font-semibold tracking-[-0.02em] text-3xl">Card system · rev 2</h1>
-      <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-        Changes from rev 1: a two-height hero scale (10rem / 14rem for portrait), a designed fallback for
-        metadata-poor links, filenames demoted to mono chips (AI titles everywhere), extracted description and your
-        annotation coexisting with clear hierarchy, and location only as the pin — no text line.
+      <Tag className="uppercase">design review</Tag>
+      <h1 className="mt-4 text-[44px] font-medium leading-none tracking-[-0.045em]">Card system · v2</h1>
+      <p className="mt-3 max-w-3xl text-[15px] text-muted-foreground">
+        DESIGN-v2 on the real components: near-square cards, the kind as a black tag, titles in Montreal, every
+        label in Departure Mono, and the enrichment moment in the machine voice. The static mockups at the bottom
+        are the v1 references, kept for comparison.
       </p>
 
-      <h2 className="mt-10 font-montreal font-semibold tracking-[-0.02em] text-2xl">Wired — the real components</h2>
-      <p className="mb-5 mt-0.5 text-sm text-muted-foreground">
-        Actual ContentItem renders with the library’s left-to-right masonry layout and Montreal headings.
+      <h2 className="mt-10 text-section-title font-medium">A save arriving</h2>
+      <p className="mb-6 mt-1 max-w-3xl text-[15px] text-muted-foreground">
+        The real card, looping: the placeholder glyph boils under the{' '}
+        <span className="font-pixel text-pixel text-ink">| gathering more info…</span> cursor while Stash reads it, the title
+        decrypts in, the description prints, the picture lands as pixels and holds under the reading lens, then sharpens
+        with <span className="font-pixel text-pixel text-ink">✓ filled in</span>. Reduced motion shows each state still.
+      </p>
+      <div className="v2-dots relative mx-2.5 flex justify-center px-6 py-10">
+        <CropMarks />
+        <ArrivingSaveDemo />
+      </div>
+
+      <h2 className="mt-12 text-section-title font-medium">A save in flight</h2>
+      <p className="mb-6 mt-1 max-w-3xl text-[15px] text-muted-foreground">
+        Before the row exists: the mosaic for a picture not yet here, the kind, and{' '}
+        <span className="font-pixel text-pixel text-ink">| saving…</span>.
+      </p>
+      <div className="grid gap-6 md:grid-cols-3">
+        <ContentItemSkeleton type="link" title="How to remember more of what you read" />
+        <ContentItemSkeleton type="image" />
+        <ContentItemSkeleton type="audio" fileSize={84_000} />
+      </div>
+
+      <h2 className="mt-12 text-section-title font-medium">Wired — the real components</h2>
+      <p className="mb-5 mt-1 text-[15px] text-muted-foreground">
+        Actual ContentItem renders with the library’s left-to-right masonry layout.
         Each group of three follows source order across columns, with natural card heights and 24px gaps.
       </p>
       <LibraryLayout>
@@ -462,7 +489,7 @@ const DesignCardPreview = () => (
         ))}
       </LibraryLayout>
 
-      <h2 className="mt-10 font-montreal font-semibold tracking-[-0.02em] text-2xl">The dashboard, together</h2>
+      <h2 className="mt-16 border-t border-ink pt-6 font-montreal font-semibold tracking-[-0.02em] text-2xl">v1 reference · the dashboard, together (static mockups)</h2>
       <p className="mb-5 mt-0.5 text-sm text-muted-foreground">
         All ten cards flowing in a masonry column layout — how a real mixed feed would read.
       </p>

@@ -1,10 +1,18 @@
+import type { ReactNode } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { useSubscription } from '@/hooks/useSubscription';
-import { Loader2, RefreshCw, Crown, ExternalLink, Check } from 'lucide-react';
+import { RefreshCw, ArrowUpRight, Check } from 'lucide-react';
 import { format } from 'date-fns';
+import { StatusLine, Tag } from '@/components/machine/Machine';
+
+/** One plan fact as a tree row (DESIGN-v2: facts listed the way a terminal lists them) */
+const FactRow = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="v2-tree-row flex items-baseline gap-3 py-[6px]">
+    <span className="w-[150px] flex-none font-pixel text-pixel text-muted-foreground">{label}</span>
+    <span className="min-w-0 flex-1 text-[15px] text-ink">{children}</span>
+  </div>
+);
 
 const SubscriptionSettings = () => {
   const {
@@ -23,129 +31,89 @@ const SubscriptionSettings = () => {
   if (loading) {
     return (
       <Card>
-        <CardContent className="pt-6 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin" />
+        <CardContent className="flex items-center justify-center pt-6">
+          <StatusLine tone="busy">checking your plan…</StatusLine>
         </CardContent>
       </Card>
     );
   }
 
-  const getPlanName = () => {
-    if (!subscribed) return 'Free Plan';
-    if (onTrial) return 'Premium Trial';
-    return 'Premium Plan';
-  };
-
-  const getPlanPrice = () => {
-    if (!subscribed) return '$0/month';
-    return '$4.99/month';
-  };
+  const planName = !subscribed ? 'Free' : onTrial ? 'Premium, on trial' : 'Premium';
+  const planPrice = subscribed ? '$4.99 a month' : '$0 a month';
+  const facts: Array<[string, string]> = [];
+  if (onTrial && daysLeftInTrial !== null) facts.push(['trial days left', `${daysLeftInTrial} ${daysLeftInTrial === 1 ? 'day' : 'days'}`]);
+  if (onTrial && trialEnd) facts.push(['trial ends', format(new Date(trialEnd), 'MMM d, yyyy')]);
+  if (subscribed && !onTrial && subscriptionEnd) facts.push(['next billing date', format(new Date(subscriptionEnd), 'MMM d, yyyy')]);
+  if (subscribed && subscriptionStatus) facts.push(['status', subscriptionStatus]);
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Crown className="h-5 w-5" />
-          <CardTitle>Subscription</CardTitle>
-        </div>
-        <CardDescription>
-          Manage your premium subscription
-        </CardDescription>
+        <CardTitle>Subscription</CardTitle>
+        <CardDescription>Your plan, and where to change it.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Current Plan Section */}
-        <div className="space-y-4">
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold">{getPlanName()}</h3>
-              <p className="text-2xl font-bold">{getPlanPrice()}</p>
-            </div>
-            <Badge 
-              variant={subscribed ? "default" : "secondary"}
-              className="text-sm"
-            >
-              {subscribed ? (onTrial ? 'Trial' : 'Active') : 'Free'}
-            </Badge>
+        <div className="flex flex-wrap items-start justify-between gap-4 border-t border-ink pt-4">
+          <div>
+            <h3 className="text-section-title font-medium text-ink">{planName}</h3>
+            <p className="mt-1 text-[28px] font-medium leading-tight tracking-[-0.03em] tabular-nums text-ink">{planPrice}</p>
           </div>
-
-          {/* Subscription Details */}
-          <div className="space-y-2 text-sm">
-            {onTrial && daysLeftInTrial !== null && (
-              <div className="flex items-center justify-between p-3 bg-accent rounded-lg">
-                <span className="text-muted-foreground">Trial Days Remaining</span>
-                <span className="font-semibold">{daysLeftInTrial} days</span>
-              </div>
-            )}
-            
-            {onTrial && trialEnd && (
-              <div className="flex items-center justify-between p-3 bg-accent rounded-lg">
-                <span className="text-muted-foreground">Trial Ends</span>
-                <span className="font-semibold">{format(new Date(trialEnd), 'MMM dd, yyyy')}</span>
-              </div>
-            )}
-
-            {subscribed && !onTrial && subscriptionEnd && (
-              <div className="flex items-center justify-between p-3 bg-accent rounded-lg">
-                <span className="text-muted-foreground">Next Billing Date</span>
-                <span className="font-semibold">{format(new Date(subscriptionEnd), 'MMM dd, yyyy')}</span>
-              </div>
-            )}
-
-            {subscribed && subscriptionStatus && (
-              <div className="flex items-center justify-between p-3 bg-accent rounded-lg">
-                <span className="text-muted-foreground">Status</span>
-                <span className="font-semibold capitalize">{subscriptionStatus}</span>
-              </div>
-            )}
-          </div>
+          <Tag variant={subscribed ? 'spot' : 'outline'}>{subscribed ? (onTrial ? 'trial' : 'active') : 'free'}</Tag>
         </div>
 
-        <Separator />
+        {facts.length > 0 && (
+          <div className="v2-tree">
+            {facts.map(([label, value]) => (
+              <FactRow key={label} label={label}>{value}</FactRow>
+            ))}
+          </div>
+        )}
 
-        {/* Action Buttons */}
         <div className="flex gap-2">
           {!subscribed ? (
-            <Button onClick={() => createCheckoutSession()} className="flex-1">
-              <Crown className="mr-2 h-4 w-4" />
-              Start 7-Day Free Trial
+            <Button onClick={() => createCheckoutSession()} className="h-11 flex-1 text-[15px]">
+              Start the 7-day free trial
             </Button>
           ) : (
-            <Button 
-              onClick={() => openCustomerPortal()} 
-              variant="outline" 
-              className="flex-1"
+            <Button
+              onClick={() => openCustomerPortal()}
+              variant="outline"
+              className="h-11 flex-1 text-[15px]"
             >
-              Manage Subscription
-              <ExternalLink className="ml-2 h-4 w-4" />
+              Manage subscription
+              <ArrowUpRight className="h-4 w-4" />
             </Button>
           )}
           <Button
             variant="outline"
             size="icon"
+            className="h-11 w-11"
             onClick={() => checkSubscription()}
             title="Refresh subscription status"
+            aria-label="Refresh subscription status"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
 
-        {/* Premium Features */}
         <div className="space-y-3 pt-2">
-          <h3 className="text-sm font-semibold">Premium Features</h3>
-          <div className="grid gap-2">
+          <h3 className="font-pixel text-pixel text-ink">what premium includes</h3>
+          <ul className="grid gap-2">
             {[
-              'Unlimited AI-powered insights',
-              'Advanced search capabilities',
-              'Chat with your entire content library',
+              'Unlimited summaries, transcripts and enrichment',
+              'Search by meaning, not just keywords',
+              'Ask about everything you’ve saved',
               'Priority support',
               'Early access to new features'
-            ].map((feature, index) => (
-              <div key={index} className="flex items-center gap-2 text-sm">
-                <Check className={`h-4 w-4 ${subscribed ? 'text-primary' : 'text-muted-foreground'}`} />
-                <span className={subscribed ? '' : 'text-muted-foreground'}>{feature}</span>
-              </div>
+            ].map((feature) => (
+              <li key={feature} className="flex items-center gap-2.5 text-[15px]">
+                <span className={`grid h-5 w-5 flex-none place-items-center ${subscribed ? 'bg-ink text-spot-on-ink' : 'border border-line text-muted-foreground'}`}>
+                  <Check className="h-3 w-3" />
+                </span>
+                <span className={subscribed ? 'text-ink' : 'text-muted-foreground'}>{feature}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </CardContent>
     </Card>

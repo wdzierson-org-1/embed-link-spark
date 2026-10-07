@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   ASSEMBLY_WINDOW_MS,
+  DOCUMENT_READING_WINDOW_MS,
   isAssembling,
   isPlaceholderImageTitle,
+  isReadingDocument,
   itemAgeMs,
   landedPieces,
   missingPieces,
@@ -106,5 +108,29 @@ describe('explicit enrichment lifecycle', () => {
   });
   it('retires an interrupted worker instead of leaving a permanent spinner', () => {
     expect(isAssembling({ id: 'link', attributes: { enrichment: { status: 'pending', updated_at: secondsAgo(601) } } }, NOW)).toBe(false);
+  });
+});
+
+describe('isReadingDocument', () => {
+  const pdf = (over: Record<string, unknown> = {}) => ({
+    id: 'd1',
+    type: 'document',
+    mime_type: 'application/pdf',
+    summary: null,
+    created_at: secondsAgo(30),
+    ...over,
+  });
+
+  it('reads a PDF without its summary while the window is open', () => {
+    expect(isReadingDocument(pdf(), NOW)).toBe(true);
+  });
+
+  it('stops claiming work once the window closes (a failed extraction writes nothing)', () => {
+    expect(isReadingDocument(pdf({ created_at: secondsAgo(DOCUMENT_READING_WINDOW_MS / 1000 + 1) }), NOW)).toBe(false);
+  });
+
+  it('is done as soon as the summary lands, and never applies to office files', () => {
+    expect(isReadingDocument(pdf({ summary: 'A summary' }), NOW)).toBe(false);
+    expect(isReadingDocument(pdf({ mime_type: 'application/vnd.ms-excel' }), NOW)).toBe(false);
   });
 });

@@ -1,32 +1,39 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { St4shSymbol } from '@/components/brand/St4sh';
+import { PaperBackdrop } from '@/components/machine/PaperBackdrop';
+import { LOADING_LINES, takeLoadingLine, useDecryptCycle } from '@/components/machine/decryptCycle';
 
 /**
- * Loading interstitial for /home: a conventional arc spinner, done carefully —
- * hairline grey track, violet rounded-cap arc, quiet grey wash. It's on screen
- * for a split second, so nothing here demands attention (DESIGN.md: Motion).
- * Honors prefers-reduced-motion via the motion-reduce utility (static arc).
+ * Loading interstitial for /home (DESIGN-v2 §8, "decrypt"): the library's paper, the Stash
+ * symbol, and a terminal line in the code voice that decrypts behind a spot head, holds, and
+ * scrambles over to the next. Each load opens one line further on ("opening your stash", "the
+ * door creaks open…", "hey, you <3"), so it greets you differently every time. Screen readers
+ * hear one plain label; under reduced motion the line is simply there, still.
  */
-const LoadingInterstitial = () => (
-  <div className="flex min-h-screen items-center justify-center bg-[#f7f7f9] font-montreal">
-    <svg
-      viewBox="0 0 40 40"
-      className="h-9 w-9 animate-spin [animation-duration:0.9s] motion-reduce:animate-none"
-      role="img"
-      aria-label="Loading"
-    >
-      <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(20,22,30,0.08)" strokeWidth="3.5" />
-      <circle
-        cx="20"
-        cy="20"
-        r="16"
-        fill="none"
-        stroke="#6d5bd0"
-        strokeWidth="3.5"
-        strokeLinecap="round"
-        strokeDasharray="26 75"
-      />
-    </svg>
-  </div>
-);
+const LoadingInterstitial = () => {
+  const [start] = useState(() => takeLoadingLine());
+  const { cells } = useDecryptCycle(LOADING_LINES, start);
+
+  return (
+    <div className="relative isolate flex min-h-screen items-center justify-center bg-paper px-6">
+      <PaperBackdrop />
+      <div role="status" aria-label="Opening your stash" className="w-[34ch] max-w-full font-code text-[15px] leading-[1.6] sm:text-[17px]">
+        <St4shSymbol className="mb-5 h-7 w-[27px] text-ink" />
+        <p aria-hidden className="whitespace-pre text-ink [font-variant-ligatures:none]">
+          <span className="text-ink-muted">&gt; </span>
+          {cells.map((cell, index) => (
+            <span
+              key={index}
+              className={cell.head ? 'bg-spot text-spot-on' : cell.settled ? undefined : 'text-ink-muted'}
+            >
+              {cell.ch}
+            </span>
+          ))}
+          <span className="v2-caret" />
+        </p>
+      </div>
+    </div>
+  );
+};
 
 export default LoadingInterstitial;

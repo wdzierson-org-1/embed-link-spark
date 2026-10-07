@@ -1,8 +1,13 @@
 # DESIGN.md — the Stash design system
 
-> **Next system:** `DESIGN-v2.md` ("clean objects, DIY machinery", from the October 2026
-> homepage prototype) is the target for the coming web-app and iOS redesigns. It is **not live**:
-> keep following this file until a surface's redesign starts, and don't mix the two on one screen.
+> **`DESIGN-v2.md` is now the design system of reference** (Will, 2026-10-06). The web app
+> (library, composer, Ask, item panel, settings, conversations, public feed, discover, admin) runs
+> on it as of the `app-redesign-v2` branch, and it is the target for the iOS app, the share
+> extension and the Chrome extension. This file now records only the surfaces that haven't moved:
+> the live marketing, pricing, legal and auth pages in `src/`, the iOS app and share extension
+> (`StashDesign.swift`), and the Chrome extension; and it keeps the platform rules v2 builds on
+> (iOS type roles, Controls (iOS), the contrast method). Start any new UI work from
+> `DESIGN-v2.md`, and don't mix the two systems on one screen.
 
 This file is the single source of truth for how Stash looks and feels, on every
 surface: the **web app** (`src/`), the **marketing homepage** (`src/pages/Landing.tsx`),

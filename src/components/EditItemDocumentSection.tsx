@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Download, ExternalLink } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { renderPdfFirstPage } from '@/utils/pdfPreview';
+import { PixelMosaic } from '@/components/machine/PixelMosaic';
 
 interface EditItemDocumentSectionProps {
   filePath: string;
@@ -41,7 +42,10 @@ const EditItemDocumentSection = ({ filePath, fileName, mimeType }: EditItemDocum
   return (
     <div>
       {preview.loading && (
-        <div className="h-64 animate-pulse rounded-[14px] border border-black/[0.07] bg-black/[0.03] motion-reduce:animate-none" />
+        // The first page not yet rendered: the unresolved mosaic, as on a card being read
+        <div className="h-64 overflow-hidden border border-line bg-fill">
+          <PixelMosaic />
+        </div>
       )}
       {preview.url && (
         <button
@@ -49,17 +53,17 @@ const EditItemDocumentSection = ({ filePath, fileName, mimeType }: EditItemDocum
           onClick={handleOpenDocument}
           title="Open document in new tab"
           aria-label="Open document in new tab"
-          className="group/preview relative block w-full overflow-hidden rounded-[14px] border border-black/[0.07] bg-white shadow-[0_1px_2px_rgba(20,22,30,0.05),0_8px_24px_rgba(30,33,44,0.08)] transition-shadow hover:shadow-[0_2px_4px_rgba(20,22,30,0.06),0_14px_36px_rgba(30,33,44,0.13)]"
+          className="group/preview relative block w-full overflow-hidden rounded-object border border-line bg-white shadow-object transition-[border-color,box-shadow,transform] duration-150 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:border-ink hover:shadow-print"
         >
           <img
             src={preview.url}
             alt={`First page of ${fileName || 'document'}`}
             className="max-h-96 w-full object-contain object-top"
           />
-          <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/25 via-transparent to-transparent pb-3 opacity-0 transition-opacity group-hover/preview:opacity-100">
-            <span className="flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-xs font-medium text-gray-800 shadow-md">
+          <div className="pointer-events-none absolute inset-0 flex items-end justify-center pb-3 opacity-0 transition-opacity group-hover/preview:opacity-100">
+            <span className="flex items-center gap-1.5 bg-ink px-2 pb-[5px] pt-1.5 font-pixel text-pixel leading-none text-white">
               <ExternalLink className="h-3 w-3" />
-              Open document
+              open document
             </span>
           </div>
         </button>
@@ -71,17 +75,17 @@ const EditItemDocumentSection = ({ filePath, fileName, mimeType }: EditItemDocum
           download
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs text-[#959ba6] transition-colors hover:text-[#6d5bd0]"
+          className="inline-flex items-center gap-1.5 font-pixel text-pixel text-muted-foreground underline-offset-2 transition-colors hover:text-ink hover:underline"
         >
-          <Download className="h-[13px] w-[13px]" />
-          Download original
+          <Download className="h-3 w-3" />
+          download original
         </a>
         <button
           onClick={handleOpenDocument}
-          className="inline-flex items-center gap-1.5 text-xs text-[#959ba6] transition-colors hover:text-[#6d5bd0]"
+          className="inline-flex items-center gap-1.5 font-pixel text-pixel text-muted-foreground underline-offset-2 transition-colors hover:text-ink hover:underline"
         >
-          <ExternalLink className="h-[13px] w-[13px]" />
-          Open document
+          <ExternalLink className="h-3 w-3" />
+          open document
         </button>
       </div>
     </div>

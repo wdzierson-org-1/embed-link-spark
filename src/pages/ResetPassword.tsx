@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import StashWordmark from '@/components/StashWordmark';
+import { AuthShell, FieldError } from '@/components/auth/AuthShell';
+import { Spinner, StatusLine } from '@/components/machine/Machine';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 
 // Landing page for the password-recovery email link. supabase-js turns the
 // `#access_token…&type=recovery` hash into a session on load; once that session
 // exists the user sets a new password with updateUser and is signed in.
 //
-// Visual tokens mirror Auth.tsx (DESIGN.md quiet inputs, violet-600 CTA).
-const quietInput =
-  'h-11 rounded-xl border-black/[0.07] bg-white px-3.5 text-[15px] text-[#22262f] placeholder:text-[#959ba6] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0';
-const primaryCta =
-  'h-11 w-full rounded-xl bg-[#6d5bd0] text-[15px] font-medium text-white hover:bg-[#5f4ec2] focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0';
-const textLink =
-  'rounded text-sm text-[#646b76] underline-offset-4 hover:text-[#22262f] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b6a8ef]';
+// Wears the sign-in shell (AuthShell, DESIGN-v2 §12.14): Montreal labels over square fields,
+// one ink button, errors as machine lines.
+const field = 'h-11 text-[15px] md:text-[15px]';
 
 const MIN_LENGTH = 8;
 
@@ -106,68 +105,77 @@ const ResetPassword = ({ expiryGraceMs = 2500 }: ResetPasswordProps) => {
     navigate('/home');
   };
 
+  const copy =
+    status === 'checking'
+      ? { title: 'Checking your link.', prompt: 'one moment…' }
+      : status === 'expired'
+        ? { title: 'This reset link has expired.', prompt: 'links work once, and only for an hour.' }
+        : { title: 'Choose a new password.', prompt: 'make it a good one.' };
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#f7f7f9] font-montreal">
-      <div className="animated-gradient pointer-events-none absolute inset-0 opacity-30" />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[#f7f7f9]/60 to-[#f7f7f9]" />
+    <AuthShell address="stash://new-password" title={copy.title} prompt={copy.prompt}>
+      {status === 'checking' && <StatusLine tone="busy">checking your reset link…</StatusLine>}
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
-        <div className="w-full max-w-[400px] rounded-[20px] border border-black/[0.07] bg-white px-7 py-8 shadow-[0_2px_6px_rgba(20,22,30,0.05),0_24px_70px_rgba(30,33,44,0.16)] sm:px-8">
-          <div className="flex justify-center">
-            <StashWordmark className="h-6 text-[#22262f]" />
-          </div>
-
-          {status === 'checking' && (
-            <p className="mt-4 text-center text-sm text-[#646b76]">Checking your reset link…</p>
-          )}
-
-          {status === 'expired' && (
-            <div className="mt-4 space-y-4 text-center">
-              <p className="text-[15px] font-medium text-[#22262f]">This reset link has expired</p>
-              <p className="text-sm text-[#646b76]">
-                Links work once and only for an hour. Ask for a fresh one and try again.
-              </p>
-              <Link to="/auth?mode=reset" className={textLink}>
-                Request a new link
-              </Link>
-            </div>
-          )}
-
-          {(status === 'ready' || status === 'saving') && (
-            <>
-              <p className="mt-4 text-center text-sm text-[#646b76]">Choose a new password.</p>
-              <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-                <div className="space-y-2.5">
-                  <Input
-                    type="password"
-                    placeholder="New password"
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    autoFocus
-                    className={quietInput}
-                  />
-                  <Input
-                    type="password"
-                    placeholder="Confirm new password"
-                    autoComplete="new-password"
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    required
-                    className={quietInput}
-                  />
-                </div>
-                {formError && <p className="text-xs text-[#c93a3a]">{formError}</p>}
-                <Button type="submit" className={primaryCta} disabled={status === 'saving'}>
-                  {status === 'saving' ? 'Updating…' : 'Update password'}
-                </Button>
-              </form>
-            </>
-          )}
+      {status === 'expired' && (
+        <div className="space-y-5">
+          <p className="text-[15px] leading-[1.55] text-muted-foreground">
+            Links work once and only for an hour. Ask for a fresh one and try again.
+          </p>
+          <Link
+            to="/auth?mode=reset"
+            className="font-pixel text-pixel text-ink underline underline-offset-[3px] hover:bg-ink hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink"
+          >
+            Request a new link
+          </Link>
         </div>
-      </div>
-    </div>
+      )}
+
+      {(status === 'ready' || status === 'saving') && (
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-2">
+            <Label htmlFor="new-password">New password</Label>
+            <Input
+              id="new-password"
+              type="password"
+              placeholder="At least 8 characters"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoFocus
+              className={field}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirm-password">Confirm new password</Label>
+            <Input
+              id="confirm-password"
+              type="password"
+              placeholder="The same again"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              className={field}
+            />
+          </div>
+          {formError && <FieldError>{formError}</FieldError>}
+          <Button type="submit" disabled={status === 'saving'} className="h-11 w-full justify-between px-4 text-[15px] font-medium">
+            {status === 'saving' ? (
+              <span className="flex items-baseline gap-[0.5ch] font-pixel text-pixel">
+                <Spinner />
+                updating…
+              </span>
+            ) : (
+              <>
+                <span>Update password</span>
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
+          </Button>
+        </form>
+      )}
+    </AuthShell>
   );
 };
 

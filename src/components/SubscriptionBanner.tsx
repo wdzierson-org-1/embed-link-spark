@@ -1,4 +1,4 @@
-import { Crown, ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useState } from 'react';
@@ -53,11 +53,10 @@ const SubscriptionBanner = () => {
     return (
       <button
         onClick={() => setMinimizedPersisted(false)}
-        className="flex w-full items-center justify-between rounded-xl border border-violet-200/50 bg-gradient-to-r from-violet-50/80 to-fuchsia-50/60 px-4 py-1.5 text-xs text-violet-700/80 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:from-violet-50 hover:to-fuchsia-50 transition-colors"
+        className="flex w-full items-center justify-between border border-line bg-white px-3 py-1.5 font-pixel text-pixel text-ink transition-colors hover:border-ink"
       >
-        <span className="flex items-center gap-1.5">
-          <Crown className="h-3 w-3" />
-          Trial · {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} left
+        <span>
+          trial · {daysLeftInTrial} {daysLeftInTrial === 1 ? 'day' : 'days'} left
         </span>
         <ChevronDown className="h-3 w-3 opacity-60" />
       </button>
@@ -65,52 +64,49 @@ const SubscriptionBanner = () => {
   }
 
   return (
+    // DESIGN-v2: the plan is the machine's business, so a square strip with an ink edge; when it
+    // matters now (trial nearly over, or paused) it takes the spot field, the one action that counts
     <div
-      className={`flex items-center justify-between gap-4 rounded-2xl border px-5 py-3.5 shadow-[0_1px_3px_rgba(0,0,0,0.05),0_8px_24px_rgba(160,120,200,0.12)] ${
-        urgent
-          ? 'border-amber-200/70 bg-gradient-to-r from-amber-50 to-orange-50/70'
-          : 'border-violet-200/50 bg-gradient-to-r from-violet-50/90 via-white to-fuchsia-50/70'
+      className={`flex items-center justify-between gap-4 border border-ink px-4 py-3 ${
+        urgent ? 'bg-spot text-spot-on' : 'bg-white text-ink'
       }`}
     >
       <div className="flex min-w-0 items-center gap-3.5">
-        <div className={`grid h-10 w-10 flex-none place-items-center rounded-xl shadow-inner ${urgent ? 'bg-gradient-to-b from-amber-400 to-orange-500' : 'bg-gradient-to-b from-violet-400 to-fuchsia-500'}`}>
-          <Crown className="h-5 w-5 text-white" />
-        </div>
+        <span className="flex-none bg-ink px-1.5 pb-[3px] pt-1 font-pixel text-pixel leading-none text-white">
+          {isPaused ? 'trial ended' : `trial · ${daysLeftInTrial} ${daysLeftInTrial === 1 ? 'day' : 'days'} left`}
+        </span>
         <div className="min-w-0">
           {isPaused ? (
             <>
-              <h3 className="text-sm font-semibold text-foreground">Trial ended — your stash is read-only</h3>
-              <p className="truncate text-[13px] text-muted-foreground">
-                Add a payment method to keep capturing and asking.
+              <h3 className="text-[15px] font-medium">Your stash is read-only</h3>
+              <p className={`truncate text-[14px] ${urgent ? 'opacity-80' : 'text-muted-foreground'}`}>
+                Add a payment method to keep saving and asking.
               </p>
             </>
           ) : (
             <>
-              <h3 className="text-sm font-semibold text-foreground">
+              <h3 className="text-[15px] font-medium">
                 {daysLeftInTrial < 2
                   ? `Your trial ends ${trialEndDate ? `on ${trialEndDate}` : 'soon'}`
                   : `${daysLeftInTrial} days left in your free trial`}
               </h3>
-              <p className="truncate text-[13px] text-muted-foreground">
-                Keep everything for $4.99/month. Cancel anytime.
+              <p className={`truncate text-[14px] ${urgent ? 'opacity-80' : 'text-muted-foreground'}`}>
+                Keep everything for $4.99 a month. Cancel anytime.
               </p>
             </>
           )}
         </div>
       </div>
       <div className="flex flex-none items-center gap-1.5">
-        <Button
-          onClick={openCustomerPortal}
-          size="sm"
-          className={`rounded-full px-4 shadow-sm ${urgent ? 'bg-gray-900 hover:bg-gray-800' : 'bg-gray-900 hover:bg-gray-800'}`}
-        >
+        <Button onClick={openCustomerPortal} size="sm" className="h-9 bg-ink px-4 text-[14px] text-white hover:bg-ink-soft">
           {isPaused ? 'Add payment method' : 'Get Premium'}
         </Button>
         {!isPaused && (
           <button
             onClick={() => setMinimizedPersisted(true)}
             title="Minimize"
-            className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground/70 hover:bg-black/5 hover:text-muted-foreground"
+            aria-label="Minimize"
+            className="grid h-9 w-9 place-items-center hover:bg-ink hover:text-white"
           >
             <ChevronUp className="h-4 w-4" />
           </button>

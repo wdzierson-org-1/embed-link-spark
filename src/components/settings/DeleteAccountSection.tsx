@@ -59,7 +59,7 @@ const DeleteAccountSection = () => {
   };
 
   return (
-    <Card className="border-[#c93a3a]/25">
+    <Card className="border-error">
       <CardHeader>
         <CardTitle>Delete account</CardTitle>
         <CardDescription>
@@ -78,7 +78,7 @@ const DeleteAccountSection = () => {
               <AlertDialogTitle>Delete your account?</AlertDialogTitle>
               <AlertDialogDescription>
                 This removes your whole stash and signs you out everywhere. Type{' '}
-                <span className="font-mono font-semibold text-[#22262f]">{CONFIRM_WORD}</span> to confirm.
+                <span className="bg-fill px-1 pb-px pt-0.5 font-pixel text-pixel text-ink">{CONFIRM_WORD}</span> to confirm.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <Input
@@ -99,7 +99,7 @@ const DeleteAccountSection = () => {
                   e.preventDefault();
                   handleDelete();
                 }}
-                className="bg-[#c93a3a] text-white hover:bg-[#b23232]"
+                className="bg-error text-white hover:bg-error hover:opacity-90"
               >
                 {deleting ? 'Deleting…' : 'Delete everything'}
               </AlertDialogAction>

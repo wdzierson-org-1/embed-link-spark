@@ -4,18 +4,19 @@ import type { JSONContent } from 'novel';
 import { Card } from '@/components/ui/card';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
 import ContentItemHeader from '@/components/ContentItemHeader';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemFooter from '@/components/ContentItemFooter';
 import VideoLightbox from '@/components/VideoLightbox';
 import ChatInterface from '@/components/ChatInterface';
+import { StatusLine } from '@/components/machine/Machine';
 import type { Attachment } from '@/components/CollectionAttachments';
 import { supabase } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
 import {
   enrichmentState,
+  isReadingDocument,
   missingPieces,
   itemAgeMs,
   REVEAL_TTL_MS,
@@ -96,13 +97,18 @@ const ContentItem = ({
   const isAssemblingNow = assemblyState === 'pending';
   const isFullyEnriched = assemblyState === 'complete' && (item.attributes?.enrichment?.status === 'complete' || missingPieces(item).length === 0);
 
-  // While assembling, tick so the pulse honestly retires when the window
+  // A PDF still extracting counts as being read only within its window (a failed extraction
+  // writes nothing, so it would otherwise claim work forever)
+  const isReadingPdf = !isPublicView && isReadingDocument(item, nowMs);
+  const pdfGaveUp = !isPublicView && isProcessing && !isReadingPdf;
+
+  // While assembling, tick so the reading state honestly retires when its window
   // closes even if no further updates arrive (e.g. an enrichment step died)
   useEffect(() => {
-    if (!isAssemblingNow) return;
+    if (!isAssemblingNow && !isReadingPdf) return;
     const timer = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(timer);
-  }, [isAssemblingNow]);
+  }, [isAssemblingNow, isReadingPdf]);
 
   // One completion beat when the last expected piece lands
   const wasAssemblingRef = useRef(isAssemblingNow);
@@ -117,8 +123,29 @@ const ContentItem = ({
     }
   }, [isAssemblingNow, isFullyEnriched]);
 
-  // Cards born moments ago rise into the feed (realtime insert / first paint)
+  // Cards born moments ago print into the feed (realtime insert / first paint)
   const [enteredFresh] = useState(() => itemAgeMs(item, Date.now()) < 15_000);
+
+  // The machine line under the title (DESIGN-v2 "while reading"): the `| / - \` cursor from the
+  // share sheet, saying honestly what Stash is still waiting on for this kind of save
+  const busyLabel = isReadingPdf
+    ? 'reading the pdf'
+    : item.type === 'audio' || item.type === 'video'
+      ? 'transcribing'
+      : item.type === 'image'
+        ? 'reading the picture'
+        : 'gathering more info';
+  // Visitors to a public feed never see the machine at work, only the save
+  const isReading = !isPublicView && (isAssemblingNow || isReadingPdf);
+  const statusLine = isReading ? (
+    <StatusLine tone="busy">{busyLabel}…</StatusLine>
+  ) : showAssembled ? (
+    <StatusLine tone="done">filled in</StatusLine>
+  ) : assemblyState === 'partial' || pdfGaveUp ? (
+    <StatusLine tone="idle">some info unavailable</StatusLine>
+  ) : null;
+  const awaitingDescription =
+    isReading && (isReadingPdf || missingPieces(item).includes('description'));
 
   const revealIsFresh = (piece: AssemblyPiece) => {
     const at = assemblyReveals?.[piece];
@@ -228,31 +255,31 @@ const ContentItem = ({
     
     return (
       <div className="absolute top-2 -left-4 z-40">
-        <div 
-          className="bg-yellow-50/90 backdrop-blur-sm border border-amber-200/40 rounded-lg p-3 shadow-md hover:shadow-lg transition-all duration-200 max-w-60 cursor-pointer group/note relative"
+        <div
+          className="group/note relative max-w-60 cursor-pointer border border-ink bg-white p-3 shadow-print-sm transition-transform duration-200"
           style={{ transform: `rotate(${randomAngle}deg) skew(0deg, 2deg)` }}
           onClick={() => shouldTruncate && setIsNoteExpanded(!isNoteExpanded)}
           onMouseEnter={(e) => e.currentTarget.style.transform = 'rotate(0deg) skew(0deg, 0deg)'}
           onMouseLeave={(e) => e.currentTarget.style.transform = `rotate(${randomAngle}deg) skew(0deg, 2deg)`}
         >
           {!isPublicView && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="absolute -top-2 -right-2 h-6 w-6 p-0 opacity-0 group-hover/note:opacity-100 transition-opacity bg-red-50 hover:bg-red-100 border border-red-200"
+            <button
+              type="button"
+              aria-label="Delete sticky note"
+              className="absolute -right-2 -top-2 grid h-6 w-6 place-items-center bg-ink text-white opacity-0 transition-opacity hover:bg-error group-hover/note:opacity-100 focus-visible:opacity-100"
               onClick={(e) => {
                 e.stopPropagation();
                 setShowDeleteConfirm(true);
               }}
             >
-              <X className="h-3 w-3 text-red-600" />
-            </Button>
+              <X className="h-3 w-3" />
+            </button>
           )}
-          <div className="text-sm text-yellow-800">
+          <div className="text-[13px] italic leading-snug text-ink/85">
             {shouldTruncate && !isNoteExpanded ? (
               <>
                 {displayText}
-                <span className="text-yellow-600 font-medium ml-1">...</span>
+                <span className="ml-1 not-italic text-muted-foreground">…</span>
               </>
             ) : (
               displayText
@@ -269,34 +296,16 @@ const ContentItem = ({
     <TooltipProvider>
       {/* No overflow-hidden here — the sticky-note overlay hangs past the card
           edge; the image wrapper clips its own top corners instead */}
-      <Card className={`group flex flex-col h-full bg-card border-0 shadow-[0_1px_2px_rgba(20,22,30,0.05),0_8px_24px_rgba(30,33,44,0.08)] hover:shadow-[0_2px_4px_rgba(20,22,30,0.06),0_14px_36px_rgba(30,33,44,0.13)] hover:-translate-y-0.5 transition-all duration-200 relative rounded-2xl ${
-        enteredFresh ? 'animate-card-enter' : ''
-      }`}>
+      <Card
+        aria-busy={isReading}
+        className={`group relative flex h-full flex-col rounded-object border border-line bg-white shadow-object transition-[transform,box-shadow,border-color] duration-150 ease-v2 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:border-ink hover:shadow-print motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:hover:translate-y-0 ${
+          enteredFresh ? 'v2-arrive' : ''
+        }`}
+      >
         {/* Note Overlay */}
         {renderNoteOverlay()}
 
-        {/* Assembling thumper: enrichment is landing on this card right now */}
-        {(isAssemblingNow || showAssembled || assemblyState === 'partial') && (
-          <div className="absolute top-2 left-2 z-30 animate-chip-pop">
-            <span role="status" className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.06] bg-white/85 px-2.5 py-1 text-[11px] font-medium text-foreground/70 shadow-sm backdrop-blur-sm">
-              {isAssemblingNow ? (
-                <>
-                  <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-assembly-dot" aria-hidden />
-                  Gathering more information…
-                </>
-              ) : assemblyState === 'partial' ? (
-                <>Some information unavailable</>
-              ) : (
-                <>
-                  <span className="text-emerald-600" aria-hidden>✓</span>
-                  Filled in
-                </>
-              )}
-            </span>
-          </div>
-        )}
-
-        <div className={`flex flex-1 flex-col transition-opacity duration-500 motion-reduce:transition-none ${isAssemblingNow ? 'opacity-50' : 'opacity-100'}`} aria-busy={isAssemblingNow}>
+        <div className="flex flex-1 flex-col">
         <ContentItemHeader
           item={item}
           imageErrors={imageErrors}
@@ -305,23 +314,12 @@ const ContentItem = ({
           onVideoExpand={() => setIsVideoLightboxOpen(true)}
           isPublicView={isPublicView}
           reveals={headerReveals}
+          reading={isReading}
+          status={statusLine}
         />
 
-        <div className="flex flex-col flex-1 p-6 pt-0">
-          {/* Content section with processing overlay */}
-          <div className="flex-1 mb-4 relative">
-            {isProcessing && (
-              <div className="absolute inset-0 bg-background/60 backdrop-blur-[2px] rounded-lg flex items-center justify-center z-10">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="animate-pulse flex gap-1">
-                    <div className="h-2 w-2 bg-primary rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                    <div className="h-2 w-2 bg-primary rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                    <div className="h-2 w-2 bg-primary rounded-full animate-bounce"></div>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Extracting content...</p>
-                </div>
-              </div>
-            )}
+        <div className="flex flex-1 flex-col px-5 pb-3.5 pt-2.5">
+          <div className="mb-3.5 flex-1">
             <ContentItemContent
               item={item}
               expandedContent={expandedContent}
@@ -329,10 +327,11 @@ const ContentItem = ({
               isPublicView={isPublicView}
               collectionAttachments={collectionAttachments}
               revealDescription={contentReveal}
+              awaitingDescription={awaitingDescription}
               onNoteSaved={onTagsUpdated}
             />
           </div>
-          
+
           {/* Bottom section with date, location pin, and overflow menu */}
           <ContentItemFooter
             item={item}
@@ -369,14 +368,14 @@ const ContentItem = ({
         <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete Note</AlertDialogTitle>
+              <AlertDialogTitle>Delete this sticky note?</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete this sticky note? This action cannot be undone.
+                It comes off the shared item for good. This can't be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDeleteNote} className="bg-red-600 hover:bg-red-700">
+              <AlertDialogAction onClick={handleDeleteNote} className="bg-error hover:bg-error hover:opacity-90">
                 Delete
               </AlertDialogAction>
             </AlertDialogFooter>

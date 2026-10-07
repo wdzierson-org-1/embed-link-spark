@@ -56,7 +56,7 @@ describe('Auth — forgot password', () => {
 
   it('sends the reset email with the app redirect and confirms without leaking existence', async () => {
     renderAuth('/auth?mode=reset');
-    fireEvent.change(screen.getByPlaceholderText('Email'), { target: { value: 'will@example.com' } });
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'will@example.com' } });
     fireEvent.click(screen.getByRole('button', { name: /send reset link/i }));
 
     await waitFor(() => expect(mockReset).toHaveBeenCalledTimes(1));
@@ -74,7 +74,7 @@ describe('Auth — forgot password', () => {
       error: { message: 'For security purposes, you can only request this after 52 seconds.', status: 429 },
     } as never);
     renderAuth('/auth?mode=reset');
-    fireEvent.change(screen.getByPlaceholderText('Email'), { target: { value: 'will@example.com' } });
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'will@example.com' } });
     fireEvent.click(screen.getByRole('button', { name: /send reset link/i }));
 
     await waitFor(() => expect(mockToast).toHaveBeenCalledTimes(1));
@@ -86,5 +86,20 @@ describe('Auth — forgot password', () => {
     renderAuth('/auth?mode=reset');
     fireEvent.click(screen.getByRole('button', { name: /back to sign in/i }));
     expect(screen.getByRole('tab', { name: /sign in/i })).toBeTruthy();
+  });
+});
+
+describe('Auth — credentials for password managers', () => {
+  it('marks the email as the login on both forms, and keeps the @handle out of it', () => {
+    renderAuth('/auth?mode=signup');
+    expect(screen.getByLabelText('Email')).toHaveAttribute('autocomplete', 'username');
+    expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'new-password');
+    expect(screen.getByLabelText('Username')).toHaveAttribute('autocomplete', 'off');
+  });
+
+  it('fills the sign-in email as the saved login', () => {
+    renderAuth('/auth');
+    expect(screen.getByLabelText('Email')).toHaveAttribute('autocomplete', 'username');
+    expect(screen.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password');
   });
 });

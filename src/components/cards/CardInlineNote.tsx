@@ -70,7 +70,9 @@ export default function CardInlineNote({ item, readOnly, onSaved }: Props) {
     }
   };
 
-  if (readOnly) return preview ? <p className="line-clamp-5 whitespace-pre-wrap text-sm text-foreground/75">{preview}</p> : null;
+  // The person's own words: italic Montreal on a 2 px ink bar (DESIGN-v2 §15: the v1 violet
+  // bar becomes ink), never mistaken for what Stash extracted
+  if (readOnly) return preview ? <p className="line-clamp-5 whitespace-pre-wrap border-l-2 border-ink pl-3 text-sm italic leading-[1.42] text-ink/80">{preview}</p> : null;
 
   if (!editing) return (
     <div className="relative">
@@ -86,15 +88,15 @@ export default function CardInlineNote({ item, readOnly, onSaved }: Props) {
           setEditing(true);
         }}
         className={`${preview
-          ? 'relative block w-full rounded-r-md border-l-2 border-violet-300 py-1 pl-3 pr-2 text-left text-sm leading-snug text-foreground/75 transition-colors hover:bg-black/[0.04] focus-visible:bg-[rgba(109,91,208,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b6a8ef]'
-          : 'card-hover-control rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-black/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b6a8ef]'} ${justSaved ? 'card-note-saved' : ''}`}
+          ? 'relative block w-full border-l-2 border-ink py-0.5 pl-3 pr-2 text-left text-sm italic leading-[1.42] text-ink/80 transition-colors hover:bg-fill focus-visible:bg-fill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink'
+          : 'card-hover-control -ml-1 inline-flex items-center gap-1 px-1 py-0.5 text-[13px] text-muted-foreground hover:bg-fill hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink'} ${justSaved ? 'card-note-saved' : ''}`}
       >
-        {preview ? <span className="line-clamp-5 whitespace-pre-wrap">{preview}</span> : 'Add a note'}
+        {preview ? <span className="line-clamp-5 whitespace-pre-wrap">{preview}</span> : <><span aria-hidden>+</span> Add a note</>}
       </button>
       {justSaved && (
-        <span role="status" className="card-note-saved-indicator pointer-events-none absolute -top-3 right-0 inline-flex items-center gap-1 rounded-full bg-card px-1.5 py-0.5 text-[11px] font-medium text-[#6d5bd0]">
-          <Check aria-hidden="true" className="card-note-saved-check h-3 w-3" />
-          Saved
+        <span role="status" className="card-note-saved-indicator pointer-events-none absolute -top-3 right-0 inline-flex items-center gap-1 bg-ink px-1.5 pb-[3px] pt-1 font-pixel text-pixel leading-none text-white">
+          <Check aria-hidden="true" className="card-note-saved-check h-3 w-3 text-spot-on-ink" />
+          saved
         </span>
       )}
     </div>
@@ -122,7 +124,7 @@ export default function CardInlineNote({ item, readOnly, onSaved }: Props) {
           editorProps={{
             attributes: {
               role: 'textbox', 'aria-label': 'Card note', 'aria-multiline': 'true',
-              class: 'prose prose-sm max-w-none min-h-16 max-h-80 overflow-y-auto rounded-lg border-0 bg-[rgba(109,91,208,0.06)] px-3 py-2 text-sm text-foreground/75 shadow-none outline-none focus:outline-none focus:ring-2 focus:ring-[#b6a8ef] prose-p:my-1',
+              class: 'prose prose-sm max-w-none min-h-16 max-h-80 overflow-y-auto border border-ink bg-white px-3 py-2 text-sm italic text-ink/85 shadow-[0_0_0_3px_rgb(var(--spot-rgb))] outline-none focus:outline-none prose-p:my-1',
             },
             handleKeyDown: (view, event) => {
               if (event.isComposing || view.composing) return false;
@@ -145,11 +147,11 @@ export default function CardInlineNote({ item, readOnly, onSaved }: Props) {
           }}
         />
       </EditorRoot>
-      <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
-        <button type="button" disabled={saving} onClick={cancel} className="rounded px-2 py-1 hover:bg-black/[0.04]">Cancel</button>
-        <button type="button" disabled={saving} onClick={() => editorRef.current && void save(JSON.stringify(editorRef.current.getJSON()))} className="rounded px-2 py-1 font-medium text-primary hover:bg-black/[0.04]">{saving ? 'Saving…' : 'Save'}</button>
+      <div className="flex items-center justify-end gap-1.5 text-[13px]">
+        <button type="button" disabled={saving} onClick={cancel} className="h-7 px-2.5 text-muted-foreground hover:bg-fill hover:text-ink">Cancel</button>
+        <button type="button" disabled={saving} onClick={() => editorRef.current && void save(JSON.stringify(editorRef.current.getJSON()))} className="h-7 bg-ink px-2.5 font-medium text-white hover:bg-ink-soft disabled:opacity-60">{saving ? 'Saving…' : 'Save'}</button>
       </div>
-      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+      {error && <p role="alert" className="text-xs text-error">{error}</p>}
     </div>
   );
 }

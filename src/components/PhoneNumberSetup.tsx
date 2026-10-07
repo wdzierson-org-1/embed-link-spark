@@ -18,7 +18,7 @@ import { formatPhoneNumber, formatStoredPhoneNumber } from '@/utils/phoneNumber'
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Smartphone, Loader2, Trash2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
 
 const PhoneNumberSetup = () => {
   const { user } = useAuth();
@@ -104,32 +104,30 @@ const PhoneNumberSetup = () => {
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-2">
-            <Smartphone className="h-5 w-5" />
-            <CardTitle>Phone Number Setup</CardTitle>
-          </div>
+          <CardTitle>Phone &amp; WhatsApp</CardTitle>
           <CardDescription>
-            Register up to 3 phone numbers to send notes via SMS or WhatsApp
+            Register up to 3 phone numbers, then text or WhatsApp a link or a note to save it.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {registeredNumbers.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium">Registered Numbers ({registeredNumbers.length}/3)</h3>
+              <h3 className="font-pixel text-pixel text-muted-foreground">registered numbers · {registeredNumbers.length}/3</h3>
               <div className="space-y-2">
                 {registeredNumbers.map((number) => (
-                  <div key={number.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div key={number.id} className="flex items-center justify-between border border-line bg-white py-2 pl-3 pr-1.5">
                     <div className="flex items-center gap-3">
-                      <span className="font-mono">{formatStoredPhoneNumber(number.phone_number)}</span>
+                      <span className="font-code text-[15px] leading-none text-ink">{formatStoredPhoneNumber(number.phone_number)}</span>
                       <Badge variant={number.verified ? "default" : "secondary"}>
-                        {number.verified ? "Verified" : "Pending"}
+                        {number.verified ? "verified" : "pending"}
                       </Badge>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
+                      aria-label="Remove this number"
                       onClick={() => setDeleteNumber(number)}
-                      className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      className="h-8 w-8 text-error hover:bg-error hover:text-white"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -142,8 +140,8 @@ const PhoneNumberSetup = () => {
           {registeredNumbers.length < 3 && (
             <form onSubmit={handleRegister} className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="phone" className="text-sm font-medium">
-                  Add Phone Number
+                <label htmlFor="phone" className="text-label font-medium">
+                  Add a phone number
                 </label>
                 <Input
                   id="phone"
@@ -153,25 +151,33 @@ const PhoneNumberSetup = () => {
                   onChange={(e) => handlePhoneChange(e.target.value)}
                   disabled={isLoading}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Enter your US phone number (10 digits)
+                <p className="text-[13px] text-muted-foreground">
+                  A US number, 10 digits.
                 </p>
               </div>
 
               <Button type="submit" disabled={isLoading || !phoneInput}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Register Phone Number
+                Register number
               </Button>
             </form>
           )}
 
-          <div className="pt-4 border-t">
-            <h3 className="text-sm font-medium mb-2">How to Use WhatsApp</h3>
-            <div className="space-y-2 text-sm text-muted-foreground">
-              <p>1. Save the number +1 (302) 329-6893 to your contacts</p>
-              <p>2. Send a message on WhatsApp to start saving notes</p>
-              <p>3. Your notes will appear in your Stash automatically</p>
-            </div>
+          <div className="border-t border-ink pt-4">
+            <h3 className="mb-3 font-pixel text-pixel text-ink">save from whatsapp</h3>
+            {/* A real sequence, so numbered, in the machine voice (the homepage's .howto) */}
+            <ol className="space-y-2.5 text-[15px] text-muted-foreground">
+              {[
+                <>Save <span className="font-code text-[13.5px] text-ink">+1 (302) 329-6893</span> to your contacts.</>,
+                <>Send it a link or a note on WhatsApp.</>,
+                <>It lands in your stash, read and filed like anything else you save.</>,
+              ].map((step, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span className="grid h-6 w-6 flex-none place-items-center bg-ink font-pixel text-pixel text-white">{i + 1}</span>
+                  <span className="pt-0.5">{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         </CardContent>
       </Card>
@@ -179,12 +185,9 @@ const PhoneNumberSetup = () => {
       <AlertDialog open={!!deleteNumber} onOpenChange={() => setDeleteNumber(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Phone Number</AlertDialogTitle>
+            <AlertDialogTitle>Remove {deleteNumber && formatStoredPhoneNumber(deleteNumber.phone_number)}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to remove {deleteNumber && formatStoredPhoneNumber(deleteNumber.phone_number)}?
-              <br />
-              <br />
-              You will no longer be able to send notes from this number until you register it again.
+              Texts from this number stop saving to your stash until you register it again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -195,7 +198,7 @@ const PhoneNumberSetup = () => {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Remove Number
+              Remove number
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

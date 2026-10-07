@@ -20,6 +20,8 @@ const SheetOverlay = React.forwardRef<
   <SheetPrimitive.Overlay
     className={cn(
       "fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      // v2: a dithered paper scrim, the way a classic desktop greyed out what's behind a window
+      "v2:bg-[rgba(243,244,241,0.55)] v2:[background-image:radial-gradient(rgba(0,0,0,0.3)_0.9px,transparent_1.2px)] v2:[background-size:4px_4px]",
       className
     )}
     {...props}
@@ -29,7 +31,7 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName
 
 const sheetVariants = cva(
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-500 v2:border-ink v2:bg-white v2:shadow-none",
   {
     variants: {
       side: {
@@ -63,7 +65,8 @@ const SheetContent = React.forwardRef<
       {...props}
     >
       {children}
-      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary v2:right-1.5 v2:top-1.5 v2:z-10 v2:grid v2:h-8 v2:w-8 v2:place-items-center v2:rounded-none v2:text-white v2:opacity-100 v2:data-[state=open]:bg-transparent v2:hover:bg-white v2:hover:text-ink v2:focus:ring-spot v2:focus:ring-offset-0">
+
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>

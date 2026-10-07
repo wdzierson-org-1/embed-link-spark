@@ -66,30 +66,30 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
   return (
     // pt clears the header's drop shadow; back link sits at the container's
     // left edge, aligned with the Stash wordmark above
-    <div className="pt-8">
+    <div className="pt-4">
       <button
         onClick={onBack}
-        className="mb-8 block text-sm text-muted-foreground hover:text-foreground"
+        className="mb-8 inline-flex h-8 items-center bg-white px-2.5 text-[14px] font-medium text-ink shadow-[0_0_0_1px_rgba(0,0,0,0.06)] hover:bg-ink hover:text-white"
       >
         ← Back to your stash
       </button>
 
       <div className="mx-auto max-w-3xl">
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
-        <h1 className="text-lg font-semibold">Conversations</h1>
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <h1 className="text-screen-title font-medium text-ink">Conversations</h1>
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search conversations…"
-            className="w-64 rounded-full border border-input bg-white py-1.5 pl-9 pr-3 text-sm outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+            className="h-10 w-72 border border-line bg-white pl-9 pr-3 text-[15px] outline-none transition-shadow placeholder:text-muted-foreground focus:border-ink focus:shadow-[0_0_0_3px_rgb(var(--spot-rgb))]"
           />
         </div>
       </div>
 
       {rows && rows.length === 0 && (
-        <p className="py-10 text-center text-sm text-muted-foreground">
+        <p className="v2-dots border border-line py-10 text-center text-[15px] text-muted-foreground">
           {search
             ? `No conversations match “${search}”.`
             : 'No conversations yet — ask your stash something.'}
@@ -98,28 +98,27 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
 
       {buckets.map(bucket => (
         <section key={bucket.label}>
-          <h2 className="pb-2 pt-5 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="mb-2.5 mt-6 border-b border-ink pb-1.5 font-pixel text-pixel lowercase text-ink">
             {bucket.label}
           </h2>
           {bucket.rows.map(row => (
             <button
               key={row.id}
               onClick={() => onOpenConversation({ id: row.id, title: row.title })}
-              className="relative mb-2 flex w-full items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 text-left transition hover:shadow-md"
+              className="relative mb-2 flex w-full items-center gap-3 rounded-object border border-line bg-white px-4 py-3 text-left transition-[transform,box-shadow,border-color] duration-150 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:border-ink hover:shadow-print-sm"
             >
-              <span className="h-2 w-2 flex-none rounded-full bg-violet-300" aria-hidden />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">
+                <span className="block truncate text-[15px] font-medium text-ink">
                   {row.title ?? 'New chat'}
                 </span>
                 {row.preview && (
-                  <span className="block truncate text-xs text-muted-foreground">
+                  <span className="mt-0.5 block truncate text-[14px] text-muted-foreground">
                     {row.preview}
                   </span>
                 )}
               </span>
-              <span className="flex-none text-right text-xs leading-relaxed text-muted-foreground">
-                {format(new Date(row.last_message_at), 'MMM d')}
+              <span className="flex-none text-right font-pixel text-pixel leading-[1.6] text-muted-foreground">
+                {format(new Date(row.last_message_at), 'MMM d').toLowerCase()}
                 <br />
                 {row.message_count} message{row.message_count === 1 ? '' : 's'}
               </span>
@@ -129,12 +128,12 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
       ))}
 
       {totalCount > 0 && (
-        <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+        <div className="relative mt-5 flex flex-wrap items-center justify-between gap-3 font-pixel text-pixel text-muted-foreground">
           <span>
             Showing {firstShown}–{lastShown} of {totalCount}
           </span>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <label className="mr-1 flex items-center gap-1.5">
               Show
               <select
                 value={pageSize}
@@ -142,7 +141,7 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
                   setPageSize(Number(e.target.value));
                   setPage(0);
                 }}
-                className="rounded-md border border-input bg-white px-1.5 py-1 text-xs outline-none"
+                className="h-7 border border-line bg-white px-1.5 font-pixel text-pixel text-ink outline-none focus:border-ink"
               >
                 {PAGE_SIZES.map(size => (
                   <option key={size} value={size}>{size}</option>
@@ -152,14 +151,14 @@ const ConversationsView = ({ onOpenConversation, onBack }: ConversationsViewProp
             <button
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={!hasPrev}
-              className="rounded-md border border-input bg-white px-2.5 py-1 disabled:opacity-40"
+              className="h-7 border border-ink bg-white px-2.5 text-ink hover:bg-ink hover:text-white disabled:border-line disabled:text-muted-foreground disabled:hover:bg-white"
             >
               ← Prev
             </button>
             <button
               onClick={() => setPage(p => p + 1)}
               disabled={!hasNext}
-              className="rounded-md border border-input bg-white px-2.5 py-1 disabled:opacity-40"
+              className="h-7 border border-ink bg-white px-2.5 text-ink hover:bg-ink hover:text-white disabled:border-line disabled:text-muted-foreground disabled:hover:bg-white"
             >
               Next →
             </button>

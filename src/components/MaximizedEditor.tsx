@@ -26,13 +26,13 @@ const MaximizedEditor = ({
 }: MaximizedEditorProps) => {
   return (
     <div className="absolute inset-0 bg-background flex flex-col z-10">
-      <div className="flex items-center justify-between px-6 py-4 border-b">
-        <h2 className="text-lg font-semibold">Content</h2>
+      <div className="flex h-11 items-center justify-between bg-ink pl-6 pr-11 text-white">
+        <h2 className="font-pixel text-pixel leading-none">notes</h2>
         <Button
           variant="ghost"
           size="sm"
           onClick={onMinimize}
-          className="h-8 w-8 p-0"
+          className="h-8 w-8 p-0 text-white hover:bg-white hover:text-ink"
         >
           <Minimize className="h-4 w-4" />
         </Button>
@@ -50,11 +50,12 @@ const MaximizedEditor = ({
         </div>
       </div>
 
-      <div className="px-6 py-3">
+      <div className="flex items-center justify-between gap-4 px-6 py-3">
         <EditItemAutoSaveIndicator
           saveStatus={saveStatus}
           lastSaved={lastSaved}
         />
+        <span className="font-pixel text-pixel text-muted-foreground">type / for formatting</span>
       </div>
     </div>
   );

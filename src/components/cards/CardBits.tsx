@@ -2,83 +2,36 @@ import React from 'react';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 /**
- * Shared pieces of the single-object card system (DESIGN.md). Anatomy on
- * every card: hero → kicker → title (500) → description → annotation (violet
- * bar) → metadata → footer (date · hover type chip · location · overflow).
+ * Shared pieces of the single-object card system (DESIGN-v2 §6, "Object card"). Anatomy on
+ * every card: media (or a placeholder) with its kind as a black tag → title (Montreal 500) →
+ * description (muted) → the person's note (italic, ink bar) → meta row in Departure Mono
+ * (source and one fact · date · reminder · place · overflow).
  */
 
 /** The two hero heights in the system — nothing else */
 export const HERO_STANDARD = 'h-40'; // 10rem — landscape imagery, plates
 export const HERO_TALL = 'h-56'; // 14rem — portrait media, contained
 
-/* ── type spectrum (DESIGN.md) — flat tints for fields, tint+text for chips ── */
-
-export type SpectrumTint = 'voice' | 'audio' | 'doc' | 'shot' | 'social';
-
-const FIELD_TINTS: Record<SpectrumTint, string> = {
-  voice: 'rgba(84,88,178,0.12)',
-  audio: 'rgba(126,74,158,0.11)',
-  doc: 'rgba(150,70,190,0.10)',
-  shot: 'rgba(52,132,201,0.11)',
-  social: 'rgba(70,100,180,0.07)',
-};
-
-const CHIP_TINTS: Record<SpectrumTint, { background: string; color: string }> = {
-  voice: { background: 'rgba(84,88,178,0.12)', color: '#45408c' },
-  audio: { background: 'rgba(139,74,158,0.12)', color: '#7d3d84' },
-  doc: { background: 'rgba(150,70,190,0.11)', color: '#7d3f9e' },
-  shot: { background: 'rgba(52,132,201,0.12)', color: '#22689c' },
-  social: { background: 'rgba(70,100,180,0.1)', color: '#3a4f8c' },
-};
-
-/** Subtle paper grain laid over spectrum fields — texture, not gradient */
-const FIELD_GRAIN =
-  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/></filter><rect width='120' height='120' filter='url(%23n)'/></svg>\")";
+/** The media's top edge inside a card's 1 px border and 2 px corners */
+export const HERO_EDGE = 'rounded-t-[1px]';
 
 /**
- * Flat spectrum field for imageless media heroes: one quiet tint per type
- * plus grain and a bottom inset hairline. Saturation belongs to the accents
- * (play circle, waveform), never washed across the surface.
+ * The field an imageless hero sits on: soft fill with the 6 px placeholder dots, a hairline
+ * under it. v2 has no per-type tints: the kind is told by the tag and the glyph, not colour.
  */
-export const SpectrumField = ({
-  tint,
+export const MediaField = ({
   className = '',
+  dots = true,
   children,
 }: {
-  tint: SpectrumTint;
   className?: string;
+  /** Placeholders get the dots; a player draws its own marks (the waveform) on plain fill */
+  dots?: boolean;
   children?: React.ReactNode;
 }) => (
-  <div
-    className={`relative flex-none overflow-hidden rounded-t-2xl ${className}`}
-    style={{ background: FIELD_TINTS[tint], boxShadow: 'inset 0 -1px 0 rgba(0,0,0,0.04)' }}
-  >
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 opacity-[0.35] mix-blend-overlay"
-      style={{ backgroundImage: FIELD_GRAIN }}
-    />
+  <div className={`${dots ? 'v2-dots-fine' : ''} relative flex-none overflow-hidden border-b border-line bg-fill ${HERO_EDGE} ${className}`}>
     {children}
   </div>
-);
-
-/** Tinted type identity; the parent controls hover disclosure. */
-export const TypeChip = ({
-  tint,
-  icon,
-  children,
-}: {
-  tint: SpectrumTint;
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) => (
-  <span
-    className="inline-flex max-w-full items-center gap-1.5 truncate rounded-full px-2 py-0.5 text-[11px] font-medium"
-    style={CHIP_TINTS[tint]}
-  >
-    {icon}
-    <span className="truncate">{children}</span>
-  </span>
 );
 
 /* ── media subtype helpers ─────────────────────────────────────────────── */
@@ -139,30 +92,19 @@ export const formatBadgeColor = (ext?: string | null): string => {
 export const isSpreadsheetExt = (ext?: string | null): boolean =>
   ext === 'XLSX' || ext === 'XLS' || ext === 'CSV';
 
+/** A fact in the machine voice: square, soft fill, Departure Mono (the admin member grid) */
 export const MetaChip = ({
   icon,
-  mono,
   children,
 }: {
   icon?: React.ReactNode;
   mono?: boolean;
   children: React.ReactNode;
 }) => (
-  <span
-    className={`inline-flex max-w-full items-center gap-1 truncate rounded-full bg-black/[0.04] px-2 py-0.5 text-[11px] font-medium text-foreground/60 ${
-      mono ? 'font-mono text-[10px]' : ''
-    }`}
-  >
+  <span className="inline-flex max-w-full items-center gap-1 truncate bg-fill px-1.5 pb-[3px] pt-1 font-pixel text-pixel leading-none text-muted-foreground">
     {icon}
     <span className="truncate">{children}</span>
   </span>
-);
-
-/** The user's words — always visually distinct from extracted text */
-export const CardAnnotation = ({ children }: { children: React.ReactNode }) => (
-  <p className="border-l-2 border-violet-300 pl-3 text-[13.5px] leading-snug text-foreground/75 line-clamp-2">
-    {children}
-  </p>
 );
 
 export const formatDurationChip = (seconds?: number | null): string | null => {

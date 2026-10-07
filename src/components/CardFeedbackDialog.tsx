@@ -76,10 +76,10 @@ const CardFeedbackDialog = ({ item, open, onOpenChange }: CardFeedbackDialogProp
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
-          <DialogTitle className="font-montreal text-[20px] font-medium tracking-[-0.01em] text-[#22262f]">
+          <DialogTitle className="font-montreal text-[20px] font-medium tracking-[-0.02em] text-ink">
             What looks wrong with this card?
           </DialogTitle>
-          <DialogDescription className="text-[13.5px] text-[#646b76]">
+          <DialogDescription className="text-[15px] text-muted-foreground">
             Tick everything that applies. Reports go straight to the team.
           </DialogDescription>
         </DialogHeader>
@@ -88,7 +88,7 @@ const CardFeedbackDialog = ({ item, open, onOpenChange }: CardFeedbackDialogProp
           {CARD_FEEDBACK_ISSUES.map(({ code, label }) => {
             const id = `card-feedback-${item.id}-${code}`;
             return (
-              <label key={code} htmlFor={id} className="flex cursor-pointer items-start gap-3 rounded-lg px-1 py-1 text-[14px] text-[#22262f] hover:bg-[rgba(109,91,208,0.05)]">
+              <label key={code} htmlFor={id} className="flex cursor-pointer items-start gap-3 px-1.5 py-1.5 text-[15px] text-ink hover:bg-fill">
                 <Checkbox
                   id={id}
                   checked={issues.includes(code)}
@@ -107,7 +107,7 @@ const CardFeedbackDialog = ({ item, open, onOpenChange }: CardFeedbackDialogProp
           onChange={(e) => setNote(e.target.value)}
           placeholder="Anything else? (optional)"
           rows={3}
-          className="min-h-0 resize-none rounded-lg border-0 bg-[rgba(109,91,208,0.05)] px-3 py-2 text-[14px] text-[#22262f] shadow-none focus-visible:bg-[rgba(109,91,208,0.06)] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0"
+          className="min-h-0 resize-none px-3 py-2 text-[15px] text-ink"
         />
 
         <DialogFooter className="gap-2 sm:gap-2">
@@ -118,7 +118,7 @@ const CardFeedbackDialog = ({ item, open, onOpenChange }: CardFeedbackDialogProp
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting || issues.length === 0 || !user}
-            className="rounded-full bg-[#6d5bd0] text-white hover:bg-[#5e4dbd]"
+            className="bg-ink text-white hover:bg-ink-soft"
           >
             {isSubmitting ? 'Sending…' : 'Send report'}
           </Button>

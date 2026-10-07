@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
+
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -38,8 +38,8 @@ const ChatMessageFeedback = ({ question, answer, sourceItemIds }: ChatMessageFee
 
       setRating(feedbackRating);
       toast({
-        title: "Thank you!",
-        description: "Your feedback has been recorded."
+        title: "Feedback saved",
+        description: "Thanks for rating this answer."
       });
     } catch (error) {
       console.error('Error submitting feedback:', error);
@@ -53,26 +53,34 @@ const ChatMessageFeedback = ({ question, answer, sourceItemIds }: ChatMessageFee
     }
   };
 
+  // Square glyph buttons beside the answer's other controls; the chosen one stays inked
+  const button = (value: number) =>
+    `grid h-7 w-7 place-items-center transition-colors disabled:cursor-default ${
+      rating === value ? 'bg-ink text-white' : 'text-muted-foreground hover:bg-fill hover:text-ink disabled:hover:bg-transparent'
+    }`;
+
   return (
-    <div className="flex items-center gap-2 mt-2">
-      <Button
-        variant={rating === 1 ? "default" : "ghost"}
-        size="sm"
+    <div className="flex items-center gap-0.5">
+      <button
+        type="button"
+        aria-label="Good answer"
+        aria-pressed={rating === 1}
         onClick={() => handleFeedback(1)}
         disabled={isSubmitting || rating !== null}
-        className="h-8 w-8 p-0"
+        className={button(1)}
       >
-        <ThumbsUp className="h-4 w-4" />
-      </Button>
-      <Button
-        variant={rating === -1 ? "destructive" : "ghost"}
-        size="sm"
+        <ThumbsUp className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        aria-label="Bad answer"
+        aria-pressed={rating === -1}
         onClick={() => handleFeedback(-1)}
         disabled={isSubmitting || rating !== null}
-        className="h-8 w-8 p-0"
+        className={button(-1)}
       >
-        <ThumbsDown className="h-4 w-4" />
-      </Button>
+        <ThumbsDown className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 };

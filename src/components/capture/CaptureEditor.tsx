@@ -86,7 +86,9 @@ const CaptureEditor = forwardRef<CaptureEditorHandle, CaptureEditorProps>(
       () =>
         createEditorExtensions(undefined, {
           placeholder:
-            placeholder ?? "Paste a link, drop a file, or type a note — press '/' for commands",
+            // The person's prompt; the machine's hint (`/ for commands`) sits on the
+            // composer's bottom row in Departure Mono
+            placeholder ?? 'Paste a link, drop a file, or type a note',
         }),
       // The placeholder is baked into the extension set at mount
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -123,7 +125,7 @@ const CaptureEditor = forwardRef<CaptureEditorHandle, CaptureEditorProps>(
     return (
       <div
         data-testid="capture-editor"
-        className="cursor-text"
+        className="capture-editor cursor-text"
         onMouseDown={(e) => {
           // Clicking the empty area below a short note still focuses the editor
           const target = e.target as HTMLElement;
@@ -192,7 +194,7 @@ const CaptureEditor = forwardRef<CaptureEditorHandle, CaptureEditorProps>(
                 class:
                   'prose dark:prose-invert font-default focus:outline-none max-w-full min-h-[100px] px-1 py-1 text-base ' +
                   'prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-h4:text-base ' +
-                  'prose-a:text-blue-600 prose-a:underline prose-a:cursor-pointer hover:prose-a:text-blue-800 ' +
+                  'prose-a:text-ink prose-a:underline prose-a:underline-offset-2 prose-a:cursor-pointer hover:prose-a:text-ink-soft ' +
                   'prose-p:leading-snug prose-p:my-1 prose-ul:leading-snug prose-ul:my-1 prose-ol:leading-snug prose-ol:my-1 prose-li:leading-snug prose-li:my-0.5 ' +
                   'prose-blockquote:my-2 prose-pre:my-2',
               },

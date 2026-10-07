@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
+import DesignScope from '@/components/DesignScope';
 import { AuthProvider } from '@/hooks/useAuth';
 import { SubscriptionProvider } from '@/hooks/useSubscription';
 import Landing from '@/pages/Landing';
@@ -23,6 +24,9 @@ import { Discover } from '@/pages/Discover';
 const DesignCardPreview = import.meta.env.DEV
   ? lazy(() => import('@/pages/DesignCardPreview'))
   : null;
+const DesignLoadingPreview = import.meta.env.DEV
+  ? lazy(() => import('@/components/LoadingInterstitial'))
+  : null;
 
 // Temporary admin dashboard (gated by admin_users; see
 // docs/superpowers/specs/2026-09-08-admin-dashboard-design.md). Lazy so
@@ -36,6 +40,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <DesignScope />
         <AuthProvider>
           <SubscriptionProvider>
             <div className="min-h-screen bg-background">
@@ -75,6 +80,16 @@ function App() {
                     element={
                       <Suspense fallback={null}>
                         <DesignCardPreview />
+                      </Suspense>
+                    }
+                  />
+                )}
+                {DesignLoadingPreview && (
+                  <Route
+                    path="/design/loading"
+                    element={
+                      <Suspense fallback={null}>
+                        <DesignLoadingPreview />
                       </Suspense>
                     }
                   />

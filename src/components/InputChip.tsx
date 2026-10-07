@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, FileText, Link as LinkIcon, Image, Video, FileAudio, File, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { X, FileText, Link as LinkIcon, Image, Video, FileAudio, File } from 'lucide-react';
+import { StatusLine } from '@/components/machine/Machine';
 import { SUPABASE_URL } from '@/integrations/supabase/client';
 import type { FileAnalysis } from '@/utils/chipFileAnalysis';
 
@@ -93,9 +93,9 @@ const FileChipContent = ({
   return (
     <div className="flex items-center gap-3 max-w-[300px]">
       {thumbnailUrl ? (
-        <img src={thumbnailUrl} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />
+        <img src={thumbnailUrl} alt="" className="h-10 w-10 flex-shrink-0 object-cover" />
       ) : (
-        <div className="w-10 h-10 rounded bg-muted flex items-center justify-center flex-shrink-0">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center bg-fill">
           {fallbackIcon()}
         </div>
       )}
@@ -104,28 +104,26 @@ const FileChipContent = ({
           isTransitioning ? 'opacity-70' : 'opacity-100'
         }`}
       >
-        <div className="text-sm font-medium line-clamp-2 leading-tight">{title}</div>
+        <div className="line-clamp-2 text-sm font-medium leading-tight text-ink">{title}</div>
         {fileAnalysis?.description && (
-          <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+          <div className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
             {fileAnalysis.description}
           </div>
         )}
         {factsLine && (
-          <div className="text-xs text-muted-foreground mt-0.5 truncate">{factsLine}</div>
+          <div className="mt-0.5 truncate font-pixel text-pixel text-muted-foreground">{factsLine}</div>
         )}
         {uploadState === 'uploading' && (
-          <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            {showPercent ? `Uploading · ${uploadProgress ?? 0}%` : 'Uploading...'}
+          <div className="mt-0.5">
+            <StatusLine tone="busy">{showPercent ? `uploading · ${uploadProgress ?? 0}%` : 'uploading…'}</StatusLine>
           </div>
         )}
         {uploadState === 'failed' && (
-          <div className="text-xs text-muted-foreground mt-0.5">Will upload when you save</div>
+          <div className="mt-0.5 text-[13px] text-muted-foreground">Will upload when you save</div>
         )}
         {uploadState !== 'uploading' && isBusy && (
-          <div className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            Analyzing...
+          <div className="mt-0.5">
+            <StatusLine tone="busy">analyzing…</StatusLine>
           </div>
         )}
       </div>
@@ -178,7 +176,7 @@ const InputChip = ({ type, content, onRemove, ogData, metadataStatus, fileAnalys
                 <img
                   src={imageUrl}
                   alt=""
-                  className="w-10 h-10 rounded object-cover flex-shrink-0"
+                  className="h-10 w-10 flex-shrink-0 object-cover"
                   referrerPolicy="no-referrer"
                   loading="lazy"
                   decoding="async"
@@ -197,22 +195,21 @@ const InputChip = ({ type, content, onRemove, ogData, metadataStatus, fileAnalys
                 />
               )}
               <div className={`flex-1 min-w-0 transition-opacity duration-200 ${isMetadataTransitioning ? 'opacity-70' : 'opacity-100'}`}>
-                <div className="text-sm font-medium line-clamp-2 leading-tight">
+                <div className="line-clamp-2 text-sm font-medium leading-tight text-ink">
                   {ogData.title || content.url}
                 </div>
                 {ogData.description && (
-                  <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                  <div className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
                     {ogData.description}
                   </div>
                 )}
                 {isLoadingMetadata && (
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Fetching more details...
+                  <div className="mt-0.5">
+                    <StatusLine tone="busy">fetching more details…</StatusLine>
                   </div>
                 )}
                 {isInferredMetadata && (
-                  <div className="text-xs text-muted-foreground mt-0.5">
+                  <div className="mt-0.5 text-[13px] text-muted-foreground">
                     Site blocks previews — got the gist; full details after saving
                   </div>
                 )}
@@ -222,13 +219,8 @@ const InputChip = ({ type, content, onRemove, ogData, metadataStatus, fileAnalys
         }
         return (
           <div className="flex items-center gap-2">
-            <span className="truncate max-w-[200px]">{content.url || content.title}</span>
-            {isLoadingMetadata && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Loading link info...
-              </span>
-            )}
+            <span className="max-w-[200px] truncate font-pixel text-pixel text-ink">{content.url || content.title}</span>
+            {isLoadingMetadata && <StatusLine tone="busy">reading the link…</StatusLine>}
           </div>
         );
       case 'image':
@@ -255,21 +247,21 @@ const InputChip = ({ type, content, onRemove, ogData, metadataStatus, fileAnalys
     uploadState === 'uploading' && (content?.size ?? 0) >= PROGRESS_BAR_MIN_BYTES;
 
   return (
-    <div className="relative overflow-hidden flex items-center gap-2 bg-white border border-border rounded-lg px-3 py-2 shadow-sm max-w-fit">
+    // A chip is the person's thing about to be saved: a small white object, near-square
+    <div className="relative flex max-w-fit items-center gap-2.5 overflow-hidden rounded-object border border-line bg-white py-2 pl-2.5 pr-1.5">
       {(type === 'link' || type === 'text') && !ogData?.previewImageUrl && !ogData?.image && getIcon()}
       {getDisplayContent()}
-      <Button
-        variant="ghost"
-        size="sm"
+      <button
+        type="button"
         aria-label="Remove"
         onClick={onRemove}
-        className="h-6 w-6 p-0 hover:bg-destructive/10 flex-shrink-0"
+        className="grid h-6 w-6 flex-shrink-0 place-items-center self-start text-muted-foreground transition-colors hover:bg-ink hover:text-white"
       >
         <X className="h-3 w-3" />
-      </Button>
+      </button>
       {showProgressBar && (
         <div
-          className="absolute bottom-0 left-0 h-0.5 bg-violet-500 transition-[width] duration-200"
+          className="absolute bottom-0 left-0 h-[3px] bg-ink transition-[width] duration-200"
           style={{ width: `${uploadProgress ?? 0}%` }}
         />
       )}

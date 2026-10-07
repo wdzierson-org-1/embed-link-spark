@@ -44,11 +44,11 @@ const EditItemSupplementalNoteSection = ({
             id="supplemental-note"
             value={supplementalNote}
             onChange={(e) => onSupplementalNoteChange(e.target.value)}
-            placeholder="Add a quick note..."
-            className="bg-yellow-50/50 border-amber-200/40 focus:border-amber-300 focus:ring-amber-200"
+            placeholder="Add a quick note…"
+            className="italic"
           />
-          <p className="text-xs text-muted-foreground">
-            This note will appear as a yellow sticky note overlay on the card.
+          <p className="text-[13px] text-muted-foreground">
+            It shows as a note pinned to the card on your public feed.
           </p>
         </div>
       )}

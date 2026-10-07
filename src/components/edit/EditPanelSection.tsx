@@ -1,14 +1,12 @@
 import React from 'react';
 
 /**
- * Panel section grammar (DESIGN.md): every section is an uppercase 11px
- * micro-label (weight 600, +0.11em tracking, faint color) over a 1px hairline
- * rule — never a nested card or box. Dotted rules appear only between facts
- * rows inside the Details drawer.
+ * Panel section grammar (DESIGN-v2): every section opens with a machine label, Departure
+ * Mono, lowercase, over a 1 px ink rule, as on a printed form; never a nested card or box.
+ * The tree rows inside the Details drawer are the only other structure.
  */
 
-export const SECTION_LABEL_CLASS =
-  'text-[11px] font-semibold uppercase tracking-[0.11em] text-[#959ba6]';
+export const SECTION_LABEL_CLASS = 'font-pixel text-pixel lowercase text-ink';
 
 interface SectionHeadProps {
   label: React.ReactNode;
@@ -17,9 +15,7 @@ interface SectionHeadProps {
 }
 
 export const SectionHead = ({ label, aside, className = '' }: SectionHeadProps) => (
-  <div
-    className={`flex items-center justify-between gap-3 border-b border-black/[0.07] pb-[7px] ${className}`}
-  >
+  <div className={`flex min-h-7 items-end justify-between gap-3 border-b border-ink pb-1.5 ${className}`}>
     <span className={SECTION_LABEL_CLASS}>{label}</span>
     {aside}
   </div>

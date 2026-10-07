@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Plus, Send, Loader2, MapPin } from 'lucide-react';
+import { Plus, ArrowUp, MapPin } from 'lucide-react';
+import { Spinner } from '@/components/machine/Machine';
 import { AnimatePresence, motion } from 'framer-motion';
 import InputChip from '@/components/InputChip';
 import CaptureEditor, { type CaptureEditorHandle } from '@/components/capture/CaptureEditor';
@@ -904,31 +904,30 @@ const UnifiedInputPanel = ({
 
   return (
     <div className="w-full relative">
-      {/* Gradient backdrop lives at the page level (Index) so it persists
-          when this panel is hidden in retrieval states */}
-      <div className="relative pt-5 pb-8">
+      <div className="relative pb-7 pt-1">
         <div className="container mx-auto px-4">
-          {/* The shell lifts, glows, and takes a violet border while capturing */}
+          {/* DESIGN-v2 composer: the person's one input. A clean white object with near-square
+              corners; while they're saving it lifts and takes the spot ring (lighter while
+              focused and empty, full once it holds something) */}
           <motion.div
             data-testid="input-panel-shell"
-            className="bg-white/90 backdrop-blur-sm rounded-[6px]"
+            className={`relative rounded-object bg-white transition-shadow duration-300 ease-v2 ${
+              hasAnyContent
+                ? 'shadow-[0_0_0_1px_var(--ink),0_0_0_6px_rgb(var(--spot-rgb)),0_22px_44px_-22px_rgba(20,22,18,0.45)]'
+                : isPanelActive
+                  ? 'shadow-[0_0_0_1px_var(--ink),0_0_0_6px_rgb(var(--spot-rgb)/0.7),0_22px_44px_-22px_rgba(20,22,18,0.45)]'
+                  : 'shadow-[0_0_0_1px_var(--line),0_10px_24px_-18px_rgba(20,22,18,0.28)]'
+            }`}
             initial={false}
             animate={{
-              scale: isPanelActive ? 1.006 : 1,
+              scale: isPanelActive ? 1.004 : 1,
               y: isPanelActive ? -2 : 0,
-              boxShadow: isPanelActive
-                ? '0 0 0 1.5px rgba(139, 92, 246, 0.5), 0 0 0 6px rgba(139, 92, 246, 0.08), 0 24px 48px -20px rgba(139, 92, 246, 0.35)'
-                : '0 0 0 1px rgba(0, 0, 0, 0.05), 0 10px 30px -18px rgba(0, 0, 0, 0.3)',
             }}
             transition={{ type: 'spring', stiffness: 320, damping: 28, mass: 0.7 }}
           >
             <div
               data-testid="capture-dropzone"
-              className={`p-4 space-y-4 relative transition-colors duration-150 ${
-                isDragOver
-                  ? 'bg-violet-50 border-2 border-dashed border-violet-400 rounded-[6px]'
-                  : 'border-2 border-transparent'
-              }`}
+              className="relative space-y-3 p-4 pb-3"
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
@@ -951,7 +950,7 @@ const UnifiedInputPanel = ({
                 />
               </motion.div>
 
-              {/* Drag-over overlay */}
+              {/* Drag-over veil: the spot field, a dashed ink edge, the machine saying what to do */}
               <AnimatePresence>
                 {isDragOver && (
                   <motion.div
@@ -959,12 +958,9 @@ const UnifiedInputPanel = ({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.12 }}
-                    className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none rounded-[4px]"
+                    className="pointer-events-none absolute inset-1.5 z-10 grid place-items-center border-[1.5px] border-dashed border-ink bg-spot/30"
                   >
-                    <div className="flex flex-col items-center gap-2 text-violet-500">
-                      <Plus className="h-8 w-8" />
-                      <span className="text-sm font-medium">Drop to add</span>
-                    </div>
+                    <span className="bg-ink px-2 pb-[5px] pt-1.5 font-pixel text-pixel leading-none text-white">drop to save</span>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -978,7 +974,7 @@ const UnifiedInputPanel = ({
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.2, ease: panelEase }}
-                    className="flex flex-wrap gap-2 pt-2 border-t border-border"
+                    className="flex flex-wrap gap-2 border-t border-line-soft pt-3"
                   >
                     <AnimatePresence initial={false}>
                       {inputItems.map(item => (
@@ -1008,18 +1004,23 @@ const UnifiedInputPanel = ({
                 )}
               </AnimatePresence>
 
-              {/* Bottom actions */}
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
+              {/* Bottom actions: square controls; the send is the one ink square */}
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
                     aria-label="Attach"
                     onClick={() => fileInputRef.current?.click()}
-                    className="h-12 w-12 rounded-full border border-gray-300 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 shadow-sm"
+                    className="grid h-10 w-10 place-items-center border border-line bg-white text-ink transition-colors hover:border-ink hover:bg-fill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink"
                   >
-                    <Plus className="h-6 w-6" />
-                  </Button>
+                    <Plus className="h-5 w-5" />
+                  </button>
+                  {/* The hint waits for focus: at rest the composer is only the field and its cursor */}
+                  {isEditorFocused && (
+                    <span className="v2-print-in hidden font-pixel text-pixel text-muted-foreground md:inline">
+                      type / for commands
+                    </span>
+                  )}
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -1037,7 +1038,7 @@ const UnifiedInputPanel = ({
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 8 }}
                         transition={{ duration: 0.18, ease: panelEase }}
-                        className="text-xs text-muted-foreground max-w-[220px] truncate"
+                        className="max-w-[240px] truncate font-pixel text-pixel text-muted-foreground"
                       >
                         {locationStatus === 'locating'
                           ? 'finding your location…'
@@ -1048,44 +1049,35 @@ const UnifiedInputPanel = ({
                     )}
                   </AnimatePresence>
 
-                  <Button
-                    variant="outline"
-                    size="icon"
+                  <button
+                    type="button"
                     aria-label="Include your location"
                     aria-pressed={locationEnabled}
                     onClick={toggleLocation}
-                    className={`h-12 w-12 rounded-full border shadow-sm transition-colors duration-150 ${
+                    className={`grid h-10 w-10 place-items-center border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink ${
                       locationEnabled
-                        ? 'bg-violet-50 border-violet-300 text-violet-600 hover:bg-violet-100 hover:text-violet-700'
-                        : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-50 hover:text-gray-600'
+                        ? 'border-ink bg-ink text-white hover:bg-ink-soft'
+                        : 'border-line bg-white text-muted-foreground hover:border-ink hover:text-ink'
                     }`}
                   >
-                    <MapPin className={`h-5 w-5 ${locationStatus === 'locating' ? 'animate-pulse' : ''}`} />
-                  </Button>
+                    <MapPin className={`h-[18px] w-[18px] ${locationStatus === 'locating' ? 'animate-pulse' : ''}`} />
+                  </button>
 
-                  <motion.div
-                    initial={false}
-                    animate={{ scale: sendIsHot ? 1 : 0.97 }}
-                    transition={{ type: 'tween', duration: 0.14, ease: panelEase }}
+                  <button
+                    type="button"
+                    aria-label="Add to Stash"
+                    onClick={handleSubmit}
+                    disabled={!canSubmit}
+                    className={`grid h-[42px] w-[42px] place-items-center bg-ink text-white transition-[opacity,transform,background-color] duration-150 hover:bg-ink-soft active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-default ${
+                      sendIsHot ? 'opacity-100' : 'opacity-25'
+                    }`}
                   >
-                    <Button
-                      aria-label="Add to Stash"
-                      onClick={handleSubmit}
-                      disabled={!canSubmit}
-                      size="icon"
-                      className={`h-12 w-12 rounded-full border shadow-sm transition-all duration-150 ${
-                        sendIsHot
-                          ? 'bg-[#8B5CF6] border-[#8B5CF6] text-white hover:bg-[#7C3AED] hover:border-[#7C3AED]'
-                          : 'bg-white border-gray-300 text-gray-400 hover:bg-gray-50 hover:border-gray-300'
-                      } disabled:opacity-100`}
-                    >
-                      {isSubmitting ? (
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                      ) : (
-                        <Send className="h-5 w-5" />
-                      )}
-                    </Button>
-                  </motion.div>
+                    {isSubmitting ? (
+                      <Spinner className="font-pixel text-pixel-md leading-none" />
+                    ) : (
+                      <ArrowUp className="h-5 w-5" />
+                    )}
+                  </button>
                 </div>
               </div>
             </div>

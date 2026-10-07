@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Mic, Minus, Send, Volume2, Square, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowUp, Mic, Minus, Volume2, Square, Maximize2, Minimize2 } from 'lucide-react';
+import { St4shSymbol } from '@/components/brand/St4sh';
+import { Spinner, StatusLine } from '@/components/machine/Machine';
 import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useAuth } from '@/hooks/useAuth';
@@ -42,16 +43,6 @@ interface ChatMoleProps {
   focusedSourceIds?: string[] | null;
   onFocusSources?: (ids: string[] | null) => void;
 }
-
-const MoleGlyph = ({ className }: { className?: string }) => (
-  <svg viewBox="586 424 134 176" fill="currentColor" className={className} aria-hidden>
-    <path d="M662.882 436.064C660.343 432.928 652.745 424.888 648.723 425.218C631.503 426.662 614.854 432.253 603.262 445.753C587.108 464.564 587.541 499.498 607.725 515.435C615.558 521.669 623.683 525.093 633.184 527.935L634.778 523.356C639.443 510.591 644.431 500.28 652.078 488.924C644.276 486.269 634.138 482.096 638.038 471.185C641.257 462.176 655.336 460.522 662.77 464.389C666.655 466.247 668.705 468.967 670.798 472.548C672.22 459.272 671.626 446.857 662.882 436.064Z"/>
-    <path d="M701.56 506.142C694.717 501.845 686.051 496.885 678.015 495.281C673.407 508.547 667.021 522.648 659.27 534.412C664.95 536.676 667.754 537.589 671.562 542.6C675.651 562.928 651.251 565.37 638.727 554.86C638.034 568.698 639.823 579.499 649.517 590.156C652.59 593.542 656.178 596.422 660.149 598.688C664.733 598.313 669.741 597.863 674.224 596.763C705.395 589.088 725.754 563.456 717.527 530.886C716.39 526.275 714.58 521.857 712.154 517.775C703.796 517.693 695.437 517.714 687.079 517.837L687.093 506.374C691.914 506.247 696.737 506.17 701.56 506.142Z"/>
-    <path d="M628.769 543.112L588.243 543.022C588.414 557.656 591.566 570.552 602.516 581.451C612.06 590.951 625.245 596.47 638.715 598.022C638.888 598.042 639.484 597.986 639.808 597.956C639.858 597.951 639.902 597.947 639.937 597.944L640.233 597.562C628.187 581.492 625.166 567.991 628.011 547.91C628.242 546.307 628.495 544.708 628.769 543.112Z"/>
-    <path d="M714.734 466.665C711.179 443.064 693.24 430.046 670.275 426.354C682.455 442.656 684.321 457.169 681.496 477.28L681.406 477.898L715.346 477.83C716.012 474.525 715.529 471.575 715.016 468.439C714.921 467.855 714.824 467.265 714.734 466.665Z"/>
-    <path d="M666.79 493.036C665.719 492.082 665.19 492.111 663.779 491.769C658.701 499.095 643.4 522.413 644.212 530.405C645.32 531.227 646.065 531.28 647.401 531.585C652.576 523.86 666.33 502.329 666.79 493.036Z"/>
-  </svg>
-);
 
 const stripForSpeech = (markdown: string): string =>
   markdown
@@ -410,53 +401,58 @@ const ChatMole = ({
     window.speechSynthesis?.speak(utterance);
   };
 
-  /* ── minimized pill ── */
+  /* ── minimized: the ask bar ──
+     A black machine bar, bottom-left. Hover wakes a terminal cursor after its words. */
   if (!isExpanded) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed left-5 bottom-5 z-50 flex items-center gap-2.5 rounded-full bg-gradient-to-b from-gray-800 to-gray-950 pl-4 pr-2 py-2.5 text-white shadow-[0_10px_30px_rgba(20,10,40,0.35),0_2px_6px_rgba(0,0,0,0.2)] ring-1 ring-white/10 hover:from-gray-700 hover:to-gray-900 transition-all"
-        aria-label="Open Ask Stash"
-      >
-        <span className="text-sm font-medium">Ask Stash</span>
-        <span className="text-[10px] bg-white/15 rounded px-1.5 py-0.5">⌘K</span>
-        <span
-          className="grid place-items-center h-7 w-7 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
-          onClick={(e) => {
-            e.stopPropagation();
+      <div className="group/ask fixed bottom-5 left-5 z-50 flex items-stretch bg-ink text-white shadow-print-sm">
+        <button
+          onClick={() => setOpen(true)}
+          className="flex h-11 items-center gap-2.5 pl-3.5 pr-3 transition-colors hover:bg-ink-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-spot"
+          aria-label="Open Ask Stash"
+        >
+          <St4shSymbol className="h-[15px] w-[14px] text-spot-on-ink" />
+          <span className="text-[15px] font-medium tracking-[-0.01em] group-hover/ask:v2-caret">Ask Stash</span>
+          <span className="border border-white/40 px-1 pb-[2px] pt-[3px] font-pixel text-pixel leading-none text-white/80">⌘K</span>
+        </button>
+        <button
+          type="button"
+          aria-label="Ask by voice"
+          className="grid w-11 place-items-center border-l border-white/20 transition-colors hover:bg-spot hover:text-spot-on focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-spot"
+          onClick={() => {
             setOpen(true);
             if (voice.isSupported) setTimeout(() => voice.start(), 250);
           }}
         >
-          <Mic className="h-3.5 w-3.5" />
-        </span>
-      </button>
+          <Mic className="h-4 w-4" />
+        </button>
+      </div>
     );
   }
 
-  /* ── expanded panel (floating or pinned) ── */
+  const iconButton =
+    'grid h-7 w-7 place-items-center text-white/75 transition-colors hover:bg-white hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-spot';
+
+  /* ── expanded: a window (floating) or a docked side panel (pinned) ── */
   return (
     <div
       className={
         pinned
-          ? 'fixed left-0 top-0 bottom-0 z-40 flex w-full sm:w-[384px] flex-col border-r border-black/5 bg-gradient-to-b from-white to-[#fdf8fd] shadow-[8px_0_24px_rgba(40,20,60,0.10)]'
-          : 'fixed left-0 right-0 bottom-0 sm:left-5 sm:right-auto sm:bottom-5 z-50 flex h-[72vh] sm:h-[560px] w-full sm:w-[384px] max-h-[calc(100vh-96px)] flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-gradient-to-b from-white to-[#fdf8fd] shadow-[0_24px_60px_rgba(40,20,60,0.28),0_2px_8px_rgba(0,0,0,0.10)] ring-1 ring-black/5'
+          ? 'fixed bottom-0 left-0 top-0 z-40 flex w-full flex-col border-r border-ink bg-white sm:w-[384px]'
+          : 'fixed bottom-0 left-0 right-0 z-50 flex h-[72vh] max-h-[calc(100vh-96px)] w-full flex-col border border-ink bg-white shadow-print sm:bottom-5 sm:left-5 sm:right-auto sm:h-[560px] sm:w-[384px]'
       }
     >
-      <div className="flex items-center gap-2.5 border-b border-black/5 px-4 py-3">
-        <MoleGlyph className="h-5 w-5 text-gray-900" />
-        <div className="min-w-0">
-          <div className="text-sm font-semibold leading-tight">{sessionTitle ?? 'Ask Stash'}</div>
-          <div className="truncate text-xs text-muted-foreground">
-            Answers from your {itemCount} items
-          </div>
-        </div>
-        <div className="ml-auto flex gap-1.5">
+      {/* The window bar: the machine's name for this place, and its controls */}
+      <div className="flex h-9 flex-none items-center gap-2 bg-ink pl-3 pr-1 text-white">
+        <St4shSymbol className="h-[13px] w-[12px] flex-none text-spot-on-ink" />
+        <span className="font-pixel text-pixel leading-none">ask stash</span>
+        <div className="ml-auto flex gap-0.5">
           {pinned ? (
             <button
               onClick={() => { onPinnedChange(false); setOpen(true); }}
               title="Restore to floating"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-black/5 bg-white text-muted-foreground shadow-sm hover:text-foreground hover:shadow transition-all"
+              aria-label="Restore to floating"
+              className={iconButton}
             >
               <Minimize2 className="h-3.5 w-3.5" />
             </button>
@@ -464,7 +460,8 @@ const ChatMole = ({
             <button
               onClick={() => { onPinnedChange(true); setOpen(true); }}
               title="Maximize — pin open as a sidebar"
-              className="grid h-8 w-8 place-items-center rounded-lg border border-black/5 bg-white text-muted-foreground shadow-sm hover:text-foreground hover:shadow transition-all"
+              aria-label="Pin open as a sidebar"
+              className={iconButton}
             >
               <Maximize2 className="h-3.5 w-3.5" />
             </button>
@@ -472,32 +469,43 @@ const ChatMole = ({
           <button
             onClick={() => { setOpen(false); if (pinned) onPinnedChange(false); }}
             title="Minimize"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-black/5 bg-white text-muted-foreground shadow-sm hover:text-foreground hover:shadow transition-all"
+            aria-label="Minimize"
+            className={iconButton}
           >
             <Minus className="h-4 w-4" />
           </button>
         </div>
       </div>
+      <div className="flex-none border-b border-line px-4 pb-2.5 pt-3">
+        <div className="truncate text-[15px] font-medium leading-tight tracking-[-0.01em]">{sessionTitle ?? 'Ask Stash'}</div>
+        <div className="mt-1 truncate font-pixel text-pixel text-muted-foreground">
+          answers from your {itemCount} {itemCount === 1 ? 'save' : 'saves'}
+        </div>
+      </div>
 
-      <div className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
+      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
         {messages.length === 0 && lastLoaded && (
           <button
             onClick={restorePreviousConversation}
-            className="block w-full rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-left text-[13px] text-violet-700 hover:bg-violet-100"
+            className="block w-full border border-ink bg-white px-3 py-2.5 text-left text-[13px] hover:bg-ink hover:text-white"
           >
             Load previous conversation
-            {lastLoaded.title ? <span className="text-violet-500"> — {lastLoaded.title}</span> : null}
+            {lastLoaded.title ? <span className="opacity-70"> — {lastLoaded.title}</span> : null}
           </button>
         )}
         {messages.length === 0 && (
-          <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
-            Ask anything about what you've saved — answers cite the cards they came from.
+          // An empty thread is a small stage: the dot grid, and what this place is for
+          <div className="v2-dots border border-line-soft px-4 py-5">
+            <p className="max-w-[28em] bg-white/80 text-[15px] leading-[1.45] text-ink">
+              Ask anything about what you've saved — answers cite the cards they came from.
+            </p>
+            <p className="mt-3 font-pixel text-pixel text-muted-foreground">⌘K opens this from anywhere</p>
           </div>
         )}
         {messages.map(message => {
           if (message.role === 'user') {
             return (
-              <div key={message.id} className="ml-auto max-w-[86%] rounded-2xl rounded-br-sm bg-gray-900 px-3.5 py-2.5 text-sm text-white">
+              <div key={message.id} className="ml-auto w-fit max-w-[86%] whitespace-pre-wrap rounded-object bg-fill px-3.5 py-2.5 text-[15px] leading-[1.45] text-ink">
                 {message.content}
               </div>
             );
@@ -507,9 +515,25 @@ const ChatMole = ({
           const inlineItemIds = extractLinkedItemIds(message.content);
           const extraSources = (message.sources ?? []).filter(s => !inlineItemIds.has(s.id));
           const focusIds = message.sources?.map(s => s.id) ?? message.sourceItemIds ?? [];
+          const streaming = isBusy && message.id === messages[messages.length - 1]?.id && !message.sources;
+          const focusActive =
+            Boolean(focusedSourceIds) &&
+            focusIds.every(id => focusedSourceIds!.includes(id)) &&
+            focusedSourceIds!.length === focusIds.length;
           return (
-            <div key={message.id} className="max-w-[92%] rounded-2xl rounded-bl-sm bg-muted/70 px-3.5 py-2.5 text-sm">
-              <div className="prose prose-sm max-w-none [&_p]:my-1">
+            <div key={message.id} className="max-w-full">
+              {/* The tool step, in the machine voice: what Stash did before it answered */}
+              <div className="mb-2 flex items-center gap-2">
+                <St4shSymbol className="h-[11px] w-[10px] flex-none text-ink" />
+                {streaming ? (
+                  <StatusLine tone="busy">writing the answer…</StatusLine>
+                ) : (
+                  <StatusLine tone="done" live={false}>
+                    searched your stash{focusIds.length > 0 ? ` · ${focusIds.length} ${focusIds.length === 1 ? 'save' : 'saves'}` : ''}
+                  </StatusLine>
+                )}
+              </div>
+              <div className={`prose prose-sm max-w-none text-[15px] leading-[1.5] text-ink prose-p:my-1.5 prose-strong:font-medium prose-strong:text-ink prose-li:my-0.5 ${streaming ? '[&>*:last-child]:v2-caret-bar' : ''}`}>
                 <ReactMarkdown
                   components={{
                     a: ({ href, children }) => {
@@ -518,7 +542,7 @@ const ChatMole = ({
                         return (
                           <button
                             onClick={() => onSourceClick?.(itemId)}
-                            className="inline p-0 font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:decoration-violet-700"
+                            className="inline p-0 font-medium text-ink underline decoration-ink/40 decoration-1 underline-offset-[3px] hover:bg-spot hover:decoration-ink"
                           >
                             {children}
                           </button>
@@ -529,7 +553,7 @@ const ChatMole = ({
                         return <span>{children}</span>;
                       }
                       return (
-                        <a href={href} target="_blank" rel="noreferrer" className="underline">
+                        <a href={href} target="_blank" rel="noreferrer" className="text-ink underline underline-offset-[3px]">
                           {children}
                         </a>
                       );
@@ -539,32 +563,6 @@ const ChatMole = ({
                   {message.content}
                 </ReactMarkdown>
               </div>
-              {message.content && (
-                <button
-                  onClick={() => toggleSpeak(message)}
-                  title={speakingId === message.id ? 'Stop reading' : 'Read aloud'}
-                  className={`mt-1 inline-grid h-6 w-6 place-items-center rounded-md ${speakingId === message.id ? 'bg-violet-200 text-violet-700' : 'bg-black/5 text-muted-foreground hover:bg-black/10'}`}
-                >
-                  {speakingId === message.id ? <Square className="h-3 w-3" /> : <Volume2 className="h-3.5 w-3.5" />}
-                </button>
-              )}
-              {focusIds.length > 0 && onFocusSources && (
-                <button
-                  onClick={() => {
-                    const isActive =
-                      focusedSourceIds?.length === focusIds.length &&
-                      focusIds.every(id => focusedSourceIds.includes(id));
-                    onFocusSources(isActive ? null : focusIds);
-                  }}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11.5px] ${
-                    focusedSourceIds && focusIds.every(id => focusedSourceIds.includes(id)) && focusedSourceIds.length === focusIds.length
-                      ? 'border-violet-600 bg-violet-600 text-white'
-                      : 'border-violet-200 bg-white text-violet-700 hover:bg-violet-50'
-                  }`}
-                >
-                  ⌖ Focus sources ({focusIds.length})
-                </button>
-              )}
               {extraSources.length > 0 && (
                 <ChatMessageSources
                   sources={extraSources}
@@ -572,34 +570,62 @@ const ChatMole = ({
                   onViewAllSources={() => {}}
                 />
               )}
-              {message.sources && (
-                <ChatMessageFeedback
-                  question={message.question || ''}
-                  answer={message.content}
-                  sourceItemIds={message.sources.map(s => s.id)}
-                />
-              )}
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                {focusIds.length > 0 && onFocusSources && (
+                  <button
+                    onClick={() => onFocusSources(focusActive ? null : focusIds)}
+                    aria-pressed={focusActive}
+                    className={`inline-flex h-7 items-center gap-1.5 px-2 font-pixel text-pixel leading-none transition-colors ${
+                      focusActive
+                        ? 'bg-spot text-spot-on shadow-[inset_0_0_0_1px_var(--ink)]'
+                        : 'bg-white text-ink shadow-[inset_0_0_0_1px_var(--ink)] hover:bg-ink hover:text-white'
+                    }`}
+                  >
+                    <span aria-hidden>⌖</span> {focusActive ? 'showing' : 'show'} {focusIds.length} {focusIds.length === 1 ? 'source' : 'sources'}
+                  </button>
+                )}
+                {message.content && (
+                  <button
+                    onClick={() => toggleSpeak(message)}
+                    title={speakingId === message.id ? 'Stop reading' : 'Read aloud'}
+                    aria-label={speakingId === message.id ? 'Stop reading' : 'Read aloud'}
+                    className={`grid h-7 w-7 place-items-center transition-colors ${
+                      speakingId === message.id ? 'bg-ink text-white' : 'text-muted-foreground hover:bg-fill hover:text-ink'
+                    }`}
+                  >
+                    {speakingId === message.id ? <Square className="h-3 w-3" /> : <Volume2 className="h-3.5 w-3.5" />}
+                  </button>
+                )}
+                {message.sources && (
+                  <ChatMessageFeedback
+                    question={message.question || ''}
+                    answer={message.content}
+                    sourceItemIds={message.sources.map(s => s.id)}
+                  />
+                )}
+              </div>
             </div>
           );
         })}
-        {isBusy && (
-          <div className="flex gap-1.5 px-1 py-1">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:120ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:240ms]" />
+        {isBusy && messages[messages.length - 1]?.role === 'user' && (
+          // Before the first word streams: the machine says what it's doing
+          <div className="flex items-center gap-2">
+            <St4shSymbol className="h-[11px] w-[10px] flex-none text-ink" />
+            <StatusLine tone="busy">searching your stash…</StatusLine>
           </div>
         )}
         <div ref={threadEndRef} />
       </div>
 
-      <div className="border-t border-border px-3.5 py-3">
+      <div className="flex-none border-t border-line px-3.5 pb-3 pt-3">
         {voice.isListening ? (
           <div>
-            <div className="flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5">
+            <div className="flex items-center gap-3 border border-ink bg-spot px-3 py-2.5 text-spot-on">
               <button
                 onClick={voice.stop}
-                className="grid h-9 w-9 flex-none animate-pulse place-items-center rounded-full bg-violet-500 text-white shadow-[0_0_0_6px_rgba(139,92,246,0.18)]"
+                className="grid h-9 w-9 flex-none place-items-center bg-ink text-white"
                 title="Tap to ask"
+                aria-label="Stop listening and ask"
               >
                 <Mic className="h-4 w-4" />
               </button>
@@ -607,17 +633,17 @@ const ChatMole = ({
                 {[12, 20, 15, 24, 10, 18, 13].map((h, i) => (
                   <span
                     key={i}
-                    className="block w-[3.5px] animate-pulse rounded-full bg-violet-500"
+                    className="block w-[3px] animate-pulse bg-current"
                     style={{ height: h, animationDelay: `${i * 110}ms` }}
                   />
                 ))}
               </div>
-              <div className="flex-1 truncate text-[13px] italic text-gray-600">
+              <div className="flex-1 truncate text-[14px] italic">
                 {voice.interimTranscript || 'Listening…'}
               </div>
             </div>
-            <div className="mt-2 text-[11.5px] text-muted-foreground">
-              Listening — tap the mic to ask · <b>esc</b> to cancel
+            <div className="mt-2 font-pixel text-pixel text-muted-foreground">
+              listening · tap the mic to ask · esc to cancel
             </div>
           </div>
         ) : (
@@ -629,44 +655,43 @@ const ChatMole = ({
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleSend(); }}
                 placeholder="Ask your stash…"
-                className="h-10 flex-1 rounded-xl border border-border bg-gray-50 px-3 text-sm outline-none focus:border-violet-300"
+                className="h-10 min-w-0 flex-1 border border-line bg-white px-3 text-[15px] outline-none transition-shadow placeholder:text-muted-foreground focus:border-ink focus:shadow-[0_0_0_3px_rgb(var(--spot-rgb))]"
               />
               {voice.isSupported && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-10 w-10 rounded-xl"
+                <button
+                  type="button"
+                  className="grid h-10 w-10 flex-none place-items-center border border-line bg-white text-ink transition-colors hover:border-ink hover:bg-fill"
                   onClick={voice.start}
                   title="Ask by voice"
+                  aria-label="Ask by voice"
                 >
                   <Mic className="h-4 w-4" />
-                </Button>
+                </button>
               )}
-              <Button
-                size="icon"
-                className="h-10 w-10 rounded-xl bg-violet-500 hover:bg-violet-600"
+              <button
+                type="button"
+                className="grid h-10 w-10 flex-none place-items-center bg-ink text-white transition-opacity hover:bg-ink-soft disabled:opacity-25"
                 onClick={() => void handleSend()}
                 disabled={isBusy || !input.trim()}
                 title="Send"
+                aria-label="Send"
               >
-                <Send className="h-4 w-4" />
-              </Button>
+                {isBusy ? <Spinner className="font-pixel text-pixel-md leading-none" /> : <ArrowUp className="h-4 w-4" />}
+              </button>
             </div>
-            <div className="mt-2 flex items-center gap-2 text-[11.5px]">
+            <div className="mt-2.5 flex items-center gap-2 text-[13px]">
               <button
                 onClick={startNewChat}
-                className="text-muted-foreground hover:text-violet-700 hover:underline underline-offset-2"
+                className="text-muted-foreground underline-offset-[3px] hover:text-ink hover:underline"
               >
                 Start new chat
               </button>
-              <span className="text-muted-foreground/40">·</span>
+              <span className="text-muted-foreground/50" aria-hidden>·</span>
               <button
                 onClick={onToggleConversations}
-                className={
-                  conversationsOpen
-                    ? 'font-medium text-violet-700 hover:underline underline-offset-2'
-                    : 'text-muted-foreground hover:text-violet-700 hover:underline underline-offset-2'
-                }
+                className={`underline-offset-[3px] hover:underline ${
+                  conversationsOpen ? 'font-medium text-ink' : 'text-muted-foreground hover:text-ink'
+                }`}
               >
                 {conversationsOpen ? 'Back to your stash' : 'Earlier conversations'}
               </button>

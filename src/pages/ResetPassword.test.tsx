@@ -38,8 +38,8 @@ const renderPage = () =>
   );
 
 const fill = (password: string, confirm: string) => {
-  fireEvent.change(screen.getByPlaceholderText('New password'), { target: { value: password } });
-  fireEvent.change(screen.getByPlaceholderText('Confirm new password'), { target: { value: confirm } });
+  fireEvent.change(screen.getByLabelText('New password'), { target: { value: password } });
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: confirm } });
   fireEvent.click(screen.getByRole('button', { name: /update password/i }));
 };
 

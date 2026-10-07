@@ -1,9 +1,6 @@
-
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
-import { FileText, Image, Video, Mic, Link, Package } from 'lucide-react';
+import React from 'react';
+import { StatusLine, Tag } from '@/components/machine/Machine';
+import { PixelMosaic } from '@/components/machine/PixelMosaic';
 
 interface ContentItemSkeletonProps {
   showProgress?: boolean;
@@ -13,134 +10,64 @@ interface ContentItemSkeletonProps {
   fileSize?: number;
 }
 
-const ContentItemSkeleton = ({ 
-  showProgress = false, 
-  title = "Processing...", 
-  description = "Processing...",
-  type = "text",
-  fileSize
-}: ContentItemSkeletonProps) => {
-  const [currentMessage, setCurrentMessage] = useState(0);
-  const [flashEffect, setFlashEffect] = useState(true);
+const KIND: Record<string, string> = {
+  audio: 'voice note',
+  video: 'video',
+  image: 'photo',
+  document: 'document',
+  link: 'link',
+  text: 'note',
+  collection: 'multi-part',
+};
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'image': return <Image className="h-4 w-4" />;
-      case 'video': return <Video className="h-4 w-4" />;
-      case 'audio': return <Mic className="h-4 w-4" />;
-      case 'link': return <Link className="h-4 w-4" />;
-      case 'collection': return <Package className="h-4 w-4" />;
-      default: return <FileText className="h-4 w-4" />;
-    }
-  };
+const formatFileSize = (bytes?: number) => {
+  if (!bytes) return '';
+  const mb = bytes / (1024 * 1024);
+  return mb > 1 ? `${mb.toFixed(1)} mb` : `${(bytes / 1024).toFixed(0)} kb`;
+};
 
-  const getProcessingMessages = (type: string, fileSize?: number) => {
-    const baseMessages = ["Processing...", "Almost done..."];
-    
-    switch (type) {
-      case 'audio':
-        return ["Uploading audio...", "Transcribing...", "Analyzing content...", "Almost done..."];
-      case 'video':
-        return ["Uploading video...", "Processing video...", "Extracting content...", "Almost done..."];
-      case 'image':
-        return ["Uploading image...", "Analyzing image...", "Generating description...", "Almost done..."];
-      case 'document':
-        return ["Uploading document...", "Extracting text...", "Processing content...", "Almost done..."];
-      case 'collection':
-        return ["Processing collection...", "Analyzing items...", "Organizing content...", "Almost done..."];
-      case 'link':
-        return ["Fetching page...", "Extracting metadata...", "Almost done..."];
-      default:
-        return baseMessages;
-    }
-  };
-
-  const messages = getProcessingMessages(type, fileSize);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentMessage((prev) => (prev + 1) % messages.length);
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [messages.length]);
-
-  useEffect(() => {
-    // Flash effect when first appearing
-    const timer = setTimeout(() => setFlashEffect(false), 500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes) return '';
-    const mb = bytes / (1024 * 1024);
-    return mb > 1 ? `${mb.toFixed(1)}MB` : `${(bytes / 1024).toFixed(0)}KB`;
-  };
+/**
+ * A save on its way in (the optimistic card, shown until the row exists): the card in its
+ * DESIGN-v2 "reading" state. The media is a shimmering pixel mosaic (a picture not yet
+ * resolved), the machine line says
+ * the one thing that's true right now (`| saving…`), and dotted lines hold the description's
+ * place. No rotating messages: they claimed steps the client can't see.
+ */
+const ContentItemSkeleton = ({ title, type = 'text', fileSize }: ContentItemSkeletonProps) => {
+  // The optimistic handler fills in "Processing …" when it has no real title; that's not a title
+  const realTitle = title && !/^processing\b/i.test(title) ? title : '';
+  const hasMedia = type !== 'text' && type !== 'collection';
+  const size = formatFileSize(fileSize);
 
   return (
-    <Card className={`group flex flex-col h-full bg-white border-2 transition-all duration-500 ${
-      flashEffect ? 'border-primary/50 shadow-lg scale-[1.02]' : 'border-black/10'
-    }`}>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0 pr-2">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="text-primary animate-pulse">
-                {getTypeIcon(type)}
-              </div>
-              <div className="h-6 bg-white rounded animate-pulse px-2 py-1 text-sm font-medium text-foreground">
-                {title}
-              </div>
-              {fileSize && (
-                <span className="text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
-                  {formatFileSize(fileSize)}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="h-8 w-8 bg-white rounded animate-pulse" />
+    <div aria-busy className="v2-arrive flex h-full flex-col rounded-object border border-line bg-white shadow-object">
+      {hasMedia && (
+        <div className="relative h-40 overflow-hidden rounded-t-[1px] border-b border-line bg-fill">
+          <PixelMosaic />
+          <Tag className="absolute left-2.5 top-2.5 z-[4]">{KIND[type] ?? type}</Tag>
         </div>
-      </CardHeader>
-      <CardContent className="flex flex-col flex-1">
-        <div className="flex-1">
-          <div className="w-full h-32 bg-white rounded-md mb-3 animate-pulse" />
-          
-          {/* Animated processing message */}
-          <div className="mb-3">
-            <div className="flex items-center gap-2 text-sm text-primary font-medium">
-              <div className="h-2 w-2 bg-primary rounded-full animate-pulse" />
-              <span className="animate-fade-in">
-                {messages[currentMessage]}
-              </span>
+      )}
+      <div className="flex flex-1 flex-col px-5 pb-3.5 pt-4">
+        {realTitle ? (
+          <>
+            <h3 className="line-clamp-2 text-object-title font-medium text-ink">{realTitle}</h3>
+            <div className="mt-1.5">
+              <StatusLine tone="busy">saving…</StatusLine>
             </div>
-            
-            {/* Progress indicator for large files */}
-            {showProgress && (
-              <div className="mt-2">
-                <Progress value={undefined} className="h-2 bg-muted/30" />
-              </div>
-            )}
-          </div>
-          
-          <div className="space-y-2">
-            <div className="h-4 bg-white rounded animate-pulse w-full" />
-            <div className="h-4 bg-white rounded animate-pulse w-2/3" />
-          </div>
-          
-          <div className="mt-3">
-            <div className="flex flex-wrap gap-1">
-              <div className="h-6 bg-white rounded-full animate-pulse w-16" />
-              <div className="h-6 bg-white rounded-full animate-pulse w-20" />
-            </div>
-          </div>
+          </>
+        ) : (
+          <StatusLine tone="busy">saving…</StatusLine>
+        )}
+        <div aria-hidden className="mt-3 space-y-0.5 overflow-hidden whitespace-nowrap font-pixel text-pixel tracking-[0.05em] text-[#b9bdb5]">
+          <span className="block">··································</span>
+          <span className="block">·······················</span>
         </div>
-        
-        <div className="flex items-center justify-between mt-auto pt-2">
-          <div className="h-6 bg-white rounded-full animate-pulse w-20" />
-          <div className="h-4 bg-white rounded animate-pulse w-20" />
+        <div className="mt-auto flex items-center justify-between border-t border-line-soft pt-3 font-pixel text-pixel text-muted-foreground">
+          <span>{hasMedia ? size || KIND[type] : 'note'}</span>
+          <span>just now</span>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };
 

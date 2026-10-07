@@ -8,14 +8,14 @@ interface EditItemTitleSectionProps {
 }
 
 const TITLE_TYPE =
-  'font-montreal text-[28px] font-medium leading-[1.2] tracking-[-0.02em] text-[#22262f] md:text-[28px]';
+  'font-montreal text-[28px] font-medium leading-[1.12] tracking-[-0.03em] text-ink md:text-[28px]';
 const TITLE_BOX =
-  '-mx-2 w-[calc(100%+16px)] rounded-lg px-2 py-0.5 transition-colors hover:bg-[rgba(109,91,208,0.05)]';
+  '-mx-2 w-[calc(100%+16px)] px-2 py-0.5 transition-colors hover:bg-fill';
 
 /**
- * Panel title (DESIGN.md): weight 500, 28px, -0.02em, inline-editable — no
- * input chrome at rest, violet wash on hover, wash + 2px violet-300 ring on
- * focus.
+ * Panel title (DESIGN-v2 screen title: Montreal 500, 28px, -0.03em), inline-editable: no
+ * input chrome at rest, the soft fill on hover; editing, a white box with an ink edge and the
+ * spot ring, like every place the person writes.
  *
  * Two states (ui-changes.md 2026-09-03): at rest the title is a clamped
  * two-line block with an ellipsis (the full text sits in the tooltip);
@@ -68,9 +68,9 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
         onClick={() => setEditing(true)}
         // No display utility here: `line-clamp-2` relies on `display: -webkit-box`,
         // and `block`/`flex` would override it and defeat the clamp
-        className={`${TITLE_BOX} ${TITLE_TYPE} text-left line-clamp-2 break-words focus-visible:bg-[rgba(109,91,208,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b6a8ef]`}
+        className={`${TITLE_BOX} ${TITLE_TYPE} text-left line-clamp-2 break-words focus-visible:bg-fill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink`}
       >
-        {title ? title : <span className="text-[#959ba6]">Untitled</span>}
+        {title ? title : <span className="text-muted-foreground">Untitled</span>}
       </button>
     );
   }
@@ -85,7 +85,7 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
       onChange={(e) => onTitleChange(e.target.value.replace(/[\r\n]+/g, ' '))}
       onKeyDown={handleKeyDown}
       onBlur={finish}
-      className={`${TITLE_BOX} ${TITLE_TYPE} min-h-0 resize-none overflow-hidden border-0 bg-[rgba(109,91,208,0.06)] shadow-none focus-visible:bg-[rgba(109,91,208,0.06)] focus-visible:ring-2 focus-visible:ring-[#b6a8ef] focus-visible:ring-offset-0`}
+      className={`${TITLE_BOX} ${TITLE_TYPE} min-h-0 resize-none overflow-hidden rounded-none border border-ink bg-white shadow-[0_0_0_3px_rgb(var(--spot-rgb))] focus-visible:border-ink focus-visible:bg-white focus-visible:ring-0 focus-visible:ring-offset-0 v2:focus-visible:ring-0`}
       placeholder="Untitled"
     />
   );

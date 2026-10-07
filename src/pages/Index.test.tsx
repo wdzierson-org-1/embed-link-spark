@@ -90,11 +90,11 @@ describe("Index", () => {
   it("shows the loading interstitial while initial items load is in progress", async () => {
     itemsLoadingState.current = true;
 
-    const { findByLabelText } = render(<Index />);
+    const { findByRole } = render(<Index />);
 
-    // The interstitial's stitched-S mark carries aria-label "Loading"; its
-    // message copy cycles randomly, so assert on the stable mark instead
-    expect(await findByLabelText("Loading")).toBeInTheDocument();
+    // The visible line decrypts and changes from load to load, so assert on the
+    // status's one stable accessible name instead
+    expect(await findByRole("status", { name: "Opening your stash" })).toBeInTheDocument();
   });
 
   it("sweeps staging orphans once for the signed-in user", async () => {

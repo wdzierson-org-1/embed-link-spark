@@ -133,16 +133,17 @@ const TagsSettings = () => {
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Manage Tags</CardTitle>
+          <CardTitle>Tags</CardTitle>
           <CardDescription>
-            View and organize your tags. Deleting a tag will remove it from all associated items.
+            The tags you made before. Cards don't show them any more, but you can still tidy them here.
+            Deleting a tag removes it from every item.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search tags..."
+              placeholder="Search tags…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -150,36 +151,30 @@ const TagsSettings = () => {
           </div>
 
           {filteredTags.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              {searchQuery ? (
-                <p>No tags match your search</p>
-              ) : (
-                <div>
-                  <p>You haven't created any tags yet</p>
-                  <p className="text-sm mt-2">Tags help organize your content and make it easier to find</p>
-                </div>
-              )}
+            <div className="v2-dots border border-line px-4 py-8 text-center text-[15px] text-muted-foreground">
+              {searchQuery ? <p>No tags match “{searchQuery}”.</p> : <p>You haven't made any tags.</p>}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredTags.map((tag) => (
                 <div
                   key={tag.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
+                  className="flex items-center justify-between border border-line bg-white py-2 pl-3 pr-1.5 transition-colors hover:border-ink"
                 >
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <Badge variant="secondary" className="font-normal">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <Badge variant="default" className="min-w-0 truncate">
                       {tag.name}
                     </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      ({tag.usage_count})
+                    <span className="font-pixel text-pixel text-muted-foreground">
+                      {tag.usage_count}
                     </span>
                   </div>
                   <Button
                     variant="ghost"
                     size="icon"
+                    aria-label={`Delete tag ${tag.name}`}
                     onClick={() => setDeleteTag(tag)}
-                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    className="h-8 w-8 text-error hover:bg-error hover:text-white"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -193,12 +188,9 @@ const TagsSettings = () => {
       <AlertDialog open={!!deleteTag} onOpenChange={() => setDeleteTag(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Tag</AlertDialogTitle>
+            <AlertDialogTitle>Delete the tag “{deleteTag?.name}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the tag "{deleteTag?.name}"?
-              <br />
-              <br />
-              This tag will be removed from {deleteTag?.usage_count} item(s). This action cannot be undone.
+              It comes off {deleteTag?.usage_count} {deleteTag?.usage_count === 1 ? 'item' : 'items'}. This can't be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -209,7 +201,7 @@ const TagsSettings = () => {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete Tag
+              Delete tag
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

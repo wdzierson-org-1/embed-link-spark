@@ -8,6 +8,231 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-07 · v2 second pass: the way in, a decrypting loading screen, Resolve, and Generate summary fixed
+
+Will's notes on the 2026-10-06 redesign: a redesigned sign in / sign up connected to the
+homepage's Sign in; a decrypting loading screen that cycles cheeky lines; "make it cool": the
+pixel-to-visible effect instead of the green scan line; JetBrains Mono; texture and a little noise
+on the library background; the composer's hint only on focus; the details drawer open by default;
+no "Press '/' for commands" in the panel's notes; and "about half the time [Generate summary]
+doesn't do anything. what should it do?" `DESIGN-v2.md` records it all (§4, §7, §8, §10,
+§12.4–12.10, §12.14). Branch `app-redesign-v2`.
+
+**Fixed in production: Generate summary.** Root cause: `summarize-content` v8 (deployed
+2026-09-29) checked the caller with a bare `auth.getUser()` on `supabase-js@2.7.1`, which esm.sh
+now bundles with `gotrue-js@2.117.2`. That auth client treats a bare call with no stored session as
+signed out unless the client flags a custom Authorization header, and 2.7.1 never does, so every
+request was answered `401 Not authenticated` in about 0.3 s, whatever the item. The button showed
+"summarizing…" for a moment and then its small error line, which looked like nothing happening.
+- Server: the function now reads the bearer token and calls `getUser(token)` with the service
+  client, as every other function does. Deployed as **v9** (2026-10-07). Verified against
+  production: eight real page bodies from 51 to 30,502 characters, each summarized twice, 16/16
+  `200`s in 1.7–6.9 s (a repro script copied them onto throwaway fixture items and deleted them).
+- What it does (the contract, unchanged): summarizes the item's `page_body` with the ingestion
+  prompt (gpt-4o-mini, at most ~250 words), writes `summary`, refreshes embeddings, returns
+  `{ success, summary }`; `{ success: false, reason: 'no_source_content' }` under 50 characters.
+- Client: the button shows only when `page_body` has at least 50 characters after trimming
+  (`canSummarizeSource`, mirroring the server); under that the tab says "Too little text was
+  captured to summarize. It's all under Original Content." A failure is an error line in the
+  machine voice (`couldn't summarize this. try again`; `nothing captured to summarize yet`) with
+  the button still there to retry.
+- Same bug in `chat-with-content` (v117): the bare `getUser()` on the same pairing, so its owner
+  check never passed and it answered from the slim list row (no page text or summary). Fixed in
+  code the same way, **not deployed**: its only caller (the per-card chat) has no entry point in
+  the UI today, so the next deploy of the function carries the fix.
+- Found while diffing deployed code (not changed here): production `transcribe-audio` (v28) gives
+  recording summaries a 60 s timeout, but `_shared/summarize.ts` on main gives every kind 20 s (the
+  2026-09-29 merges dropped `task === 'recording' ? 60_000 : 20_000`). The next deploy of
+  `transcribe-audio` from main would shorten it.
+
+**The way in (sign in, sign up, a new password) is v2.** `/auth` and `/reset-password` join the v2
+scope (`src/utils/designScope.ts`); `/oauth/consent` stays v1.
+- One floating machine window on the textured paper, its bar naming the address in the code voice
+  (`stash://sign-in`, `stash://sign-up`, `stash://reset`, `stash://new-password`); a screen title
+  ("Welcome back.", "Start your stash.") and a decrypting prompt (`> knock knock. who’s there?`,
+  `> new here? pull up a chair.`, `> happens to the best of us.`).
+- Fields have visible labels; placeholders are examples (`you@example.com`, `At least 8
+  characters`). The username field shows the feed address it makes. Password managers save the
+  email as the login (`autocomplete="username"` on both email fields); the @handle is
+  `autocomplete="off"`.Field errors are wrapping
+  machine lines tied to the field (`✕ that username is taken. try another.`, `✕ that number is
+  already on an account. use another.`).
+- Behaviour unchanged: the anonymous-session guard, `returnTo` / `commentItem`, the `mode=reset` and
+  `mode=signup` deep links, the username / phone checks, the reset rate-limit toast, the recovery
+  link handling.
+- **The homepage prototype's nav** (`docs/superpowers/prototypes/2026-10-06-stashe-homepage/js/site.js`):
+  **Sign in** → `/auth`, **Get Stash** → `/auth?mode=signup` (same origin when served; the live
+  site from a `file://` checkout). The hero and closing "Get Stash" buttons still point at `#start`.
+
+**Loading screen.** The paper, the symbol and a line in JetBrains Mono that decrypts behind a spot
+head, holds 1.8 s behind the block cursor, scrambles out and gives way to the next. Twelve lines;
+each load opens on the next (`localStorage.stash_loading_line`). Screen readers hear one status,
+"Opening your stash". Reduced motion: the line, plainly. For iOS: the same lines and timing
+(`src/components/machine/decryptCycle.ts`, a pure function of time).
+
+**Resolve replaces the scan bar** (the reading state; same `enrichmentState` contract):
+- A photo or link cover being read holds at 12 px pixel blocks while a square lens of finer blocks
+  steps across it in rows; when the card leaves the reading state it sharpens 8 → 5 → 3 → 1 px.
+- A picture that lands while the person watches (the `preview` reveal) resolves in from 26 → 18
+  → 12 px (then the lens, if still reading) or all the way to sharp. It no longer prints in.
+- A link placeholder's pixel glyph boils while reading; a voice note's waveform jitters while
+  transcribing; a document's page lines flicker while the PDF is read. Each settles over three
+  beats.
+- A picture still downloading shows a shimmering mosaic of 8 px grey blocks (never an empty grey
+  box). The optimistic "saving" card and the panel's PDF preview loader use the same mosaic (the
+  checker is retired).
+- One shared 110 ms beat drives all of it; off-screen canvases don't paint. Reduced motion: sharp
+  pictures, still glyphs and waveforms, a still mosaic, read live, so switching it on with the
+  app open settles a running effect at once.
+
+**Library background:** paper with tooth, fixed behind the library, the loading screen and the
+way in: a 4 px dot grid at 5.5% ink (a CSS tile), two stippled spheres from the corners (ordered
+dither, 16%; 2–9 ms to draw, cached and reused between the loading screen and the library, not
+redrawn when a phone's toolbar slides), and grain (12%). Settings stays flat.
+
+**Smaller changes:**
+- Composer: `type / for commands` appears only while the composer is focused.
+- Item panel: the Details drawer opens expanded, and again for each new item; collapsing still
+  works. Links no longer list an "Original file" (it was the stored cover, `preview_….jpg`).
+- Item panel notes: the empty line says "Add a note…"; "Press '/' for commands or start typing…"
+  is gone (the hint under the editor already says `type / for formatting`). The full-screen editor
+  shows that hint in its footer. Links in notes are ink, not blue.
+- Code voice (JetBrains Mono, new): the MCP address, the `claude mcp add …` command, the username,
+  the public feed address, phone numbers, the panel's URL strip and code in notes. They were in the
+  11 px pixel font, where `l`, `1` and `I` blur.
+
+**Tests:** the summary tab (offer / refuse / error / busy), the details drawer (open by default,
+no original file on links), the composer hint on focus, the decrypt cycle, Resolve's pure parts
+(schedules, the lens path, object-fit geometry, boiling) and its hooks (resolve and hand back the
+`<img>`, reduced motion switched on mid-effect, no sharp flash when a boil settles, no leaked
+observer), the backdrop's stipple spans, the auth fields' `autocomplete`, and the v2 scope of the
+auth routes. Full suite: 588 tests in 75 files. An independent review of the pass found the
+reduced-motion, autocomplete, settle-flash, observer and backdrop-cost issues above; all fixed.
+
+---
+
+## 2026-10-06 · Web app redesign on DESIGN-v2 ("clean objects, DIY machinery")
+
+Will asked for the app to match the new homepage, with retro, near-square cards, pixel type for
+card labels, terminal-like touches, and the share sheet's cursor as the card's "gathering more
+info" animation. `DESIGN-v2.md` is now the design system of reference, and §12 records every app
+decision. The layout and data contracts are unchanged: no wire, schema or edge-function changes.
+Branch `app-redesign-v2`.
+
+**Scope.** `<html data-ui="v2">` on `/home`, `/settings`, `/discover`, `/feed/*`, `/admin*` and
+`/design/*` (`src/components/DesignScope.tsx`). Landing, pricing, legal, auth and OAuth consent stay
+v1 until the homepage prototype is ported. `?spot=violet` or `?spot=lime` on an app URL switches
+the spot colour and is remembered, so Will can compare the two.
+
+**Behaviour that changed (contracts for iOS and macOS to mirror):**
+- **Enrichment state on a card** (same `enrichmentState` contract, new presentation):
+  - The status pill and the 50% dimming are gone.
+  - A one-line machine status sits under the title, or in its place before there is one: the
+    cursor `| / - \` (130 ms per frame, one shared ticker) plus the label.
+    - `gathering more info…` by default.
+    - `reading the picture…` for images.
+    - `transcribing…` for audio and video.
+    - `reading the pdf…` while `isDocumentProcessing`.
+  - A spot-coloured scan bar sweeps the media while the card is pending or processing.
+  - Dotted placeholder lines hold the description's place when a description is one of the
+    `missingPieces`.
+  - When pieces land, the title decrypts in, and the description and picture print in.
+  - At completion the line reads `✓ filled in` for 2.2 s. On partial it reads
+    `some info unavailable` and stays.
+  - New: a PDF counts as being read for 10 minutes at most (`isReadingDocument` in
+    `src/utils/itemAssembly.ts`). Failed extraction writes nothing, so after that the line reads
+    `some info unavailable` instead of reading forever. The editor block on processing
+    documents is unchanged.
+  - Reduced motion: the cursor stays still at `|`, there's no scan bar, and nothing scrambles.
+- **Library toolbar:** `N saves` (was "N items"). While any save is pending or processing it adds
+  `· | reading N…`. This is new: the count ticks every 30 s while any are open.
+- **Optimistic "saving" card:** the rotating per-type messages ("Uploading audio…",
+  "Transcribing…", "Almost done…") are removed, because they claimed steps the client can't see.
+  It now shows a checker hero with the kind tag and `| saving…`. A placeholder title
+  ("Processing …") is no longer shown as a title.
+- **Card anatomy:**
+  - The kind is always visible, as a black tag on the media (it was a hover-only chip in the
+    footer). Kinds without media show it in the meta row.
+  - The link domain moved from the kicker above the title into the meta row. It is still a link
+    that opens the source in a new tab, now an `<a>`.
+  - The chips row is gone: format, size, duration and read time ride in the meta row.
+  - The date moved to the right of the meta row (`oct 3`, with the year if it's not this year).
+  - The title's "Click to edit" tooltip is removed; the whole card still opens the panel.
+  - `preview limited, saved anyway` on an imageless link shows only once enrichment is no
+    longer pending.
+  - The imageless-link placeholder shows the domain with no favicon. Fetching one per card
+    would send the domains of the person's saves to Google on every library load. v1's letter
+    tile didn't fetch either. The item panel's URL strip keeps its single favicon, as before.
+- **Composer:**
+  - The placeholder is now "Paste a link, drop a file, or type a note". `type / for commands`
+    moved to a hint on the bottom row.
+  - A blinking block cursor follows the placeholder while the editor isn't focused.
+  - The send icon is an up arrow, and a turning cursor shows while it submits.
+  - Chip statuses are now lowercase machine lines: `fetching more details…`,
+    `reading the link…`, `analyzing…`, `uploading…`, `uploading · 45%`.
+- **Ask:**
+  - Each answer opens with a tool-step line:
+    1. `| searching your stash…` before the first token.
+    2. `| writing the answer…` while it streams.
+    3. `✓ searched your stash · N saves` once done (also on reloaded history, from
+       `source_items`).
+  - "⌖ Focus sources (N)" is now `⌖ show N sources` (`showing` when active).
+  - The dead "View all sources" link is removed (its handler was a no-op).
+  - Uncited sources show as small cards under `also from`.
+  - The feedback toast is "Feedback saved" (it was "Thank you!").
+  - The launcher's mic has an aria-label ("Ask by voice").
+- **Item panel:**
+  - A 44 px ink window bar shows the kind, source and `saved <date>`. The tinted type chip and
+    "uploaded · date" eyebrow are removed from the body.
+  - The details are a `├─`/`└─` tree.
+  - The autosave line reads `| saving…`, `✓ saved 9:41 pm`, or `changes save automatically`.
+  - Source tabs render lowercase; their accessible names are unchanged.
+  - "Press / for formatting options" is now `type / for formatting`.
+- **Settings:**
+  - A numbered vertical index replaces the five tabs. The new order is Your information,
+    Connected agents, Phone & WhatsApp, Subscription, Tags.
+  - Sections deep-link as `/settings#account`, `#agents`, `#phone`, `#subscription` and `#tags`.
+  - Copy is sentence case ("Your information", "Save changes", "Phone & WhatsApp",
+    "Register number").
+  - The plan reads "$4.99 a month"; "Start 7-Day Free Trial" is now "Start the 7-day free trial".
+  - Premium's list now reads "Unlimited summaries, transcripts and enrichment", "Search by
+    meaning, not just keywords" and "Ask about everything you've saved"; it was "AI-powered
+    insights" etc.
+  - Agent activity is shown as a log.
+- **Empty and loading states:** "Save your first thing." replaces "Start building your knowledge
+  base". "Nothing matches that." replaces "No results found". Loading says `| opening your
+  stash…` and keeps `aria-label="Loading"`.
+- **Trial banner:** "$4.99 a month" (was "$4.99/month"); when urgent or paused it takes the spot
+  field.
+- **Sticky notes** (public items) are paper slips with an ink edge, no longer yellow. The delete
+  confirmation now reads "Delete this sticky note?".
+- **Brand:** the app header shows the ST4SH wordmark from the homepage kit. The PP Mori logo
+  licence is still an open decision; confirm it before this ships. Swapping the mark back is a
+  change to `src/components/brand/St4sh.tsx` only.
+
+**Visual system:**
+- Near-square: objects are 2 px, everything else is 0.
+- Departure Mono (`font-pixel`, 11 / 16.5 / 22 px) for every label; Montreal for titles and
+  sentences.
+- Paper `#F3F4F1`, ink `#000`, one spot colour.
+- Hovered cards lift onto a hard 4 px print shadow; floating windows cast it too.
+- Dithered scrim behind sheets and dialogs.
+- Square switches, inputs and tabs.
+
+Full spec, with sizes, is in `DESIGN-v2.md` §5, §6, §8, §10 and §12.
+
+**For iOS:** `DESIGN-v2.md` §12.11 maps each piece to SwiftUI. The card's machine line and its
+copy table (§10) are the parity contract: the same states, the same words, with native controls.
+
+**Verification:**
+- `npm test`: 69 files, 540 tests. Changed assertions follow the copy changes above. New tests
+  cover glyph integrity, kind labels and glyphs, route scoping, the status line, the saving card
+  and the autosave line.
+- `tsc` is clean.
+- Checked in the browser as the UI-test fixture at 1440 and 390 px, with lime, violet and reduced
+  motion. Ask was driven against a stubbed stream (no rows written).
+- `/design/cards` (dev only) loops the enrichment sequence on a real card.
+
 ## 2026-10-05 · Citation detail edits after background delivery
 
 An open Ask citation detail sheet now adopts title, description and sticky-note values that

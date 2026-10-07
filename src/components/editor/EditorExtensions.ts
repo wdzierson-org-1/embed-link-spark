@@ -28,7 +28,9 @@ interface EditorExtensionOptions {
 }
 
 export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExtensionOptions) => {
-  const emptyHint = options?.placeholder ?? "Press '/' for commands or start typing...";
+  // The slash hint lives beside the editor in the machine voice ("type / for
+  // formatting"), so the empty line only says what goes here
+  const emptyHint = options?.placeholder ?? 'Add a note…';
   const baseExtensions = [
     StarterKit.configure({
       heading: {
@@ -54,23 +56,23 @@ export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExte
       },
       blockquote: {
         HTMLAttributes: {
-          class: "border-l-4 border-primary pl-4 italic",
+          class: "border-l-2 border-ink pl-4 italic",
         },
       },
       codeBlock: options?.inline ? false : {
         HTMLAttributes: {
-          class: "rounded-md bg-muted text-muted-foreground border p-5 font-mono font-medium",
+          class: "bg-fill text-ink border border-line p-5 font-code text-[13px] leading-[1.6]",
         },
       },
       code: {
         HTMLAttributes: {
-          class: "rounded-md bg-muted px-1.5 py-1 font-mono font-medium",
+          class: "bg-fill px-1 py-px font-code text-[0.86em]",
           spellcheck: "false",
         },
       },
       horizontalRule: false,
       dropcursor: {
-        color: "#DBEAFE",
+        color: "#a3f53b",
         width: 4,
       },
       gapcursor: false,
@@ -88,14 +90,14 @@ export const createEditorExtensions = (uploadFn?: UploadFn, options?: EditorExte
     }),
     TiptapLink.configure({
       HTMLAttributes: {
-        class: "text-blue-600 underline underline-offset-[3px] hover:text-blue-800 transition-colors cursor-pointer",
+        class: "text-ink underline decoration-ink/40 underline-offset-[3px] hover:decoration-ink transition-colors cursor-pointer",
       },
       openOnClick: false,
     }),
     TiptapImage.configure({
       allowBase64: true,
       HTMLAttributes: {
-        class: "rounded-lg border border-muted max-w-full h-auto",
+        class: "rounded-object border border-line max-w-full h-auto",
       },
     }),
     TaskList.configure({
@@ -159,17 +161,17 @@ export const createReadOnlyEditorExtensions = () => {
       },
       blockquote: {
         HTMLAttributes: {
-          class: "border-l-4 border-primary pl-4 italic",
+          class: "border-l-2 border-ink pl-4 italic",
         },
       },
       codeBlock: {
         HTMLAttributes: {
-          class: "rounded-md bg-muted text-muted-foreground border p-5 font-mono font-medium",
+          class: "bg-fill text-ink border border-line p-5 font-code text-[13px] leading-[1.6]",
         },
       },
       code: {
         HTMLAttributes: {
-          class: "rounded-md bg-muted px-1.5 py-1 font-mono font-medium",
+          class: "bg-fill px-1 py-px font-code text-[0.86em]",
           spellcheck: "false",
         },
       },
@@ -179,14 +181,14 @@ export const createReadOnlyEditorExtensions = () => {
     }),
     TiptapLink.configure({
       HTMLAttributes: {
-        class: "text-blue-600 underline underline-offset-[3px] hover:text-blue-800 transition-colors cursor-pointer",
+        class: "text-ink underline decoration-ink/40 underline-offset-[3px] hover:decoration-ink transition-colors cursor-pointer",
       },
       openOnClick: true, // Enable clicking links in read-only mode
     }),
     TiptapImage.configure({
       allowBase64: true,
       HTMLAttributes: {
-        class: "rounded-lg border border-muted max-w-full h-auto",
+        class: "rounded-object border border-line max-w-full h-auto",
       },
     }),
     TaskList.configure({

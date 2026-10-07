@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+// summarize-content refuses a source under 50 characters (no_source_content),
+// so the panel only offers the button when the server can act on it
+export const MIN_SUMMARY_SOURCE_CHARS = 50;
+
+export const canSummarizeSource = (pageBody: string | null | undefined): boolean =>
+  (pageBody?.trim().length ?? 0) >= MIN_SUMMARY_SOURCE_CHARS;
+
 // Loads the heavyweight per-item fields (summary, page_body) that the item
 // list query deliberately leaves out, and exposes on-demand summary generation
 // for items captured before summaries existed. `refreshKey` re-runs the load
@@ -57,13 +64,14 @@ export const useItemSourceContent = (itemId: string | undefined, enabled: boolea
       if (data?.success && data.summary) {
         setSummary(data.summary);
       } else if (data?.reason === 'no_source_content') {
-        setGenerateError("There's no captured content to summarize yet.");
+        setGenerateError('nothing captured to summarize yet');
       } else {
-        setGenerateError("Couldn't generate a summary. Please try again.");
+        console.error('Summary generation failed:', data?.reason);
+        setGenerateError("couldn't summarize this. try again");
       }
     } catch (err) {
       console.error('Summary generation failed:', err);
-      setGenerateError("Couldn't generate a summary. Please try again.");
+      setGenerateError("couldn't summarize this. try again");
     } finally {
       setIsGenerating(false);
     }

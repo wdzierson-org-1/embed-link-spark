@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { useProfile } from '@/hooks/useProfile';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
-import { Copy, ExternalLink, Loader2 } from 'lucide-react';
+import { ArrowUpRight, Copy } from 'lucide-react';
+import { Spinner, StatusLine } from '@/components/machine/Machine';
 import { useToast } from '@/hooks/use-toast';
 import DeleteAccountSection from './DeleteAccountSection';
 
@@ -60,8 +61,8 @@ const AccountSettings = () => {
     const url = `https://gostash.it/feed/${profile?.username}`;
     navigator.clipboard.writeText(url);
     toast({
-      title: "Copied!",
-      description: "Feed URL copied to clipboard"
+      title: "Copied",
+      description: "Your feed address is on the clipboard."
     });
   };
 
@@ -73,8 +74,8 @@ const AccountSettings = () => {
   if (loading) {
     return (
       <Card>
-        <CardContent className="pt-6 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin" />
+        <CardContent className="flex items-center justify-center pt-6">
+          <StatusLine tone="busy">loading your details…</StatusLine>
         </CardContent>
       </Card>
     );
@@ -84,15 +85,15 @@ const AccountSettings = () => {
     <div className="space-y-6">
     <Card>
       <CardHeader>
-        <CardTitle>Your Information</CardTitle>
+        <CardTitle>Your information</CardTitle>
         <CardDescription>
-          Manage your personal information and account details
+          Your name, the email you sign in with, and your public feed.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="first_name">First Name</Label>
+            <Label htmlFor="first_name">First name</Label>
             <Input
               id="first_name"
               value={formData.first_name}
@@ -102,7 +103,7 @@ const AccountSettings = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="last_name">Last Name</Label>
+            <Label htmlFor="last_name">Last name</Label>
             <Input
               id="last_name"
               value={formData.last_name}
@@ -113,7 +114,7 @@ const AccountSettings = () => {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="display_name">Display Name</Label>
+          <Label htmlFor="display_name">Display name</Label>
           <Input
             id="display_name"
             value={formData.display_name}
@@ -139,38 +140,41 @@ const AccountSettings = () => {
             id="username"
             value={profile?.username || ''}
             disabled
-            className="bg-muted"
+            className="bg-fill font-code text-[14px] disabled:opacity-100 md:text-[14px] v2:bg-fill"
           />
-          <p className="text-xs text-muted-foreground">
-            Your username cannot be changed
+          <p className="text-[13px] text-muted-foreground">
+            Your username can't be changed.
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="feed_url">Public Feed URL</Label>
-          <div className="flex gap-2">
+          <Label htmlFor="feed_url">Public feed</Label>
+          {/* The address as a machine strip: read it, copy it, open it */}
+          <div className="flex items-stretch border border-ink bg-white">
             <Input
               id="feed_url"
               value={`https://gostash.it/feed/${profile?.username}`}
               disabled
-              className="bg-muted flex-1"
+              className="h-10 flex-1 border-0 bg-transparent font-code text-[13.5px] text-ink disabled:cursor-text disabled:opacity-100 md:text-[13.5px] v2:bg-transparent"
             />
-            <Button
-              variant="outline"
-              size="icon"
+            <button
+              type="button"
               onClick={copyFeedUrl}
-              title="Copy URL"
+              title="Copy address"
+              aria-label="Copy feed address"
+              className="grid w-10 flex-none place-items-center border-l border-ink text-ink transition-colors hover:bg-ink hover:text-white"
             >
               <Copy className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
+            </button>
+            <button
+              type="button"
               onClick={openFeedUrl}
-              title="Open in new tab"
+              title="Open in a new tab"
+              aria-label="Open feed in a new tab"
+              className="grid w-10 flex-none place-items-center border-l border-ink text-ink transition-colors hover:bg-ink hover:text-white"
             >
-              <ExternalLink className="h-4 w-4" />
-            </Button>
+              <ArrowUpRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
 
@@ -179,8 +183,8 @@ const AccountSettings = () => {
             onClick={handleSave}
             disabled={!isDirty || saving}
           >
-            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Changes
+            {saving && <Spinner className="mr-1 font-pixel text-pixel-md leading-none" />}
+            Save changes
           </Button>
         </div>
       </CardContent>
@@ -190,7 +194,7 @@ const AccountSettings = () => {
         <CardTitle>Reminder emails</CardTitle>
         <CardDescription>One email a day listing the items whose reminder came due. Nothing is sent on days with no reminders.</CardDescription>
       </CardHeader>
-      <CardContent className="flex items-center justify-between">
+      <CardContent className="flex items-center justify-between gap-4">
         <Label htmlFor="reminder-emails">Email me when reminders are due</Label>
         <Switch id="reminder-emails" checked={reminderEmails} onCheckedChange={updateReminderEmails} disabled={prefsLoading} />
       </CardContent>

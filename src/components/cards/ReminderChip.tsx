@@ -4,9 +4,9 @@ import { format } from 'date-fns';
 import type { ReminderState } from '@/utils/reminders';
 
 /**
- * Footer reminder indicator. Scheduled reads quiet ("in 3d"); due reads in the
- * interactive violet with an always-visible remove control (DESIGN.md: the
- * control is never hover-only; hover only strengthens colour).
+ * Meta-row reminder indicator, in the machine voice. Scheduled reads quiet ("in 3d"); due is
+ * a black tag with an always-visible remove control (the control is never hover-only; the
+ * remove target is 24 px, WCAG's floor on the web).
  */
 export const ReminderChip = ({
   state,
@@ -23,17 +23,17 @@ export const ReminderChip = ({
   if (state === 'due') {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-full bg-violet-600/10 pl-2 pr-0.5 py-0.5 text-[11px] font-medium text-violet-700"
+        className="inline-flex items-center gap-1 bg-ink py-0 pl-1.5 font-pixel text-pixel leading-none text-white"
         title={`Reminder was set for ${absolute}`}
         data-testid="reminder-chip-due"
       >
-        <Bell className="h-3 w-3 flex-none" />
-        {label}
+        <Bell className="h-3 w-3 flex-none" aria-hidden />
+        {label.toLowerCase()}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDismiss(); }}
           aria-label="Remove reminder"
-          className="ml-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-violet-700/70 hover:bg-violet-600/15 hover:text-violet-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600"
+          className="ml-0.5 inline-grid h-6 w-6 place-items-center text-white/75 hover:bg-white hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
         >
           <X className="h-3 w-3" />
         </button>
@@ -42,11 +42,11 @@ export const ReminderChip = ({
   }
   return (
     <span
-      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+      className="inline-flex items-center gap-1 whitespace-nowrap"
       title={`Reminder ${absolute}`}
       data-testid="reminder-chip-scheduled"
     >
-      <Clock className="h-3 w-3 flex-none" />
+      <Clock className="h-3 w-3 flex-none" aria-hidden />
       {label}
     </span>
   );
