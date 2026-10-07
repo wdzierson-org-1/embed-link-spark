@@ -203,6 +203,15 @@ on the wash, and the wordmark replaced with the "Stash" lettering (Will);
 the 2026-09-03 "icon matches the favicon" note is superseded — they still match,
 both are now the S on the wash.*
 
+*2026-10-07: the **web** icon set — favicon.svg/.ico, favicon-16/32, the touch
+icon and the PWA icons — moved to the DESIGN-v2 mark: the A/4 symbol
+(`brand/stash-a4.svg`) in warm white `#f3f2ee` on a charcoal `#171b1a` tile,
+68.75% of the tile with 22% corners for favicons, 64.45% and square for the touch
+and PWA icons (the ST4SH kit's compositions; source `brand/web-icon-src.html`,
+same `node brand/build.mjs`). The iOS app icon, share-extension icon, onboarding
+tile and Chrome-extension icons keep the S above until those surfaces move to
+DESIGN-v2, so for now the favicon and the iOS icon no longer match (Will).*
+
 ## Components
 
 **Card anatomy** (top to bottom): hero → kicker (links: domain or author
