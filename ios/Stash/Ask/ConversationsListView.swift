@@ -49,7 +49,7 @@ struct ConversationsListView: View {
                 .padding(.bottom, 10)
             list
         }
-        .background(Color(.systemBackground))
+        .background(StashColor.surface)
         .navigationTitle("Conversations")
         .navigationBarTitleDisplayMode(.inline)
         // Debounced server search (web: 300ms) — also performs the initial load (empty query).
@@ -65,7 +65,7 @@ struct ConversationsListView: View {
             // The field's own glyph, at the supporting size it always had (15 pt), now scaling.
             Image(systemName: "magnifyingglass")
                 .stashFont(.secondary)
-                .foregroundStyle(searchFocused ? StashColor.violet600 : StashColor.muted)
+                .foregroundStyle(searchFocused ? StashColor.ink : StashColor.muted)
                 .contentShape(Rectangle())
                 .onTapGesture { searchFocused = true }
                 .accessibilityHidden(true)
@@ -109,31 +109,36 @@ struct ConversationsListView: View {
                 .accessibilityHidden(true)
         }
         .background {
-            Capsule()
-                .fill(Color(.systemBackground))
+            Rectangle()
+                .fill(StashColor.surface)
                 .accessibilityHidden(true)
         }
         .overlay {
-            Capsule()
-                .strokeBorder(searchFocused ? StashColor.violet300 : StashColor.hairline, lineWidth: 1)
+            Rectangle()
+                .strokeBorder(StashColor.spot.opacity(searchFocused ? 1 : 0), lineWidth: 3)
+                .padding(-3)
                 .allowsHitTesting(false)
         }
-        .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
+        .overlay {
+            Rectangle()
+                .strokeBorder(searchFocused ? StashColor.ink : StashColor.line, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder private var list: some View {
         let rows = pager.rows
         if pager.isLoading && rows.isEmpty {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            StashStatusLine(text: "loading conversations…").frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let loadError = pager.loadError {
             VStack(spacing: 8) {
                 Text(loadError)
-                    .stashFont(.meta)
+                    .stashFont(.secondary)
                     .foregroundStyle(StashColor.muted)
                     .multilineTextAlignment(.center)
                 Button("Try again") { Task { await pager.loadFirstPage(query: searchInput) } }
                     .stashFont(.inlineButton)
-                    .foregroundStyle(StashColor.violet600)
+                    .foregroundStyle(StashColor.ink)
                     .buttonStyle(.stashPlain)
             }
             .padding(.horizontal, 24)
@@ -168,7 +173,7 @@ struct ConversationsListView: View {
                             }
                     }
                     if pager.isLoading {
-                        ProgressView().frame(maxWidth: .infinity).padding(.vertical, 8)
+                        StashStatusLine(text: "loading more…").frame(maxWidth: .infinity).padding(.vertical, 8)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -195,11 +200,11 @@ struct ConversationsListView: View {
             ConversationRowLabel(row: row, date: Self.rowDateFormatter.string(from: row.lastMessageAt))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
-                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: StashRadius.card))
+                .background(StashColor.surface, in: RoundedRectangle(cornerRadius: StashRadius.card))
                 .overlay(RoundedRectangle(cornerRadius: StashRadius.card).strokeBorder(StashColor.hairline, lineWidth: 1))
                 .stashCardShadow()
                 .overlay {
-                    if openingId == row.id { ProgressView() }
+                    if openingId == row.id { StashCursor() }
                 }
         }
         .buttonStyle(.plain)
@@ -232,8 +237,8 @@ private struct ConversationRowLabel: View {
         HStack(alignment: .top, spacing: 10) {
             // Web's `ConversationsView.tsx` violet-300 dot (`h-2 w-2 rounded-full bg-violet-300`) —
             // purely decorative, so it's excluded from the row's a11y tree.
-            Circle()
-                .fill(StashColor.violet300)
+            Rectangle()
+                .fill(StashColor.ink)
                 .frame(width: 8, height: 8)
                 .padding(.top, dotTop)
                 .accessibilityHidden(true)

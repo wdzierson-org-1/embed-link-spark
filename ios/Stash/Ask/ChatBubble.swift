@@ -96,10 +96,10 @@ struct ChatBubble: View, Equatable {
             Text(message.content)
                 .chatBubbleText()
                 .accessibilityIdentifier("ask.bubble.\(index)")
-                .foregroundStyle(.white)
+                .foregroundStyle(StashColor.ink)
                 .padding(.horizontal, ChatBubbleLayout.questionHorizontalPadding)
                 .padding(.vertical, ChatBubbleLayout.questionVerticalPadding)
-                .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: 18))
+                .background(StashColor.fill, in: RoundedRectangle(cornerRadius: StashRadius.object))
         }
     }
 
@@ -115,18 +115,19 @@ struct ChatBubble: View, Equatable {
         let rendered = ChatRenderCache.shared.answer(for: message)
         return HStack(alignment: .top, spacing: ChatBubbleLayout.spacing) {
             VStack(alignment: .leading, spacing: ChatBubbleLayout.answerSpacing) {
+                HStack(alignment: .center, spacing: 7) {
+                    Image("StashSymbol")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 11, height: 13)
+                        .foregroundStyle(StashColor.ink)
+                        .accessibilityHidden(true)
+                    StashStatusLine(text: answerStatus, busy: message.isStreaming)
+                        .accessibilityFocused(accessibilityFocus, equals: .answerStatus(message.id))
+                        .accessibilityIdentifier("ask.bubble.\(index).status")
+                }
                 HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    // Plan 15: what the server's agent loop is doing before the first token
-                    // ("Searching your stash…"), in plain meta text inside the existing
-                    // placeholder bubble. Its own identifier, so `ask.bubble.<n>` below keeps
-                    // meaning "the answer text" for the UI tests that poll it.
-                    if rendered.displayText.isEmpty, let status = message.streamStatus {
-                        Text(status.label)
-                            .stashFont(.meta)
-                            .foregroundStyle(StashColor.muted)
-                            .accessibilityFocused(accessibilityFocus, equals: .answerStatus(message.id))
-                            .accessibilityIdentifier("ask.bubble.\(index).status")
-                    }
                     // A wholly-blank answer (the instant between the placeholder's append and the
                     // first delta) would otherwise have no meaningful accessibility presence to
                     // find/poll — a single space keeps the identifier reliably resolvable.
@@ -162,6 +163,9 @@ struct ChatBubble: View, Equatable {
                 }
                 #endif
                 if !rendered.extraSources.isEmpty {
+                    Text("also from")
+                        .stashFont(.machine)
+                        .foregroundStyle(StashColor.muted)
                     sourcesRow(rendered.extraSources)
                         // 44 pt between a chip's centre and the actions row's below (plan 16).
                         .padding(.bottom, ChatBubbleLayout.chipsBottomGap)
@@ -169,9 +173,21 @@ struct ChatBubble: View, Equatable {
                 actionsRow
             }
             .padding(ChatBubbleLayout.answerPadding)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+            .background(StashColor.surface, in: RoundedRectangle(cornerRadius: StashRadius.object))
             Spacer(minLength: ChatBubbleLayout.farSideGap)
         }
+    }
+
+    /// Status follows the same stream state as the answer; no guessed server steps.
+    private var answerStatus: String {
+        if message.isStreaming {
+            if message.content.isEmpty {
+                return message.streamStatus?.label.lowercased() ?? "working on your question…"
+            }
+            return "writing the answer…"
+        }
+        if message.isInterrupted { return "answer interrupted" }
+        return message.sources.isEmpty ? "✓ answer ready" : "✓ answer ready · \(message.sources.count) saves"
     }
 
     // MARK: - Sources
@@ -214,7 +230,7 @@ struct ChatBubble: View, Equatable {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 if isLoading {
-                    ProgressView().controlSize(.mini)
+                    StashCursor()
                 } else {
                     Image(systemName: icon(for: source.type))
                         .accessibilityHidden(true)
@@ -223,10 +239,12 @@ struct ChatBubble: View, Equatable {
                     .lineLimit(stacked ? 3 : 1)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .stashFont(.chip)
+            .stashFont(.secondaryMedium)
+            .foregroundStyle(StashColor.ink)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: stacked ? 16 : 100))
+            .background(StashColor.surface, in: RoundedRectangle(cornerRadius: StashRadius.object))
+            .overlay(RoundedRectangle(cornerRadius: StashRadius.object).strokeBorder(StashColor.line, lineWidth: 1))
         }
         .buttonStyle(.stashPlain)
         .disabled(isLoading)
@@ -516,7 +534,7 @@ private struct ChatAnswerText: View {
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) {
                     Rectangle()
-                        .fill(StashColor.violet600)
+                        .fill(StashColor.ink)
                         .frame(width: 2)
                         .accessibilityHidden(true)
                 }
@@ -559,17 +577,14 @@ private struct ChatAnswerText: View {
     }
 
     /// One markdown run as a `Text` in `role` and `color` — both passed in, never applied outside (see
-    /// the type's doc). Links — the answer's inline citations — in DESIGN.md violet600 (4.64:1 on the
-    /// bubble), underlined with the shared link underline, `Text.LineStyle.stashLinkUnderline` (violet-600 at
-    /// 80 %, ≈ #8879d8 on the bubble's #f2f2f7, 3.26:1; plan 16, WCAG 1.4.1: colour alone can't mark a link —
-    /// violet-600 against ink body text is 2.93:1, against a quote's `muted` 1.04:1). The same style as
-    /// the detail sheet's `MarkdownBlocksView`.
+    /// the type's doc). Citations use ink and the shared underline, so their affordance
+    /// survives monochrome printing and does not depend on a colour difference.
     private func inlineText(_ parsed: AttributedString, role: StashType.Role = .reading,
                             color: Color = StashColor.ink) -> some View {
         var attributed = parsed
         let linkRanges = attributed.runs.filter { $0.link != nil }.map(\.range)
         for range in linkRanges {
-            attributed[range].foregroundColor = StashColor.violet600
+            attributed[range].foregroundColor = StashColor.ink
             attributed[range].underlineStyle = Text.LineStyle.stashLinkUnderline
         }
         return Text(attributed)

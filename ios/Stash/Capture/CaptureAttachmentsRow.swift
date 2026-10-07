@@ -55,8 +55,8 @@ struct CaptureAttachmentsRow: View {
         ZStack(alignment: .topTrailing) {
             thumbnail(for: attachment)
                 .frame(width: Self.chipSize, height: Self.chipSize)
-                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .background(StashColor.fill, in: RoundedRectangle(cornerRadius: StashRadius.object))
+                .clipShape(RoundedRectangle(cornerRadius: StashRadius.object))
 
             removeButton(named: "Remove \(attachment.fileName ?? (attachment.kind == .photo ? "photo" : "attachment"))") {
                 attachments.removeAll { $0.id == attachment.id }
@@ -68,9 +68,9 @@ struct CaptureAttachmentsRow: View {
     /// Same footprint as a ready chip, so the row doesn't shift when the pick lands.
     private func pendingChip(_ placeholder: PendingAttachment) -> some View {
         ZStack(alignment: .topTrailing) {
-            ProgressView()
+            StashCursor(size: .machineLarge)
                 .frame(width: Self.chipSize, height: Self.chipSize)
-                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                .background(StashColor.fill, in: RoundedRectangle(cornerRadius: StashRadius.object))
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Adding attachment")
                 .accessibilityIdentifier("capture.attachment.pending")
@@ -94,10 +94,11 @@ struct CaptureAttachmentsRow: View {
     /// and at its bottom-left corner: `A11yAppUITests`.)
     private func removeButton(named name: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: "xmark.circle.fill")
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, .black.opacity(0.6))
-                .font(.system(size: 18))
+            Image(systemName: "xmark")
+                .foregroundStyle(.white)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 20, height: 20)
+                .background(StashColor.ink)
                 .background {
                     Color.clear
                         .frame(width: 44, height: 44)
@@ -106,7 +107,7 @@ struct CaptureAttachmentsRow: View {
                 }
         }
         .buttonStyle(.plain)
-        .stashIconControl(name, systemImage: "xmark.circle.fill")
+        .stashIconControl(name, systemImage: "xmark")
         .offset(x: 6, y: -6)
     }
 
@@ -135,7 +136,7 @@ struct CaptureAttachmentsRow: View {
                 // VoiceOver reads the whole name. `ink`, not `muted`: the tile's fill stacked on the
                 // composer card is #e9e9ed, where `muted` renders 4.44:1 (measured) — under AA.
                 Text(attachment.fileName ?? attachment.fileExtension.uppercased())
-                    .stashFont(.custom(.semibold, size: 12))
+                    .stashFont(.mono(.caption))
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .foregroundStyle(StashColor.ink)
                     .lineLimit(1)

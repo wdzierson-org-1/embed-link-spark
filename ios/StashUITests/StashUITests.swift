@@ -1704,6 +1704,20 @@ final class StashUITests: XCTestCase {
     ///
     /// `@MainActor`: same reasoning as `testEditSmoke`/`testLocationPinSmoke` — makes the
     /// `XCUIElement` calls in this `async` test's main-actor isolation explicit.
+    /// Simulator review only: opens the real extension and cancels without saving an item.
+    @MainActor
+    func testDesignV2SharePreviewReadOnly() throws {
+        let (email, password) = try testCredentials()
+        let app = XCUIApplication()
+        launchSignedIn(app, arguments: [], email: email, password: password)
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        _ = openStashComposeCard(in: safari, url: "example.com", note: nil, checkpoint: "v2-share")
+        let fonts = safari.descendants(matching: .any)["share.fontStatus"]
+        XCTAssertEqual(fonts.label, "font:neue-montreal departure:loaded jetbrains:loaded")
+        safari.buttons["share.cancel"].tap()
+        XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 15))
+    }
+
     @MainActor
     func testShareExtensionURLSmoke() async throws {
         let (email, password) = try testCredentials()
@@ -1742,7 +1756,7 @@ final class StashUITests: XCTestCase {
         // registered INSIDE the running share-extension process, not just the app's.
         let fontStatus = safari.descendants(matching: .any)["share.fontStatus"]
         XCTAssertTrue(fontStatus.waitForExistence(timeout: 5), "share.fontStatus label not found in the compose card")
-        XCTAssertEqual(fontStatus.label, "font:neue-montreal",
+        XCTAssertEqual(fontStatus.label, "font:neue-montreal departure:loaded jetbrains:loaded",
                        "Expected PP Neue Montreal to load in the share-extension target, not fall back to SF Pro")
 
         if safari.staticTexts["share.gate"].waitForExistence(timeout: 3) {
@@ -2016,8 +2030,8 @@ final class StashUITests: XCTestCase {
 
         let fontStatus = app.descendants(matching: .any)["design.fontStatus"]
         XCTAssertTrue(fontStatus.waitForExistence(timeout: 10), "design.fontStatus label not found in Settings footer")
-        XCTAssertEqual(fontStatus.label, "font:neue-montreal editorial:loaded",
-                       "Expected PP Neue Montreal and PP Editorial New to both load in the app target, not fall back")
+        XCTAssertEqual(fontStatus.label, "font:neue-montreal departure:loaded jetbrains:loaded",
+                       "Expected Montreal, Departure Mono and JetBrains Mono to load in the app target")
     }
 
     /// Plan 7 Task 3: the sign-in card's pill tabs actually switch content — tapping

@@ -39,10 +39,10 @@ struct LibraryErrorBanner: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .foregroundStyle(StashColor.ink)
-        // .orange has no DESIGN.md token yet.
-        .background(Color.orange, in: RoundedRectangle(cornerRadius: 10))
-        .padding(.horizontal, 12)
+        .foregroundStyle(StashColor.error)
+        .background(StashColor.surface)
+        .overlay(Rectangle().strokeBorder(StashColor.error, lineWidth: 1))
+        .padding(.horizontal, 16)
         .padding(.top, 8)
         .accessibilityIdentifier("library.errorBanner")
     }
@@ -53,7 +53,7 @@ struct LibraryErrorBanner: View {
                 .imageScale(.small)
                 .accessibilityHidden(true)
             Text(message)
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .stashFont(.meta)

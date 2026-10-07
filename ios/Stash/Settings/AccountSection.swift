@@ -62,7 +62,7 @@ struct AccountSection: View {
                 }
             }
         } header: {
-            settingsCaption("Account")
+            settingsHeading("01 / Your information")
         }
         .onAppear { session.loadProfileIfNeeded() }
     }
@@ -78,7 +78,7 @@ struct AccountSection: View {
                     // Plan 16: wraps (up to three lines) rather than losing its middle at the
                     // larger text sizes.
                     Text(feedURL)
-                        .stashFont(.meta)
+                        .stashFont(.mono(.footnote))
                         .lineLimit(3)
                         .truncationMode(.middle)
                         .accessibilityIdentifier("settings.feedurl")

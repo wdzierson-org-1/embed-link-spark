@@ -62,7 +62,7 @@ struct VoiceRecorderSheet: View {
                     .frame(maxWidth: .infinity, minHeight: geo.size.height)
                 }
             }
-            .navigationTitle("Voice Note")
+            .navigationTitle("Voice note")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -104,8 +104,8 @@ struct VoiceRecorderSheet: View {
             Button {
                 recorder.start()
             } label: {
-                Circle()
-                    .fill(Color.red)
+                Rectangle()
+                    .fill(StashColor.ink)
                     .frame(width: 84, height: 84)
                     .overlay {
                         // The 84 pt button keeps its size at every text size; its glyph is no bar
@@ -134,11 +134,11 @@ struct VoiceRecorderSheet: View {
             levelMeter
             actionRow {
                 Button("Cancel", role: .destructive) { cancelAndDismiss() }
-                    .buttonStyle(.bordered)
-                    .tint(StashColor.violet700)
+                    .buttonStyle(RecorderActionStyle(primary: false))
+                    .tint(StashColor.ink)
                     .accessibilityIdentifier("capture.voice.cancel")
                 Button("Stop") { recorder.stop() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RecorderActionStyle(primary: true))
                     .accessibilityIdentifier("capture.voice.stop")
             }
         }
@@ -167,13 +167,13 @@ struct VoiceRecorderSheet: View {
             }
             actionRow {
                 Button("Re-record") { reRecord() }
-                    .buttonStyle(.bordered)
-                    .tint(StashColor.violet700)
+                    .buttonStyle(RecorderActionStyle(primary: false))
+                    .tint(StashColor.ink)
                     .disabled(isSaving)
                     .accessibilityIdentifier("capture.voice.rerecord")
                 Button("Cancel", role: .destructive) { cancelAndDismiss() }
-                    .buttonStyle(.bordered)
-                    .tint(StashColor.violet700)
+                    .buttonStyle(RecorderActionStyle(primary: false))
+                    .tint(StashColor.ink)
                     .disabled(isSaving)
                     .accessibilityIdentifier("capture.voice.cancel")
                 saveButton
@@ -181,12 +181,8 @@ struct VoiceRecorderSheet: View {
         }
     }
 
-    /// The sheet's buttons side by side while they fit, stacked once the text is too big for one
-    /// row (xxxLarge and the accessibility sizes) — never squeezed or wrapped mid-word. System
-    /// buttons at the large control size: 50 pt tall, 17 pt text that scales (HIG's 44 pt minimum).
-    /// The tinted (`.bordered`) ones are violet-700 — violet TEXT on a violet tint (DESIGN.md);
-    /// violet-600 there measured "nearly passed" in Xcode's contrast audit (~4.2:1). The filled
-    /// ones keep violet-600 (white on it is 5.18:1).
+    /// Side by side while they fit, stacked at larger type sizes. Each ink/line action
+    /// grows with its label and keeps a 44 pt minimum target.
     private func actionRow<Buttons: View>(@ViewBuilder _ buttons: () -> Buttons) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 16) { buttons() }
@@ -200,13 +196,14 @@ struct VoiceRecorderSheet: View {
             saveTask = Task { await save() }
         } label: {
             if isSaving {
-                ProgressView()
+                StashCursor()
             } else {
                 Text("Save")
             }
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(RecorderActionStyle(primary: true))
         .disabled(isSaving)
+        .accessibilityLabel(isSaving ? "Saving voice note…" : "Save")
         .accessibilityIdentifier("capture.voice.save")
     }
 
@@ -229,7 +226,7 @@ struct VoiceRecorderSheet: View {
                     UIApplication.shared.open(url)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(RecorderActionStyle(primary: true))
             .controlSize(.large)
             .accessibilityIdentifier("capture.voice.openSettings")
         }
@@ -239,11 +236,11 @@ struct VoiceRecorderSheet: View {
 
     private var levelMeter: some View {
         GeometryReader { geo in
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color(.tertiarySystemFill))
+            Rectangle()
+                .fill(StashColor.fill)
                 .overlay(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.red)
+                    Rectangle()
+                        .fill(StashColor.ink)
                         .frame(width: geo.size.width * CGFloat(recorder.averagePower))
                 }
         }
@@ -327,3 +324,21 @@ private struct IdleTimerProbe: View {
     }
 }
 #endif
+
+/// Recording keeps native navigation while its own actions follow the v2 print controls.
+private struct RecorderActionStyle: ButtonStyle {
+    let primary: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .stashFont(.textButton)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
+            .foregroundStyle(primary ? Color.white : StashColor.ink)
+            .background(primary ? StashColor.ink : StashColor.surface)
+            .overlay(Rectangle().strokeBorder(StashColor.ink, lineWidth: 1))
+            .opacity(isEnabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
+    }
+}

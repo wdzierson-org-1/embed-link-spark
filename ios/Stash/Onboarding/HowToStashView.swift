@@ -116,7 +116,7 @@ struct HowToStashView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
         .frame(maxWidth: 400)
-        .background(StashColor.paper, in: RoundedRectangle(cornerRadius: StashRadius.sheet, style: .continuous))
+        .background(StashColor.surface, in: RoundedRectangle(cornerRadius: StashRadius.sheet, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: StashRadius.sheet, style: .continuous)
                 .strokeBorder(StashColor.hairline, lineWidth: 1)
@@ -170,7 +170,7 @@ struct HowToStashView: View {
     private var dots: some View {
         HStack(spacing: 7) {
             ForEach(0..<Self.panelCount, id: \.self) { i in
-                Capsule()
+                Rectangle()
                     .fill(i == pageIndex ? StashColor.violet600 : StashColor.ink.opacity(0.15))
                     .frame(width: i == pageIndex ? 24 : 6, height: 6)
             }
@@ -605,16 +605,35 @@ private struct SavePanel: View {
             title: "Add a note, save",
             caption: "Add an optional note, then Save. Stash does the rest."
         ) {
-            Image(decorative: "onboarding.step3")
-                .resizable()
-                .scaledToFill()
-                .frame(width: 172, height: 344)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(StashColor.hairline, lineWidth: 1)
-                )
-                .shadow(color: Color(hex: 0x1E212C).opacity(0.10), radius: 10, y: 6)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Image("StashWordmark").resizable().scaledToFit().frame(width: 76, height: 18)
+                    Spacer()
+                    Text("Save").font(StashType.decorative(.medium, size: 12))
+                        .foregroundStyle(.white).padding(8).background(StashColor.ink)
+                }.padding(16)
+                Rectangle().fill(StashColor.line).frame(height: 1)
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("LINK").font(.custom("DepartureMono-Regular", fixedSize: 11))
+                        .foregroundStyle(StashColor.spotOnInk).padding(5).background(StashColor.ink)
+                    Text("Something worth keeping.")
+                        .font(StashType.decorative(.medium, size: 22))
+                    Text("A good idea, saved for later.")
+                        .font(StashType.decorative(.book, size: 14)).foregroundStyle(StashColor.muted)
+                    Rectangle().fill(StashColor.line).frame(height: 1)
+                    Text("Add a note…").font(StashType.decorative(.book, size: 14))
+                        .foregroundStyle(StashColor.muted)
+                    Spacer(minLength: 10)
+                    Text("> ready when you are")
+                        .font(.custom("DepartureMono-Regular", fixedSize: 11)).foregroundStyle(StashColor.muted)
+                }.padding(16)
+            }
+            .frame(width: 220, height: 300)
+            .background(StashColor.surface)
+            .overlay(Rectangle().strokeBorder(StashColor.ink, lineWidth: 1))
+            .compositingGroup()
+            .shadow(color: StashColor.ink, radius: 0, x: 4, y: 4)
+            .accessibilityHidden(true)
         }
     }
 }

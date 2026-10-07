@@ -63,8 +63,8 @@ struct TypeSpecimenView: View {
                 placeholders
                 HStack(spacing: 12) {
                     Text("muted").stashFont(.meta).foregroundStyle(StashColor.muted)
-                    Text("violet-600").stashFont(.meta).foregroundStyle(StashColor.violet600)
-                    Text("violet-700").stashFont(.meta).foregroundStyle(StashColor.violet700)
+                    Text("ink").stashFont(.meta).foregroundStyle(StashColor.ink)
+                    Text("spot ink").stashFont(.meta).foregroundStyle(StashColor.spotInk)
                     Text("faint").stashFont(.meta).foregroundStyle(StashColor.faint)
                         .accessibilityIdentifier("specimen.contrast.faint")
                 }
@@ -124,8 +124,8 @@ struct TypeSpecimenView: View {
         let traits = UITraitCollection(preferredContentSizeCategory: UIApplication.shared.preferredContentSizeCategory)
         let pairs: [(String, UIFont.TextStyle, CGFloat)] = [
             ("body", .body, 17), ("subheadline", .subheadline, 15), ("footnote", .footnote, 13),
-            ("caption1", .caption1, 12), ("title3", .title3, 20), ("title2", .title2, 22),
-            ("title1", .title1, 28), ("largeTitle", .largeTitle, 32),
+            ("caption2", .caption2, 11), ("headline", .headline, 18), ("callout", .callout, 16.5),
+            ("title2", .title2, 22), ("largeTitle", .largeTitle, 36),
         ]
         return pairs.map { name, style, size in
             let scaled = UIFontMetrics(forTextStyle: style).scaledValue(for: size, compatibleWith: traits)
@@ -157,8 +157,9 @@ struct TypeSpecimenView: View {
         HStack(spacing: 16) {
             Text("ink").stashFont(.textButton).foregroundStyle(StashColor.ink)
                 .accessibilityIdentifier("specimen.wash.ink")
-            Text("violet-600").stashFont(.textButton).foregroundStyle(StashColor.violet600)
-                .accessibilityIdentifier("specimen.wash.violet600")
+            // Deliberately invalid contrast: proves the audit examined this strip.
+            Text("low contrast").stashFont(.textButton).foregroundStyle(StashColor.spot)
+                .accessibilityIdentifier("specimen.contrast.negative")
             Spacer()
             StashCancelButton(identifier: "specimen.cancel.wash", onWash: true) {}
         }
@@ -310,7 +311,12 @@ struct TypeSpecimenView: View {
         Row(name: "textButton", role: .textButton),
         Row(name: "textButtonProminent", role: .textButtonProminent),
         Row(name: "inlineButton", role: .inlineButton),
+        Row(name: "machine", role: .machine),
+        Row(name: "machineLarge", role: .machineLarge),
+        Row(name: "machineDisplay", role: .machineDisplay),
         Row(name: "mono.caption", role: .mono(.caption)),
+        Row(name: "code.footnote", role: .code(.footnote)),
+        Row(name: "codeMedium.footnote", role: .codeMedium(.footnote)),
         Row(name: "font.book.14", role: .custom(.book, size: 14)),
         Row(name: "font.medium.24", role: .custom(.medium, size: 24)),
         Row(name: "font.book.9", role: .custom(.book, size: 9)),
@@ -324,6 +330,9 @@ struct TypeSpecimenView: View {
         ("bookItalic", "PPNeueMontreal-BookItalic"),
         ("medium", "PPNeueMontreal-Medium"),
         ("semibold", "PPNeueMontreal-Semibold"),
+        ("departure", "DepartureMono-Regular"),
+        ("code", "JetBrainsMono-Regular"),
+        ("codeMedium", "JetBrainsMono-Medium"),
     ]
 
     /// Each face at a fixed 20 pt under regular legibility weight — the yardstick for every size —
@@ -495,7 +504,8 @@ private struct SpecimenStateLine: View {
         default: "nil"
         }
         return "dts=\(dynamicTypeSize);csc=\(UIApplication.shared.preferredContentSizeCategory.rawValue);"
-            + "lw=\(weight);boldText=\(UIAccessibility.isBoldTextEnabled);montreal=\(StashType.isNeueMontrealAvailable)"
+            + "lw=\(weight);boldText=\(UIAccessibility.isBoldTextEnabled);montreal=\(StashType.isNeueMontrealAvailable);"
+            + "departure=\(StashType.isDepartureMonoAvailable);code=\(StashType.isJetBrainsMonoAvailable)"
     }
 }
 #endif

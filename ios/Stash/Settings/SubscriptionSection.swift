@@ -40,7 +40,7 @@ struct SubscriptionSection: View {
             }
             .accessibilityIdentifier("settings.subscription.manage")
         } header: {
-            settingsCaption("Subscription")
+            settingsHeading("03 / Subscription")
         }
         .task {
             await subscription.refresh(force: true)

@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// TextField + send, in the web's round-button convention (`StashDesign.swift`): the send circle
-/// is violet-filled while there's something to send. Pure input collection — sending and the
-/// subscription gate live in `AskView`; this view only reports a tap.
+/// Square v2 field and ink send action. Input collection only; sending and the
+/// subscription gate remain in AskView. The focus ring keeps the tested padded hit area.
 ///
 /// Placeholder "Ask your stash…" is the web mole's, verbatim (plan 15): Ask is retrieval-only on
 /// every platform (`docs/ui-changes.md`, 2026-08-27), so it no longer advertises the retired
@@ -69,13 +68,19 @@ struct ChatComposerBar: View {
                         .accessibilityHidden(true)
                 }
                 .background {
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color(.systemBackground))
+                    Rectangle()
+                        .fill(StashColor.surface)
                         .accessibilityHidden(true)
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(StashColor.hairline, lineWidth: 1)
+                    Rectangle()
+                        .strokeBorder(StashColor.spot.opacity(isFocused.wrappedValue ? 1 : 0), lineWidth: 3)
+                        .padding(-3)
+                        .allowsHitTesting(false)
+                }
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(isFocused.wrappedValue ? StashColor.ink : StashColor.line, lineWidth: 1)
                         .allowsHitTesting(false)
                 }
 

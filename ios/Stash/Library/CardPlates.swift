@@ -1,180 +1,225 @@
 import SwiftUI
 import StashKit
 
-/// The "no usable image" family of object-zone plates (split out of `CardHero.swift` to keep
-/// each file close to the anatomy's own ~120-line-per-file budget): honest, content-driven
-/// stand-ins instead of a broken or decorative-only hero. Every plate here is pinned to
-/// `CardHeroHeight.standard` — see `CardHero.swift`'s header comment for why that's fixed even
-/// though the web equivalents are content-hugging.
-///
-/// Plan 16: a plate's words are text people read (a repo path, a domain, a file name), so they
-/// take roles and scale; the plate is `CardHeroHeight.standard` tall at least and grows when its
-/// text needs more room (a fixed height would clip it at the larger sizes). Tiles and glyphs
-/// stay art (`StashType.decorative`). Each plate is one VoiceOver element with its own label.
-
-/// GitHub/GitLab repos: the repo path IS the imagery. DESIGN.md's type-spectrum table gives repo
-/// its own row — `plate #0d1117` (`StashColor.repoPlate`, Task 0) — with the "owner" segment of
-/// the path reading `StashColor.repoOwner` and the rest (slash + repo name) reading the row's
-/// mono `#e6edf3` (`StashColor.typeText(.repo)`), a color split web's own `RepoPlate.tsx` doesn't
-/// make yet (uniform white/90 + a dimmed slash) — DESIGN.md wins per its own "Per-surface notes".
+/// A repository's identity is its imagery: one ink plate, a pixel prompt, and human prose.
 struct RepoPlate: View {
     let url: String?
     let description: String?
-
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    private var parsed: (owner: String, repo: String)? { repoPath(url) }
     private var pathLabel: String {
-        if let repo = parsed { return "\(repo.owner)/\(repo.repo)" }
+        if let path = repoPath(url) { return "\(path.owner)/\(path.repo)" }
         return domainOf(url)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .foregroundStyle(StashColor.typeText(.repo))
-                // Tabular mono for the repo path itself — DESIGN.md "repo | plate ... mono
-                // #e6edf3, owner #8b7bd8", the same sanctioned system-monospace exception as
-                // elsewhere. `Text` concatenation (`+`) keeps each segment's own color inside one
-                // line-wrapping unit, unlike three sibling `Text` views in an `HStack`.
-                Group {
-                    if let parsed {
-                        Text(parsed.owner).foregroundColor(StashColor.repoOwner)
-                            + Text("/").foregroundColor(StashColor.typeText(.repo).opacity(0.5))
-                            + Text(parsed.repo).foregroundColor(StashColor.typeText(.repo))
-                    } else {
-                        Text(pathLabel).foregroundColor(StashColor.typeText(.repo))
-                    }
-                }
-                .stashFont(.mono(.subheadline))
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            (Text("> ").foregroundColor(StashColor.spotOnInk) + Text(pathLabel).foregroundColor(.white))
+                .stashFont(.code(.callout))
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 3)
+                .fixedSize(horizontal: false, vertical: true)
             if let description, !description.isEmpty {
                 Text(description)
                     .stashFont(.secondary)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(.white.opacity(0.7))
                     .lineLimit(2)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.top, 48)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, alignment: .leading)
-        .background(StashColor.repoPlate)
+        .background(StashColor.ink)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(pathLabel)
         .accessibilityIdentifier("card.repoplate")
     }
 }
 
-/// Metadata-poor links: favicon-style plate, honest and never broken.
+/// No request is made for a favicon in the library. The domain and kind are enough to identify
+/// a save without disclosing every saved domain to another service on each load.
 struct FaviconPlate: View {
     let url: String?
+    var kind = "page"
+    var reading = false
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    private var domain: String { domainOf(url) }
-    private var letter: String { domain.first.map { String($0).uppercased() } ?? "?" }
+    private var domain: String { domainOf(url).isEmpty ? "link" : domainOf(url) }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // The monogram tile is art: a fixed letter in a fixed tile (the plate's label names the
-            // domain).
-            Text(letter)
-                .font(StashType.decorative(.semibold, size: 17))
-                .foregroundStyle(Color.cardVioletAccent)
-                .frame(width: 48, height: 48)
-                .background(Color.cardVioletTint, in: RoundedRectangle(cornerRadius: 14))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(domain.isEmpty ? "link" : domain)
-                    .stashFont(.metaMedium)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-                Text("preview limited · saved anyway")
-                    .stashFont(.meta)
-                    .foregroundStyle(StashColor.muted)
-            }
-            Spacer(minLength: 0)
+        VStack(spacing: 12) {
+            CardPixelGlyph(kind: kind)
+                .frame(width: 42, height: 42)
+            Text(domain)
+                .stashFont(.code(.caption2))
+                .foregroundStyle(StashColor.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(StashColor.ink)
         }
-        .padding(16)
+        .padding(.horizontal, 12)
+        .padding(.top, 40)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard)
-        .background(Color(.tertiarySystemFill).opacity(0.5))
+        .background {
+            ZStack {
+                StashColor.fill
+                StashDotGrid(spacing: 6, opacity: 0.09)
+            }
+        }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(domain.isEmpty ? "link" : domain) — preview limited, saved anyway")
+        .accessibilityLabel(reading ? "\(domain), gathering more info" : "\(domain), preview limited, saved anyway")
         .accessibilityIdentifier("card.faviconplate")
     }
 }
 
-/// Documents and imageless media: a file plate instead of a decorative/broken hero. `.document`
-/// and `.screenshot` read DESIGN.md's type-spectrum tint (Task 0's `StashColor.typeField`/
-/// `typeText`) on the icon tile — `.image` (a genuinely-imageless regular photo, not a type the
-/// spectrum table tints) keeps the pre-existing violet stand-in. `.screenshot` only reaches this
-/// plate on the rare fallback path (no thumbnail at all) — DESIGN.md's per-type hero table has
-/// screenshots render full-bleed real imagery same as any photo; the tinted chip (`CardChips.swift`
-/// `typeChip(for:)`) carries the identity in the common case.
 struct FilePlate: View {
     enum Kind { case image, document, screenshot }
-
     let kind: Kind
     let fileName: String?
     let factsLine: String?
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
-    private var tint: Color {
-        switch kind {
-        case .image: return .cardVioletAccent
-        case .document: return StashColor.typeText(.document)
-        case .screenshot: return StashColor.typeText(.screenshot)
-        }
-    }
-    private var tintBg: Color {
-        switch kind {
-        case .image: return .cardVioletTint
-        case .document: return StashColor.typeField(.document)
-        case .screenshot: return StashColor.typeField(.screenshot)
-        }
-    }
     private var label: String {
-        switch kind {
-        case .image: return fileName ?? "Image"
-        case .document: return fileName ?? "Document"
-        case .screenshot: return fileName ?? "Screenshot"
-        }
-    }
-    private var iconName: String {
-        switch kind {
-        case .image: return "photo"
-        case .document: return "doc.text"
-        case .screenshot: return "viewfinder"
-        }
+        fileName ?? (kind == .document ? "document" : kind == .screenshot ? "screenshot" : "photo")
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // The icon tile is art: a fixed glyph in a fixed tile.
-            Image(systemName: iconName)
-                .font(StashType.decorative(.book, size: 17))
-                .foregroundStyle(tint)
-                .frame(width: 44, height: 44)
-                .background(tintBg, in: RoundedRectangle(cornerRadius: 12))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .stashFont(fileName != nil ? .mono(.caption) : .metaMedium)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-                    .truncationMode(.middle)
-                if let factsLine, !factsLine.isEmpty {
-                    Text(factsLine).stashFont(.meta).foregroundStyle(StashColor.muted)
+        ZStack(alignment: .bottom) {
+            StashColor.fill
+            StashDotGrid(spacing: 6, opacity: 0.09)
+            if kind == .document {
+                documentPage
+                    .padding(.horizontal, 32)
+                    .padding(.top, 48)
+                    .offset(y: 10)
+            } else {
+                VStack(spacing: 12) {
+                    CardPixelGlyph(kind: "photo").frame(width: 42, height: 42)
+                    Text(label)
+                        .stashFont(.code(.caption2))
+                        .foregroundStyle(StashColor.white)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .padding(6)
+                        .background(StashColor.ink)
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 40)
+                .padding(.bottom, 16)
             }
-            Spacer(minLength: 0)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard)
-        .background(Color(.tertiarySystemFill).opacity(0.5))
+        .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, maxHeight: CardHeroHeight.standard)
+        .clipped()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel([label, factsLine].compactMap { $0 }.joined(separator: " "))
         .accessibilityIdentifier("card.fileplate")
+    }
+
+    private var documentPage: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Rectangle().fill(StashColor.ink).frame(width: 24, height: 5)
+                .padding(.bottom, 6)
+            ForEach(0..<6) { index in
+                Rectangle().fill(index == 5 ? StashColor.line : StashColor.lineSoft)
+                    .frame(height: 3)
+                    .padding(.trailing, index % 3 == 0 ? 16 : 0)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(StashColor.white)
+        .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
+        .rotationEffect(.degrees(-2.5))
+        .accessibilityHidden(true)
+    }
+}
+
+/// A passive audio drawing: the whole mobile card still opens the detail sheet. The microphone
+/// and waveform name the media without promising a playback control that iOS does not provide.
+struct AudioCardPlate: View {
+    let item: Item
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: audioSubtype(item) == .voice ? "mic.fill" : "waveform")
+                    .font(StashType.decorative(.medium, size: 15))
+                    .foregroundStyle(StashColor.white)
+                    .frame(width: 40, height: 40)
+                    .background(StashColor.ink)
+                GeometryReader { geometry in
+                    HStack(alignment: .center, spacing: 2) {
+                        ForEach(0..<28) { index in
+                            Rectangle().fill(StashColor.ink.opacity(0.45))
+                                .frame(width: max(1, (geometry.size.width - 54) / 28),
+                                       height: CGFloat([9, 17, 24, 13, 30, 18, 11][index % 7]))
+                        }
+                    }
+                    .frame(height: 40)
+                }
+                .frame(height: 40)
+            }
+            .accessibilityHidden(true)
+            if let duration = formatDurationChip(item.attributes.media?.durationS) {
+                Text(duration).stashFont(.machine).foregroundStyle(StashColor.muted)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 48)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, minHeight: 116)
+        .background(StashColor.fill)
+    }
+}
+
+/// Crisp 14×14 bitmaps copied from the web app's machine/glyphs.ts. The drawing is decorative;
+/// its containing plate supplies the save's spoken identity.
+struct CardPixelGlyph: View {
+    let kind: String
+
+    var body: some View {
+        Canvas { context, size in
+            let rows = Self.glyphs[kind] ?? Self.glyphs["page"]!
+            let unit = min(size.width, size.height) / 14
+            var path = Path()
+            for (y, row) in rows.enumerated() {
+                for (x, cell) in row.enumerated() where cell == "#" {
+                    path.addRect(CGRect(x: CGFloat(x) * unit, y: CGFloat(y) * unit, width: unit, height: unit))
+                }
+            }
+            context.fill(path, with: .color(StashColor.ink))
+        }
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
+    }
+
+    private static let glyphs: [String: [String]] = [
+        "page": ["##############", "#.#.#........#", "##############", "#............#", "#.#######....#", "#............#", "#.##########.#", "#.##########.#", "#.##########.#", "#............#", "#.#########..#", "#.#######....#", "#............#", "##############"],
+        "article": ["..##########..", "..#........#..", "..#.######.#..", "..#.######.#..", "..#........#..", "..#.######.#..", "..#........#..", "..#.######.#..", "..#........#..", "..#.####...#..", "..#........#..", "..#.######.#..", "..#........#..", "..##########.."],
+        "video": ["..............", "..............", ".############.", "##############", "#####.########", "#####..#######", "#####...######", "#####....#####", "#####...######", "#####..#######", "#####.########", "##############", ".############.", ".............."],
+        "book": ["..##########..", "..##.......#..", "..##.#####.#..", "..##.......#..", "..##.####..#..", "..##.......#..", "..##.......#..", "..##...#...#..", "..##..###..#..", "..##.#####.#..", "..##.......#..", "..##########..", "...#########..", ".............."],
+        "social": ["..............", "..............", ".############.", "#............#", "#.##########.#", "#............#", "#.#######....#", "#............#", ".##.#########.", "...##.........", "...#..........", "..............", "..............", ".............."],
+        "photo": ["..............", "##############", "#............#", "#.........##.#", "#.........##.#", "#............#", "#....#.......#", "#...###......#", "#..#####..#..#", "#.#######.##.#", "############.#", "#............#", "##############", ".............."]
+    ]
+}
+
+/// The web's quiet mosaic while a real picture is downloading. No perpetual idle animation.
+struct CardImageMosaic: View {
+    var height: CGFloat = CardHeroHeight.standard
+
+    var body: some View {
+        Canvas { context, size in
+            let colors = [StashColor.fill, StashColor.lineSoft, StashColor.line, StashColor.paper]
+            for y in stride(from: 0, to: Int(size.height), by: 8) {
+                for x in stride(from: 0, to: Int(size.width), by: 8) {
+                    let shade = ((x / 8) * 13 + (y / 8) * 7) % colors.count
+                    context.fill(Path(CGRect(x: CGFloat(x), y: CGFloat(y), width: 8, height: 8)), with: .color(colors[shade]))
+                }
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+        .allowsHitTesting(false)
     }
 }

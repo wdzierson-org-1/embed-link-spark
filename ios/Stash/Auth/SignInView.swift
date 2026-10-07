@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// Web parity: `src/pages/Auth.tsx` — wordmark, "Sign in or create your account.", pill
-/// Sign in/Sign up tabs (shared email/password fields underneath, sign-up adds username +
-/// optional phone), quiet lavender-tinted inputs, solid violet CTA, on the app's ambient
-/// gradient wash. Only `StashColor`/`StashType`/`StashRadius`/`StashShadow` tokens — no literals.
+/// DESIGN-v2 sign-in window: paper, ST4SH tab, ink address bar, square fields and
+/// Montreal human copy. Existing account and availability behavior stays unchanged.
 ///
 /// Identifier note: `signin.email`/`signin.password`/`signin.submit`/`signin.error` are the
 /// PRE-EXISTING identifiers many other UI tests hardcode directly (not just through a shared
@@ -63,81 +61,78 @@ struct SignInView: View {
     }
 
     private var card: some View {
-        VStack(spacing: 16) {
-            // The brand mark, not text: a fixed 28 pt like every wordmark (DESIGN.md › Logo); it
-            // names the screen for VoiceOver.
+        VStack(alignment: .leading, spacing: 0) {
             Image("StashWordmark")
-                .resizable()
-                .scaledToFit()
-                .frame(height: 28)
+                .resizable().scaledToFit().frame(width: 110, height: 26)
                 .foregroundStyle(StashColor.ink)
+                .padding(16)
+                .background(StashColor.surface)
+                .overlay(Rectangle().strokeBorder(StashColor.ink, lineWidth: 1))
                 .accessibilityLabel("Stash")
                 .accessibilityAddTraits(.isHeader)
+                .padding(.bottom, 28)
 
-            Text("Sign in or create your account.")
-                .stashFont(.secondary)
-                .foregroundStyle(StashColor.muted)
-                .multilineTextAlignment(.center)
-
-            if session.accountDeletedBannerVisible {
-                // `muted` on the lavender field: 4.95:1.
-                Text("Your account was deleted.")
-                    .stashFont(.meta)
-                    .foregroundStyle(StashColor.muted)
-                    .multilineTextAlignment(.center)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 12)
-                    .frame(maxWidth: .infinity)
-                    .background(StashColor.violet300.opacity(0.12),
-                                in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
-                    .accessibilityIdentifier("auth.deletedBanner")
-            }
-
-            tabPicker
-
-            VStack(spacing: 12) {
-                fields
-
-                if let error = session.errorMessage {
-                    Text(error)
-                        .stashFont(.meta)
-                        .foregroundStyle(StashColor.destructive)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("signin.error")
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(mode == .signIn ? "stash://sign-in" : "stash://sign-up")
+                        .stashFont(.mono(.footnote))
+                    Spacer()
+                    Image("StashSymbol").resizable().scaledToFit().frame(width: 16, height: 18)
+                        .foregroundStyle(StashColor.spotOnInk).accessibilityHidden(true)
                 }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .background(StashColor.ink)
 
-                submitButton
-
-                if mode == .signIn {
-                    // Web parity (Auth.tsx "Forgot password?"). Recovery is email-driven, so the
-                    // link lands on the web reset form (`/auth?mode=reset`) rather than a native flow.
-                    // Plan 16: an inline text action — the `inlineButton` role (Medium 15; it was a
-                    // 12 pt meta line) — with a 44 pt target (`.stashPlain`; its centre sits ≥ 46 pt
-                    // below the submit button's), and the words wrap rather than truncate at the
-                    // largest sizes.
-                    Link(destination: URL(string: "https://www.gostash.it/auth?mode=reset")!) {
-                        Text("Forgot password?")
-                            .stashFont(.inlineButton)
-                            .foregroundStyle(StashColor.muted)
-                            .underline()
-                            .multilineTextAlignment(.center)
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(mode == .signIn ? "Welcome back." : "Start your stash.")
+                            .stashFont(.panelTitle).foregroundStyle(StashColor.ink)
+                            .accessibilityAddTraits(.isHeader)
+                        Text(mode == .signIn ? "> knock knock. who’s there?" : "> make yourself at home.")
+                            .stashFont(.mono(.footnote)).foregroundStyle(StashColor.muted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.stashPlain)
-                    .accessibilityIdentifier("auth.forgotPassword")
-                    .padding(.top, 4)
+                    if session.accountDeletedBannerVisible {
+                        Text("Your account was deleted.")
+                            .stashFont(.machine).foregroundStyle(StashColor.muted)
+                            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(StashColor.fill)
+                            .accessibilityIdentifier("auth.deletedBanner")
+                    }
+                    tabPicker
+                    VStack(alignment: .leading, spacing: 14) {
+                        fields
+                        if let error = session.errorMessage {
+                            Text(error).stashFont(.secondary).foregroundStyle(StashColor.destructive)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("signin.error")
+                        }
+                        submitButton
+                        if mode == .signIn {
+                            Link(destination: URL(string: "https://www.gostash.it/auth?mode=reset")!) {
+                                Text("Forgot password?").stashFont(.inlineButton)
+                                    .foregroundStyle(StashColor.muted).underline()
+                                    .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.stashPlain)
+                            .accessibilityIdentifier("auth.forgotPassword")
+                        }
+                    }
                 }
+                .padding(24)
+                .background(StashColor.surface)
             }
-            .padding(.top, 4)
+            .overlay(Rectangle().strokeBorder(StashColor.ink, lineWidth: 1))
+            .compositingGroup()
+            .shadow(color: StashColor.ink, radius: 0, x: 4, y: 4)
+
+            Text("save it fast. find it when you need it.")
+                .stashFont(.machine).foregroundStyle(StashColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 28)
         }
-        .padding(32)
-        .frame(maxWidth: 400)
-        .background(StashColor.paper, in: RoundedRectangle(cornerRadius: StashRadius.sheet, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: StashRadius.sheet, style: .continuous)
-                .strokeBorder(StashColor.hairline, lineWidth: 1)
-        )
-        .stashCardShadow()
+        .frame(maxWidth: 420)
     }
 
     // MARK: - Pill tabs
@@ -177,7 +172,8 @@ struct SignInView: View {
     /// associated domain is a separate, not-yet-done change.)
     @ViewBuilder
     private var fields: some View {
-        TextField("Email", text: $email, prompt: prompt("Email"))
+        Text("Email").stashFont(.secondaryMedium).foregroundStyle(StashColor.ink)
+        TextField("Email", text: $email, prompt: prompt("you@example.com"))
             .textContentType(.username)
             .keyboardType(.emailAddress)
             .textInputAutocapitalization(.never)
@@ -188,6 +184,7 @@ struct SignInView: View {
             .modifier(QuietFieldStyle(focused: focusedField == .email) { focusedField = .email })
             .accessibilityIdentifier("signin.email")
 
+        Text("Password").stashFont(.secondaryMedium).foregroundStyle(StashColor.ink)
         SecureField("Password", text: $password, prompt: prompt("Password"))
             .textContentType(passwordContentType)
             .focused($focusedField, equals: .password)
@@ -200,6 +197,7 @@ struct SignInView: View {
 
         if mode == .signUp {
             VStack(alignment: .leading, spacing: 6) {
+                Text("Username").stashFont(.secondaryMedium).foregroundStyle(StashColor.ink)
                 // Plan 16: the "@" is laid out beside the text inside the field's chrome (it used
                 // to be overlaid at a fixed 28 pt inset, which the text would run into once it
                 // grows). Part of the field's meaning — the handle is "@name" — so `muted`, like
@@ -225,6 +223,7 @@ struct SignInView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                Text("Phone number (optional)").stashFont(.secondaryMedium).foregroundStyle(StashColor.ink)
                 TextField("Phone number (optional)", text: $phone, prompt: prompt("Phone number (optional)"))
                     .keyboardType(.phonePad)
                     .focused($focusedField, equals: .phone)
@@ -263,7 +262,7 @@ struct SignInView: View {
     private var usernameHelper: some View {
         if let usernameError {
             Text(usernameError)
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.destructive)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("auth.username.error")
@@ -272,14 +271,14 @@ struct SignInView: View {
             // inside the concatenation takes its face from `legibilityWeight` (Bold Text).
             (
                 Text("You'll be ").foregroundStyle(StashColor.muted)
-                + Text("@\(username)").foregroundStyle(StashColor.ink).font(StashType.Role.metaMedium.font(legibilityWeight))
+                + Text("@\(username)").foregroundStyle(StashColor.ink).font(StashType.Role.mono(.subheadline).font(legibilityWeight))
                 + Text(" on Stash — your public feed lives at gostash.it/feed/\(username)").foregroundStyle(StashColor.muted)
             )
-            .stashFont(.meta)
+            .stashFont(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         } else {
             Text("Your username becomes your @handle and your public feed address.")
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -289,13 +288,13 @@ struct SignInView: View {
     private var phoneHelper: some View {
         if let phoneError {
             Text(phoneError)
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.destructive)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("auth.phone.error")
         } else {
             Text("Add your phone number to use WhatsApp for sending notes, voice messages, and asking questions about your content.")
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -369,9 +368,13 @@ struct SignInView: View {
                 } else {
                     // Plan 16: the screen's one primary action — `textButtonProminent` (Medium
                     // 17, scaling); white on violet-600 is 5.18:1.
-                    Text(mode == .signIn ? "Sign in" : "Create account")
-                        .stashFont(.textButtonProminent)
-                        .multilineTextAlignment(.center)
+                    HStack {
+                        Text(mode == .signIn ? "Sign in" : "Create account")
+                        Spacer()
+                        Image(systemName: "arrow.right").accessibilityHidden(true)
+                    }
+                    .stashFont(.textButtonProminent)
+                    .padding(.horizontal, 16)
                 }
             }
             // 44 pt at the default size; the padding keeps the label off the edges once the
@@ -419,8 +422,7 @@ struct SignInView: View {
     }
 }
 
-/// Quiet input chrome (DESIGN.md / Auth.tsx `quietInput`): hairline border, `StashRadius.input`,
-/// a lavender `violet300` fill, and a 2pt `violet300` focus ring in place of the hairline.
+/// V2 square white fields: line edge at rest; ink edge plus lime ring while focused.
 ///
 /// Plan 16: the fields are reading text (Neue Montreal 17, scaling with Dynamic Type) in a field
 /// that is at least 44 pt tall and grows with its text (`minHeight`, never a fixed height). The
@@ -440,11 +442,14 @@ private struct QuietFieldStyle: ViewModifier {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(minHeight: 44)
-            .background(StashColor.violet300.opacity(0.12), in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+            .background(StashColor.surface)
+            .background {
+                Rectangle().fill(focused ? StashColor.spot : .clear).padding(-3)
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                     .strokeBorder(
-                        error ? StashColor.destructive : (focused ? StashColor.violet300 : StashColor.hairline),
+                        error ? StashColor.destructive : (focused ? StashColor.ink : StashColor.hairline),
                         lineWidth: 1
                     )
             )

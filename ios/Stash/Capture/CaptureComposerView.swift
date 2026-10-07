@@ -78,15 +78,7 @@ struct CaptureComposerView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color(.systemBackground).ignoresSafeArea()
-            // Same page-level gradient ambience as the web's capture surface — subtler here
-            // so long-form typing stays on a calm background. Final wave: fills the WHOLE tab
-            // (not just a 320pt band up top, like the other tabs' washes) — the composer card is
-            // capped at 2/3 of the tab's height (Task 2), so a fixed-height band would leave the
-            // bottom third of the tab, behind and below the card, as flat white void. Web parity:
-            // `Index.tsx`'s page-level wash persists behind its whole capture panel, not just the
-            // area above it.
-            GradientBackdrop(opacity: 0.22)
+            StashPaperBackdrop()
                 .ignoresSafeArea()
 
             // Task 2: a dedicated measuring layer, NOT the content column below — `.ignoresSafeArea
@@ -103,7 +95,7 @@ struct CaptureComposerView: View {
             .ignoresSafeArea(.keyboard)
 
             // The composer is a floating card (plan 9): the wordmark header stays outside/above
-            // it, GradientBackdrop stays behind it, and the editor + attachments/gate/pin +
+            // it, the paper texture stays behind it, and the editor + attachments/gate/pin +
             // bottom bar all live INSIDE `ComposerCard`, which owns the idle/composing ring.
             VStack(alignment: .leading, spacing: 0) {
                 // Add-tab spacing pass (plan 12, Will: "increase the margin on the input panel by
@@ -303,7 +295,7 @@ struct CaptureComposerView: View {
     private var editor: some View {
         ZStack(alignment: .topLeading) {
             if viewModel.text.isEmpty {
-                Text("Save a thought, a link, anything…")
+                Text("Paste a link, attach a file, or type a note")
                     .foregroundStyle(StashColor.muted)
                     .padding(.horizontal, 5)
                     // Will's markup (F1d): vertical 9→8 — paired with the container's new 4pt top
@@ -318,7 +310,7 @@ struct CaptureComposerView: View {
                 .focused($editorFocused)
                 .accessibilityFocused($editorAccessibilityFocused)
                 .scrollContentBackground(.hidden)
-                .accessibilityLabel("Save a thought, a link, anything")
+                .accessibilityLabel("Paste a link, attach a file, or type a note")
                 .accessibilityIdentifier("capture.editor")
         }
         // Plan 16: the Add editor is reading text — Neue Montreal at 17 pt (`.body`), scaling with
@@ -357,7 +349,7 @@ struct CaptureComposerView: View {
                 .accessibilityHidden(true)
             Text("Subscribe to add new items.")
         }
-        .stashFont(.meta)
+        .stashFont(.secondary)
         .foregroundStyle(StashColor.gateText)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -380,19 +372,19 @@ struct CaptureComposerView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .stashFont(.meta)
+        .stashFont(.mono(.footnote))
+        .foregroundStyle(StashColor.ink)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color(.tertiarySystemFill), in: Capsule())
+        .background(StashColor.fill, in: RoundedRectangle(cornerRadius: StashRadius.object))
+        .overlay(RoundedRectangle(cornerRadius: StashRadius.object).strokeBorder(StashColor.line, lineWidth: 1))
         .accessibilityIdentifier("capture.urlchip")
     }
 
     // MARK: - Bottom bar
 
-    // Web button convention (`UnifiedInputPanel.tsx` bottom actions): round iconographic
-    // controls with hairline borders, violet active states, and one weighted violet submit.
-    // Secondary circles are 40pt (7 × 48pt won't fit a phone row; 40 clears even an SE) with
-    // the 48pt save carrying the visual weight.
+    // v2 square controls keep the existing 44 pt targets and phone-sized row layout.
+    // The shared submit draws ink when enabled and fill while unavailable.
     private var bottomBar: some View {
         HStack(spacing: 8) {
             // iOS 26 device-review fix (plan 12): `.toolbar(placement: .keyboard)` used to render
@@ -520,13 +512,10 @@ struct CaptureComposerView: View {
         .accessibilityIdentifier("capture.save")
     }
 
-    /// Captures still waiting to sync (the Outbox): the orange badge it has always been, with `ink`
-    /// digits since plan 16 — 6.9:1 on iOS 17's orange (#ff9500), where white digits were 2.2:1.
-    /// Only the digits' contrast needed fixing, so the fill keeps its look. 12 pt Semibold,
-    /// scaling with `.caption`.
+    /// Queued captures use a lit machine tag. The count remains available to VoiceOver.
     private func outboxBadge(_ count: Int) -> some View {
         Text("\(count)")
-            .stashFont(.custom(.semibold, size: 12))
+            .stashFont(.machine)
             .monospacedDigit()
             // Its own width, never less: at AX3, beside Cancel (which claims its width first), the
             // row squeezed it 3.3 pt and the digits touched the capsule's ends.
@@ -535,8 +524,7 @@ struct CaptureComposerView: View {
             .foregroundStyle(StashColor.ink)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            // .orange has no DESIGN.md token yet — the system orange this badge has always used.
-            .background(Color.orange, in: Capsule())
+            .background(StashColor.spot, in: Rectangle())
             .accessibilityLabel(count == 1 ? "1 capture waiting to sync" : "\(count) captures waiting to sync")
             .accessibilityIdentifier("capture.outboxBadge")
     }
@@ -684,21 +672,17 @@ struct CaptureComposerView: View {
         if let toast {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: toast.systemImage)
-                    .foregroundStyle(toast.glyphColor)
+                    .foregroundStyle(.white)
                     .accessibilityHidden(true)
                 Text(toast.message)
-                    .foregroundStyle(StashColor.ink)
+                    .foregroundStyle(.white)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .stashFont(.secondaryMedium)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            // A 20 pt radius is the old capsule on one line, and keeps a wrapped message (a
-            // multi-save note, any toast at the larger text sizes) clear of the ends.
-            .background(StashColor.paper, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(StashColor.hairline, lineWidth: 1))
-            .stashCardShadow()
+            .background(toast.backgroundColor, in: Rectangle())
             // The pill is ~40 pt tall at Large: its tap target reaches 44 without changing it
             // (on the pill, not the margins around it).
             .stashMinimumHitTarget()
@@ -757,11 +741,10 @@ private enum CaptureToast: Equatable {
         }
     }
 
-    var glyphColor: Color {
+    var backgroundColor: Color {
         switch self {
-        case .saved(_, let hadDrops): hadDrops ? StashColor.gateText : StashColor.success
-        case .queued: StashColor.violet600
-        case .rejected: StashColor.destructive
+        case .saved, .queued: StashColor.ink
+        case .rejected: StashColor.error
         }
     }
 }

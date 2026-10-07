@@ -16,6 +16,7 @@ struct MainTabView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.displayScale) private var displayScale
 
     init(userId: UUID, store: ItemStore) {
@@ -74,7 +75,8 @@ struct MainTabView: View {
         // they fall back to the asset catalog's global accent in some contexts — set both so
         // there's no gap between plain SwiftUI chrome and UIKit-bridged chrome (e.g. the
         // navigation bar's back button).
-        .tint(StashColor.violet600)
+        .tint(StashColor.ink)
+        .toolbarBackground(StashColor.surface, for: .tabBar)
         // Sign-in / cold launch: the cached page (if any) is already on screen; fetch page 1 now,
         // while the user is still on the Add tab.
         .task { await store.refreshIfStale() }
@@ -94,7 +96,7 @@ struct MainTabView: View {
 
     /// The first 10 cards' hero images, requested exactly as `CardHero` will request them.
     private func prefetchFirstPageHeroes() {
-        let cardWidth = CardHeroSizing.cardWidth(regularWidth: horizontalSizeClass == .regular)
+        let cardWidth = CardHeroSizing.cardWidth(regularWidth: horizontalSizeClass == .regular, accessibilitySize: dynamicTypeSize.isAccessibilitySize)
         let requests = store.items.prefix(10).compactMap {
             CardHeroSizing.request(for: $0, cardWidth: cardWidth, scale: displayScale)
         }

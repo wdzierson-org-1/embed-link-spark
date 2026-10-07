@@ -105,7 +105,7 @@ struct ItemDetailContent: View {
             if !tabs.isEmpty { sectionHead }
             if showsTranscribeButton, let transcriptionErrorMessage, !transcriptionErrorMessage.isEmpty {
                 Text(transcriptionErrorMessage)
-                    .stashFont(.meta)
+                    .stashFont(.secondary)
                     .foregroundStyle(StashColor.destructive)
                     .padding(.bottom, DetailLayout.gap)
                     .accessibilityIdentifier("detail.transcribeSpeakers.error")
@@ -255,7 +255,7 @@ struct ItemDetailContent: View {
                 generateSummaryButton
                 if let summaryErrorMessage {
                     Text(summaryErrorMessage)
-                        .stashFont(.meta)
+                        .stashFont(.secondary)
                         .foregroundStyle(StashColor.destructive)
                         .accessibilityIdentifier("detail.generateSummary.error")
                 }

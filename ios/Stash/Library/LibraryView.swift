@@ -25,6 +25,7 @@ struct LibraryView: View {
     @State private var search: LibrarySearch
     @State private var query = ""
     @State private var selectedItem: Item?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @FocusState private var searchFocused: Bool
     /// How far the search row has scrolled away (`LibrarySearchFade`). Only the row and the
     /// status-bar scrim read it — never this view's `body` — so a frame in the fade band doesn't
@@ -76,11 +77,11 @@ struct LibraryView: View {
         #endif
     }()
 
-    // Single column on phones (compact width); two-up only where there's real room (iPad).
+    // Near-square objects stay two-up at standard text sizes; accessibility sizes get a full row.
     private var columns: [GridItem] {
-        horizontalSizeClass == .regular
-            ? [GridItem(.flexible()), GridItem(.flexible())]
-            : [GridItem(.flexible())]
+        dynamicTypeSize.isAccessibilitySize
+            ? [GridItem(.flexible())]
+            : [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]
     }
 
     init(store: ItemStore, onSelect: @escaping (Item) -> Void = { _ in }) {
@@ -117,19 +118,15 @@ struct LibraryView: View {
     var body: some View {
         let items = displayedItems
         ZStack(alignment: .top) {
-            Color(.systemBackground).ignoresSafeArea()
-            // Page-level ambience, exactly like the web: the gradient lives behind the whole
-            // tab (not inside any one component) and washes out before mid-screen.
-            GradientBackdrop()
-                .frame(height: 380)
-                .ignoresSafeArea(edges: .top)
+            StashPaperBackdrop(showDots: true).ignoresSafeArea()
 
             libraryScroll(items)
             LibraryStatusBarScrim(fade: searchFade)
         }
         // Hero images decode for exactly this width (`CardHeroSizing`), the same request the
         // app-scope prefetch makes — so a prefetched hero is drawn in the card's first frame.
-        .environment(\.cardWidth, CardHeroSizing.cardWidth(regularWidth: horizontalSizeClass == .regular))
+        .environment(\.cardWidth, CardHeroSizing.cardWidth(regularWidth: horizontalSizeClass == .regular,
+                                                          accessibilitySize: dynamicTypeSize.isAccessibilitySize))
         .refreshable { await store.refresh() }
         .task { await store.refreshIfStale() }
         .onChange(of: query) { _, newValue in search.update(query: newValue) }
@@ -242,10 +239,10 @@ struct LibraryView: View {
             LibraryStatePane(systemImage: "exclamationmark.triangle", title: "Couldn't load your stash",
                               message: error, identifier: "library.error")
         } else if query.isEmpty {
-            LibraryStatePane(systemImage: "tray", title: "Nothing here yet",
-                              message: "Save a link, note, or file to get started.", identifier: "library.empty")
+            LibraryStatePane(systemImage: "tray", title: "Save your first thing.",
+                              message: "Save a link, note, or file. Stash gathers the background so you can find it later.", identifier: "library.empty")
         } else {
-            LibraryStatePane(systemImage: "magnifyingglass", title: "No matches",
+            LibraryStatePane(systemImage: "magnifyingglass", title: "Nothing matches that.",
                               message: "Try a different search term.", identifier: "library.empty")
         }
     }
@@ -253,7 +250,7 @@ struct LibraryView: View {
     private func grid(_ items: [Item]) -> some View {
         // DESIGN.md §Space "Library gutter: 24px/24pt" (plan 14, was 14pt) — natural-height
         // cards, no forced masonry redistribution needed on the phone's single column.
-        LazyVGrid(columns: columns, spacing: 24) {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 Button {
                     // Device note 3/7: a card tap dismisses the keyboard before the sheet
@@ -266,7 +263,7 @@ struct LibraryView: View {
                     ItemCardView(item: item)
                         .contentShape(RoundedRectangle(cornerRadius: StashRadius.card))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LibraryCardButtonStyle())
                 .accessibilityIdentifier("card.\(index)")
                 .onAppear { Task { await store.loadMoreIfNeeded(current: item) } }
             }
@@ -456,12 +453,17 @@ private struct LibrarySearchRow: View {
         // The pill's fill takes those taps from behind, so a tap on the text still reaches the
         // field (caret) and the clear × keeps its own.
         .background {
-            Capsule()
-                .fill(Color(.systemBackground))
+            Rectangle()
+                .fill(StashColor.surface)
                 .onTapGesture { focused.wrappedValue = true }
         }
-        .overlay(Capsule().strokeBorder(isFocused ? StashColor.violet300 : StashColor.hairline, lineWidth: 1))
-        .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
+        .overlay(Rectangle().strokeBorder(isFocused ? StashColor.ink : StashColor.line, lineWidth: 1))
+        .overlay {
+            if isFocused {
+                Rectangle().stroke(StashColor.spot, lineWidth: 3).padding(-2)
+                    .allowsHitTesting(false)
+            }
+        }
         // The container itself isn't a VoiceOver stop (its children are).
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("library.search.pill")
@@ -507,10 +509,8 @@ private struct LibraryStatusBarScrim: View {
             // safe area (`ignoresSafeAreaEdges`) — exactly the band the status bar occupies.
             Color.clear
                 .frame(height: 0)
-                .background(Color(.systemBackground), ignoresSafeAreaEdges: .top)
-            LinearGradient(colors: [Color(.systemBackground), Color(.systemBackground).opacity(0)],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(height: 12)
+                .background(StashColor.paper, ignoresSafeAreaEdges: .top)
+            StashColor.paper.frame(height: 1)
         }
         .opacity(1 - Double(fade.visibility))
         .allowsHitTesting(false)

@@ -1,60 +1,45 @@
 import SwiftUI
 import StashKit
 
-/// Detail-sheet eyebrow: a `wash`-filled type pill (icon + uppercase type name, `kicker` face) +
-/// the source hint alongside it — the domain for link items, else nothing (dates move to Task 7's
-/// Details drawer, per the brief). Port of `EditItemDetailsTab.tsx`'s eyebrow row, simplified per
-/// this task's brief to a single neutral `wash` tint rather than the web's full per-type tinted
-/// spectrum (`getTypeChip`) — that spectrum stays a follow-up, not part of this task's scope.
+/// The native sheet's machine bar uses the same identity, source and date as the web panel.
 struct DetailEyebrow: View {
     let item: Item
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var domain: String { domainOf(item.url) }
+    private var source: String {
+        let date = "saved \(Self.dateFormatter.string(from: item.createdAt).lowercased())"
+        return item.type == .link && !domain.isEmpty ? "\(domain) · \(date)" : date
+    }
 
-    /// Plan 16: the pill is the `kicker` role in `ink` (its glyph takes the same size), the domain
-    /// `meta` in `muted` (`faint` was 2.61:1 here). Both scale. The pill's one word keeps its line
-    /// and its width (SwiftUI breaks a squeezed word mid-word at the accessibility sizes); a long
-    /// domain beside it wraps instead.
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 5) {
-                Image(systemName: typeIcon)
-                Text(item.type.rawValue)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .stashKicker(StashColor.ink)
-            .padding(.horizontal, 11)
-            .padding(.vertical, 5)
-            .background(StashColor.wash, in: Capsule())
-            .layoutPriority(1)
-
-            if item.type == .link, !domain.isEmpty {
-                Text(domain)
-                    .stashFont(.meta)
-                    .foregroundStyle(StashColor.muted)
+        HStack(spacing: 10) {
+            Image("StashSymbol")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(StashColor.spotOnInk)
+                .frame(width: 16, height: 20)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                CardKindTag(text: cardKindLabel(for: item), inverted: true)
+                Text(source)
+                    .stashFont(.machine)
+                    .foregroundStyle(StashColor.white.opacity(0.7))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
+        .accessibilityLabel("\(cardKindLabel(for: item)), \(source)")
         .accessibilityIdentifier("detail.eyebrow")
     }
 
-    private var accessibilityText: String {
-        let type = item.type.rawValue.uppercased()
-        return (item.type == .link && !domain.isEmpty) ? "\(type) \(domain)" : type
-    }
-
-    private var typeIcon: String {
-        switch item.type {
-        case .text: "note.text"
-        case .link: "link"
-        case .image: "photo"
-        case .audio: "waveform"
-        case .video: "video"
-        case .document: "doc.richtext"
-        case .collection: "folder"
-        case .unknown: "questionmark.square"
-        }
-    }
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d yyyy"
+        return formatter
+    }()
 }

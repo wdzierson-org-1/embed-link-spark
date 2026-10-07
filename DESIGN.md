@@ -1,8 +1,9 @@
 # DESIGN.md — the Stash design system
 
-> **Next system:** `DESIGN-v2.md` ("clean objects, DIY machinery", from the October 2026
-> homepage prototype) is the target for the coming web-app and iOS redesigns. It is **not live**:
-> keep following this file until a surface's redesign starts, and don't mix the two on one screen.
+> **V2 surfaces:** the redesigned web app and the iOS app/share extension follow
+> `DESIGN-v2.md` ("clean objects, DIY machinery"). This file preserves v1 surfaces
+> and the native accessibility rules that v2 retains: Dynamic Type, 44 pt targets,
+> VoiceOver and readable contrast. See `docs/ios-design-v2-handoff.md` for the simulator build.
 
 This file is the single source of truth for how Stash looks and feels, on every
 surface: the **web app** (`src/`), the **marketing homepage** (`src/pages/Landing.tsx`),

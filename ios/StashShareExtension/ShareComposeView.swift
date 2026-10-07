@@ -99,7 +99,7 @@ struct ShareComposeView: View {
                 Group {
                     switch phase {
                     case .loading:
-                        ProgressView()
+                        StashStatusLine(text: "reading share…")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     case .noSession:
                         noSessionView
@@ -264,8 +264,8 @@ struct ShareComposeView: View {
                 .font(StashType.decorative(.medium, size: 24))
                 .foregroundStyle(StashColor.muted)
                 .frame(width: 64, height: 64)
-                .background(StashColor.paper, in: Circle())
-                .overlay(Circle().strokeBorder(StashColor.hairline, lineWidth: 1))
+                .background(StashColor.paper, in: Rectangle())
+                .overlay(Rectangle().strokeBorder(StashColor.hairline, lineWidth: 1))
                 .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
                 .accessibilityHidden(true)
             // Identifier lives on this LEAF `Text`, not the container (see `doneView`'s doc
@@ -288,6 +288,13 @@ struct ShareComposeView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    #if DEBUG
+    private var fontStatus: String {
+        let human = StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback"
+        return "\(human) departure:\(StashType.isDepartureMonoAvailable ? "loaded" : "fallback") jetbrains:\(StashType.isJetBrainsMonoAvailable ? "loaded" : "fallback")"
+    }
+    #endif
+
     // MARK: - Compose
 
     private var composeBody: some View {
@@ -297,12 +304,12 @@ struct ShareComposeView: View {
             // read the host app's), so bundling PP Neue Montreal in the APP target proves nothing
             // about THIS process. Read by testShareExtensionURLSmoke. DEBUG-only, zero-height so
             // it never shifts the compose card's real layout.
-            Text(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+            Text(fontStatus)
                 .font(.system(size: 1))   // an invisible 1 pt DEBUG probe, not text (plan 16)
                 .foregroundStyle(.clear)
                 .frame(height: 0)
                 .accessibilityIdentifier("share.fontStatus")
-                .accessibilityLabel(StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback")
+                .accessibilityLabel(fontStatus)
             #endif
             preview
             if droppedCount > 0 {
@@ -316,8 +323,8 @@ struct ShareComposeView: View {
             // takes the tap that focuses it: a text field only answers touches on its own lines, so
             // its 12 pt of padding above and below would be a dead band (simultaneous, so the
             // field's own caret and selection taps are untouched).
-            TextField("Optional note", text: $note,
-                      prompt: Text("Optional note…").foregroundStyle(StashColor.muted), axis: .vertical)
+            TextField("Add a note", text: $note,
+                      prompt: Text("Add a note…").foregroundStyle(StashColor.muted), axis: .vertical)
                 .focused($noteFocused)
                 .textFieldStyle(.plain)
                 .stashFont(.reading)
@@ -325,7 +332,14 @@ struct ShareComposeView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .hairlineCard()
-                .contentShape(RoundedRectangle(cornerRadius: 14))
+                .overlay {
+                    Rectangle()
+                        .strokeBorder(StashColor.spot.opacity(noteFocused ? 1 : 0), lineWidth: 3)
+                        .padding(-3)
+                        .allowsHitTesting(false)
+                }
+                .overlay(Rectangle().strokeBorder(noteFocused ? StashColor.ink : StashColor.line, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: StashRadius.object))
                 .simultaneousGesture(TapGesture().onEnded { noteFocused = true })
                 .accessibilityIdentifier("share.note")
             if case .ready(let location) = locationCapture.state {
@@ -396,7 +410,7 @@ struct ShareComposeView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("share.gate")
         }
-        .stashFont(.meta)
+        .stashFont(.secondary)
         .foregroundStyle(StashColor.gateText)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -430,15 +444,8 @@ struct ShareComposeView: View {
         }
     }
 
-    /// "favicon+URL line" (brief): a link glyph standing in for a real per-site favicon — fetching
-    /// one live would add a network dependency (and a visible delay) to a card whose whole point is
-    /// an instant, offline-safe preview; disclosed simplification, not an oversight. The glyph
-    /// wears the app's violet toggled-circle treatment (`CircleIcon`'s active state) instead of
-    /// the stock blue SF Symbol. Plan 11 "preview larger": full-width card, a bigger favicon
-    /// circle, and a title/domain stack — there's no real per-site title in this extension (no
-    /// network round trip for it, same reasoning as the favicon), so "title" is still the shared
-    /// URL text itself; "domain" is a derived second line so the card reads as more than one flat
-    /// string.
+    /// Local preview only: the link glyph and derived domain never delay capture with
+    /// a favicon or title request. Literal URL text uses the code voice.
     private func urlPreview(_ url: String, extraCount: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 12) {
@@ -446,10 +453,10 @@ struct ShareComposeView: View {
                 // circle, hidden from VoiceOver (the URL beside it is what's shared).
                 Image(systemName: "link")
                     .font(StashType.decorative(.medium, size: 14))
-                    .foregroundStyle(StashColor.violet600)
+                    .foregroundStyle(StashColor.ink)
                     .frame(width: 32, height: 32)
-                    .background(StashColor.violet600.opacity(0.12), in: Circle())
-                    .overlay(Circle().strokeBorder(StashColor.violet300, lineWidth: 1))
+                    .background(StashColor.fill, in: Rectangle())
+                    .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     // Leaf-level identifier — see `doneView`'s doc comment for why this container
@@ -457,7 +464,7 @@ struct ShareComposeView: View {
                     // preview's supporting text (15 pt, scaling); two lines, more at the
                     // accessibility sizes so a long URL isn't cut to its ends.
                     Text(url)
-                        .stashFont(.secondary)
+                        .stashFont(.mono(.subheadline))
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 2)
                         .truncationMode(.middle)
                         .accessibilityIdentifier("share.preview.url")
@@ -566,7 +573,7 @@ struct ShareComposeView: View {
                     .stashFont(.custom(.semibold, size: 12))
                     .padding(.horizontal, 4)
                     .frame(minWidth: 44, minHeight: 44)
-                    .background(StashColor.wash, in: RoundedRectangle(cornerRadius: 8))
+                    .background(StashColor.wash, in: RoundedRectangle(cornerRadius: StashRadius.object))
                     .accessibilityLabel("\(overflow) more")
                     .accessibilityIdentifier("share.preview.overflow")
             }
@@ -584,7 +591,7 @@ struct ShareComposeView: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: StashRadius.object))
                 .accessibilityLabel(fileName ?? "Image")
         } else {
             // A 44 pt thumbnail tile: its glyph and 8 pt name are a miniature at a fixed scale
@@ -603,7 +610,7 @@ struct ShareComposeView: View {
                 }
             }
             .frame(width: 44, height: 44)
-            .background(StashColor.wash, in: RoundedRectangle(cornerRadius: 8))
+            .background(StashColor.wash, in: RoundedRectangle(cornerRadius: StashRadius.object))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(fileName ?? "File")
         }
@@ -729,7 +736,10 @@ struct ShareComposeView: View {
             } label: {
                 ZStack {
                     if phase == .saving {
-                        ProgressView().tint(.white)
+                        HStack(spacing: 8) {
+                            StashCursor()
+                            Text("saving…").stashFont(.machine)
+                        }
                     } else {
                         // Plan 16: the sheet's one primary action — `textButtonProminent` (Medium
                         // 17, scaling); white on violet-600 5.18:1, `muted` on the disabled wash
@@ -744,7 +754,7 @@ struct ShareComposeView: View {
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .foregroundStyle(canSubmit || phase == .saving ? .white : StashColor.muted)
                 .background(
-                    canSubmit || phase == .saving ? StashColor.violet600 : StashColor.wash,
+                    canSubmit || phase == .saving ? StashColor.ink : StashColor.fill,
                     in: RoundedRectangle(cornerRadius: StashRadius.input)
                 )
             }
@@ -920,20 +930,13 @@ struct ShareComposeView: View {
 
     private func doneView(_ message: String) -> some View {
         VStack(spacing: 12) {
-            // Will's note: "make the background color of the 'will save' / 'saved' icon
-            // purple / green." Saved is `success` (green). Plan 15: every persisted share is
-            // "Saved to Stash" now (the upload finishes in the background), so the violet
-            // clock only remains for the one failure — nothing could be written at all.
+            // The completed share is a lit square; the stable message is what VoiceOver reads.
             let saved = message == Self.savedMessage
-            // Plan 16: the outcome glyph is art at a fixed 24 pt in its 64 pt circle (white on
-            // `success` 3.39:1, on violet-600 5.18:1 — a graphic needs 3:1), hidden from
-            // VoiceOver: the message below says it, in `ink`.
             Image(systemName: saved ? "checkmark" : "clock.arrow.circlepath")
                 .font(StashType.decorative(.semibold, size: 24))
-                .foregroundStyle(.white)
+                .foregroundStyle(saved ? StashColor.onSpot : .white)
                 .frame(width: 64, height: 64)
-                .background(saved ? StashColor.success : StashColor.violet600, in: Circle())
-                .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+                .background(saved ? StashColor.spot : StashColor.ink, in: Rectangle())
                 .accessibilityHidden(true)
             // Identifier lives on this LEAF `Text`, not the container. First attempt put
             // `.accessibilityElement(children: .ignore)` + an explicit label on the VStack instead
@@ -991,15 +994,10 @@ struct ShareComposeView: View {
 // MARK: - Hairline card (the design system's rectangular sibling of CircleIcon's circle)
 
 private extension View {
-    /// Solid background with a soft shadow, applied to every rectangular surface on this card
-    /// (previews, note field) so the whole card reads as one family instead of stock
-    /// `.roundedBorder` chrome. Will's note: "remove the gray stroke around the cards" — the
-    /// hairline border this used to draw is gone; fill + shadow alone now carry the separation.
-    /// (The amber gate strip's own `gateBorder` stroke is a DIFFERENT, intentionally-unchanged
-    /// element — it doesn't use this helper.)
+    /// The v2 object surface shared by previews and the note field.
     func hairlineCard() -> some View {
         self
-            .background(StashColor.paper, in: RoundedRectangle(cornerRadius: 14))
-            .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
+            .background(StashColor.surface, in: RoundedRectangle(cornerRadius: StashRadius.object))
+            .overlay(RoundedRectangle(cornerRadius: StashRadius.object).strokeBorder(StashColor.line, lineWidth: 1))
     }
 }

@@ -60,7 +60,7 @@ struct StandardCoverImage: View {
     var body: some View {
         // Same overlay-over-fixed-base shape as `TallContainedImage` (and for the same reason):
         // the cover image must never be able to widen the card beyond its grid column.
-        Color(.tertiarySystemFill)
+        StashColor.fill
             .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, maxHeight: CardHeroHeight.standard)
             .overlay { image.resizable().aspectRatio(contentMode: .fill).allowsHitTesting(false) }
             .clipped()
@@ -75,11 +75,11 @@ struct StandardCoverImage: View {
 /// `MainTabView`'s first-page prefetch, so a prefetched image is a memory hit on first draw.
 @MainActor
 enum CardHeroSizing {
-    /// Card width for the current window: `LibraryView.grid`'s 16pt side padding, one column on
-    /// phones (two where the width class is regular, 8pt apart).
-    static func cardWidth(regularWidth: Bool) -> CGFloat {
-        let columns: CGFloat = regularWidth ? 2 : 1
-        return ((ScreenMetrics.windowWidth - 32 - (columns - 1) * 8) / columns).rounded(.down)
+    /// Matches the library's two-column grid and 12pt gutter; accessibility text gets one column.
+    /// The width-class argument remains for the app-scope prefetch's existing call site.
+    static func cardWidth(regularWidth: Bool, accessibilitySize: Bool = false) -> CGFloat {
+        let columns: CGFloat = accessibilitySize ? 1 : 2
+        return ((ScreenMetrics.windowWidth - 32 - (columns - 1) * 12) / columns).rounded(.down)
     }
 
     /// nil when the item's hero isn't an image (plates, repo links, video items, no thumbnail).
@@ -139,21 +139,25 @@ struct LinkHeroZone: View {
                 case .success(let image):
                     coveredImage(Image(uiImage: image))
                 case .failure:
-                    FaviconPlate(url: item.url)
+                    placeholder
                 case .empty:
-                    Color(.tertiarySystemFill).frame(height: zoneHeight)
+                    CardImageMosaic(height: zoneHeight)
                 }
             }
         } else {
-            FaviconPlate(url: item.url)
+            placeholder
         }
+    }
+
+    private var placeholder: some View {
+        FaviconPlate(url: item.url, kind: flavor == "generic" ? "page" : flavor,
+                     reading: item.attributes.enrichmentStatus(at: .now) == "pending")
     }
 
     @ViewBuilder private func coveredImage(_ image: Image) -> some View {
         if tall {
             TallContainedImage(image: image)
                 .overlay { if flavor == "video" { PlayIconBadge() } }
-                .overlay(alignment: .bottomLeading) { DomainPill(text: domainOf(item.url)).padding(10) }
         } else {
             StandardCoverImage(image: image)
         }
@@ -183,7 +187,7 @@ struct ImageHeroZone: View {
                 case .failure:
                     filePlate
                 case .empty:
-                    Color(.tertiarySystemFill).frame(height: CardHeroHeight.standard)
+                    CardImageMosaic()
                 }
             }
         } else {
@@ -214,10 +218,7 @@ struct VideoHeroZone: View {
     var body: some View {
         ZStack {
             Color.black
-            Image(systemName: "play.rectangle.fill")
-                .font(StashType.decorative(.book, size: 34))
-                .foregroundStyle(.white.opacity(0.85))
-                .accessibilityHidden(true)
+            PlayIconBadge()
         }
         .frame(maxWidth: .infinity, minHeight: CardHeroHeight.standard, maxHeight: CardHeroHeight.standard)
         .clipped()
@@ -228,7 +229,7 @@ struct VideoHeroZone: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+                    .background(StashColor.ink)
                     .padding(8)
             }
         }
@@ -244,21 +245,9 @@ private struct PlayIconBadge: View {
         Image(systemName: "play.fill")
             .font(StashType.decorative(.book, size: 17))
             .foregroundStyle(.white)
-            .padding(14)
-            .background(Color.black.opacity(0.5), in: Circle())
+            .frame(width: 44, height: 44)
+            .background(StashColor.ink)
+            .overlay(Rectangle().strokeBorder(.white.opacity(0.35), lineWidth: 1))
             .accessibilityHidden(true)
-    }
-}
-
-private struct DomainPill: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .stashFont(.chip)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Color.black.opacity(0.6), in: Capsule())
     }
 }

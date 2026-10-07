@@ -100,7 +100,7 @@ struct SectionHeader<Trailing: View, Accessory: View>: View {
                 }
             }
             accessory()
-            Rectangle().fill(StashColor.hairline).frame(height: 1)
+            Rectangle().fill(StashColor.ink).frame(height: 1)
         }
         .padding(.top, DetailLayout.section)
         .padding(.bottom, DetailLayout.gap)
@@ -109,8 +109,9 @@ struct SectionHeader<Trailing: View, Accessory: View>: View {
     /// Callers pass the title in any case ("DETAILS", "Notes"); the caps are drawn, so VoiceOver
     /// reads the words — as a heading, so the rotor can jump between the sheet's sections.
     private var label: some View {
-        Text(title)
-            .stashMicroLabel()
+        Text(title.lowercased())
+            .stashFont(.machine)
+            .foregroundStyle(StashColor.ink)
             .accessibilityAddTraits(.isHeader)
     }
 }

@@ -28,12 +28,15 @@ struct SettingsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        // No wordmark/title above this (Will's call, plan 8 — View/Ask/Settings all drop it). The
-        // extra `.padding(.top, 8)` this used to carry (meant to match `StashHeader`'s own top
-        // inset) is gone (final wave, item E/11 — device review: it left a bare, contentless band
-        // above the first section instead); `List`'s own default inset already puts the first
-        // section at a normal starting position under the safe area with nothing above it.
+        // Native numbered list on flat paper; account actions retain their existing routes.
         List {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Settings").stashFont(.panelTitle)
+                    .foregroundStyle(StashColor.ink).accessibilityAddTraits(.isHeader)
+                Text("your stash, your rules.").stashFont(.machine).foregroundStyle(StashColor.muted)
+            }
+            .padding(.vertical, 12)
+            .listRowBackground(StashColor.paper)
             AccountSection(userId: userId)
             PhoneSection(userId: userId)
             SubscriptionSection()
@@ -42,7 +45,11 @@ struct SettingsView: View {
             DeleteAccountSection(showSheet: $showDeleteAccountSheet)
             footerSection
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(StashColor.paper)
+        .stashFont(.reading)
+        .tint(StashColor.ink)
         .confirmationDialog("Sign out of Stash?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
                 .accessibilityIdentifier("settings.signout.confirm")
@@ -171,7 +178,7 @@ struct SettingsView: View {
     /// audience (an agent/human confirming a font actually bundled after `xcodegen generate`).
     private var fontStatusText: String {
         let neue = StashType.isNeueMontrealAvailable ? "font:neue-montreal" : "font:sf-fallback"
-        let editorial = StashType.isEditorialAvailable ? "editorial:loaded" : "editorial:fallback"
+        let editorial = "departure:\(StashType.isDepartureMonoAvailable ? "loaded" : "fallback") jetbrains:\(StashType.isJetBrainsMonoAvailable ? "loaded" : "fallback")"
         return "\(neue) \(editorial)"
     }
     #endif
@@ -212,5 +219,9 @@ struct SettingsValueRow<Value: View>: View {
 /// system's secondary label colour is 60 % grey, about 3.3:1 there — under AA for text this size.
 /// A plain `Text`, so the List still lays it out as its own header/footer text.
 func settingsCaption(_ text: String) -> Text {
-    Text(text).foregroundStyle(StashColor.muted)
+    Text(text).font(StashType.Role.secondary.font(nil)).foregroundStyle(StashColor.muted)
+}
+
+func settingsHeading(_ text: String) -> Text {
+    Text(text.lowercased()).font(StashType.Role.machine.font(nil)).foregroundStyle(StashColor.ink)
 }

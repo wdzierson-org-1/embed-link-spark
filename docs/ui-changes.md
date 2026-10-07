@@ -8,6 +8,24 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-07 · iOS adopts the v2 web design
+
+- **Contracts:** capture, sign-in, search, chat, detail editing, sharing, and the durable
+  queues keep their existing APIs. Cards remain one tap target opening the detail sheet.
+  Native keyboard dismissal, 44 pt controls, Dynamic Type, VoiceOver and Reduce Motion remain.
+- **Visuals:** paper/white/black with one lime spot; ST4SH wordmark and A/4 symbol/icon;
+  near-square objects and square controls; Montreal human text, Departure Mono machine
+  labels, JetBrains Mono literal strings. Applies to Add, View, Ask, detail, sign-in,
+  settings, onboarding and the share extension. Replaces the purple gradient and type tints.
+- **Library:** two columns at normal phone text sizes, one at accessibility sizes; black
+  kind tags, ruled metadata, grayscale plates, honest cursor status while enrichment runs.
+- **Native adaptation:** the tab bar and modal presentation remain native. Settings keeps
+  its existing account/phone/subscription actions in a flat numbered list; no new web-only
+  settings or connected-agent flows are introduced by this styling change.
+- **Reference:** October 7 `app-redesign-v2` design guide; `DESIGN-v2.md` now contains that
+  complete reference. See `ios-design-v2-handoff.md` for build and simulator verification.
+
+
 ## 2026-10-07 · Web favicon is the A/4 symbol
 
 - **Contracts:** none change. The icon files keep their paths (`/favicon.svg`,

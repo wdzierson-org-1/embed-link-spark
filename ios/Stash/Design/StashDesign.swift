@@ -1,217 +1,133 @@
 import SwiftUI
 import UIKit
-import CoreImage
-import CoreImage.CIFilterBuiltins
 
-/// The iOS side of the cross-surface design system — DESIGN.md (repo root) is the single source
-/// of truth for every token here; when this file and DESIGN.md disagree, DESIGN.md wins and both
-/// get fixed in the same change (see DESIGN.md "Per-surface notes"). Components mirror the web's
-/// conventions: 40/48px round iconographic buttons with hairline borders, a violet-filled
-/// "weighted" submit, a compact wordmark header instead of per-screen titles, and the animated
-/// gradient backdrop that gives every capture surface its ambience.
+/// DESIGN-v2.md is the cross-surface reference. Paper and white hold the person's
+/// objects; black and Departure Mono belong to the machine. Lime marks its active work.
 enum StashColor {
-    // DESIGN.md §Color — neutrals (chrome). Contrast (plan 16, WCAG 2.2 AA; DESIGN.md › Color ›
-    // Contrast has the full table): text a person reads — including dates, facts, section labels
-    // and placeholders — is `ink` or `muted`; `faint` never is.
-    static let ink = Color(hex: 0x22262F)
-    /// Secondary AND informational meta text (dates, facts, footers, micro-labels, placeholders):
-    /// 5.38:1 on white, 5.02 on the page wash, 4.86 on the chip wash, ≥ 4.54 on every type tint.
-    /// Not on the gradient wash (≈ 3:1 there).
-    static let muted = Color(hex: 0x646B76)
-    /// Decorative and disabled only — hairline art, a disabled glyph, an idle send circle. 2.79:1
-    /// on white: below AA for text (4.5) AND for a control's only glyph (3:1).
-    static let faint = Color(hex: 0x959BA6)
-    static let hairline = Color.black.opacity(0.07)
-    static let paper = Color.white
-    /// Pill-tab track / quiet fills — DESIGN.md "chip bg" `rgba(20,22,30,.05)`.
-    static let wash = Color(hex: 0x14161E).opacity(0.05)
-    /// DESIGN.md "dotted rule" — facts-row separators only (Task 7's Details drawer).
-    static let dottedRule = Color.black.opacity(0.18)
+    static let paper = Color(hex: 0xF3F4F1)
+    static let white = Color(hex: 0xFFFFFF)
+    static let surface = white
+    static let ink = Color(hex: 0x000000)
+    static let inkSoft = Color(hex: 0x262626)
+    static let muted = Color(hex: 0x5C6159)
+    static let hairline = Color(hex: 0xD5D8D1)
+    static let line = hairline
+    static let lineSoft = Color(hex: 0xE5E7E2)
+    static let fill = Color(hex: 0xECEDE9)
+    static let wash = fill
+    static let dot = ink.opacity(0.13)
+    static let dottedRule = dot
+    /// Decorative/disabled only. Readable secondary text always uses `muted`.
+    static let faint = Color(hex: 0x959B91)
 
-    // DESIGN.md §Color — intent colors.
-    /// Interactive: links, active pills, switches, focus, text buttons on white/paper (5.18:1),
-    /// the page wash (4.84) and the chip wash (4.68). As TEXT on a type tint or a violet tint it
-    /// drops to 4.37–4.44 — use `violet700` there; glyphs and fills need only 3:1 and stay
-    /// violet-600. Directly on the gradient wash no violet or grey passes (measured 2.9–3.4:1 at
-    /// the top of the Add and View tabs): text there is `ink`, or sits on paper.
-    static let violet600 = Color(hex: 0x6D5BD0)
-    /// Violet TEXT on tinted fields (plan 16): the type tints and violet tints (Ask's session pill,
-    /// the due chip) — ≥ 5.4:1 on every one; 6.40 on white. Not for the gradient wash.
-    static let violet700 = Color(hex: 0x5D49CB)
-    static let violet300 = Color(hex: 0xB6A8EF)
-    /// The underline under a link in reading text (plan 16; DESIGN.md › Color › Contrast, "Links in
-    /// reading text are underlined"): violet-600 at 80 %, ≈ #8a7cd9 on white or paper (3.52:1) and
-    /// ≈ #8879d8 on Ask's #f2f2f7 answer bubble (3.26:1). So the cue that isn't colour clears 3:1
-    /// wherever reading text sits. The link's own text stays `violet600`. Drawn with
-    /// `Text.LineStyle.stashLinkUnderline`, the one style for every surface.
-    static let linkUnderline = StashColor.violet600.opacity(0.8)
-    static let destructive = Color(hex: 0xC93A3A)
-    /// DESIGN.md §Color "Intent colors" (2026-09-04, plan 11) — first legitimate need for a
-    /// green: confirmation icons/labels (share-sheet "Saved to Stash" outcome, Ask's saved-chip
-    /// caption). Muted, ink-compatible — not a stock system green.
-    static let success = Color(hex: 0x2F9E63)
+    static let spot = Color(hex: 0xA3F53B)
+    static let onSpot = ink
+    static let spotInk = Color(hex: 0x1F4A38)
+    static let spotOnInk = spot
+    static let ok = Color(hex: 0x2E9E52)
+    static let error = Color(hex: 0xA1281C)
+    static let success = ok
+    static let destructive = error
+    static let linkUnderline = ink
 
-    /// `.animated-gradient`'s six stops, in order (web `src/index.css`; DESIGN.md §Color "Page
-    /// wash gradient"). DESIGN.md sanctions the splash gradient only in page washes — this
-    /// palette is intentionally untouched by the ink/violet token pass.
-    static let gradientStops = [
-        Color(hex: 0x667eea),
-        Color(hex: 0x764ba2),
-        Color(hex: 0x9d5fd8),
-        Color(hex: 0xc2418f),
-        Color(hex: 0x4facfe),
-        Color(hex: 0x38bdf8),
-    ]
+    // Compatibility names for existing screens. Lime is never text on light surfaces:
+    // legacy interactive violet therefore maps to ink, retaining readable contrast.
+    static let violet600 = ink
+    static let violet700 = ink
+    static let violet300 = hairline
+    static let gradientStops = [paper, paper]
 
-    /// DESIGN.md §Color "Type spectrum" (lines ~101-114, plan 9) — the object-type identity used
-    /// on cards, chips, and per-type fields. `.repo` is the odd row out (a dark plate, not an rgba
-    /// tint) — see `typeField`/`typeText` below for how each case reads it.
     enum TypeTint { case voice, audio, document, screenshot, repo, social }
 
-    /// The type's rgba field tint at its DESIGN.md alpha — the flat wash behind a hero/chip field.
-    /// Table gives each row a range (e.g. voice `.11–.12`); this transcribes the range's midpoint.
-    /// `.repo` has no rgba tint in the table (its field *is* the dark plate) — returns `repoPlate`.
-    static func typeField(_ t: TypeTint) -> Color {
-        switch t {
-        case .voice: return Color(hex: 0x5458B2).opacity(0.115)
-        case .audio: return Color(hex: 0x7E4A9E).opacity(0.105)
-        case .document: return Color(hex: 0x9646BE).opacity(0.105)
-        case .screenshot: return Color(hex: 0x3484C9).opacity(0.10)
-        case .repo: return repoPlate
-        case .social: return Color(hex: 0x4664B4).opacity(0.07)
-        }
+    static func typeField(_ type: TypeTint) -> Color {
+        type == .repo ? repoPlate : fill
     }
 
-    /// Text color per DESIGN.md's "Type spectrum" table's "Accent / text" column — `.repo` reads
-    /// its mono `#e6edf3` (on the dark plate); `.social` reads "quote in ink" as `ink` itself.
-    static func typeText(_ t: TypeTint) -> Color {
-        switch t {
-        case .voice: return Color(hex: 0x45408C)
-        case .audio: return Color(hex: 0x703C77)
-        case .document: return Color(hex: 0x7D3F9E)
-        case .screenshot: return Color(hex: 0x22689C)
-        case .repo: return Color(hex: 0xE6EDF3)
-        case .social: return ink
-        }
+    static func typeText(_ type: TypeTint) -> Color {
+        type == .repo ? white : ink
     }
 
-    /// The saturated control accent where DESIGN.md's table gives one (voice's play/waveform,
-    /// audio's player) — every other row falls back to `typeText`, since the table has no distinct
-    /// accent column for document/screenshot/repo/social.
-    static func typeAccent(_ t: TypeTint) -> Color {
-        switch t {
-        case .voice: return Color(hex: 0x544EBA)
-        case .audio: return Color(hex: 0x8B4A9E)
-        default: return typeText(t)
-        }
-    }
+    static func typeAccent(_ type: TypeTint) -> Color { typeText(type) }
 
-    static let repoPlate = Color(hex: 0x0D1117)
-    static let repoOwner = Color(hex: 0x8B7BD8)
-
-    // DESIGN.md §Color "Gate strip" (2026-09-03, plan 9) — lapsed-account capture lock, Add tab +
-    // share sheet.
-    static let gateBackground = Color(hex: 0xFFF7E6)
-    static let gateBorder = Color(hex: 0xF3D9A4)
-    static let gateText = Color(hex: 0x7A4B00)
+    static let repoPlate = ink
+    static let repoOwner = white
+    static let gateBackground = spot
+    static let gateBorder = ink
+    static let gateText = ink
 }
 
 extension Color {
-    /// `0xRRGGBB` — the literal form every DESIGN.md hex token is transcribed in.
+    /// `0xRRGGBB`, matching the design reference's literal colour tokens.
     init(hex: UInt32) {
-        self.init(
-            red: Double((hex >> 16) & 0xFF) / 255,
-            green: Double((hex >> 8) & 0xFF) / 255,
-            blue: Double(hex & 0xFF) / 255
-        )
+        self.init(red: Double((hex >> 16) & 0xFF) / 255,
+                  green: Double((hex >> 8) & 0xFF) / 255,
+                  blue: Double(hex & 0xFF) / 255)
     }
 }
 
 extension Text.LineStyle {
-    /// The underline of a link inside reading text (plan 16; WCAG 2.2 SC 1.4.1, Use of Color):
-    /// solid, in `StashColor.linkUnderline`, under `violet600` link text. One style for every
-    /// surface: the detail sheet's markdown (`MarkdownBlocksView`) now, Ask's answers next. Set it
-    /// on each link run: `attributed[range].underlineStyle = Text.LineStyle.stashLinkUnderline`.
-    /// It is spelled out, not `.stashLinkUnderline`, because UIKit's `underlineStyle` shares the
-    /// key.
+    /// Links in reading text always have a cue beyond colour.
     static let stashLinkUnderline = Text.LineStyle(pattern: .solid, color: StashColor.linkUnderline)
 }
 
-/// DESIGN.md §Space, radius, elevation.
 enum StashRadius {
-    static let card: CGFloat = 16
-    static let sheet: CGFloat = 20
-    static let input: CGFloat = 12
-    /// DESIGN.md §Space "Composer card" (2026-09-03, plan 9) — the Add-tab capture panel's own
-    /// (smaller, web-parity) radius; deliberately not `card` (16px).
-    static let composer: CGFloat = 6
+    static let object: CGFloat = 2
+    static let machine: CGFloat = 0
+    static let control: CGFloat = machine
+    static let card = object
+    static let composer = object
+    static let sheet = machine
+    static let input = machine
 }
 
-/// DESIGN.md card/sheet shadow recipes (each a two-layer shadow; SwiftUI has no multi-shadow
-/// modifier, so `card()` is applied as two stacked `.shadow` calls via this `ViewModifier`).
+/// Objects rest quietly on paper. Floating windows and active composers use a hard
+/// print shadow. Touch cards do not lift: their press state is an ink edge.
 struct StashShadow: ViewModifier {
+    var hard = false
+
     func body(content: Content) -> some View {
-        content
-            .shadow(color: Color(hex: 0x14161E).opacity(0.05), radius: 1, y: 1)
-            .shadow(color: Color(hex: 0x1E212C).opacity(0.08), radius: 12, y: 8)
+        content.compositingGroup()
+            .shadow(color: StashColor.ink.opacity(hard ? 1 : 0.08),
+                       radius: 0, x: hard ? 4 : 0, y: hard ? 4 : 1)
     }
 
-    /// `0 1 2 rgba(20,22,30,.05) + 0 8 24 rgba(30,33,44,.08)` — DESIGN.md card shadow.
     static func card() -> StashShadow { StashShadow() }
+    static var object: StashShadow { StashShadow() }
+    static var print: StashShadow { StashShadow(hard: true) }
 }
 
 extension View {
     func stashCardShadow() -> some View { modifier(StashShadow.card()) }
+    func stashPrintShadow() -> some View { modifier(StashShadow.print) }
 }
 
-/// DESIGN.md §Space "Composer card" (2026-09-03, plan 9) — the Add-tab capture panel's idle vs.
-/// composing treatment (web parity: `UnifiedInputPanel.tsx`'s `shell` motion.div). SwiftUI has no
-/// spread-only "ring" shadow, so the hairline/violet stroke is a `strokeBorder` overlay and the
-/// halo/deep shadow are two stacked `.shadow` calls; both layers exist in both states
-/// (opacity/size animate between idle and active values) so the spring below always has something
-/// to interpolate instead of layers popping in/out. `active`'s spring uses the same physical model
-/// (mass, stiffness, damping) as the web's Framer Motion spring, numbers transcribed 1:1.
-///
-/// Fix round 1 (task-0 review): idle now implements DESIGN.md's own idle recipe — `0 0 0 1px
-/// rgba(0,0,0,.05), 0 10px 30px -18px rgba(0,0,0,.3)` — instead of reusing `StashShadow.card()`.
-/// The 1px hairline maps 1:1 to the stroke overlay. The soft shadow doesn't: CSS's `-18px` spread
-/// pulls the shadow's silhouette in tighter than its 30px blur alone would, so the visible shadow
-/// is a fairly tight, close-in soft edge, not a wide diffuse one — SwiftUI's `.shadow` has no
-/// spread parameter, only blur `radius` and offset. Tempered by eye against the web reference
-/// (`task-0-ring-idle.png` vs. a browser screenshot of the same panel at rest): `radius: 12, y: 8`
-/// reproduces the same close, soft-edged falloff; the alpha is lowered from the CSS value's `.3` to
-/// `.14` because a blur-only shadow (no negative spread pulling it back in) spreads that opacity
-/// over a visibly larger silhouette than the spread-narrowed CSS shadow does — left at `.3` it read
-/// noticeably heavier/darker than the web at matching card sizes.
 private struct StashComposerRing: ViewModifier {
     let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
-            .overlay(
-                RoundedRectangle(cornerRadius: StashRadius.composer, style: .continuous)
-                    .strokeBorder(
-                        active ? StashColor.violet600.opacity(0.5) : Color.black.opacity(0.05),
-                        lineWidth: 1
-                    )
-            )
-            // Halo — DESIGN.md's 6pt violet600@.08 ring (active only; invisible at rest).
-            .shadow(color: StashColor.violet600.opacity(active ? 0.08 : 0), radius: 6)
-            // Deep/soft shadow: idle = the tempered `radius 12, y 8, .14` recipe above; active =
-            // DESIGN.md's "0 24 48 violet600@.35" (both engines just do blur+offset there, no
-            // tempering needed).
-            .shadow(color: active ? StashColor.violet600.opacity(0.35) : Color.black.opacity(0.14),
-                    radius: active ? 24 : 12, y: active ? 24 : 8)
-            .scaleEffect(active ? 1.006 : 1)
-            .offset(y: active ? -2 : 0)
-            .animation(.interpolatingSpring(mass: 0.7, stiffness: 320, damping: 28), value: active)
+            .overlay {
+                RoundedRectangle(cornerRadius: StashRadius.composer)
+                    .strokeBorder(active ? StashColor.ink : StashColor.line, lineWidth: 1)
+            }
+            .overlay {
+                if active {
+                    RoundedRectangle(cornerRadius: StashRadius.composer + 3)
+                        .stroke(StashColor.spot, lineWidth: 3)
+                        .padding(-2)
+                        .allowsHitTesting(false)
+                }
+            }
+            .compositingGroup()
+            .shadow(color: StashColor.ink.opacity(active ? 1 : 0.08),
+                    radius: 0, x: active ? 4 : 0, y: active ? 4 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: active)
     }
 }
 
 extension View {
-    /// Idle = neutral card shadow; composing (`active`) = the three-layer violet ring (1px
-    /// stroke, 6pt halo, deep drop) with a 2px lift and 1.006 scale, spring-animated. Nothing else
-    /// is exposed — callers can't reach the individual layers.
+    /// Focus is an ink edge plus a lime ring: the ink carries contrast on paper.
     func stashComposerRing(active: Bool) -> some View {
         modifier(StashComposerRing(active: active))
     }
@@ -302,53 +218,39 @@ extension PrimitiveButtonStyle where Self == StashPlainButtonStyle {
     static var stashPlain: StashPlainButtonStyle { StashPlainButtonStyle() }
 }
 
-// MARK: - Round icon buttons (web: h-12 w-12 rounded-full border shadow-sm)
+// MARK: - Square machine controls
 
-/// The visual for one round icon control — used as a `Button`/`PhotosPicker` label so both get
-/// the identical treatment. `active` is the web's violet toggled state (location pin on, public
-/// globe on); default is the hairline-bordered ink-on-paper resting state.
-///
-/// Plan 16: icon chrome — the circle and glyph keep their size at every text size (like system
-/// bar buttons), the tap target is at least 44×44 pt whatever `size` is (`stashMinimumHitTarget`),
-/// and the control names itself with `stashIconControl(_:systemImage:)` for VoiceOver and the
-/// Large Content Viewer.
+/// Existing name retained at call sites; the v2 visual is square machine chrome.
+/// Its glyph stays fixed like native bar-button chrome, with a 44 pt hit target.
 struct CircleIcon: View {
     let systemImage: String
     var size: CGFloat = 40
     var active = false
     var busy = false
-    /// Plan 11: "remove the gray stroke from the X button" (share-sheet close only) — every other
-    /// `CircleIcon` call site keeps its hairline/violet border by default; this is the one opt-out.
     var bordered = true
 
     var body: some View {
         ZStack {
             if busy {
-                ProgressView()
+                StashCursor(size: .machineLarge)
             } else {
-                // Fixed on purpose: chrome glyphs stay put like system bar buttons (plan 16) —
-                // the Large Content Viewer (`stashIconControl`) carries them at large sizes. As a
-                // system font the glyph still follows Bold Text.
                 Image(systemName: systemImage)
                     .font(.system(size: size * 0.42, weight: .medium))
             }
         }
         .frame(width: size, height: size)
-        .foregroundStyle(active ? StashColor.violet600 : StashColor.ink)
-        .background(active ? StashColor.violet600.opacity(0.12) : StashColor.paper, in: Circle())
+        .foregroundStyle(active ? StashColor.spotOnInk : StashColor.ink)
+        .background(active ? StashColor.ink : StashColor.white)
         .overlay {
             if bordered {
-                Circle().strokeBorder(active ? StashColor.violet300 : StashColor.hairline, lineWidth: 1)
+                Rectangle().strokeBorder(active ? StashColor.ink : StashColor.line, lineWidth: 1)
             }
         }
-        .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
         .stashMinimumHitTarget()
     }
 }
 
-/// The weighted submit circle (web's Send button): violet-filled with a white paper plane while
-/// submittable, the resting paper/hairline circle otherwise — never dimmed (`disabled:opacity-100`).
-/// Plan 16: icon chrome like `CircleIcon` — fixed size, a tap target of at least 44×44 pt.
+/// Primary action: white on ink when available, a quiet square at rest.
 struct CircleSubmitIcon: View {
     var size: CGFloat = 48
     var hot: Bool
@@ -358,41 +260,65 @@ struct CircleSubmitIcon: View {
     var body: some View {
         ZStack {
             if busy {
-                ProgressView().tint(hot ? .white : StashColor.faint)
+                StashCursor(size: .machineLarge)
             } else {
                 Image(systemName: systemImage)
                     .font(.system(size: size * 0.38, weight: .semibold))
             }
         }
         .frame(width: size, height: size)
-        .foregroundStyle(hot ? .white : StashColor.faint)
-        .background(hot ? StashColor.violet600 : StashColor.paper, in: Circle())
-        .overlay(Circle().strokeBorder(hot ? StashColor.violet600 : StashColor.hairline, lineWidth: 1))
-        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+        .foregroundStyle(hot ? StashColor.white : StashColor.faint)
+        .background(hot ? StashColor.ink : StashColor.white)
+        .overlay(Rectangle().strokeBorder(hot ? StashColor.ink : StashColor.line, lineWidth: 1))
         .stashMinimumHitTarget()
     }
 }
 
-// MARK: - Wordmark header (Add tab + share sheet only — final wave, item E/11)
+/// A native Toggle's label and state in v2 square chrome. The whole row is the
+/// 44 pt target, and the native label remains the VoiceOver name.
+struct StashSwitchStyle: ToggleStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
 
-/// Add tab + share sheet only (final wave, item E/11 — doc corrected; Will's call, plan 8: View/
-/// Ask/Settings all dropped this header in favor of no title chrome at all, `SettingsView`'s own
-/// doc comment has the detail). The Stash wordmark leading (same as the web's header) and an
-/// optional per-tab accessory trailing. Detail flows stay sheets; if a tab ever grows push
-/// navigation, the system inline back bar slots under this without clashing.
-///
-/// Plan 16: the header has no tappable parts of its own — each accessory brings its own 44 pt
-/// target (`CircleIcon`, `StashCancelButton`), and those targets OVERHANG instead of growing the
-/// row. So at the default text size a `StashCancelButton` appearing beside the 20 pt wordmark
-/// while a field has focus moves nothing: the row takes the word's own line (20.67 pt), and the
-/// header goes from 32 to 32.67 pt (measured on iOS 17.0 and 26.5; `A11yFoundationUITests` asserts
-/// ≤ 1 pt). At larger text sizes the word outgrows the wordmark and the row grows with the text
-/// (Cancel's line is about 45 pt at AX3), so an accessory that appears with the keyboard would
-/// make the header jump at those sizes unless the caller reserves the line. The Add tab does: a
-/// hidden, zero-width "Cancel" in its accessory (`CaptureComposerView`) holds the line's height at
-/// rest, so its header never jumps as the keyboard rises. It is 0.67 pt taller at Large and about
-/// 25 pt taller at AX3 (DESIGN.md › Controls). The Cancel's target reaches ~12 pt above and below
-/// the word — past these 8/4 pt insets — so keep other tappable things ≥ 44 pt from its centre.
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: 12) {
+                configuration.label
+                Spacer(minLength: 8)
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(configuration.isOn ? StashColor.ink : StashColor.fill)
+                    Rectangle()
+                        .fill(configuration.isOn ? StashColor.spotOnInk : StashColor.white)
+                        .frame(width: 16, height: 16)
+                        .overlay {
+                            if configuration.isOn {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(StashColor.onSpot)
+                            }
+                        }
+                        .offset(x: configuration.isOn ? 21 : 3)
+                }
+                .frame(width: 40, height: 22)
+                .overlay(Rectangle().strokeBorder(StashColor.ink, lineWidth: 1))
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: configuration.isOn)
+                .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? 1 : 0.45)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
+}
+
+// MARK: - Shared wordmark header and keyboard Cancel
+
 struct StashHeader<Accessory: View>: View {
     @ViewBuilder var accessory: Accessory
 
@@ -419,38 +345,13 @@ extension StashHeader where Accessory == EmptyView {
 
 // MARK: - Keyboard "Cancel" (plan 16)
 
-/// The one keyboard "Cancel": a plain violet-600 text button, top-right of a screen's header (or
-/// beside a search field), shown while that screen's text field is focused. What it does is the
-/// caller's `action`: on Ask and the Add tab it only puts the keyboard away and keeps the draft;
-/// the View-tab search's Cancel also clears the query (the iOS search convention) — say so with
-/// `hint`. Ask uses it in place of its New chat / History circles (plan 16); the Add tab and the
-/// View-tab search adopt it in the same plan's accessibility pass, so all three match.
-///
-/// HIG sizing: the `textButton` role — Book 17 pt at the default text size, scaling with Dynamic
-/// Type like `.body`, Medium under Bold Text — and a tap target of at least 44×44 pt that
-/// OVERHANGS the word (`stashMinimumHitTarget`, like the circles) instead of growing its layout.
-/// Its layout is just the word (plus `onWash`'s horizontal capsule padding), so it appears and
-/// disappears without moving its row: a `StashHeader` changes height by under 1 pt, and the
-/// View-tab search row keeps its pill's height. VoiceOver's frame is the 44 pt target.
-///
-/// Never breaks: the word is one line at its full width at every text size (`fixedSize`) and the
-/// button claims its width before a flexible neighbour does (`layoutPriority(1)`) — a title beside
-/// it wraps, a search pill narrows. (Before the plan-16 fix wave it split "Canc / el" at AX3.)
-///
-/// Contrast (plan 16): violet-600 on white/paper is 5.18:1, but on the gradient wash at the top of
-/// the Add and View tabs it measures 2.8–3.3:1 (below AA). Over the wash pass `onWash: true`: the
-/// word sits on an opaque paper capsule — the same paper-on-wash chrome as the search pill and
-/// the cards — so it is violet-600 on white, 5.18:1, whatever the wash does behind it. The
-/// capsule's 5 pt of vertical padding is drawn, not laid out.
-///
-/// Hardware keyboards: ⌘. does the same (`.cancelAction`). Plain Esc, the shortcut's other key,
-/// stays with the focused text field and never reaches it (probed on iOS 17.0). Only one Cancel
-/// is ever on screen — each shows only while its own field has focus, and only one field can — so
-/// the shortcut never has two claimants.
+/// Shared keyboard Cancel. The word keeps its Dynamic Type size, one unbroken line,
+/// a 44 pt hit target and the native cancel keyboard shortcut. `onWash` adds a square
+/// white backing without changing the row's layout; retained for source compatibility.
 struct StashCancelButton: View {
     /// The caller's accessibility identifier (e.g. `ask.dismissKeyboard`) — tests find it by this.
     let identifier: String
-    /// The button sits directly on the gradient wash (Add tab header, View-tab search row).
+    /// Draws an opaque backing when placed over a textured stage.
     var onWash = false
     /// VoiceOver's hint: what THIS Cancel does. The default fits a Cancel that only puts the
     /// keyboard away (Ask, the Add tab); one that also clears something says so (the View-tab
@@ -458,23 +359,23 @@ struct StashCancelButton: View {
     var hint = "Hides the keyboard"
     let action: () -> Void
 
-    /// `onWash`'s capsule reaches this far above and below the word — drawn, not laid out.
-    private static let capsuleVerticalPadding: CGFloat = 5
+    /// The optional backing grows visually without changing the row's layout.
+    private static let backingVerticalPadding: CGFloat = 5
 
     var body: some View {
         Button(action: action) {
             Text("Cancel")
                 .stashFont(.textButton)
-                .foregroundStyle(StashColor.violet600)
+                .foregroundStyle(StashColor.ink)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, onWash ? 12 : 0)
                 .background {
                     if onWash {
-                        Capsule()
-                            .fill(StashColor.paper)
-                            .overlay(Capsule().strokeBorder(StashColor.hairline, lineWidth: 1))
-                            .padding(.vertical, -Self.capsuleVerticalPadding)
+                        Rectangle()
+                            .fill(StashColor.white)
+                            .overlay(Rectangle().strokeBorder(StashColor.hairline, lineWidth: 1))
+                            .padding(.vertical, -Self.backingVerticalPadding)
                     }
                 }
                 .stashMinimumHitTarget()
@@ -488,305 +389,96 @@ struct StashCancelButton: View {
     }
 }
 
-// MARK: - Animated gradient backdrop (web: .animated-gradient at opacity-30, faded to background)
+// MARK: - Paper and machine activity
 
-/// The web's `gradientShift` reinterpreted for SwiftUI: a −45°-equivalent sweep (bottom-leading →
-/// top-trailing) over a 2× canvas, blurred 40pt so the six stops read as a smooth wash with no
-/// banding, drifting slowly back and forth over 15s. Always paired with a fade-to-background
-/// overlay by `GradientBackdrop`. Palette unchanged by the DESIGN.md token pass — the page wash
-/// is a sanctioned exception.
-///
-/// Plan-10 task 1 ("animated white box" bug): this used to be a live `LinearGradient` with
-/// `.blur(radius: 40)` then `.drawingGroup()` to cache the blur's cost across the 15s
-/// `repeatForever` drift. Reproduced on iOS 17.0 and 17.4 simulators (not on 17.2/17.5/18.5/26.5
-/// in the same pass — genuinely environment-dependent): a hard-edged rectangle of raw background
-/// white sat where blurred gradient should be, moving with the drift. Root-cause probe (isolating
-/// each modifier alone) showed NEITHER `.blur` alone NOR `.drawingGroup()` alone reproduced it —
-/// only the combination did. `.drawingGroup()` rasterizes into an offscreen Metal texture sized
-/// from the view's pre-effect layout bounds; `.blur`'s visual bleed extends past those bounds, and
-/// on some simulator GPU/driver paths the offscreen buffer doesn't grow to cover that bleed, so
-/// the un-rasterized remainder reads as transparent → background white. Rather than ship a fix
-/// that depends on which GPU/OS renders it, the blur is now precomputed entirely off SwiftUI's
-/// rasterizer: `UIGraphicsImageRenderer` draws the 2×-canvas linear gradient with `CGGradient`,
-/// `CIGaussianBlur` blurs it once into a plain `UIImage` (rendered at 1x — it's a blur, so pixel
-/// density doesn't matter, and `.resizable().interpolation(.high)` upscales it losslessly-enough
-/// for a soft wash), and the drift animation only ever translates that static bitmap. No live
-/// `.blur`, no `.drawingGroup()` — nothing left in the pipeline whose rasterization bounds could
-/// disagree with its visual bounds.
-///
-/// The image is looked up (and, the first time for a given size, rendered) directly in `body` —
-/// deliberately NOT behind `.onAppear`/`.onChange(of:)`. An early version gated the render behind
-/// those lifecycle hooks and turned out to be its own new source of nondeterminism: on a cold
-/// launch straight into a screen using this view (e.g. the Add tab immediately after sign-in),
-/// `onAppear` sometimes silently never fired for this `GeometryReader`-nested view, leaving
-/// `image` `nil` forever with no error — the same "white box" symptom the drawingGroup/blur bug
-/// produced, from an unrelated cause. `body` is a pure, cheap function of `geo.size` once the
-/// per-size cache is warm (`cachedGradientImage` returns immediately on a hit), so computing it
-/// inline removes that whole class of "did the hook fire" question — every `body` evaluation
-/// (rare: SwiftUI interpolates the `.offset` animation itself, it does not replay `body` per
-/// frame) recomputes the answer from scratch rather than trusting stale `@State`.
-///
-/// Plan-10 feedback round 2, task 1 hitch fix: the inline compute above was, on a cache miss,
-/// the *blurred* image — `CIGaussianBlur` over a 786×1704 (2× sign-in) canvas measured ~272ms on
-/// the main thread (41ms at composer size), and because it's the very first frame of a cold
-/// launch, that whole cost landed on the user before anything painted. Fixed with a two-tier
-/// render, both memoized per size exactly like before (still `@MainActor`-isolated statics, still
-/// synchronous, still computed directly in `body` — none of the onAppear-race reasoning above
-/// changes): tier one is a plain `CGGradient` draw with no blur, a few ms, so the first frame
-/// always has correct colors, in position, synchronously — no async gap where nothing has been
-/// drawn yet. Tier two is the same blurred render as before, now kicked to a background task
-/// (`Task.detached`) so its cost never touches the main thread; when it lands, `.task(id:)` hops
-/// back (implicitly, since it's the same MainActor-isolated context `.task` was created in) and
-/// fades it in OVER the plain tier with a 0.35s opacity fade — not a true crossfade (final wave):
-/// the plain tier stays fully opaque underneath the whole time instead of dimming out in lockstep,
-/// which is what a real crossfade's simultaneous 1→0/0→1 opacities used to do and what produced a
-/// visible mid-fade lightening dip (two partially-transparent layers over the background don't sum
-/// back to full opacity). Both tiers share the same palette and direction, so the fade-over still
-/// reads as the wash "settling in," not a jump cut. A cache hit on the blurred tier (any later
-/// `AnimatedGradient` at an already-rendered size) is read synchronously in `body` right alongside
-/// the plain-tier lookup, same as the pre-fix code — no flash, no re-render, no fade (there's no
-/// visible prior frame to fade from). Reduced motion skips the fade — the swap is a hard cut — but
-/// both tiers, the cache, and the background hop are otherwise identical.
-struct AnimatedGradient: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var drift = false
-    @State private var startedAnimating = false
-    /// The blurred tier once it's rendered (or read from cache) for *this* view instance's
-    /// current size — nil until then, at which point the plain tier is showing.
-    @State private var blurredImage: UIImage?
+/// Decorative dot texture. Canvas draws one static path; it has no timer or bitmap cache.
+struct StashDotGrid: View {
+    var spacing: CGFloat = 16
+    var opacity: Double = 0.13
 
     var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let key = CacheKey(geo.size)
-            let plainImage = Self.cachedPlainGradientImage(forViewSize: geo.size)
-            // Synchronous cache read, same as the pre-fix code's only tier — if another call site
-            // already rendered this size's blur, this instance's very first frame shows it
-            // directly (no flash, no waiting on `.task`).
-            let blurredDisplay = blurredImage ?? Self.cachedBlurredGradientImage(forKey: key)
-            ZStack {
-                // Final wave: fade-OVER, not a crossfade — the plain tier stays at opacity 1 for
-                // as long as it's in the tree at all (never dims toward the blurred tier's
-                // appearance), and only the blurred tier fades in on top of it via
-                // `.transition(.opacity)`. A true crossfade (plain 1→0 while blurred 0→1
-                // simultaneously) has a visible dip partway through: two partially-transparent
-                // layers over the background don't sum back to full opacity, so the wash briefly
-                // reads lighter mid-fade. Keeping the opaque plain tier solid underneath the whole
-                // time removes that dip — the background is never partially exposed.
-                if let plainImage {
-                    Image(uiImage: plainImage)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: w * 2, height: h * 2)
-                        // The 2× canvas always overhangs the viewport, so this diagonal drift
-                        // never exposes an edge — see the offset-bounds note above `drift`'s range.
-                        .offset(x: drift ? -w * 0.25 : -w * 0.75,
-                                y: drift ? -h * 0.75 : -h * 0.25)
-                }
-                if let blurredDisplay {
-                    Image(uiImage: blurredDisplay)
-                        .resizable()
-                        .interpolation(.high)
-                        .frame(width: w * 2, height: h * 2)
-                        .offset(x: drift ? -w * 0.25 : -w * 0.75,
-                                y: drift ? -h * 0.75 : -h * 0.25)
-                        // Fades in from 0 on insertion (wrapped in `withAnimation` by
-                        // `loadBlurredImage` below) — a synchronous cache hit in `body` shows it
-                        // immediately instead, since there's no state transition to attach a
-                        // transition to.
-                        .transition(.opacity)
+        Canvas { context, size in
+            var dots = Path()
+            let step = max(spacing, 4)
+            for y in stride(from: CGFloat(0), through: size.height, by: step) {
+                for x in stride(from: CGFloat(0), through: size.width, by: step) {
+                    dots.addRect(CGRect(x: x, y: y, width: 1, height: 1))
                 }
             }
-            .onAppear {
-                // Only responsible for starting the drift animation — NOT for rendering (see the
-                // doc comment above on why that used to live here and why it moved into `body`).
-                guard !startedAnimating, !reduceMotion else { return }
-                startedAnimating = true
-                withAnimation(.easeInOut(duration: 15).repeatForever(autoreverses: true)) {
-                    drift = true
-                }
-            }
-            .task(id: key) {
-                await loadBlurredImage(forKey: key, viewSize: geo.size)
-            }
+            context.fill(dots, with: .color(StashColor.ink.opacity(opacity)))
         }
-        .clipped()
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
-
-    /// Cache-hit fast path: adopt it into `@State` with no animation (nothing to fade in from —
-    /// `body` already displayed it synchronously the moment this instance appeared). Cache-miss
-    /// path: render the blur off the main thread, store it, then swap it into `@State` — wrapped
-    /// in `withAnimation` unless reduced motion asks for a hard cut. `.task(id:)` is created
-    /// inside `body`, itself `@MainActor`-isolated (SwiftUI's `View.body` requirement), so this
-    /// whole `async` function runs on the main actor except for the explicit `Task.detached` hop
-    /// below — the only part of the pipeline that ever leaves it.
-    @MainActor
-    private func loadBlurredImage(forKey key: CacheKey, viewSize: CGSize) async {
-        guard viewSize.width > 0, viewSize.height > 0 else { return }
-        if let cached = Self.cachedBlurredGradientImage(forKey: key) {
-            blurredImage = cached
-            return
-        }
-        let canvasSize = CGSize(width: viewSize.width * 2, height: viewSize.height * 2)
-        let rendered = await Task.detached(priority: .userInitiated) {
-            Self.renderBlurredGradient(canvasSize: canvasSize)
-        }.value
-        // Final wave: `.task(id:)` cancels and restarts this `async` function when `key` changes
-        // (e.g. a rotation resizes the view mid-render), but the `Task.detached` above is its own
-        // Task, not automatically torn down by that cancellation — without this guard, a
-        // detached render for a now-stale size can still land here after the view has moved on,
-        // overwriting `blurredImage`/the cache with a bitmap sized for the OLD orientation.
-        guard !Task.isCancelled else { return }
-        guard let rendered else { return }
-        Self.storeBlurredGradientImage(rendered, forKey: key)
-        if reduceMotion {
-            blurredImage = rendered
-        } else {
-            withAnimation(.easeInOut(duration: 0.35)) {
-                blurredImage = rendered
-            }
-        }
-    }
-
-    /// `CGSize` itself only picks up `Hashable` on iOS 18+, so the cache key is this plain
-    /// width/height pair instead — deployment target here is iOS 17.
-    private struct CacheKey: Hashable {
-        let width: CGFloat
-        let height: CGFloat
-        init(_ size: CGSize) { width = size.width; height = size.height }
-    }
-
-    /// Per-size caches (keyed by the *view's* size, not the 2× canvas) — every `AnimatedGradient`
-    /// call site (SignInView, CaptureComposerView, SplashView, LibraryView, ShareComposeView) at
-    /// the same device size shares one rendered bitmap per tier instead of each paying its own
-    /// render cost, and repeat lookups at an already-seen size are a plain dictionary read. Both
-    /// are `@MainActor`-isolated statics, touched only from `@MainActor`-isolated functions (never
-    /// from inside `Task.detached`), so actor isolation alone rules out data races — no lock/actor
-    /// type needed on top of it.
-    @MainActor private static var plainCache: [CacheKey: UIImage] = [:]
-    @MainActor private static var blurredCache: [CacheKey: UIImage] = [:]
-
-    /// Tier one: synchronous, cheap (plain `CGGradient`, no blur — a few ms even at sign-in size),
-    /// so `body` always has a correctly colored, correctly positioned first frame with no async
-    /// gap. Same six-stop palette and bottom-leading → top-trailing direction as the blurred tier,
-    /// so the later fade-over reads as a settling wash, not a jump cut.
-    @MainActor
-    private static func cachedPlainGradientImage(forViewSize size: CGSize) -> UIImage? {
-        guard size.width > 0, size.height > 0 else { return nil }
-        let key = CacheKey(size)
-        if let cached = plainCache[key] { return cached }
-        let canvasSize = CGSize(width: size.width * 2, height: size.height * 2)
-        guard let rendered = renderPlainGradient(canvasSize: canvasSize) else { return nil }
-        plainCache[key] = rendered
-        return rendered
-    }
-
-    @MainActor
-    private static func cachedBlurredGradientImage(forKey key: CacheKey) -> UIImage? {
-        blurredCache[key]
-    }
-
-    @MainActor
-    private static func storeBlurredGradientImage(_ image: UIImage, forKey key: CacheKey) {
-        blurredCache[key] = image
-    }
-
-    /// The un-blurred first-frame tier: same gradient draw as `renderBlurredGradient` minus the
-    /// padding (nothing to bleed-blur past the edge) and the `CIGaussianBlur` pass itself — that
-    /// filter is the entire ~272ms/41ms cost this fix exists to keep off the main thread's first
-    /// frame, so tier one never touches Core Image at all.
-    private static func renderPlainGradient(canvasSize: CGSize) -> UIImage? {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: canvasSize, format: format)
-
-        let cgColors = StashColor.gradientStops.map { UIColor($0).cgColor }
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let gradient = CGGradient(colorsSpace: colorSpace, colors: cgColors as CFArray, locations: nil)
-        else { return nil }
-
-        return renderer.image { ctx in
-            let cg = ctx.cgContext
-            // bottomLeading → topTrailing, matching `renderBlurredGradient`'s direction exactly so
-            // the two tiers' stops line up pixel-for-pixel during the fade-over.
-            let start = CGPoint(x: 0, y: canvasSize.height)
-            let end = CGPoint(x: canvasSize.width, y: 0)
-            cg.drawLinearGradient(gradient, start: start, end: end,
-                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        }
-    }
-
-    /// Draws the six-stop sweep (bottom-leading → top-trailing, matching the old `LinearGradient`
-    /// direction) into a plain `CGContext` at 1x scale, then blurs it once with Core Image's
-    /// `CIGaussianBlur` (radius 40, matching the old `.blur(radius: 40)`). The gradient is drawn
-    /// into a canvas padded by `blurRadius * 3` on every side — comfortably more than the ~0.25×
-    /// margin the drift animation already guarantees stays off-screen — and `drawsBeforeStart`/
-    /// `drawsAfterEnd` extend the end-stop colors flat into that padding, so `CIGaussianBlur`
-    /// always has real (non-transparent) content to sample from and the crop back to `canvasSize`
-    /// never exposes a blur-edge seam.
-    /// `nonisolated` — this is the piece the hitch fix moves off the main actor
-    /// (`Task.detached` in `loadBlurredImage`); it touches no actor-isolated state (`CIContext`,
-    /// `CGGradient`, `UIGraphicsImageRenderer` are all local/immutable), so it's safe to run on
-    /// any thread.
-    nonisolated private static func renderBlurredGradient(canvasSize: CGSize) -> UIImage? {
-        let blurRadius: CGFloat = 40
-        let pad = blurRadius * 3
-        let paddedSize = CGSize(width: canvasSize.width + pad * 2, height: canvasSize.height + pad * 2)
-
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: paddedSize, format: format)
-
-        let cgColors = StashColor.gradientStops.map { UIColor($0).cgColor }
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let gradient = CGGradient(colorsSpace: colorSpace, colors: cgColors as CFArray, locations: nil)
-        else { return nil }
-
-        let paddedImage = renderer.image { ctx in
-            let cg = ctx.cgContext
-            UIColor.white.setFill()
-            cg.fill(CGRect(origin: .zero, size: paddedSize))
-            // bottomLeading → topTrailing in the unpadded canvas, offset into the padded canvas.
-            let start = CGPoint(x: pad, y: pad + canvasSize.height)
-            let end = CGPoint(x: pad + canvasSize.width, y: pad)
-            cg.drawLinearGradient(gradient, start: start, end: end,
-                                   options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        }
-
-        let blur = CIFilter.gaussianBlur()
-        blur.inputImage = CIImage(image: paddedImage)
-        blur.radius = Float(blurRadius)
-        guard let blurred = blur.outputImage else { return nil }
-        let cropRect = CGRect(x: pad, y: pad, width: canvasSize.width, height: canvasSize.height)
-        guard let cgImage = sharedCIContext.createCGImage(blurred, from: cropRect) else { return nil }
-        return UIImage(cgImage: cgImage)
-    }
-
-    /// One `CIContext` reused across every size render (Metal device setup is the expensive part
-    /// of creating one — not worth repeating per call site/size).
-    nonisolated private static let sharedCIContext = CIContext()
 }
 
-/// Page-level ambience (web Index.tsx:149-150): the animated gradient at low opacity, washed
-/// down to `StashColor.paper` so content lower on the screen sits on a clean surface.
+/// The quiet sheet behind objects. Settings and forms can use plain paper; library,
+/// loading and sign-in use the fine 4 pt cutting-mat dots from DESIGN-v2.md §7.
+struct StashPaperBackdrop: View {
+    var showDots = false
+
+    var body: some View {
+        ZStack {
+            StashColor.paper
+            if showDots { StashDotGrid(spacing: 4, opacity: 0.055) }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Source-compatible replacement for the old animated gradient. No ambient animation.
+struct AnimatedGradient: View {
+    var body: some View { StashPaperBackdrop(showDots: true) }
+}
+
+/// Source-compatible page backdrop; `opacity` now controls only the paper's subtle dots.
 struct GradientBackdrop: View {
     var opacity: Double = 0.3
 
     var body: some View {
-        AnimatedGradient()
-            .opacity(opacity)
-            .overlay(
-                LinearGradient(stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: StashColor.paper.opacity(0.5), location: 0.55),
-                    .init(color: StashColor.paper, location: 1),
-                ], startPoint: .top, endPoint: .bottom)
-            )
-            .allowsHitTesting(false)
+        ZStack {
+            StashColor.paper
+            StashDotGrid(spacing: 4, opacity: 0.055 * min(max(opacity / 0.3, 0), 1))
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Every visible cursor shares the same date-based phase. Reduced Motion keeps `|`.
+/// Cursor glyphs are decoration; the caller supplies the stable state to VoiceOver.
+struct StashCursor: View {
+    var size: StashType.Role = .machine
+    var active = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let frames = ["|", "/", "-", "\\"]
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 0.13, paused: reduceMotion || !active)) { context in
+            let phase = reduceMotion || !active ? 0 : Int(context.date.timeIntervalSinceReferenceDate / 0.13) % Self.frames.count
+            Text(Self.frames[phase])
+                .stashFont(size)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct StashStatusLine: View {
+    let text: String
+    var busy = true
+    var color: Color = StashColor.muted
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if busy { StashCursor() }
+            Text(text)
+                .stashFont(.machine)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(color)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
     }
 }
 
