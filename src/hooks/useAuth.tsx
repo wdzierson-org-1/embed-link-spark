@@ -40,7 +40,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const signUp = async (email: string, password: string, username: string) => {
-    const redirectUrl = `${window.location.origin}/`;
+    // Into the app, not "/": that's the static marketing site now, which can't finish a sign-in
+    // from a confirmation link (if email confirmation is ever switched on)
+    const redirectUrl = `${window.location.origin}/home`;
     
     const { error } = await supabase.auth.signUp({
       email,

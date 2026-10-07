@@ -50,7 +50,7 @@ describe("HeaderSection sign out", () => {
     render(<HeaderSection user={{ email: "will@dzierson.com", id: "u1" }} />);
 
     // Open the account menu via keyboard (Radix opens on Enter) and pick Sign out
-    const trigger = screen.getByRole("button", { name: /w/i, expanded: false });
+    const trigger = screen.getByRole("button", { name: "Account menu", expanded: false });
     fireEvent.keyDown(trigger, { key: "Enter" });
     const item = await screen.findByRole("menuitem", { name: /sign out/i });
     fireEvent.click(item);
@@ -70,7 +70,7 @@ describe("HeaderSection admin entry", () => {
   });
 
   const openMenu = () => {
-    const trigger = screen.getByRole("button", { name: /w/i, expanded: false });
+    const trigger = screen.getByRole("button", { name: "Account menu", expanded: false });
     fireEvent.keyDown(trigger, { key: "Enter" });
   };
 

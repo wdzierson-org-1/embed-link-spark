@@ -65,6 +65,7 @@ const HeaderSection = ({ user }: HeaderSectionProps) => {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
+                  aria-label="Account menu"
                   className="grid h-9 w-9 place-items-center bg-ink text-[15px] font-medium text-white transition-colors hover:bg-ink-soft data-[state=open]:bg-spot data-[state=open]:text-spot-on"
                 >
                   {getUserInitials(user.email || '')}

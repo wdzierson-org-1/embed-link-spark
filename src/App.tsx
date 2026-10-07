@@ -6,7 +6,7 @@ import { Toaster } from '@/components/ui/toaster';
 import DesignScope from '@/components/DesignScope';
 import { AuthProvider } from '@/hooks/useAuth';
 import { SubscriptionProvider } from '@/hooks/useSubscription';
-import Landing from '@/pages/Landing';
+import SiteHome from '@/pages/SiteHome';
 import Privacy from '@/pages/Privacy';
 import Terms from '@/pages/Terms';
 import Pricing from '@/pages/Pricing';
@@ -45,7 +45,8 @@ function App() {
           <SubscriptionProvider>
             <div className="min-h-screen bg-background">
               <Routes>
-                <Route path="/" element={<Landing />} />
+                {/* gostash.it/ is the static marketing site; "/" in the app reloads into it */}
+                <Route path="/" element={<SiteHome />} />
                 <Route path="/privacy" element={<Privacy />} />
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/pricing" element={<Pricing />} />

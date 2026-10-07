@@ -13,8 +13,8 @@ the scan bar. Where surfaces stand:
 | Surface | System | Where |
 |---|---|---|
 | Web app: library, composer, Ask, item detail, settings, conversations, public feed, discover, admin, and the way in (sign in, sign up, choose a new password) | **v2 (this file)** | `src/`, scoped by `<html data-ui="v2">` (§13) |
-| Homepage and help pages (prototype, not yet live) | **v2** | `docs/superpowers/prototypes/2026-10-06-stashe-homepage*` |
-| Live marketing, pricing, legal and agent (OAuth) consent pages in `src/` | v1 until the homepage is ported | `DESIGN.md` |
+| The marketing site, live since 2026-10-07: the homepage (`/`), `/extension`, `/connect` (MCP) and `/iphone` | **v2** | designed in `docs/superpowers/prototypes/2026-10-06-stashe-homepage*`; published to `public/` by `scripts/publish-site.mjs` (§12.13) |
+| Pricing, legal and agent (OAuth) consent pages in `src/` | v1 until their redesign | `DESIGN.md` |
 | iOS app and share extension | v1 until their redesign; **this file is the target** | `DESIGN.md`, `StashDesign.swift` |
 | Chrome extension | v1 until its restyle | `DESIGN.md` |
 
@@ -103,9 +103,8 @@ tile's height. This is the only place charcoal appears; everywhere else, black i
 **Open brand decisions** (from the prototype's open questions; don't resolve them in code):
 - The domain shown publicly: `gostash.it` (live today, and the MCP URL), `st4sh.app` (in the kit),
   or `stashe.it` (bought).
-- **Pangram Pangram's logo licence for a PP Mori-based wordmark.** The app header now shows
-  ST4SH; confirm the licence before the redesign ships publicly (swapping the mark back is
-  `St4sh.tsx` only).
+- ~~Pangram Pangram's logo licence for a PP Mori-based wordmark.~~ **Cleared** (Will, 2026-10-07):
+  ST4SH ships on the site and in the app.
 - Lime or violet as *the* spot colour. The app does both: `?spot=violet` (or `?spot=lime`) on any
   app URL switches it and is remembered, so the two can be compared on real data.
 - Updated logo files Will has but which haven't reached the repo.
@@ -832,9 +831,30 @@ controls. In SwiftUI terms:
 
 ### 12.13 Marketing and help pages
 
-They follow the prototype exactly: homepage, `extension.html`, `mcp.html`, `iphone.html`. The
-prototype's nav **Sign in** opens the app's `/auth` and **Get Stash** opens `/auth?mode=signup`
-(`js/site.js`; same origin when served, `www.gostash.it` from a `file://` checkout).
+Live since 2026-10-07. The prototype is the one source: the homepage and its pages are designed
+and reviewed in `docs/superpowers/prototypes/2026-10-06-stashe-homepage*`, and
+`npm run publish:site` (`scripts/publish-site.mjs`) turns them into static files in `public/`. Never
+edit the published files by hand. The build's post-step (`scripts/place-site-home.mjs`) makes the
+homepage `dist/index.html`, so it answers `/`, and moves the app shell to `dist/app.html`, which
+`vercel.json` rewrites every other route to. Inside the app, a link to `/` reloads into the site
+(`SiteHome`).
+
+| URL | Page | Source |
+|---|---|---|
+| `/` | the homepage | `2026-10-06-stashe-homepage.html` |
+| `/extension` | Stash it for Chrome | `extension.html` (its version and size are the stamps `extension/scripts/publish-hosted-zip.sh` rewrites) |
+| `/connect` | connect your AI (MCP); `/mcp` itself is the MCP server | `mcp.html` |
+| `/iphone` | Stash for iPhone | `iphone.html` |
+| `/site/…` | the pages' CSS, scripts, images and fonts | the prototype folder, plus Montreal and the landing covers from `src/assets` |
+
+What publishing changes, and checks: absolute asset paths; real titles, descriptions, icons and the
+social card (`og-v2.jpg`, rendered from `brand/og-src.html` by `scripts/render-og.mjs`); no
+design-history comments; no review panel; the pages on clean URLs; both "Get Stash" buttons open
+sign-up (the nav's **Sign in** opens `/auth`); and, because no list sits behind "Notify me" yet, an
+honest beta line in its place ("It's in beta now. Want to try it? Email us"). Every rewrite asserts
+its anchor, and the output is scanned for prototype leftovers, so a prototype change that moves
+something fails the publish loudly instead of shipping (`scripts/publish-site.test.ts` checks what's
+committed).
 
 ### 12.14 The way in: sign in, sign up, a new password
 
@@ -995,12 +1015,16 @@ Behaviour contracts (what a screen does) are unchanged by this file. Log behavio
   files (§1).
 - **iOS:** move `StashDesign.swift` to these tokens and the share extension to the save panel
   (§12.11), as its own plan.
-- **Marketing pages in `src/`:** port the homepage prototype; until then they stay v1. The way in
-  moved on 2026-10-07; the agent-consent screen (`/oauth/consent`) is still v1.
+- **Still v1 in `src/`:** pricing, legal, and the agent-consent screen (`/oauth/consent`). The
+  homepage and its pages went live from the prototype on 2026-10-07 (§12.13); the old `Landing`
+  page only renders if the static site is ever missing.
+- **"Notify me" for the iPhone app** needs a list behind it (a small table and function, or a
+  Resend audience) before the form comes back; until then the site says "Email us".
+- **Unverified claims on the live site** (Will chose to ship them as written, 2026-10-07): TikTok
+  transcripts and on-screen text in the scripted examples; the ChatGPT developer-mode, Claude Code
+  `/mcp` and Cursor first-use steps on `/connect`; what the iOS beta does on `/iphone`.
 - **Texture on the other card grids** (Discover, public feeds): the library has it; decide whether
   they should, and whether Settings stays flat.
-- **The homepage's in-page CTAs** (the hero's and the closing section's "Get Stash") still point at
-  `#start`; only the nav goes into the app.
 - **Findings on the item panel:** the homepage shows findings as windows on leader lines (*what it
   is*, *mentions*, *find it by*, *make into*). The app's panel keeps its sections for now; showing
   findings as windows needs the enrichment data surfaced per finding, which the feed doesn't carry

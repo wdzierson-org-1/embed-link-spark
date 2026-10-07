@@ -6,6 +6,15 @@ Open `../2026-10-06-stashe-homepage.html` from a repo checkout, or serve the rep
 (The folder keeps its v0.1 "stashe" name so the history stays in one place.) The footer pages
 sit in this folder: `extension.html`, `mcp.html`, `iphone.html`.
 
+## Live (2026-10-07)
+
+v0.6 went live at gostash.it on 2026-10-07: the homepage at `/`, and `extension.html`, `mcp.html` and
+`iphone.html` at `/extension`, `/connect` and `/iphone`. This folder stays the source:
+`npm run publish:site` (`scripts/publish-site.mjs`) publishes it to `public/`, without the review panel
+or these comments, with "Get Stash" opening sign-up and an "Email us" beta line where "Notify me" was
+(there's still no list behind it). The PP Mori logo licence is cleared (Will). The receipt screenshot's
+café is now illustrative. Re-publish and commit after every round that should go live.
+
 ## v0.6: Will's round 6
 
 | Ask | What changed |
@@ -153,8 +162,9 @@ Reload after changing only the hash. The footer pages take `#spot=violet` too.
 - **GitHub's social card** for charmbracelet/gum (`img/og-gum.png`, from opengraph.githubassets.com) is
   what Stash itself shows for a repo; the stats on it are real as of 2026-10-06.
 - **Pixel art** in the hero's picture tiles (map, arXiv page, *Walden* cover) is drawn in code in `js/liquid.js`.
-- **`img/iphone-share.png`** is rendered from the homepage's own CSS iPhone (`#still&scene=shots`, phone at 1.48×,
-  outer shadow off, transparent background) for `iphone.html`; re-render it if the phone changes.
+- **`img/iphone-share.png`** is rendered from the homepage's own CSS iPhone (`#still&scene=shots`, outer shadow
+  off, transparent background) for `iphone.html`; re-render it if the phone changes. Re-rendered 2026-10-07 at 2×
+  (616 × 1290; everything but `#phone .device` hidden) when the receipt's café changed.
 
 ## Real vs illustrative
 
@@ -164,9 +174,9 @@ Chez Colette, @sundaysupper, the Lisbon hotels (Casa do Pátio, Miradouro 22, Ja
 note, price, date and transcript in the scripted examples, and in the v0.3 screenshots @breadbykat,
 @flourpowerdan, Maya, Alex Morgan, the airline "Northline", and the map's Hollis Books, Little Fern and
 Marlow & Co, plus (v0.6) the voice note's words and its Lake George cabin, (v0.5) @ana.wanders, the inesatelier.co tote, and the people in TikTok's share panel
-(Maya, Jules, Sam, Rae, Dev). **Blue Bottle Coffee is a real business**, named on the receipt screenshot
-in the Photos grid. Since v0.5 it's off the library's first screen, but swap in an illustrative café
-before anything ships. The street address is real.
+(Maya, Jules, Sam, Rae, Dev), and the receipt screenshot's Fernwood Coffee (28 Fernwood Ave, Brooklyn).
+The receipt named Blue Bottle Coffee, a real business, at its real address, until 2026-10-07, when the
+illustrative café replaced it before the page went live.
 
 ## Open questions for Will
 

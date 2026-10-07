@@ -8,6 +8,50 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-07 · The new homepage is live at gostash.it, and the app moves off "/"
+
+Will: "deploy the new homepage, sign in/up, and web app design." The homepage prototype (v0.6) is now
+the live site, published from its source by `scripts/publish-site.mjs` (`DESIGN-v2.md` §12.13).
+
+**Contracts (for iOS, macOS, the extension and anything that links to gostash.it):**
+- **`https://www.gostash.it/` is the static marketing site,** not the app. The app's shell is
+  `app.html`; `vercel.json` rewrites every route that isn't a file to it, so `/home`, `/auth`,
+  `/settings`, `/feed/*`, `/privacy` and the rest are unchanged. Link to `/home` (or `/auth`) when you
+  mean the app.
+- **New pages:** `/extension` (replaces the old install page: the same zip at
+  `/stash-it-extension.zip`, and the same `data-version` / `data-size` stamps for
+  `extension/scripts/publish-hosted-zip.sh`), `/connect` (connecting an AI over MCP; `/mcp` is still
+  the MCP server itself), `/iphone`.
+- **Into the app:** the site's **Sign in** opens `/auth` and both **Get Stash** buttons open
+  `/auth?mode=signup`. A signed-in visitor who taps Sign in is passed straight on to `/home`.
+- **"/" inside the app** (signing out, the way-in wordmark, an anonymous visitor bounced from
+  `/home`) now reloads into the site (`SiteHome`). If the app is ever served at "/" itself, it shows the
+  old landing page rather than reloading forever.
+- The installed web app's `start_url` is `/home`; sign-up's `emailRedirectTo` is `/home` (auto-confirm
+  is on, so no confirmation email goes out today).
+- The old landing page's anonymous try-it is retired; the homepage's try-it calls the public
+  `homepage-enrich` function (live since 2026-10-06; caps 15 per 10 minutes and 60 a day per IP).
+- **Social card:** `/og-v2.jpg` (rendered from `brand/og-src.html` by `scripts/render-og.mjs`) for the
+  site and the app shell, whose title is now "Stash — save it fast, find it when you need it".
+
+**What publishing changed from the prototype** (all checked by the publisher and by
+`scripts/publish-site.test.ts`): absolute asset paths under `/site/`; real titles, descriptions,
+icons and social tags; no design-history comments and no review panel; the pages on clean URLs; the
+footer's and the iPhone page's "Notify me" (no list behind it) replaced by "It's in beta now. Want
+to try it? Email us"; and the receipt screenshot's café (a real business, Blue Bottle Coffee, at its
+real address) replaced by an illustrative one, Fernwood Coffee, in both images that show it.
+
+**Shipped as written, unverified** (Will's call): the TikTok transcripts and on-screen text implied
+by the scripted examples; the ChatGPT developer-mode, Claude Code `/mcp` and Cursor first-use steps on
+`/connect`; what `/iphone` says the beta does.
+
+**Also:** the header's account button is labelled "Account menu" (its name was the bare initial).
+
+**Verified:** a production build served with `vercel.json`'s routing, walked in a browser: the
+homepage with its fonts and pictures, Sign in, Get Stash, `/extension`, `/connect`, `/iphone`, the
+footer links, the way-in wordmark back to `/`, signing in to `/home`, and signing out to the site. No
+console errors, failed requests or 4xx. Tests: 630 in 77 files.
+
 ## 2026-10-07 · v2 second pass: the way in, a decrypting loading screen, Resolve, and Generate summary fixed
 
 Will's notes on the 2026-10-06 redesign: a redesigned sign in / sign up connected to the
