@@ -2,7 +2,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
-import { isAgentToken } from '../_shared/agentToken.ts';
+import { bearerToken, isAgentToken } from '../_shared/agentToken.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,18 +28,18 @@ serve(async (req) => {
     let fullItem = item;
     if (item?.id) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const authHeader = req.headers.get('Authorization') ?? '';
-      const authedClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
-        global: { headers: { Authorization: authHeader } },
-      });
-      const { data: { user } } = await authedClient.auth.getUser();
-      if (isAgentToken(authHeader)) {
+      const token = bearerToken(req.headers.get('Authorization'));
+      if (isAgentToken(token)) {
         return new Response(JSON.stringify({ error: 'Agent tokens are only accepted by the MCP endpoint' }), {
           status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
+      // The token goes to getUser explicitly: a bare getUser() on supabase-js 2.7.1 reports no
+      // session with the newer auth client esm.sh bundles, so the owner check never passed and
+      // the chat ran on the slim list row (the summarize-content bug, fixed there 2026-10-07)
       const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+      const { data: { user } } = token ? await supabase.auth.getUser(token) : { data: { user: null } };
       const { data: dbItem } = await supabase
         .from('items')
         .select('user_id, type, title, description, content, summary, page_body, supplemental_note, url')

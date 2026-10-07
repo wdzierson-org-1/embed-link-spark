@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
-import { isAgentToken } from '../_shared/agentToken.ts';
+import { bearerToken, isAgentToken } from '../_shared/agentToken.ts';
 import { generateSummary } from '../_shared/summarize.ts';
 
 const corsHeaders = {
@@ -36,20 +36,23 @@ serve(async (req) => {
       return json({ success: false, reason: 'OpenAI API key not configured' }, 500);
     }
 
-    // Resolve the caller from the JWT so users can only summarize their own items
-    const authHeader = req.headers.get('Authorization') ?? '';
-    const authedClient = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user } } = await authedClient.auth.getUser();
+    // Resolve the caller from the JWT so users can only summarize their own items.
+    // The token goes to getUser explicitly. A bare getUser() depends on the client
+    // flagging the custom Authorization header, which supabase-js 2.7.1 never does
+    // for the newer auth client esm.sh bundles with it: v8 rejected every caller.
+    const token = bearerToken(req.headers.get('Authorization'));
+    if (!token) {
+      return json({ success: false, reason: 'Not authenticated' }, 401);
+    }
+    const supabase = createClient(supabaseUrl, serviceKey);
+    const { data: { user } } = await supabase.auth.getUser(token);
     if (!user) {
       return json({ success: false, reason: 'Not authenticated' }, 401);
     }
-    if (isAgentToken(authHeader)) {
+    if (isAgentToken(token)) {
       return json({ success: false, reason: 'Agent tokens are only accepted by the MCP endpoint' }, 403);
     }
 
-    const supabase = createClient(supabaseUrl, serviceKey);
     const { data: item, error: itemError } = await supabase
       .from('items')
       .select('id, user_id, type, title, url, page_body, description, content, supplemental_note')
