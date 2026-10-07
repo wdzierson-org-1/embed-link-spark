@@ -16,20 +16,13 @@ https://www.gostash.it (Vercel; push to `main` auto-deploys the web app).
    change behavior, add the entry in the same branch.
 3. **`docs/PLATFORM_API.md`** — the wire contract every client builds on
    (`add-note` / `add-url` / `add-file`, chat SSE, realtime).
-4. **`DESIGN-v2.md`** — the design system of reference (tokens + rules for the
-   web app, the marketing site, and the target for the iOS app, share sheet and
-   Chrome extension). Read before ANY UI work on ANY surface; token/rule changes
-   edit that file in the same branch. `DESIGN.md` (v1) still governs the
-   surfaces that haven't moved (iOS, the extension, pricing/legal) and the iOS
-   platform rules.
+4. **`DESIGN.md`** — the cross-surface design system (tokens + rules for web,
+   homepage, iOS app + share sheet, Chrome extension). Read before ANY UI work
+   on ANY surface; token/rule changes edit that file in the same branch.
 
 ## Surfaces
 
 - **Web** — `src/` (Vite + React + TS + shadcn; tests: `npm test`).
-- **Marketing site** — gostash.it `/`, `/extension`, `/connect`, `/iphone`:
-  designed in `docs/superpowers/prototypes/2026-10-06-stashe-homepage*`, published
-  to `public/` with `npm run publish:site` (commit the output; never edit it by
-  hand). The build makes the homepage `/` and the app shell `app.html`.
 - **Chrome extension** — `extension/` (MV3, plain JS, no build step; load
   unpacked; tests: `cd extension && npm test`).
 - **iOS** — `ios/` (SwiftUI app + `StashKit` Swift package; unit tests:
