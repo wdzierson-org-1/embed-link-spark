@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stash — save it fast, find it when you need it · homepage exploration v0.5</title>
+<title>Stash — save it fast, find it when you need it · homepage exploration v0.6</title>
 <meta name="description" content="Homepage exploration for Stash, after typesafe.ai: clean objects, DIY machinery. v0.4 adds the three ways in (Chrome, iPhone, your AI) as running pictures and a calmer footer.">
 <link rel="icon" href="2026-10-06-stashe-homepage/logo/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="2026-10-06-stashe-homepage/style.css">
@@ -11,7 +11,10 @@
 </head>
 <body data-page="home">
 <!--
-  Stash homepage — exploration v0.5 · 2026-10-06 (v0.1 "Stashe" through v0.4 the same day; see git)
+  Stash homepage — exploration v0.6 · 2026-10-06 (v0.1 "Stashe" through v0.5 the same day; see git)
+  v0.6 (Will's round 6): the phone's second step is "That book you saw at the store" (the cover on a
+  bookshop display table), and the third is "A voice note": recorded in Stash, then transcribed word
+  by word, named, and enriched (what it is, mentions, make into) on its own screen.
   v0.5 (Will's round 5): a solid spot-colour scan bar; realistic example images (GitHub's card for
   the repo, a TikTok screen, an Instagram Reel); the list gains Reels and repos, and "link" is now a
   product page; every example ends in a "make into" window (beta); "One tap. Saved." with "Share to
@@ -99,8 +102,8 @@
       <p class="lead">Share to Stash from any <svg class="share-glyph" viewBox="0 0 24 24" role="img" aria-label="Share"><path d="M12 3v12M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> button. Screenshots, photos, articles, TikToks — tap Share, tap Stash, and keep going. We do the rest in the background.</p>
       <ol class="steps">
         <li><button data-scene="shots"><b>A week of screenshots, in one go</b><span>Select them in Photos and share once. Stash reads the text in every one.</span><i class="bar" aria-hidden="true"></i></button></li>
-        <li><button data-scene="book"><b>A photo of a book</b><span>Snap the cover. Stash works out the title and the author.</span><i class="bar" aria-hidden="true"></i></button></li>
-        <li><button data-scene="article"><b>An article from Medium</b><span>Share from Safari. The full text comes along, for whenever you get to it.</span><i class="bar" aria-hidden="true"></i></button></li>
+        <li><button data-scene="book"><b>That book you saw at the store</b><span>Snap the cover. Stash works out the title and the author.</span><i class="bar" aria-hidden="true"></i></button></li>
+        <li><button data-scene="voice"><b>A voice note</b><span>Tap the mic and say it. Stash transcribes every word, names it, and picks out the people, places and plans in it.</span><i class="bar" aria-hidden="true"></i></button></li>
         <li><button data-scene="tiktok"><b>A TikTok or a Reel</b><span>Tap Share, then More, then Stash. What’s said and shown comes along, not just the link.</span><i class="bar" aria-hidden="true"></i></button></li>
       </ol>
       <div class="phone-ctrl"><button class="chip-btn" data-phone-toggle aria-pressed="false">pause</button></div>
@@ -108,7 +111,7 @@
 
     <div class="phone-stage">
       <div class="phone-pad" aria-hidden="true"></div>
-      <div class="device-wrap" role="img" aria-label="An iPhone saving screenshots, a photo of a book, a Medium article and a TikTok to Stash from the share sheet">
+      <div class="device-wrap" role="img" aria-label="An iPhone saving screenshots, a photo of a book in a bookshop, a voice note (transcribed and enriched) and a TikTok to Stash">
         <div class="device" aria-hidden="true">
           <div class="screen">
             <div class="island"></div>
@@ -194,6 +197,30 @@
               </div>
             </div>
 
+            <!-- Stash: recording a voice note (v0.6, after the iOS app's Voice Note sheet) -->
+            <div class="scr vrec" data-scr="voice">
+              <div class="vrec-top"><span>Close</span><b>Voice note</b><span></span></div>
+              <div class="vrec-body">
+                <p class="vrec-time" data-vtime>0:00</p>
+                <div class="vrec-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                <p class="vrec-hint" data-vhint>Tap to start recording</p>
+              </div>
+              <div class="vrec-ctl"><span class="vrec-btn" data-vrec><svg class="mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg><i class="stop"></i></span><span class="vrec-save" data-vsave>Save</span></div>
+              <div class="home-ind"></div>
+            </div>
+
+            <!-- Stash: the voice note — transcribing, then named, then its findings (v0.6) -->
+            <div class="scr vnote" data-scr="vnote">
+              <div class="vn-top"><span>‹ Library</span><span class="vn-more">···</span></div>
+              <div class="vn-head"><span class="tag">voice</span><span class="px">0:12, today 8:42 am</span></div>
+              <h4 class="vn-title" data-vn-title>Voice note</h4>
+              <div class="vn-player"><span class="vn-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></span><span class="vn-wave" aria-hidden="true"><i style="--h:0.3"></i><i style="--h:0.5"></i><i style="--h:0.8"></i><i style="--h:0.6"></i><i style="--h:0.9"></i><i style="--h:0.4"></i><i style="--h:0.7"></i><i style="--h:1"></i><i style="--h:0.6"></i><i style="--h:0.5"></i><i style="--h:0.8"></i><i style="--h:0.35"></i><i style="--h:0.6"></i><i style="--h:0.9"></i><i style="--h:0.7"></i><i style="--h:0.45"></i><i style="--h:0.8"></i><i style="--h:0.6"></i><i style="--h:0.3"></i><i style="--h:0.55"></i><i style="--h:0.85"></i><i style="--h:0.7"></i><i style="--h:0.4"></i><i style="--h:0.6"></i><i style="--h:0.9"></i><i style="--h:0.5"></i><i style="--h:0.3"></i><i style="--h:0.65"></i><i style="--h:0.8"></i><i style="--h:0.45"></i><i style="--h:0.6"></i><i style="--h:0.35"></i></span><span class="px">0:12</span></div>
+              <div class="vn-label"><span class="px">transcript</span><span class="px vn-status" data-vn-status></span></div>
+              <p class="vn-transcript" data-vn-transcript></p>
+              <div class="vn-wins" data-vn-wins></div>
+              <div class="home-ind"></div>
+            </div>
+
             <!-- Stash: the library, with new saves arriving -->
             <div class="scr lib" data-scr="library">
               <div class="lib-top"><svg class="wordmark" aria-hidden="true"><use href="#st4sh-wordmark"/></svg><span class="av"></span></div>
@@ -201,11 +228,11 @@
               <div class="lib-chips"><span>All</span><span>Links</span><span>Images</span><span>Notes</span><span>Voice</span></div>
               <div class="lib-grid">
                 <div class="lcard" data-l="tiktok"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-tiktok.jpg);background-position:center 30%"><span class="tag">tiktok</span></div><div class="lb"><div class="lt">Tomato &amp; mozzarella penne</div><div class="ls px">tiktok, 0:58</div></div></div>
+                <div class="lcard" data-l="voice"><div class="lm lm-voice"><span class="tag">voice</span><span class="lm-wave" aria-hidden="true"><i style="--h:0.4"></i><i style="--h:0.7"></i><i style="--h:0.5"></i><i style="--h:0.9"></i><i style="--h:0.6"></i><i style="--h:0.8"></i><i style="--h:0.35"></i><i style="--h:0.65"></i><i style="--h:0.9"></i><i style="--h:0.5"></i><i style="--h:0.75"></i><i style="--h:0.4"></i><i style="--h:0.6"></i><i style="--h:0.85"></i><i style="--h:0.55"></i><i style="--h:0.3"></i><i style="--h:0.7"></i><i style="--h:0.5"></i></span></div><div class="lb"><div class="lt">Book the Lake George cabin before Friday</div><div class="ls px">voice note, 0:12</div></div></div>
                 <div class="lcard" data-l="article"><div class="lm" style="background-image:url(../../../src/assets/landing/cover-article.jpg)"><span class="tag">article</span></div><div class="lb"><div class="lt">How to remember more of what you read</div><div class="ls px">medium.com, 2 min</div></div></div>
-                <div class="lcard" data-l="book"><div class="lm" style="background:url(2026-10-06-stashe-homepage/img/table-latte.jpg) 30% 60% / cover"><span class="mini-book"></span><span class="tag">photo</span></div><div class="lb"><div class="lt">Walden, Henry David Thoreau</div><div class="ls px">book cover</div></div></div>
+                <div class="lcard" data-l="book"><div class="lm" style="background:url(2026-10-06-stashe-homepage/img/bookstore.jpg) center 80% / cover"><span class="mini-book"></span><span class="tag">photo</span></div><div class="lb"><div class="lt">Walden, Henry David Thoreau</div><div class="ls px">book cover</div></div></div>
                 <div class="lcard" data-l="s1"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-maps.jpg)"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Directions to Chez Colette</div><div class="ls px">maps</div></div></div>
                 <div class="lcard" data-l="s2"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-thread.jpg)"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Thread: keeping a sourdough starter alive</div><div class="ls px">social post</div></div></div>
-                <div class="lcard" data-l="s4"><div class="lm" style="background-image:url(2026-10-06-stashe-homepage/img/shot-boarding.jpg);background-position:center 24%"><span class="tag">screenshot</span></div><div class="lb"><div class="lt">Boarding pass, BOS to SFO, Fri</div><div class="ls px">travel</div></div></div>
               </div>
               <div class="home-ind"></div>
             </div>

@@ -1,10 +1,17 @@
-# Stash homepage — exploration v0.5 (2026-10-06)
+# Stash homepage — exploration v0.6 (2026-10-06)
 
 Open `../2026-10-06-stashe-homepage.html` from a repo checkout, or serve the repo root
 (`python3 -m http.server 8090`) and visit
 `http://localhost:8090/docs/superpowers/prototypes/2026-10-06-stashe-homepage.html`.
 (The folder keeps its v0.1 "stashe" name so the history stays in one place.) The footer pages
 sit in this folder: `extension.html`, `mcp.html`, `iphone.html`.
+
+## v0.6: Will's round 6
+
+| Ask | What changed |
+|---|---|
+| "A photo of a book" → "That book you saw at the store" | Renamed, and the book now *is* at the store: the camera and the photo viewer frame the *Walden* cover over a bookshop display table (`img/bookstore.jpg`, Unsplash), with the shop's lamps behind it, and the book's shadow turned to match. The library card and the save panel's thumbnail use the same photo. The café-table photo is retired. |
+| "An article from Medium" → "A voice note", showing the transcribing and enrichment | A new scene, after the real iOS app's Voice Note sheet but in the v2 style:<br>1. **Record:** "Tap to start recording", then the square button turns lime with a stop square. The waveform moves live and the timer counts in Departure Mono, reading "\| recording…".<br>2. **Stop, then Save.**<br>3. **The note's own screen:** "\| transcribing…" while the transcript streams in word by word ("Remind me to book the cabin for the long weekend. Maya says…"), then "✓ transcribed, 29 words".<br>4. **Named and enriched:** the title decrypts from "Voice note" to "Book the Lake George cabin before Friday", then the findings print in: *what it is*, *mentions* (Lake George, Maya, Friday), and *make into* (beta: a to-do list, a reminder).<br>The step reads "Tap the mic and say it. Stash transcribes every word, names it, and picks out the people, places and plans in it." In the library the voice note arrives second, on a lime placeholder with its waveform. The Safari/Medium scene stays in the code because the "wherever you are" panel's phone still plays it. |
 
 ## v0.5: Will's round 5
 
@@ -105,7 +112,8 @@ spot colour, lime `#a3f53b` by default, violet `#6d5bd0` on the toggle.
 2. **Stash enriches your items automatically / You save anything… We gather all of the background.** Example
    loop by word (link, screenshot, article, paper, TikTok, Reel, repo); live composer with honest card
    pictures; every result ends in "make into" (beta).
-3. **One tap. Saved.** CSS iPhone: four screenshots, a book cover, a Medium article, a TikTok, then the library.
+3. **One tap. Saved.** CSS iPhone: four screenshots, a book in a bookshop, a voice note (recorded, transcribed,
+   enriched), a TikTok, then the library.
 4. **Your stash, inside every AI you use.** Cursor / Claude tabs; three points; Works with (12 clients); `gostash.it/mcp`.
 5. **Take your saves with you.** Pixel-reveal memories (repo, bag, moodboard).
 6. **Stash, wherever you are.** Chrome, iPhone and MCP, each a running picture with `more >>`.
@@ -130,7 +138,8 @@ Reload after changing only the hash. The footer pages take `#spot=violet` too.
   `mood-travertine.jpg` photo-1648639035105, `mood-kitchen.jpg` photo-1585128833500,
   `mood-leather.jpg` photo-1637759292654, `hotel-courtyard.jpg` photo-1776083928944,
   `hotel-rooftops.jpg` photo-1704908325704, `hotel-garden.jpg` photo-1654482278660, `table-latte.jpg`
-  photo-1636875485729 (v0.3, the café table under the book); landing covers from `src/assets/landing/`.
+  photo-1636875485729 (v0.3–v0.5, the café table; retired in v0.6), `bookstore.jpg` photo-1753045975952 (v0.6, the
+  bookshop display table under the book); landing covers from `src/assets/landing/`.
 - **Composed samples** (`asset-src/*.html` → `img/` via `sh asset-src/build.sh`): moodboard, social-post
   screenshot, paper first page, repo plate, and (v0.3) the five phone screenshots `shot-maps`, `shot-thread`,
   `shot-receipt`, `shot-boarding`, `shot-messages` (390×844, JPEG). The QR code is decorative. v0.5 adds
@@ -154,7 +163,7 @@ Real: `charmbracelet/gum`, `pbakaus/impeccable` (description quoted from GitHub)
 Chez Colette, @sundaysupper, the Lisbon hotels (Casa do Pátio, Miradouro 22, Jardim Escondido), every
 note, price, date and transcript in the scripted examples, and in the v0.3 screenshots @breadbykat,
 @flourpowerdan, Maya, Alex Morgan, the airline "Northline", and the map's Hollis Books, Little Fern and
-Marlow & Co, plus (v0.5) @ana.wanders, the inesatelier.co tote, and the people in TikTok's share panel
+Marlow & Co, plus (v0.6) the voice note's words and its Lake George cabin, (v0.5) @ana.wanders, the inesatelier.co tote, and the people in TikTok's share panel
 (Maya, Jules, Sam, Rae, Dev). **Blue Bottle Coffee is a real business**, named on the receipt screenshot
 in the Photos grid. Since v0.5 it's off the library's first screen, but swap in an illustrative café
 before anything ships. The street address is real.

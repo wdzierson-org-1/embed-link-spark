@@ -8,11 +8,21 @@
   const main = document.querySelector('.phone-stage');
   if (!main) return;
   const LAND = '../../../src/assets/landing/';
-  // v0.3: real pictures — the book was photographed on a café table; the screenshots are screenshots.
-  const BOOK_BG = 'url(2026-10-06-stashe-homepage/img/table-latte.jpg) 30% 60% / cover';
+  // Real pictures: the book was photographed on a bookshop table (v0.6); the screenshots are screenshots.
+  const BOOK_BG = 'url(2026-10-06-stashe-homepage/img/bookstore.jpg) center 80% / cover';
   const MINI_BOOK = '<span class="mini-book"></span>';
   const shotOf = (cell) => `url(${cell.querySelector('img').getAttribute('src')}) center / cover`;
-  const ALL = ['shots', 'book', 'article', 'tiktok', 'library'];
+  const ALL = ['shots', 'book', 'voice', 'tiktok', 'library'];
+  // v0.6: the voice note — what's said, then what Stash finds in it (illustrative).
+  const VOICE = {
+    transcript: 'Remind me to book the cabin for the long weekend. Maya says the one on Lake George with the dock fills up by Friday, so do it before then.',
+    title: 'Book the Lake George cabin before Friday',
+    wins: [
+      ['what it is', 'a reminder to book the lake george cabin before friday'],
+      ['mentions', 'Lake George, Maya, Friday'],
+    ],
+    make: ['a to-do list', 'a reminder'],
+  };
   const TT_THUMB = 'url(2026-10-06-stashe-homepage/img/shot-tiktok.jpg) center 35% / cover';
 
   // Clone before either film runs, while the phone is still in its first state.
@@ -38,6 +48,9 @@
     const scr = (name) => screen.querySelector(`[data-scr="${name}"]`);
     const photos = scr('photos'), cam = scr('camera'), viewer = scr('viewer'), safari = scr('safari'), lib = scr('library');
     const tt = scr('tiktok'), ttSheet = tt.querySelector('[data-tt-sheet]'), ttMore = tt.querySelector('[data-tt-more]');
+    const vrec = scr('voice'), vnote = scr('vnote');
+    const vBtn = vrec.querySelector('[data-vrec]'), vSave = vrec.querySelector('[data-vsave]'), vTime = vrec.querySelector('[data-vtime]'), vHint = vrec.querySelector('[data-vhint]');
+    const vTitle = vnote.querySelector('[data-vn-title]'), vStatus = vnote.querySelector('[data-vn-status]'), vText = vnote.querySelector('[data-vn-transcript]'), vWins = vnote.querySelector('[data-vn-wins]');
     const sbar = screen.querySelector('.sbar');
     const sheet = screen.querySelector('[data-sheet]');
     const shThumb = sheet.querySelector('[data-sh-thumb]'), shTitle = sheet.querySelector('[data-sh-title]'), shSub = sheet.querySelector('[data-sh-sub]');
@@ -89,6 +102,10 @@
       sheet.classList.remove('is-on');
       ttSheet.classList.remove('is-on');
       save.classList.remove('is-on');
+      vrec.classList.remove('is-rec', 'is-done');
+      vTime.textContent = '0:00';
+      vHint.className = 'vrec-hint'; vHint.textContent = 'Tap to start recording';
+      vTitle.textContent = 'Voice note'; vStatus.textContent = ''; vText.textContent = ''; vWins.textContent = '';
       picks.forEach((p) => p.classList.remove('on'));
       sel.classList.remove('on'); sel.textContent = 'Select'; count.textContent = 'Photos';
       cam.classList.remove('focus', 'snap');
@@ -178,6 +195,61 @@
       await saveFlow(t, { bg: img, busyTitle: 'How to remember more of what you read', busySub: 'saving the full text', doneTitle: 'How to remember more of what you read', doneSub: 'saved with the full text, 2 min read' });
     }
 
+    /* v0.6: a voice note. Recorded in Stash, then on its own screen: the transcript streams in as
+       Stash hears it, the note gets its name, and what's in it prints as findings. */
+    function voiceWin(label, value) {
+      const w = document.createElement('div');
+      w.className = 'win';
+      w.innerHTML = '<div class="win-bar"><span></span><i></i></div><div class="vn-v"></div>';
+      w.querySelector('.win-bar span').textContent = label;
+      w.querySelector('.vn-v').textContent = value;
+      return w;
+    }
+    function voiceMake() {
+      const w = document.createElement('div');
+      w.className = 'win is-make';
+      w.innerHTML = '<div class="win-bar"><span>make into</span><span class="beta">beta</span></div><div class="vn-v"></div>';
+      for (const label of VOICE.make) { const b = document.createElement('span'); b.className = 'mk'; b.textContent = label; b.style.display = 'grid'; b.style.placeItems = 'center'; w.querySelector('.vn-v').appendChild(b); }
+      return w;
+    }
+    function voiceDone() {
+      vTitle.textContent = VOICE.title;
+      vStatus.textContent = '✓ transcribed, 29 words';
+      vText.textContent = VOICE.transcript;
+      vWins.textContent = '';
+      for (const [l, v] of VOICE.wins) vWins.appendChild(voiceWin(l, v));
+      vWins.appendChild(voiceMake());
+    }
+    async function voice(t) {
+      reset(); show('voice');
+      await S.wait(900, t);
+      await tap(vBtn, t);
+      vrec.classList.add('is-rec');
+      vHint.className = 'vrec-hint px'; vHint.textContent = '| recording…'; vHint.dataset.spin = '';
+      for (let sec = 1; sec <= 12; sec++) { await S.wait(270, t); vTime.textContent = `0:${String(sec).padStart(2, '0')}`; }
+      await tap(vBtn, t, 300);
+      vrec.classList.remove('is-rec'); vrec.classList.add('is-done');
+      delete vHint.dataset.spin; vHint.textContent = '0:12 recorded';
+      await S.wait(450, t);
+      await tap(vSave, t, 520);
+      lift();
+      show('vnote');
+      vStatus.textContent = '| transcribing…'; vStatus.dataset.spin = '';
+      await S.wait(800, t);
+      await S.streamInto(vText, VOICE.transcript, t, 11);
+      delete vStatus.dataset.spin;
+      vStatus.textContent = '✓ transcribed, 29 words';
+      await S.wait(350, t);
+      await S.decrypt(vTitle, VOICE.title, { duration: 700 });
+      for (const [l, v] of VOICE.wins) {
+        const w = vWins.appendChild(voiceWin(l, v));
+        S.decrypt(w.querySelector('.vn-v'), v, { duration: 520 });
+        await S.wait(650, t);
+      }
+      vWins.appendChild(voiceMake());
+      await S.wait(2600, t);
+    }
+
     // v0.5: a TikTok — TikTok's own share panel first, then More hands it to the iOS sheet.
     async function tiktok(t) {
       reset(); show('tiktok');
@@ -201,9 +273,9 @@
         c.classList.remove('fresh'); c.getBoundingClientRect();
         c.style.animationDelay = `${i * 90}ms`; c.classList.add('fresh');
         const lt = c.querySelector('.lt');
-        if (c.dataset.l.startsWith('s') || c.dataset.l === 'tiktok') lt.innerHTML = '<span class="px">| reading…</span>';
+        if (c.dataset.l.startsWith('s') || c.dataset.l === 'tiktok' || c.dataset.l === 'voice') lt.innerHTML = '<span class="px">| reading…</span>';
       });
-      const shotsCards = lcards.filter((c) => c.dataset.l === 'tiktok' || c.dataset.l.startsWith('s'));
+      const shotsCards = lcards.filter((c) => c.dataset.l === 'tiktok' || c.dataset.l === 'voice' || c.dataset.l.startsWith('s'));
       for (let i = 0; i < shotsCards.length; i++) {
         await S.wait(i ? 420 : 900, t);
         const lt = shotsCards[i].querySelector('.lt');
@@ -212,9 +284,9 @@
       await S.wait(2200, t);
     }
 
-    const SCENES = { shots, book, article, tiktok, library };
+    const SCENES = { shots, book, article, voice, tiktok, library };
     const ORDER = order;
-    const DUR = { shots: 10.2, book: 10.6, article: 8.2, tiktok: 13.8 };
+    const DUR = { shots: 10.2, book: 10.6, article: 8.2, voice: 15.4, tiktok: 13.8 };
 
     function markStep(name) {
       const stepName = name === 'library' ? 'tiktok' : name;
@@ -273,6 +345,9 @@
         setThumb(saveThumb, { bg: `url(${LAND}cover-article.jpg) center/cover` });
         saveTitle.textContent = 'How to remember more of what you read'; saveSub.textContent = 'saved with the full text, 2 min read';
         mark.textContent = 'saved'; mark.classList.add('is-done'); save.classList.add('is-on');
+      } else if (name === 'voice') {
+        show('vnote');
+        voiceDone();
       } else if (name === 'tiktok') {
         show('tiktok');
         setThumb(saveThumb, { bg: TT_THUMB });
@@ -318,7 +393,7 @@
 
     if (S.reduced()) { if (toggle) toggle.hidden = true; still(first); return; }
     // Until it scrolls into view, show where the first scene begins (Safari, for the panel's copy).
-    show({ shots: 'photos', book: 'camera', article: 'safari', tiktok: 'tiktok', library: 'library' }[first]);
+    show({ shots: 'photos', book: 'camera', article: 'safari', voice: 'voice', tiktok: 'tiktok', library: 'library' }[first]);
     S.watch(stage, (seen) => {
       inView = seen;
       syncPause();
