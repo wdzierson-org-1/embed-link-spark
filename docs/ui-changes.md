@@ -109,7 +109,21 @@ observer), the backdrop's stipple spans, the auth fields' `autocomplete`, and th
 auth routes. Full suite: 588 tests in 75 files. An independent review of the pass found the
 reduced-motion, autocomplete, settle-flash, observer and backdrop-cost issues above; all fixed.
 
----
+## 2026-10-07 · Web favicon is the A/4 symbol
+
+- **Contracts:** none change. The icon files keep their paths (`/favicon.svg`,
+  `/favicon.ico`, `/favicon-16.png`, `/favicon-32.png`, `/apple-touch-icon.png`,
+  `/icon-192.png`, `/icon-512.png`). Every page that links them now adds `?v=a4`
+  so browsers drop the cached S. This covers `index.html`, `public/site.webmanifest`
+  and the extension install page. Bump the token whenever the icons change.
+- **Visual:** the web icon set is the DESIGN-v2 mark, the A/4 symbol from the ST4SH kit,
+  in warm white `#f3f2ee` on a charcoal `#171b1a` tile. Favicons have rounded 22% corners;
+  the touch and PWA icons are square, because the OS masks them. Sources:
+  `brand/stash-a4.svg` and `brand/web-icon-src.html`; `node brand/build.mjs` renders
+  them (see DESIGN.md › Logo).
+- **Other platforms: no action yet.** The iOS app icon, share-extension icon, onboarding
+  tile and Chrome-extension icons deliberately keep the S on the purple→blue wash until
+  those surfaces move to DESIGN-v2. Don't copy the web icon into them.
 
 ## 2026-10-06 · Web app redesign on DESIGN-v2 ("clean objects, DIY machinery")
 

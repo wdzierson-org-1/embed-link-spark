@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The A/4 symbol: the custom glyph from the ST4SH logo kit (a diagonal A whose upright right stem
+     and extended crossbar make a 4), in font units: 660 wide on a 700-unit cap height, y up, hence
+     the flip. Source for the web icon set (brand/web-icon-src.html, brand/build.mjs). The glyph is
+     drawn geometry, not PP Mori outlines; the kit's licence note concerns the wordmark lettering. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 724 764" width="724" height="764" role="img" aria-label="Stash">
+<path fill="#171b1a" fill-rule="evenodd" transform="translate(32 732) scale(1.0 -1.0)" d="M0 0 448 700H568V280H660V177H568V0H448V177H232L119 0ZM297 280H448V516Z"/>
+</svg>

@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- Web icon source (DESIGN-v2): the A/4 symbol (brand/stash-a4.svg) in warm white #f3f2ee on a
+     charcoal #171b1a tile, after the ST4SH kit's own compositions:
+       #rounded (favicons): 22% corners, glyph 68.75% of the tile (the kit's favicon.svg);
+       square (touch icon, PWA): no corners (the OS masks them), glyph 64.45% (the kit's app icon).
+     The glyph box is centred either way. brand/build.mjs renders this page with headless Chrome at
+     every web size; do not edit the PNGs by hand. The iOS and Chrome-extension icons still come
+     from brand/icon-src.html (the S) until those surfaces move to DESIGN-v2.
+     Hash params: #size=<px> renders the tile at that size; #rounded switches to the favicon cut. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; background: transparent; }
+      /* The tile sits in the centre of a 1024 window so build.mjs can crop it out with a plain
+         centred `sips -c` (every target size is an even number, so the offset is exact). */
+      body { width: 1024px; height: 1024px; display: grid; place-items: center; }
+      .tile { width: 1024px; height: 1024px; background: #171b1a; display: grid; place-items: center; }
+      .tile.rounded { border-radius: 22%; }
+      .tile svg { display: block; fill: #f3f2ee; }
+    </style>
+  </head>
+  <body>
+    <div class="tile" id="tile">
+      <svg viewBox="0 0 660 700" aria-label="Stash"><path fill-rule="evenodd" transform="translate(0 700) scale(1 -1)" d="M0 0 448 700H568V280H660V177H568V0H448V177H232L119 0ZM297 280H448V516Z"/></svg>
+    </div>
+    <script>
+      const q = new URLSearchParams(location.hash.slice(1));
+      const tile = document.getElementById('tile');
+      const size = Number(q.get('size')) || 1024;
+      const rounded = q.has('rounded');
+      tile.style.width = tile.style.height = size + 'px';
+      if (rounded) tile.classList.add('rounded');
+      const svg = tile.querySelector('svg');
+      const h = size * (rounded ? 0.6875 : 0.6445);
+      svg.style.height = h + 'px';
+      svg.style.width = (h * 660 / 700) + 'px';
+    </script>
+  </body>
+</html>
