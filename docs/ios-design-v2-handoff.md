@@ -45,8 +45,10 @@ The existing backend, capture queue, editing, chat streaming and session flows a
   its own column; VoiceOver retains the same chronological sequence. Paging remains demand-driven.
   Hero images load within a one-screen margin and unload farther away while retaining their measured height.
 - **Sign-in:** the marketing header’s lime field, dot/stipple texture and liquid ASCII ramp,
-  backed by a native particle/grid fluid simulation. Core Motion tilts the pool and adds a
-  directional force for phone movement; the form stays still. Nothing is recorded or uploaded.
+  backed by a native particle/grid fluid simulation. Core Motion uses both gravity axes and
+  gyroscope angular velocity: turning the phone splashes in that direction, and holding it
+  tilted or inverted lets the liquid collect at the lowered edge. The form stays still.
+  Nothing is recorded or uploaded.
 - **Motion budget:** at most 600 particles, 30 updates/second (15 in Low Power Mode). Sensor
   updates stop when the app becomes inactive, the screen disappears, or a field gains focus.
   Reduce Motion freezes the pool and the cursor. The simulator has a gentle idle current.
@@ -61,7 +63,36 @@ iterations. Unit checks cover motion direction, settling, and containment under 
 A desktop benchmark measured 546 particles at 19.69 ms per frame in Debug; an optimized build
 measured 750 particles at 0.54 ms per frame. These are simulation costs, not device frame-rate claims.
 
-Core Motion follows Apple’s [start/stop lifecycle](https://developer.apple.com/documentation/coremotion/cmmotionmanager/startdevicemotionupdates()).
+Core Motion follows Apple’s [start/stop lifecycle](https://developer.apple.com/documentation/coremotion/cmmotionmanager/startdevicemotionupdates())
+and reads the fused [rotation rate](https://developer.apple.com/documentation/coremotion/cmdevicemotion/rotationrate).
+
+### October 8 — gyroscope follow-up
+
+The login backdrop retains the homepage's 13 pt grid, 11 pt Departure Mono, density/speed
+character ramp, lime field and 35% pool fill. Particle footprints reconstruct the fuller web
+water using the same 600-particle native budget. Dot fade and noise-dithered spheres now follow
+the homepage texture. The motion mapper preserves upward/sideways gravity, adds a directional
+angular impulse, smooths sensor jitter, and fades a weak downward pull in only when held flat.
+
+`--uitest-preview-signin` is a DEBUG-only standalone login preview that does not start or clear
+the saved session. Pair it with `--uitest-pool-motion-demo` to demonstrate clockwise/counterclockwise
+samples in the simulator. These samples pass through the same mapper as the physical sensor.
+Remove the launch arguments to return to the saved account. Actual sensor feel still needs an iPhone.
+
+Verified on October 8:
+
+- **904 StashKit tests passed**, including ten motion-mapper cases and two motion-to-fluid
+  integration cases within that set. Full log: `/private/tmp/stash-ios-gyro-unit-unsandboxed.log`.
+- **Six simulator UI checks passed**: opposite tilts, opposite gyroscope rates, inverted
+  water moving upward, Reduce Motion, freezing while typing, and saved-session preservation.
+  Results: `/private/tmp/stash-ios-gyro-ui-final.xcresult`.
+- App and embedded share extension build passed: `/private/tmp/stash-ios-gyro-final-build.log`.
+- New motion clip uses simulated gravity and angular-velocity samples; screenshots verify
+  the actual native renderer. This does not certify physical iPhone sensor response or frame rate.
+
+The first full unit run hit sandbox restrictions in unrelated Keychain/file-type checks;
+running with the required macOS service access passed all 904. Two initial UI checks cropped
+outside the liquid; they now inspect exposed wave pixels and passed in the final six-test run.
 
 ## Run it again
 
@@ -74,8 +105,11 @@ xcodebuild build -project Stash.xcodeproj -scheme Stash \
 xcrun simctl install B6845555-0DE1-40FB-A77F-FF411946AA5F \
   /private/tmp/stash-ios-main-ui-build/Build/Products/Debug-iphonesimulator/Stash.app
 xcrun simctl launch B6845555-0DE1-40FB-A77F-FF411946AA5F it.gostash.stash
-open -a Simulator --args -CurrentDeviceUDID B6845555-0DE1-40FB-A77F-FF411946AA5F
+open /Applications/Xcode.app/Contents/Applications/DeviceHub.app
 ```
+
+In Xcode 27's **Device Hub**, select **Stash Design v2**. The name-only `open -a Simulator`
+resolves an obsolete Xcode 15 copy on this Mac, which crashes before showing a window.
 
 Keep normal local signing enabled: the simulator needs the app's shared Keychain entitlements
 for session persistence and the share extension.

@@ -79,6 +79,11 @@ struct StashApp: App {
                 if UITestHooks.typeSpecimenEnabled {
                     TypeSpecimenView()
                         .zIndex(2)
+                } else if UITestHooks.signInPreviewEnabled {
+                    // Exercise the real form/pool without restoring or clearing the saved
+                    // account. A normal launch still follows the session switch above.
+                    SignInView()
+                        .zIndex(2)
                 }
                 #endif
             }
@@ -107,10 +112,10 @@ struct StashApp: App {
             }
             .task {
                 #if DEBUG
+                // Standalone previews touch neither auth nor shared test preferences, so an
+                // existing account remains available on the next ordinary launch.
+                if UITestHooks.typeSpecimenEnabled || UITestHooks.signInPreviewEnabled { return }
                 UITestHooks.applyShareExtensionOverrides()
-                // The type specimen stands alone: no session, so nothing (onboarding, a restored
-                // library) can present over it.
-                if UITestHooks.typeSpecimenEnabled { return }
                 #endif
                 await session.start()
             }
@@ -189,11 +194,10 @@ struct StashApp: App {
         }
     }
 
-    /// The launch splash plays on every launch — except under the DEBUG type specimen (plan 16),
-    /// which UI tests measure straight away.
+    /// Standalone DEBUG previews are ready for measurement without the launch splash.
     private static var showsLaunchSplash: Bool {
         #if DEBUG
-        return !UITestHooks.typeSpecimenEnabled
+        return !UITestHooks.typeSpecimenEnabled && !UITestHooks.signInPreviewEnabled
         #else
         return true
         #endif
@@ -303,6 +307,11 @@ enum UITestHooks {
     /// controls and the text-size / Bold Text state — covers the window. No splash, and the
     /// session never starts underneath it.
     static var typeSpecimenEnabled: Bool { arguments.contains("--uitest-type-specimen") }
+
+    /// `--uitest-preview-signin`: render the real SignInView without session.start(), auth
+    /// restoration/sign-out, or splash. Tests can exercise appearance and field focus without
+    /// removing a saved account. They must not submit the form; normal launch restores as usual.
+    static var signInPreviewEnabled: Bool { arguments.contains("--uitest-preview-signin") }
 
     /// `--uitest-bold-text` (plan 16): every window scene's legibility-weight TRAIT is `.bold` —
     /// what the Bold Text setting sets — without touching the simulator's settings, so one launch
