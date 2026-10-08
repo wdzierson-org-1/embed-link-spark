@@ -1,5 +1,12 @@
 # UI changes — cross-platform log
 
+## 2026-10-07 — iOS masonry and motion
+
+- View packs fixed left/right columns independently, preserving newest-first order and chronological VoiceOver navigation.
+- Sign-in adopts the web hero’s lime ASCII pool and stipple. Native fluid responds to phone tilt and movement; the form stays still. Motion pauses during typing/inactivity and respects Reduce Motion.
+- Ask uses a single rotating cursor throughout thinking and streaming, with accessible status text and no active cursor after completion or failure.
+- See [simulator handoff](ios-design-v2-handoff.md) and [motion preview](ios-design-v2/ascii-motion.mp4).
+
 Purpose: every meaningful web-UI/product-behavior change lands here as a dated
 entry so the agents building the **iOS** (`ios/`) and **macOS** clients can
 mirror behavior and data contracts without reverse-engineering the web code.

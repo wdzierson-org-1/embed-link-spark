@@ -94,6 +94,62 @@ final class AskUITests: XCTestCase {
                        "The refused question is back in the composer")
     }
 
+    /// A local short stream makes the pending phase observable before any status frame,
+    /// then publishes answer text and finishes or interrupts. No backend chat or history write.
+    func testThinkingIndicatorFollowsTheAnswerLifecycle() throws {
+        let app = XCUIApplication()
+        try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat", "--uitest-scripted-thinking"])
+        openAskTab(app)
+
+        for (index, question, ending) in [(1, "A local thinking probe", "Complete"),
+                                          (3, "interrupt: a local thinking probe", "Interrupted")] {
+            ask(app, question)
+            let status = element(app, "ask.bubble.\(index).status")
+            XCTAssertTrue(status.waitForExistence(timeout: 5), "The pending answer must be visible before its first words")
+            XCTAssertEqual(status.value as? String, "In progress")
+            XCTAssertTrue(["thinking…", "searching your stash…"].contains(status.label),
+                          "Expected an honest pending status, got '\(status.label)'")
+            XCTAssertFalse(element(app, "ask.bubble.\(index).speak").exists, "The status precedes answer text")
+            attachScreenshot(app, named: "thinking-\(index)")
+
+            let writing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "writing the answer…"), object: status)
+            XCTAssertEqual(XCTWaiter().wait(for: [writing], timeout: 10), .completed)
+            XCTAssertEqual(status.value as? String, "In progress", "The cursor stays active while words arrive")
+            let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", ending), object: status)
+            XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 10), .completed)
+            XCTAssertFalse(status.label.contains("writing"), "A settled answer must not claim ongoing work")
+            if ending == "Interrupted" {
+                XCTAssertTrue(element(app, "ask.bubble.\(index).retry").exists, "The partial answer keeps Retry")
+            } else {
+                XCTAssertTrue(element(app, "ask.bubble.\(index).thumbsUp").exists, "The completed answer is ready to rate")
+            }
+        }
+
+        // A failure before the first word rolls back the placeholder: no orphan busy row.
+        ask(app, "fail: a local thinking probe")
+        let pending = element(app, "ask.bubble.5.status")
+        XCTAssertTrue(pending.waitForExistence(timeout: 5))
+        XCTAssertEqual(pending.value as? String, "In progress")
+        XCTAssertTrue(element(app, "ask.error").waitForExistence(timeout: 10))
+        XCTAssertFalse(pending.exists, "A failed request must remove its thinking indicator")
+    }
+
+    /// Same lifecycle with Reduce Motion forced only in this DEBUG process. The status is
+    /// still meaningful and completes; the shared cursor renders a static vertical stroke.
+    func testThinkingIndicatorRemainsMeaningfulWithReducedMotion() throws {
+        let app = XCUIApplication()
+        try signIn(app, extraLaunchArguments: ["--uitest-scripted-chat", "--uitest-scripted-thinking", "--uitest-reduce-motion"])
+        openAskTab(app)
+        ask(app, "A local reduced motion probe")
+        let status = element(app, "ask.bubble.1.status")
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertEqual(status.value as? String, "In progress")
+        attachScreenshot(app, named: "thinking-reduced-motion")
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "Complete"), object: status)
+        XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 15), .completed)
+        XCTAssertEqual(status.label, "✓ answer ready")
+    }
+
     /// M2 review fix, verified on the iOS 17 floor: the thread follows a streaming answer until
     /// the USER drags it away, and a new send follows again. `--uitest-scripted-chat` swaps in a
     /// local scripted stream (status frames, then ~60 list lines over ~6 s including two

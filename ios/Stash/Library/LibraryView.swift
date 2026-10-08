@@ -46,6 +46,9 @@ struct LibraryView: View {
     /// centred above a keyboard that wasn't there (319 pt against 445). This measurement, logged the
     /// same way, followed the keyboard both ways (457 ↔ 710).
     @State private var visibleHeight: CGFloat?
+    /// Global scroll viewport, stable during scrolling. Each card observes only whether it
+    /// crosses the image-loading margin, so scroll offsets do not invalidate the whole grid.
+    @State private var mediaViewport: CGRect = .zero
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// Plan 16: while VoiceOver runs, the search row's snap stands aside — VoiceOver scrolls to
@@ -78,11 +81,7 @@ struct LibraryView: View {
     }()
 
     // Near-square objects stay two-up at standard text sizes; accessibility sizes get a full row.
-    private var columns: [GridItem] {
-        dynamicTypeSize.isAccessibilitySize
-            ? [GridItem(.flexible())]
-            : [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]
-    }
+    private var columnCount: Int { dynamicTypeSize.isAccessibilitySize ? 1 : 2 }
 
     init(store: ItemStore, onSelect: @escaping (Item) -> Void = { _ in }) {
         self.store = store
@@ -184,6 +183,7 @@ struct LibraryView: View {
             .accessibilityIdentifier(items.isEmpty ? "library.scroll" : "library.grid")
             .scrollDismissesKeyboard(.immediately)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleHeight = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { mediaViewport = $0 }
         }
     }
 
@@ -248,24 +248,38 @@ struct LibraryView: View {
     }
 
     private func grid(_ items: [Item]) -> some View {
-        // DESIGN.md §Space "Library gutter: 24px/24pt" (plan 14, was 14pt) — natural-height
-        // cards, no forced masonry redistribution needed on the phone's single column.
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 16) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                Button {
-                    // Device note 3/7: a card tap dismisses the keyboard before the sheet
-                    // opens, rather than leaving it up behind the presented detail sheet.
-                    open(item)
-                } label: {
-                    // Plan 15: the card is ONE tap target and its hit area is exactly what's
-                    // drawn — without this shape, content that overflows a card (fill-scaled
-                    // hero imagery) could still take taps outside it; see `CardHero.swift`.
-                    ItemCardView(item: item)
-                        .contentShape(RoundedRectangle(cornerRadius: StashRadius.card))
+        // The native Layout measures the currently loaded page(s), then packs each fixed column.
+        // A separate lazy sentinel owns pagination: an eager Layout's card onAppear callbacks
+        // would otherwise load every page before the person scrolls. Its last-item identity lets
+        // a short appended page request another only while the sentinel remains near the viewport.
+        LazyVStack(spacing: 0) {
+            LibraryMasonryLayout(columns: columnCount) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    Button {
+                        // Device note 3/7: a card tap dismisses the keyboard before the sheet
+                        // opens, rather than leaving it up behind the presented detail sheet.
+                        open(item)
+                    } label: {
+                        // One card-sized tap target, including all media and the note preview.
+                        ItemCardView(item: item)
+                            .contentShape(RoundedRectangle(cornerRadius: StashRadius.card))
+                    }
+                    .buttonStyle(LibraryCardButtonStyle())
+                    .modifier(LibraryCardMediaGate(viewport: mediaViewport))
+                    .accessibilityIdentifier("card.\(index)")
+                    // Physical y positions differ across columns. VoiceOver still follows the
+                    // same newest-to-oldest sequence as search, data, and fixed column assignment.
+                    .accessibilitySortPriority(Double(items.count - index))
                 }
-                .buttonStyle(LibraryCardButtonStyle())
-                .accessibilityIdentifier("card.\(index)")
-                .onAppear { Task { await store.loadMoreIfNeeded(current: item) } }
+            }
+            .accessibilityElement(children: .contain)
+
+            if let last = items.last, store.hasMore {
+                Color.clear
+                    .frame(height: 1)
+                    .id(last.id)
+                    .onAppear { Task { await store.loadMoreIfNeeded(current: last) } }
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, 16)

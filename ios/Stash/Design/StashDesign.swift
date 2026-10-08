@@ -446,12 +446,23 @@ struct GradientBackdrop: View {
     }
 }
 
+enum StashMotion {
+    static func reduced(_ systemValue: Bool) -> Bool {
+        #if DEBUG
+        return systemValue || ProcessInfo.processInfo.arguments.contains("--uitest-reduce-motion")
+        #else
+        return systemValue
+        #endif
+    }
+}
+
 /// Every visible cursor shares the same date-based phase. Reduced Motion keeps `|`.
 /// Cursor glyphs are decoration; the caller supplies the stable state to VoiceOver.
 struct StashCursor: View {
     var size: StashType.Role = .machine
     var active = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    private var reduceMotion: Bool { StashMotion.reduced(systemReduceMotion) }
     private static let frames = ["|", "/", "-", "\\"]
 
     var body: some View {

@@ -70,6 +70,7 @@ targets:
           - PPEditorialNew-Regular.ttf
         NSCameraUsageDescription: "Stash uses the camera to capture photos straight into your stash."
         NSMicrophoneUsageDescription: "Stash uses the microphone for voice notes."
+        NSMotionUsageDescription: "Stash uses phone movement to stir the sign-in screen's ASCII pool. Motion stays on your device."
         NSLocationWhenInUseUsageDescription: "Stash tags saves with where you were — only when you turn the pin on."
         # Plan 15 H3: a voice memo keeps recording when the screen locks or the user switches
         # apps (AudioRecorderController). App-target only — the share extension never records.

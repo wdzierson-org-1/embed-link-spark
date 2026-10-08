@@ -110,10 +110,75 @@ private struct CardWidthKey: EnvironmentKey {
     static let defaultValue: CGFloat = 361
 }
 
+private struct CardMediaIsNearViewportKey: EnvironmentKey {
+    // Detail/preview callers outside the library retain their ordinary image behavior.
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
     var cardWidth: CGFloat {
         get { self[CardWidthKey.self] }
         set { self[CardWidthKey.self] = newValue }
+    }
+
+    fileprivate var cardMediaIsNearViewport: Bool {
+        get { self[CardMediaIsNearViewportKey.self] }
+        set { self[CardMediaIsNearViewportKey.self] = newValue }
+    }
+}
+
+/// The measured masonry keeps every card for accurate column heights. Only image resources
+/// are conditional: one viewport above/below is warm before it can become visible. Both frames
+/// use global coordinates, including after keyboard or safe-area changes.
+struct LibraryCardMediaGate: ViewModifier {
+    let viewport: CGRect
+    @State private var isNearViewport = false
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.cardMediaIsNearViewport, isNearViewport)
+            .onGeometryChange(for: Bool.self) { geometry in
+                CardMediaViewport.contains(geometry.frame(in: .global), viewport: viewport)
+            } action: { isNearViewport = $0 }
+    }
+}
+
+enum CardMediaViewport {
+    static func contains(_ card: CGRect, viewport: CGRect) -> Bool {
+        guard viewport.width > 0, viewport.height > 0, card.width > 0, card.height > 0 else { return false }
+        return viewport.insetBy(dx: 0, dy: -viewport.height).intersects(card)
+    }
+}
+
+/// Removing the CachedImage subtree cancels its task and releases its retained bitmap when
+/// far away. Keep only measured height so unloading, or a cache miss on return, cannot move
+/// the title or the cards below. Shared prefetch and the evictable ImagePipeline cache remain
+/// unchanged; this bounds the eager masonry's additional strong UIImage references.
+private struct ViewportCardImage<Content: View>: View {
+    let url: URL
+    let fit: ImageFit
+    let initialHeight: CGFloat
+    @ViewBuilder var content: (CachedImagePhase) -> Content
+    @Environment(\.cardMediaIsNearViewport) private var isNearViewport
+    @State private var measuredHeight: CGFloat?
+
+    var body: some View {
+        Group {
+            if isNearViewport {
+                CachedImage(url: url, fit: fit) { phase in
+                    if case .empty = phase {
+                        CardImageMosaic(height: measuredHeight ?? initialHeight)
+                    } else {
+                        content(phase)
+                    }
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    if height > 0, measuredHeight != height { measuredHeight = height }
+                }
+            } else {
+                CardImageMosaic(height: measuredHeight ?? initialHeight)
+            }
+        }
     }
 }
 
@@ -134,7 +199,7 @@ struct LinkHeroZone: View {
         if flavor == "repo" {
             RepoPlate(url: item.url, description: item.description)
         } else if let url = item.thumbnailURL, let fit = CardHeroSizing.fit(for: item, cardWidth: cardWidth) {
-            CachedImage(url: url, fit: fit) { phase in
+            ViewportCardImage(url: url, fit: fit, initialHeight: zoneHeight) { phase in
                 switch phase {
                 case .success(let image):
                     coveredImage(Image(uiImage: image))
@@ -176,7 +241,7 @@ struct ImageHeroZone: View {
 
     var body: some View {
         if let url = item.thumbnailURL, let fit = CardHeroSizing.fit(for: item, cardWidth: cardWidth) {
-            CachedImage(url: url, fit: fit) { phase in
+            ViewportCardImage(url: url, fit: fit, initialHeight: CardHeroHeight.standard) { phase in
                 switch phase {
                 case .success(let image):
                     if isPortraitAspect(width: image.size.width, height: image.size.height) {

@@ -154,7 +154,8 @@ struct AskView: View {
             // for a test that does several slow things while one streams.
             let interval = arguments.contains("--uitest-scripted-slow") ? 500 : longThread ? 250 : 110
             return ChatStore(userId: userId,
-                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(interval), prose: prose),
+                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(interval), prose: prose,
+                                                            thinkingProbe: arguments.contains("--uitest-scripted-thinking")),
                              history: ScriptedChatHistory(longThread: longThread, prose: prose),
                              accessToken: { "scripted" })
         }
@@ -1169,11 +1170,15 @@ final class SpeechReader: NSObject, AVSpeechSynthesizerDelegate {
 private struct ScriptedChatStreamer: ChatStreaming {
     var chunkInterval: Duration = .milliseconds(110)
     var prose = false
+    /// Opt-in short lifecycle fixture: no status yet, searching, text, then completed or
+    /// interrupted. It uses the real ChatStore transitions with in-memory history only.
+    var thinkingProbe = false
 
     func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error> {
         if message.hasPrefix("gate:") {
             return AsyncThrowingStream { $0.finish(throwing: ChatStreamError.subscriptionRequired) }
         }
+        if thinkingProbe { return Self.thinkingStream(for: message) }
         let chunkInterval = chunkInterval
         let chunks = prose ? Self.proseChunks(for: message) : Self.answerChunks(for: message)
         return AsyncThrowingStream { continuation in
@@ -1189,6 +1194,34 @@ private struct ScriptedChatStreamer: ChatStreaming {
                 }
                 continuation.yield(.done(sources: []))
                 continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func thinkingStream(for question: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    // Leave time to see the honest fallback before any server status exists.
+                    try await Task.sleep(for: .seconds(3))
+                    continuation.yield(.status(.searching))
+                    try await Task.sleep(for: .seconds(2))
+                    if question.hasPrefix("fail:") {
+                        continuation.finish(throwing: URLError(.networkConnectionLost))
+                        return
+                    }
+                    continuation.yield(.delta("Here is a short answer from your saved notes."))
+                    try await Task.sleep(for: .seconds(3))
+                    if question.hasPrefix("interrupt:") {
+                        continuation.finish(throwing: URLError(.networkConnectionLost))
+                    } else {
+                        continuation.yield(.done(sources: []))
+                        continuation.finish()
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
             continuation.onTermination = { _ in task.cancel() }
         }

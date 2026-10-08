@@ -37,8 +37,7 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            StashColor.paper.ignoresSafeArea()
-            GradientBackdrop(opacity: 0.3).ignoresSafeArea()
+            ASCIIPoolBackdrop(isEditing: focusedField != nil).ignoresSafeArea()
 
             // Vertically centers the card when it fits the screen (web: `flex min-h-screen
             // items-center justify-center`); only scrolls once the keyboard shrinks the
@@ -128,8 +127,10 @@ struct SignInView: View {
             .shadow(color: StashColor.ink, radius: 0, x: 4, y: 4)
 
             Text("save it fast. find it when you need it.")
-                .stashFont(.machine).foregroundStyle(StashColor.muted)
+                .stashFont(.machine).foregroundStyle(StashColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(8)
+                .background(StashColor.spot)
                 .padding(.top, 28)
         }
         .frame(maxWidth: 420)
