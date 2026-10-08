@@ -1,6 +1,12 @@
 # iOS design v2 — simulator handoff
 
-## Candidate
+## Integrated app
+
+The approved UI is integrated into local `main` at `68c128ad` by fast-forward from
+`07208635`. The primary checkout is `/Users/will/Appdev/embed-link-spark`.
+The review branch and its simulator gallery remain available as the original review record.
+
+## Review origin
 
 - Branch: `codex/ios-design-v2`
 - Checkout: `/Users/will/Documents/ChatGPT/Stash/worktrees/ios-design-v2`
@@ -60,13 +66,13 @@ Core Motion follows Apple’s [start/stop lifecycle](https://developer.apple.com
 ## Run it again
 
 ```sh
-cd /Users/will/Documents/ChatGPT/Stash/worktrees/ios-design-v2/ios
+cd /Users/will/Appdev/embed-link-spark/ios
 xcodegen generate
 xcodebuild build -project Stash.xcodeproj -scheme Stash \
   -destination 'platform=iOS Simulator,id=B6845555-0DE1-40FB-A77F-FF411946AA5F' \
-  -derivedDataPath /private/tmp/stash-ios-design-v2-build
+  -derivedDataPath /private/tmp/stash-ios-main-ui-build
 xcrun simctl install B6845555-0DE1-40FB-A77F-FF411946AA5F \
-  /private/tmp/stash-ios-design-v2-build/Build/Products/Debug-iphonesimulator/Stash.app
+  /private/tmp/stash-ios-main-ui-build/Build/Products/Debug-iphonesimulator/Stash.app
 xcrun simctl launch B6845555-0DE1-40FB-A77F-FF411946AA5F it.gostash.stash
 open -a Simulator --args -CurrentDeviceUDID B6845555-0DE1-40FB-A77F-FF411946AA5F
 ```
@@ -99,9 +105,10 @@ for session persistence and the share extension.
 - Motion/Ask UI results: `/private/tmp/stash-ios-motion-core.xcresult` (five tests).
 - Masonry/screen UI results: `/private/tmp/stash-ios-motion-layout.xcresult` (three tests).
 - Unit log: `/private/tmp/stash-ios-motion-unit.log`.
-- Final app build log: `/private/tmp/stash-ios-motion-final-build.log`.
+- Original review build log: `/private/tmp/stash-ios-motion-final-build.log`.
+- Main-checkout integration build log: `/private/tmp/stash-ios-main-ui-build.log`.
 
-This is a simulator review candidate. Physical sensor feel, device performance and large-library
+The approved UI is implemented in the main app and ready for simulator use. Physical sensor feel, device performance and large-library
 memory profiling still need a device pass. The full UI regression suite and the web’s per-card
 pixel animation are outside this verification pass.
 
