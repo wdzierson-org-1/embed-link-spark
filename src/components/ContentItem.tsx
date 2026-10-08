@@ -8,7 +8,6 @@ import { X } from 'lucide-react';
 import ContentItemHeader from '@/components/ContentItemHeader';
 import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemFooter from '@/components/ContentItemFooter';
-import VideoLightbox from '@/components/VideoLightbox';
 import ChatInterface from '@/components/ChatInterface';
 import { StatusLine } from '@/components/machine/Machine';
 import type { Attachment } from '@/components/CollectionAttachments';
@@ -82,7 +81,6 @@ const ContentItem = ({
   collectionAttachments,
   assemblyReveals
 }: ContentItemProps) => {
-  const [isVideoLightboxOpen, setIsVideoLightboxOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isNoteExpanded, setIsNoteExpanded] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -203,14 +201,6 @@ const ContentItem = ({
     return jsonContent.content.map(extractFromNode).join(' ').trim();
   };
 
-  const getFileUrl = (item: ContentItem) => {
-    if (item.file_path) {
-      const { data } = supabase.storage.from('stash-media').getPublicUrl(item.file_path);
-      return data.publicUrl;
-    }
-    return null;
-  };
-
   const handleChatWithItem = () => {
     setIsChatOpen(true);
   };
@@ -290,8 +280,6 @@ const ContentItem = ({
     );
   };
 
-  const fileUrl = getFileUrl(item);
-
   return (
     <TooltipProvider>
       {/* No overflow-hidden here — the sticky-note overlay hangs past the card
@@ -311,7 +299,6 @@ const ContentItem = ({
           imageErrors={imageErrors}
           onImageError={onImageError}
           onEditItem={onEditItem}
-          onVideoExpand={() => setIsVideoLightboxOpen(true)}
           isPublicView={isPublicView}
           reveals={headerReveals}
           reading={isReading}
@@ -346,16 +333,6 @@ const ContentItem = ({
         </div>
 
         </div>
-
-        {/* Video Lightbox */}
-        {item.type === 'video' && fileUrl && (
-          <VideoLightbox
-            src={fileUrl}
-            fileName={item.title || 'Video file'}
-            isOpen={isVideoLightboxOpen}
-            onClose={() => setIsVideoLightboxOpen(false)}
-          />
-        )}
 
         {/* Individual Item Chat Interface */}
         <ChatInterface

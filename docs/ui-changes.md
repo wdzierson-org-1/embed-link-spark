@@ -8,6 +8,29 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-07 · Videos play in place on the card, and as video in the item panel
+
+**Behaviour (for iOS and macOS to mirror):**
+- **Card:** an uploaded video plays in place. Play grows the frame to the video's own shape (up to
+  420 px tall) and shows the native controls (full screen is theirs). A white square **close**
+  button (ink edge, print shadow) sits top-right while it plays; it stops the video, rewinds it and
+  brings the poster back, returning focus to Play. The hover-only "Expand video" lightbox is gone
+  from cards.
+- **Why:** the lightbox was rendered inside the card, and the card's v2 hover lift is a CSS
+  transform, which pins a `position: fixed` overlay to the card. With the pointer on the card the
+  "full-screen" overlay shrank into the card (438 × 304 instead of 1440 × 900), the pointer left
+  the card, the lift dropped, the overlay went full screen again, and so on: the flicker. Its
+  white × sat over the grey page.
+- **The lightbox itself** (still used by multi-part attachments) now renders into `document.body`,
+  has a white square close fixed to the viewport's corner, and closes on Escape.
+- **Item panel:** a video item shows the video (on the dotted stage with crop marks, native
+  controls, `download original`) instead of the audio player strip. Audio items keep the strip.
+
+**Tests:** the card's player (rest, play in place, close, clicks kept from the card), the panel's
+media zone (video vs. audio), and the lightbox (portalled, close, Escape). Checked in the browser on
+an uploaded test clip (since deleted): the card played in place with the close visible, no overlay
+appeared while the pointer swept on and off the card, and the panel showed the video.
+
 ## 2026-10-07 · The new homepage is live at gostash.it, and the app moves off "/"
 
 Will: "deploy the new homepage, sign in/up, and web app design." The homepage prototype (v0.6) is now

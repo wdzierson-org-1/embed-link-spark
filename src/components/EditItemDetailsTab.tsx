@@ -33,9 +33,8 @@ import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
 import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
-import EditItemPlayerStrip from '@/components/edit/EditItemPlayerStrip';
+import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import { SectionHead } from '@/components/edit/EditPanelSection';
-import { audioSubtype } from '@/components/cards/CardBits';
 import { CropMarks, Spinner } from '@/components/machine/Machine';
 import CollectionAttachments from '@/components/CollectionAttachments';
 import type { ItemAttributes } from '@/types/itemAttributes';
@@ -297,19 +296,9 @@ const EditItemDetailsTab = ({
         />
       </div>
 
-      {/* ── Media zone ── */}
+      {/* ── Media zone: a recording's player strip, or the video itself ── */}
       {(item?.type === 'audio' || item?.type === 'video') && mediaUrl && (
-        <EditItemPlayerStrip
-          src={mediaUrl}
-          itemId={item.id}
-          variant={
-            item.type === 'audio' && audioSubtype(item.attributes) === 'voice_note'
-              ? 'voice'
-              : 'warm'
-          }
-          durationHint={item.attributes?.media?.duration_s}
-          downloadUrl={mediaUrl}
-        />
+        <EditItemMediaZone item={item} src={mediaUrl} title={title} />
       )}
 
       {/* Inline image for image items and links with images */}

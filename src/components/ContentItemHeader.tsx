@@ -48,7 +48,6 @@ interface ContentItemHeaderProps {
   imageErrors: Set<string>;
   onImageError: (itemId: string) => void;
   onEditItem: (item: ContentItem) => void;
-  onVideoExpand?: () => void;
   isPublicView?: boolean;
   /** Enrichment pieces that just landed — animate them in */
   reveals?: { title?: boolean; preview?: boolean };
@@ -63,7 +62,6 @@ const ContentItemHeader = ({
   imageErrors,
   onImageError,
   onEditItem,
-  onVideoExpand,
   isPublicView = false,
   reveals,
   reading = false,
@@ -137,11 +135,7 @@ const ContentItemHeader = ({
       case 'video': {
         if (!fileUrl) return null;
         return (
-          <VideoPosterHero
-            src={fileUrl}
-            durationS={item.attributes?.media?.duration_s}
-            onExpand={onVideoExpand}
-          />
+          <VideoPosterHero src={fileUrl} durationS={item.attributes?.media?.duration_s} />
         );
       }
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Expand, Pause, Play } from 'lucide-react';
+import { Pause, Play, X } from 'lucide-react';
 import { SUPABASE_URL } from '@/integrations/supabase/client';
 import { domainOfUrl } from '@/utils/linkFlavor';
 import { useSubjectCrop } from '@/components/cards/useSubjectCrop';
@@ -403,34 +403,57 @@ export const DocumentHero = ({ ext, reading = false }: { ext?: string | null; re
 /* ── video uploads: poster frame, not native chrome ────────────────────── */
 
 /**
- * Video hero at rest: first frame (preload=metadata), the square play mark, duration as a
- * black tag; no native controls until playback starts.
+ * Video hero: it plays in place. At rest, the first frame (preload=metadata) cover-cropped, the
+ * square play mark, the duration as a black tag. Playing, the frame grows to the video's own
+ * shape (up to 420 px tall), the native controls appear (full screen is theirs), and a white
+ * square close button in the corner, visible on any picture, stops it and brings the poster
+ * back. Clicks stay here, so the card never opens underneath.
+ *
+ * There's no custom full-screen lightbox: one rendered inside a card is caught by the card's
+ * hover lift (a transformed parent pins `position: fixed` to itself), and flickered between the
+ * card and the screen.
  */
-export const VideoPosterHero = ({
-  src,
-  durationS,
-  onExpand,
-}: {
-  src: string;
-  durationS?: number | null;
-  onExpand?: () => void;
-}) => {
+export const VideoPosterHero = ({ src, durationS }: { src: string; durationS?: number | null }) => {
   const [started, setStarted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playRef = useRef<HTMLButtonElement>(null);
+  const closedByPerson = useRef(false);
   const duration = formatDurationChip(durationS);
+
+  // Closing hands focus back to the play button the person started from
+  useEffect(() => {
+    if (!started && closedByPerson.current) {
+      closedByPerson.current = false;
+      playRef.current?.focus();
+    }
+  }, [started]);
 
   const handlePlay = (event: React.MouseEvent) => {
     event.stopPropagation();
     setStarted(true);
-    videoRef.current?.play();
+    void videoRef.current?.play();
+  };
+
+  const handleClose = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.currentTime = 0;
+    }
+    closedByPerson.current = true;
+    setStarted(false);
   };
 
   return (
-    <div className={`relative ${HERO_STANDARD} w-full overflow-hidden bg-ink ${HERO_EDGE}`}>
+    <div
+      className={`relative w-full overflow-hidden bg-ink ${HERO_EDGE} ${started ? '' : HERO_STANDARD}`}
+      onClick={(event) => event.stopPropagation()}
+    >
       <video
         ref={videoRef}
         src={src}
-        className="h-full w-full object-cover"
+        className={started ? 'block max-h-[420px] w-full object-contain' : 'h-full w-full object-cover'}
         preload="metadata"
         playsInline
         controls={started}
@@ -438,13 +461,23 @@ export const VideoPosterHero = ({
       >
         Your browser does not support the video tag.
       </video>
-      {!started && (
+      {started ? (
+        <button
+          type="button"
+          onClick={handleClose}
+          aria-label="Close video"
+          className="absolute right-2.5 top-2.5 z-[5] grid h-8 w-8 place-items-center bg-white text-ink shadow-[inset_0_0_0_1px_var(--ink),2px_2px_0_0_var(--ink)] transition-colors hover:bg-ink hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-spot"
+        >
+          <X className="h-4 w-4" strokeWidth={2.5} />
+        </button>
+      ) : (
         <>
           <button
+            ref={playRef}
             type="button"
             onClick={handlePlay}
             aria-label="Play"
-            className="absolute left-1/2 top-1/2 grid h-12 w-12 -translate-x-1/2 -translate-y-1/2 place-items-center bg-ink text-white transition-colors hover:bg-ink-soft"
+            className="absolute left-1/2 top-1/2 grid h-12 w-12 -translate-x-1/2 -translate-y-1/2 place-items-center bg-ink text-white transition-colors hover:bg-ink-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-spot"
           >
             <Play className="ml-0.5 h-[18px] w-[18px] fill-current" />
           </button>
@@ -452,21 +485,6 @@ export const VideoPosterHero = ({
             <Tag className="pointer-events-none absolute bottom-2.5 right-2.5 tabular-nums">{duration}</Tag>
           )}
         </>
-      )}
-      {onExpand && (
-        <div className="absolute right-2.5 top-2.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onExpand();
-            }}
-            aria-label="Expand video"
-            className="grid h-8 w-8 place-items-center bg-ink text-white hover:bg-ink-soft"
-          >
-            <Expand className="h-4 w-4" />
-          </button>
-        </div>
       )}
     </div>
   );

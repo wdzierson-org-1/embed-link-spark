@@ -608,7 +608,7 @@ Heroes by kind:
 | Link without a picture | The placeholder: the kind's pixel glyph (48 px) on the dotted fill, a black label with the domain, and, once Stash has finished looking, `preview limited, saved anyway`. While Stash reads, the glyph boils (§8) |
 | A picture still downloading | The mosaic (§7), until it arrives |
 | Voice note, recording | The player on plain fill: an ink square play button (44 px; 40 for recordings), 28 ink waveform bars (played solid, unplayed at 25%), the time in Departure Mono. 116 px tall for voice notes, 96 px for recordings |
-| Video file | The first frame on ink, a 48 px ink square play button, the duration as a black tag bottom-right; an expand control on hover |
+| Video file | The first frame on ink, a 48 px ink square play button, the duration as a black tag bottom-right. It **plays in place**: the frame grows to the video's own shape (up to 420 px), the native controls appear (full screen is theirs), and a 32 px white square close button with an ink edge and the 2 px print shadow sits top-right, visible on any picture, bringing the poster back. No custom lightbox: a `fixed` overlay inside a card is pinned to the card by its hover lift and flickers (2026-10-07) |
 | Document | A white page turned -2.5°, rising from the bottom of the dotted fill |
 | Image whose file is missing | The photo glyph and the filename as a black label |
 | Note, multi-part | No hero: the note is the object |
@@ -723,9 +723,12 @@ ink on hover.
 - **Title:** screen title 28/1.12, inline-editable (hover: fill; editing: white, ink edge, spot ring).
   **Description:** Montreal 15/1.5 muted, editable the same way.
 - **Media** on a dotted stage with crop marks: an image as an object (2 px, line edge,
-  `shadow-object`), with 36 px square replace and remove controls on hover. Audio and video use the
-  **player strip**: plain fill with a line edge, a 44 px ink play button, 40 ink bars, times in
-  Departure Mono, a 28 px square speed control (`1×`, `1.5×`, `2×`) and `download original`.
+  `shadow-object`), with 36 px square replace and remove controls on hover. A **video** is shown as
+  a video on the same stage: an object (2 px, line edge, `shadow-object`, ink behind its letterbox) at
+  its own shape up to 420 px tall, with the native controls, and `download original` under it (Will,
+  2026-10-07: "the detail panel should show the video"). Audio uses the **player strip**: plain fill
+  with a line edge, a 44 px ink play button, 40 ink bars, times in Departure Mono, a 28 px square
+  speed control (`1×`, `1.5×`, `2×`) and `download original` (`edit/EditItemMediaZone`).
 - **Source address:** the machine strip (favicon, the URL in JetBrains Mono 12.5, a 40 px open cell).
 - **Notes:** the editor's empty line says "Add a note…" (the person's voice, as on the card); the
   slash hint is the machine line under it, `type / for formatting`, and the full-screen editor
