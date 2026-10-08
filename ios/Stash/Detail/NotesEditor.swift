@@ -158,7 +158,7 @@ struct NotesEditor: View {
             // unsaved draft text worth explaining.
             if isFocused.wrappedValue == .notes || !model.draft.isEmpty {
                 Text(model.isRich ? "Adds when you tap Done or leave the field" : "Editing note")
-                    .stashFont(.meta)
+                    .stashFont(model.isRich ? .secondary : .machine)
                     .foregroundStyle(StashColor.muted)
                     .accessibilityIdentifier("detail.notes.hint")
             }
@@ -231,7 +231,13 @@ struct NotesEditor: View {
                     scheduleFlush()
                 }
         }
-        .background(StashColor.wash, in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
+        .background(StashColor.surface)
+        .overlay(Rectangle().strokeBorder(isFocused.wrappedValue == .notes ? StashColor.ink : StashColor.line, lineWidth: 1))
+        .overlay {
+            if isFocused.wrappedValue == .notes {
+                Rectangle().stroke(StashColor.spot, lineWidth: 3).padding(-2).allowsHitTesting(false)
+            }
+        }
         .accessibilityIdentifier("detail.notes.editor")
     }
 }

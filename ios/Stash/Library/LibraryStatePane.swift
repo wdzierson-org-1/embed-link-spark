@@ -16,24 +16,29 @@ struct LibraryStatePane: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             Image(systemName: systemImage)
                 .font(.largeTitle)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(StashColor.ink)
                 .accessibilityHidden(true)
             Text(title)
-                .stashFont(.readingSemibold)
+                .stashFont(.screenTitle)
+                .stashTracking(-0.03, role: .screenTitle)
                 .foregroundStyle(StashColor.ink)
             Text(message)
                 .stashFont(.reading)
                 .foregroundStyle(StashColor.muted)
         }
-        .multilineTextAlignment(.center)
+        .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(identifier)
-        .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 20 : 40)
-        .padding(.vertical, 40)
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { StashDotGrid() }
+        .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

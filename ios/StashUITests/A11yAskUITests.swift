@@ -998,14 +998,10 @@ private struct AskScreenPixels {
         return (CGFloat(best) / scale, CGFloat(bestRow) / scale)
     }
 
-    /// The link underline's colour — the shared `Text.LineStyle.stashLinkUnderline`, violet-600 (#6d5bd0)
-    /// at 80 % over an answer's #f2f2f7, ≈ #8879d8 (or over white, ≈ #8a7cd9) — give or take
-    /// antialiasing. Never the bubble, white, a grey, `ink`, `muted`, a violet-600 glyph's core
-    /// (#6d5bd0) or the old 50 % underline (≈ #b0a7e4); a violet glyph's antialiased edges match too, but
-    /// only in runs as short as a stroke.
+    /// V2's solid ink underline. Black glyph cores can match too, but the assertion
+    /// requires a continuous rule longer than any individual glyph stroke.
     static func isLinkUnderline(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool {
-        let (r, g, b) = (Int(r), Int(g), Int(b))
-        return (124...150).contains(r) && (110...136).contains(g) && (206...228).contains(b) && b - r >= 60
+        r <= 6 && g <= 6 && b <= 6
     }
 
     private func pixelBounds(_ frame: CGRect) -> (Int, Int, Int, Int)? {

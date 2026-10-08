@@ -154,7 +154,8 @@ struct AskView: View {
             // for a test that does several slow things while one streams.
             let interval = arguments.contains("--uitest-scripted-slow") ? 500 : longThread ? 250 : 110
             return ChatStore(userId: userId,
-                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(interval), prose: prose),
+                             streamer: ScriptedChatStreamer(chunkInterval: .milliseconds(interval), prose: prose,
+                                                            thinkingProbe: arguments.contains("--uitest-scripted-thinking")),
                              history: ScriptedChatHistory(longThread: longThread, prose: prose),
                              accessToken: { "scripted" })
         }
@@ -180,7 +181,7 @@ struct AskView: View {
                 Divider()
                 composerArea.layoutPriority(1)
             }
-            .background(Color(.systemBackground))
+            .background(StashColor.surface)
             #if DEBUG
             .overlay(alignment: .topLeading) {
                 if Self.showsAccessibilityHooks {
@@ -309,15 +310,15 @@ struct AskView: View {
                     Image(systemName: "arrow.counterclockwise")
                         .accessibilityHidden(true)
                     (Text("Load previous conversation — ")
-                        + Text(previous.title ?? "Untitled").foregroundStyle(StashColor.violet600))
+                        + Text(previous.title ?? "Untitled").foregroundStyle(StashColor.ink))
                     Spacer(minLength: 0)
                 }
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14)
+                .background(StashColor.fill, in: RoundedRectangle(cornerRadius: StashRadius.object))
+                .overlay(RoundedRectangle(cornerRadius: StashRadius.object)
                     .strokeBorder(StashColor.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             }
             .buttonStyle(.stashPlain)
@@ -459,7 +460,9 @@ struct AskView: View {
             .foregroundStyle(StashColor.muted)
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .background(StashDotGrid())
+            .background(StashColor.paper)
+            .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
             .accessibilityIdentifier("ask.emptyState")
     }
 
@@ -665,12 +668,12 @@ struct AskView: View {
                 Text(text)
                 Spacer(minLength: 0)
             }
-            .stashFont(.meta)
+            .stashFont(.secondary)
             .foregroundStyle(.white)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(StashColor.destructive, in: RoundedRectangle(cornerRadius: 10))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(StashColor.destructive, in: RoundedRectangle(cornerRadius: StashRadius.machine))
+            .contentShape(RoundedRectangle(cornerRadius: StashRadius.machine))
         }
         .buttonStyle(.stashPlain)
         .accessibilityHint("Dismisses this message")
@@ -922,17 +925,37 @@ private struct AskHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.bottom, 8)
+        // Keep the native light status bar on paper above the machine window.
+        .background(StashColor.ink, ignoresSafeAreaEdges: [])
     }
 
     private var title: some View {
-        Text("Chat with your Stash")
-            .stashFont(.screenTitle)
-            .foregroundStyle(StashColor.ink)
-            .accessibilityAddTraits(.isHeader)
+        HStack(spacing: 10) {
+            Image("StashSymbol")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 20)
+                .foregroundStyle(StashColor.spotOnInk)
+                .accessibilityHidden(true)
+            Text("ask stash")
+                .stashFont(.machine)
+                .foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+        }
     }
 
-    /// The circles, or Cancel, over the size of both.
+    private func headerIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 16, weight: .medium))
+            .foregroundStyle(.white)
+            .frame(width: Self.circleSize, height: Self.circleSize)
+            .overlay(Rectangle().strokeBorder(Color.white.opacity(0.35), lineWidth: 1))
+            .stashMinimumHitTarget()
+    }
+
+    /// Actions and keyboard dismissal occupy the same space, preventing title jumps.
     private var controls: some View {
         ZStack(alignment: .trailing) {
             // Sizing only, never drawn: the circles' row, and Cancel's word in its role
@@ -950,11 +973,17 @@ private struct AskHeader: View {
                 .hidden()
                 .layoutPriority(2)
             if isComposing {
-                StashCancelButton(identifier: "ask.dismissKeyboard", action: onCancel)
+                Button("Cancel", action: onCancel)
+                    .stashFont(.textButton)
+                    .foregroundStyle(.white)
+                    .buttonStyle(.stashPlain)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityHint("Hides the keyboard")
+                    .accessibilityIdentifier("ask.dismissKeyboard")
             } else {
                 HStack(spacing: Self.circleSpacing) {
                     Button(action: onNewChat) {
-                        CircleIcon(systemImage: "square.and.pencil", size: Self.circleSize)
+                        headerIcon("square.and.pencil")
                     }
                     .buttonStyle(.plain)
                     .disabled(isStreaming)
@@ -962,7 +991,7 @@ private struct AskHeader: View {
                     .accessibilityIdentifier("ask.newChat")
 
                     Button(action: onHistory) {
-                        CircleIcon(systemImage: "clock", size: Self.circleSize)
+                        headerIcon("clock")
                     }
                     .buttonStyle(.plain)
                     .disabled(isStreaming)
@@ -993,12 +1022,12 @@ private struct AskSessionPill: View {
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                     .truncationMode(.tail)
             }
-            .stashFont(.meta)
-            .foregroundStyle(StashColor.violet700)
+            .stashFont(.secondaryMedium)
+            .foregroundStyle(StashColor.ink)
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
-            .background(StashColor.violet600.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(StashColor.violet300.opacity(0.6), lineWidth: 1))
+            .background(StashColor.fill, in: Rectangle())
+            .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("ask.sessionPill")
             Spacer(minLength: 0)
@@ -1141,11 +1170,15 @@ final class SpeechReader: NSObject, AVSpeechSynthesizerDelegate {
 private struct ScriptedChatStreamer: ChatStreaming {
     var chunkInterval: Duration = .milliseconds(110)
     var prose = false
+    /// Opt-in short lifecycle fixture: no status yet, searching, text, then completed or
+    /// interrupted. It uses the real ChatStore transitions with in-memory history only.
+    var thinkingProbe = false
 
     func stream(message: String, history: [[String: String]], accessToken: String) -> AsyncThrowingStream<SSEEvent, Error> {
         if message.hasPrefix("gate:") {
             return AsyncThrowingStream { $0.finish(throwing: ChatStreamError.subscriptionRequired) }
         }
+        if thinkingProbe { return Self.thinkingStream(for: message) }
         let chunkInterval = chunkInterval
         let chunks = prose ? Self.proseChunks(for: message) : Self.answerChunks(for: message)
         return AsyncThrowingStream { continuation in
@@ -1161,6 +1194,34 @@ private struct ScriptedChatStreamer: ChatStreaming {
                 }
                 continuation.yield(.done(sources: []))
                 continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func thinkingStream(for question: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    // Leave time to see the honest fallback before any server status exists.
+                    try await Task.sleep(for: .seconds(3))
+                    continuation.yield(.status(.searching))
+                    try await Task.sleep(for: .seconds(2))
+                    if question.hasPrefix("fail:") {
+                        continuation.finish(throwing: URLError(.networkConnectionLost))
+                        return
+                    }
+                    continuation.yield(.delta("Here is a short answer from your saved notes."))
+                    try await Task.sleep(for: .seconds(3))
+                    if question.hasPrefix("interrupt:") {
+                        continuation.finish(throwing: URLError(.networkConnectionLost))
+                    } else {
+                        continuation.yield(.done(sources: []))
+                        continuation.finish()
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
             }
             continuation.onTermination = { _ in task.cancel() }
         }

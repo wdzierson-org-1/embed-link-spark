@@ -156,7 +156,7 @@ struct DeleteAccountConfirmSheet: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .stashFont(.meta)
+                    .stashFont(.secondary)
                     .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("settings.deleteAccount.error")
             }

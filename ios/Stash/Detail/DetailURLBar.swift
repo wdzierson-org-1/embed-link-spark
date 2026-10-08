@@ -69,12 +69,13 @@ struct DetailURLBar: View {
                 }
             }
             .frame(width: 16, height: 16)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: StashRadius.object))
+            .padding(.leading, 12)
             .accessibilityHidden(true)
 
             Text(displayedURL)
-                .stashFont(.mono(.footnote))
-                .foregroundStyle(StashColor.muted)
+                .stashFont(.code(.footnote))
+                .foregroundStyle(StashColor.ink)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,17 +88,18 @@ struct DetailURLBar: View {
                     openURL(url)
                 } label: {
                     Image(systemName: "arrow.up.right.square")
-                        .foregroundStyle(StashColor.muted)
+                        .foregroundStyle(StashColor.white)
+                        .frame(width: 44, height: 44)
+                        .background(StashColor.ink)
                 }
                 .buttonStyle(.stashPlain)
                 .stashIconControl("Open link", systemImage: "arrow.up.right.square")
                 .accessibilityIdentifier("detail.openLink")
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(StashColor.paper.opacity(0.7), in: barShape)
-        .overlay(barShape.strokeBorder(StashColor.hairline, lineWidth: 1))
+        .frame(minHeight: 44)
+        .background(StashColor.surface, in: barShape)
+        .overlay(barShape.strokeBorder(StashColor.ink, lineWidth: 1))
         // The full-URL affordance: a long press anywhere on the bar.
         .contentShape(.contextMenuPreview, barShape)
         .contextMenu {

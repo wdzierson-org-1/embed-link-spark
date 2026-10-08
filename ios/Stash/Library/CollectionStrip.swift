@@ -14,7 +14,8 @@ struct CollectionStrip: View {
     var onCountChange: (Int) -> Void = { _ in }
 
     @State private var attachments: [CollectionAttachment] = []
-    private let maxTiles = 4
+    @Environment(\.cardWidth) private var cardWidth
+    private var maxTiles: Int { cardWidth < 240 ? 1 : 3 }
 
     private var shown: [CollectionAttachment] { Array(attachments.prefix(maxTiles)) }
     private var overflow: Int { max(0, attachments.count - maxTiles) }
@@ -89,8 +90,8 @@ private struct AttachmentTile: View {
             }
         }
         .frame(width: 72, height: 72)
-        .background(Color(.tertiarySystemFill))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background(StashColor.fill)
+        .clipShape(RoundedRectangle(cornerRadius: StashRadius.object))
     }
 
     private var iconTile: some View {
@@ -126,9 +127,9 @@ private struct OverflowTile: View {
             .font(StashType.decorative(.medium, size: 13))
             .foregroundStyle(StashColor.muted)
             .accessibilityHidden(true)
-            .frame(width: 56, height: 72)
-            .background(Color(.tertiarySystemFill))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .frame(width: 44, height: 72)
+            .background(StashColor.fill)
+            .clipShape(RoundedRectangle(cornerRadius: StashRadius.object))
     }
 }
 

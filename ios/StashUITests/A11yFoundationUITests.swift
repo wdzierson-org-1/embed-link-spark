@@ -150,13 +150,13 @@ final class A11yFoundationUITests: XCTestCase {
         tapPast("specimen.circle40", diameter: 40, gap: 1, expect: "circle40=1")
         tapPast("specimen.submit40", diameter: 40, gap: 1, below: true, expect: "submit40=1")
 
-        // PillTabs: the selected tab's frame includes its capsule (the tab's visual extent); the
-        // unselected tab reports either its text's frame or the same padded extent.
+        // V2 square tabs carry a real 44 pt layout height, so the whole target survives
+        // horizontal scrolling. Both the label's side padding and near-edge taps must work.
         let summary = app.buttons["specimen.tab.one"]
         let notes = app.buttons["specimen.tab.two"]
         XCTAssertTrue(notes.exists && summary.exists, "Pill tabs missing")
         let tabHeight = summary.frame.height
-        XCTAssertLessThan(tabHeight, 40, "The pill tab is already 44 pt tall — nothing to prove")
+        XCTAssertGreaterThanOrEqual(tabHeight, 43.5, "A tab must have a full 44 pt target height")
         let notesTab = notes.frame.height < tabHeight - 4
             ? notes.frame.insetBy(dx: -12, dy: -(tabHeight - notes.frame.height) / 2)
             : notes.frame
@@ -166,9 +166,8 @@ final class A11yFoundationUITests: XCTestCase {
                       "A tap beside the tab's word should select it, got \(taps.label)")
         summary.tap()
         XCTAssertTrue(A11yScreens.waitForLabel(taps, "tab=one", condition: "ENDSWITH"), "Summary should be selected again, got \(taps.label)")
-        // Just above the pill: inside a 44 pt target centred on the tab (the pill is ~32 pt tall,
-        // so this is ~3 pt inside the target's edge).
-        A11yScreens.tap(app, at: CGPoint(x: notesTab.midX, y: notesTab.minY - 3))
+        // One and a half points inside the tab's top edge: well beyond the text's glyphs.
+        A11yScreens.tap(app, at: CGPoint(x: notesTab.midX, y: notesTab.minY + 1.5))
         let expected = "circle36=2 circle40=1 submit40=1 glyph=0 cancel=0 surface=1 tab=two"
         XCTAssertTrue(A11yScreens.waitForLabel(taps, expected, condition: "=="), "Expected \(expected), got \(taps.label)")
     }
@@ -257,13 +256,13 @@ final class A11yFoundationUITests: XCTestCase {
         let screens = A11yScreens(self)
         let app = screens.launchSpecimen(.large)
         var flagged: [String] = []
-        var sawVioletOnWash = false
+        var sawNegativeControl = false
         let controls: Set<String> = ["specimen.cancel.wash", "specimen.cancel.plain", "specimen.cancel.surface",
                                      "specimen.glyph", "specimen.pin"]
         try app.performAccessibilityAudit(for: [.hitRegion, .dynamicType, .contrast]) { issue in
             let id = issue.element?.identifier ?? ""
             print("A11Y audit \(issue.compactDescription) | \(id) \"\(issue.element?.label ?? "")\"")
-            if issue.auditType == .contrast, id == "specimen.wash.violet600" { sawVioletOnWash = true }
+            if issue.auditType == .contrast, id == "specimen.contrast.negative" { sawNegativeControl = true }
             let isControl = id.hasPrefix("specimen.circle") || id.hasPrefix("specimen.submit") || id.hasPrefix("specimen.tab.")
                 || controls.contains(id)
             let isRole = id.hasPrefix("specimen.role.") && !id.hasPrefix("specimen.role.decorative")
@@ -278,7 +277,7 @@ final class A11yFoundationUITests: XCTestCase {
             return true   // collected here, asserted below
         }
         XCTAssertTrue(flagged.isEmpty, "Audit issues:\n" + flagged.joined(separator: "\n"))
-        XCTAssertTrue(sawVioletOnWash, "The contrast audit should flag violet-600 set straight on the wash — "
+        XCTAssertTrue(sawNegativeControl, "The contrast audit should flag the deliberately invalid lime-on-paper control — "
                       + "if it doesn't, it never looked at the wash strip and the Cancel check above proves nothing")
     }
 
@@ -455,6 +454,10 @@ final class A11yFoundationUITests: XCTestCase {
         for variant in [A11yVariant.large, .xxxLarge, .ax3] {
             let app = screens.launchSpecimen(variant)
             screens.attachScreenshot(named: "2a-specimen")
+            let registration = app.staticTexts["specimen.state"].label
+            for family in ["montreal", "departure", "code"] {
+                XCTAssertTrue(registration.contains("\(family)=true"), "\(family) did not register: \(registration)")
+            }
             print("A11Y metrics \(variant) \(app.staticTexts["specimen.metrics"].label)")
             for name in ["body", "footnote"] {
                 let sys = app.staticTexts["specimen.sys.\(name)"].frame.width
@@ -488,7 +491,8 @@ final class A11yFoundationUITests: XCTestCase {
         screens.attachScreenshot(named: "2a-specimen")
         Self.logBoldLab(app)
 
-        let heavier = ["book": "medium", "medium": "semibold", "semibold": "semibold", "bookItalic": "bookItalic"]
+        let heavier = ["book": "medium", "medium": "semibold", "semibold": "semibold", "bookItalic": "bookItalic",
+                       "departure": "departure", "code": "codeMedium", "codeMedium": "codeMedium"]
         let failures = Self.offContractRoles(app, variant: .largeBold) { role in
             role.style == "fixed" ? role.face : heavier[role.face] ?? role.face
         }
@@ -712,12 +716,12 @@ final class A11yFoundationUITests: XCTestCase {
     @MainActor
     private static func logBoldLab(_ app: XCUIApplication) {
         for name in ["custom.book", "custom.bookItalic", "custom.medium", "custom.semibold",
-                     "family.regular", "family.medium", "system"] {
+                     "custom.departure", "custom.code", "custom.codeMedium", "family.regular", "family.medium", "system"] {
             let regular = app.staticTexts["specimen.lab.regular.\(name)"].frame.width
             let bold = app.staticTexts["specimen.lab.bold.\(name)"].frame.width
             print("A11Y lab \(name) regular=\(fmt(regular)) bold=\(fmt(bold))")
         }
-        for face in ["book", "bookItalic", "medium", "semibold"] {
+        for face in ["book", "bookItalic", "medium", "semibold", "departure", "code", "codeMedium"] {
             print("A11Y ref \(face) width=\(fmt(app.staticTexts["specimen.ref.\(face)"].frame.width))")
         }
     }
@@ -803,12 +807,12 @@ final class A11yFoundationUITests: XCTestCase {
         let style: String
     }
 
-    /// DESIGN.md › Typography › iOS type roles.
+    /// DESIGN-v2.md typography plus the retained native 17/15 pt reading/control scale.
     private static let contract: [Role] = [
-        Role(name: "display", face: "semibold", size: 32, style: "largeTitle"),
-        Role(name: "panelTitle", face: "medium", size: 28, style: "title"),
-        Role(name: "screenTitle", face: "medium", size: 22, style: "title2"),
-        Role(name: "cardTitle", face: "medium", size: 20, style: "title3"),
+        Role(name: "display", face: "medium", size: 36, style: "largeTitle"),
+        Role(name: "panelTitle", face: "medium", size: 28, style: "largeTitle"),
+        Role(name: "screenTitle", face: "medium", size: 28, style: "largeTitle"),
+        Role(name: "cardTitle", face: "medium", size: 18, style: "headline"),
         Role(name: "reading", face: "book", size: 17, style: "body"),
         Role(name: "readingMedium", face: "medium", size: 17, style: "body"),
         Role(name: "readingSemibold", face: "semibold", size: 17, style: "body"),
@@ -816,14 +820,20 @@ final class A11yFoundationUITests: XCTestCase {
         Role(name: "secondary", face: "book", size: 15, style: "subheadline"),
         Role(name: "secondaryMedium", face: "medium", size: 15, style: "subheadline"),
         Role(name: "secondaryItalic", face: "bookItalic", size: 15, style: "subheadline"),
-        Role(name: "meta", face: "book", size: 13, style: "footnote"),
-        Role(name: "metaMedium", face: "medium", size: 13, style: "footnote"),
-        Role(name: "chip", face: "medium", size: 12, style: "caption"),
-        Role(name: "microLabel", face: "semibold", size: 12, style: "caption"),
-        Role(name: "kicker", face: "semibold", size: 12, style: "caption"),
+        Role(name: "meta", face: "departure", size: 11, style: "caption2"),
+        Role(name: "metaMedium", face: "departure", size: 11, style: "caption2"),
+        Role(name: "chip", face: "departure", size: 11, style: "caption2"),
+        Role(name: "microLabel", face: "departure", size: 11, style: "caption2"),
+        Role(name: "kicker", face: "departure", size: 11, style: "caption2"),
         Role(name: "textButton", face: "book", size: 17, style: "body"),
         Role(name: "textButtonProminent", face: "medium", size: 17, style: "body"),
         Role(name: "inlineButton", face: "medium", size: 15, style: "subheadline"),
+        Role(name: "machine", face: "departure", size: 11, style: "caption2"),
+        Role(name: "machineLarge", face: "departure", size: 16.5, style: "callout"),
+        Role(name: "machineDisplay", face: "departure", size: 22, style: "title2"),
+        Role(name: "mono.caption", face: "code", size: 12, style: "caption"),
+        Role(name: "code.footnote", face: "code", size: 13, style: "footnote"),
+        Role(name: "codeMedium.footnote", face: "codeMedium", size: 13, style: "footnote"),
         // Arbitrary sizes default to the nearest text style; the decorative helper never scales.
         Role(name: "font.book.14", face: "book", size: 14, style: "subheadline"),
         Role(name: "font.medium.24", face: "medium", size: 24, style: "title2"),
@@ -834,7 +844,7 @@ final class A11yFoundationUITests: XCTestCase {
 
     private static let textStyles: [String: UIFont.TextStyle] = [
         "largeTitle": .largeTitle, "title": .title1, "title2": .title2, "title3": .title3,
-        "body": .body, "subheadline": .subheadline, "footnote": .footnote,
+        "body": .body, "headline": .headline, "callout": .callout, "subheadline": .subheadline, "footnote": .footnote,
         "caption": .caption1, "caption2": .caption2,
     ]
 
@@ -842,7 +852,8 @@ final class A11yFoundationUITests: XCTestCase {
     /// `UIContentSizeCategory` raw value): iOS scales custom fonts with `UIFontMetrics` — a curve a
     /// little flatter than the system text styles' own sizes at the top end (body 17 → 22.3 at
     /// xxxLarge where SF body is 23; 37 at AX3 where SF is 40) — and SwiftUI draws the nearest
-    /// whole point. Measured to match on iOS 17.0 and 26.5 (plan 16). `fixed` never scales.
+    /// whole point, including at Large: the v2 simulator run measured Departure Mono's
+    /// 16.5 pt `.callout` role at 17.02 pt under Bold Text. `fixed` never scales or rounds.
     private static func expectedSize(_ size: CGFloat, style: String, category: String) -> CGFloat {
         if style == "fixed" { return size }
         guard let textStyle = textStyles[style] else { return .nan }

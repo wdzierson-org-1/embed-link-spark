@@ -74,7 +74,7 @@ struct SharingSection: View {
                 }
                 if let errorMessage {
                     Text(errorMessage)
-                        .stashFont(.meta)
+                        .stashFont(.secondary)
                         .foregroundStyle(StashColor.destructive)
                         .accessibilityIdentifier("detail.public.error")
                 }
@@ -102,7 +102,7 @@ struct SharingSection: View {
             Spacer(minLength: 8)
             Toggle(isOn: Binding(get: { item.isPublic }, set: { handleToggle($0) })) { EmptyView() }
                 .labelsHidden()
-                .tint(StashColor.violet600)
+                .toggleStyle(StashSwitchStyle())
                 .disabled(isToggling)
                 .accessibilityIdentifier("detail.public.toggle")
                 .accessibilityLabel("Share on your public feed")
@@ -124,7 +124,7 @@ struct SharingSection: View {
                     .stashFont(.secondaryMedium)
                     .foregroundStyle(StashColor.ink)
                 Text(item.isPublic ? "Anyone with your feed link can see this item" : "Only you can see this item")
-                    .stashFont(.meta)
+                    .stashFont(.secondary)
                     .foregroundStyle(StashColor.muted)
             }
         }
@@ -142,9 +142,9 @@ struct SharingSection: View {
     private var tile: some View {
         Image(systemName: item.isPublic ? "globe" : "lock")
             .font(StashType.decorative(.medium, size: 15))
-            .foregroundStyle(item.isPublic ? StashColor.violet600 : StashColor.muted)
+            .foregroundStyle(item.isPublic ? StashColor.white : StashColor.ink)
             .frame(width: 40, height: 40)
-            .background(item.isPublic ? StashColor.violet600.opacity(0.12) : StashColor.wash, in: Circle())
+            .background(item.isPublic ? StashColor.ink : StashColor.fill)
             .accessibilityHidden(true)
     }
 
@@ -178,7 +178,7 @@ struct SharingSection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text(feedURL.replacingOccurrences(of: "https://", with: ""))
-                    .stashFont(.mono(.caption2))
+                    .stashFont(.code(.footnote))
                     .foregroundStyle(StashColor.muted)
                     .lineLimit(3)
                     .truncationMode(.middle)
@@ -187,25 +187,23 @@ struct SharingSection: View {
                 } label: {
                     Image(systemName: didCopyFeedLink ? "checkmark" : "doc.on.doc")
                         .font(.system(size: copyGlyphSize, weight: .medium))
-                        .foregroundStyle(StashColor.violet600)
+                        .foregroundStyle(StashColor.white)
+                        .frame(width: 44, height: 44)
+                        .background(StashColor.ink)
                 }
                 .buttonStyle(.stashPlain)
                 .stashIconControl(didCopyFeedLink ? "Copied" : "Copy public feed link",
                                   systemImage: didCopyFeedLink ? "checkmark" : "doc.on.doc")
                 .accessibilityIdentifier("detail.sharing.feedLink.copy")
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .background(StashColor.paper.opacity(0.85),
-                        in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(StashColor.hairline, lineWidth: 1))
+            .padding(.leading, 12)
+            .background(StashColor.surface)
+            .overlay(Rectangle().strokeBorder(StashColor.ink, lineWidth: 1))
 
             Text("Turning this off removes it from your feed.")
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
         }
-        .padding(.leading, 52)
         .transition(.opacity.combined(with: .move(edge: .top)))
         .animation(.easeInOut(duration: 0.18), value: item.isPublic)
         .accessibilityIdentifier("detail.sharing.feedLink")
@@ -223,7 +221,7 @@ struct SharingSection: View {
     /// hint replaces the text field's default "Double-tap to edit" (4d review N-5): accepted — the
     /// field keeps its text-field trait, and the caption says what the field is for.
     private var stickyNoteField: some View {
-        let caption: LocalizedStringKey = "This note appears as a yellow sticky note on the public feed card."
+        let caption: LocalizedStringKey = "This note appears on your public feed card."
         return VStack(alignment: .leading, spacing: 4) {
             Text("Sticky note")
                 .stashFont(.meta)
@@ -238,17 +236,22 @@ struct SharingSection: View {
                 .frame(minHeight: 44)
                 .background {
                     RoundedRectangle(cornerRadius: StashRadius.input)
-                        .fill(Color.yellow.opacity(0.16))
+                        .fill(StashColor.surface)
                         .onTapGesture { focus.wrappedValue = .stickyNote }
+                }
+                .overlay(Rectangle().strokeBorder(focus.wrappedValue == .stickyNote ? StashColor.ink : StashColor.line, lineWidth: 1))
+                .overlay {
+                    if focus.wrappedValue == .stickyNote {
+                        Rectangle().stroke(StashColor.spot, lineWidth: 3).padding(-2).allowsHitTesting(false)
+                    }
                 }
                 .accessibilityHint(Text(caption))
                 .accessibilityIdentifier("detail.public.sticky")
             Text(caption)
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .accessibilityHidden(true)
         }
-        .padding(.leading, 52)
     }
 
     // MARK: - Actions

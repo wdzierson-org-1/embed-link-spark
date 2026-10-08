@@ -1,18 +1,8 @@
 import SwiftUI
 
-/// Shared pill-tab control — the same visual pattern `SignInView`'s Sign in/Sign up tabs
-/// established (a `wash` capsule track; the selected tab floats a `paper` capsule with a hairline
-/// border and a soft shadow over it). Extracted here (rather than duplicated) so any tab-style
-/// selector across the app — the detail sheet's content tabs (Task 6) included — draws from one
-/// implementation.
-///
-/// Plan 16 (HIG + accessibility): labels are the `secondaryMedium` role (Medium 15, `.subheadline`,
-/// Bold Text aware). Segmented chrome, like `UISegmentedControl`: they grow with Dynamic Type up
-/// to xxxLarge and stop there — at the accessibility sizes a long press shows the tab's label in
-/// the Large Content Viewer. Content-sized tabs that outgrow the width scroll sideways instead of
-/// squeezing or truncating. Each tab takes taps across its whole pill (it used to be just the word
-/// while unselected) and at least 44 pt of height; its accessibility frame is the pill too, and
-/// the selected tab carries VoiceOver's Selected trait (fix wave, I4).
+/// Source-compatible segmented control, restyled as square machine tabs. Labels remain
+/// Montreal, grow through xxxLarge, and expose the Large Content Viewer at larger sizes.
+/// Every tab has a real 44 pt height so its target survives a scrolling container.
 struct PillTabs<Tab: Hashable>: View {
     struct Item {
         let tab: Tab
@@ -50,13 +40,13 @@ struct PillTabs<Tab: Hashable>: View {
     }
 
     private var track: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             ForEach(items, id: \.tab) { item in
                 button(item)
             }
         }
-        .padding(4)
-        .background(StashColor.wash, in: Capsule())
+        .background(StashColor.white)
+        .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
     }
 
     private func button(_ item: Item) -> some View {
@@ -69,22 +59,17 @@ struct PillTabs<Tab: Hashable>: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: !fillWidth, vertical: true)
                 .frame(maxWidth: fillWidth ? .infinity : nil)
-                .foregroundStyle(selected ? StashColor.ink : StashColor.muted)
+                .foregroundStyle(selected ? StashColor.white : StashColor.muted)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background {
-                    if selected {
-                        Capsule()
-                            .fill(StashColor.paper)
-                            .overlay(Capsule().strokeBorder(StashColor.hairline, lineWidth: 1))
-                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
-                    }
-                }
-                .contentShape(.accessibility, Capsule())
+                .frame(minHeight: 44)
+                .background(selected ? StashColor.ink : StashColor.white)
+                .contentShape(Rectangle())
+                .contentShape(.accessibility, Rectangle())
                 .stashMinimumHitTarget()
         }
         .buttonStyle(.plain)
-        // VoiceOver says which tab is showing ("Summary, selected") — the paper capsule alone is
+        // VoiceOver says which tab is showing ("Summary, selected") — the ink field alone is
         // only visual (WCAG 4.1.2).
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityShowsLargeContentViewer { Text(item.label) }

@@ -135,19 +135,16 @@ struct DetailsDrawer: View {
     /// middle if it must; at the accessibility sizes the value goes under its label and wraps.
     private func factRow(key: String, label: String, value: String, mono: Bool = false) -> some View {
         FactLayout {
-            Text(label)
-                .stashFont(.meta)
-                .foregroundStyle(StashColor.muted)
+            treeLabel(label, last: false)
         } value: {
             Text(value)
-                .stashFont(mono ? .mono(.caption) : .metaMedium)
+                .stashFont(mono ? .code(.caption) : .secondary)
                 .foregroundStyle(StashColor.ink)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 .truncationMode(.middle)
                 .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
         }
         .padding(.vertical, 7.5)
-        .overlay(alignment: .bottom) { DottedDivider() }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("detail.details.row.\(key)")
     }
@@ -165,13 +162,21 @@ struct DetailsDrawer: View {
     /// `rows`'s own doc comment).
     private var locationRow: some View {
         FactLayout {
-            Text("Location")
-                .stashFont(.meta)
-                .foregroundStyle(StashColor.muted)
+            treeLabel("location", last: true)
         } value: {
             LocationRow(attributes: $attributes)
         }
         .padding(.vertical, 7.5)
+    }
+
+    private func treeLabel(_ text: String, last: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(last ? "└─" : "├─")
+                .foregroundStyle(StashColor.ink)
+                .accessibilityHidden(true)
+            Text(text.lowercased()).foregroundStyle(StashColor.muted)
+        }
+        .stashFont(.machine)
     }
 
     // MARK: - Facts

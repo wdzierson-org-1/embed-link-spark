@@ -31,6 +31,30 @@ media zone (video vs. audio), and the lightbox (portalled, close, Escape). Check
 an uploaded test clip (since deleted): the card played in place with the close visible, no overlay
 appeared while the pointer swept on and off the card, and the panel showed the video.
 
+## 2026-10-07 · iOS masonry and motion
+
+- View packs fixed left/right columns independently, preserving newest-first order and chronological VoiceOver navigation.
+- Sign-in adopts the web hero’s lime ASCII pool and stipple. Native fluid responds to phone tilt and movement; the form stays still. Motion pauses during typing/inactivity and respects Reduce Motion.
+- Ask uses a single rotating cursor throughout thinking and streaming, with accessible status text and no active cursor after completion or failure.
+- See [simulator handoff](ios-design-v2-handoff.md) and [motion preview](ios-design-v2/ascii-motion.mp4).
+
+## 2026-10-07 · iOS adopts the v2 web design
+
+- **Contracts:** capture, sign-in, search, chat, detail editing, sharing, and the durable
+  queues keep their existing APIs. Cards remain one tap target opening the detail sheet.
+  Native keyboard dismissal, 44 pt controls, Dynamic Type, VoiceOver and Reduce Motion remain.
+- **Visuals:** paper/white/black with one lime spot; ST4SH wordmark and A/4 symbol/icon;
+  near-square objects and square controls; Montreal human text, Departure Mono machine
+  labels, JetBrains Mono literal strings. Applies to Add, View, Ask, detail, sign-in,
+  settings, onboarding and the share extension. Replaces the purple gradient and type tints.
+- **Library:** two columns at normal phone text sizes, one at accessibility sizes; black
+  kind tags, ruled metadata, grayscale plates, honest cursor status while enrichment runs.
+- **Native adaptation:** the tab bar and modal presentation remain native. Settings keeps
+  its existing account/phone/subscription actions in a flat numbered list; no new web-only
+  settings or connected-agent flows are introduced by this styling change.
+- **Reference:** October 7 `app-redesign-v2` design guide; `DESIGN-v2.md` now contains that
+  complete reference. See `ios-design-v2-handoff.md` for build and simulator verification.
+
 ## 2026-10-07 · The new homepage is live at gostash.it, and the app moves off "/"
 
 Will: "deploy the new homepage, sign in/up, and web app design." The homepage prototype (v0.6) is now

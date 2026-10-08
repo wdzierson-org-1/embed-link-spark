@@ -55,7 +55,7 @@ struct PhoneSection: View {
                     .accessibilityIdentifier("settings.phone.error")
             }
         } header: {
-            settingsCaption("Phone Numbers")
+            settingsHeading("02 / Phone & WhatsApp")
         } footer: {
             settingsCaption("Register up to 3 numbers to send notes via SMS or WhatsApp.")
         }

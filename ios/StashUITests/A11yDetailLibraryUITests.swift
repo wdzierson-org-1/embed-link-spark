@@ -123,7 +123,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
             XCTAssertTrue(pane.waitForExistence(timeout: 20), "\(variant): expected the No matches pane")
             sleep(1)
             try capture(app, screens, "view-nomatch", variant)
-            XCTAssertTrue(pane.label.contains("No matches"), "\(variant): the pane should read as one element, got '\(pane.label)'")
+            XCTAssertTrue(pane.label.contains("Nothing matches that."), "\(variant): the pane should read as one element, got '\(pane.label)'")
 
             // The refresh-error banner over the cards (DEBUG `--uitest-library-error-banner` — a
             // real one needs a failed refresh): ink on the orange, the message whole, and "Retry"
@@ -526,8 +526,13 @@ final class A11yDetailLibraryUITests: XCTestCase {
             A11yScreens.scrollIntoView(app, bar)
             sleep(1)
             if text.label != url { failures.append("\(variant): VoiceOver reads '\(text.label)', not the whole URL") }
-            let pointSize = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: variant.traits).pointSize
-            let line = UIFont.monospacedSystemFont(ofSize: pointSize, weight: .regular).lineHeight
+            // The v2 URL is `.code(.footnote)`: JetBrains Mono at 13 pt, scaled and
+            // rounded by UIFontMetrics. The bundled TTF's hhea metrics are 1020/-300
+            // with zero gap and 1000 units/em, so a line is 1.32 em. A UI test runs
+            // in its own process and cannot resolve the app's registered custom font.
+            let pointSize = UIFontMetrics(forTextStyle: .footnote)
+                .scaledValue(for: 13, compatibleWith: variant.traits).rounded()
+            let line = pointSize * 1.32
             let lines = text.frame.height / line
             print("A11Y url \(variant): text \(text.frame) · mono line \(line) · \(String(format: "%.2f", lines)) lines")
             screens.attachScreenshot(named: (Self.isIOS26 ? "2b-ios26-" : "2b-") + "detail-url")
@@ -566,13 +571,11 @@ final class A11yDetailLibraryUITests: XCTestCase {
         XCTAssertTrue(failures.isEmpty, "The detail URL is off its contract:\n" + failures.joined(separator: "\n"))
     }
 
-    /// WCAG 1.4.1, Use of Color (2b review; coordinator decision): a link in reading text is
-    /// underlined — colour alone can't mark it (violet-600 is 2.93:1 against ink body text and
-    /// 1.04:1 against a muted quote). Checked in the pixels, in body text and inside a quote, at
-    /// Large and with Bold Text: under each link's word runs a line in the shared underline colour
-    /// (`StashColor.linkUnderline`: violet-600 at 80 % over white, ≈ #8a7cd9, 3.52:1), far longer
-    /// than any stroke edge of a violet glyph. The link words have no descenders, so nothing
-    /// crosses the line. The old 50 % underline and a missing one both fail (`isLinkUnderline`).
+    /// Links in reading text remain underlined in v2: both links and body text are ink,
+    /// so colour cannot identify a link. Checked in body text and in a quote at Large and
+    /// Bold Text: the solid `StashColor.linkUnderline` (#000) runs at least 30 pt, longer
+    /// than a glyph's horizontal stroke. The probe's link words have no descenders.
+    /// The former violet/transparent underline and a missing underline both fail.
     @MainActor
     func testLinksInReadingTextAreUnderlined() async throws {
         let seeded = try await seedLinkRow("Link probe", fields: [
@@ -619,7 +622,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
 
     /// 2b review M-2 (recipe R-2), and the 2bf review's m1:
     /// - "Generating summary…" is the progress people read while a summary is made. So it keeps
-    ///   `muted`'s contrast (#646b76, 5.38:1 on white) and isn't dimmed by its disabled button.
+    ///   `muted`'s contrast (#5c6159, 6.4:1 on white) and isn't dimmed by its disabled button.
     ///   It's sampled in the label's middle band, past the spinner; the 44 pt target's overhang
     ///   reaches the "No summary yet" line above.
     /// - VoiceOver still hears a button, dimmed (not enabled).
@@ -848,7 +851,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
         Large to the [accessibility sizes](https://developer.apple.com/design/human-interface-guidelines/typography).
 
         - Reading text is 17 pt at Large
-        - Meta text is 13 pt, in `muted`
+        - Machine metadata is 11 pt, in `muted`
         - Controls take taps across 44 × 44 pt
 
         1. Set roles, never point sizes
@@ -1313,29 +1316,21 @@ private struct ScreenPixels {
                 String(format: "#%02x%02x%02x", bytes[i], bytes[i + 1], bytes[i + 2]))
     }
 
-    /// Mirrors `StashColor.linkUnderline` (`StashDesign.swift`): the underline is violet-600 at
-    /// this alpha. A UI test can't import the app, so change the two together.
-    static let linkUnderlineAlpha = 0.8
-    /// violet-600, #6d5bd0 (`StashColor.violet600`).
-    private static let violet600: (r: Double, g: Double, b: Double) = (109, 91, 208)
+    /// Mirrors `StashColor.linkUnderline` (`StashDesign.swift`): solid ink in v2.
+    /// A UI test cannot import the app, so keep these reference tokens in sync.
+    static let linkUnderlineAlpha = 1.0
+    private static let ink: (r: Double, g: Double, b: Double) = (0, 0, 0)
 
-    /// The link underline's colour: violet-600 at `linkUnderlineAlpha` over the white sheet,
-    /// ≈ #8a7cd9, within 6 levels a channel. Rendering and the screenshot move it by 1–2.
-    /// - Only fully covered pixels: the underline is 2 px rows at @3x with white directly above and
-    ///   below (both OSes, L and L-bold), so a whole row always lands. A partly covered pixel lies
-    ///   on the line toward white, where the old 50 % underline also lies, so taking those would
-    ///   pass it.
-    /// - RED-capable both ways: the old 50 % underline (#b6ade8) is 44 levels off in red, and a
-    ///   missing underline leaves nothing but glyphs. A violet-600 core (#6d5bd0) is 29 off; white,
-    ///   `ink`, `muted` and their antialiased greys miss the hue.
-    /// - A violet glyph's antialiased edge can match, but only in runs as short as a stroke, and
-    ///   the caller asks for 30 pt.
+    /// The line's fully covered ink pixels, allowing six levels per channel for rendering.
+    /// Translucent ink and the old violet recipe miss this range. Black glyph cores can
+    /// match too, so the caller still requires an unbroken 30 pt run inside the text block;
+    /// no glyph stroke is that long. The quote's vertical rule cannot satisfy that length.
     static func isLinkUnderline(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> Bool {
         let a = linkUnderlineAlpha, tolerance = 6.0
         func expected(_ c: Double) -> Double { 255 - a * (255 - c) }
-        return abs(Double(r) - expected(violet600.r)) <= tolerance
-            && abs(Double(g) - expected(violet600.g)) <= tolerance
-            && abs(Double(b) - expected(violet600.b)) <= tolerance
+        return abs(Double(r) - expected(ink.r)) <= tolerance
+            && abs(Double(g) - expected(ink.g)) <= tolerance
+            && abs(Double(b) - expected(ink.b)) <= tolerance
     }
 
     private func pixelBounds(_ frame: CGRect) -> (Int, Int, Int, Int)? {

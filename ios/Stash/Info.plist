@@ -28,12 +28,17 @@
 	<string>Stash tags saves with where you were — only when you turn the pin on.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Stash uses the microphone for voice notes.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Stash uses phone movement to stir the sign-in screen's ASCII pool. Motion stays on your device.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>PPNeueMontreal-Book.ttf</string>
 		<string>PPNeueMontreal-BookItalic.ttf</string>
 		<string>PPNeueMontreal-Medium.ttf</string>
 		<string>PPNeueMontreal-Semibold.ttf</string>
+		<string>DepartureMono-Regular.ttf</string>
+		<string>JetBrainsMono-Regular.ttf</string>
+		<string>JetBrainsMono-Medium.ttf</string>
 		<string>PPEditorialNew-Regular.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>

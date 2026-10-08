@@ -1,184 +1,73 @@
 import SwiftUI
 import StashKit
 
-/// Shared pieces of the single-object card system (mirrors web `CardBits.tsx`). Anatomy on
-/// every card: object zone → kicker → title (serif) → description → user's annotation (violet
-/// bar) → metadata chips (leading type chip — tinted or neutral, always present — then facts) →
-/// footer (date · location; plan 9 final wave dropped the footer's own type badge, now that
-/// every card carries its type up in the chips row instead). The formatter functions
-/// (`formatFileSizeChip`/`formatDurationChip`/`mimeExtensionLabel`) already live in StashKit's
-/// `CardMetadata.swift` (Task 4) — this file holds only the SwiftUI-facing pieces.
 enum CardHeroHeight {
-    /// Landscape imagery, plates — every populated hero zone that isn't `.tall`.
     static let standard: CGFloat = 160
-    /// Portrait media, contained link covers (video/book).
     static let tall: CGFloat = 224
 }
 
-/// Tailwind-matched accents used across the plates (no design-token asset for these yet — see
-/// `docs/superpowers/specs/2026-08-16-single-object-items-design.md`).
-extension Color {
-    /// violet-600 — favicon-plate letter + image file-plate icon.
-    static let cardVioletAccent = Color(red: 0.486, green: 0.227, blue: 0.929)
-    /// violet-100/50 — favicon/image-file-plate icon backgrounds.
-    static let cardVioletTint = Color(red: 0.929, green: 0.914, blue: 0.996)
-    /// red-500 — document file-plate icon.
-    static let cardRedAccent = Color(red: 0.937, green: 0.267, blue: 0.267)
-    /// red-50 — document file-plate icon background.
-    static let cardRedTint = Color(red: 0.996, green: 0.949, blue: 0.949)
+/// The machine's square label. Kept separate from metadata, which is plain text under a rule.
+struct CardKindTag: View {
+    let text: String
+    var inverted = false
+
+    var body: some View {
+        Text(text)
+            .stashFont(.machine)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .foregroundStyle(inverted ? StashColor.ink : StashColor.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(inverted ? StashColor.white : StashColor.ink)
+    }
 }
 
-/// A small pill-shaped metadata chip. `mono` is for the raw-filename chip; everything else
-/// (facts, duration) reads as plain text, matching `MetaChip.tsx`'s `mono?` prop.
-///
-/// Plan 16: the `chip` role (Medium 12, was 11) — `mono(.caption2)` for the mono variant — in
-/// `muted`, which is 4.9:1 on the chip's 4 % fill.
 struct MetaChip: View {
     var mono = false
     let text: String
 
     var body: some View {
-        Text(text)
-            .stashFont(mono ? .mono(.caption2) : .chip)
+        Text(text.lowercased())
+            .stashFont(mono ? .code(.caption2) : .machine)
             .lineLimit(1)
             .truncationMode(.middle)
             .foregroundStyle(StashColor.muted)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Color.primary.opacity(0.04), in: Capsule())
     }
 }
 
-/// `TYPE · SIZE` join shared by file plates and the metadata-chips row's facts chip — nil when
-/// neither half has data, single-half when only one does (matches `ContentItemContent.tsx`'s
-/// `[mimeExtensionLabel, formatFileSizeChip].filter(Boolean).join(' · ')`).
 func factsLine(mime: String?, size: Int?) -> String? {
     let parts = [mimeExtensionLabel(mime), formatFileSizeChip(size)].compactMap { $0 }
-    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    return parts.isEmpty ? nil : parts.joined(separator: " · ").lowercased()
 }
 
-// MARK: - Type-spectrum chip (DESIGN.md §Components "Chips grammar" + §Color "Type spectrum")
-
-/// The always-visible leading type chip — "tinted type chip (always visible — replaces any
-/// hover-only type badge)", DESIGN.md's first chips-grammar element. Reads its tint/text color
-/// from Task 0's `StashColor.typeField`/`typeText` (the same pair every type-tinted plate below
-/// reads), so a chip and its plate (where one exists) always agree. Distinct from `MetaChip`
-/// (neutral, untinted facts) — this one carries the object's *type* identity, matching web
-/// `CardBits.tsx`'s `TypeChip`.
-struct TypeChip: View {
-    let tint: StashColor.TypeTint
-    let systemImage: String
-    let text: String
-
-    /// Plan 16: the `chip` role (Medium 12, was 11; the glyph takes the same size), each type's own
-    /// text colour on its own tint — 5.2:1 to 7.5:1.
-    var body: some View {
-        Label(text, systemImage: systemImage)
-            .labelStyle(.titleAndIcon)
-            .stashFont(.chip)
-            // A chip row that exceeds the card's content width must not degrade this into
-            // vertical text (the same squeeze-proofing the now-deleted footer `typeBadge`
-            // (ItemCardView) used to need) — the chips row's own `FlowLayout` (plan 9 final wave)
-            // handles the actual overflow by wrapping instead, but each individual chip still
-            // needs to hold its own single-line size within its row.
-            .lineLimit(1)
-            .fixedSize()
-            .foregroundStyle(StashColor.typeText(tint))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(StashColor.typeField(tint), in: Capsule())
-            // Same HStack-identifier-collision fix as `ItemCardView.locationBadge`/`CaptureComposerView
-            // .pinPreview` (Task 6/9 findings): a bare `Label`'s icon and text independently inherit
-            // `card.typeChip` without this, and an XCUITest query for it returns "multiple matching
-            // elements" instead of the one element the anatomy smoke expects.
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(text)
-            .accessibilityIdentifier("card.typeChip")
-    }
-}
-
-/// Voice note vs. long recording — mirrors web `audioSubtype` (`CardBits.tsx`) via StashKit's
-/// `ItemDisplay.audioKind`: enrichment's `attributes.media.kind` (`"voice_note"`/`"recording"`,
-/// preserved in `MediaAttributes.extra` since plan 15 Task 5) wins; only when it's absent does the
-/// duration fallback apply — under ten minutes reads as a voice note, at or over ten minutes as a
-/// recording.
 func audioSubtype(_ item: Item) -> StashColor.TypeTint {
     ItemDisplay.audioKind(for: item) == .recording ? .audio : .voice
 }
 
-/// Screenshot vs. plain photo — mirrors web `isScreenshotItem` (`CardBits.tsx`) via
-/// `ItemDisplay.isScreenshot`: `attributes.media.kind == "screenshot"` (enrichment), else the
-/// vision-written title's own words ("Screenshot of …").
-func isScreenshotItem(_ item: Item) -> Bool {
-    ItemDisplay.isScreenshot(item)
-}
+func isScreenshotItem(_ item: Item) -> Bool { ItemDisplay.isScreenshot(item) }
 
-/// `document`'s spreadsheet-vs-generic split — mirrors web `isSpreadsheetExt` (`CardBits.tsx`).
-func isSpreadsheetExt(_ ext: String?) -> Bool {
-    ext == "XLSX" || ext == "XLS" || ext == "CSV"
-}
+func isSpreadsheetExt(_ ext: String?) -> Bool { ext == "XLSX" || ext == "XLS" || ext == "CSV" }
 
-/// Web `LINK_FLAVOR_LABELS` (`ContentItemContent.tsx`), transcribed verbatim — `social` reads
-/// "post" (the label, not the raw flavor string), everything else round-trips its own name, and
-/// an unrecognized/missing flavor falls back to "link" (web's own `?? 'link'` default).
-private let linkFlavorLabels: [String: String] = [
-    "article": "article",
-    "video": "video",
-    "repo": "repo",
-    "book": "book",
-    "social": "post",
-    "generic": "link",
-]
-
-private func linkFlavorLabel(for item: Item) -> String {
-    linkFlavorLabels[item.attributes.link?.flavor ?? "generic"] ?? "link"
-}
-
-/// Plan 9 final wave: the untinted types now carry a neutral `MetaChip` in this same slot instead
-/// of `nil` (DESIGN.md/web parity — `typeChipFor`'s `MetaChip` branches for `photo`/`video`/
-/// `note`/link-flavor) — so the identifier that makes a chip queryable as THE card's leading type
-/// chip (`card.typeChip`) is applied HERE, at the one call site that fills that grammar slot, and
-/// NOT on `MetaChip` itself (reused elsewhere in the chips row — facts, duration — where that
-/// identifier must not appear).
-private func neutralTypeChip(_ text: String) -> some View {
-    MetaChip(text: text).accessibilityIdentifier("card.typeChip")
-}
-
-/// The leading type chip for one item. Mirrors web `ContentItemContent.tsx`'s `typeChipFor` for
-/// the rows DESIGN.md's type-spectrum table tints (voice/recording, document/spreadsheet,
-/// screenshot) — copy kept verbatim, lowercase, matching web's own JSX literals (`TypeChip`'s
-/// `text-[11px] font-medium` carries no uppercase transform) — plus, per DESIGN.md's chips
-/// grammar ("always-visible type chip first ... neutral for photo / note / video / link
-/// flavors"), a neutral `MetaChip` for the types that don't earn a tint: `.image` (non-
-/// screenshot) reads "photo", `.video` reads "video", `.text` reads "note", `.link` reads its
-/// flavor label. `.collection` (legacy, frozen design) and `.unknown` still return `nil` — the
-/// collection card builds its own "N items" chip inline (`ItemCardView.collectionBody`, needs
-/// `collectionCount` state this free function has no access to).
-func typeChip(for item: Item) -> AnyView? {
+/// Shared by card labels and the detail window bar; this never changes the stored item type.
+func cardKindLabel(for item: Item) -> String {
     switch item.type {
-    case .audio:
-        let subtype = audioSubtype(item)
-        return AnyView(TypeChip(tint: subtype,
-                                 systemImage: subtype == .voice ? "mic.fill" : "waveform",
-                                 text: subtype == .voice ? "voice note" : "recording"))
+    case .audio: return audioSubtype(item) == .voice ? "voice note" : "recording"
     case .document:
         let ext = mimeExtensionLabel(item.mimeType)
-        if isSpreadsheetExt(ext) {
-            return AnyView(TypeChip(tint: .document, systemImage: "tablecells", text: "spreadsheet"))
-        }
-        return AnyView(TypeChip(tint: .document, systemImage: "doc.fill", text: ext?.lowercased() ?? "document"))
-    case .image:
-        if isScreenshotItem(item) {
-            return AnyView(TypeChip(tint: .screenshot, systemImage: "viewfinder", text: "screenshot"))
-        }
-        return AnyView(neutralTypeChip("photo"))
-    case .video:
-        return AnyView(neutralTypeChip("video"))
-    case .text:
-        return AnyView(neutralTypeChip("note"))
+        return isSpreadsheetExt(ext) ? "spreadsheet" : (ext?.lowercased() ?? "document")
+    case .image: return isScreenshotItem(item) ? "screenshot" : "photo"
+    case .video: return "video"
+    case .text: return "note"
     case .link:
-        return AnyView(neutralTypeChip(linkFlavorLabel(for: item)))
-    case .collection, .unknown:
-        return nil
+        let flavor = item.attributes.link?.flavor ?? "generic"
+        return ["article": "article", "video": "video", "repo": "repo", "book": "book", "social": "post"][flavor] ?? "link"
+    case .collection: return "multi-part"
+    case .unknown: return "save"
     }
+}
+
+func typeChip(for item: Item) -> AnyView? {
+    AnyView(CardKindTag(text: cardKindLabel(for: item))
+        .accessibilityIdentifier("card.typeChip"))
 }

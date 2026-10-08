@@ -64,9 +64,13 @@ targets:
           - PPNeueMontreal-BookItalic.ttf
           - PPNeueMontreal-Medium.ttf
           - PPNeueMontreal-Semibold.ttf
+          - DepartureMono-Regular.ttf
+          - JetBrainsMono-Regular.ttf
+          - JetBrainsMono-Medium.ttf
           - PPEditorialNew-Regular.ttf
         NSCameraUsageDescription: "Stash uses the camera to capture photos straight into your stash."
         NSMicrophoneUsageDescription: "Stash uses the microphone for voice notes."
+        NSMotionUsageDescription: "Stash uses phone movement to stir the sign-in screen's ASCII pool. Motion stays on your device."
         NSLocationWhenInUseUsageDescription: "Stash tags saves with where you were — only when you turn the pin on."
         # Plan 15 H3: a voice memo keeps recording when the screen locks or the user switches
         # apps (AudioRecorderController). App-target only — the share extension never records.
@@ -134,6 +138,9 @@ targets:
           - PPNeueMontreal-BookItalic.ttf
           - PPNeueMontreal-Medium.ttf
           - PPNeueMontreal-Semibold.ttf
+          - DepartureMono-Regular.ttf
+          - JetBrainsMono-Regular.ttf
+          - JetBrainsMono-Medium.ttf
         # Fix round 1 (Important review finding): the app target declares this; the extension
         # needs its OWN copy (an extension's Info.plist is entirely separate from its host app's,
         # regardless of any TCC-inheritance question the pin-visibility live check settles

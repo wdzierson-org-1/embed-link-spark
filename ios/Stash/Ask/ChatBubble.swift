@@ -28,8 +28,8 @@ import Supabase
 /// - An answer reads block by block in VoiceOver: a paragraph, a heading (a heading for the rotor
 ///   too), a list item. Each block is one element, so its links stay reachable and a long answer
 ///   can be moved through a block at a time.
-/// - The streaming cursor blinks its opacity only — never its position — and holds still under
-///   Reduce Motion.
+/// - One rotating machine cursor marks the active answer, before and during its text.
+///   Reduce Motion holds it still; a finished or interrupted answer has no active cursor.
 struct ChatBubble: View, Equatable {
     let message: ChatMessage
     let index: Int
@@ -96,10 +96,10 @@ struct ChatBubble: View, Equatable {
             Text(message.content)
                 .chatBubbleText()
                 .accessibilityIdentifier("ask.bubble.\(index)")
-                .foregroundStyle(.white)
+                .foregroundStyle(StashColor.ink)
                 .padding(.horizontal, ChatBubbleLayout.questionHorizontalPadding)
                 .padding(.vertical, ChatBubbleLayout.questionVerticalPadding)
-                .background(StashColor.violet600, in: RoundedRectangle(cornerRadius: 18))
+                .background(StashColor.fill, in: RoundedRectangle(cornerRadius: StashRadius.object))
         }
     }
 
@@ -115,34 +115,14 @@ struct ChatBubble: View, Equatable {
         let rendered = ChatRenderCache.shared.answer(for: message)
         return HStack(alignment: .top, spacing: ChatBubbleLayout.spacing) {
             VStack(alignment: .leading, spacing: ChatBubbleLayout.answerSpacing) {
-                HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    // Plan 15: what the server's agent loop is doing before the first token
-                    // ("Searching your stash…"), in plain meta text inside the existing
-                    // placeholder bubble. Its own identifier, so `ask.bubble.<n>` below keeps
-                    // meaning "the answer text" for the UI tests that poll it.
-                    if rendered.displayText.isEmpty, let status = message.streamStatus {
-                        Text(status.label)
-                            .stashFont(.meta)
-                            .foregroundStyle(StashColor.muted)
-                            .accessibilityFocused(accessibilityFocus, equals: .answerStatus(message.id))
-                            .accessibilityIdentifier("ask.bubble.\(index).status")
-                    }
-                    // A wholly-blank answer (the instant between the placeholder's append and the
-                    // first delta) would otherwise have no meaningful accessibility presence to
-                    // find/poll — a single space keeps the identifier reliably resolvable.
-                    Group {
-                        if rendered.displayText.isEmpty {
-                            Text(" ")
-                        } else {
-                            ChatAnswerText(blocks: rendered.blocks, messageId: message.id,
-                                           accessibilityFocus: accessibilityFocus)
-                        }
-                    }
-                    .accessibilityIdentifier("ask.bubble.\(index)")
-                    if message.isStreaming {
-                        StreamingCursor()
+                answerActivity
+                Group {
+                    if !rendered.displayText.isEmpty {
+                        ChatAnswerText(blocks: rendered.blocks, messageId: message.id,
+                                       accessibilityFocus: accessibilityFocus)
                     }
                 }
+                .accessibilityIdentifier("ask.bubble.\(index)")
                 #if DEBUG
                 .overlay(alignment: .topLeading) {
                     // Links can't carry their own per-run accessibility identifiers inside `Text` —
@@ -162,6 +142,9 @@ struct ChatBubble: View, Equatable {
                 }
                 #endif
                 if !rendered.extraSources.isEmpty {
+                    Text("also from")
+                        .stashFont(.machine)
+                        .foregroundStyle(StashColor.muted)
                     sourcesRow(rendered.extraSources)
                         // 44 pt between a chip's centre and the actions row's below (plan 16).
                         .padding(.bottom, ChatBubbleLayout.chipsBottomGap)
@@ -169,9 +152,57 @@ struct ChatBubble: View, Equatable {
                 actionsRow
             }
             .padding(ChatBubbleLayout.answerPadding)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+            .background(StashColor.surface, in: RoundedRectangle(cornerRadius: StashRadius.object))
             Spacer(minLength: ChatBubbleLayout.farSideGap)
         }
+    }
+
+    /// The pending answer has a visible presence immediately, even before a server status
+    /// or the first token. The same rotating cursor continues while text arrives; there is
+    /// no second blink competing with it. StashCursor owns the 130 ms clock and Reduce Motion.
+    private var answerActivity: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Group {
+                if isAnswering {
+                    StashCursor(size: .machineLarge)
+                } else {
+                    Image("StashSymbol")
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 11, height: 13)
+                }
+            }
+            .frame(minWidth: 22, minHeight: 22)
+            .foregroundStyle(StashColor.ink)
+            .accessibilityHidden(true)
+            Text(answerStatus)
+                .stashFont(.machine)
+                .foregroundStyle(StashColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        // Frame changes never become spoken punctuation: VoiceOver gets the actual state,
+        // and its focus stays on this element as thinking becomes writing, then completion.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(answerStatus)
+        .accessibilityValue(isAnswering ? "In progress" : message.isInterrupted ? "Interrupted" : "Complete")
+        .accessibilityFocused(accessibilityFocus, equals: .answerStatus(message.id))
+        .accessibilityIdentifier("ask.bubble.\(index).status")
+    }
+
+    private var isAnswering: Bool { message.isStreaming && !message.isInterrupted }
+    private var hasAnswerText: Bool {
+        !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Only status frames name retrieval steps. The fallback promises no unseen server work.
+    private var answerStatus: String {
+        if message.isInterrupted { return "answer interrupted" }
+        if isAnswering {
+            if !hasAnswerText { return message.streamStatus?.label.lowercased() ?? "thinking…" }
+            return "writing the answer…"
+        }
+        return message.sources.isEmpty ? "✓ answer ready" : "✓ answer ready · \(message.sources.count) saves"
     }
 
     // MARK: - Sources
@@ -214,7 +245,7 @@ struct ChatBubble: View, Equatable {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 if isLoading {
-                    ProgressView().controlSize(.mini)
+                    StashCursor()
                 } else {
                     Image(systemName: icon(for: source.type))
                         .accessibilityHidden(true)
@@ -223,10 +254,12 @@ struct ChatBubble: View, Equatable {
                     .lineLimit(stacked ? 3 : 1)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .stashFont(.chip)
+            .stashFont(.secondaryMedium)
+            .foregroundStyle(StashColor.ink)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: stacked ? 16 : 100))
+            .background(StashColor.surface, in: RoundedRectangle(cornerRadius: StashRadius.object))
+            .overlay(RoundedRectangle(cornerRadius: StashRadius.object).strokeBorder(StashColor.line, lineWidth: 1))
         }
         .buttonStyle(.stashPlain)
         .disabled(isLoading)
@@ -369,7 +402,7 @@ enum AskAccessibilityFocus: Hashable {
     /// An element of the answer with this message id: its block `block`, and in a list, item `item`
     /// (0 for every other block).
     case answer(messageId: String, block: Int, item: Int)
-    /// The status line of the answer with this message id, shown until its first words.
+    /// The stable status row of the answer, from thinking through writing to its outcome.
     case answerStatus(String)
     /// The composer's field.
     case composer
@@ -382,7 +415,7 @@ enum AskAccessibilityFocus: Hashable {
         guard message.role == .assistant else { return nil }
         let rendered = ChatRenderCache.shared.answer(for: message)
         guard !rendered.displayText.isEmpty, let last = rendered.blocks.last else {
-            return message.streamStatus == nil ? nil : .answerStatus(message.id)
+            return message.isStreaming || message.isInterrupted ? .answerStatus(message.id) : nil
         }
         let item = switch last {
         case .bullets(let items), .numbered(let items): items.count - 1
@@ -425,38 +458,6 @@ enum ChatBubbleLayout {
     static let chipTargetInset: CGFloat = 10
     /// Extra room under the chips, so a chip's centre and an action's below are 44 pt apart.
     static let chipsBottomGap: CGFloat = 10
-}
-
-/// The blinking `▍` while an answer streams — the same look as ever (opacity 1 ↔ 0.15, ease-in-out
-/// 0.6 s).
-///
-/// Plan 16 (task 2d): the repeating animation is scoped to the opacity ALONE (`animation(_:body:)`).
-/// It used to be `.animation(_:value:)` on the cursor, which applies to every change in the cursor's
-/// subtree in the update where the value flips — its position in the answer's row included. The flip
-/// is in `onAppear`, and when that update also moved the cursor (the status line arriving beside it, or
-/// the first words replacing it), the move took the repeating animation: the cursor slid back and
-/// forth between where it had been and where it belonged for the rest of the answer, drawn over the
-/// text ("Point 33: a▍short scripted line" on iOS 26.5). (Final wave B had already scoped it to the
-/// cursor; before that, `withAnimation(.repeatForever)` in `onAppear` caught the whole row's layout.)
-///
-/// Reduce Motion: no blink — the cursor stays solid. It's decoration, so VoiceOver skips it.
-private struct StreamingCursor: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dimmed = false
-
-    var body: some View {
-        Text("▍")
-            .stashFont(.reading)
-            .foregroundStyle(StashColor.muted)
-            .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { cursor in
-                cursor.opacity(dimmed ? 0.15 : 1)
-            }
-            .onAppear { dimmed = !reduceMotion }
-            // A rebuild, not an animated change, when Reduce Motion is switched: nothing is left
-            // repeating.
-            .id(reduceMotion)
-            .accessibilityHidden(true)
-    }
 }
 
 /// An assistant answer's markdown, drawn from `ChatRenderCache`'s memoized blocks (plan 15, M1)
@@ -516,7 +517,7 @@ private struct ChatAnswerText: View {
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) {
                     Rectangle()
-                        .fill(StashColor.violet600)
+                        .fill(StashColor.ink)
                         .frame(width: 2)
                         .accessibilityHidden(true)
                 }
@@ -559,17 +560,14 @@ private struct ChatAnswerText: View {
     }
 
     /// One markdown run as a `Text` in `role` and `color` — both passed in, never applied outside (see
-    /// the type's doc). Links — the answer's inline citations — in DESIGN.md violet600 (4.64:1 on the
-    /// bubble), underlined with the shared link underline, `Text.LineStyle.stashLinkUnderline` (violet-600 at
-    /// 80 %, ≈ #8879d8 on the bubble's #f2f2f7, 3.26:1; plan 16, WCAG 1.4.1: colour alone can't mark a link —
-    /// violet-600 against ink body text is 2.93:1, against a quote's `muted` 1.04:1). The same style as
-    /// the detail sheet's `MarkdownBlocksView`.
+    /// the type's doc). Citations use ink and the shared underline, so their affordance
+    /// survives monochrome printing and does not depend on a colour difference.
     private func inlineText(_ parsed: AttributedString, role: StashType.Role = .reading,
                             color: Color = StashColor.ink) -> some View {
         var attributed = parsed
         let linkRanges = attributed.runs.filter { $0.link != nil }.map(\.range)
         for range in linkRanges {
-            attributed[range].foregroundColor = StashColor.violet600
+            attributed[range].foregroundColor = StashColor.ink
             attributed[range].underlineStyle = Text.LineStyle.stashLinkUnderline
         }
         return Text(attributed)

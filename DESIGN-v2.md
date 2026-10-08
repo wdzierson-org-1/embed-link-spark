@@ -15,7 +15,7 @@ the scan bar. Where surfaces stand:
 | Web app: library, composer, Ask, item detail, settings, conversations, public feed, discover, admin, and the way in (sign in, sign up, choose a new password) | **v2 (this file)** | `src/`, scoped by `<html data-ui="v2">` (§13) |
 | The marketing site, live since 2026-10-07: the homepage (`/`), `/extension`, `/connect` (MCP) and `/iphone` | **v2** | designed in `docs/superpowers/prototypes/2026-10-06-stashe-homepage*`; published to `public/` by `scripts/publish-site.mjs` (§12.13) |
 | Pricing, legal and agent (OAuth) consent pages in `src/` | v1 until their redesign | `DESIGN.md` |
-| iOS app and share extension | v1 until their redesign; **this file is the target** | `DESIGN.md`, `StashDesign.swift` |
+| iOS app and share extension | **v2 simulator candidate** (2026-10-07) | `StashDesign.swift`; `docs/ios-design-v2-handoff.md` |
 | Chrome extension | v1 until its restyle | `DESIGN.md` |
 
 `DESIGN.md` (v1) stays only as the record of the surfaces that haven't moved, and for the
@@ -1014,10 +1014,11 @@ Behaviour contracts (what a screen does) are unchanged by this file. Log behavio
 
 ## 16. Open decisions and next steps
 
-- **Brand:** the PP Mori logo licence, the public domain, lime or violet, and the updated logo
-  files (§1).
-- **iOS:** move `StashDesign.swift` to these tokens and the share extension to the save panel
-  (§12.11), as its own plan.
+- **Brand:** the public domain, lime or violet, and the updated logo files (§1). (The PP Mori
+  logo licence is cleared.)
+- **iOS:** the v2 port is on main as a simulator candidate (2026-10-07,
+  `docs/ios-design-v2-handoff.md`). Still to follow from the web: Resolve (the pixel reading
+  state, §8) and the arriving card's decrypt; the native splash has its own decrypt.
 - **Still v1 in `src/`:** pricing, legal, and the agent-consent screen (`/oauth/consent`). The
   homepage and its pages went live from the prototype on 2026-10-07 (§12.13); the old `Landing`
   page only renders if the static site is ever missing.

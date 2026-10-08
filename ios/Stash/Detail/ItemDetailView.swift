@@ -404,14 +404,20 @@ struct ItemDetailView: View {
             // its element is reported "within bounds". A true sibling makes the ScrollView's
             // frame stop exactly where the footer begins, so nothing can ever land behind it.
             VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    DetailEyebrow(item: item)
+                    closeButton
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .frame(minHeight: 44)
+                .background(StashColor.ink)
                 ScrollView {
                     // Every child below carries its own explicit top gap (the sheet's 14/24
                     // rhythm); `ItemDetailContent`/`DetailsDrawer`/`SharingSection` each open with
                     // a `SectionHeader`, which supplies its own `DetailLayout.section` gap.
                     VStack(alignment: .leading, spacing: 0) {
-                        DetailEyebrow(item: item)
                         titleField
-                            .padding(.top, DetailLayout.gap)
                         descriptionField
                             .padding(.top, DetailLayout.gap)
                         // Web parity (`EditItemSheet.tsx`'s `hasImage` gate): `(type === 'image'
@@ -444,14 +450,12 @@ struct ItemDetailView: View {
                                        focus: $focusedField, setPublic: setPublic)
                     }
                     .padding(.horizontal, DetailLayout.inset)
-                    .padding(.top, 44)
+                    .padding(.top, 24)
                     .padding(.bottom, 24)
                 }
                 footerBar
             }
-            .background(StashColor.paper.ignoresSafeArea())
-
-            closeButton
+            .background(StashColor.surface.ignoresSafeArea())
         }
         .presentationCornerRadius(StashRadius.sheet)
         .task { await loadDetailIfNeeded() }
@@ -536,13 +540,18 @@ struct ItemDetailView: View {
             .focused($focusedField, equals: .title)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(focusedField == .title ? StashColor.violet300.opacity(0.12) : Color.clear,
+            .background(focusedField == .title ? StashColor.surface : Color.clear,
                         in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                     // 1pt (was 2pt) — matches every other hairline/focus stroke on the sheet.
-                    .strokeBorder(focusedField == .title ? StashColor.violet300 : Color.clear, lineWidth: 1)
+                    .strokeBorder(focusedField == .title ? StashColor.ink : Color.clear, lineWidth: 1)
             )
+            .overlay {
+                if focusedField == .title {
+                    Rectangle().stroke(StashColor.spot, lineWidth: 3).padding(-2).allowsHitTesting(false)
+                }
+            }
             .accessibilityIdentifier("detail.title")
             // Final wave: the 6pt horizontal padding above exists to grow the tap/focus target,
             // not to push the TEXT off `DetailLayout.inset` — negating it here shifts the whole
@@ -568,13 +577,18 @@ struct ItemDetailView: View {
             .focused($focusedField, equals: .description)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(focusedField == .description ? StashColor.violet300.opacity(0.08) : Color.clear,
+            .background(focusedField == .description ? StashColor.surface : Color.clear,
                         in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
                     // 1pt (was 2pt) — matches every other hairline/focus stroke on the sheet.
-                    .strokeBorder(focusedField == .description ? StashColor.violet300 : Color.clear, lineWidth: 1)
+                    .strokeBorder(focusedField == .description ? StashColor.ink : Color.clear, lineWidth: 1)
             )
+            .overlay {
+                if focusedField == .description {
+                    Rectangle().stroke(StashColor.spot, lineWidth: 3).padding(-2).allowsHitTesting(false)
+                }
+            }
             .accessibilityIdentifier("detail.description")
             // Final wave — same compensation as `titleField` above: negate the 6pt hit-padding
             // so the text's left edge lands on `DetailLayout.inset`, not `inset + 6`.
@@ -592,18 +606,21 @@ struct ItemDetailView: View {
             if case .success(let image) = phase {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
             } else {
-                Color(.tertiarySystemFill).aspectRatio(4 / 3, contentMode: .fit)
+                CardImageMosaic(height: 224)
             }
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: 384)
         .clipShape(RoundedRectangle(cornerRadius: StashRadius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: StashRadius.object).strokeBorder(StashColor.line, lineWidth: 1))
         .stashCardShadow()
+        .padding(14)
+        .background { StashDotGrid() }
         .accessibilityIdentifier("detail.heroImage")
     }
 
     private var hairline: some View {
-        Rectangle().fill(StashColor.hairline).frame(height: 1)
+        Rectangle().fill(StashColor.ink).frame(height: 1)
     }
 
     /// The iOS close affordance — a hairline circle × top-trailing, matching the web sheet's own
@@ -619,10 +636,10 @@ struct ItemDetailView: View {
         } label: {
             Image(systemName: "xmark")
                 .font(StashType.decorative(.semibold, size: 12))
-                .foregroundStyle(StashColor.muted)
+                .foregroundStyle(StashColor.white)
                 .frame(width: 28, height: 28)
-                .background(StashColor.paper, in: Circle())
-                .overlay(Circle().strokeBorder(StashColor.hairline, lineWidth: 1))
+                .background(StashColor.ink)
+                .overlay(Rectangle().strokeBorder(StashColor.white.opacity(0.45), lineWidth: 1))
         }
         .buttonStyle(.stashPlain)
         .stashIconControl("Close", systemImage: "xmark")
@@ -631,7 +648,6 @@ struct ItemDetailView: View {
         // late. Unverified by UI tests — XCUITest's snapshot keeps its own order — so it's on the
         // device VoiceOver check.
         .accessibilitySortPriority(1)
-        .padding(14)
     }
 
     /// Pinned footer bar (hairline top): "Delete item" left, autosave status + hide-keyboard
@@ -679,14 +695,14 @@ struct ItemDetailView: View {
             }
             if let deleteErrorMessage {
                 Text(deleteErrorMessage)
-                    .stashFont(.meta)
+                    .stashFont(.secondary)
                     .foregroundStyle(StashColor.destructive)
                     .accessibilityIdentifier("detail.deleteError")
             }
         }
         .padding(.horizontal, DetailLayout.inset)
         .padding(.vertical, 10)
-        .background(StashColor.paper)
+        .background(StashColor.surface)
         .overlay(alignment: .top) { hairline }
     }
 
@@ -743,9 +759,10 @@ struct ItemDetailView: View {
     /// for any spinner, `.controlSize(.small)` included. At AX3 the row with it needs ~303 pt.
     /// So at AX4 and AX5 there is no "Saving…"; an error still shows under Delete.
     private var savingIndicator: some View {
-        ProgressView()
-            .tint(StashColor.muted)
+        ZStack { StashCursor() }
+            .foregroundStyle(StashColor.muted)
             .frame(maxWidth: 44, maxHeight: 44)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("Saving…")
             .accessibilityIdentifier("detail.autosave")
     }
@@ -758,12 +775,12 @@ struct ItemDetailView: View {
     @ViewBuilder private var autosaveLabel: some View {
         if case .failed(let message) = saveStatus {
             Text(message)
-                .stashFont(.meta)
+                .stashFont(.secondary)
                 .foregroundStyle(StashColor.destructive)
                 .accessibilityIdentifier("detail.autosave.error")
         } else {
-            Text(saveStatus == .saving ? "Saving…" : "Changes saved automatically")
-                .stashFont(.meta)
+            StashStatusLine(text: saveStatus == .saving ? "saving…" : "changes save automatically",
+                            busy: saveStatus == .saving)
                 .foregroundStyle(StashColor.muted)
                 .accessibilityIdentifier("detail.autosave")
         }
