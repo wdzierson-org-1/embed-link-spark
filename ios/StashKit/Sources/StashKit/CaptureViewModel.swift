@@ -34,15 +34,15 @@ public struct CaptureAttachment: Identifiable, Sendable {
     }
 
     /// The largest attachment `CaptureViewModel.submit()` accepts, in bytes — `nil` = no limit.
-    /// Photos have none (every photo is prepared down to ≤ 2560 px anyway); other files mirror
-    /// the web's per-kind limits (MediaUploadTypes.ts:26-28): 100 MB for audio/video, 20 MB for
-    /// everything else (docs). Public so the composer can refuse an oversized pick from its file
-    /// size alone, before reading the bytes into memory (plan 15 6D); `submit()` enforces the
-    /// same rule as its backstop.
+    /// Photos have none (every photo is prepared down to ≤ 2560 px anyway); every other file
+    /// mirrors the web's limit (MediaUploadTypes.ts): 100 MB, which is also Supabase Storage's
+    /// project upload limit. `mimeType` no longer changes the answer (docs were 20 MB until
+    /// 2026-10-07). Public so the composer can refuse an oversized pick from its file size alone,
+    /// before reading the bytes into memory (plan 15 6D); `submit()` enforces the same rule as
+    /// its backstop.
     public static func byteLimit(kind: Kind, mimeType: String) -> Int? {
         guard kind == .file else { return nil }
-        let isAudioOrVideo = mimeType.hasPrefix("video/") || mimeType.hasPrefix("audio/")
-        return (isAudioOrVideo ? 100 : 20) * 1_048_576
+        return 100 * 1_048_576
     }
 }
 

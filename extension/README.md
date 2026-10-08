@@ -64,7 +64,8 @@ cd extension && npm test   # node --test, no deps
 
 ## Known limits (v1)
 
-- Images over 20 MB are rejected (mirrors the web app's cap).
+- Images over 20 MB are rejected (the extension's own cap; the web app takes
+  files up to 100 MB).
 - `blob:` image URLs can't be fetched from a service worker → red `!`.
 - Non-image bytes behind an image URL (CDN error pages) fail on purpose
   rather than saving garbage.

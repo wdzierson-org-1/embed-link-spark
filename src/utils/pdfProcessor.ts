@@ -52,9 +52,11 @@ export const processPdfContent = async (
   } catch (error) {
     await settleEnrichment(itemId, false);
     console.error('Error processing PDF:', error);
+    // The item is saved either way; the error itself (often the client's bare
+    // "Edge Function returned a non-2xx status code") stays in the console.
     showToast({
-      title: "PDF Processing Failed",
-      description: error.message || "Failed to extract text from PDF",
+      title: "Couldn't read this PDF",
+      description: "It's saved, and you can still open it.",
       variant: "destructive",
     });
   }

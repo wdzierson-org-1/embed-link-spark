@@ -2,6 +2,7 @@
 import { useCallback } from 'react';
 import { createImageUpload } from 'novel';
 import { uploadImageForNovel } from '@/services/imageUpload/ImageUploadService';
+import { MAX_FILE_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 import type { User, Session } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 
@@ -77,8 +78,8 @@ export const useEditorImageUpload = ({ user, session, itemId, onUploadComplete }
           toast.error("File type not supported. Please upload an image file.");
           return false;
         }
-        if (file.size / 1024 / 1024 > 20) {
-          toast.error("File size too big (max 20MB).");
+        if (file.size / 1024 / 1024 > MAX_FILE_SIZE_MB) {
+          toast.error(`File size too big (max ${MAX_FILE_SIZE_MB}MB).`);
           return false;
         }
         

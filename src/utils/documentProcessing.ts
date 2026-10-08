@@ -6,6 +6,10 @@
 // — they must NEVER read as processing, or they hang in that state forever
 // and block their own edit sheet. `content` holds only the user's own notes
 // and says nothing about extraction — it is null for every fresh upload.
+//
+// A failed extraction writes no summary either, so this stays true for good.
+// To decide whether a card is busy or may open, use isReadingDocument
+// (itemAssembly.ts), which also gives up once enrichment settles or times out.
 
 export const PDF_MIME = 'application/pdf';
 

@@ -1,7 +1,10 @@
 // Pure helpers for the Stash it extension. No chrome.* usage so node can test
 // this file directly (`npm test` in extension/).
 
-// Mirrors MAX_FILE_SIZE_MB in src/services/imageUpload/MediaUploadTypes.ts.
+// Cap for page images the extension fetches. It mirrored the web app's
+// MAX_FILE_SIZE_MB until that rose to 100 (2026-10-07). It was left at 20
+// because page images that big are vanishingly rare and changing it means
+// cutting an extension release.
 export const MAX_IMAGE_MB = 20;
 
 const EXT_BY_MIME = {

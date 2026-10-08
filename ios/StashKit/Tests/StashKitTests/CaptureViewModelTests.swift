@@ -384,7 +384,7 @@ final class CaptureViewModelTests: XCTestCase {
     func testOversizedDocAloneIsRejectedWithNoNetworkCalls() async {
         let server = FakeCaptureServer()
         let vm = makeViewModel(server: server)
-        vm.attachments = [CaptureAttachment(data: Data(count: 21 * 1024 * 1024), fileExtension: "pdf",
+        vm.attachments = [CaptureAttachment(data: Data(count: 101 * 1024 * 1024), fileExtension: "pdf",
                                             mimeType: "application/pdf", kind: .file)]
 
         let outcome = await vm.submit()
@@ -398,15 +398,15 @@ final class CaptureViewModelTests: XCTestCase {
 
     /// Plan 15 6D: the composer refuses an oversized pick from its file size alone, with this same
     /// helper, before reading the bytes — so the helper must be the exact rule `submit()` applies.
-    func testByteLimitIsPerKindAndPhotosHaveNone() {
+    func testByteLimitIs100MBForEveryFileAndPhotosHaveNone() {
         let mb = 1_048_576
         XCTAssertNil(CaptureAttachment.byteLimit(kind: .photo, mimeType: "image/heic"))
         XCTAssertNil(CaptureAttachment.byteLimit(kind: .photo, mimeType: "video/quicktime"),
                      "kind decides, not the MIME type: a photo is always prepared, never size-rejected")
         XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "video/quicktime"), 100 * mb)
         XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "audio/mp4"), 100 * mb)
-        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "application/pdf"), 20 * mb)
-        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "application/octet-stream"), 20 * mb)
+        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "application/pdf"), 100 * mb)
+        XCTAssertEqual(CaptureAttachment.byteLimit(kind: .file, mimeType: "application/octet-stream"), 100 * mb)
     }
 
     func testSubmitAcceptsAFileAtExactlyItsByteLimitAndRejectsOneByteMore() async throws {
@@ -434,7 +434,7 @@ final class CaptureViewModelTests: XCTestCase {
         let smallPhotos = (0..<2).map { _ in
             CaptureAttachment(data: Data([0x01]), fileExtension: "png", mimeType: "image/png", kind: .photo)
         }
-        let oversizedDoc = CaptureAttachment(data: Data(count: 21 * 1024 * 1024), fileExtension: "pdf",
+        let oversizedDoc = CaptureAttachment(data: Data(count: 101 * 1024 * 1024), fileExtension: "pdf",
                                              mimeType: "application/pdf", kind: .file)
         vm.attachments = smallPhotos + [oversizedDoc]
 
