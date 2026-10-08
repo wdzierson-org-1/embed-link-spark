@@ -69,7 +69,9 @@ port = 54322
 
 [storage]
 enabled = true
-file_size_limit = "50MiB"
+# Local stack only; production's project limit (also 100 MiB since 2026-10-07)
+# is set in the dashboard / Management API, not by this file.
+file_size_limit = "100MiB"
 
 # MCP endpoint: auth is checked in-function so unauthenticated requests get
 # the RFC 9728 WWW-Authenticate challenge instead of the gateway's opaque 401.

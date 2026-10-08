@@ -22,7 +22,10 @@ export const SUPPORTED_IMAGE_TYPES = [
   'image/tiff'
 ];
 
-// File size limits for different media types
-export const MAX_FILE_SIZE_MB = 20;
+// File size limits for different media types ("MB" = MiB: callers divide by
+// 1024 twice). Supabase Storage's project-wide upload limit (dashboard →
+// Storage → Settings, now 100 MiB) must be at least the largest of these, or
+// uploads under the client's limit still fail at Storage.
+export const MAX_FILE_SIZE_MB = 100;
 export const MAX_VIDEO_SIZE_MB = 100;
 export const MAX_AUDIO_SIZE_MB = 100;

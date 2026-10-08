@@ -8,6 +8,79 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-07 · Files up to 100 MB, and a PDF that couldn't be read still opens
+
+Will: "let's up the upload limit for files to 100mb". Branch `upload-limit-100mb`.
+
+**Contracts (iOS, macOS, the extension, anything that uploads):**
+- **One cap for every file kind: 100 MiB (104,857,600 bytes).** It was 20 MB for images and
+  documents and 100 MB for audio/video. Exactly 100 MiB is accepted; one byte more is refused.
+- **Storage enforces it.** Supabase Storage's project upload limit went from 50 MiB to 100 MiB
+  (live 2026-10-07: dashboard → Storage → Settings, or Management API
+  `PATCH /v1/projects/<ref>/config/storage {"fileSizeLimit": 104857600}`). Until then any object
+  over 50 MiB failed at Storage, including the audio/video the clients advertised up to 100 MB. A
+  bigger upload gets HTTP 400 with `{"statusCode":"413",…,"code":"EntityTooLarge"}`
+  (`docs/PLATFORM_API.md` → "Per-file cap"). `supabase/config.toml`'s local-stack limit matches.
+- **Web:** `MAX_FILE_SIZE_MB = 100` (`src/services/imageUpload/MediaUploadTypes.ts`); the notes
+  editor's inline-image check now uses it too (it was a hardcoded 20). The composer's refusal reads
+  `"<name>" is 101.0MB. Maximum file size is 100MB. Please choose a smaller file.`
+- **iOS:** `CaptureAttachment.byteLimit(kind:mimeType:)` is 100 MiB for every `.file` (photos still
+  have none; they're prepared down). Ships with the next build. The share extension has no size
+  pre-check; a share over 100 MiB is refused at Storage during its background upload, as above.
+- **Extension:** unchanged. Page images still cap at 20 MB (`MAX_IMAGE_MB`); no release was cut.
+- `capture`'s 45 MiB one-shot limit is unchanged: it's a transport threshold (bigger files go
+  two-step), not a product cap.
+
+**Saving is not reading.** `extract-pdf-text` hands the PDF to OpenAI, whose file inputs must be
+under 50 MB, and `extract-office-text` refuses anything over 40 MiB. A file past those saves (on the
+web with its chip-time title and description) but gets no `summary` or `page_body`, and
+`attributes.enrichment.status` settles `partial`. The card says "some info unavailable". Very large images can likewise miss
+their AI description (`analyze-image` sends OpenAI the original, or a Storage transform, which
+refuses sources over 25 MB). All of these are contained: the item is saved and opens.
+
+**Fixed: a PDF whose extraction failed could never be opened.** "No summary" meant "still reading"
+forever, so the card's title and hero ignored clicks and the edit sheet closed itself on open. That
+was already true of any failed PDF; the new cap would have made it certain for every PDF over 50 MB.
+- `isReadingDocument(item, nowMs)` (`src/utils/itemAssembly.ts`) is now: a PDF with no summary,
+  whose enrichment is still `pending` (an absent status counts as pending), within 10 minutes of its
+  save. The card header and the edit sheet gate on it instead of `isDocumentProcessing`, which stays
+  the bare "no summary yet" fact.
+- The edit panel's empty Summary / Original Content tabs say "Content is still being extracted from
+  this document." only while enrichment is pending, otherwise "We couldn't read the text in this
+  document."
+- The web's failure toast for a PDF read plain words instead of the client's error message ("PDF
+  Processing Failed — Edge Function returned a non-2xx status code"). It now reads: "Couldn't read
+  this PDF". "It's saved, and you can still open it." (error colour).
+- **iOS:** `Item.isProcessingDocument` (`ItemRules.swift`) mirrors the web rule: no summary,
+  `attributes.enrichmentStatus(at:)` pending or absent, and saved under 10 minutes ago. A failed
+  document now stops shimmering and is no longer redacted. Not mirrored yet: any detail-view copy for
+  a document with no text.
+
+**Verified:**
+- **Storage,** probed as the uitest fixture. Before the change, 50 MiB + 1 byte → `EntityTooLarge`.
+  After it, 60 MiB → 200, exactly 100 MiB → 200, 100 MiB + 1 → `EntityTooLarge`.
+- **The branch's web app against production,** in a browser:
+  - A 101 MiB PDF is refused with the new copy.
+  - A 30 MB PDF saved and extracted: verbatim `page_body`, a summary, and enrichment `complete`
+    in ~20 s.
+  - A 60 MB PDF saved, then `extract-pdf-text` answered 500 and enrichment settled `partial` 12 s
+    later. The card read "some info unavailable" with a clickable title, and the sheet opened and
+    showed "We couldn't read the text in this document."
+- The test items and files were deleted.
+- **Tests** (on main at 5da73fc0): web 646 in 83 files; StashKit 896. The new header, sheet, panel
+  and rule tests each fail on the old code.
+
+**Follow-ups, not done:**
+- Reading PDFs over 50 MB needs an extractor that doesn't go through OpenAI's file input.
+- `extract-pdf-text` should refuse a PDF of 50 MB or more before downloading it. Today it buffers the
+  whole file twice (the worker limit is 256 MB) and deletes its OpenAI upload only on success, so each
+  failed PDF leaves a file behind at OpenAI.
+- An extraction that runs past the gateway's 150 s gets a 504 and is marked `partial` while the
+  function keeps going (up to 400 s on paid plans). In that gap the card opens and says the text
+  couldn't be read; the status stays `partial` after the summary lands. This predates the change.
+- Cards load the full-size original (there are no thumbnails), so very large images cost bandwidth
+  and memory.
+
 ## 2026-10-07 · Videos play in place on the card, and as video in the item panel
 
 **Behaviour (for iOS and macOS to mirror):**

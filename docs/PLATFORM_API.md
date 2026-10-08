@@ -154,6 +154,18 @@ upload to Storage yourself at the same deterministic path
 runs, and Supabase caps edge-function requests at 150 s, so on a slow uplink a
 large file is safer in two steps.
 
+**Per-file cap: 100 MiB (104,857,600 bytes), every kind** (since 2026-10-07;
+images and documents were 20 MB). Storage's project upload limit enforces it on
+every upload path (one-shot, two-step, `add-file` callers): a bigger object is
+refused with HTTP 400 and `{"statusCode":"413","error":"Payload too large",
+"message":"The object exceeded the maximum allowed size","code":"EntityTooLarge"}`.
+Don't retry it. Clients check before sending (web `MAX_*_SIZE_MB` in
+`src/services/imageUpload/MediaUploadTypes.ts`, iOS `CaptureAttachment.byteLimit`).
+Saving is not reading: `extract-pdf-text` hands the PDF to OpenAI, which refuses
+file inputs of 50 MB or more, and `extract-office-text` refuses anything over 40 MiB.
+Such a file saves with no `summary` or `page_body` and `attributes.enrichment.status`
+settles `partial`.
+
 **Idempotency** (`capture_receipts`, one row per user + `capture_id`, owner RLS):
 
 | receipt state when a request arrives | result |
