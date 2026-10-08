@@ -10,8 +10,15 @@ public extension Item {
             .contains { $0.contains(q) }
     }
 
-    /// Port of src/utils/documentProcessing.ts — summary is the one reliable signal.
-    var isProcessingDocument: Bool { type == .document && (summary ?? "").isEmpty }
+    /// Port of src/utils/itemAssembly.ts `isReadingDocument`: no summary yet, enrichment not
+    /// settled, and saved under 10 minutes ago (the web's DOCUMENT_READING_WINDOW_MS). A failed
+    /// extraction (e.g. a PDF over OpenAI's 50 MB file-input limit) settles `partial` without ever
+    /// writing a summary; rows from before the enrichment key fall back on the window alone.
+    var isProcessingDocument: Bool {
+        type == .document && (summary ?? "").isEmpty
+            && (attributes.enrichmentStatus(at: .now) ?? "pending") == "pending"
+            && Date.now.timeIntervalSince(createdAt) < 10 * 60
+    }
 
     /// file_path is either a storage path or a full remote URL (both exist in prod).
     var thumbnailURL: URL? {

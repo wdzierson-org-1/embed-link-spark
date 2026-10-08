@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { supabase, SUPABASE_URL } from '@/integrations/supabase/client';
-import { isDocumentProcessing } from '@/utils/documentProcessing';
+import { isReadingDocument } from '@/utils/itemAssembly';
 import { libraryTitleClass } from '@/utils/libraryPresentation';
 import { decodeHtmlEntities } from '@/utils/textHygiene';
 import { useNow } from '@/hooks/useNow';
@@ -38,6 +38,7 @@ interface ContentItem {
   is_public?: boolean;
   url?: string;
   summary?: string;
+  created_at?: string;
   attributes?: ItemAttributes;
   remind_at?: string | null;
   reminder_cleared_at?: string | null;
@@ -68,8 +69,9 @@ const ContentItemHeader = ({
   status,
 }: ContentItemHeaderProps) => {
   const [linkCoverFailed, setLinkCoverFailed] = useState(false);
-  const isProcessing = isDocumentProcessing(item);
   const now = useNow();
+  // Only while the PDF is genuinely being read: one whose extraction failed must still open
+  const isProcessing = isReadingDocument(item, now.getTime());
   const isDue = !isPublicView && reminderState(item, now) === 'due';
   const title = item.title ? decodeHtmlEntities(item.title) : '';
   // A title that lands while the person watches decrypts in; static titles never scramble

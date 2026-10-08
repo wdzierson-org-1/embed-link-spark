@@ -133,4 +133,12 @@ describe('isReadingDocument', () => {
     expect(isReadingDocument(pdf({ summary: 'A summary' }), NOW)).toBe(false);
     expect(isReadingDocument(pdf({ mime_type: 'application/vnd.ms-excel' }), NOW)).toBe(false);
   });
+
+  it('is done as soon as enrichment settles without a summary (the extraction failed)', () => {
+    const settled = (status: 'pending' | 'complete' | 'partial') =>
+      pdf({ attributes: { enrichment: { status, updated_at: secondsAgo(20) } } });
+    expect(isReadingDocument(settled('partial'), NOW)).toBe(false);
+    expect(isReadingDocument(settled('complete'), NOW)).toBe(false);
+    expect(isReadingDocument(settled('pending'), NOW)).toBe(true);
+  });
 });

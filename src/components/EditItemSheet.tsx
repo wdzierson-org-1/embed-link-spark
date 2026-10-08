@@ -21,7 +21,8 @@ import EditItemImageTab from '@/components/EditItemImageTab';
 import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
 import { useEditItemSheet } from '@/hooks/useEditItemSheet';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { isDocumentProcessing } from '@/utils/documentProcessing';
+import { useNow } from '@/hooks/useNow';
+import { isReadingDocument } from '@/utils/itemAssembly';
 import { domainOfUrl } from '@/utils/linkFlavor';
 import { kindLabel } from '@/components/cards/ItemTypeChip';
 import { St4shSymbol } from '@/components/brand/St4sh';
@@ -53,10 +54,11 @@ interface EditItemSheetProps {
 
 const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemSheetProps) => {
   const isMobile = useIsMobile();
+  const now = useNow();
 
-  const isProcessing = item ? isDocumentProcessing(item) : false;
+  const isProcessing = item ? isReadingDocument(item, now.getTime()) : false;
 
-  // Prevent opening if processing
+  // Prevent opening while a PDF is still being read (one whose extraction failed opens)
   React.useEffect(() => {
     if (open && isProcessing) {
       onOpenChange(false);

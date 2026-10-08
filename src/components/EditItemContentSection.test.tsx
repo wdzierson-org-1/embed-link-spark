@@ -68,3 +68,26 @@ describe('the summary tab without a summary', () => {
     expect(screen.queryByRole('button', { name: /generate summary/i })).not.toBeInTheDocument();
   });
 });
+
+describe('a document with no extracted text', () => {
+  const renderDocument = (status: 'pending' | 'complete' | 'partial') =>
+    render(<EditItemContentSection
+      item={{ id: 'doc', type: 'document', attributes: { enrichment: { status, updated_at: new Date().toISOString() } } }}
+      content="" isContentLoading={false} editorKey="doc" onContentChange={vi.fn()} onMaximize={vi.fn()}
+      isMobile={false} mobileEditorReady />);
+
+  beforeEach(() => {
+    source.state = { ...source.state, summary: null, pageBody: null };
+  });
+
+  it('says the text is still being extracted only while extraction is pending', () => {
+    renderDocument('pending');
+    expect(screen.getByText('Content is still being extracted from this document.')).toBeInTheDocument();
+  });
+
+  it('says the text could not be read once extraction has settled without any (e.g. a PDF over 50 MB)', () => {
+    renderDocument('partial');
+    expect(screen.getByText("We couldn't read the text in this document.")).toBeInTheDocument();
+    expect(screen.queryByText(/still being extracted/)).not.toBeInTheDocument();
+  });
+});

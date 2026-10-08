@@ -26,6 +26,32 @@ final class ItemRulesTests: XCTestCase {
         XCTAssertFalse(fixture(type: .image).isProcessingDocument)
     }
 
+    /// A failed extraction (e.g. a PDF over OpenAI's 50 MB file-input limit) settles enrichment
+    /// `partial` and never writes a summary — the card must stop shimmering, not stay redacted.
+    func testDocumentStopsProcessingOnceEnrichmentSettles() {
+        func document(enrichment status: String) -> Item {
+            var item = fixture(type: .document)
+            item.attributes = ItemAttributes(extra: ["enrichment": .object([
+                "status": .string(status), "updated_at": .string(ISO8601DateFormatter().string(from: .now))
+            ])])
+            return item
+        }
+        XCTAssertTrue(document(enrichment: "pending").isProcessingDocument)
+        XCTAssertFalse(document(enrichment: "partial").isProcessingDocument)
+        XCTAssertFalse(document(enrichment: "complete").isProcessingDocument)
+    }
+
+    /// The web's 10-minute reading window (DOCUMENT_READING_WINDOW_MS): a row saved before the
+    /// enrichment key existed, whose extraction failed, must not shimmer forever either.
+    func testDocumentStopsProcessingTenMinutesAfterSave() {
+        var old = fixture(type: .document)
+        old.createdAt = Date.now.addingTimeInterval(-11 * 60)
+        XCTAssertFalse(old.isProcessingDocument)
+        var fresh = fixture(type: .document)
+        fresh.createdAt = Date.now.addingTimeInterval(-9 * 60)
+        XCTAssertTrue(fresh.isProcessingDocument)
+    }
+
     func testContentTabs() {
         XCTAssertEqual(contentTabsConfig(for: .link).tabs.map(\.key), [.summary, .original])
         XCTAssertEqual(contentTabsConfig(for: .audio).tabs.map(\.key), [.transcript])

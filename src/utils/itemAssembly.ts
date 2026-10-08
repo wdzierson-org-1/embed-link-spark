@@ -100,9 +100,15 @@ export const enrichmentState = (item: AssemblySnapshot, nowMs: number): 'pending
 export const isAssembling = (item: AssemblySnapshot, nowMs: number): boolean =>
   enrichmentState(item, nowMs) === 'pending';
 
-/** A PDF whose text is still being extracted, within DOCUMENT_READING_WINDOW_MS of its save */
+/**
+ * A PDF whose text is still being extracted: no summary yet, enrichment not settled, and within
+ * DOCUMENT_READING_WINDOW_MS of its save. A failed extraction (e.g. a PDF over OpenAI's 50 MB
+ * file-input limit) settles `partial` without writing a summary; it is done reading, not stuck.
+ */
 export const isReadingDocument = (item: AssemblySnapshot, nowMs: number): boolean =>
-  isDocumentProcessing(item) && itemAgeMs(item, nowMs) < DOCUMENT_READING_WINDOW_MS;
+  isDocumentProcessing(item) &&
+  (item.attributes?.enrichment?.status ?? 'pending') === 'pending' &&
+  itemAgeMs(item, nowMs) < DOCUMENT_READING_WINDOW_MS;
 
 /** Pieces that landed between two snapshots of the same item. */
 export const landedPieces = (

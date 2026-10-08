@@ -13,6 +13,7 @@ import {
   transcriptFailureCopy,
   transcriptRefreshKey,
 } from '@/utils/transcriptStatus';
+import { enrichmentState } from '@/utils/itemAssembly';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -94,6 +95,11 @@ const EditItemContentSection = ({
   } = useItemSourceContent(item?.id, needsSourceContent(item?.type), transcriptRefreshKey(transcript));
 
   const isDocument = item?.type === 'document' || item?.type === 'pdf';
+  // Only pending enrichment is still extracting. Once it settles with no text (the extraction
+  // failed, e.g. a PDF over OpenAI's 50 MB limit), "still being extracted" would be false.
+  const noDocumentText = item && enrichmentState(item, Date.now()) === 'pending'
+    ? 'Content is still being extracted from this document.'
+    : "We couldn't read the text in this document.";
 
   const notesEditor = (
     <div className="relative">
@@ -149,9 +155,7 @@ const EditItemContentSection = ({
     <TabEmptyState>Too little text was captured to summarize. It's all under Original Content.</TabEmptyState>
   ) : (
     <TabEmptyState>
-      {isDocument
-        ? 'Content is still being extracted from this document.'
-        : "We haven't been able to read this page's content yet."}
+      {isDocument ? noDocumentText : "We haven't been able to read this page's content yet."}
     </TabEmptyState>
   );
 
@@ -161,9 +165,7 @@ const EditItemContentSection = ({
     <ReadOnlyText text={pageBody} />
   ) : (
     <TabEmptyState>
-      {isDocument
-        ? 'Content is still being extracted from this document.'
-        : 'No page content captured from this link yet.'}
+      {isDocument ? noDocumentText : 'No page content captured from this link yet.'}
     </TabEmptyState>
   );
 
