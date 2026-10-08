@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useItems } from '@/hooks/useItems';
@@ -49,7 +49,13 @@ const Index = () => {
     void sweepStagingOrphans(user.id);
   }, [user?.id]);
 
-  const [editingItem, setEditingItem] = useState(null);
+  // The opened card, as it was when tapped. The panel shows the live row (below): a save opened
+  // while Stash was still reading it fills in as enrichment lands, instead of staying "Untitled"
+  const [openedItem, setEditingItem] = useState(null);
+  const editingItem = useMemo(
+    () => (openedItem ? (items.find((item) => item.id === openedItem.id) ?? openedItem) : null),
+    [openedItem, items],
+  );
   const [selectedTags, setSelectedTags] = useState([]);
 
   const { tags } = useTags();

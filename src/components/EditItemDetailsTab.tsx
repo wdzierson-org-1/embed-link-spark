@@ -34,6 +34,7 @@ import MaximizedEditor from '@/components/MaximizedEditor';
 import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
+import EditItemImageStage from '@/components/edit/EditItemImageStage';
 import { SectionHead } from '@/components/edit/EditPanelSection';
 import { CropMarks, Spinner } from '@/components/machine/Machine';
 import CollectionAttachments from '@/components/CollectionAttachments';
@@ -81,6 +82,8 @@ interface EditItemDetailsTabProps {
   onPublicToggle?: (isPublic: boolean) => void;
   onImageChange?: (filePath: string | null) => Promise<void>;
   onAttributesSave?: (attributes: ItemAttributes) => Promise<void>;
+  /** Saves a link's changed address */
+  onUrlSave?: (url: string) => Promise<void>;
 }
 
 const EditItemDetailsTab = ({
@@ -108,6 +111,7 @@ const EditItemDetailsTab = ({
   onPublicToggle = () => {},
   onImageChange,
   onAttributesSave,
+  onUrlSave,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
@@ -301,19 +305,15 @@ const EditItemDetailsTab = ({
         <EditItemMediaZone item={item} src={mediaUrl} title={title} />
       )}
 
-      {/* Inline image for image items and links with images */}
+      {/* Inline image for image items and links with images: a stage of fixed height, so the
+          panel doesn't jump when the picture arrives */}
       {showInlineImage && imageUrl && (
-        <div className="v2-dots relative mx-2.5 mt-8 flex justify-center px-6 py-8">
-          <CropMarks />
-          <div className="group/image relative inline-block">
-            <img
-              src={imageUrl}
-              alt={title || 'Content image'}
-              className="h-auto max-h-96 max-w-full cursor-pointer rounded-object border border-line bg-white shadow-object transition-opacity hover:opacity-95"
-              onClick={handleImageClick}
-              style={{ objectFit: 'contain' }}
-            />
-            {onImageChange && (
+        <EditItemImageStage
+          src={imageUrl}
+          alt={title || 'Content image'}
+          onOpen={handleImageClick}
+          controls={
+            onImageChange && (
               <div className="absolute right-3 top-3 flex gap-1.5 opacity-0 transition-opacity group-hover/image:opacity-100">
                 <button
                   onClick={() => imageFileInputRef.current?.click()}
@@ -351,22 +351,24 @@ const EditItemDetailsTab = ({
                   </AlertDialogContent>
                 </AlertDialog>
               </div>
-            )}
-            <input
-              ref={imageFileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleReplaceImageFile}
-            />
-          </div>
-        </div>
+            )
+          }
+        />
+      )}
+      {showInlineImage && imageUrl && (
+        <input
+          ref={imageFileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleReplaceImageFile}
+        />
       )}
 
-      {/* Link row — hairline row with favicon, only for link items */}
+      {/* The source address strip: the whole address opens it; copy, edit, open */}
       {item?.type === 'link' && item?.url && (
         <div className="mt-3">
-          <EditItemLinkSection url={item.url} />
+          <EditItemLinkSection url={item.url} onUrlSave={onUrlSave} />
         </div>
       )}
 

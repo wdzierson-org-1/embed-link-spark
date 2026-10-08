@@ -74,8 +74,8 @@ export const useItemOperations = (
         clearSkeletonItems();
       }
       
-      // Provide more specific error messages
-      let errorMessage = "Failed to add content";
+      // Say what went wrong: a bare "failed" hid the cause from the person and from us
+      let errorMessage = error?.message ? `Failed to add content: ${error.message}` : 'Failed to add content';
       if (error.message?.includes('Session expired')) {
         errorMessage = "Your session has expired. Please refresh and log in again.";
       } else if (error.message?.includes('RLS')) {

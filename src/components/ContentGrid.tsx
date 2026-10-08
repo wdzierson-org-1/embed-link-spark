@@ -16,6 +16,9 @@ type RevealMap = Record<string, Partial<Record<AssemblyPiece, number>>>;
 
 export type ContentTypeFilter = 'all' | 'link' | 'note' | 'doc' | 'media';
 
+/** PostgREST's page: the tag query reads in pages of this many rows */
+const TAG_PAGE = 1000;
+
 const TYPE_FILTER_MAP: Record<Exclude<ContentTypeFilter, 'all'>, string[]> = {
   link: ['link'],
   note: ['text'],
@@ -120,7 +123,10 @@ const ContentGrid = ({
   );
   const collectionItemIdsKey = useMemo(() => collectionItemIds.join(','), [collectionItemIds]);
 
-  // Fetch tags for all items
+  // Fetch the tags on every one of the person's items. Not filtered by the ids on screen: the
+  // ids went in the URL, and at a few hundred saves the URL passed the gateway's limit and
+  // every fetch came back 400. Row-level security already keeps this to their own items, so
+  // the query needs no filter; it's read in pages, since PostgREST answers 1,000 rows at most.
   const fetchItemTags = useCallback(async (itemIds: string[]) => {
     if (!user || itemIds.length === 0) {
       setItemTags({});
@@ -128,29 +134,22 @@ const ContentGrid = ({
     }
 
     try {
-      const { data, error } = await supabase
-        .from('item_tags')
-        .select(`
-          item_id,
-          tags!inner(name)
-        `)
-        .in('item_id', itemIds);
-
-      if (error) {
-        console.error('Error fetching item tags:', error);
-        return;
-      }
-
-      // Group tags by item_id
       const tagsByItem: Record<string, string[]> = {};
-      data?.forEach(row => {
-        const itemId = row.item_id;
-        const tagName = row.tags.name;
-        if (!tagsByItem[itemId]) {
-          tagsByItem[itemId] = [];
+      for (let from = 0; ; from += TAG_PAGE) {
+        const { data, error } = await supabase
+          .from('item_tags')
+          .select('item_id, tags!inner(name)')
+          .range(from, from + TAG_PAGE - 1);
+
+        if (error) {
+          console.error('Error fetching item tags:', error);
+          return;
         }
-        tagsByItem[itemId].push(tagName);
-      });
+        for (const row of data ?? []) {
+          (tagsByItem[row.item_id] ??= []).push(row.tags.name);
+        }
+        if (!data || data.length < TAG_PAGE) break;
+      }
 
       setItemTags(tagsByItem);
     } catch (error) {

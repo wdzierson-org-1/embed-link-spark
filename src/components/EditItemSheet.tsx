@@ -47,7 +47,7 @@ interface EditItemSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean; file_path?: string | null; attributes?: ItemAttributes }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean; file_path?: string | null; attributes?: ItemAttributes; url?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
   onDelete?: (id: string) => void;
 }
 
@@ -96,6 +96,13 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   const handleAttributesSave = async (attributes: ItemAttributes) => {
     if (!item) return;
     await onSave(item.id, { attributes }, { showSuccessToast: false, refreshItems: true });
+  };
+
+  // A link's address, edited in its strip. The quality loop reassesses the item on its own
+  // (the items trigger queues a job whenever url changes).
+  const handleUrlSave = async (url: string) => {
+    if (!item) return;
+    await onSave(item.id, { url }, { showSuccessToast: false, refreshItems: true });
   };
 
   const handleConfirmDelete = () => {
@@ -174,6 +181,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     onPublicToggle: handlePublicToggle,
     onImageChange: handleImageChange,
     onAttributesSave: handleAttributesSave,
+    onUrlSave: item?.type === 'link' ? handleUrlSave : undefined,
     isMobile,
   };
 

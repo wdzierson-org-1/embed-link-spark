@@ -4,6 +4,7 @@ import Index from "./Index";
 const navigateMock = vi.fn();
 const fetchItemsMock = vi.fn();
 const itemsLoadingState = { current: false };
+const itemsState = { current: [] as Array<{ id: string; title?: string; type?: string }> };
 
 vi.mock("react-router-dom", () => ({
   useNavigate: () => navigateMock,
@@ -19,7 +20,7 @@ vi.mock("@/hooks/useAuth", () => ({
 
 vi.mock("@/hooks/useItems", () => ({
   useItems: () => ({
-    items: [],
+    items: itemsState.current,
     fetchItems: fetchItemsMock,
     addOptimisticItem: vi.fn(),
     removeOptimisticItem: vi.fn(),
@@ -59,8 +60,10 @@ vi.mock("@/components/LibraryToolbar", () => ({
 vi.mock("@/components/ContentGrid", () => ({
   default: () => null,
 }));
+// The sheet shows the title it's given, so the test can see which row it has
 vi.mock("@/components/EditItemSheet", () => ({
-  default: () => null,
+  default: ({ item }: { item: { title?: string } | null }) =>
+    item ? <div data-testid="sheet">{item.title || "Untitled"}</div> : null,
 }));
 vi.mock("@/components/ChatMole", () => ({
   default: () => null,
@@ -77,6 +80,21 @@ describe("Index", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     itemsLoadingState.current = false;
+    itemsState.current = [];
+    window.location.hash = "";
+  });
+
+  it("shows the open card's live row, so a save opened mid-read fills in as enrichment lands", async () => {
+    const id = "12345678-1234-4123-8123-123456789abc";
+    itemsState.current = [{ id, title: "", type: "link" }];
+    window.location.hash = `#item=${id}`;
+
+    const { findByTestId, rerender } = render(<Index />);
+    expect(await findByTestId("sheet")).toHaveTextContent("Untitled");
+
+    itemsState.current = [{ id, title: "Our Locations", type: "link" }];
+    rerender(<Index />);
+    expect(await findByTestId("sheet")).toHaveTextContent("Our Locations");
   });
 
   it("does not trigger manual fetchItems on mount", async () => {

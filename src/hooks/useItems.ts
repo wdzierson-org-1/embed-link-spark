@@ -27,6 +27,27 @@ export const ITEM_LIST_COLUMN_NAMES = [
 ];
 const ITEM_LIST_COLUMNS = ITEM_LIST_COLUMN_NAMES.join(',');
 
+/** More changed rows than this in one burst, and the whole library is refetched instead */
+const MAX_ROW_REFRESH = 150;
+
+interface ListRow {
+  id: string;
+  created_at?: string;
+}
+
+/**
+ * Fresh rows replace their old versions (or join the list), and the list keeps its order,
+ * newest first. Pure, so the realtime merge can be tested without a socket.
+ */
+export const mergeItemRows = <T extends ListRow>(current: T[], fresh: T[]): T[] => {
+  if (!fresh.length) return current;
+  const byId = new Map(fresh.map((row) => [row.id, row]));
+  const merged = current.map((row) => byId.get(row.id) ?? row);
+  const seen = new Set(current.map((row) => row.id));
+  for (const row of fresh) if (!seen.has(row.id)) merged.push(row);
+  return merged.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+};
+
 export const useItems = () => {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
@@ -112,27 +133,70 @@ export const useItems = () => {
     });
   }, [user?.id, fetchItems]);
 
-  // Realtime: refetch when this user's items change server-side (async
-  // enrichment like PDF extraction, image analysis, link scraping). Replaces
-  // the old per-card polling. Debounced so a burst of updates coalesces.
+  // Realtime: when this user's items change server-side (async enrichment like
+  // PDF extraction, image analysis, link scraping), re-read just the rows that
+  // changed and merge them in. It used to refetch the whole library on every
+  // event: at 841 saves that was ~535 KB per enrichment write, several times a
+  // minute. A burst of events coalesces into one read; anything unexpected
+  // falls back to the full refetch.
   const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<{ changed: Set<string>; removed: Set<string>; full: boolean }>({
+    changed: new Set(),
+    removed: new Set(),
+    full: false,
+  });
   useEffect(() => {
     if (!user?.id) return;
+    const userId = user.id;
+
+    const flush = async () => {
+      const { changed, removed, full } = pendingRef.current;
+      pendingRef.current = { changed: new Set(), removed: new Set(), full: false };
+      if (full || changed.size > MAX_ROW_REFRESH) {
+        void fetchItems();
+        return;
+      }
+      if (removed.size) {
+        setItems((prev) => prev.filter((item) => !removed.has(item.id)));
+      }
+      if (changed.size) {
+        const { data, error } = await supabase
+          .from('items')
+          .select(ITEM_LIST_COLUMNS)
+          .eq('user_id', userId)
+          .in('id', [...changed]);
+        if (error) {
+          console.error('Error refreshing changed items:', error);
+          void fetchItems();
+          return;
+        }
+        setItems((prev) => mergeItemRows(prev, data ?? []));
+      }
+    };
 
     const channel = supabase
-      .channel(`items-changes-${user.id}`)
+      .channel(`items-changes-${userId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'items',
-          filter: `user_id=eq.${user.id}`,
+          filter: `user_id=eq.${userId}`,
         },
-        () => {
+        (payload: { eventType?: string; new?: { id?: string } | null; old?: { id?: string } | null }) => {
+          const pending = pendingRef.current;
+          if (payload.eventType === 'DELETE') {
+            if (payload.old?.id) pending.removed.add(payload.old.id);
+            else pending.full = true;
+          } else if (payload.new?.id) {
+            pending.changed.add(payload.new.id);
+          } else {
+            pending.full = true;
+          }
           if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
           refetchTimerRef.current = setTimeout(() => {
-            void fetchItems();
+            void flush();
           }, 400);
         }
       )

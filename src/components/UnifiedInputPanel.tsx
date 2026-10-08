@@ -885,9 +885,11 @@ const UnifiedInputPanel = ({
       setInputItems(itemsToProcess);
 
       console.error('Error adding content:', error);
+      // Say what went wrong, so a failure can be reported and found
+      const reason = error instanceof Error && error.message ? `: ${error.message}` : '';
       toast({
         title: "Error",
-        description: "Failed to add content. Please try again.",
+        description: `Failed to add content${reason}. Please try again.`,
         variant: "destructive",
       });
     } finally {

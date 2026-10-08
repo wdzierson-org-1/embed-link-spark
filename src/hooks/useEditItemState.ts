@@ -35,6 +35,8 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
   const supplementalNoteRef = useRef('');
   const itemRef = useRef(item);
   const initialLoadRef = useRef(false);
+  // What the title and description fields last took from the database
+  const adoptedRef = useRef({ title: '', description: '' });
 
   // Update refs when item changes
   useEffect(() => { 
@@ -99,6 +101,7 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       // Update refs to match database content
       titleRef.current = initialTitle;
       descriptionRef.current = initialDescription;
+      adoptedRef.current = { title: initialTitle, description: initialDescription };
       contentRef.current = initialContent;
       supplementalNoteRef.current = initialSupplementalNote;
       
@@ -120,6 +123,25 @@ export const useEditItemState = ({ open, item }: UseEditItemStateProps) => {
       }, 50);
     }
   }, [item?.id, open]); // CRITICAL: Only depend on item.id and open, not item.content
+
+  // Values that land while the sheet is open (enrichment naming and describing a save that was
+  // opened mid-read) are adopted into fields the person hasn't touched. A field they've typed in
+  // keeps their words: its ref no longer matches what was last adopted.
+  useEffect(() => {
+    if (!item || !open) return;
+    const nextTitle = decodeHtmlEntities(item.title || '');
+    if (nextTitle !== adoptedRef.current.title && titleRef.current === adoptedRef.current.title) {
+      adoptedRef.current.title = nextTitle;
+      titleRef.current = nextTitle;
+      setTitle(nextTitle);
+    }
+    const nextDescription = decodeHtmlEntities(item.description || '');
+    if (nextDescription !== adoptedRef.current.description && descriptionRef.current === adoptedRef.current.description) {
+      adoptedRef.current.description = nextDescription;
+      descriptionRef.current = nextDescription;
+      setDescription(nextDescription);
+    }
+  }, [item, open]);
 
   // Clear editor state when sheet closes
   useEffect(() => {

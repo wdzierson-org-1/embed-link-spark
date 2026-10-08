@@ -8,6 +8,47 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-08 · The panel follows the live row; no jump while its picture loads; the address strip edits; the 400s are gone
+
+Will's notes after the launch: the panel's photo "lazy loads and the content jumps"; the address
+should be clickable, with copy and edit; JavaScript errors cycling in the console; and the panel
+"sometimes loads with temporary content ('untitled', no image, no description)".
+
+**Behaviour (for iOS and macOS to mirror):**
+- **The item panel shows the open card's live row.** It used to show a snapshot taken at the tap,
+  so a save opened while Stash was still reading it stayed "Untitled" with no picture until it was
+  closed and reopened. Now, as enrichment lands, the panel's title and description fill in, and the
+  picture and window bar follow, unless the person has already typed in that field, in which case
+  their words stay. (Nothing about how cards open had changed; the snapshot was old behaviour that
+  the redesign's reading state made more visible.)
+- **Realtime re-reads only what changed.** On every enrichment write the library used to refetch
+  all of itself (at 841 saves, ~535 KB, several times a minute). It now re-reads the rows the event
+  named, in one read per 400 ms burst; a delete drops the row with no read; an event with no row id
+  falls back to the full refetch.
+- **The console errors:** the grid fetched tags with every item id in the URL. At 841 saves that
+  was a 31 KB URL, the gateway answered `400 Bad Request`, and it re-ran on every refetch. The
+  fetch now sends no ids (RLS scopes `item_tags` to the person's items) and reads in pages of
+  1,000. The test account, at 59 saves, never hit it; the threshold is between 500 and 841 saves.
+- **The picture stage is a fixed 448 px** before and after the picture loads, with the mosaic
+  until it has; a picture that fails to load takes the stage with it. (No item stores its image's
+  size, on any platform; storing width and height at capture would let the stage match the picture
+  exactly and is worth adding to the capture contract.)
+- **The address strip:** the whole address is a link. Copy (`copy address`, then `copied` for two
+  seconds), edit (the strip becomes a field; the cell turns spot and becomes save; Enter saves, Esc
+  cancels; `https://` is supplied for a bare host; a non-address is refused), and open. Saving
+  writes `items.url`; the quality loop reassesses the save (the items trigger queues it).
+- **"Failed to add content"** now says why (`Failed to add content: <reason>`), in both the
+  composer's and the operation's toasts. The refero.design save Will reported could not be
+  reproduced (on the test account it saved and enriched cleanly in ~95 s, with no failed request),
+  and his account holds exactly one refero row from that day, titled and enriched, so the server
+  save succeeded. Next time, the toast names the step.
+
+**Tests:** the grid's tag fetch (no ids, paged), the realtime merge and per-row read, the panel's
+adoption of landing values, the picture stage, the address strip (link, copy, edit/save/cancel,
+refusal, failed save), and the Index's live binding. Checked in the browser on the dev server with
+images held back 1.5 s: the stage and everything under it held still while the picture loaded; the
+address edit saved and the window bar followed; no console errors.
+
 ## 2026-10-07 · Videos play in place on the card, and as video in the item panel
 
 **Behaviour (for iOS and macOS to mirror):**

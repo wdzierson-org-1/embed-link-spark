@@ -530,7 +530,7 @@ once, and the shared beat never strands one mid-effect.
 | Composer chips | `| fetching more details…`, `| reading the link…`, `| analyzing…`, `| uploading…`, `| uploading · 45%` | `posted from Brooklyn, New York`, `finding your location…` |
 | The composer | | `type / for commands` (only while it's focused); the drop veil says `drop to save` |
 | Ask | `| searching your stash…` (before the first word), `| writing the answer…` (streaming) | `✓ searched your stash · 3 saves`, `answers from your 59 saves`, `also from`, `⌖ show 3 sources` / `showing` |
-| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone) |
+| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone) |
 | Settings | `| loading your settings…`, `| checking your plan…`, `| checking for agents…` | `signed in as …`, `connected 3 days ago · last used 1 hour ago`, `activity.log` |
 | The loading screen | `> opening your stash`, then eleven more, decrypting in the code voice (§12.10) | |
 | The way in (§12.14) | `| signing in…`, `| creating your stash…`, `| sending…`, `| updating…`, `| checking your reset link…` | prompts `> knock knock. who’s there?`, `> new here? pull up a chair.`, `> happens to the best of us.`, `> a link is on its way to you.`; field errors `✕ that username is taken. try another.` |
@@ -723,13 +723,25 @@ ink on hover.
 - **Title:** screen title 28/1.12, inline-editable (hover: fill; editing: white, ink edge, spot ring).
   **Description:** Montreal 15/1.5 muted, editable the same way.
 - **Media** on a dotted stage with crop marks: an image as an object (2 px, line edge,
-  `shadow-object`), with 36 px square replace and remove controls on hover. A **video** is shown as
+  `shadow-object`), with 36 px square replace and remove controls on hover. The picture stage is
+  **448 px tall before the picture arrives and after** (its 384 px cap plus padding), so nothing
+  below it moves while the picture loads; until it has, the stage shows the mosaic of a picture
+  not yet here, and a picture that fails to load takes the stage with it (`edit/EditItemImageStage`;
+  nothing stores an image's size, so the stage reserves its full height). (Will, 2026-10-08: "the
+  photo sort of lazy loads and the content jumps".)A **video** is shown as
   a video on the same stage: an object (2 px, line edge, `shadow-object`, ink behind its letterbox) at
   its own shape up to 420 px tall, with the native controls, and `download original` under it (Will,
   2026-10-07: "the detail panel should show the video"). Audio uses the **player strip**: plain fill
   with a line edge, a 44 px ink play button, 40 ink bars, times in Departure Mono, a 28 px square
   speed control (`1×`, `1.5×`, `2×`) and `download original` (`edit/EditItemMediaZone`).
-- **Source address:** the machine strip (favicon, the URL in JetBrains Mono 12.5, a 40 px open cell).
+- **Source address:** the machine strip: favicon and the whole address in JetBrains Mono 12.5 as
+  one link, then 40 px cells: **copy** (tooltip `copy address`; after a click the cell shows a
+  check and says `copied` for two seconds), **edit** (`edit address`; the strip becomes a field in
+  the code voice, the same cell turns spot with a check and reads `save address`, `enter saves ·
+  esc cancels` under it; Enter or the cell saves and the cell turns back to edit), and **open**.
+  A bare host gets `https://`; anything that isn't a web address is refused with
+  `✕ that doesn't look like a web address` and nothing is saved. Saving writes `url`; the items
+  trigger queues the quality loop to reassess the save. (Will, 2026-10-08.)
 - **Notes:** the editor's empty line says "Add a note…" (the person's voice, as on the card); the
   slash hint is the machine line under it, `type / for formatting`, and the full-screen editor
   carries the same line in its footer. (Will, 2026-10-07, on the old "Press '/' for commands or
@@ -934,6 +946,12 @@ on `<html>`, Radix portals (sheets, menus, dialogs, toasts) are inside the scope
   variants too.
 - `cn()` (`src/lib/utils.ts`) extends tailwind-merge with these sizes, shadows and the radius;
   without that, `text-pixel` reads as a colour and gets dropped next to `text-white`.
+- **The library stays live without refetching itself.** `useItems` re-reads only the rows a
+  realtime event names (one `in(id)` read per 400 ms burst; a delete just drops the row; anything
+  unexpected falls back to the full refetch), and the item panel shows the open card's live row
+  (`Index`), adopting a title or description that lands while it's open into fields the person
+  hasn't typed in (`useEditItemState`). The grid's tag fetch sends no ids: at 841 saves the id
+  list made a 31 KB URL and every fetch came back 400 (2026-10-08).
 
 **Machine pieces** (`src/components/machine/`): `Spinner` and `useSpinnerFrame` (the shared
 ticker), `StatusLine`, `Tag`, `MachineWindow`, `CropMarks`, `PixelGlyph` (data in `glyphs.ts`;
