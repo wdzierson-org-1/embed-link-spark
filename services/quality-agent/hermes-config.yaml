@@ -1,0 +1,29 @@
+# Root-owned template copied by the supervisor into each fresh job home.
+# The pilot supplies provider/model and lease-scoped API credentials explicitly.
+model:
+  provider: openai-api
+  api_mode: chat_completions
+agent:
+  max_turns: 6
+  run_budget_seconds: 80
+  auto_recovery_cycles: 0
+  disabled_toolsets:
+    - all
+auxiliary:
+  background_review:
+    enabled: false
+curator:
+  enabled: false
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  write_approval: true
+  nudge_interval: 0
+skills:
+  write_approval: true
+security:
+  allow_lazy_installs: false
+approvals:
+  single_query_mode: deny
+  unattended_mode: deny
+  cron_mode: deny

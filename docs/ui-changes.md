@@ -8,6 +8,21 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Hosted enrichment quality pilot
+
+- New infrastructure-only `quality-worker`, `quality-dispatch`, and `quality-model`
+  endpoints support leased, read-only source audits on a dedicated Fly Sprite.
+  New service-only tables retain jobs, findings, and an idempotent daily email
+  outbox. Pilot accounts are explicitly scoped; deployment starts disabled.
+- Capture responses and item fields are unchanged. Findings do not overwrite
+  items or user edits. The existing enrichment repair queue remains the writer.
+- No new client UI is required. Future beta facts, suggested views and actions
+  are described in `docs/hosted-intelligence-roadmap.md`; those are proposals,
+  not newly available product features.
+- Accuracy findings describe the sampled source snapshot. Text audits cannot
+  certify live pages, image identity, or a population-wide enrichment error rate.
+
+
 ## 2026-10-08 · The library no longer breaks when Ask docks
 
 Will: "show x sources" and maximizing Ask "cause the right side of the screen to misrender".
