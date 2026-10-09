@@ -1,6 +1,8 @@
 
 import React from 'react';
-import type { EditorInstance } from 'novel';
+import type { EditorInstance, JSONContent } from 'novel';
+import { docIsEmpty } from '@/utils/captureDoc';
+import { noteIsEmpty } from '@/utils/noteContent';
 import { useEditorContentManager } from './EditorContentManager';
 import EditorContentRenderer from './EditorContentRenderer';
 import type { EditorContainerProps } from './EditorContainerProps';
@@ -15,12 +17,18 @@ const EditorContainer = ({
   handleImageUpload, 
   editorKey, 
   isMaximized = false,
+  inline = false,
   onEditorReady
 }: EnhancedEditorContainerProps) => {
   const { lastContentRef, initializationRef, getInitialContent } = useEditorContentManager({
     content,
     editorKey
   });
+
+  // An untouched empty editor must not write its empty document over an empty note: opening
+  // the notes field and leaving it is not an edit.
+  const isNoOpWrite = (json: JSONContent, jsonString: string) =>
+    jsonString === lastContentRef.current || (docIsEmpty(json) && noteIsEmpty(lastContentRef.current));
 
   const handleEditorUpdate = (editor: EditorInstance) => {
     // Call onEditorReady when we first get the editor instance
@@ -49,7 +57,7 @@ const EditorContainer = ({
     
     // Enhanced content comparison with detailed logging
     const hasImageInContent = jsonString.includes('"type":"image"');
-    const contentChanged = jsonString !== lastContentRef.current;
+    const contentChanged = !isNoOpWrite(json, jsonString);
     const hasPlaceholderImages = jsonString.includes('"src":"data:image/');
     const hasFinalUrlImages = jsonString.includes('"src":"http');
     
@@ -118,7 +126,7 @@ const EditorContainer = ({
     const hasImages = jsonString.includes('"type":"image"');
     const hasFinalUrls = jsonString.includes('"src":"http');
     
-    if (jsonString !== lastContentRef.current) {
+    if (!isNoOpWrite(json, jsonString)) {
       console.log('EditorContainer: Unsaved changes detected on blur - triggering enhanced save', {
         editorKey,
         contentLength: jsonString.length,
@@ -147,7 +155,7 @@ const EditorContainer = ({
   if (!initialJsonContent) {
     return (
       <div>
-        <div className={`flex items-center justify-center text-muted-foreground ${isMaximized ? 'h-96' : 'border rounded-md p-4 min-h-[150px]'}`}>
+        <div className={`flex items-center justify-center text-muted-foreground ${isMaximized ? 'h-96' : inline ? 'min-h-[24px]' : 'border rounded-md p-4 min-h-[150px]'}`}>
           Loading editor...
         </div>
       </div>
@@ -159,6 +167,7 @@ const EditorContainer = ({
       initialContent={initialJsonContent}
       editorKey={editorKey}
       isMaximized={isMaximized}
+      inline={inline}
       uploadFn={handleImageUpload}
       onUpdate={handleEditorUpdate}
       onFocus={handleEditorFocus}

@@ -97,7 +97,7 @@ export const saveItem = async (
     // Refresh embeddings when a text field changed — from the full merged row,
     // so a partial patch (e.g. title-only blur save) can't wipe the rest of the
     // item's searchable content. Deliberately not awaited: see scheduler above.
-    const textFieldsChanged = ['title', 'description', 'content', 'supplemental_note']
+    const textFieldsChanged = ['title', 'description', 'content', 'supplemental_note', 'summary']
       .some(field => field in updates);
 
     if (textFieldsChanged && updatedItem) {

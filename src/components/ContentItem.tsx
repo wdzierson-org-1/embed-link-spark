@@ -41,6 +41,7 @@ interface ContentItem {
   attributes?: ItemAttributes;
   remind_at?: string | null;
   reminder_cleared_at?: string | null;
+  pinned_at?: string | null;
 }
 
 interface ContentItemProps {
@@ -57,6 +58,7 @@ interface ContentItemProps {
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: ContentItem) => void;
+  onTogglePin?: (item: ContentItem) => void;
   onCommentClick?: (itemId: string) => void;
   collectionAttachments?: Attachment[];
   /** Enrichment pieces that just landed (piece → epoch ms), from ContentGrid */
@@ -77,6 +79,7 @@ const ContentItem = ({
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
+  onTogglePin,
   onCommentClick,
   collectionAttachments,
   assemblyReveals
@@ -328,6 +331,7 @@ const ContentItem = ({
             isPublicView={isPublicView}
             currentUserId={currentUserId}
             onTogglePrivacy={onTogglePrivacy}
+            onTogglePin={onTogglePin}
             onCommentClick={onCommentClick}
           />
         </div>

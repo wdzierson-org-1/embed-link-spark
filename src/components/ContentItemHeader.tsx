@@ -42,6 +42,7 @@ interface ContentItem {
   attributes?: ItemAttributes;
   remind_at?: string | null;
   reminder_cleared_at?: string | null;
+  pinned_at?: string | null;
 }
 
 interface ContentItemHeaderProps {
@@ -73,6 +74,7 @@ const ContentItemHeader = ({
   // Only while the PDF is genuinely being read: one whose extraction failed must still open
   const isProcessing = isReadingDocument(item, now.getTime());
   const isDue = !isPublicView && reminderState(item, now) === 'due';
+  const isPinned = !isPublicView && Boolean(item.pinned_at);
   const title = item.title ? decodeHtmlEntities(item.title) : '';
   // A title that lands while the person watches decrypts in; static titles never scramble
   const decrypted = useDecrypt(title, Boolean(reveals?.title));
@@ -195,6 +197,7 @@ const ContentItemHeader = ({
   const kind = kindLabel(item);
   const stateTags = !isPublicView && (
     <>
+      {isPinned && <Tag>pinned</Tag>}
       {item.is_public && <Tag variant="white">public</Tag>}
       {isDue && (
         <Tag data-testid="due-pill">due</Tag>
@@ -219,17 +222,17 @@ const ContentItemHeader = ({
 
           {/* The machine's labels on the object: its kind top-left, its states top-right */}
           <Tag className="pointer-events-none absolute left-2.5 top-2.5 z-[4]">{kind}</Tag>
-          {stateTags && (item.is_public || isDue) && (
+          {stateTags && (item.is_public || isDue || isPinned) && (
             <div className="absolute right-2.5 top-2.5 z-[4] flex gap-1">{stateTags}</div>
           )}
         </div>
-      ) : (item.is_public || isDue) && !isPublicView ? (
+      ) : (item.is_public || isDue || isPinned) && !isPublicView ? (
         <div className="flex gap-1 px-5 pt-4">{stateTags}</div>
       ) : null}
 
       {/* Title: the AI's (or the person's) reading of the object, never a filename */}
       {title ? (
-        <div className={`px-5 ${hero ? 'pt-4' : (item.is_public || isDue) && !isPublicView ? 'pt-3' : 'pt-[18px]'}`}>
+        <div className={`px-5 ${hero ? 'pt-4' : (item.is_public || isDue || isPinned) && !isPublicView ? 'pt-3' : 'pt-[18px]'}`}>
           <button
             type="button"
             onClick={handleTitleClick}

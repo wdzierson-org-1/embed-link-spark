@@ -58,6 +58,20 @@ const Index = () => {
   );
   const [selectedTags, setSelectedTags] = useState([]);
 
+  // Pins: the "pinned" tab lists them newest pin first; "all" keeps its order
+  const [libraryView, setLibraryView] = useState<'all' | 'pinned'>('all');
+  const pinnedItems = useMemo(
+    () =>
+      items
+        .filter((item) => item.pinned_at && !item.isOptimistic)
+        .sort((a, b) => String(b.pinned_at).localeCompare(String(a.pinned_at))),
+    [items],
+  );
+  useEffect(() => {
+    if (libraryView === 'pinned' && pinnedItems.length === 0) setLibraryView('all');
+  }, [libraryView, pinnedItems.length]);
+  const libraryItems = libraryView === 'pinned' ? pinnedItems : items;
+
   const { tags } = useTags();
   const [searchQuery, setSearchQuery] = useState('');
   const { serverResultIds } = useServerSearch(searchQuery);
@@ -134,6 +148,17 @@ const Index = () => {
     setEditingItem(item);
   };
 
+  const handleTogglePin = (item) => {
+    void handleSaveItem(item.id, { pinned_at: item.pinned_at ? null : new Date().toISOString() }, { showSuccessToast: false, refreshItems: true });
+  };
+
+  // Sharing from the card is the panel's switch: a sticky note belongs to a shared item, so
+  // unsharing removes it (the panel confirms this first; the card menu keeps it to one step)
+  const handleTogglePublic = (item) => {
+    const updates = item.is_public ? { is_public: false, supplemental_note: null } : { is_public: true };
+    void handleSaveItem(item.id, updates, { showSuccessToast: false, refreshItems: true });
+  };
+
   const handleSourceClick = (sourceId: string) => {
     const item = items.find(item => item.id === sourceId);
     if (item) {
@@ -200,6 +225,9 @@ const Index = () => {
             selectedTags={selectedTags}
             onTagFilterChange={setSelectedTags}
             readingCount={readingCount}
+            pinnedCount={pinnedItems.length}
+            view={libraryView}
+            onViewChange={setLibraryView}
           />
           </div>
         )}
@@ -228,7 +256,9 @@ const Index = () => {
               )}
               <NowProvider>
                 <ContentGrid
-                  items={items}
+                  items={libraryItems}
+                  onTogglePrivacy={handleTogglePublic}
+                  onTogglePin={handleTogglePin}
                   onDeleteItem={handleDeleteItem}
                   onEditItem={handleEditItem}
                   onChatWithItem={() => {}}

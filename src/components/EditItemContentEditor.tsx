@@ -12,6 +12,7 @@ interface EditItemContentEditorProps {
   itemId?: string;
   editorInstanceKey?: string;
   isMaximized?: boolean;
+  inline?: boolean;
 }
 
 const EditItemContentEditor = ({ 
@@ -19,7 +20,8 @@ const EditItemContentEditor = ({
   onContentChange, 
   itemId, 
   editorInstanceKey, 
-  isMaximized = false 
+  isMaximized = false,
+  inline = false,
 }: EditItemContentEditorProps) => {
   const { user, session } = useAuth();
   const isMobile = useIsMobile();
@@ -162,6 +164,7 @@ const EditItemContentEditor = ({
       handleImageUpload={uploadFn}
       editorKey={effectiveEditorKey}
       isMaximized={isMaximized}
+      inline={inline}
       onEditorReady={(editor) => {
         editorRef.current = editor;
         console.log('EditItemContentEditor: Editor instance stored in ref for explicit saves', {

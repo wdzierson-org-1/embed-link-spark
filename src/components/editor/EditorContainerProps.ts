@@ -7,4 +7,6 @@ export interface EditorContainerProps {
   handleImageUpload?: UploadFn;
   editorKey: string;
   isMaximized?: boolean;
+  /** No box of its own: the notes section draws the field around it */
+  inline?: boolean;
 }

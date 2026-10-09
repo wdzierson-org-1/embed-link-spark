@@ -51,6 +51,169 @@ first, visuals second, with pointers to specs and source.
 - Accuracy findings describe the sampled source snapshot. Text audits cannot
   certify live pages, image identity, or a population-wide enrichment error rate.
 
+## 2026-10-09 · Public contact address is hello@gostash.it
+
+- **Contract:** every public contact now points at **hello@gostash.it** (Will). Any surface
+  that gains a support, contact or feedback link (iOS Settings, the extension's sign-in page,
+  App Store or Web Store listings) uses this address, not a personal one.
+- **Where it changed on the web:** the site footer's Contact and the iPhone beta "Email us"
+  line (both come from `scripts/publish-site.mjs` / the prototype's `js/site.js`, re-published
+  into `public/`), the legal pages' "Questions? Email …" (`src/pages/LegalPage.tsx`) and the old
+  landing page (`src/pages/Landing.tsx`). Test fixtures and the admin seed keep the real
+  account email: those are identities, not contact details.
+- **Mail:** gostash.it's MX is Google Workspace; the hello@ mailbox or alias has to exist there.
+
+## 2026-10-09 · A save no longer reports "Failed to add content" when its index rebuild loses to enrichment
+
+Will saved a YouTube link from the web and got "Failed to add content: Edge Function returned a
+non-2xx status code", although the card was there and the save was fully indexed 19 s later.
+
+- **What happened:** after inserting, the web client asks `generate-embeddings` to index the new
+  row right away. The function rebuilds the index with a compare-and-swap (`replace_item_embeddings`
+  with the row's snapshot); server enrichment was writing the same row at that moment, so the swap
+  failed and the function answered **`409 {"success":false,"reason":"item_changed"}`** — by
+  design, since whoever changed the row re-indexes it (the enrichment did: 19 chunks). The web
+  treated the 409 as the add failing. The same 409 showed up as console noise after quick title /
+  summary edits (the items trigger reassesses the row).
+- **Contract, for every client:** `409 item_changed` from `generate-embeddings` is **deferred, not
+  failed** — do nothing, the row's changer re-indexes. iOS's `EmbeddingRefresher` already does
+  this (`FunctionsError.httpError(409)`); the web's `generateEmbeddings` now resolves
+  `{ deferred: true }` on 409 and only throws on other statuses.
+- **Web behaviour:** indexing right after an insert is best effort: a real failure there is logged
+  and the save still succeeds (the server re-indexes as enrichment lands). The Chrome extension
+  saves through the platform API and never calls the function.
+- Tests: `utils/aiOperations.test.ts` (409 → deferred, 500 → throws), `utils/contentProcessor.test.ts`.
+
+## 2026-10-09 · Share a save by link; the address leads the panel; a cancel cell while editing it; "Resurface in"
+
+Will: "move the address for the object above the title"; "add an X button to exit edit mode if the
+user decides to edit the URL"; "add a share button to the upper right of the detail screen. this
+should create a unique URL (if we can limit the length somehow, great). it will bring whomever
+clicks on the link to a read only view of everything on the detail screen. stash logo in the upper
+left, standard 12 column grid width (centered), the same background we use for the main grid"; on
+cards, "change 'remind me' to 'resurface in'". Decisions: the page shows **everything on the panel**
+(notes and details included); the link is **unlisted and separate from the public feed**; the page
+carries the logo, `from @username’s stash`, and Get Stash.
+
+**Data contract (all platforms):**
+- `items.share_token text null` (unique partial index `items_share_token_key`) and
+  `items.shared_at timestamptz null` — migration `supabase/migrations/20261009123000_items_share_token.sql`,
+  applied to prod. The token is **10 characters of base62** (`[A-Za-z0-9]{10}`, ~59 bits), minted
+  **by the client** (`src/utils/shareToken.ts` `mintShareToken`, rejection-sampled from
+  `crypto.getRandomValues`) and written through the normal owner update (`share_token`,
+  `shared_at = now()`). **Stop sharing** writes both back to null. A shared item keeps its token: the
+  client never re-mints while one exists. iOS: mint the same shape, write the same two columns through
+  the same update; on a unique violation (astronomically unlikely) mint again.
+- The link is `https://www.gostash.it/s/<token>` (`shareUrlFor`).
+- Reading: **`public.shared_item(p_token text)`**, SECURITY DEFINER, executable by `anon` and
+  `authenticated`; returns at most one row: `id, type (text), title, description, url, file_path,
+  mime_type, file_size, summary, page_body, content, attributes, created_at, shared_at, username,
+  display_name` (the owner's `user_profiles`). It never returns pins, reminders, `is_public`, the
+  sticky note or the user id, and nothing can list tokens. Media comes from the public `stash-media`
+  bucket (`file_path` → public URL; an `http…` file_path is already a URL). RLS is unchanged.
+- `share_token` is in the web list projection (`ITEM_LIST_COLUMN_NAMES`) and the admin grid columns.
+
+**Behaviour (for iOS and macOS to mirror):**
+- **Panel: the address leads.** For links the source address strip is the first thing in the panel
+  body, above the title (then title, description, media, source tabs, notes, details, sharing).
+- **Address strip, editing:** a red **×** cell (`aria-label` "Cancel editing", tooltip `cancel`)
+  appears to the left of the spot ✓ while editing; it leaves edit mode and keeps the old address
+  (Esc still does the same).
+- **Share cell** in the panel's window bar, top-right beside close (`edit/ShareControl`): tooltip
+  `share`. **One click mints the link, stores it, copies it, and opens the share window** — an ink
+  bar `share`, the status `✓ link copied · anyone with it can view` (then `anyone with the link can
+  view`), the address in the code voice with a copy cell (`copy link` / `copied`), the line
+  `not on your feed · read only`, and **Stop sharing** (error red). Once shared the cell wears the
+  spot colour (tooltip `shared · anyone with the link`) and a click only opens the window. Stop
+  sharing clears the token; the old link then shows the dead-link page. A failed write says
+  `✕ couldn't update the link. try again` in the window.
+- **The shared page** `/s/<token>` (`src/pages/SharedItem.tsx`; DESIGN-v2 §12.15), on the library's
+  paper: a 68 px header with the logo (to gostash.it), `from @username’s stash` in the machine voice,
+  and **Get Stash** at the right; the object centred on the marketing 12-column grid (max 1360 px,
+  columns 3–10 from `lg`, full width below): the same window bar, the address strip (copy and open
+  only), the title, description, media (audio/video player, picture stage, document preview), the
+  source tabs (`summary | original content`, or `transcript`), the notes as read-only rich text when
+  there are any, and the details facts. A note shows its text as the object. Nothing is editable;
+  no comments. A dead or malformed token gets "This link no longer works." with Get Stash. The
+  document title becomes `<title> · Stash`. Link previews (OG tags for iMessage/Slack) need a
+  server-rendered head — not done; follow-up.
+- **Cards:** the menu reads **`Resurface in…`** ▸ `1 day · 3 days · 5 days` and **`Don't resurface`**
+  (was `Remind me…` / `Change reminder…` / `Remove reminder`). The data (`remind_at`) and the
+  card's clock chip are unchanged.
+- Tests: `edit/ShareControl.test.tsx`, `pages/SharedItem.test.tsx`, `utils/shareToken.test.ts`,
+  `EditItemLinkSection.test.tsx` (cancel cell), `ContentItemFooter.menu.test.tsx`,
+  `utils/designScope.test.ts` (`/s/` is on DESIGN-v2).
+
+## 2026-10-09 · Cards: pin, share, delete from the menu; the panel: source first, the summary editable, notes one line
+
+Will: on the card menu, "remove 'report a problem'", "re-introduce 'delete this' with a confirmation
+dialog styled like the app", "add 'pin this'", "when anything is pinned show two tabs above the grid
+'all | pinned'", "add 'share to feed' toggle (unshare too)"; in the detail view, "move 'source' above
+'notes'", "move the 'summary | original content' tabs to the left with no 'source' label, a full-size
+icon on the right"; notes as "one line of normal text, hover light grey, click to edit with the bright
+green border", hide "type / for formatting" until focused; the summary "editable like title/description"
+and stored; "original content not editable"; and "make opening the detail panel snappier". Decisions:
+the full-size icon opens **the active tab** full screen; `all` keeps the normal order (pins don't float).
+
+**Data contract (all platforms):**
+- `items.pinned_at timestamptz null` (migration `supabase/migrations/20261009090000_items_pinned_at.sql`,
+  applied to prod; partial index `items_pinned_idx (user_id, pinned_at desc) where pinned_at is not
+  null`). **Pin** = set it to now; **unpin** = null. It's in the web list projection
+  (`ITEM_LIST_COLUMN_NAMES`) and the admin grid's columns. Pins are the owner's: never rendered on a
+  public feed, never sent to a visitor.
+- **Share / unshare from the card** writes `is_public`; **un-sharing also clears `supplemental_note`**
+  (the sticky note), the rule the panel's sharing switch already followed. No new columns.
+- **Delete** uses the existing delete path (`onDeleteItem(id)`), only after the confirmation.
+- **The summary is now a person-editable field:** the panel saves `items.summary` through the same
+  save path as the title (`saveItem`; a trimmed-empty summary stores `null`); `summary` is one of
+  the text fields whose change re-indexes the item (`textFieldsChanged` → `generate-embeddings`), so
+  Ask and MCP see the edit. Original content (`page_body`) and transcripts stay read-only.
+- **Notes stay empty until a person writes:** opening the notes field and leaving it writes nothing.
+  Before, the editor's blur safety-save wrote its empty document
+  (`{"type":"doc","content":[{"type":"paragraph"}]}`) over an empty `content`; now an empty editor
+  over an empty note is a no-op, and a stored empty document counts as no note
+  (`src/utils/noteContent.ts` `noteIsEmpty`: null, whitespace, the empty doc, `<p></p>`). Clearing a
+  note that had text still saves (that's an edit). iOS: treat the same four shapes as "no note".
+
+**Behaviour (for iOS and macOS to mirror):**
+- **Card menu** (owner, `ContentItemFooter`): `Pin this` / `Unpin` · `Share to feed` / `Unshare from
+  feed` · `Remind me…` ▸ (`Change reminder…` once set) and `Remove reminder` · a rule · `Delete
+  this` in error red. **"Report a problem" and its feedback dialog are gone.** `Delete this` opens an
+  app dialog: title "Delete this item?", body "“{title}” and everything Stash knows about it will be
+  removed. This can't be undone." (`Untitled` when there's no title), buttons Cancel and a red
+  **Delete**; Cancel keeps the item. A visitor to a public feed gets only **Comments**.
+- **Card:** a pinned item wears a black `pinned` state tag top-right (with `public` / `due`).
+- **Library toolbar** (`LibraryToolbar`): with no pins, `59 saves` as before. Once anything is pinned,
+  a tablist (`aria-label` "Library view") with `all · 59` and `pinned · 3` (the open tab inverts to
+  ink), the reading count beside it. `all` is the normal order; `pinned` lists pins newest-pinned
+  first (`pinned_at desc`). The view falls back to `all` when the last pin goes.
+- **Panel order** (`EditItemContentSection`): the **source** section comes first, then **notes**,
+  then details and sharing. The source section has **no label**: its tabs row sits on the left of
+  the rule (`summary | original content` for links and documents; `transcript` for audio and video),
+  and a 24 px **full-size** cell (`aria-label` "View full size") sits on the right. Full size opens
+  **the active tab** over the panel (`edit/MaximizedSource`): the same window chrome as the notes'
+  maximize (an ink bar naming the tab, a Minimize button), the text in a reading column; **Esc or
+  Minimize returns** to the panel (Esc is stopped before the sheet hears it).
+- **Summary** (links and documents): rest plain, fill on hover, click → an auto-growing field with the
+  ink edge and spot ring (the title's treatment); **leaving it saves** when the text changed
+  (`saving the summary…`, then the text; on failure `couldn't save the summary. try again` and the
+  old text); **Esc abandons** the edit and does not close the panel (nor a full-size view). Without a
+  save handler (public views) it's plain text.
+- **Notes:** empty notes are **one line of body text**, "Add a note…" (muted; fill on hover). A click
+  mounts the editor **focused**, inline (no box of its own), inside the field treatment (white, ink
+  edge, spot ring while focused); `type / for formatting` shows only while it's focused. Leaving an
+  empty editor collapses it back to the line (and writes nothing, above). Existing notes show the
+  editor at once, plain, taking the ring on focus. The maximize cell stays on the notes rule.
+- **Snappier panel:** the sheet now slides in over **200 ms** and out over **150 ms** on `--ease`
+  (`ui/sheet.tsx`, v2 only; was 500 / 300). Measured on a 60-save library: the panel's content is in
+  the DOM ~80 ms after the tap and the sheet is fully in at ~250 ms (was ~560 ms). Empty notes no
+  longer mount the editor on open. (Note for Tailwind 3.4: an arbitrary `duration-[240ms]` under
+  the stacked `v2:data-[state=open]:` variant is not generated; use scale values.)
+- Tests: `ContentItemFooter.menu.test.tsx`, `ContentItemHeader.pinned.test.tsx`,
+  `LibraryToolbar.test.tsx`, `EditItemContentSection.test.tsx`, `editor/EditorContainer.test.tsx`,
+  `utils/noteContent.test.ts`. `src/test/setup.ts` now stubs `ResizeObserver` for Radix poppers.
+- Design: DESIGN-v2 §8 (panel timing), §10 (strings), §12.3 (menu, `pinned` tag), §12.6 (tabs),
+  §12.8 (order, summary, notes, full size).
 
 ## 2026-10-08 · The library no longer breaks when Ask docks
 

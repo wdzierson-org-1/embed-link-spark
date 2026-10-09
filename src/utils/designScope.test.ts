@@ -2,7 +2,7 @@ import { isV2Route } from './designScope';
 
 describe('isV2Route', () => {
   it('puts the signed-in app and the pages that share its cards on DESIGN-v2', () => {
-    for (const path of ['/home', '/settings', '/discover', '/feed/will', '/admin', '/admin/users/abc', '/design/cards']) {
+    for (const path of ['/home', '/settings', '/discover', '/feed/will', '/s/Xk3mN9pQ2a', '/admin', '/admin/users/abc', '/design/cards']) {
       expect(isV2Route(path), path).toBe(true);
     }
   });

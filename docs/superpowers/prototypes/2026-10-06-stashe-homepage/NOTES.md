@@ -191,8 +191,10 @@ illustrative café replaced it before the page went live.
    - Works with lists clients we haven't all tested.
    - On `mcp.html`, three client steps are untested: ChatGPT's Developer-mode path (from `docs/mcp/DIRECTORIES.md`), Claude Code's "open /mcp to sign in", and Cursor prompting sign-in on first use.
    - On `iphone.html`, the iOS beta needs to do what the page says, including Ask with sources and sharing from the camera.
-6. **Contact address.** v0.2's footer used hello@gostash.it, which exists nowhere in the repo. v0.3 uses
-   will@dzierson.com, the address the live landing and legal pages use. Do you want a hello@ address instead?
+6. **Contact address: settled 2026-10-09.** Every public contact is **hello@gostash.it** (Will): the footer's
+   Contact, the iPhone beta "Email us" line (`BETA_MAIL` in `scripts/publish-site.mjs`), and the app's legal
+   pages and old landing page. Earlier rounds used will@dzierson.com. The mailbox has to exist in Google
+   Workspace (gostash.it's MX) for mail to arrive.
 7. **"Notify me" is not wired.** There's no list behind it, so the form validates the address and then says
    "prototype: not sent". It needs a home, for example a small table and edge function, or a Resend audience,
    since Resend already sends the reminder email.

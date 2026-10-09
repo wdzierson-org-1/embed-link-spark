@@ -18,6 +18,7 @@ import OAuthConsent from '@/pages/OAuthConsent';
 import SubscriptionSuccess from '@/pages/SubscriptionSuccess';
 import NotFound from '@/pages/NotFound';
 import { PublicFeed } from '@/pages/PublicFeed';
+import SharedItem from '@/pages/SharedItem';
 import { Discover } from '@/pages/Discover';
 
 // Dev-only design review pages; never routed in production builds
@@ -58,6 +59,8 @@ function App() {
                 <Route path="/subscription-success" element={<SubscriptionSuccess />} />
                 <Route path="/404" element={<NotFound />} />
                 <Route path="/feed/:username" element={<PublicFeed />} />
+                {/* A save's unlisted, read-only share link (docs/ui-changes.md 2026-10-09) */}
+                <Route path="/s/:token" element={<SharedItem />} />
                 <Route path="/discover" element={<Discover />} />
                 <Route
                   path="/admin"

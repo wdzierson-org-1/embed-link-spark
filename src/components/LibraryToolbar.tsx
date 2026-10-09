@@ -37,6 +37,10 @@ interface LibraryToolbarProps {
   onTagFilterChange: (tags: string[]) => void;
   /** Saves Stash is still reading (enrichment pending), reported in the status line */
   readingCount?: number;
+  /** How many saves are pinned; above zero, the all | pinned tabs show */
+  pinnedCount?: number;
+  view?: 'all' | 'pinned';
+  onViewChange?: (view: 'all' | 'pinned') => void;
 }
 
 const LibraryToolbar = ({
@@ -47,6 +51,9 @@ const LibraryToolbar = ({
   selectedTags,
   onTagFilterChange,
   readingCount = 0,
+  pinnedCount = 0,
+  view = 'all',
+  onViewChange,
 }: LibraryToolbarProps) => {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>(loadRecentSearches);
@@ -94,17 +101,42 @@ const LibraryToolbar = ({
 
       {/* The library's status line, in the machine voice: how much is here, and what Stash
           is still reading (the same cursor the cards turn) */}
-      <p className="hidden items-center gap-2 font-pixel text-pixel text-muted-foreground sm:flex">
-        <span className="text-ink">
-          {itemCount} {itemCount === 1 ? 'save' : 'saves'}
-        </span>
-        {readingCount > 0 && (
-          <>
-            <span aria-hidden>·</span>
-            <StatusLine tone="busy">reading {readingCount}…</StatusLine>
-          </>
-        )}
-      </p>
+      {pinnedCount > 0 ? (
+        // Once anything is pinned, the library has two views: paper tabs, the open one ink
+        <div role="tablist" aria-label="Library view" className="flex gap-[3px]">
+          {([
+            ['all', `all · ${itemCount}`],
+            ['pinned', `pinned · ${pinnedCount}`],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={view === key}
+              onClick={() => onViewChange?.(key)}
+              className={`h-8 px-2.5 font-pixel text-pixel leading-none transition-colors ${
+                view === key ? 'bg-ink text-white' : 'bg-white text-ink shadow-[0_0_0_1px_rgba(0,0,0,0.06)] hover:bg-fill'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          {readingCount > 0 && (
+            <StatusLine tone="busy" className="ml-2 self-center">reading {readingCount}…</StatusLine>
+          )}
+        </div>
+      ) : (
+        <p className="hidden items-center gap-2 font-pixel text-pixel text-muted-foreground sm:flex">
+          <span className="text-ink">
+            {itemCount} {itemCount === 1 ? 'save' : 'saves'}
+          </span>
+          {readingCount > 0 && (
+            <>
+              <span aria-hidden>·</span>
+              <StatusLine tone="busy">reading {readingCount}…</StatusLine>
+            </>
+          )}
+        </p>
+      )}
 
       <div ref={searchWrapRef} className="relative ml-auto min-w-0 basis-56 sm:max-w-[340px]">
         <div

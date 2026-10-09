@@ -95,6 +95,19 @@ it('Escape cancels an edit and keeps the old address', () => {
   expect(onUrlSave).not.toHaveBeenCalled();
 });
 
+it('shows a cancel cell only while editing; it leaves edit mode and keeps the old address', () => {
+  const onUrlSave = vi.fn();
+  renderStrip(onUrlSave);
+  expect(screen.queryByRole('button', { name: 'Cancel editing' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit address' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Source address' }), { target: { value: 'https://elsewhere.com' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel editing' }));
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Cancel editing' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('link')[0]).toHaveAttribute('href', URL_A);
+  expect(onUrlSave).not.toHaveBeenCalled();
+});
+
 it('reports a failed save and stays in edit', async () => {
   const onUrlSave = vi.fn().mockRejectedValue(new Error('offline'));
   renderStrip(onUrlSave);

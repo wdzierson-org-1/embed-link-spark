@@ -717,7 +717,14 @@ export const processAndInsertContent = async (
     ].filter(Boolean).join(' ');
 
     if (textForEmbedding.trim()) {
-      await generateEmbeddings(insertedItem.id, textForEmbedding);
+      // The save is in. Indexing here is best effort: the server re-indexes as enrichment
+      // lands, so a failure must not report the save itself as failed (Will, 2026-10-09:
+      // a YouTube link "returned an error" that was only this call losing to enrichment).
+      try {
+        await generateEmbeddings(insertedItem.id, textForEmbedding);
+      } catch (embeddingError) {
+        console.error('Embedding after insert failed (non-fatal):', embeddingError);
+      }
     }
   }
 

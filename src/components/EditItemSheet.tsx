@@ -23,9 +23,8 @@ import { useEditItemSheet } from '@/hooks/useEditItemSheet';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useNow } from '@/hooks/useNow';
 import { isReadingDocument } from '@/utils/itemAssembly';
-import { domainOfUrl } from '@/utils/linkFlavor';
-import { kindLabel } from '@/components/cards/ItemTypeChip';
-import { St4shSymbol } from '@/components/brand/St4sh';
+import ItemWindowBar from '@/components/edit/ItemWindowBar';
+import ShareControl from '@/components/edit/ShareControl';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -38,6 +37,7 @@ interface ContentItem {
   type?: string;
   tags?: string[];
   is_public?: boolean;
+  share_token?: string | null;
   summary?: string;
   url?: string;
   created_at?: string;
@@ -48,7 +48,7 @@ interface EditItemSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean; file_path?: string | null; attributes?: ItemAttributes; url?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean; file_path?: string | null; attributes?: ItemAttributes; url?: string; summary?: string | null; share_token?: string | null; shared_at?: string | null }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
   onDelete?: (id: string) => void;
 }
 
@@ -107,6 +107,12 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     await onSave(item.id, { url }, { showSuccessToast: false, refreshItems: true });
   };
 
+  // The summary, edited in place (DESIGN-v2 §12.8). Empty clears it; saving re-indexes the item.
+  const handleSummarySave = async (summary: string) => {
+    if (!item) return;
+    await onSave(item.id, { summary: summary.trim() ? summary : null }, { showSuccessToast: false, refreshItems: true });
+  };
+
   const handleConfirmDelete = () => {
     if (!item || !onDelete) return;
     onOpenChange(false);
@@ -114,24 +120,15 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   };
 
   // The window bar (DESIGN-v2: Stash's own furniture is a window): what this save is and
-  // where it came from, in the machine voice. The sheet's close sits at its right end.
-  const savedOn = (() => {
-    if (!item?.created_at) return '';
-    const date = new Date(item.created_at);
-    return Number.isNaN(date.getTime())
-      ? ''
-      : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).replace(',', '').toLowerCase();
-  })();
-  const source = item?.type === 'link' ? domainOfUrl(item.url) : '';
+  // where it came from, in the machine voice. The share cell, then the sheet's close, sit at
+  // its right end.
   const windowBar = item && (
-    <div className="flex h-11 flex-none items-center gap-2.5 bg-ink pl-4 pr-12 text-white sm:pl-10">
-      <St4shSymbol className="h-[13px] w-[12px] flex-none text-spot-on-ink" />
-      <span className="flex min-w-0 items-center gap-2 truncate font-pixel text-pixel leading-none">
-        <span className="bg-white px-1.5 pb-[3px] pt-1 text-ink">{kindLabel({ type: item.type ?? 'text', title: item.title, mime_type: item.mime_type, attributes: item.attributes })}</span>
-        {source && <span className="truncate">{source}</span>}
-        {savedOn && <span className="truncate text-white/60">saved {savedOn}</span>}
-      </span>
-    </div>
+    <ItemWindowBar item={item}>
+      <ShareControl
+        shareToken={item.share_token}
+        onChange={(updates) => onSave(item.id, updates, { showSuccessToast: false, refreshItems: true })}
+      />
+    </ItemWindowBar>
   );
 
   const footer = (
@@ -184,6 +181,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     onImageChange: handleImageChange,
     onAttributesSave: handleAttributesSave,
     onUrlSave: item?.type === 'link' ? handleUrlSave : undefined,
+    onSummarySave: handleSummarySave,
     isMobile,
   };
 

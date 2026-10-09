@@ -360,6 +360,26 @@ describe("processAndInsertContent link enrichment", () => {
     expect(textInsert.is_public).toBe(false);
   });
 
+  it("still returns the inserted save when indexing it right after the insert fails", async () => {
+    invokeMock.mockResolvedValue({ data: null, error: null });
+    generateEmbeddingsMock.mockRejectedValueOnce(
+      Object.assign(new Error("Edge Function returned a non-2xx status code"), { context: { status: 500 } })
+    );
+
+    const inserted = await processAndInsertContent(
+      "text",
+      { content: "A thought worth keeping", title: "My note" },
+      "user-1",
+      true,
+      fetchItemsMock,
+      vi.fn()
+    );
+
+    expect(inserted).toBeDefined();
+    expect(generateEmbeddingsMock).toHaveBeenCalled();
+    expect(itemsInsertPayloads.find((p) => p.type === "text")).toBeDefined();
+  });
+
   it("generates a baseline embedding for documents at insert time", async () => {
     invokeMock.mockResolvedValue({ data: null, error: null });
 

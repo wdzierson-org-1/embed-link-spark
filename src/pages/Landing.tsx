@@ -641,7 +641,7 @@ const Landing = () => {
           <div className="flex justify-center space-x-6 text-sm font-montreal text-muted-foreground">
             <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
             <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
-            <a href="mailto:will@dzierson.com" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="mailto:hello@gostash.it" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </footer>
       </div>
