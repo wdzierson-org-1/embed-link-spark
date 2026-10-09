@@ -3,7 +3,20 @@ import { assessEnrichment, inspectSourceText, isPlaceholderMetadata, sourceIdent
 const tik = 'https://www.tiktok.com/t/example/';
 const ig = 'https://www.instagram.com/reel/example/';
 const errorPage = "TikTok Log in Couldn't find this page Check out more trending videos on TikTok " + 'Company Careers About Privacy '.repeat(30);
+const youtube = 'https://www.youtube.com/watch?v=YGgNBcIgI4s';
+const youtubeFooter = '- YouTube About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy & Safety How YouTube works Test new features NFL Sunday Ticket &copy; 2026 Google LLC';
 describe('content quality regressions', () => {
+  it('rejects the YouTube footer-only page returned for a saved video', () => {
+    expect(inspectSourceText(youtube, youtubeFooter)).toMatchObject({ usable: false, reason: 'navigation_only', text: '' });
+    expect(assessEnrichment({ type: 'link', url: youtube, title: 'Useful video', page_body: youtubeFooter }, true).content_usable).toBe(false);
+  });
+  it('keeps genuine short YouTube captions and transcripts, including captions with footer chrome', () => {
+    const caption = 'Pick ripe tomatoes, salt them, and finish with olive oil.';
+    expect(inspectSourceText(youtube, caption, 'caption')).toMatchObject({ usable: true, text: caption });
+    expect(inspectSourceText(youtube, `${caption}\n${youtubeFooter}`)).toMatchObject({ usable: true });
+    expect(inspectSourceText(youtube, 'Turn left at the red door.', 'transcript')).toMatchObject({ usable: true });
+    expect(inspectSourceText('https://example.com/article', youtubeFooter)).toMatchObject({ usable: true });
+  });
   it('rejects a long TikTok error page rather than summarizing the footer', () => {
     expect(inspectSourceText(tik, errorPage)).toMatchObject({ usable: false, reason: 'unavailable_page' });
     expect(assessEnrichment({ type: 'link', url: tik, title: 'TikTok - Make Your Day', description: 'Video by Creator on TikTok', page_body: errorPage, summary: 'TikTok is a social network' }, true).status).toBe('blocked');

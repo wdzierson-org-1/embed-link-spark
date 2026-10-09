@@ -56,6 +56,67 @@ until the user mouses over the card"; and "suppress non urgent errors like this"
   (`create-checkout` sets `trial_period_days: 14`), while the homepage says "$4.99 a month" and
   nothing about a trial. Will decides which changes.
 
+## 2026-10-09 · Hosted quality reviews expand beyond the pilot
+
+- Stash infrastructure rotates one account per hourly audit and chooses up to
+  three links with preference for items least recently reviewed. Contexts do not
+  mix accounts. Existing capture/enrichment behavior stays behind the platform API.
+- Daily live investigations can escalate from Firecrawl to Jina, plus public
+  Medium artwork for an exact article identity, within one bounded collection.
+  Source identity, source access limits and each attempted strategy are recorded.
+- The daily email now separates all-user save/quality counts from sampled Hermes
+  findings. It includes source and strategy breakdowns, unknown telemetry, and
+  reviewable playbook proposals. Other accounts' URLs, source quotes and model
+  free text are withheld from email; aggregate categories remain visible.
+- Schedule: after 09:00 America/New_York, covering the prior local calendar day.
+  Runtime remains the hosted Fly Sprite and Supabase cron; no local Codex job.
+- No automatic playbook/code deployment, image-pixel verification, taste graph,
+  or new client facts/action UI is introduced by this infrastructure release.
+
+## 2026-10-09 · YouTube share-sheet routing and profile/article previews
+
+- A complete HTTP(S) URL delivered as plain text is a link capture. iOS promotes
+  it before URL-first ordering and before either foreground or background outbox
+  serialization. The capture endpoint performs the same normalization for older
+  clients, keeping the capture receipt and original URL parameters. Text with
+  prose or multiple links stays a note; typed annotations stay in `content`.
+- Direct `add-note` calls containing only a URL keep literal metadata rather than
+  asking a model to invent the unseen page/video's title or description.
+- Preview selection recognizes the page's own Person/ProfilePage schema. A later
+  LinkedIn source capture can fill a missing, unprotected portrait with an owned
+  storage image; it cannot overwrite an existing or user-protected preview.
+- Medium byline portraits are excluded from article-cover candidates. Public
+  author-feed artwork is accepted only for the exact saved article identity.
+- Web LinkedIn `/in/` placeholders use a local pixel silhouette and the completed
+  state text `profile preview unavailable`. Other missing-link/video glyphs remain
+  unchanged. iOS's capture changes require a binary release; the server routing
+  protection benefits installed versions immediately after backend deployment.
+
+## 2026-10-09 · Live enrichment evidence and product image selection
+
+- The hosted daily investigation now records a public rendered source, retrieval
+  outcomes, and candidate images before Hermes produces proposals. Citations are
+  checked against the recorded source and remain separate from older captures.
+- Metadata image selection prefers the saved product and selected colour and
+  rejects navigation campaigns, including the Peter Millar jacket regression.
+- Existing saved items are not rewritten by the investigation. No client UI or
+  image-pixel verification is added in this slice.
+
+## 2026-10-09 · Hosted enrichment quality pilot
+
+- New infrastructure-only `quality-worker`, `quality-dispatch`, and `quality-model`
+  endpoints support leased, read-only source audits on a dedicated Fly Sprite.
+  New service-only tables retain jobs, findings, and an idempotent daily email
+  outbox. Pilot accounts are explicitly scoped; deployment starts disabled.
+- Capture responses and item fields are unchanged. Findings do not overwrite
+  items or user edits. The existing enrichment repair queue remains the writer.
+- No new client UI is required. Future beta facts, suggested views and actions
+  are described in `docs/hosted-intelligence-roadmap.md`; those are proposals,
+  not newly available product features.
+- Accuracy findings describe the sampled source snapshot. Text audits cannot
+  certify live pages, image identity, or a population-wide enrichment error rate.
+
+
 ## 2026-10-09 · Public contact address is hello@gostash.it
 
 - **Contract:** every public contact now points at **hello@gostash.it** (Will). Any surface

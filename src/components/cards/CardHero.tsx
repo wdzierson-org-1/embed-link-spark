@@ -259,7 +259,7 @@ export const LinkPlaceholder = ({ url, glyph, reading = false }: { url: string; 
         <span className="truncate">{domain || 'link'}</span>
       </span>
       {/* Only once Stash has finished looking: while it reads, a picture may still come */}
-      {!reading && <span className="font-pixel text-pixel text-muted-foreground">preview limited, saved anyway</span>}
+      {!reading && <span className="font-pixel text-pixel text-muted-foreground">{glyph === 'profile' ? 'profile preview unavailable' : 'preview limited, saved anyway'}</span>}
     </MediaField>
   );
 };

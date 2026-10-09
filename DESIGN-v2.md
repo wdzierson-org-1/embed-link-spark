@@ -346,7 +346,7 @@ implementation can be found. App specifics are in §12.
 - **Object card** (`.scard`, `ContentItem`): see §12.3. White, 2 px corners, hairline edge.
 - **Placeholders** (`.ph`, `LinkPlaceholder`, `FilePlate`, `DocumentHero`): when a save has no
   image, the media area becomes a dotted field holding a 14×14 pixel glyph for the kind (page,
-  article, video, repo, book, social, place; and in the app photo, voice, recording, note) and a
+  article, video, repo, book, social, place; and in the app photo, voice, recording, note, profile) and a
   black label with the site's domain. (The homepage's label adds the favicon its enrichment
   stream returns. The app's library doesn't fetch favicons: a request per card would send the
   domains of the person's saves to a third party on every load.)**In the library the field is `--fill` with
@@ -528,6 +528,7 @@ once, and the shared beat never strands one mid-effect.
 | A save in flight (the optimistic card) | `| saving…` | (it becomes the real card) |
 | The library toolbar | `59 saves · | reading 2…` | `59 saves`; with pins, the tabs `all · 59` `pinned · 3` |
 | A link with no picture | | `preview limited, saved anyway` (only once Stash has finished looking) |
+| A LinkedIn profile with no picture | | `profile preview unavailable` (local silhouette, once Stash has finished looking) |
 | Composer chips | `| fetching more details…`, `| reading the link…`, `| analyzing…`, `| uploading…`, `| uploading · 45%` | `posted from Brooklyn, New York`, `finding your location…` |
 | The composer | | `type / for commands` (only while it's focused); the drop veil says `drop to save` |
 | Ask | `| searching your stash…` (before the first word), `| writing the answer…` (streaming) | `✓ searched your stash · 3 saves`, `answers from your 59 saves`, `also from`, `⌖ show 3 sources` / `showing` |

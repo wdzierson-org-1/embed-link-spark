@@ -48,6 +48,14 @@ export const kindLabel = (item: KindItem): string => {
 
 // Places carry no link flavor of their own; their hosts give them away (as on the homepage)
 const PLACE_HOST = /^((maps\.)?google\.[a-z.]+\/maps|maps\.google\.|maps\.apple\.com|maps\.app\.goo\.gl|goo\.gl\/maps|yelp\.[a-z.]+\/biz|opentable\.|resy\.com|tripadvisor\.|airbnb\.[a-z.]+\/rooms|booking\.com\/hotel)/i;
+const isLinkedInProfile = (url?: string): boolean => {
+  try {
+    const parsed = new URL(url ?? '');
+    return ['http:', 'https:'].includes(parsed.protocol) &&
+      (parsed.hostname === 'linkedin.com' || parsed.hostname.endsWith('.linkedin.com')) &&
+      /^\/in\/[^/]+\/?$/.test(parsed.pathname);
+  } catch { return false; }
+};
 
 /** The pixel glyph a placeholder draws for this kind of save when it has no picture */
 export const kindGlyph = (item: KindItem & { url?: string }): GlyphName => {
@@ -64,6 +72,7 @@ export const kindGlyph = (item: KindItem & { url?: string }): GlyphName => {
     case 'document':
       return 'page';
     case 'link': {
+      if (isLinkedInProfile(item.url)) return 'profile';
       const where = (item.url ?? '').replace(/^https?:\/\/(www\.)?/i, '');
       if (PLACE_HOST.test(where)) return 'place';
       const flavor = item.attributes?.link?.flavor;

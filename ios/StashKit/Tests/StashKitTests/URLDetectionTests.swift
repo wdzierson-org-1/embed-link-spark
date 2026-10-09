@@ -24,4 +24,16 @@ final class URLDetectionTests: XCTestCase {
         XCTAssertEqual(stripTrailingPunctuation("https://x.com/wiki/(a)b"), "https://x.com/wiki/(a)b")
         XCTAssertEqual(stripTrailingPunctuation("https://x.com/?!;]"), "https://x.com/")
     }
+
+    func testWholeWebURLPreservesEncodedQueryAndFragment() {
+        let url = "https://example.com/video?name=navy%20jacket&filter=%3C%22tag%22%3E%5C%60&start=38#part%202"
+        XCTAssertEqual(detectWholeWebURL(in: " \n\(url)\r\n"), url)
+    }
+
+    func testWholeWebURLRejectsRawControlCharacters() {
+        for code in Array(0...31) + [127] {
+            let control = String(UnicodeScalar(code)!)
+            XCTAssertNil(detectWholeWebURL(in: "https://example.com/a\(control)b"), "raw control \(code)")
+        }
+    }
 }

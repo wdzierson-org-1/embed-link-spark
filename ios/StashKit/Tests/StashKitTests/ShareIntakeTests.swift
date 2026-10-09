@@ -41,6 +41,84 @@ final class ShareIntakeTests: XCTestCase {
 
     // MARK: - url + note
 
+    func testYouTubeURLSharedAsPlainTextSendsURLCapture() async {
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
+        let url = "https://youtube.com/watch?v=_U-O5lYhJ7Q&si=N1xyTmW5PSajXyPK"
+
+        let result = await intake.submit([.text(" \n\(url)\n ")], note: "watch later", location: nil)
+
+        XCTAssertEqual(result, ShareIntakeResult(saved: 1))
+        XCTAssertEqual(server.captures.map(\.kind), ["url"])
+        XCTAssertEqual(server.captures.first?.meta["url"] as? String, url)
+        XCTAssertEqual(server.captures.first?.meta["content"] as? String, "watch later")
+    }
+
+    func testPlainTextURLBackgroundHandoffCarriesURLAndNote() async {
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
+        let url = "https://youtu.be/kYkIdXwW2AE?si=coT_PmgpGgcdndlj&t=38"
+
+        let entries = await intake.enqueueForTransfer([.text(url)], note: "listen", location: nil)
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.kind, .url)
+        XCTAssertEqual(entries.first?.payload["url"], url)
+        XCTAssertEqual(entries.first?.payload["content"], "listen")
+        XCTAssertTrue(server.captures.isEmpty, "handoff must remain outbox-first")
+    }
+
+    func testProseContainingURLRemainsASharedNote() async {
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
+        let text = "Research notes: https://youtube.com/watch?v=YGgNBcIgI4s explains the topic."
+
+        _ = await intake.submit([.text(text)], note: nil, location: nil)
+
+        XCTAssertEqual(server.captures.map(\.kind), ["note"])
+        XCTAssertEqual(server.captures.first?.meta["content"] as? String, text)
+        XCTAssertNil(server.captures.first?.meta["url"])
+    }
+
+    func testCredentialAndMalformedURLsRemainSharedNotes() async {
+        let server = FakeCaptureServer()
+        let intake = makeIntake(server: server)
+        let texts = [
+            "https://someone:secret@example.com/video",
+            "https://someone@example.com/video",
+            "https://example.com/\\video",
+            "https://example.com/<video>",
+            "https://example.com/\"video\"",
+            "https://example.com/`video`",
+            "https://example.com/vi\u{0000}deo",
+            "https://example.com/vi\u{007F}deo",
+        ]
+
+        _ = await intake.submit(texts.map(SharedObject.text), note: nil, location: nil)
+
+        XCTAssertEqual(server.captures.map(\.kind), Array(repeating: "note", count: texts.count))
+        XCTAssertEqual(server.captures.compactMap { $0.meta["content"] as? String }, texts)
+        XCTAssertTrue(server.captures.allSatisfy { $0.meta["url"] == nil })
+    }
+
+    func testOnlyWholeHTTPURLsArePromotedFromSharedText() {
+        let notes: [SharedObject] = [
+            .text("file:///private/tmp/movie.mp4"),
+            .text("youtube.com/watch?v=YGgNBcIgI4s"),
+            .text("https://"),
+            .text("https:///watch?v=YGgNBcIgI4s"),
+            .text("https://youtube.com/watch?v=one https://youtube.com/watch?v=two"),
+            .text("A title\nhttps://youtube.com/watch?v=YGgNBcIgI4s"),
+        ]
+        XCTAssertEqual(ShareIntake.reorderURLFirst(notes), notes)
+    }
+
+    func testPlainTextURLIsPromotedBeforeURLFirstOrdering() {
+        let url = "https://youtube.com/watch?v=YGgNBcIgI4s&si=eghyyWDS4gvPWLR4"
+        XCTAssertEqual(ShareIntake.reorderURLFirst([.text("context"), .text(url)]),
+                       [.url(url), .text("context")])
+    }
+
     func testURLWithNoteSendsAURLCaptureWithNoteAsContent() async {
         let server = FakeCaptureServer()
         let intake = makeIntake(server: server)

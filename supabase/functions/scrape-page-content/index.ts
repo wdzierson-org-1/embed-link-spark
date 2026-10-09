@@ -5,6 +5,7 @@ import { requireItemAccess } from '../_shared/enrichmentAuth.ts';
 import { applyCandidate, ENRICHMENT_COLUMNS } from '../_shared/enrichmentStore.ts';
 import { isPlaceholderMetadata } from '../_shared/enrichmentQuality.ts';
 import { deriveTitleFromContent, generateSummary } from '../_shared/summarize.ts';
+import { recoverCapturedPreview } from '../_shared/capturedPreview.ts';
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
 serve(async req => {
@@ -36,8 +37,16 @@ serve(async req => {
         if (isPlaceholderMetadata(item.description, url)) patch.description = summary.slice(0, 350);
       }
     }
+    // Finish fallible model work before creating an object to attach. A thrown
+    // patch call remains ambiguous; never delete an image it may have saved.
+    const recoveredPreview = await recoverCapturedPreview(db, item, capture.text);
+    if (recoveredPreview) patch.file_path = recoveredPreview.path;
     const applied = await applyCandidate(db, item, patch, capture.source, { capture_kind: capture.kind });
-    if (!applied) return json({ success: false, reason: 'item_changed' });
+    if (!applied) {
+      // Another write won the item snapshot; discard only our new upload.
+      if (recoveredPreview) await db.storage.from('stash-media').remove([recoveredPreview.path]);
+      return json({ success: false, reason: 'item_changed' });
+    }
     const { data, error } = await db.functions.invoke('generate-embeddings', { body: { itemId } });
     return json({ success: !error && data?.success === true, contentLength: capture.text.length, indexed: !error && data?.success === true });
   } catch (error) {

@@ -1,6 +1,9 @@
 
 project_id = "uqqsgmwkvslaomzxptnp"
 
+[functions.quality-model]
+verify_jwt = false
+
 [api]
 enabled = true
 port = 54321
@@ -105,4 +108,11 @@ verify_jwt = false
 # Public homepage "try it" demo: anonymous by design. Admission (per-IP and global caps)
 # is enforced in-function via homepage_enrich_admit; nothing is stored.
 [functions.homepage-enrich]
+verify_jwt = false
+
+# Private machine endpoints verify their own scoped worker / cron secrets.
+[functions.quality-worker]
+verify_jwt = false
+
+[functions.quality-dispatch]
 verify_jwt = false

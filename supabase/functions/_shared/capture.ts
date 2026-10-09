@@ -79,6 +79,25 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 const isAbsent = (value: unknown): value is null | undefined => value === undefined || value === null;
 
 /**
+ * A whole plain-text HTTP(S) URL, as supplied by some share-sheet providers.
+ * This is deliberately not link extraction: prose, multiple links, credentials
+ * and malformed URL syntax remain notes. Keep the exact query/fragment.
+ * This classifies capture input; downstream URL fetching owns its egress checks.
+ */
+export function singleHttpUrl(content: unknown): string | null {
+  if (typeof content !== 'string') return null;
+  const text = content.trim();
+  if (!/^https?:\/\/[^/?#]/i.test(text) || /[\s\u0000-\u001f\u007f\\<>"`]/.test(text)) return null;
+  try {
+    const url = new URL(text);
+    if (!url.hostname || url.username || url.password) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Validate a capture request's meta object. Structural problems (missing or
  * malformed id/kind, missing required content, a file_path outside the
  * caller's folder, …) fail with a message for a 400. Metadata problems never
@@ -143,6 +162,15 @@ export function parseCaptureMeta(raw: unknown, ctx: ParseContext): ParseResult {
   switch (meta.kind) {
     case 'note': {
       if (!meta.content || meta.content.trim() === '') return { ok: false, error: 'content is required for a note' };
+      // Released share extensions may advertise a URL as plain text and send
+      // kind=note. Route it through real page/video metadata, not note generation.
+      // The same capture_id still goes through the existing receipt fence.
+      const sharedUrl = singleHttpUrl(meta.content);
+      if (sharedUrl) {
+        meta.kind = 'url';
+        meta.url = sharedUrl;
+        delete meta.content;
+      }
       break;
     }
     case 'url': {
