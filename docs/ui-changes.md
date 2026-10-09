@@ -8,6 +8,27 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · A save no longer reports "Failed to add content" when its index rebuild loses to enrichment
+
+Will saved a YouTube link from the web and got "Failed to add content: Edge Function returned a
+non-2xx status code", although the card was there and the save was fully indexed 19 s later.
+
+- **What happened:** after inserting, the web client asks `generate-embeddings` to index the new
+  row right away. The function rebuilds the index with a compare-and-swap (`replace_item_embeddings`
+  with the row's snapshot); server enrichment was writing the same row at that moment, so the swap
+  failed and the function answered **`409 {"success":false,"reason":"item_changed"}`** — by
+  design, since whoever changed the row re-indexes it (the enrichment did: 19 chunks). The web
+  treated the 409 as the add failing. The same 409 showed up as console noise after quick title /
+  summary edits (the items trigger reassesses the row).
+- **Contract, for every client:** `409 item_changed` from `generate-embeddings` is **deferred, not
+  failed** — do nothing, the row's changer re-indexes. iOS's `EmbeddingRefresher` already does
+  this (`FunctionsError.httpError(409)`); the web's `generateEmbeddings` now resolves
+  `{ deferred: true }` on 409 and only throws on other statuses.
+- **Web behaviour:** indexing right after an insert is best effort: a real failure there is logged
+  and the save still succeeds (the server re-indexes as enrichment lands). The Chrome extension
+  saves through the platform API and never calls the function.
+- Tests: `utils/aiOperations.test.ts` (409 → deferred, 500 → throws), `utils/contentProcessor.test.ts`.
+
 ## 2026-10-09 · Share a save by link; the address leads the panel; a cancel cell while editing it; "Resurface in"
 
 Will: "move the address for the object above the title"; "add an X button to exit edit mode if the
