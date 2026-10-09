@@ -191,3 +191,40 @@ are not part of this first slice.
 
 See [roadmap](hosted-intelligence-roadmap.md) for next phases and the limits of
 snapshot auditing plus bounded daily live investigations.
+
+## Fleet reviews and fallback investigations — 2026-10-09 evening
+
+- Applied only `20261009160000_hosted_quality_fleet.sql`, after a dry run against
+  a fresh remote migration-history snapshot. No migration-history repair.
+- Deployed `quality-worker` v10 and `quality-dispatch` v8, both ACTIVE with their
+  existing scoped-token/cron authentication. Updated the registered Sprite
+  service with the validated prompt/protocol and preserved credentials/config.
+- Set `QUALITY_SCOPE_MODE=all_users`. Sampling rotates one account per hourly
+  job; `QUALITY_SCOPE_USER_IDS` remains the detailed-email allowlist for Will.
+  Non-allowlisted accounts contribute aggregate categories and strategy results.
+- Worker external/local health returned ready and idle after update. Release
+  investigation `8497d233-462a-4be7-bdf6-17ceca43d127` completed in one attempt,
+  with two model calls. Firecrawl returned the existing Medium article in 3,560ms
+  and one candidate image. Hermes correctly qualified its conclusions because
+  the source was truncated; it did not claim complete access or an image repair.
+  This live case used the first strategy; alternate-provider outcomes were
+  exercised with deterministic regression fixtures.
+- Production aggregate RPC returned 14 saves in the queried UTC-day window,
+  five assessed ready and nine unassessed. These are current quality states,
+  not a factual accuracy estimate. All 2,100 recorded attempt rows were the
+  assessment strategy, with monetary cost unavailable; no savings inferred.
+- The Oct 9 daily send was accepted at 09:00:03 EDT, covering Oct 8 (zero jobs
+  because the hosted worker began on Oct 9). The next report covers Oct 9 and
+  becomes eligible Oct 10 after 09:00 America/New_York. No inbox delivery event
+  is tracked; provider acceptance is the verified status.
+- Validation: 79 hosted backend tests, 33 supervisor tests, 90 capture/note tests,
+  23 focused web regressions, three disposable PostgreSQL suites, strict app and
+  changed-backend TypeScript checks, production web build and homepage postbuild.
+  The integration merge separately passed 86 web/main-behavior tests. Credential
+  URL exclusion, private email projection, deletion purge, rotation, strategy
+  bounds and unchanged delivery idempotency are covered.
+
+The daily investigator still produces proposals, with regression cases and
+acceptance checks. It does not independently publish new playbooks or code.
+Open-ended technique research, visual image verification and the product graph
+roadmap remain later phases.

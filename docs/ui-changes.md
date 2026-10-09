@@ -8,6 +8,23 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Hosted quality reviews expand beyond the pilot
+
+- Stash infrastructure rotates one account per hourly audit and chooses up to
+  three links with preference for items least recently reviewed. Contexts do not
+  mix accounts. Existing capture/enrichment behavior stays behind the platform API.
+- Daily live investigations can escalate from Firecrawl to Jina, plus public
+  Medium artwork for an exact article identity, within one bounded collection.
+  Source identity, source access limits and each attempted strategy are recorded.
+- The daily email now separates all-user save/quality counts from sampled Hermes
+  findings. It includes source and strategy breakdowns, unknown telemetry, and
+  reviewable playbook proposals. Other accounts' URLs, source quotes and model
+  free text are withheld from email; aggregate categories remain visible.
+- Schedule: after 09:00 America/New_York, covering the prior local calendar day.
+  Runtime remains the hosted Fly Sprite and Supabase cron; no local Codex job.
+- No automatic playbook/code deployment, image-pixel verification, taste graph,
+  or new client facts/action UI is introduced by this infrastructure release.
+
 ## 2026-10-09 · YouTube share-sheet routing and profile/article previews
 
 - A complete HTTP(S) URL delivered as plain text is a link capture. iOS promotes
