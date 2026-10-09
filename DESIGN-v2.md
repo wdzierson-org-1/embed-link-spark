@@ -961,7 +961,13 @@ unlisted, read-only address for anyone holding the link; separate from the publi
   comments, no sharing section, no footer.
 - **Loading:** `| opening the save…`. **A dead or mistyped link:** the same shell and "This link no
   longer works." / "Whoever shared it stopped sharing, or the address was mistyped." with Get Stash.
-- The document title is `<title> · Stash`. Link previews (OG tags) are a follow-up.
+- The document title is `<title> · Stash`.
+- **The link's card** (what Slack, iMessage, Twitter, Discord… unfurl; `api/share.ts`): the save's
+  title, its description (or the summary's first sentence, at most 200 characters) and its
+  picture when it has one (a large card); a save without a picture carries the site's 1200×630
+  image as a small card. `og:site_name` is Stash, the type `article`; the page asks not to be
+  indexed. A dead link unfurls nothing. (Will, 2026-10-09: "include the title of the stashed item
+  and a brief description".)
 
 ## 13. Implementation
 

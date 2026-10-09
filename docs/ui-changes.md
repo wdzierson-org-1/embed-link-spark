@@ -8,6 +8,30 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Share links unfurl with the save's title, description and picture
+
+Will: "update our opengraph card info for items which are shared from the details panel to
+include the title of the stashed item and a brief description" (like a TypeSafe AI blog unfurl).
+
+- **How it works (web/Vercel only; nothing for iOS to mirror):** crawlers never run the app, so
+  `vercel.json` rewrites `/s/:token` to the Vercel function `api/share.ts` **when the
+  user-agent looks like a link unfurler** (Slackbot, facebookexternalhit/iMessage, Twitterbot,
+  Discordbot, WhatsApp, Telegram, LinkedIn, Teams, Mastodon, Bluesky, Signal, anything with
+  "bot"/"crawler"/"preview"…). The function reads the save through the same `shared_item(token)`
+  RPC with the anon key, fetches the app shell (`/app.html`) from the CDN, swaps the site's
+  `<title>`, `description`, `og:*` and `twitter:*` tags for the save's, and answers it. People
+  keep getting the shell straight from the CDN; the app renders the page as before.
+- **The card:** `og:title` = the save's title (120 chars max; "A save on Stash" without one);
+  `og:description` = its description, else the summary's first sentence, else "Saved with Stash,
+  with the thought that made it worth keeping." (200 chars max, cut at a word); `og:image` = the
+  save's picture (an image, or a link's stored cover; a rescued `http…` preview as is) with
+  `twitter:card=summary_large_image`, else `/og-v2.jpg` (1200×630) as a `summary` card;
+  `og:url` the share link, `og:site_name` Stash, `og:type` article, `robots: noindex`.
+- **Dead or malformed token → 404** with no card, so a revoked link unfurls nothing. Cached at
+  the edge for 2 minutes (a revoke can take that long to stop unfurling).
+- Tests: `api/share.test.ts` (card, head, shell rewrite, handler). The function is typechecked on
+  its own (`tsc` over `api/share.ts`), not by `npm run build`.
+
 ## 2026-10-09 · The kind tag carries "gathering more info"; a shorter resolve; kind tags hidden until hover; less console noise
 
 Will: "the pixelization effect when adding a new card goes on for a bit longer than it appears
