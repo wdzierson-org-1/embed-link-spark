@@ -8,6 +8,77 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Cards: pin, share, delete from the menu; the panel: source first, the summary editable, notes one line
+
+Will: on the card menu, "remove 'report a problem'", "re-introduce 'delete this' with a confirmation
+dialog styled like the app", "add 'pin this'", "when anything is pinned show two tabs above the grid
+'all | pinned'", "add 'share to feed' toggle (unshare too)"; in the detail view, "move 'source' above
+'notes'", "move the 'summary | original content' tabs to the left with no 'source' label, a full-size
+icon on the right"; notes as "one line of normal text, hover light grey, click to edit with the bright
+green border", hide "type / for formatting" until focused; the summary "editable like title/description"
+and stored; "original content not editable"; and "make opening the detail panel snappier". Decisions:
+the full-size icon opens **the active tab** full screen; `all` keeps the normal order (pins don't float).
+
+**Data contract (all platforms):**
+- `items.pinned_at timestamptz null` (migration `supabase/migrations/20261009090000_items_pinned_at.sql`,
+  applied to prod; partial index `items_pinned_idx (user_id, pinned_at desc) where pinned_at is not
+  null`). **Pin** = set it to now; **unpin** = null. It's in the web list projection
+  (`ITEM_LIST_COLUMN_NAMES`) and the admin grid's columns. Pins are the owner's: never rendered on a
+  public feed, never sent to a visitor.
+- **Share / unshare from the card** writes `is_public`; **un-sharing also clears `supplemental_note`**
+  (the sticky note), the rule the panel's sharing switch already followed. No new columns.
+- **Delete** uses the existing delete path (`onDeleteItem(id)`), only after the confirmation.
+- **The summary is now a person-editable field:** the panel saves `items.summary` through the same
+  save path as the title (`saveItem`; a trimmed-empty summary stores `null`); `summary` is one of
+  the text fields whose change re-indexes the item (`textFieldsChanged` → `generate-embeddings`), so
+  Ask and MCP see the edit. Original content (`page_body`) and transcripts stay read-only.
+- **Notes stay empty until a person writes:** opening the notes field and leaving it writes nothing.
+  Before, the editor's blur safety-save wrote its empty document
+  (`{"type":"doc","content":[{"type":"paragraph"}]}`) over an empty `content`; now an empty editor
+  over an empty note is a no-op, and a stored empty document counts as no note
+  (`src/utils/noteContent.ts` `noteIsEmpty`: null, whitespace, the empty doc, `<p></p>`). Clearing a
+  note that had text still saves (that's an edit). iOS: treat the same four shapes as "no note".
+
+**Behaviour (for iOS and macOS to mirror):**
+- **Card menu** (owner, `ContentItemFooter`): `Pin this` / `Unpin` · `Share to feed` / `Unshare from
+  feed` · `Remind me…` ▸ (`Change reminder…` once set) and `Remove reminder` · a rule · `Delete
+  this` in error red. **"Report a problem" and its feedback dialog are gone.** `Delete this` opens an
+  app dialog: title "Delete this item?", body "“{title}” and everything Stash knows about it will be
+  removed. This can't be undone." (`Untitled` when there's no title), buttons Cancel and a red
+  **Delete**; Cancel keeps the item. A visitor to a public feed gets only **Comments**.
+- **Card:** a pinned item wears a black `pinned` state tag top-right (with `public` / `due`).
+- **Library toolbar** (`LibraryToolbar`): with no pins, `59 saves` as before. Once anything is pinned,
+  a tablist (`aria-label` "Library view") with `all · 59` and `pinned · 3` (the open tab inverts to
+  ink), the reading count beside it. `all` is the normal order; `pinned` lists pins newest-pinned
+  first (`pinned_at desc`). The view falls back to `all` when the last pin goes.
+- **Panel order** (`EditItemContentSection`): the **source** section comes first, then **notes**,
+  then details and sharing. The source section has **no label**: its tabs row sits on the left of
+  the rule (`summary | original content` for links and documents; `transcript` for audio and video),
+  and a 24 px **full-size** cell (`aria-label` "View full size") sits on the right. Full size opens
+  **the active tab** over the panel (`edit/MaximizedSource`): the same window chrome as the notes'
+  maximize (an ink bar naming the tab, a Minimize button), the text in a reading column; **Esc or
+  Minimize returns** to the panel (Esc is stopped before the sheet hears it).
+- **Summary** (links and documents): rest plain, fill on hover, click → an auto-growing field with the
+  ink edge and spot ring (the title's treatment); **leaving it saves** when the text changed
+  (`saving the summary…`, then the text; on failure `couldn't save the summary. try again` and the
+  old text); **Esc abandons** the edit and does not close the panel (nor a full-size view). Without a
+  save handler (public views) it's plain text.
+- **Notes:** empty notes are **one line of body text**, "Add a note…" (muted; fill on hover). A click
+  mounts the editor **focused**, inline (no box of its own), inside the field treatment (white, ink
+  edge, spot ring while focused); `type / for formatting` shows only while it's focused. Leaving an
+  empty editor collapses it back to the line (and writes nothing, above). Existing notes show the
+  editor at once, plain, taking the ring on focus. The maximize cell stays on the notes rule.
+- **Snappier panel:** the sheet now slides in over **200 ms** and out over **150 ms** on `--ease`
+  (`ui/sheet.tsx`, v2 only; was 500 / 300). Measured on a 60-save library: the panel's content is in
+  the DOM ~80 ms after the tap and the sheet is fully in at ~250 ms (was ~560 ms). Empty notes no
+  longer mount the editor on open. (Note for Tailwind 3.4: an arbitrary `duration-[240ms]` under
+  the stacked `v2:data-[state=open]:` variant is not generated; use scale values.)
+- Tests: `ContentItemFooter.menu.test.tsx`, `ContentItemHeader.pinned.test.tsx`,
+  `LibraryToolbar.test.tsx`, `EditItemContentSection.test.tsx`, `editor/EditorContainer.test.tsx`,
+  `utils/noteContent.test.ts`. `src/test/setup.ts` now stubs `ResizeObserver` for Radix poppers.
+- Design: DESIGN-v2 §8 (panel timing), §10 (strings), §12.3 (menu, `pinned` tag), §12.6 (tabs),
+  §12.8 (order, summary, notes, full size).
+
 ## 2026-10-08 · The library no longer breaks when Ask docks
 
 Will: "show x sources" and maximizing Ask "cause the right side of the screen to misrender".

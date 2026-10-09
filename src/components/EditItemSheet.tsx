@@ -48,7 +48,7 @@ interface EditItemSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean; file_path?: string | null; attributes?: ItemAttributes; url?: string }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string; is_public?: boolean; file_path?: string | null; attributes?: ItemAttributes; url?: string; summary?: string | null }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
   onDelete?: (id: string) => void;
 }
 
@@ -105,6 +105,12 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   const handleUrlSave = async (url: string) => {
     if (!item) return;
     await onSave(item.id, { url }, { showSuccessToast: false, refreshItems: true });
+  };
+
+  // The summary, edited in place (DESIGN-v2 §12.8). Empty clears it; saving re-indexes the item.
+  const handleSummarySave = async (summary: string) => {
+    if (!item) return;
+    await onSave(item.id, { summary: summary.trim() ? summary : null }, { showSuccessToast: false, refreshItems: true });
   };
 
   const handleConfirmDelete = () => {
@@ -184,6 +190,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     onImageChange: handleImageChange,
     onAttributesSave: handleAttributesSave,
     onUrlSave: item?.type === 'link' ? handleUrlSave : undefined,
+    onSummarySave: handleSummarySave,
     isMobile,
   };
 

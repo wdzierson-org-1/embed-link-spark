@@ -22,6 +22,7 @@ export const ADMIN_ITEM_COLUMNS = [
   'attributes',
   'remind_at',
   'reminder_cleared_at',
+  'pinned_at',
   'user_id',
 ];
 

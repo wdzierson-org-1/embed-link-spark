@@ -24,6 +24,7 @@ export const ITEM_LIST_COLUMN_NAMES = [
   'attributes',
   'remind_at',
   'reminder_cleared_at',
+  'pinned_at',
 ];
 const ITEM_LIST_COLUMNS = ITEM_LIST_COLUMN_NAMES.join(',');
 

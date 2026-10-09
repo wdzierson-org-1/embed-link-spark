@@ -84,6 +84,8 @@ interface EditItemDetailsTabProps {
   onAttributesSave?: (attributes: ItemAttributes) => Promise<void>;
   /** Saves a link's changed address */
   onUrlSave?: (url: string) => Promise<void>;
+  /** Saves an edited summary */
+  onSummarySave?: (summary: string) => Promise<void>;
 }
 
 const EditItemDetailsTab = ({
@@ -112,6 +114,7 @@ const EditItemDetailsTab = ({
   onImageChange,
   onAttributesSave,
   onUrlSave,
+  onSummarySave,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
@@ -393,6 +396,7 @@ const EditItemDetailsTab = ({
         onMaximize={() => setIsEditorMaximized(true)}
         isMobile={isMobile}
         mobileEditorReady={mobileEditorReady}
+        onSummarySave={onSummarySave}
       />
 
       {/* Attachments — only for multi-part (collection) items */}

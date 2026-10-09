@@ -428,8 +428,8 @@ implementation can be found. App specifics are in §12.
 | `--ease` | `cubic-bezier(.22, 1, .36, 1)` (Tailwind `ease-v2`) | Objects settling, sheets, lifts |
 | `--pop` | `cubic-bezier(.34, 1.56, .64, 1)` (`ease-pop`) | Windows and badges arriving |
 | Steps | `steps(3–7, end)` | Machine motion: printing in, sinking, glyph swaps |
-| Fast | 120–200 ms | Presses, hovers, the card lift (150 ms) |
-| Base | 300–550 ms | Sheets, cards, windows |
+| Fast | 120–200 ms | Presses, hovers, the card lift (150 ms), the item panel in (200) and out (150) |
+| Base | 300–550 ms | Cards, windows, dialogs |
 | Slow | 650–1100 ms | Decrypting, leaders drawing, resolves |
 
 Signature effects:
@@ -525,12 +525,12 @@ once, and the shared beat never strands one mid-effect.
 | … audio or video | `| transcribing…` | same |
 | … a PDF still extracting | `| reading the pdf…` (10 minutes at most) | same |
 | A save in flight (the optimistic card) | `| saving…` | (it becomes the real card) |
-| The library toolbar | `59 saves · | reading 2…` | `59 saves` |
+| The library toolbar | `59 saves · | reading 2…` | `59 saves`; with pins, the tabs `all · 59` `pinned · 3` |
 | A link with no picture | | `preview limited, saved anyway` (only once Stash has finished looking) |
 | Composer chips | `| fetching more details…`, `| reading the link…`, `| analyzing…`, `| uploading…`, `| uploading · 45%` | `posted from Brooklyn, New York`, `finding your location…` |
 | The composer | | `type / for commands` (only while it's focused); the drop veil says `drop to save` |
 | Ask | `| searching your stash…` (before the first word), `| writing the answer…` (streaming) | `✓ searched your stash · 3 saves`, `answers from your 59 saves`, `also from`, `⌖ show 3 sources` / `showing` |
-| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone) |
+| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again` |
 | Settings | `| loading your settings…`, `| checking your plan…`, `| checking for agents…` | `signed in as …`, `connected 3 days ago · last used 1 hour ago`, `activity.log` |
 | The loading screen | `> opening your stash`, then eleven more, decrypting in the code voice (§12.10) | |
 | The way in (§12.14) | `| signing in…`, `| creating your stash…`, `| sending…`, `| updating…`, `| checking your reset link…` | prompts `> knock knock. who’s there?`, `> new here? pull up a chair.`, `> happens to the best of us.`, `> a link is on its way to you.`; field errors `✕ that username is taken. try another.` |
@@ -581,7 +581,7 @@ Anatomy, top to bottom (`ContentItem`, `ContentItemHeader`, `ContentItemContent`
    covers 224 px. Its **kind** is a black tag 10 px from the top-left (`kindLabel`: `article`,
    `video`, `repo`, `book`, `post`, `link`, `photo`, `screenshot`, `voice note`, `recording`, `pdf`
    and other formats, `spreadsheet`, `note`, `multi-part`). States sit top-right: a white tag
-   `public`, a black tag `due`.
+   `public`, black tags `due` and `pinned` (pins are the owner's: never on a public view).
 2. **Title**, Montreal 18/500, 2 lines, ink: the AI's or the person's reading of the object, never
    a filename.
 3. **Status line** under the title while Stash works on the card (§12.4).
@@ -593,7 +593,12 @@ Anatomy, top to bottom (`ContentItem`, `ContentItemHeader`, `ContentItemContent`
    (the link's domain in ink, opening the link; or `m4a · 82.3 kb`; or `note`) and **one fact**
    (`0:03`, `2 min read`), then the reminder (`in 3d` with a clock; due is a black tag with a 24 px ×)
    and the place (pin + name); on the right the **date** (`oct 3`; with the year when it isn't this
-   year) and the 24 px menu, which inverts to ink when open.
+   year) and the 24 px menu, which inverts to ink when open. The menu (2026-10-09): `Pin this` /
+   `Unpin` · `Share to feed` / `Unshare from feed` (un-sharing also clears the sticky note, as the
+   panel does) · `Remind me…` ▸ (`Change reminder…` once set) and `Remove reminder` · a rule ·
+   `Delete this` in error red, which asks first in an app dialog (§6): "Delete this item?",
+   "“{title}” and everything Stash knows about it will be removed. This can't be undone.", Cancel
+   and a red Delete. "Report a problem" is gone. A visitor to a public feed gets only Comments.
 
 Shell: white, 1 px `--line`, 2 px corners, `shadow-object`; hovered, the lift (§5). Body padding
 20 px. No chips row: v1's format, size and duration chips now live in the meta row.
@@ -674,8 +679,11 @@ decrypts → description → the picture lands (mosaic, then 26 → 18 → 12 an
 
 ### 12.6 The library toolbar
 
-`59 saves` in ink Departure Mono, then the reading count while any card is being read. On the
-right, a 40 px square search field (white, line edge; focused, ink edge and spot ring). Its
+`59 saves` in ink Departure Mono, then the reading count while any card is being read. Once
+anything is pinned the count becomes two tabs, `all · 59` and `pinned · 3` (Departure Mono 11
+cells on white; the open one inverts to ink), the reading count beside them: `all` keeps the normal
+order (pins don't float), `pinned` lists pins newest-pinned first, and the tabs go when the last pin
+is removed (2026-10-09). On the right, a 40 px square search field (white, line edge; focused, ink edge and spot ring). Its
 recent searches open as a small window (`recent searches`, with `clear` in the bar); rows invert to
 ink on hover.
 
@@ -742,11 +750,20 @@ ink on hover.
   A bare host gets `https://`; anything that isn't a web address is refused with
   `✕ that doesn't look like a web address` and nothing is saved. Saving writes `url`; the items
   trigger queues the quality loop to reassess the save. (Will, 2026-10-08.)
-- **Notes:** the editor's empty line says "Add a note…" (the person's voice, as on the card); the
-  slash hint is the machine line under it, `type / for formatting`, and the full-screen editor
-  carries the same line in its footer. (Will, 2026-10-07, on the old "Press '/' for commands or
-  start typing…": "it says the same thing beneath the input box".) Links are ink, underlined at
-  40%; code is JetBrains Mono on fill.
+- **Notes:** an empty note is **one line of body text**, "Add a note…" (muted, in the person's
+  voice as on the card; fill on hover). A click mounts the editor focused, inline in the title's
+  field treatment (white, ink edge, spot ring while focused); leaving it empty collapses it back to
+  the line and writes nothing. A note that exists shows the editor at once, plain, taking the ring
+  on focus. The slash hint is the machine line under it, `type / for formatting`, **only while the
+  editor is focused**; the full-screen editor carries the same line in its footer. (Will,
+  2026-10-07, on the old "Press '/' for commands or start typing…": "it says the same thing beneath
+  the input box"; 2026-10-09: "one line of normal text, hover light grey, click to edit with the
+  bright green border".) Links are ink, underlined at 40%; code is JetBrains Mono on fill.
+- **Summary**, editable in place like the title (2026-10-09): plain at rest, fill on hover, a click
+  gives an auto-growing field with the ink edge and spot ring; leaving it saves `summary` (an
+  emptied field clears it) and re-indexes the save, with `saving the summary…` and, on failure,
+  `couldn't save the summary. try again` under it; Esc abandons the edit and leaves the panel (and a
+  full-size view) open. Original content and transcripts are read-only.
 - **Summary tab without a summary** (older saves, captions, and saves whose summary step failed):
   "No summary yet for this link." and an ink **Generate summary** button. It summarizes the text
   Stash captured (the Original tab) with the ingestion prompt (gpt-4o-mini, at most ~250 words,
@@ -754,9 +771,14 @@ ink on hover.
   item. `| summarizing…` runs 2–7 s; a failure is an error line beside the button, which stays to
   retry. It's offered only when at least 50 characters were captured (the server's floor); under
   that the tab says "Too little text was captured to summarize. It's all under Original Content."
-- **Sections** (notes, summary / original / transcript, details, sharing) open with a lowercase
-  Departure Mono label on a 1 px ink rule. Source tabs sit on the rule in Departure Mono; the open
-  one is ink. Empty source tabs are small dotted stages.
+- **Sections**, in order (2026-10-09, Will: "move source above notes"): the **source** first, then
+  **notes**, **details** and **sharing**. Notes, details and sharing open with a lowercase Departure
+  Mono label on a 1 px ink rule. The source section has **no label**: its tabs row sits on the left
+  of the rule in Departure Mono (`summary | original content` for links and documents, `transcript`
+  for audio and video; the open tab is ink), and a 24 px **full-size** cell sits on the right, which
+  opens the active tab full size (`edit/MaximizedSource`: the window chrome the notes' maximize
+  uses, an ink bar naming the tab, a minimize control, a reading column; Esc or minimize returns).
+  Empty source tabs are small dotted stages.
 - **Details:** open by default (Will, 2026-10-07: "leave the details expanded by default"), the
   facts as a tree; a new item opens it again. Collapsed, the head shows the common facts inline
   (`m4a · 82.3 kb · 0:03`). Only an upload lists an original file: a link's stored cover isn't one.

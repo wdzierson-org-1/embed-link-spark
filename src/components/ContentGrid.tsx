@@ -41,6 +41,7 @@ interface ContentGridProps {
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: any) => void;
+  onTogglePin?: (item: any) => void;
   onCommentClick?: (itemId: string) => void;
   showStickyNotes?: boolean;
   typeFilter?: ContentTypeFilter;
@@ -59,6 +60,7 @@ const ContentGrid = ({
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
+  onTogglePin,
   onCommentClick,
   showStickyNotes = true,
   typeFilter = 'all',
@@ -333,6 +335,7 @@ const ContentGrid = ({
           isPublicView={isPublicView}
           currentUserId={currentUserId}
           onTogglePrivacy={onTogglePrivacy}
+          onTogglePin={onTogglePin}
           onCommentClick={onCommentClick}
           collectionAttachments={collectionAttachmentsByItem[item.id]}
           assemblyReveals={assemblyReveals[item.id]}

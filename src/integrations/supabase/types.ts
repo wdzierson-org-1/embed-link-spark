@@ -381,6 +381,7 @@ export type Database = {
           mime_type: string | null
           page_body: string | null
           remind_at: string | null
+          pinned_at: string | null
           reminder_cleared_at: string | null
           reminder_notified_at: string | null
           scrape_attempts: number
@@ -409,6 +410,7 @@ export type Database = {
           mime_type?: string | null
           page_body?: string | null
           remind_at?: string | null
+          pinned_at?: string | null
           reminder_cleared_at?: string | null
           reminder_notified_at?: string | null
           scrape_attempts?: number
@@ -437,6 +439,7 @@ export type Database = {
           mime_type?: string | null
           page_body?: string | null
           remind_at?: string | null
+          pinned_at?: string | null
           reminder_cleared_at?: string | null
           reminder_notified_at?: string | null
           scrape_attempts?: number
