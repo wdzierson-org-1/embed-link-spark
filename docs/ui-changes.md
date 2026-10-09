@@ -8,6 +8,24 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-08 · The library no longer breaks when Ask docks
+
+Will: "show x sources" and maximizing Ask "cause the right side of the screen to misrender".
+Both dock the Ask panel (showing sources docks it so the cards can be seen beside the answer),
+and docking drops the library from three columns to two.
+
+- **Root cause (web only):** the masonry counted the grid's columns from the computed track
+  list, and Chrome's list includes the implicit columns that stale card placements create. After
+  the drop to two columns, cards still carried their third-column placement, so a phantom third
+  track existed, the count stayed three, and every third card was placed back into the phantom
+  column, which sized itself to the cards' natural width (976 px on a 1,440 px window) and
+  squeezed the two real columns to nothing. A page loaded with Ask already docked never showed
+  it; only docking (or narrowing) after the grid had laid out did.
+- **Fix:** the masonry clears every card's placement before counting, so only the explicit
+  columns count, and heights are read at the right widths. Verified at runtime: docking now gives
+  two 500 px tracks with cards alternating between them, and un-docking restores three.
+- iOS packs its own columns and is unaffected.
+
 ## 2026-10-08 · The panel follows the live row; no jump while its picture loads; the address strip edits; the 400s are gone
 
 Will's notes after the launch: the panel's photo "lazy loads and the content jumps"; the address

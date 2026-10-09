@@ -12,8 +12,18 @@ function RowMasonry({ children, compact }: { children: React.ReactNode; compact:
     if (!container) return;
     let frame: number | undefined;
     const measure = () => {
-      const columns = getComputedStyle(container).gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length || 1;
       const cards = Array.from(container.children) as HTMLElement[];
+      // Chrome's resolved track list includes the implicit columns that stale placements
+      // create: a card still in column 3 after the grid dropped to 2 columns (Ask docking,
+      // a narrower window) adds a phantom third track, the count stays 3, and every third
+      // card is placed back into it, squeezing the real columns to nothing. Clear the
+      // placements first, so only the explicit columns are counted and heights are read at
+      // the right widths.
+      cards.forEach(card => {
+        card.style.gridColumn = '';
+        card.style.gridRow = '';
+      });
+      const columns = getComputedStyle(container).gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length || 1;
       const placements = masonryPlacement(cards.map(card => card.getBoundingClientRect().height), columns);
       cards.forEach((card, index) => {
         const { column, start, span } = placements[index];
