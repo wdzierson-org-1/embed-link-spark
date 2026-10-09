@@ -244,7 +244,8 @@ public struct ShareIntake: Sendable {
 
     // MARK: - Ordering (Task 7, T6-review carry: adopted ordering decision)
 
-    /// Moves the first `.url` case (if any) to index 0, preserving the relative order of
+    /// Promotes whole web URLs delivered as plain text, then moves the first `.url` case to
+    /// index 0, preserving the relative order of
     /// everything else — a no-op when there's no `.url` object, or it's already first. Lives here
     /// (a pure StashKit function `swift test` can exercise directly) rather than inside `T7`'s
     /// `ProviderLoader`, which is NOT `swift test`-able at all (an Xcode extension target, not part
@@ -262,6 +263,7 @@ public struct ShareIntake: Sendable {
     /// that URL too, matching iOS-wide capture behavior with no second, extension-only ordering
     /// variant.
     public static func reorderURLFirst(_ objects: [SharedObject]) -> [SharedObject] {
+        let objects = objects.map(normalizeSharedObject)
         guard let urlIndex = objects.firstIndex(where: {
             if case .url = $0 { return true }
             return false
@@ -270,6 +272,11 @@ public struct ShareIntake: Sendable {
         let url = reordered.remove(at: urlIndex)
         reordered.insert(url, at: 0)
         return reordered
+    }
+
+    private static func normalizeSharedObject(_ object: SharedObject) -> SharedObject {
+        if case .text(let text) = object, let url = detectWholeWebURL(in: text) { return .url(url) }
+        return object
     }
 
     // MARK: - Objects → Outbox units
@@ -295,7 +302,9 @@ public struct ShareIntake: Sendable {
     /// "append to an existing item" composer) treats the shared text as the existing body and the
     /// typed note as a new paragraph appended after it, so neither is ever silently dropped.
     private func unit(for object: SharedObject, note: String?, location: CapturedLocation?) -> Unit {
-        switch object {
+        // Also normalize at the durable boundary: direct callers and both transfer lanes must
+        // send the same URL payload, even if they did not use ProviderLoader's ordering helper.
+        switch Self.normalizeSharedObject(object) {
         case .url(let url):
             var payload = ["url": url, "content": note ?? "", "is_public": "false"]
             if let json = attributesJSONString(buildAttributes(location: location)) { payload["attributes_json"] = json }

@@ -112,6 +112,49 @@ describe('parseCaptureMeta — metadata never fails a capture', () => {
 });
 
 describe('parseCaptureMeta — note', () => {
+  it.each([
+    'https://youtube.com/watch?v=abc123XYZ_0&si=share-token',
+    'https://youtu.be/abc123XYZ_0?t=35',
+    'http://example.com/article?variant=navy#details',
+  ])('routes a whole URL supplied as a note through link enrichment: %s', (url) => {
+    const { meta } = ok({ capture_id: CID.toUpperCase(), kind: 'note', content: ` \n${url}\n ` });
+    expect(meta).toEqual({ capture_id: CID, kind: 'url', url, is_public: false });
+    expect(downstreamPathFor(meta.kind)).toBe('add-url');
+    expect(downstreamBodyFor(meta)).toEqual({ url, is_public: false });
+  });
+
+  it('preserves privacy, attributes, reminder and receipt identity when promoting a URL-only note', () => {
+    const url = 'https://youtube.com/watch?v=abc123XYZ_0';
+    const attributes = { capture: { origin: 'ios_share_sheet' } };
+    const remind_at = '2026-10-15T09:00:00-04:00';
+    const { meta } = ok({ capture_id: CID, kind: 'note', content: url, title: 'Shared text', is_public: true, attributes, remind_at });
+    expect(meta.capture_id).toBe(CID);
+    expect(downstreamBodyFor(meta)).toEqual({ url, is_public: true, attributes, remind_at });
+  });
+
+  it.each([
+    'Watch this https://youtube.com/watch?v=abc123XYZ_0',
+    'https://youtube.com/watch?v=abc123XYZ_0\nA video to watch',
+    'https://youtu.be/abc123XYZ_0\nhttps://youtu.be/otherVideo0',
+    'https://example.com/a https://example.com/b',
+    'https://example.com/a\tb',
+    'https://example.com/a\\b',
+    'https://',
+    'https:///example.com',
+    'https://example.com/<video>',
+    'https:example.com',
+    'https://user:password@example.com',
+    'ftp://example.com/video',
+    'javascript:alert(1)',
+    'youtube.com/watch?v=abc123XYZ_0',
+  ])('preserves ordinary or ambiguous note content: %s', (content) => {
+    const { meta } = ok({ capture_id: CID, kind: 'note', content });
+    expect(meta.kind).toBe('note');
+    expect(meta.content).toBe(content);
+    expect(meta.url).toBeUndefined();
+    expect(downstreamPathFor(meta.kind)).toBe('add-note');
+  });
+
   it('requires non-blank content and keeps it untrimmed', () => {
     expect(errorOf({ capture_id: CID, kind: 'note' })).toBe('content is required for a note');
     expect(errorOf({ capture_id: CID, kind: 'note', content: '   \n' })).toBe('content is required for a note');

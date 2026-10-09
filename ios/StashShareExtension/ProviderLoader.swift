@@ -86,7 +86,9 @@ struct ProviderLoader {
     private func loadOne(_ provider: NSItemProvider) async -> SharedObject? {
         let isFileURL = provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
         if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier), !isFileURL {
-            return await loadURL(provider)
+            if let object = await loadURL(provider) { return object }
+            // Some senders advertise a URL but can only supply their plain-text representation.
+            // Keep trying that representation instead of dropping the attachment.
         }
         if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier), !isFileURL {
             return await loadText(provider)
@@ -141,8 +143,14 @@ struct ProviderLoader {
     private func loadURL(_ provider: NSItemProvider) async -> SharedObject? {
         await withCheckedContinuation { continuation in
             provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
-                guard let url = item as? URL else { continuation.resume(returning: nil); return }
-                continuation.resume(returning: .url(url.absoluteString))
+                // Foundation bridges NSURL to URL and NSString to String. Both are valid
+                // provider representations; validate String values before treating them as URLs.
+                let value = (item as? URL)?.absoluteString ?? (item as? String)
+                guard let value, let url = detectWholeWebURL(in: value) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: .url(url))
             }
         }
     }

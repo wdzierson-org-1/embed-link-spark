@@ -8,6 +8,25 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · YouTube share-sheet routing and profile/article previews
+
+- A complete HTTP(S) URL delivered as plain text is a link capture. iOS promotes
+  it before URL-first ordering and before either foreground or background outbox
+  serialization. The capture endpoint performs the same normalization for older
+  clients, keeping the capture receipt and original URL parameters. Text with
+  prose or multiple links stays a note; typed annotations stay in `content`.
+- Direct `add-note` calls containing only a URL keep literal metadata rather than
+  asking a model to invent the unseen page/video's title or description.
+- Preview selection recognizes the page's own Person/ProfilePage schema. A later
+  LinkedIn source capture can fill a missing, unprotected portrait with an owned
+  storage image; it cannot overwrite an existing or user-protected preview.
+- Medium byline portraits are excluded from article-cover candidates. Public
+  author-feed artwork is accepted only for the exact saved article identity.
+- Web LinkedIn `/in/` placeholders use a local pixel silhouette and the completed
+  state text `profile preview unavailable`. Other missing-link/video glyphs remain
+  unchanged. iOS's capture changes require a binary release; the server routing
+  protection benefits installed versions immediately after backend deployment.
+
 ## 2026-10-09 · Live enrichment evidence and product image selection
 
 - The hosted daily investigation now records a public rendered source, retrieval

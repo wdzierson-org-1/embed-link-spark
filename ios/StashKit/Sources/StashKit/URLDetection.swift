@@ -29,3 +29,21 @@ func stripTrailingPunctuation(_ url: String) -> String {
 public func detectFirstURL(in text: String) -> String? {
     (try? Regex(urlDetectionPattern).firstMatch(in: text)).map { String(text[$0.range]) }
 }
+
+/// A share provider can label a URL as plain text (YouTube does this). Promote it only when
+/// the WHOLE value is one HTTP(S) URL; a note or quote containing a link remains text.
+/// Preserve the original query and fragment, which can identify a video, variant, or timestamp.
+/// Keep this narrow classification aligned with the capture API's `singleHttpUrl` guard.
+public func detectWholeWebURL(in text: String) -> String? {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty,
+          trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+          !trimmed.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }),
+          trimmed.rangeOfCharacter(from: CharacterSet(charactersIn: "\\<>\"`")) == nil,
+          let components = URLComponents(string: trimmed),
+          let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+          let host = components.host, !host.isEmpty,
+          (components.user ?? "").isEmpty, (components.password ?? "").isEmpty,
+          components.url != nil else { return nil }
+    return trimmed
+}

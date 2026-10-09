@@ -69,6 +69,12 @@ export function inspectSourceText(url: string, body: string | null | undefined, 
   if (source === 'tiktok' && /couldn['’]t find this page|video currently unavailable|this video is unavailable/i.test(start)) return fail('unavailable_page');
   if (source === 'instagram' && /sorry,? this page isn['’]t available|the link you followed may be broken/i.test(start)) return fail('unavailable_page');
   if (source === 'youtube' && /skip navigation|sign in to confirm you['’]re not a bot/i.test(start) && !/\btranscript\b.{20}/i.test(text)) return fail('navigation_only');
+  if (source === 'youtube') {
+    // A successful fetch can contain only these footer links. Match the whole chrome sequence,
+    // not a minimum length or isolated words, so short real captions and descriptions survive.
+    const footer = text.replace(/[|•–—-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/^(?:youtube )?about press copyright contact us creators advertise developers terms privacy policy & safety how youtube works test new features(?: nfl sunday ticket)?(?: (?:&copy;|&#169;|©|copyright)?\s*\d{4} google llc)?$/i.test(footer)) return fail('navigation_only');
+  }
   if (source === 'instagram') {
     // The plain HTML path exposes a reliable boundary around the actual caption.
     const marker = raw.indexOf('More options');

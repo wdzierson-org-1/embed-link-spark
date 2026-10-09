@@ -2,6 +2,51 @@ import { describe, expect, it } from 'vitest';
 import { previewImageCandidates, previewImageEvidence } from './pagePreview';
 
 describe('associated page images', () => {
+  it.each(['Person', 'ProfilePage'])('recovers the source-bound %s profile portrait', type => {
+    const url = 'https://www.linkedin.com/in/scottjenson/';
+    const portrait = 'https://media.licdn.com/dms/image/v2/person/profile-displayphoto-shrink_200_200/photo.jpg';
+    const person = { '@type': 'Person', name: 'Scott Jenson', image: portrait, ...(type === 'Person' ? { url } : {}) };
+    const schema = type === 'Person' ? person : { '@type': type, url, mainEntity: person };
+    expect(previewImageEvidence({ url, html: `<h1>Scott Jenson</h1><script type="application/ld+json">${JSON.stringify(schema)}</script>` }))
+      .toEqual([{ url: portrait, associated: true }]);
+  });
+  it('does not use article authors or unrelated profile people as the saved object', () => {
+    const url = 'https://example.com/story';
+    const html = `<script type="application/ld+json">${JSON.stringify({ '@graph': [
+      { '@type': 'Article', url, image: '/story.jpg', author: { '@type': 'Person', image: '/writer.jpg' } },
+      { '@type': 'Person', name: 'Article title', url: 'https://example.com/other-person', image: '/other.jpg' },
+    ] })}</script>`;
+    expect(previewImageCandidates({ url, title: 'Article title', html })).toEqual(['https://example.com/story.jpg']);
+  });
+  it('does not mistake an article-local author id for a profile identity', () => {
+    const url = 'https://example.com/story';
+    expect(previewImageCandidates({ url, html: `<script type="application/ld+json">${JSON.stringify({ '@graph': [
+      { '@type': 'Article', url, image: '/story.jpg', author: { '@id': '#author' } },
+      { '@type': 'Person', '@id': '#author', name: 'Ira Fader', image: '/writer.jpg' },
+    ] })}</script>` })).toEqual(['https://example.com/story.jpg']);
+  });
+  it('follows a bound ProfilePage mainEntity graph reference to its person', () => {
+    const url = 'https://www.linkedin.com/in/scottjenson/';
+    const image = 'https://media.licdn.com/dms/image/v2/person/profile-displayphoto-shrink_200_200/photo.jpg';
+    expect(previewImageEvidence({ url, html: `<script type="application/ld+json">${JSON.stringify({ '@graph': [
+      { '@type': 'ProfilePage', '@id': '#page', url, mainEntity: { '@id': '#person' } },
+      { '@type': 'Person', '@id': '#person', name: 'Scott Jenson', image },
+    ] })}</script>` })).toEqual([{ url: image, associated: true }]);
+  });
+  it('excludes Medium byline portraits even when a larger copy appears after the paywall', () => {
+    const small = 'https://miro.medium.com/v2/resize:fill:64:64/1*ira.jpeg';
+    const large = 'https://miro.medium.com/v2/resize:fill:128:128/1*ira.jpeg';
+    expect(previewImageCandidates({ url: 'https://medium.com/@ifader/poetry-f8a9e1dcf515',
+      text: `# Alighting on English Renaissance Poetry\n[![Ira Fader](${small})](https://medium.com/@ifader?source=byline)\nCreate an account to read the full story.\n[![Ira Fader](${large})](https://medium.com/@ifader?source=post_author_info)`,
+    })).toEqual([]);
+  });
+  it('keeps a square Medium story image separate from the linked author portrait', () => {
+    const portrait = 'https://miro.medium.com/v2/resize:fill:128:128/1*ira.jpeg';
+    const hero = 'https://miro.medium.com/v2/resize:fill:256:256/1*poem.jpeg';
+    expect(previewImageCandidates({ url: 'https://medium.com/@ifader/poetry-f8a9e1dcf515',
+      text: `[![Ira Fader](${portrait})](https://medium.com/@ifader)\n![Poetry book](${hero})`,
+    })).toEqual([hero]);
+  });
   it('distinguishes source-associated evidence from an unverified generic cover', () => {
     const url = 'https://shop.example/p/jacket';
     expect(previewImageEvidence({ url, title: 'Alpine Hybrid Sweater Jacket', html: '<meta property="og:image" content="/campaign.jpg">' }))

@@ -15,6 +15,25 @@ const url = 'https://www.petermillar.com/p/alpine-hybrid-sweater-jacket/19788973
 const image = 'https://res.cloudinary.com/petermillar/image/upload/t_pdp_main/v1787663789/MF26XS49_NAV.jpg';
 const request = (fastOnly = true, sourceUrl = url) => new Request('https://stash.example/extract-link-metadata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: sourceUrl, fastOnly }) });
 describe('legacy metadata endpoint product image selection', () => {
+  it('does not reintroduce a rejected Medium author image through Jina summary fallback', async () => {
+    const author = 'https://miro.medium.com/v2/resize:fill:128:128/1*author.jpeg';
+    state.fetcher.mockResolvedValue(new Response('Unavailable', { status: 403 }));
+    state.jina = { title: 'Alighting on English Renaissance Poetry', description: 'A poetry essay.', image: author,
+      content: `# Alighting on English Renaissance Poetry\n[![Ira Fader](${author})](https://medium.com/@ifader)\nCreate an account to read the full story.` };
+    const result = await (await state.handler(request(false, 'https://medium.com/@ifader/alighting-on-english-renaissance-poetry-f8a9e1dcf515'))).json();
+    expect(result.image).toBeUndefined();
+  });
+  it('uses an exact public Medium feed image when reader metadata has no article image', async () => {
+    const source = 'https://medium.com/@ifader/alighting-on-english-renaissance-poetry-f8a9e1dcf515';
+    const articleImage = 'https://cdn-images-1.medium.com/max/1075/0*article.jpeg';
+    state.fetcher.mockImplementation(async (target: string) => target === 'https://medium.com/feed/@ifader'
+      ? new Response(`<rss><channel><item><guid>https://medium.com/p/f8a9e1dcf515</guid><link>${source}</link><description><![CDATA[<p class="medium-feed-image"><a href="${source}"><img src="${articleImage}"></a></p>]]></description></item></channel></rss>`)
+      : new Response('Unavailable', { status: 403 }));
+    state.jina = { title: 'Alighting on English Renaissance Poetry', description: 'A poetry essay.', content: '# Alighting on English Renaissance Poetry\nPublic excerpt only.' };
+    const result = await (await state.handler(request(false, source))).json();
+    expect(result).toMatchObject({ title: 'Alighting on English Renaissance Poetry', description: 'A poetry essay.', image: articleImage, strategyUsed: 'jina-reader-rescue+medium-feed' });
+    expect(state.fetcher.mock.calls.filter(([target]: [string]) => target === 'https://medium.com/feed/@ifader')).toHaveLength(1);
+  });
   it('uses the current Product in JSON-LD graph instead of the first page-wide navigation image', async () => {
     state.html = `<title>Alpine Hybrid Sweater Jacket</title><meta name="description" content="Warm wool jacket with insulated sleeves.">
       <nav><img src="https://example.com/navigation/new-outerwear.jpg"></nav>

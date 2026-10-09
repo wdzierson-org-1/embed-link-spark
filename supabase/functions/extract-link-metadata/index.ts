@@ -18,6 +18,7 @@ import {
   verifyRemoteImage,
 } from '../_shared/blockedContentFallbacks.ts';
 import { isPageChromeImage, previewImageCandidates } from '../_shared/pagePreview.ts';
+import { fetchMediumFeedPreview } from '../_shared/mediumFeedPreview.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
 
 const corsHeaders = {
@@ -856,15 +857,20 @@ const rescueBlockedMetadata = async (
     // readable content contains the selected product's gallery. Rank that
     // content first; a fallback must pass the same URL/variant checks.
     const contentImage = previewImageCandidates({ url: originalUrl, text: jina.content, title: jina.title })[0];
-    const fallbackImage = !contentImage && jina.image && !/[\s<>\\]/.test(jina.image)
+    // If Markdown exposed images and every one was rejected (for example,
+    // Medium bylines), its first-image summary must not reintroduce them.
+    const fallbackImage = !contentImage && !jina.content?.includes('![') && jina.image && !/[\s<>\\]/.test(jina.image)
       ? previewImageCandidates({ url: originalUrl, text: `![](<${jina.image}>)` })[0]
       : undefined;
+    // Medium's public author feed can expose this article's preview image
+    // even when the reader only returns its public excerpt and byline.
+    const feedImage = !contentImage && !fallbackImage ? await fetchMediumFeedPreview(originalUrl) : null;
     return {
       title: jina.title,
       description: jina.description ||
         (jina.content ? deriveDescriptionFromContent(jina.content) : undefined),
-      image: contentImage || fallbackImage,
-      strategyUsed: 'jina-reader-rescue',
+      image: contentImage || fallbackImage || feedImage || undefined,
+      strategyUsed: feedImage ? 'jina-reader-rescue+medium-feed' : 'jina-reader-rescue',
     };
   }
 

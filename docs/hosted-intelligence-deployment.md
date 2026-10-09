@@ -132,6 +132,53 @@ step. Owned image storage and automated visual matching also remain to be built.
 
 ## Operations
 
+### Capture and social-preview repair — later on 2026-10-09
+
+Three phone-shared YouTube URLs were verified in Will's account as text items
+with `url=null`, literal URL content and generated unrelated titles/descriptions.
+Their completed capture receipts confirmed the iOS capture route. The same IBM
+video saved through the working link path had its correct title and transcript.
+The iOS plain-text provider path did not promote a complete URL; the server then
+correctly followed the incorrect `kind=note` supplied by the client.
+
+Deployed and listed ACTIVE: `capture` v11, `add-note` v60,
+`extract-link-metadata` v102, `scrape-page-content` v17 and `quality-worker` v8.
+Existing JWT settings were preserved. Current production sources were downloaded
+and compared before deployment: endpoint entrypoints matched the branch baseline.
+Scrape's older bundled summary helper was tested against the local helper;
+link request bodies, results and timeout settings were equivalent.
+
+- URL-only note captures now enter `add-url`, including from installed older iOS
+  builds. Prose/multiple URLs remain notes. Direct URL-only note requests skip
+  unsupported generative metadata. Receipt IDs, annotations and privacy survive.
+- The three affected video records were repaired in place using real YouTube
+  metadata, owned thumbnails, captured sources and refreshed search embeddings.
+  One fetch returned only YouTube footer links; a regression now rejects it and
+  continues extraction. Its repair reused the already verified capture of the
+  exact same video in the same account. That duplicate item was no longer returned
+  in the later verification query; it was not recreated or otherwise acted on.
+- Scott Jenson's current portrait was present in captured source. Both its CDN
+  and archived URL served JPEG bytes during the check; the archive lacked CORS,
+  while the proxy allowed it. Browser delivery failure was not reproduced. The
+  card now points to an owned copy of the captured publisher portrait. Future
+  source-bound Person/ProfilePage images are retained and a missing unprotected
+  profile preview can be recovered during source capture.
+- The Medium article's public author RSS contained the exact article GUID,
+  link and linked cover image. Its card received an owned image. A live production
+  probe returned that cover with `jina-reader-rescue+medium-feed`. Author/byline
+  portraits are excluded; membership-only article text is not fetched by this
+  fallback. Older articles absent from the feed can still lack a preview.
+- The four repaired records still present in the final image check all served
+  image bytes from their owned storage, with original notes preserved.
+- Verification: 342 targeted JS/TS tests and 166 Swift tests passed. App type
+  checks, Vite build/post-build, and iOS app/share-extension Simulator build passed.
+  No physical-phone end-to-end capture test was available.
+
+The iOS source fix and web profile silhouette are built and committed for release;
+no App Store/TestFlight or frontend deployment is part of this backend deployment.
+The current web main branch has moved since this review branch, so the placeholder
+must be integrated with that branch rather than deploying an older app bundle.
+
 Pause paid work with `QUALITY_ENABLED=false` in Supabase secrets. The cron
 continues retention cleanup; no new jobs can be claimed and the model proxy
 rejects requests. Existing Stash enrichment and repairs are separate.

@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
-import { afterDraining } from '../_shared/capture.ts';
+import { afterDraining, singleHttpUrl } from '../_shared/capture.ts';
 import { requireEntitlement } from '../_shared/entitlementGate.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
 
@@ -143,6 +143,10 @@ Deno.serve(async (req) => {
     // same async-enrichment pipeline the web capture flow uses, so every
     // client of this endpoint gets described items for free
     const enrichAfterResponse = async () => {
+      // A URL alone contains no evidence about its target. Capture promotes
+      // these to add-url; direct note callers keep their note without having a
+      // model invent a video's title or description from an opaque URL.
+      if (singleHttpUrl(content)) return;
       try {
         const [titleResult, descriptionResult] = await Promise.all([
           title ? Promise.resolve(null) : supabase.functions.invoke('generate-title', { body: { content } }),

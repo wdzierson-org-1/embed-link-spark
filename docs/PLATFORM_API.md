@@ -68,7 +68,10 @@ upgrades.
 ```
 
 Returns `{ success, note }` immediately with a derived title; AI title +
-description + re-embed land asynchronously.
+description + re-embed land asynchronously. A note whose entire content is one
+HTTP(S) URL keeps its literal or user-provided title and skips AI title/description
+generation: an opaque URL is not evidence about the linked page. Use `add-url`
+for link enrichment (or `capture`, which normalizes this share-sheet case).
 
 ### `POST /add-file` — save an uploaded file
 
@@ -121,6 +124,14 @@ or `multipart/form-data` with a `meta` part (the JSON string) and a `file` part
 - `note` needs non-blank `content`. `url` needs a parseable `url`. `file`
   needs `mime_type` plus exactly one of a multipart `file` part or a
   `file_path` inside the caller's own folder (`<uid>/…`, no empty/`..` segments).
+- A `note` containing only one complete HTTP(S) URL is normalized to `url`
+  before dispatch, so older share extensions that send YouTube links as plain
+  text use the same enrichment as web/extension saves. Surrounding whitespace
+  is trimmed; the URL's query and fragment are preserved. The URL is not also
+  stored as note content. Prose, multiple links, other schemes and ambiguous
+  or credential-bearing strings remain notes. The same `capture_id`, privacy,
+  attributes and reminder are retained; an already-completed receipt still
+  returns its existing item, without creating or rewriting anything.
 - `attributes` and `remind_at` are forwarded as-is and follow the `add-*`
   rules above. A non-object `attributes`, a non-string `remind_at`, or a bad
   `file_size` is dropped with a logged warning. Metadata never causes a 4xx, and

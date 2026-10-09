@@ -4,6 +4,7 @@ import { StatusLine, Tag } from './Machine';
 import { kindGlyph, kindLabel } from '@/components/cards/ItemTypeChip';
 import ContentItemSkeleton from '@/components/ContentItemSkeleton';
 import EditItemAutoSaveIndicator from '@/components/EditItemAutoSaveIndicator';
+import { LinkPlaceholder } from '@/components/cards/CardHero';
 
 describe('pixel glyphs', () => {
   it('are all 14×14 bitmaps of ink and paper', () => {
@@ -17,6 +18,15 @@ describe('pixel glyphs', () => {
 });
 
 describe('kind labels and glyphs', () => {
+  it.each(['https://www.linkedin.com/in/scottjenson/', 'https://linkedin.com/in/scottjenson?trk=share', 'https://uk.linkedin.com/in/scottjenson/'])('uses a profile silhouette for %s', url => {
+    expect(kindGlyph({ type: 'link', url })).toBe('profile');
+  });
+  it.each(['https://www.linkedin.com/company/example', 'https://www.linkedin.com/posts/example', 'https://www.linkedin.com/in/scottjenson/details/', 'https://linkedin.com.evil.example/in/scottjenson', 'https://notlinkedin.com/in/scottjenson', 'https://linkedin.com@evil.example/in/scottjenson', 'not a URL'])('keeps the ordinary placeholder for non-profile URL %s', url => {
+    expect(kindGlyph({ type: 'link', url })).toBe('page');
+  });
+  it('preserves video link placeholders', () => {
+    expect(kindGlyph({ type: 'link', url: 'https://youtu.be/9bZkp7q19f0', attributes: { link: { flavor: 'video' } } })).toBe('video');
+  });
   it('names each kind of save in the machine voice, lowercase', () => {
     expect(kindLabel({ type: 'text' })).toBe('note');
     expect(kindLabel({ type: 'audio', attributes: { media: { kind: 'voice_note' } } })).toBe('voice note');
@@ -34,6 +44,22 @@ describe('kind labels and glyphs', () => {
     expect(kindGlyph({ type: 'link', url: 'https://example.com' })).toBe('page');
     expect(kindGlyph({ type: 'image' })).toBe('photo');
     expect(kindGlyph({ type: 'audio' })).toBe('voice');
+  });
+});
+
+describe('unresolved profile preview', () => {
+  it('uses specific profile copy without fetching a remote avatar or showing it while reading', () => {
+    const url = 'https://www.linkedin.com/in/scottjenson/';
+    const { container, rerender } = render(<LinkPlaceholder url={url} glyph={kindGlyph({ type: 'link', url })} />);
+    expect(screen.getByText('profile preview unavailable')).toBeInTheDocument();
+    expect(screen.getByText('linkedin.com')).toBeInTheDocument();
+    expect(container.querySelector('img')).toBeNull();
+    rerender(<LinkPlaceholder url={url} glyph={kindGlyph({ type: 'link', url })} reading />);
+    expect(screen.queryByText('profile preview unavailable')).not.toBeInTheDocument();
+  });
+  it('keeps existing fallback copy for other sources', () => {
+    render(<LinkPlaceholder url="https://medium.com/@writer/story" glyph="article" />);
+    expect(screen.getByText('preview limited, saved anyway')).toBeInTheDocument();
   });
 });
 

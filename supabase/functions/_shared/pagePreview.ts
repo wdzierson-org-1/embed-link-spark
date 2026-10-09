@@ -64,8 +64,8 @@ const markdownPunctuation = (value = '') => {
 };
 const unescapeMarkdown = (value: string) => value.replace(/\\(.)/g, (match, char: string) => markdownPunctuation(char) ? char : match);
 /** Scan inline images once; nested URL parentheses must not close the image. */
-function markdownImages(text: string): Array<{ url: string; alt: string }> {
-  const result: Array<{ url: string; alt: string }> = [];
+function markdownImages(text: string): Array<{ url: string; alt: string; linkUrl?: string }> {
+  const result: Array<{ url: string; alt: string; linkUrl?: string }> = [];
   const labels: Array<{ start: number; depth: number }> = [];
   let cursor = 0;
   let brackets = 0;
@@ -117,7 +117,11 @@ function markdownImages(text: string): Array<{ url: string; alt: string }> {
     cursor++;
     if (end > start && end - start <= MAX_IMAGE_URL_LENGTH) {
       // Bound label copies for deeply nested/malformed input as well as URLs.
-      result.push({ url: unescapeMarkdown(text.slice(start, end)), alt: unescapeMarkdown(text.slice(label.start, Math.min(altEnd, label.start + 2048))) });
+      // An image linking to a person/publication is a byline, not article art.
+      const linkUrl = text[label.start - 3] === '['
+        ? text.slice(cursor, cursor + 4096).match(/^\]\((https?:\/\/[^)\s]+)\)/)?.[1]
+        : undefined;
+      result.push({ url: unescapeMarkdown(text.slice(start, end)), alt: unescapeMarkdown(text.slice(label.start, Math.min(altEnd, label.start + 2048))), linkUrl });
     }
   }
   return result;
@@ -128,6 +132,17 @@ export interface PreviewImageEvidence { url: string; associated: boolean; }
 export function previewImageEvidence(input: { url: string; html?: string; text?: string; title?: string }): PreviewImageEvidence[] {
   if (!isPublicPreviewUrl(input.url)) return [];
   const html = (input.html || '').slice(0, 1_500_000);
+  const text = (input.text || '').slice(0, 100_000).split(relatedBoundary)[0];
+  const readerImages = markdownImages(text);
+  const isMedium = /(^|\.)medium\.com$/.test(new URL(input.url).hostname);
+  const mediumBylineImage = (image: { url: string; linkUrl?: string }) => {
+    if (!isMedium || !image.linkUrl) return false;
+    try {
+      const asset = new URL(image.url), link = new URL(image.linkUrl);
+      return asset.hostname === 'miro.medium.com' && /^\/v2\/resize:fill:\d+:\d+\//.test(asset.pathname) &&
+        /(^|\.)medium\.com$/.test(link.hostname) && /^\/(?:@[^/]+|[a-z0-9-]+)\/?$/i.test(link.pathname);
+    } catch { return false; }
+  };
   const title = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]?.replace(/<[^>]*>/g, ' ') ||
     html.match(/<title\b[^>]*>([^<]*)<\/title>/i)?.[1] || (input.text || '').match(/^#\s+(.+)$/m)?.[1] || input.title || '';
   const titleWords = words(decode(title.split(/\s[|—]\s/)[0]));
@@ -206,8 +221,41 @@ export function previewImageEvidence(input: { url: string; html?: string; text?:
   }
   const productNodes = nodes.filter(object => /(?:^|\s)Product(?:\s|$)/.test(Array.isArray(object['@type']) ? object['@type'].join(' ') : String(object['@type'] || '')));
   const namedMatches = productNodes.filter(object => typeof object.name === 'string' && matchesTitle(object.name));
+  const hasType = (object: Record<string, unknown>, type: string) =>
+    (Array.isArray(object['@type']) ? object['@type'] : [object['@type']]).includes(type);
+  const boundToPage = (object: Record<string, unknown>) =>
+    [identity(object.url), identity(object['@id'])].some(url => !!url && pageIdentities.has(url));
+  const profilePeople = new Set<unknown>();
+  const profilePersonIds = new Set<string>();
+  const graphId = (value: unknown) => {
+    try { return typeof value === 'string' ? new URL(value, input.url).href : undefined; }
+    catch { return undefined; }
+  };
+  for (const object of nodes) {
+    if (hasType(object, 'ProfilePage') && boundToPage(object)) {
+      const people = Array.isArray(object.mainEntity) ? object.mainEntity : [object.mainEntity];
+      people.forEach(person => {
+        profilePeople.add(person);
+        const id = graphId(person && typeof person === 'object' ? person['@id'] : person);
+        if (id) profilePersonIds.add(id);
+      });
+    }
+  }
   for (const object of nodes) {
     const type = Array.isArray(object['@type']) ? object['@type'].join(' ') : String(object['@type'] || '');
+    if (hasType(object, 'Person') || hasType(object, 'ProfilePage')) {
+      // A site's writer/recommendation portrait is not the saved profile.
+      // Accept only the page's own Person or a bound ProfilePage's mainEntity.
+      const explicitUrl = identity(object.url);
+      const id = graphId(object['@id']);
+      const profileBound = hasType(object, 'ProfilePage') ? boundToPage(object) :
+        !!(explicitUrl && pageIdentities.has(explicitUrl)) || !!(id && !new URL(id).hash && pageIdentities.has(identity(id)!)) ||
+        profilePeople.has(object) || !!(id && profilePersonIds.has(id));
+      if ((!explicitUrl || pageIdentities.has(explicitUrl)) && profileBound) {
+        addImage(object.image, String(object.name || ''), true);
+      }
+      continue;
+    }
     if (/Article|BlogPosting|NewsArticle|Product|VideoObject|SocialMediaPosting|WebPage/.test(type)) {
       const name = typeof object.name === 'string' ? object.name : typeof object.headline === 'string' ? object.headline : '';
       const offers = Array.isArray(object.offers) ? object.offers.slice(0, 20) : [object.offers];
@@ -244,8 +292,9 @@ export function previewImageEvidence(input: { url: string; html?: string; text?:
     if ((attr.width && Number(attr.width) < 100) || (attr.height && Number(attr.height) < 60)) continue;
     for (const image of [...srcsetImages(attr.srcset || attr['data-srcset']), attr['data-src'], attr.src]) add(image, attr.alt || '', 2);
   }
-  const text = (input.text || '').slice(0, 100_000).split(relatedBoundary)[0];
-  for (const image of markdownImages(text)) add(image.url, image.alt, 2);
+  for (const image of readerImages) {
+    if (!mediumBylineImage(image)) add(image.url, image.alt, 2);
+  }
   // Once the source identifies this object, never fall through to a generic
   // campaign image just because downloading the associated image failed.
   const selected = candidates.some(c => c.associated) ? candidates.filter(c => c.associated) : candidates;
