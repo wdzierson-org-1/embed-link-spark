@@ -17,12 +17,13 @@ interface ContentItem {
   tags?: string[];
   supplemental_note?: string;
   is_public?: boolean;
+  share_token?: string | null;
 }
 
 interface UseEditItemSheetProps {
   open: boolean;
   item: ContentItem | null;
-  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string | null; is_public?: boolean }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
+  onSave: (id: string, updates: { title?: string; description?: string; content?: string; supplemental_note?: string | null; is_public?: boolean; share_token?: string | null; shared_at?: string | null }, options?: { showSuccessToast?: boolean; refreshItems?: boolean }) => Promise<void>;
 }
 
 export const useEditItemSheet = ({ open, item, onSave }: UseEditItemSheetProps) => {

@@ -25,6 +25,7 @@ export const ITEM_LIST_COLUMN_NAMES = [
   'remind_at',
   'reminder_cleared_at',
   'pinned_at',
+  'share_token',
 ];
 const ITEM_LIST_COLUMNS = ITEM_LIST_COLUMN_NAMES.join(',');
 

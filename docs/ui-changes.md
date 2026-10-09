@@ -8,6 +8,66 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Share a save by link; the address leads the panel; a cancel cell while editing it; "Resurface in"
+
+Will: "move the address for the object above the title"; "add an X button to exit edit mode if the
+user decides to edit the URL"; "add a share button to the upper right of the detail screen. this
+should create a unique URL (if we can limit the length somehow, great). it will bring whomever
+clicks on the link to a read only view of everything on the detail screen. stash logo in the upper
+left, standard 12 column grid width (centered), the same background we use for the main grid"; on
+cards, "change 'remind me' to 'resurface in'". Decisions: the page shows **everything on the panel**
+(notes and details included); the link is **unlisted and separate from the public feed**; the page
+carries the logo, `from @username’s stash`, and Get Stash.
+
+**Data contract (all platforms):**
+- `items.share_token text null` (unique partial index `items_share_token_key`) and
+  `items.shared_at timestamptz null` — migration `supabase/migrations/20261009123000_items_share_token.sql`,
+  applied to prod. The token is **10 characters of base62** (`[A-Za-z0-9]{10}`, ~59 bits), minted
+  **by the client** (`src/utils/shareToken.ts` `mintShareToken`, rejection-sampled from
+  `crypto.getRandomValues`) and written through the normal owner update (`share_token`,
+  `shared_at = now()`). **Stop sharing** writes both back to null. A shared item keeps its token: the
+  client never re-mints while one exists. iOS: mint the same shape, write the same two columns through
+  the same update; on a unique violation (astronomically unlikely) mint again.
+- The link is `https://www.gostash.it/s/<token>` (`shareUrlFor`).
+- Reading: **`public.shared_item(p_token text)`**, SECURITY DEFINER, executable by `anon` and
+  `authenticated`; returns at most one row: `id, type (text), title, description, url, file_path,
+  mime_type, file_size, summary, page_body, content, attributes, created_at, shared_at, username,
+  display_name` (the owner's `user_profiles`). It never returns pins, reminders, `is_public`, the
+  sticky note or the user id, and nothing can list tokens. Media comes from the public `stash-media`
+  bucket (`file_path` → public URL; an `http…` file_path is already a URL). RLS is unchanged.
+- `share_token` is in the web list projection (`ITEM_LIST_COLUMN_NAMES`) and the admin grid columns.
+
+**Behaviour (for iOS and macOS to mirror):**
+- **Panel: the address leads.** For links the source address strip is the first thing in the panel
+  body, above the title (then title, description, media, source tabs, notes, details, sharing).
+- **Address strip, editing:** a red **×** cell (`aria-label` "Cancel editing", tooltip `cancel`)
+  appears to the left of the spot ✓ while editing; it leaves edit mode and keeps the old address
+  (Esc still does the same).
+- **Share cell** in the panel's window bar, top-right beside close (`edit/ShareControl`): tooltip
+  `share`. **One click mints the link, stores it, copies it, and opens the share window** — an ink
+  bar `share`, the status `✓ link copied · anyone with it can view` (then `anyone with the link can
+  view`), the address in the code voice with a copy cell (`copy link` / `copied`), the line
+  `not on your feed · read only`, and **Stop sharing** (error red). Once shared the cell wears the
+  spot colour (tooltip `shared · anyone with the link`) and a click only opens the window. Stop
+  sharing clears the token; the old link then shows the dead-link page. A failed write says
+  `✕ couldn't update the link. try again` in the window.
+- **The shared page** `/s/<token>` (`src/pages/SharedItem.tsx`; DESIGN-v2 §12.15), on the library's
+  paper: a 68 px header with the logo (to gostash.it), `from @username’s stash` in the machine voice,
+  and **Get Stash** at the right; the object centred on the marketing 12-column grid (max 1360 px,
+  columns 3–10 from `lg`, full width below): the same window bar, the address strip (copy and open
+  only), the title, description, media (audio/video player, picture stage, document preview), the
+  source tabs (`summary | original content`, or `transcript`), the notes as read-only rich text when
+  there are any, and the details facts. A note shows its text as the object. Nothing is editable;
+  no comments. A dead or malformed token gets "This link no longer works." with Get Stash. The
+  document title becomes `<title> · Stash`. Link previews (OG tags for iMessage/Slack) need a
+  server-rendered head — not done; follow-up.
+- **Cards:** the menu reads **`Resurface in…`** ▸ `1 day · 3 days · 5 days` and **`Don't resurface`**
+  (was `Remind me…` / `Change reminder…` / `Remove reminder`). The data (`remind_at`) and the
+  card's clock chip are unchanged.
+- Tests: `edit/ShareControl.test.tsx`, `pages/SharedItem.test.tsx`, `utils/shareToken.test.ts`,
+  `EditItemLinkSection.test.tsx` (cancel cell), `ContentItemFooter.menu.test.tsx`,
+  `utils/designScope.test.ts` (`/s/` is on DESIGN-v2).
+
 ## 2026-10-09 · Cards: pin, share, delete from the menu; the panel: source first, the summary editable, notes one line
 
 Will: on the card menu, "remove 'report a problem'", "re-introduce 'delete this' with a confirmation

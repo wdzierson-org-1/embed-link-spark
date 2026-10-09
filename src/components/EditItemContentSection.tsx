@@ -48,8 +48,8 @@ const FIELD_BOX = '-mx-2 w-[calc(100%+16px)] px-2 py-1 transition-colors';
 const FIELD_AT_REST = `${FIELD_BOX} hover:bg-fill`;
 const FIELD_EDITING = `${FIELD_BOX} bg-white shadow-[inset_0_0_0_1px_var(--ink),0_0_0_3px_rgb(var(--spot-rgb))]`;
 
-// Source material sits directly on the panel surface — no nested box
-const ReadOnlyText = ({ text, capped = true }: { text: string; capped?: boolean }) => (
+// Source material sits directly on the panel surface — no nested box (the shared page reads it too)
+export const ReadOnlyText = ({ text, capped = true }: { text: string; capped?: boolean }) => (
   <div className={capped ? 'max-h-[420px] overflow-y-auto pr-1' : ''}>
     {looksLikeMarkdown(text) ? (
       <div className="prose prose-sm max-w-none text-[15px] leading-[1.6] text-ink prose-headings:font-medium prose-a:text-ink">

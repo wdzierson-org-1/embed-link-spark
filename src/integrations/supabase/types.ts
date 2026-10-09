@@ -382,6 +382,8 @@ export type Database = {
           page_body: string | null
           remind_at: string | null
           pinned_at: string | null
+          share_token: string | null
+          shared_at: string | null
           reminder_cleared_at: string | null
           reminder_notified_at: string | null
           scrape_attempts: number
@@ -411,6 +413,8 @@ export type Database = {
           page_body?: string | null
           remind_at?: string | null
           pinned_at?: string | null
+          share_token?: string | null
+          shared_at?: string | null
           reminder_cleared_at?: string | null
           reminder_notified_at?: string | null
           scrape_attempts?: number
@@ -440,6 +444,8 @@ export type Database = {
           page_body?: string | null
           remind_at?: string | null
           pinned_at?: string | null
+          share_token?: string | null
+          shared_at?: string | null
           reminder_cleared_at?: string | null
           reminder_notified_at?: string | null
           scrape_attempts?: number
@@ -690,6 +696,27 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      shared_item: {
+        Args: { p_token: string }
+        Returns: {
+          id: string
+          type: string
+          title: string | null
+          description: string | null
+          url: string | null
+          file_path: string | null
+          mime_type: string | null
+          file_size: number | null
+          summary: string | null
+          page_body: string | null
+          content: string | null
+          attributes: Json | null
+          created_at: string
+          shared_at: string | null
+          username: string | null
+          display_name: string | null
+        }[]
+      }
       set_item_enrichment: { Args: { target_id: string; next_status: string }; Returns: undefined }
       follow_user: { Args: { target_id: string }; Returns: boolean }
       get_follower_count: { Args: { user_id: string }; Returns: number }

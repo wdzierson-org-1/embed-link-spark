@@ -16,15 +16,24 @@ const item = { id: 'item-1', type: 'link' as const, title: 'A saved page', url: 
 // Radix opens its menu on pointerdown or Enter, never on a synthetic click; jsdom can drive the key
 const openMenu = () => fireEvent.keyDown(screen.getByRole('button', { name: 'Card menu' }), { key: 'Enter' });
 
-it('offers pin, share to feed, remind and delete; never "report a problem"', () => {
+it('offers pin, share to feed, resurface and delete; never "report a problem" or "remind"', () => {
   render(<ContentItemFooter item={item} onDeleteItem={vi.fn()} onEditItem={vi.fn()} onTogglePrivacy={vi.fn()} onTogglePin={vi.fn()} />);
   openMenu();
   const menu = screen.getByRole('menu');
   expect(within(menu).getByRole('menuitem', { name: 'Pin this' })).toBeInTheDocument();
   expect(within(menu).getByRole('menuitem', { name: 'Share to feed' })).toBeInTheDocument();
-  expect(within(menu).getByRole('menuitem', { name: /remind me/i })).toBeInTheDocument();
+  expect(within(menu).getByRole('menuitem', { name: 'Resurface in…' })).toBeInTheDocument();
   expect(within(menu).getByRole('menuitem', { name: 'Delete this' })).toBeInTheDocument();
-  expect(within(menu).queryByRole('menuitem', { name: /report a problem/i })).not.toBeInTheDocument();
+  expect(within(menu).queryByRole('menuitem', { name: /report a problem|remind/i })).not.toBeInTheDocument();
+});
+
+it('names the resurfacing choices as spans of time, and offers to stop once one is set', () => {
+  render(<ContentItemFooter item={{ ...item, remind_at: '2099-01-01T00:00:00Z' }} onDeleteItem={vi.fn()} onEditItem={vi.fn()} />);
+  openMenu();
+  expect(screen.getByRole('menuitem', { name: "Don't resurface" })).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Resurface in…' }), { key: 'ArrowRight' });
+  expect(screen.getByRole('menuitem', { name: '1 day' })).toBeInTheDocument();
+  expect(screen.getByRole('menuitem', { name: '3 days' })).toBeInTheDocument();
 });
 
 it('reads the item’s state: Unpin and Unshare from feed', () => {
@@ -68,5 +77,5 @@ it('on a public feed, a visitor gets no owner actions', () => {
   openMenu();
   const menu = screen.getByRole('menu');
   expect(within(menu).getByRole('menuitem', { name: 'Comments' })).toBeInTheDocument();
-  expect(within(menu).queryByRole('menuitem', { name: /pin|share|delete|remind/i })).not.toBeInTheDocument();
+  expect(within(menu).queryByRole('menuitem', { name: /pin|share|delete|resurface/i })).not.toBeInTheDocument();
 });

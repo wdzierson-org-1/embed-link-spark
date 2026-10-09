@@ -530,7 +530,8 @@ once, and the shared beat never strands one mid-effect.
 | Composer chips | `| fetching more details…`, `| reading the link…`, `| analyzing…`, `| uploading…`, `| uploading · 45%` | `posted from Brooklyn, New York`, `finding your location…` |
 | The composer | | `type / for commands` (only while it's focused); the drop veil says `drop to save` |
 | Ask | `| searching your stash…` (before the first word), `| writing the answer…` (streaming) | `✓ searched your stash · 3 saves`, `answers from your 59 saves`, `also from`, `⌖ show 3 sources` / `showing` |
-| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again` |
+| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again`; the address strip's `cancel`; the share cell `share` / `shared · anyone with the link` and its window `✓ link copied · anyone with it can view`, `anyone with the link can view`, `not on your feed · read only`, `copy link`, `✕ couldn't update the link. try again` |
+| The shared page (§12.15) | `opening the save…` | `from @will’s stash`; a dead link: "This link no longer works." |
 | Settings | `| loading your settings…`, `| checking your plan…`, `| checking for agents…` | `signed in as …`, `connected 3 days ago · last used 1 hour ago`, `activity.log` |
 | The loading screen | `> opening your stash`, then eleven more, decrypting in the code voice (§12.10) | |
 | The way in (§12.14) | `| signing in…`, `| creating your stash…`, `| sending…`, `| updating…`, `| checking your reset link…` | prompts `> knock knock. who’s there?`, `> new here? pull up a chair.`, `> happens to the best of us.`, `> a link is on its way to you.`; field errors `✕ that username is taken. try another.` |
@@ -595,7 +596,7 @@ Anatomy, top to bottom (`ContentItem`, `ContentItemHeader`, `ContentItemContent`
    and the place (pin + name); on the right the **date** (`oct 3`; with the year when it isn't this
    year) and the 24 px menu, which inverts to ink when open. The menu (2026-10-09): `Pin this` /
    `Unpin` · `Share to feed` / `Unshare from feed` (un-sharing also clears the sticky note, as the
-   panel does) · `Remind me…` ▸ (`Change reminder…` once set) and `Remove reminder` · a rule ·
+   panel does) · `Resurface in…` ▸ `1 day · 3 days · 5 days` and `Don't resurface` · a rule ·
    `Delete this` in error red, which asks first in an app dialog (§6): "Delete this item?",
    "“{title}” and everything Stash knows about it will be removed. This can't be undone.", Cancel
    and a red Delete. "Report a problem" is gone. A visitor to a public feed gets only Comments.
@@ -726,8 +727,16 @@ ink on hover.
 
 (`EditItemSheet`, `EditItemDetailsTab`, `edit/*`, `EditItem*Section`)
 - An 800 px sheet from the right: white, an ink left edge, no shadow, over the dithered scrim.
-- **Window bar** (44 px, ink): the symbol, the kind as a white tag, the source (domain) and
-  `saved oct 6 2026` at 60% white; the close button (32 px) sits in it and inverts on hover.
+- **Window bar** (44 px, ink; `edit/ItemWindowBar`): the symbol, the kind as a white tag, the
+  source (domain) and `saved oct 6 2026` at 60% white; at the right end the **share cell** (32 px,
+  `edit/ShareControl`; tooltip `share`, and in the spot colour once shared, `shared · anyone with
+  the link`) and the close button (32 px), both inverting on hover. One click on share mints the
+  link, copies it and opens the **share window** under the cell (a small window: `share` in its
+  bar; `✓ link copied · anyone with it can view`; the address in the code voice with a copy cell;
+  `not on your feed · read only`; **Stop sharing** in error red). The link is unlisted and separate
+  from the public feed (§12.15). (Will, 2026-10-09.)
+- **The address leads** (links): the source address strip is the first thing in the body, above
+  the title (Will, 2026-10-09: "move the address for the object above the title").
 - **Title:** screen title 28/1.12, inline-editable (hover: fill; editing: white, ink edge, spot ring).
   **Description:** Montreal 15/1.5 muted, editable the same way.
 - **Media** on a dotted stage with crop marks: an image as an object (2 px, line edge,
@@ -746,7 +755,8 @@ ink on hover.
   one link, then 40 px cells: **copy** (tooltip `copy address`; after a click the cell shows a
   check and says `copied` for two seconds), **edit** (`edit address`; the strip becomes a field in
   the code voice, the same cell turns spot with a check and reads `save address`, `enter saves ·
-  esc cancels` under it; Enter or the cell saves and the cell turns back to edit), and **open**.
+  esc cancels` under it; Enter or the cell saves and the cell turns back to edit; a red **×** cell
+  (`cancel`) to its left leaves the edit and keeps the old address), and **open**.
   A bare host gets `https://`; anything that isn't a web address is refused with
   `✕ that doesn't look like a web address` and nothing is saved. Saving writes `url`; the items
   trigger queues the quality loop to reassess the save. (Will, 2026-10-08.)
@@ -919,6 +929,26 @@ homepage.")
   machine-voice text: `forgot password?` beside the password label, `back to sign in`.
 - Behaviour is unchanged (the anonymous-session guard, `returnTo` / `commentItem`, `mode=reset` and
   `mode=signup` deep links, the username and phone checks, the reset rate-limit message).
+
+### 12.15 The shared page
+
+(`pages/SharedItem`, `/s/<token>`; the contract is in docs/ui-changes.md 2026-10-09.) A save's
+unlisted, read-only address for anyone holding the link; separate from the public feed.
+- **The paper** (§7) under everything, as in the library.
+- **Header**, 68 px: the wordmark on its white tile at the left (to gostash.it), then `from
+  @will’s stash` in the machine voice; **Get Stash** (an ink button, Montreal 13/500) at the right.
+  The page is also how people meet Stash, so the chrome stays quiet and the object is the point.
+- **The object** sits on the marketing 12-column grid (§5: max 1360 px, 24 px gaps), columns 3–10
+  from `lg`, full width below: a white surface with an ink edge and the print shadow, carrying the
+  panel's own parts (§12.8) with nothing editable: the window bar (no cells), the address strip
+  (copy and open only), the title (28/1.12), the description, the media (the player strip, the
+  video, the picture stage without controls, the document preview), the source tabs on their rule
+  (`summary | original content`, or `transcript`, no full-size cell), **notes** as read-only rich
+  text when there are any, and the details facts. A note shows its text as the object. No
+  comments, no sharing section, no footer.
+- **Loading:** `| opening the save…`. **A dead or mistyped link:** the same shell and "This link no
+  longer works." / "Whoever shared it stopped sharing, or the address was mistyped." with Get Stash.
+- The document title is `<title> · Stash`. Link previews (OG tags) are a follow-up.
 
 ## 13. Implementation
 

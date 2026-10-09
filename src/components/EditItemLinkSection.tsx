@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, Check, Copy, Pencil } from 'lucide-react';
+import { ArrowUpRight, Check, Copy, Pencil, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Spinner } from '@/components/machine/Machine';
 import { domainOfUrl } from '@/utils/linkFlavor';
@@ -29,7 +29,10 @@ export const normalizeWebAddress = (raw: string): string | null => {
 
 const COPIED_MS = 2000;
 
-const cell = 'grid w-10 flex-none place-items-center border-l border-ink text-ink transition-colors hover:bg-ink hover:text-white focus-visible:outline-none focus-visible:bg-ink focus-visible:text-white';
+const cellFrame = 'grid w-10 flex-none place-items-center border-l border-ink transition-colors focus-visible:outline-none';
+const cell = `${cellFrame} text-ink hover:bg-ink hover:text-white focus-visible:bg-ink focus-visible:text-white`;
+// The cancel cell is red at rest and fills red: it must not carry the ink hover of the others
+const cancelCell = `${cellFrame} text-error hover:bg-error hover:text-white focus-visible:bg-error focus-visible:text-white`;
 
 /**
  * The source address as a machine strip (DESIGN-v2 §12.8): favicon · the whole address, a link
@@ -167,6 +170,23 @@ const EditItemLinkSection = ({ url, onUrlSave }: EditItemLinkSectionProps) => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom">{copied ? 'copied' : 'copy address'}</TooltipContent>
+          </Tooltip>
+        )}
+
+        {editing && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={cancel}
+                disabled={saving}
+                aria-label="Cancel editing"
+                className={cancelCell}
+              >
+                <X className="h-4 w-4" strokeWidth={2.5} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">cancel</TooltipContent>
           </Tooltip>
         )}
 

@@ -283,6 +283,14 @@ const EditItemDetailsTab = ({
 
   const contentComponent = (
     <div className="mt-0 px-4 pb-8 sm:px-10">
+      {/* The source address strip leads (Will, 2026-10-09: "move the address above the title"):
+          the whole address opens it; copy, edit, open */}
+      {item?.type === 'link' && item?.url && (
+        <div className="mb-7">
+          <EditItemLinkSection url={item.url} onUrlSave={onUrlSave} />
+        </div>
+      )}
+
       {/* ── Header zone: title → description (the kind and source sit in the window bar) ── */}
       <div>
         <EditItemTitleSection
@@ -366,13 +374,6 @@ const EditItemDetailsTab = ({
           className="hidden"
           onChange={handleReplaceImageFile}
         />
-      )}
-
-      {/* The source address strip: the whole address opens it; copy, edit, open */}
-      {item?.type === 'link' && item?.url && (
-        <div className="mt-3">
-          <EditItemLinkSection url={item.url} onUrlSave={onUrlSave} />
-        </div>
       )}
 
       {/* Document preview — only for document items */}

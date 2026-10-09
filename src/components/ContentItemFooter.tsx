@@ -207,12 +207,12 @@ const ContentItemFooter = ({
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Bell className="h-4 w-4 mr-2" />
-                    {hasActiveReminder ? 'Change reminder…' : 'Remind me…'}
+                    Resurface in…
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     {REMINDER_PRESETS.map((days) => (
                       <DropdownMenuItem key={days} onClick={() => setReminder(days)}>
-                        {days === 1 ? 'In 1 day' : `In ${days} days`}
+                        {days === 1 ? '1 day' : `${days} days`}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuSubContent>
@@ -220,7 +220,7 @@ const ContentItemFooter = ({
                 {hasActiveReminder && (
                   <DropdownMenuItem onClick={removeReminder}>
                     <BellOff className="h-4 w-4 mr-2" />
-                    Remove reminder
+                    Don't resurface
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
