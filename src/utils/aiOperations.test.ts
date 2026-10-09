@@ -25,6 +25,12 @@ describe('generateEmbeddings', () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 
+  it('reads the same outcome from a 200 whose body says item_changed (the function no longer answers 409)', async () => {
+    invoke.mockResolvedValue({ data: { success: false, chunksProcessed: 0, reason: 'item_changed' }, error: null });
+    await expect(generateEmbeddings('item-1', 'text')).resolves.toEqual({ deferred: true });
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it('still throws on a real failure', async () => {
     invoke.mockResolvedValue({ data: null, error: httpError(500) });
     await expect(generateEmbeddings('item-1', 'text')).rejects.toMatchObject({ name: 'FunctionsHttpError' });

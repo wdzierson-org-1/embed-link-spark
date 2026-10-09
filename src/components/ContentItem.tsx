@@ -10,6 +10,7 @@ import ContentItemContent from '@/components/ContentItemContent';
 import ContentItemFooter from '@/components/ContentItemFooter';
 import ChatInterface from '@/components/ChatInterface';
 import { StatusLine } from '@/components/machine/Machine';
+import type { KindTagPhase } from '@/components/cards/KindTag';
 import type { Attachment } from '@/components/CollectionAttachments';
 import { supabase } from '@/integrations/supabase/client';
 import { isDocumentProcessing } from '@/utils/documentProcessing';
@@ -138,6 +139,14 @@ const ContentItem = ({
         : 'gathering more info';
   // Visitors to a public feed never see the machine at work, only the save
   const isReading = !isPublicView && (isAssemblingNow || isReadingPdf);
+  // On a hero the kind tag carries the status (KindTag): reading, then "all done!" or what gave up
+  const tagPhase: KindTagPhase = isReading
+    ? 'reading'
+    : isFullyEnriched
+      ? 'done'
+      : assemblyState === 'partial' || pdfGaveUp
+        ? 'gave-up'
+        : 'idle';
   const statusLine = isReading ? (
     <StatusLine tone="busy">{busyLabel}…</StatusLine>
   ) : showAssembled ? (
@@ -306,6 +315,7 @@ const ContentItem = ({
           reveals={headerReveals}
           reading={isReading}
           status={statusLine}
+          kindTag={{ phase: tagPhase, busyLabel }}
         />
 
         <div className="flex flex-1 flex-col px-5 pb-3.5 pt-2.5">

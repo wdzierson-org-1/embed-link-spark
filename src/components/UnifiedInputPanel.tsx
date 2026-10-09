@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useCaptureLocation } from '@/hooks/useCaptureLocation';
 import { supabase } from '@/integrations/supabase/client';
+import { getYouTubeVideoId } from '@/utils/youtube';
 import { useAuth } from '@/hooks/useAuth';
 import { MAX_FILE_SIZE_MB, MAX_VIDEO_SIZE_MB, MAX_AUDIO_SIZE_MB } from '@/services/imageUpload/MediaUploadTypes';
 import { humanizeUrlSlug, isWeakLinkMetadata } from '@/utils/urlInference';
@@ -125,33 +126,6 @@ const UnifiedInputPanel = ({
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
 
-  const getYouTubeVideoId = (url: string): string | null => {
-    try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase();
-
-      if (!host.includes('youtube.com') && !host.includes('youtu.be')) {
-        return null;
-      }
-
-      if (host.includes('youtu.be')) {
-        return parsed.pathname.split('/').filter(Boolean)[0] || null;
-      }
-
-      const queryId = parsed.searchParams.get('v');
-      if (queryId) return queryId;
-
-      const segments = parsed.pathname.split('/').filter(Boolean);
-      const markerIndex = segments.findIndex((segment) => ['embed', 'shorts', 'live'].includes(segment));
-      if (markerIndex !== -1 && segments[markerIndex + 1]) {
-        return segments[markerIndex + 1];
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
-  };
 
   const buildYouTubeFallback = (url: string): OpenGraphData | null => {
     const videoId = getYouTubeVideoId(url);

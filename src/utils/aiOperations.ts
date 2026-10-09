@@ -36,13 +36,17 @@ export const generateDescription = async (type: string, data: any) => {
  */
 export const generateEmbeddings = async (itemId: string, textContent: string): Promise<{ deferred: boolean }> => {
   console.log('Generating embeddings for item:', itemId, 'with text length:', textContent.length);
-  const { error } = await supabase.functions.invoke('generate-embeddings', {
+  const { data, error } = await supabase.functions.invoke('generate-embeddings', {
     body: {
       itemId,
       textContent: textContent.trim()
     }
   });
   if (!error) {
+    if (isDeferredReply(data)) {
+      console.log('Embedding index deferred for item:', itemId, '(the save changed while indexing; its changer re-indexes)');
+      return { deferred: true };
+    }
     console.log('Embeddings generated successfully for item:', itemId);
     return { deferred: false };
   }
@@ -53,6 +57,11 @@ export const generateEmbeddings = async (itemId: string, textContent: string): P
   console.error('Error generating embeddings:', error);
   throw error;
 };
+
+// The function now answers 200 with the outcome in the body; older deployments answered 409
+const isDeferredReply = (data: unknown): boolean =>
+  (data as { success?: boolean; reason?: string } | null)?.success === false &&
+  (data as { reason?: string }).reason === 'item_changed';
 
 // supabase-js carries the function's Response as `context` on a FunctionsHttpError
 const isIndexDeferred = (error: unknown): boolean =>

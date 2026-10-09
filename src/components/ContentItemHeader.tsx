@@ -22,6 +22,7 @@ import {
   mimeExtensionLabel,
 } from '@/components/cards/CardBits';
 import { kindGlyph, kindLabel } from '@/components/cards/ItemTypeChip';
+import KindTag, { type KindTagPhase } from '@/components/cards/KindTag';
 import { Tag } from '@/components/machine/Machine';
 import { useDecrypt } from '@/components/machine/useDecrypt';
 import type { ItemAttributes } from '@/types/itemAttributes';
@@ -55,8 +56,10 @@ interface ContentItemHeaderProps {
   reveals?: { title?: boolean; preview?: boolean };
   /** Stash is reading this save right now: its picture stays unresolved until it's done */
   reading?: boolean;
-  /** The machine's status line for this card ("| gathering more info…"), under the title */
+  /** The machine's status line for a card without a hero ("| gathering more info…"), under the title */
   status?: React.ReactNode;
+  /** On a hero, the kind tag carries the status instead (KindTag) */
+  kindTag?: { phase: KindTagPhase; busyLabel: string };
 }
 
 const ContentItemHeader = ({
@@ -68,6 +71,7 @@ const ContentItemHeader = ({
   reveals,
   reading = false,
   status,
+  kindTag,
 }: ContentItemHeaderProps) => {
   const [linkCoverFailed, setLinkCoverFailed] = useState(false);
   const now = useNow();
@@ -220,8 +224,14 @@ const ContentItemHeader = ({
             </div>
           )}
 
-          {/* The machine's labels on the object: its kind top-left, its states top-right */}
-          <Tag className="pointer-events-none absolute left-2.5 top-2.5 z-[4]">{kind}</Tag>
+          {/* The machine's labels on the object: its kind top-left (the status while reading;
+              hidden at rest until hovered), its states top-right */}
+          <KindTag
+            kind={kind}
+            phase={isPublicView ? 'idle' : kindTag?.phase}
+            busyLabel={kindTag?.busyLabel}
+            className="pointer-events-none absolute left-2.5 top-2.5 z-[4]"
+          />
           {stateTags && (item.is_public || isDue || isPinned) && (
             <div className="absolute right-2.5 top-2.5 z-[4] flex gap-1">{stateTags}</div>
           )}
@@ -251,11 +261,11 @@ const ContentItemHeader = ({
               {decrypted.display}
             </h3>
           </button>
-          {status && <div className="mt-1.5">{status}</div>}
+          {status && !hero && <div className="mt-1.5">{status}</div>}
         </div>
-      ) : status ? (
-        // No title yet: the status line stands in for it until enrichment names the save
-        <div className={`px-5 ${hero ? 'pt-4' : 'pt-[18px]'}`}>{status}</div>
+      ) : status && !hero ? (
+        // No title yet and no hero to carry the status: the line stands in for the title
+        <div className="px-5 pt-[18px]">{status}</div>
       ) : null}
     </div>
   );

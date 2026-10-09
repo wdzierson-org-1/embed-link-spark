@@ -11,6 +11,12 @@
 export const RESOLVE_IN = [26, 18, 12, 8, 5, 3, 1] as const;
 /** The coarse block a picture holds while Stash reads it */
 export const READING_BLOCK = 12;
+/**
+ * How long a hero stays unresolved once it is there to read, even if Stash is still reading: the
+ * lens gets about one pass, then the picture sharpens and the kind tag carries the status alone
+ * (Will, 2026-10-09: the effect "goes on for a bit longer than it appears it needs to").
+ */
+export const READING_BOUND_MS = 2600;
 /** From reading to sharp, once Stash is done */
 export const RESOLVE_OUT = [8, 5, 3, 1] as const;
 /** From sharp back to reading, if Stash starts on the save again */

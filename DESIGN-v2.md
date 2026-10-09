@@ -451,7 +451,8 @@ Signature effects:
   further on (`localStorage.stash_loading_line`). Frames are a pure function of time.
 - **Resolve** (`resolve.ts`), the reading state, which replaced the scan bar on 2026-10-07 (Will:
   "green scan line feels a little phoned in. i like the pixel to visible effect you used on the
-  homepage"). While Stash reads a save its picture is unresolved; when Stash is done it resolves.
+  homepage"). While Stash reads a save its picture is unresolved, for 2.6 s at most once it is
+  there (`READING_BOUND_MS`, 2026-10-09); when Stash is done, or the bound is up, it resolves.
   - **A photo or cover** (`usePixelImage`, a canvas over the `<img>`, matching its object-fit and
     subject crop) holds at **12 px blocks** while a square **reading lens** of finer blocks (6, 3,
     then sharp at the centre) steps two blocks a beat along three rows, like an eye reading lines.
@@ -520,7 +521,7 @@ once, and the shared beat never strands one mid-effect.
 
 | Where | Busy | Done / idle |
 |---|---|---|
-| A card being read (link, note, anything else) | `| gathering more info…` | `✓ filled in` (2.2 s); `some info unavailable` if it gave up |
+| A card being read (link, note, anything else) | `| gathering more info…` (in the kind tag on a hero; under the title on a note) | on a hero: `✓ all done!` (0.9 s), then the kind decrypting in; on a note: `✓ filled in` (2.2 s); `some info unavailable` if it gave up |
 | … an image | `| reading the picture…` | same |
 | … audio or video | `| transcribing…` | same |
 | … a PDF still extracting | `| reading the pdf…` (10 minutes at most) | same |
@@ -581,7 +582,9 @@ Anatomy, top to bottom (`ContentItem`, `ContentItemHeader`, `ContentItemContent`
 1. **Media** (or a placeholder; notes have none), 160 px; portrait media and short-video or book
    covers 224 px. Its **kind** is a black tag 10 px from the top-left (`kindLabel`: `article`,
    `video`, `repo`, `book`, `post`, `link`, `photo`, `screenshot`, `voice note`, `recording`, `pdf`
-   and other formats, `spreadsheet`, `note`, `multi-part`). States sit top-right: a white tag
+   and other formats, `spreadsheet`, `note`, `multi-part`), **shown only while the card is hovered
+   or focused** (always on touch screens; `cards/KindTag`, 2026-10-09), and the machine's status
+   while Stash reads the save (§12.4). States sit top-right: a white tag
    `public`, black tags `due` and `pinned` (pins are the owner's: never on a public view).
 2. **Title**, Montreal 18/500, 2 lines, ink: the AI's or the person's reading of the object, never
    a filename.
@@ -627,13 +630,16 @@ retired.
 
 When a save is still being read (the same `enrichmentState` contract as v1: an explicit
 `attributes.enrichment.status`, or the pieces a kind reliably gets, for 2.5 minutes at most):
-- **The cursor line** sits under the title, or in its place if there's no title yet:
+- **The kind tag is the cursor line** (`cards/KindTag`): on a hero, the tag top-left reads
   `| gathering more info…`, or `| reading the picture…` / `| transcribing…` / `| reading the pdf…`
-  for the kinds where the waiting piece is known. This is the share sheet's cursor (Will,
-  2026-10-06: "let's use this for the 'gathering more info' animation on the card").
+  for the kinds where the waiting piece is known, in place of the kind. A card without a hero (a
+  note) keeps the line under the title, or in its place if there's no title yet. This is the
+  share sheet's cursor (Will, 2026-10-06: "let's use this for the 'gathering more info' animation
+  on the card"; 2026-10-09: "move the … animation to the space currently used for the item label").
 - **The picture is unresolved** (§8, Resolve): a photo or cover holds at 12 px blocks under the
   reading lens; a drawn placeholder's glyph boils; a voice note's waveform jitters; a document's
-  lines flicker.
+  lines flicker — for **2.6 s at most** (`READING_BOUND_MS`) once it is there to read; then it
+  sharpens, and the tag alone says Stash is still reading.
 - **Dotted lines** (`··········` in Departure Mono, `#B9BDB5`) hold the description's place
   where one is expected.
 - **Nothing dims.** v1 faded the whole card to 50%; v2 keeps full contrast and lets the machine
@@ -641,8 +647,11 @@ When a save is still being read (the same `enrichmentState` contract as v1: an e
 - **As pieces land** (the grid diffs each realtime snapshot): the title **decrypts** in, the
   description **prints in**, and a picture **resolves in** from 26 px blocks (drawn heroes print
   in).
-- **When the last piece lands**, the picture sharpens (8 → 5 → 3 → 1), and the line reads
-  `✓ filled in` for 2.2 s and goes. If Stash gave up, it says `some info unavailable` and stays.A PDF counts as being read for 10 minutes at
+- **When the last piece lands**, the picture sharpens (8 → 5 → 3 → 1) if it hadn't yet, and the
+  tag reads `✓ all done!` for 0.9 s, **decrypts into the kind** (§8), holds 1.4 s and fades to
+  rest, where it waits for a hover like every card's. If Stash gave up, the tag says
+  `some info unavailable` for 1.8 s first. A note's line under the title still reads `✓ filled in`
+  for 2.2 s, or `some info unavailable`, which stays. A PDF counts as being read for 10 minutes at
   most (`isReadingDocument`): extraction that fails writes nothing, and the card must not claim
   work forever.
 - **The toolbar** says it too: `59 saves · | reading 2…`.

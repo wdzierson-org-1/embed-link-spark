@@ -1,6 +1,7 @@
 import { settleEnrichment } from './enrichment';
 
 import { supabase } from '@/integrations/supabase/client';
+import { getYouTubeVideoId } from '@/utils/youtube';
 import { generateDescription, generateEmbeddings } from '@/utils/aiOperations';
 import { processPdfContent } from '@/utils/pdfProcessor';
 import { uploadFile } from '@/utils/fileUploader';
@@ -57,33 +58,6 @@ const collectionEmbeddingTimers = new Map<string, ReturnType<typeof setTimeout>>
 
 const hasValue = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
-const getYouTubeVideoId = (url: string): string | null => {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-
-    if (!host.includes('youtube.com') && !host.includes('youtu.be')) {
-      return null;
-    }
-
-    if (host.includes('youtu.be')) {
-      return parsed.pathname.split('/').filter(Boolean)[0] || null;
-    }
-
-    const queryId = parsed.searchParams.get('v');
-    if (queryId) return queryId;
-
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    const markerIndex = segments.findIndex((segment) => ['embed', 'shorts', 'live'].includes(segment));
-    if (markerIndex !== -1 && segments[markerIndex + 1]) {
-      return segments[markerIndex + 1];
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
-};
 
 const buildYouTubeFallbackMetadata = (url: string): ExtractedLinkMetadata | null => {
   const videoId = getYouTubeVideoId(url);
@@ -322,7 +296,8 @@ const enrichSavedLinkItem = async (
     if (error || scrape?.success === false) throw new Error('Source content unavailable');
   } catch (error) {
     status = 'partial';
-    console.error('Link enrichment incomplete:', error);
+    // Not urgent: the card says "some info unavailable" and the server's own enrichment carries on
+    console.warn('Link enrichment incomplete:', error);
   } finally {
     const { error } = await supabase.rpc('set_item_enrichment', { target_id: itemId, next_status: status });
     if (error) console.error('Could not settle enrichment status:', error);
@@ -610,7 +585,7 @@ export const processAndInsertContent = async (
       try {
         await generateEmbeddings(insertedItem.id, baselineText);
       } catch (embeddingError) {
-        console.error('Baseline document embedding failed (non-fatal):', embeddingError);
+        console.warn('Baseline document embedding failed (non-fatal):', embeddingError);
       }
     }
 
@@ -723,7 +698,7 @@ export const processAndInsertContent = async (
       try {
         await generateEmbeddings(insertedItem.id, textForEmbedding);
       } catch (embeddingError) {
-        console.error('Embedding after insert failed (non-fatal):', embeddingError);
+        console.warn('Embedding after insert failed (non-fatal):', embeddingError);
       }
     }
   }

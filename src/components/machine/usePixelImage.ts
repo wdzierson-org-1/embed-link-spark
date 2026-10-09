@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useReducedMotion } from './motion';
-import { READING_BLOCK, RESOLVE_OUT, UNRESOLVE, fitImageRect, lensAt, planOnLoad, type PixelPlan, type Point } from './resolve';
+import { READING_BLOCK, READING_BOUND_MS, RESOLVE_OUT, UNRESOLVE, fitImageRect, lensAt, planOnLoad, type PixelPlan, type Point } from './resolve';
 import { subscribeStep } from './stepTicker';
 
 /**
@@ -122,6 +122,28 @@ export function usePixelImage({
     setActive(true);
   }, []);
 
+  // Let go of the lens: sharpen from wherever the picture is
+  const letGo = useCallback(() => {
+    plan.current.queue = RESOLVE_OUT.filter((block) => block < plan.current.block);
+    plan.current.hold = false;
+  }, []);
+
+  // The lens is bounded: READING_BOUND_MS after the picture is there to read, it sharpens even
+  // if Stash is still reading (the kind tag keeps saying so)
+  const boundTimer = useRef<number | null>(null);
+  const clearBound = useCallback(() => {
+    if (boundTimer.current !== null) window.clearTimeout(boundTimer.current);
+    boundTimer.current = null;
+  }, []);
+  const armBound = useCallback(() => {
+    clearBound();
+    boundTimer.current = window.setTimeout(() => {
+      boundTimer.current = null;
+      if (plan.current.hold) letGo();
+    }, READING_BOUND_MS);
+  }, [clearBound, letGo]);
+  useEffect(() => clearBound, [clearBound]);
+
   const onLoad = useCallback(() => {
     if (loaded.current) return;
     loaded.current = true;
@@ -129,7 +151,8 @@ export function usePixelImage({
     if (reduced) return;
     const next = planOnLoad({ reading: readingRef.current, arriving: arrivingRef.current });
     if (next) begin(next);
-  }, [begin, reduced]);
+    if (next?.hold) armBound();
+  }, [armBound, begin, reduced]);
 
   // Stash starting or finishing: back to the lens, or on to sharp
   useEffect(() => {
@@ -138,11 +161,12 @@ export function usePixelImage({
     if (reduced || !loaded.current || was === reading) return;
     if (reading) {
       begin(active ? { queue: [READING_BLOCK], hold: true } : { queue: [...UNRESOLVE], hold: true });
+      armBound();
     } else {
-      plan.current.queue = RESOLVE_OUT.filter((block) => block < plan.current.block);
-      plan.current.hold = false;
+      clearBound();
+      letGo();
     }
-  }, [reading, reduced, active, begin]);
+  }, [reading, reduced, active, begin, armBound, clearBound, letGo]);
 
   // Less motion, asked for while the canvas is up: hand back the real, sharp <img> now
   useEffect(() => {

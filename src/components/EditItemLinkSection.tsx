@@ -29,6 +29,10 @@ export const normalizeWebAddress = (raw: string): string | null => {
 
 const COPIED_MS = 2000;
 
+// Domains whose favicon the favicon service had no answer for: one 404 per domain per session,
+// not one per time the panel opens
+const failedFavicons = new Set<string>();
+
 const cellFrame = 'grid w-10 flex-none place-items-center border-l border-ink transition-colors focus-visible:outline-none';
 const cell = `${cellFrame} text-ink hover:bg-ink hover:text-white focus-visible:bg-ink focus-visible:text-white`;
 // The cancel cell is red at rest and fills red: it must not carry the ink hover of the others
@@ -147,13 +151,16 @@ const EditItemLinkSection = ({ url, onUrlSave }: EditItemLinkSectionProps) => {
             title={url}
             className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2 transition-colors hover:bg-fill focus-visible:bg-fill focus-visible:outline-none"
           >
-            {domain && !faviconFailed && (
+            {domain && !faviconFailed && !failedFavicons.has(domain) && (
               <img
                 src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`}
                 alt=""
                 aria-hidden
                 className="h-3.5 w-3.5 flex-none [image-rendering:pixelated]"
-                onError={() => setFaviconFailed(true)}
+                onError={() => {
+                  failedFavicons.add(domain);
+                  setFaviconFailed(true);
+                }}
               />
             )}
             <span className="min-w-0 flex-1 truncate font-code text-[12.5px] text-ink underline decoration-ink/30 underline-offset-[3px] [font-variant-ligatures:none]">

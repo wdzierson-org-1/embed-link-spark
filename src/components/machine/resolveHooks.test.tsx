@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { usePixelImage } from './usePixelImage';
 import { useBoil } from './useBoil';
+import { READING_BOUND_MS } from './resolve';
 
 // jsdom has no 2D canvas: give the painter a context that accepts every call
 const fakeContext = new Proxy({} as Record<string, unknown>, {
@@ -68,10 +69,10 @@ describe('usePixelImage', () => {
     expect(screen.getByAltText('cover').style.opacity).toBe('');
   });
 
-  it('holds while Stash reads, then sharpens when it stops', () => {
+  it('holds while Stash reads (within the bound), then sharpens when it stops', () => {
     const { rerender } = render(<Picture reading arriving={false} />);
     fireEvent.load(screen.getByAltText('cover'));
-    beats(40);
+    beats(20);
     expect(screen.getByTestId('resolve')).toBeInTheDocument();
     rerender(<Picture reading={false} arriving={false} />);
     beats(8);
@@ -152,6 +153,27 @@ describe('useBoil', () => {
     const { rerender } = render(<Boil reading seen={[]} />);
     rerender(<Boil reading={false} seen={[]} />);
     setReduceMotion(true);
+    expect(screen.getByTestId('amount').textContent).toBe('0');
+  });
+});
+
+describe('the reading bound (Will, 2026-10-09: the effect went on longer than it needed to)', () => {
+  it('lets go of the lens READING_BOUND_MS after the picture is there, even while Stash still reads', () => {
+    render(<Picture reading arriving={false} />);
+    fireEvent.load(screen.getByAltText('cover'));
+    beats(20); // 2.2 s: still under the lens
+    expect(screen.getByTestId('resolve')).toBeInTheDocument();
+    beats(12); // past READING_BOUND_MS, plus the sharpen-out steps
+    expect(screen.queryByTestId('resolve')).not.toBeInTheDocument();
+  });
+
+  it('a boiling placeholder settles after READING_BOUND_MS even while Stash still reads', () => {
+    render(<Boil reading seen={[]} />);
+    expect(screen.getByTestId('amount').textContent).toBe('1');
+    act(() => {
+      vi.advanceTimersByTime(READING_BOUND_MS);
+    });
+    beats(4);
     expect(screen.getByTestId('amount').textContent).toBe('0');
   });
 });

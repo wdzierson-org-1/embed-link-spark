@@ -8,6 +8,40 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · The kind tag carries "gathering more info"; a shorter resolve; kind tags hidden until hover; less console noise
+
+Will: "the pixelization effect when adding a new card goes on for a bit longer than it appears
+it needs to"; "move the '/ gathering more info' animation to the space currently used for the
+item label type while the item is being enriched. after enrichment has completed, quickly cycle
+to 'all done!' and swap the message for the item type label using the scramble text effect …
+and fade it to opacity 0 after a moment. on all other cards, let's hide the item type label
+until the user mouses over the card"; and "suppress non urgent errors like this" (the console
+404s after a YouTube save).
+
+**Behaviour (for iOS and macOS to mirror):**
+- **The kind tag is the status while reading** (`cards/KindTag`, DESIGN-v2 §12.4): on a card
+  with a hero, the black tag top-left reads `| gathering more info…` (or `| reading the
+  picture…` / `| transcribing…` / `| reading the pdf…`) in place of the kind while the save is
+  being read. When the reading ends: `✓ all done!` for 0.9 s → the kind **decrypts in** (the
+  scramble, §8) → holds 1.4 s → fades to opacity 0 over 300 ms. If Stash gave up: `some info
+  unavailable` for 1.8 s, then the kind the same way. A card born already finished plays nothing.
+  Cards without a hero (notes) keep the status line under the title as before.
+- **Kind tags are hidden at rest**: every card's kind tag is opacity 0 until the card is hovered
+  or focused (`group-hover` / `group-focus-within`); on screens with no hover (`@media
+  (hover: none)`) it is always shown. iOS: show the kind on long-press/hover-equivalent, or keep
+  it visible — a touch screen never hides it on the web either.
+- **The resolve is bounded** (`READING_BOUND_MS` = 2.6 s in `machine/resolve.ts`): a picture
+  holds at 12 px blocks under the lens for at most 2.6 s after it has loaded, then sharpens even
+  if enrichment is still running; a boiling placeholder/waveform/page settles after 2.6 s of
+  reading the same way. The tag keeps saying Stash is reading until it is done. Before, the hero
+  stayed pixelated for the whole enrichment (15–20 s for a link).
+- **Console noise:** the composer no longer fetches a YouTube thumbnail for every keystroke of a
+  partial video id — `utils/youtube.ts` `getYouTubeVideoId` answers only for a complete
+  11-character id (shared by the composer chip and the save path). The panel's favicon lookup
+  remembers domains the favicon service 404'd, once per session. (Resource 404s are logged by the
+  browser itself; the only way to quiet them is not to make the request.)
+- Tests: `cards/KindTag.test.tsx`, `machine/resolveHooks.test.tsx` (the bound), `utils/youtube.test.ts`.
+
 ## 2026-10-09 · A save no longer reports "Failed to add content" when its index rebuild loses to enrichment
 
 Will saved a YouTube link from the web and got "Failed to add content: Edge Function returned a
@@ -20,10 +54,14 @@ non-2xx status code", although the card was there and the save was fully indexed
   design, since whoever changed the row re-indexes it (the enrichment did: 19 chunks). The web
   treated the 409 as the add failing. The same 409 showed up as console noise after quick title /
   summary edits (the items trigger reassesses the row).
-- **Contract, for every client:** `409 item_changed` from `generate-embeddings` is **deferred, not
-  failed** — do nothing, the row's changer re-indexes. iOS's `EmbeddingRefresher` already does
-  this (`FunctionsError.httpError(409)`); the web's `generateEmbeddings` now resolves
-  `{ deferred: true }` on 409 and only throws on other statuses.
+- **Contract, for every client:** `item_changed` from `generate-embeddings` is **deferred, not
+  failed** — do nothing, the row's changer re-indexes. **The function now answers `200` with the
+  outcome in the body** (`{"success":false,"chunksProcessed":0,"reason":"item_changed"}`) instead
+  of `409`, because browsers log every non-2xx resource in red and this one raced on most link
+  saves. iOS's `EmbeddingRefresher` mapped the 409 to `.itemChanged` (benign); with a 200 it
+  simply succeeds, which is the same outcome. The web's `generateEmbeddings` resolves
+  `{ deferred: true }` for that body (and still for a 409 from an older deployment) and only
+  throws on other statuses.
 - **Web behaviour:** indexing right after an insert is best effort: a real failure there is logged
   and the save still succeeds (the server re-indexes as enrichment lands). The Chrome extension
   saves through the platform API and never calls the function.
