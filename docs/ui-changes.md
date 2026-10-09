@@ -8,6 +8,21 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Contact, terms and privacy are pages of the site
+
+- **Contracts:** `gostash.it/contact` is new; `/terms` and `/privacy` are now static files
+  (`public/<page>/index.html`, written by `npm run publish:site` from the homepage prototype),
+  which the server answers with before the app's catch-all. The app's `/privacy`, `/terms` and
+  `/contact` routes only reload into them (`src/pages/SitePage.tsx`, like `/`). Link to them with
+  a **full navigation** (`<a href="/privacy">`), not a router `Link`. The React legal pages
+  (`LegalPage.tsx`, `Privacy.tsx`, `Terms.tsx`) are gone; the legal text has one source now.
+- **Text:** the policy and terms are unchanged, word for word. Their "last updated" dates stand.
+- **Other platforms:** in-app legal or support links open `https://www.gostash.it/privacy`,
+  `/terms` or `/contact`. iOS Settings already links privacy and terms; nothing to change.
+- **Open:** the Terms promise a 14-day free trial, and the product gives one
+  (`create-checkout` sets `trial_period_days: 14`), while the homepage says "$4.99 a month" and
+  nothing about a trial. Will decides which changes.
+
 ## 2026-10-09 · Hosted quality reviews expand beyond the pilot
 
 - Stash infrastructure rotates one account per hourly audit and chooses up to
@@ -67,6 +82,7 @@ first, visuals second, with pointers to specs and source.
   not newly available product features.
 - Accuracy findings describe the sampled source snapshot. Text audits cannot
   certify live pages, image identity, or a population-wide enrichment error rate.
+
 
 ## 2026-10-09 · Public contact address is hello@gostash.it
 

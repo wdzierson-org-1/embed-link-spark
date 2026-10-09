@@ -915,9 +915,11 @@ code.inline { font: 11px/1 var(--pixel); background: var(--white); padding: 4px 
 .ticks li { position: relative; padding: 11px 0 12px 22px; border-top: 1px solid var(--line); font-size: 17px; line-height: 1.45; }
 .ticks li::before { content: ""; position: absolute; left: 2px; top: 19px; width: 8px; height: 8px; background: var(--ink); }
 
-.mcp-url { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 34px; padding: 14px 14px 14px 18px; width: min(100%, 560px); background: var(--white); border: 1px solid var(--ink); }
-.mcp-url .px { flex-basis: 100%; color: var(--muted); }
-.mcp-url code { flex: 1; min-width: 0; font: 22px/1.1 var(--pixel); letter-spacing: -.01em; overflow-wrap: anywhere; }
+.mcp-url, .mail-box { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 34px; padding: 14px 14px 14px 18px; width: min(100%, 560px); background: var(--white); border: 1px solid var(--ink); }
+.mcp-url .px, .mail-box .px { flex-basis: 100%; color: var(--muted); }
+.mcp-url code, .mail-box code { flex: 1; min-width: 0; font: 22px/1.1 var(--pixel); letter-spacing: -.01em; overflow-wrap: anywhere; }
+.mail-box .mail { flex: 1; min-width: 0; display: flex; color: inherit; text-decoration: none; }
+.mail-box .mail:hover code { text-decoration: underline; text-underline-offset: 4px; }
 .mcp-demo { width: min(100%, 470px); }
 .mcp-demo-body { display: flex; flex-direction: column; gap: 12px; padding: 18px 18px 20px; background: #faf9f5; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Inter", sans-serif; color: #1f1e1b; letter-spacing: 0; }
 .mcp-demo-body .cl-user, .mcp-demo-body .cl-tool { margin: 0; }
@@ -978,6 +980,27 @@ code.inline { font: 11px/1 var(--pixel); background: var(--white); padding: 4px 
 .more { align-self: flex-start; margin-top: 16px; padding: 6px 8px 5px; background: var(--ink); color: #fff; font: 11px/1 var(--pixel); text-decoration: none; }
 .more:hover { background: var(--spot); color: var(--on-spot); }
 
+.page-hero.is-reading { padding-bottom: clamp(40px, 5vw, 64px); }
+.page-hero.is-reading .lead { margin-top: 26px; max-width: 34em; }
+.page-hero.is-reading .mail-box { margin-top: 30px; }
+.legal-stamp { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 22px 0 0; }
+.legal-grid { display: grid; grid-template-columns: 252px minmax(0, 1fr); column-gap: clamp(32px, 5vw, 96px); align-items: start; }
+.contents { position: sticky; top: 72px; }
+.contents .win-body { padding: 6px 0; }
+.contents a { display: block; padding: 7px 12px; color: var(--ink); text-decoration: none; font-size: 15px; line-height: 1.3; }
+.contents a:hover { background: var(--spot); color: var(--on-spot); }
+.legal { max-width: 62ch; }
+.legal section + section { margin-top: clamp(36px, 4vw, 52px); }
+.legal h2 { margin: 0 0 12px; font: 500 24px/1.15 var(--sans); letter-spacing: -.025em; scroll-margin-top: 80px; }
+.legal p { margin: 0 0 12px; font-size: 17px; line-height: 1.55; }
+.legal .ticks { margin: 4px 0 12px; }
+.legal .ticks li:last-child { border-bottom: 1px solid var(--line); }
+.legal-foot { margin-top: clamp(40px, 5vw, 64px); padding-top: 18px; border-top: 1px solid var(--ink); }
+.legal-foot a, .page-note a { color: inherit; }
+.wins.is-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.wins .win-body .more { display: inline-block; margin-top: 14px; }
+.page-sec .page-note { margin-top: clamp(28px, 3vw, 40px); }
+
 @media (max-width: 1100px) {
   .hero h1 { grid-column: 1 / -1; }
   .hero-aside { grid-column: 1 / span 9; margin-top: 30px; }
@@ -1028,6 +1051,8 @@ code.inline { font: 11px/1 var(--pixel); background: var(--white); padding: 4px 
   .surface { max-width: 560px; }
 }
 @media (max-width: 1100px) {
+  .legal-grid { grid-template-columns: minmax(0, 1fr); row-gap: 28px; }
+  .contents { position: static; max-width: 360px; }
   .page-copy, .page-art { grid-column: 1 / -1; }
   .page-art { margin-top: 44px; }
   .sec-head h2, .sec-head p { grid-column: 1 / -1; }
@@ -1035,11 +1060,11 @@ code.inline { font: 11px/1 var(--pixel); background: var(--white); padding: 4px 
   .clients { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
-  .howto, .wins, .cols-2, .clients, .points-3, .points-3.is-2x2 { grid-template-columns: minmax(0, 1fr); }
+  .howto, .wins, .wins.is-2, .cols-2, .clients, .points-3, .points-3.is-2x2 { grid-template-columns: minmax(0, 1fr); }
   .tools div { grid-template-columns: minmax(0, 1fr); row-gap: 8px; }
   .art-stage { min-height: 0; padding: 28px 12px; }
   .br-menu { left: 24%; width: 196px; }
-  .mcp-url code { font-size: 16.5px; }
+  .mcp-url code, .mail-box code { font-size: 16.5px; }
 }
 @media (max-width: 560px) {
   .foot { grid-template-columns: minmax(0, 1fr); gap: 28px; }
