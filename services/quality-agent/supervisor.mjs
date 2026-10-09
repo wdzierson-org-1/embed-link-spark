@@ -1,12 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { validateJob, jobBudget, HARD_RUN_MS } from './protocol.mjs';
+import { validateJob, validateObservation, jobBudget, HARD_RUN_MS } from './protocol.mjs';
 import { runHermes } from './runner.mjs';
 
 export class ApiError extends Error {
   constructor(code, status, retryable = false) { super(code); this.status = status; this.retryable = retryable; }
 }
 export async function apiCall(config, body, signal) {
-  const timeout = AbortSignal.timeout(body.action === 'claim' ? 5000 : 2500);
+  const timeout = AbortSignal.timeout(body.action === 'investigate' ? 35_000 : body.action === 'claim' ? 5000 : 2500);
   let response;
   try {
     response = await fetch(config.apiUrl, { method: 'POST', redirect: 'error',
@@ -26,9 +26,9 @@ export async function apiCall(config, body, signal) {
 
 const safeReasons = new Set(['run_timeout', 'hermes_failed', 'spawn_failed', 'invalid_stream', 'invalid_terminal_result', 'invalid_result_json', 'output_limit',
   'invalid_fields', 'invalid_schema_version', 'invalid_text', 'invalid_list', 'item_out_of_scope', 'item_required', 'invalid_category', 'invalid_severity',
-  'evidence_required', 'invalid_evidence_url', 'evidence_out_of_scope', 'quote_not_in_source', 'invalid_proposal_evidence', 'shutdown', 'client_disconnected']);
+  'evidence_required', 'invalid_evidence_url', 'evidence_out_of_scope', 'quote_not_in_source', 'invalid_proposal_evidence', 'invalid_observation', 'invalid_evidence_source', 'shutdown', 'client_disconnected']);
 
-export function createSupervisor(config, { call = (body, signal) => apiCall(config, body, signal), run = runHermes, heartbeatMs = 20_000, retryDelayMs = 200 } = {}) {
+export function createSupervisor(config, { call = (body, signal) => apiCall(config, body, signal), run = runHermes, heartbeatMs = 20_000, retryDelayMs = 200, now = Date.now } = {}) {
   let busy = false; let controller;
   return {
     get busy() { return busy; },
@@ -57,10 +57,17 @@ export function createSupervisor(config, { call = (body, signal) => apiCall(conf
         const claimed = await call({ action: 'claim' }, controller.signal);
         if (controller.signal.aborted) throw controller.signal.reason;
         if (claimed?.job === null) return { status: 'idle' };
-        job = validateJob(claimed?.job);
-        const budget = jobBudget(job);
+        job = validateJob(claimed?.job, now());
         jobTimer = setTimeout(() => controller.abort(new Error('run_timeout')), Math.min(HARD_RUN_MS, Date.parse(job.deadline_at) - Date.now()));
         heartbeatTimer = setTimeout(() => { heartbeatPending = heartbeat(); }, heartbeatMs);
+        if (job.kind === 'research') {
+          const evidence = await call({ action: 'investigate', ...lease() }, controller.signal);
+          if (!evidence?.ok) throw new Error('invalid_observation');
+          job = { ...job, observation: validateObservation(evidence.observation, job) };
+        }
+        // Retrieval consumes this same leased deadline. Never grant Hermes the
+        // pre-retrieval time allowance after the browser request has finished.
+        const budget = jobBudget(job, now());
         const output = await run(config, job, { ...budget, signal: controller.signal });
         if (controller.signal.aborted) throw controller.signal.reason;
         // Resolve an in-flight heartbeat before submitting, and avoid racing a

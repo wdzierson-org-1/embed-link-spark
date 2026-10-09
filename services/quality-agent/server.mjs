@@ -14,7 +14,7 @@ function reply(res, status, value) {
 export function createServer(config, supervisor) {
   const server = httpServer({ requestTimeout: 5000, headersTimeout: 5000 }, async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') return reply(res, config.ready ? 200 : 503,
-      { ok: config.ready, ready: config.ready, busy: supervisor.busy, mode: 'audit_only' });
+      { ok: config.ready, ready: config.ready, busy: supervisor.busy, mode: 'evidence_review' });
     if (req.method !== 'POST' || req.url !== '/run') return reply(res, 404, { error: 'not_found' });
     if (!authorized(req.headers.authorization, config.wakeToken)) { req.resume(); return reply(res, 401, { error: 'unauthorized' }); }
     if (!config.ready) { req.resume(); return reply(res, 503, { error: 'unconfigured' }); }
@@ -62,6 +62,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
   const supervisor = createSupervisor(config); const server = createServer(config, supervisor);
-  server.listen(config.port, '0.0.0.0', () => console.log(JSON.stringify({ event: 'quality_agent_started', ready: config.ready, mode: 'audit_only' })));
+  server.listen(config.port, '0.0.0.0', () => console.log(JSON.stringify({ event: 'quality_agent_started', ready: config.ready, mode: 'evidence_review' })));
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { supervisor.cancel('shutdown'); server.close(); setTimeout(() => process.exit(0), 5000).unref(); });
 }

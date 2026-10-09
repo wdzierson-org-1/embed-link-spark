@@ -6,7 +6,7 @@ Owner: Stash infrastructure. Date: 2026-10-09.
 
 Use a dedicated Fly Sprite (`stash-quality`) for pinned Hermes one-shot jobs,
 with Supabase owning the schedule, job leases, evidence, and reports. Hermes is
-the investigator. Typed Stash services own persistence and product actions.
+the investigator. Typed Stash services own retrieval, persistence, and product actions.
 This keeps the same job contract usable when a larger, always-running worker
 is needed. No local Codex scheduler is part of this production architecture.
 Long investigations should persist intermediate evidence and continue as
@@ -23,7 +23,10 @@ flowchart TD
   Items --> Queue
   Queue --> Wake[Authenticated HTTP wake]
   Wake --> Supervisor[Fly supervisor: one leased job]
-  Supervisor --> Hermes[Hermes: bounded source audit]
+  Supervisor --> Retrieve[Daily investigation: one public rendered page]
+  Retrieve --> Evidence[Durable source text and image candidates]
+  Evidence --> Hermes[Hermes: bounded evidence review]
+  Supervisor --> Hermes
   Hermes --> Proxy[Job-scoped model proxy in Supabase]
   Hermes --> Findings[Findings and proposed improvements]
   Findings --> Validate[Validate schema, scope, evidence and lease]
@@ -54,9 +57,36 @@ The last two arrows are the next phase, not an automatic deployment loop.
   requests, 4,096 output tokens per request, fixed `gpt-4.1`. These bounds keep
   the first HTTP-triggered pilot within the hosting lifecycle and prevent
   runaway retries. A timeout remains a recorded failed attempt.
-- Initial Hermes runtime has zero enabled tools: audits use supplied evidence. Daily live
-  research remains disabled until retrieval tools and citation checks pass
-  an end-to-end test. Do not label this pilot autonomous research.
+- Hermes has zero enabled tools. Hourly audits use captured snapshots; one daily
+  live investigation uses a backend-owned public browser render, then Hermes
+  reviews the recorded evidence. This is not open-ended web research.
+
+### Daily live investigations
+
+The daily `research` job selects one incomplete sampled link (or a missing-body
+link, then the first sample). Supabase reserves a retrieval attempt before calling
+Stash's existing Firecrawl provider. It sends only that exact source URL, preserving
+product variant parameters, with no session cookies, browser actions, or source
+credentials. It does not give Hermes a provider key or arbitrary network access.
+
+The backend records bounded text, source time, outcome, attempts and at most five
+image candidate URLs. Authwalls, unavailable sources, and wrong-page responses
+remain explicit outcomes. Retries reuse an immutable observation; at most three
+provider requests can be reserved for a job across all worker retries. The single
+render has a 23-second outer deadline inside the existing 90-second job deadline.
+Hermes receives only the remaining time after retrieval.
+
+Live citations must identify the recorded item and source and quote its captured
+text. They are checked separately from citations to the older saved snapshot.
+A later price change does not prove that the original capture was wrong. Image
+association comes from publisher markup, product identifiers and selected colour;
+it does not verify pixels, storage success, or Stash's displayed image. The daily
+report includes retrieval outcomes and candidate URLs with those limits.
+
+The normal metadata endpoint now uses the same product-aware candidate selector:
+product/variant evidence wins over generic imagery, and navigation campaign assets
+are rejected. This changes future metadata selection; it does not silently replace
+an existing user's saved image.
 
 The Sprite sleeps when idle. The external request wakes its registered Service
 and remains open during the bounded run. Postgres leases recover interrupted

@@ -1,8 +1,8 @@
 # Hosted quality audit worker
 
-A Node 24 supervisor runs one bounded Hermes audit for each authenticated wake. Supabase owns jobs, leases, retries and scheduling. The Sprite does not run a cron scheduler. The initial pilot audits captured snapshots with **no tools**; web research is not enabled or verified.
+A Node 24 supervisor runs one bounded Hermes audit for each authenticated wake. Supabase owns jobs, leases, retries and scheduling. The Sprite does not run a cron scheduler. Hourly jobs audit captured snapshots with **no Hermes tools**. Daily research jobs first request one bounded rendered-page observation from the backend, then Hermes reviews it.
 
-The pilot compares text snapshots only. It does not inspect image pixels or fetch current pages, so image correctness and live freshness remain unverified.
+The pilot compares saved text and, for a daily investigation, recorded live page text. It discovers associated image URLs but does not inspect image pixels or certify Stash's displayed image.
 
 ## Runtime and boundaries
 
@@ -82,3 +82,23 @@ Requirements: an existing private Linux Sprite, root/sudo access, Git, `/usr/bin
 Local checks: `bash -n bootstrap-hermes.sh install.sh start.sh` and `node --test *.test.mjs` (Node 24). Before activating a deployment, verify the resolved Hermes executable's `--help` under `stash-hermes`, including traversal of its Python interpreter path. Do not treat a successful root launch as proof that the child can launch.
 
 The scripts and unit tests do not by themselves verify Sprite service registration, proxy authentication, real model output or web research. Record those deployment checks separately. The [release's JSONL emitter](https://github.com/NousResearch/hermes-agent/blob/v0.21.6/hermes_cli/stream_json.py) is the protocol source; stdout is parsed as records and only a successful terminal `result` is accepted.
+
+## Live investigation contract
+
+The supervisor calls `investigate` with its current job lease, never an arbitrary
+URL. Supabase selects one item from the immutable sample, reserves the bounded
+provider attempt, performs a public Firecrawl render, and records the observation.
+Only then does the supervisor give that evidence to Hermes. No Firecrawl credential
+is installed on the Sprite or supplied to Hermes. Hermes still has zero tools.
+
+The investigate call is capped at 35 seconds; the provider collector caps its
+request and response read at 23 seconds. The supervisor recomputes the remaining
+Hermes allowance after retrieval. Quotes tagged `source: live` must occur in the
+recorded observation and match its item/URL; snapshot quotes remain separate.
+Blocked or mismatched retrievals cannot supply live citations.
+
+`QUALITY_RESEARCH_ENABLED=false` in Supabase pauses new live investigations while
+hourly text audits continue. A queued research job then fails closed at the backend
+retrieval gate; it cannot bypass that switch via the worker. Model requests retain
+the existing fixed-provider limits. Reports label images as candidate URLs rather
+than verified pixels or repaired cards.

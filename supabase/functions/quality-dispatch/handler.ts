@@ -8,9 +8,17 @@ function reportText(p:any):string {
     'This is a bounded sample, not a population accuracy rate. Model findings are proposals; no saved items or playbooks were changed.',''];
   for(const r of p.results||[]) {
     lines.push(`[${r.kind}] ${r.summary}`);
+    if(r.retrieval){
+      const observation=r.retrieval;
+      lines.push(`Live retrieval: ${observation.outcome}; item ${observation.item_id}; captured ${observation.captured_at}.`, `  Source: ${observation.url}`);
+      for(const attempt of observation.attempts||[]) lines.push(`  ${attempt.strategy}: ${attempt.outcome} (${attempt.reason}; ${attempt.duration_ms} ms)`);
+      if(observation.source_truncated)lines.push('  The source excerpt was truncated.');
+      for(const candidate of observation.image_candidates||[]) lines.push(`  Image candidate: ${candidate.url} (${candidate.associated?'page association found':'association not established'}; image pixels are unverified)`);
+      for(const limitation of observation.limitations||[])lines.push(`  Retrieval limit: ${limitation}`);
+    }
     for(const f of r.findings||[]) {
       lines.push(`- ${f.severity}: ${f.claim}\n  Item: ${f.item_id||'operational finding'}\n  Recommendation: ${f.recommendation}`);
-      for(const e of f.evidence||[]) lines.push(`  Source: ${e.url}${e.quote?`\n  Quote: ${e.quote}`:''}`);
+      for(const e of f.evidence||[]) lines.push(`  Source${e.source==='live'?' (live)':''}: ${e.url}${e.quote?`\n  Quote: ${e.quote}`:''}`);
     }
     for(const proposal of r.proposals||[]) lines.push(`Proposal: ${proposal.title}\n${proposal.rationale}\n${(proposal.evidence_urls||[]).join('\n')}`);
     for(const uncertainty of r.uncertainties||[]) lines.push(`Unknown: ${uncertainty}`);

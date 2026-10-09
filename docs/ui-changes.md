@@ -8,6 +8,16 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Live enrichment evidence and product image selection
+
+- The hosted daily investigation now records a public rendered source, retrieval
+  outcomes, and candidate images before Hermes produces proposals. Citations are
+  checked against the recorded source and remain separate from older captures.
+- Metadata image selection prefers the saved product and selected colour and
+  rejects navigation campaigns, including the Peter Millar jacket regression.
+- Existing saved items are not rewritten by the investigation. No client UI or
+  image-pixel verification is added in this slice.
+
 ## 2026-10-09 · Hosted enrichment quality pilot
 
 - New infrastructure-only `quality-worker`, `quality-dispatch`, and `quality-model`

@@ -1,3 +1,5 @@
+import { collectLiveEvidence, livePublicUrl } from './liveEvidence.ts';
+
 type Env = (name: string) => string | undefined;
 type DB = { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: any; error: any }> };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -40,25 +42,30 @@ export function validateResult(result: any, job: any) {
   for (const finding of result.findings) {
     keys(finding, ['item_id', 'category', 'severity', 'claim', 'evidence', 'recommendation']);
     if (finding.item_id !== undefined && !items.has(finding.item_id)) throw new Error('item_out_of_scope');
-    if (job.kind === 'audit' && !finding.item_id && finding.category !== 'operations') throw new Error('item_required');
+    if (!finding.item_id && finding.category !== 'operations') throw new Error('item_required');
     if (!['identity', 'summary_grounding', 'image_association', 'source_completeness', 'freshness', 'retrieval', 'operations'].includes(finding.category)) throw new Error('invalid_category');
     if (!['info', 'warning', 'error'].includes(finding.severity)) throw new Error('invalid_severity');
     text(finding.claim, 1500); text(finding.recommendation, 1500); list(finding.evidence, 5);
     if (finding.category !== 'operations' && !finding.evidence.length) throw new Error('evidence_required');
     const item = items.get(finding.item_id);
     for (const evidence of finding.evidence) {
-      keys(evidence, ['url', 'quote']); if (!publicEvidenceUrl(evidence.url)) throw new Error('invalid_evidence_url');
+      keys(evidence, ['url', 'quote', 'source']); if (!publicEvidenceUrl(evidence.url)) throw new Error('invalid_evidence_url');
       text(evidence.quote, 1000, true);
-      if (job.kind === 'audit') {
-        if (!item || evidence.url !== item.url) throw new Error('evidence_out_of_scope');
-        if (evidence.quote && !normalize(item.page_body || '').includes(normalize(evidence.quote))) throw new Error('quote_not_in_source');
+      if (!item || evidence.url !== item.url) throw new Error('evidence_out_of_scope');
+      if (evidence.source !== undefined && !['snapshot', 'live'].includes(evidence.source)) throw new Error('invalid_evidence_source');
+      let sourceText = item.page_body || '';
+      if (evidence.source === 'live') {
+        const observation = job.observation;
+        if (job.kind !== 'research' || !observation || observation.outcome !== 'retrieved' || observation.item_id !== item.id || observation.url !== item.url) throw new Error('evidence_out_of_scope');
+        sourceText = observation.text;
       }
+      if (evidence.quote && !normalize(sourceText).includes(normalize(evidence.quote))) throw new Error('quote_not_in_source');
     }
   }
   for (const proposal of result.proposals) {
     keys(proposal, ['title', 'rationale', 'evidence_urls']); text(proposal.title, 200); text(proposal.rationale, 2000); list(proposal.evidence_urls, 5);
     if (!proposal.evidence_urls.length || proposal.evidence_urls.some((u: any) => !publicEvidenceUrl(u))) throw new Error('invalid_proposal_evidence');
-    if (job.kind === 'audit' && proposal.evidence_urls.some((u: string) => ![...items.values()].some(i => i.url === u))) throw new Error('evidence_out_of_scope');
+    if (proposal.evidence_urls.some((u: string) => ![...items.values()].some(i => i.url === u))) throw new Error('evidence_out_of_scope');
   }
   result.uncertainties.forEach((x: unknown) => text(x, 1000));
   return result;
@@ -70,7 +77,26 @@ function validateUsage(usage: any) {
     (typeof usage[key] !== 'number' || !Number.isFinite(usage[key]) || usage[key] < 0 || usage[key] > (key === 'cost_usd' ? 1000 : 10_000_000) || (key !== 'cost_usd' && !Number.isInteger(usage[key])))) throw new Error('invalid_usage');
   return usage;
 }
-export function createWorkerHandler({ db, env }: { db: DB; env: Env }) {
+function validateObservation(observation: any, item: any) {
+  keys(observation, ['schema_version', 'item_id', 'url', 'captured_at', 'outcome', 'title', 'text', 'source_truncated', 'image_candidates', 'attempts', 'limitations']);
+  if (observation.schema_version !== 1 || observation.item_id !== item.id || observation.url !== item.url || !livePublicUrl(observation.url)) throw new Error('observation_out_of_scope');
+  if (new TextEncoder().encode(JSON.stringify(observation)).length > 32_000 || typeof observation.captured_at !== 'string' || observation.captured_at.length > 40 || !Number.isFinite(Date.parse(observation.captured_at)) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(observation.outcome) || typeof observation.source_truncated !== 'boolean') throw new Error('invalid_observation');
+  for (const [field, max] of [['title', 400], ['text', 6000]] as const) if (typeof observation[field] !== 'string' || observation[field].length > max) throw new Error('invalid_observation');
+  list(observation.image_candidates, 5); list(observation.attempts, 1); list(observation.limitations, 10);
+  for (const candidate of observation.image_candidates) {
+    keys(candidate, ['url', 'associated']);
+    if (!livePublicUrl(candidate.url) || typeof candidate.associated !== 'boolean') throw new Error('invalid_observation');
+  }
+  for (const attempt of observation.attempts) {
+    keys(attempt, ['strategy', 'outcome', 'reason', 'duration_ms']);
+    for (const field of ['strategy', 'outcome', 'reason']) if (typeof attempt[field] !== 'string' || !/^[a-z0-9_]{1,80}$/.test(attempt[field])) throw new Error('invalid_observation');
+    if (!Number.isInteger(attempt.duration_ms) || attempt.duration_ms < 0 || attempt.duration_ms > 30_000) throw new Error('invalid_observation');
+  }
+  observation.limitations.forEach((value: unknown) => text(value, 1000));
+  return observation;
+}
+
+export function createWorkerHandler({ db, env, collect = collectLiveEvidence, fetcher = fetch }: { db: DB; env: Env; collect?: typeof collectLiveEvidence; fetcher?: typeof fetch }) {
   return async (req: Request): Promise<Response> => {
     if (req.method !== 'POST') return json(405, { error: 'post_only' });
     const workerToken = env('QUALITY_WORKER_TOKEN');
@@ -83,12 +109,22 @@ export function createWorkerHandler({ db, env }: { db: DB; env: Env }) {
         if (env('QUALITY_ENABLED') !== 'true') return json(200, { job: null, disabled: true });
         return json(200, { job: await call('claim_hosted_quality_job', {}) });
       }
-      if (!['heartbeat', 'complete', 'fail'].includes(body?.action)) throw new Error('invalid_action');
+      if (!['heartbeat', 'complete', 'fail', 'investigate'].includes(body?.action)) throw new Error('invalid_action');
       keys(body, ['action', 'job_id', 'lease_token', 'fence', ...(body.action === 'complete' ? ['result', 'usage'] : body.action === 'fail' ? ['reason'] : [])]);
       if (!uuid.test(body.job_id) || !uuid.test(body.lease_token) || !Number.isSafeInteger(body.fence) || body.fence < 1) throw new Error('invalid_lease');
       const args = { target_id: body.job_id, token: body.lease_token, expected_fence: body.fence };
       let result;
-      if (body.action === 'complete') {
+      if (body.action === 'investigate') {
+        if (env('QUALITY_ENABLED') !== 'true' || env('QUALITY_RESEARCH_ENABLED') !== 'true') return json(503, { error: 'research_disabled' });
+        const apiKey = env('FIRECRAWL_API_KEY');
+        if (!apiKey) return json(503, { error: 'retrieval_unconfigured' });
+        const reservation = await call('reserve_hosted_quality_investigation', args);
+        if (!reservation?.ok) return json(409, reservation || { error: 'lease_lost' });
+        if (reservation.observation) return json(200, { ok: true, observation: reservation.observation });
+        if (!reservation.item || !uuid.test(reservation.attempt_token)) throw new Error('invalid_reservation');
+        const observation = validateObservation(await collect(reservation.item, { apiKey, fetcher }), reservation.item);
+        result = await call('finish_hosted_quality_investigation', { ...args, attempt_token: reservation.attempt_token, observation_payload: observation });
+      } else if (body.action === 'complete') {
         const usage = validateUsage(body.usage);
         const job = await call('hosted_quality_job_context', args);
         if (!job) return json(409, { error: 'lease_lost' });

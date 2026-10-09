@@ -24,10 +24,10 @@ test('wake bearer authorization handles correct, wrong and different-length toke
   assert.equal(authorized(undefined, token), false);
   assert.equal(authorized('Bearer short', 'short'), false);
 });
-test('job validation rejects expired leases and unsupported research mode', () => {
+test('job validation rejects expired leases and unsupported job modes', () => {
   const now = Date.now();
   assert.equal(validateJob(job(now), now).kind, 'audit');
-  assert.throws(() => validateJob({ ...job(now), kind: 'research' }, now), /unsupported_job_kind/);
+  assert.throws(() => validateJob({ ...job(now), kind: 'unbounded' }, now), /unsupported_job_kind/);
   assert.throws(() => validateJob({ ...job(now), lease_expires_at: new Date(now - 1).toISOString() }, now), /invalid_lease/);
 });
 test('hard pilot caps cannot be raised by a job and leave time for completion', () => {

@@ -15,7 +15,8 @@ export function authorized(actual, token) {
   return timingSafeEqual(digest(actual), digest(`Bearer ${token}`));
 }
 
-// A syntax gate, not a DNS/egress guard. The audit runner has no browsing tools.
+// A syntax gate, not a DNS/egress guard. Retrieval is owned by the backend;
+// Hermes has no browsing tools or retrieval-provider credential.
 export function publicEvidenceUrl(value) {
   if (typeof value !== 'string' || value.length > 2000) return false;
   try {
@@ -30,7 +31,7 @@ export function validateJob(job, now = Date.now()) {
   if (!object(job) || !uuid.test(job.id) || !uuid.test(job.lease_token) || !Number.isSafeInteger(job.fence) || job.fence < 1 ||
     !Number.isFinite(Date.parse(job.lease_expires_at)) || Date.parse(job.lease_expires_at) <= now ||
     !Number.isFinite(Date.parse(job.deadline_at)) || Date.parse(job.deadline_at) <= now) throw new Error('invalid_lease');
-  if (job.kind !== 'audit') throw new Error('unsupported_job_kind');
+  if (!['audit', 'research'].includes(job.kind)) throw new Error('unsupported_job_kind');
   if (!object(job.input) || job.input.schema_version !== 1 || !Array.isArray(job.input.items) || job.input.items.length > 50 ||
     job.input.items.some(i => !object(i) || !uuid.test(i.id)) || JSON.stringify(job.input).length > 256_000) throw new Error('invalid_input');
   if (!object(job.budget) || !Number.isSafeInteger(job.budget.max_turns) || job.budget.max_turns < 1 ||
@@ -42,6 +43,24 @@ export function jobBudget(job, now = Date.now()) {
   const runMs = Math.min(HARD_RUN_MS, job.budget.run_seconds * 1000, Date.parse(job.deadline_at) - now) - 10_000;
   if (runMs <= 0) throw new Error('insufficient_time');
   return { maxTurns: Math.min(HARD_MAX_TURNS, job.budget.max_turns), runMs };
+}
+
+export function validateObservation(observation, job) {
+  if (!object(observation) || JSON.stringify(observation).length > 32_000 || observation.schema_version !== 1) throw new Error('invalid_observation');
+  const item = job.input.items.find(i => i.id === observation.item_id);
+  if (!item || observation.url !== item.url || !publicEvidenceUrl(observation.url)) throw new Error('evidence_out_of_scope');
+  if (!Number.isFinite(Date.parse(observation.captured_at)) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(observation.outcome) ||
+    typeof observation.title !== 'string' || observation.title.length > 400 || typeof observation.text !== 'string' || observation.text.length > 6000 ||
+    typeof observation.source_truncated !== 'boolean') throw new Error('invalid_observation');
+  list(observation.image_candidates, 5); list(observation.attempts, 3); list(observation.limitations, 10);
+  for (const image of observation.image_candidates) if (!object(image) || !publicEvidenceUrl(image.url) || typeof image.associated !== 'boolean') throw new Error('invalid_observation');
+  for (const attempt of observation.attempts) {
+    if (!object(attempt)) throw new Error('invalid_observation');
+    text(attempt.strategy, 100); text(attempt.outcome, 100); text(attempt.reason, 200);
+    if (!Number.isFinite(attempt.duration_ms) || attempt.duration_ms < 0 || attempt.duration_ms > 30_000) throw new Error('invalid_observation');
+  }
+  observation.limitations.forEach(x => text(x, 1000));
+  return observation;
 }
 
 // Keep bounds aligned with quality-worker. This checks shape and source scope,
@@ -61,11 +80,15 @@ export function validateResult(result, job) {
     if (finding.category !== 'operations' && !finding.evidence.length) throw new Error('evidence_required');
     const item = items.get(finding.item_id);
     for (const evidence of finding.evidence) {
-      keys(evidence, ['url', 'quote']);
+      keys(evidence, ['url', 'quote', 'source']);
       if (!publicEvidenceUrl(evidence.url)) throw new Error('invalid_evidence_url');
       text(evidence.quote, 1000, true);
       if (!item || evidence.url !== item.url) throw new Error('evidence_out_of_scope');
-      if (evidence.quote && !normalize(item.page_body || '').includes(normalize(evidence.quote))) throw new Error('quote_not_in_source');
+      if (evidence.source !== undefined && !['snapshot', 'live'].includes(evidence.source)) throw new Error('invalid_evidence_source');
+      const live = evidence.source === 'live';
+      if (live && (job.kind !== 'research' || job.observation?.outcome !== 'retrieved' || job.observation?.item_id !== item.id || job.observation?.url !== item.url)) throw new Error('evidence_out_of_scope');
+      const source = live ? job.observation.text : item.page_body;
+      if (evidence.quote && !normalize(source || '').includes(normalize(evidence.quote))) throw new Error('quote_not_in_source');
     }
   }
   for (const proposal of result.proposals) {

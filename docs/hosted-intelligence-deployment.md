@@ -9,9 +9,10 @@ Date: 2026-10-09. Branch: `codex/hosted-intelligence`.
 - HTTP service: `https://stash-quality-b2uis.sprites.app`.
 - Hermes: `v0.21.6`, commit `818c13be1dc4fd28987e1e881a9408224afd4535`, installed with its official package manager.
 - Worker: Node 24, registered Sprite Service, separate `stash-hermes` UID.
-- Backend: `quality-worker`, `quality-dispatch`, `quality-model`.
+- Backend: `quality-worker`, `quality-dispatch`, `quality-model`, and the product-aware `extract-link-metadata` update.
 - Migrations: `20261009120000_hosted_quality`, `20261009121000_hosted_quality_cron`,
-  `20261009130000_hosted_quality_delivery_receipts`.
+  `20261009130000_hosted_quality_delivery_receipts`,
+  `20261009150000_hosted_quality_live_evidence`.
 
 The existing repo and remote migration histories differed. Deployment used an
 isolated folder populated with `supabase migration fetch --linked`, followed
@@ -21,7 +22,8 @@ history was repaired and no unrelated migrations were applied.
 ## Configuration
 
 The pilot is scoped to Will's existing Stash account. `QUALITY_RESEARCH_ENABLED`
-is false. The daily recipient is `will@gostashit.com`; the sender uses Stash's
+is now true: one daily live page investigation supplements hourly snapshot audits.
+The daily recipient is `will@gostashit.com`; the sender uses Stash's
 existing Resend configuration. The dispatcher runs every five minutes to wake
 work and retry the outbox, with one unique audit job per UTC hour. The daily
 report covers the previous America/New_York day and is prepared after 09:00.
@@ -87,17 +89,58 @@ management credentials are not passed to Hermes.
   replaces local scheduling; its initial coverage is narrower (text-only
   snapshots, not live research or image verification).
 
+## Daily live investigation and product images — 2026-10-09
+
+Migration `20261009150000` was applied after an isolated-history dry run listed
+only that migration. The updated quality backend, dispatcher, metadata function,
+and Sprite runtime were deployed. The shared selector received a final regression
+fix for products named Logo/Icon/Pixel; both functions importing it were redeployed.
+
+- A research job gets one bounded Firecrawl render of a sampled link, with the
+  existing provider credential held only in Supabase. Evidence is persisted
+  before Hermes reviews it. Source mismatch, access walls and failures remain
+  explicit outcomes. Image associations are not automated pixel verification.
+- The 07:45 UTC scheduled run completed research job
+  `bd6bae1d-51cb-4fb2-b835-5d027a51efc5` in about 17 seconds. Firecrawl recorded
+  `source_identity_mismatch` for a Medium article in 5,158 ms. Hermes returned
+  no unsupported findings and explicitly reported unavailable source evidence.
+  Usage: two model calls, 5,925 input and 167 output tokens. This proves the
+  scheduled retrieval → stored observation → model review flow, not successful
+  article recovery or live-source citation on that page.
+- Manual dispatch verification request 5184 returned HTTP 200, `dispatched`.
+  Daily deduplication prevented a duplicate research job. The daily report
+  projection includes retrieval outcomes without copying raw fetched bodies.
+- A production read-only probe of the exact Peter Millar URL with navy/XXL
+  parameters first returned HTTP 403 through the fast fetch. The final deep
+  path returned the correct title and `MF26XS49_NAV.jpg` via
+  `jina-reader-rescue`. Browser inspection of that image confirmed the navy
+  hooded sweater jacket matches the user's screenshot. This was manual visual
+  verification; the worker does not yet inspect image pixels.
+- No matching Peter Millar saved link was returned for the pilot account in the
+  scoped database check. No old card was rewritten or recreated; no claim is
+  made that its stored preview was repaired.
+- Final verification: 33 worker/model policy tests, 56 collector/backend tests,
+  and 95 image-selection/metadata tests passed (184 total). Both PostgreSQL
+  suites passed, including durable evidence, lease fencing, bounded reservations,
+  report privacy and unsafe-URL redaction. Type checks and diff checks passed.
+
+The pilot still proposes changes only. It does not autonomously change items,
+publish playbooks, search for new scraping techniques, or estimate population-wide
+accuracy. Exact URL identity is deliberately conservative and may reject valid
+canonical redirects; evaluating evidence-backed redirect equivalence is a next
+step. Owned image storage and automated visual matching also remain to be built.
+
 ## Operations
 
 Pause paid work with `QUALITY_ENABLED=false` in Supabase secrets. The cron
 continues retention cleanup; no new jobs can be claimed and the model proxy
 rejects requests. Existing Stash enrichment and repairs are separate.
 
-Inspect `hosted_quality_jobs`, `hosted_quality_results`,
+Inspect `hosted_quality_jobs`, `hosted_quality_evidence`, `hosted_quality_results`,
 `hosted_quality_reports`, `hosted_quality_outbox`, and the
 `hosted-quality-dispatch` cron history through authenticated admin access.
 Provider acceptance is not proof of inbox delivery; bounce/delivery webhooks
 are not part of this first slice.
 
-See [roadmap](hosted-intelligence-roadmap.md) for next phases and the precise
-limits of text-only snapshot auditing.
+See [roadmap](hosted-intelligence-roadmap.md) for next phases and the limits of
+snapshot auditing plus bounded daily live investigations.

@@ -17,6 +17,7 @@ import {
   requestWaybackSnapshot,
   verifyRemoteImage,
 } from '../_shared/blockedContentFallbacks.ts';
+import { isPageChromeImage, previewImageCandidates } from '../_shared/pagePreview.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
 
 const corsHeaders = {
@@ -260,33 +261,6 @@ const parseJsonLd = (html: string): Partial<MetadataResult> => {
   }
   
   return {};
-};
-
-// Extract fallback image from page content
-const extractFallbackImage = (html: string, baseUrl: string): string | null => {
-  const imgPatterns = [
-    /<img[^>]*src=["']([^"']+)["'][^>]*>/gi,
-    /<img[^>]*data-src=["']([^"']+)["'][^>]*>/gi,
-  ];
-  
-  for (const pattern of imgPatterns) {
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-      const src = match[1];
-      if (src && !src.includes('data:') && !src.includes('placeholder') && !src.includes('blank')) {
-        try {
-          const imageUrl = new URL(src, baseUrl).toString();
-          if (imageUrl.match(/\.(jpg|jpeg|png|webp|gif)(\?|$)/i)) {
-            return imageUrl;
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-    }
-  }
-  
-  return null;
 };
 
 // Extract YouTube metadata using oEmbed API
@@ -581,13 +555,12 @@ const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: 
                      parseMetaContent(cleanHtml, 'description') ||
                      parseMetaContent(cleanHtml, 'twitter:summary');
 
-  // Extract image with comprehensive strategies including video thumbnails
-  let image = jsonLdData.image ||
-             parseMetaContent(cleanHtml, 'og:image') ||
-             parseMetaContent(cleanHtml, 'twitter:image') ||
-             parseMetaContent(cleanHtml, 'twitter:image:src') ||
+  // A page-wide first image can be a navigation promotion even when Product
+  // JSON-LD or the gallery identifies the saved object and selected variant.
+  let image = previewImageCandidates({ url: originalUrl, html: cleanHtml, title: title || undefined })[0] ||
              parseMetaContent(cleanHtml, 'og:video:thumbnail') ||
              parseMetaContent(cleanHtml, 'twitter:player:image');
+  if (image && isPageChromeImage(image)) image = null;
 
   // Some sites stuff a srcset ("url 80w, url2 160w") into the image slot —
   // keep only the first URL, or the stored value 404s forever
@@ -615,11 +588,6 @@ const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: 
     }
   }
   
-  // If no metadata image found, try to extract from page content
-  if (!image) {
-    image = extractFallbackImage(cleanHtml, originalUrl);
-  }
-
   // Extract video URL for rich media content
   const videoUrl = parseMetaContent(cleanHtml, 'og:video:url') ||
                   parseMetaContent(cleanHtml, 'og:video') ||
@@ -884,11 +852,18 @@ const rescueBlockedMetadata = async (
   // hold the result and keep escalating.
   const jina = await fetchViaJinaReader(originalUrl);
   if (jina?.title && !isGenericTitle(jina.title, originalUrl)) {
+    // Jina's image field can be the first navigation image even when its
+    // readable content contains the selected product's gallery. Rank that
+    // content first; a fallback must pass the same URL/variant checks.
+    const contentImage = previewImageCandidates({ url: originalUrl, text: jina.content, title: jina.title })[0];
+    const fallbackImage = !contentImage && jina.image && !/[\s<>\\]/.test(jina.image)
+      ? previewImageCandidates({ url: originalUrl, text: `![](<${jina.image}>)` })[0]
+      : undefined;
     return {
       title: jina.title,
       description: jina.description ||
         (jina.content ? deriveDescriptionFromContent(jina.content) : undefined),
-      image: jina.image,
+      image: contentImage || fallbackImage,
       strategyUsed: 'jina-reader-rescue',
     };
   }
@@ -1125,6 +1100,7 @@ serve(async (req) => {
       // A probed YouTube thumbnail beats anything the page or a rescue tier
       // reported (Jina hands back the watch URL itself in the image slot)
       let validImage = youtubeThumbnail ?? metadata.image;
+      if (validImage && isPageChromeImage(validImage)) validImage = undefined;
       if (!fastOnly && validImage && validImage !== youtubeThumbnail) {
         const ok = await verifyRemoteImage(validImage);
         if (!ok) {
@@ -1205,11 +1181,12 @@ serve(async (req) => {
       if (!requestPayload.fastOnly) {
         const rescued = await rescueBlockedMetadata(originalUrl, originalUrl);
         if (rescued && (rescued.title || rescued.description)) {
+          const rescuedImage = youtubeThumbnail ?? rescued.image;
           return new Response(
             JSON.stringify({
               title: rescued.title || fallbackUrl.hostname,
               description: rescued.description,
-              image: youtubeThumbnail ?? rescued.image,
+              image: rescuedImage && !isPageChromeImage(rescuedImage) ? rescuedImage : undefined,
               siteName: rescued.siteName || fallbackUrl.hostname,
               strategyUsed: rescued.strategyUsed,
               traceId,

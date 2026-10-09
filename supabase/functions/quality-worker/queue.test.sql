@@ -11,6 +11,7 @@ insert into hosted_quality_reports(id,recipient,report_day,payload) values('9999
 insert into hosted_quality_outbox(report_id,idempotency_key,status,attempts,first_attempt_at,accepted_at)
   values('99999999-9999-4999-8999-999999999999','legacy-key','accepted',1,now(),now());
 \ir ../../migrations/20261009130000_hosted_quality_delivery_receipts.sql
+\ir ../../migrations/20261009150000_hosted_quality_live_evidence.sql
 delete from hosted_quality_reports where id='99999999-9999-4999-8999-999999999999';
 create function pg_temp.assert(ok boolean,label text) returns void language plpgsql as $$ begin
   if ok is distinct from true then raise exception 'ASSERTION FAILED: %',label; end if;

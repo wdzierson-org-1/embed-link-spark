@@ -11,6 +11,8 @@ const result = { schema_version: 1, summary: 'One grounded finding.', findings: 
 const env = (key: string) => ({ QUALITY_ENABLED: 'true', QUALITY_WORKER_TOKEN: 'a'.repeat(40) }[key]);
 const req = (body: unknown, token = 'a'.repeat(40)) => new Request('https://backend.example/quality-worker', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
 const complete = () => ({ action: 'complete', job_id: jobId, lease_token: lease, fence: 2, result: structuredClone(result) });
+const observation = { schema_version: 1, item_id: itemId, url: source, captured_at: '2026-10-09T12:00:00Z', outcome: 'retrieved', title: 'Live source', text: 'The current source reports eleven points.', source_truncated: false, image_candidates: [{ url: 'https://example.org/image.jpg', associated: true }], attempts: [{ strategy: 'firecrawl', outcome: 'retrieved', reason: 'page_read', duration_ms: 123 }], limitations: ['Image pixels are not verified.'] };
+const investigation = () => ({ action: 'investigate', job_id: jobId, lease_token: lease, fence: 2 });
 function dbFor(reply: any = { ok: true, status: 'completed', idempotent: false }) {
   return { rpc: vi.fn(async (name: string) => ({ data: name === 'hosted_quality_job_context' ? job : reply, error: null })) };
 }
@@ -72,5 +74,51 @@ describe('hosted quality worker boundary', () => {
     expect((await handle(req({ action: 'heartbeat', ...identity }))).status).toBe(200);
     expect((await handle(req({ action: 'fail', ...identity, reason: 'worker_timeout' }))).status).toBe(200);
     expect((await handle(req({ action: 'patch', ...identity, title: 'bad' }))).status).toBe(400);
+  });
+  it('gates paid research and rejects requested item or URL overrides before reserving', async () => {
+    const db = dbFor(); const collect = vi.fn();
+    const handle = createWorkerHandler({ db, env, collect } as any);
+    expect((await handle(req(investigation()))).status).toBe(503);
+    expect((await handle(req({ ...investigation(), url: source }))).status).toBe(400);
+    expect(db.rpc).not.toHaveBeenCalled(); expect(collect).not.toHaveBeenCalled();
+  });
+  it('uses the server-selected item and persists the immutable observation before returning it', async () => {
+    const item = job.input.items[0]; const attempt = '44444444-4444-4444-8444-444444444444';
+    const db = { rpc: vi.fn(async (name: string) => ({ data: name === 'reserve_hosted_quality_investigation' ? { ok: true, item, attempt_token: attempt } : { ok: true, observation }, error: null })) };
+    const collect = vi.fn(async () => observation);
+    const handle = createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect } as any);
+    const response = await handle(req(investigation()));
+    expect(response.status).toBe(200); expect(await response.json()).toEqual({ ok: true, observation });
+    expect(collect).toHaveBeenCalledExactlyOnceWith(item, expect.objectContaining({ apiKey: 'test-provider' }));
+    expect(db.rpc).toHaveBeenLastCalledWith('finish_hosted_quality_investigation', { target_id: jobId, token: lease, expected_fence: 2, attempt_token: attempt, observation_payload: observation });
+  });
+  it('returns cached evidence without a provider call and refuses stale, busy or exhausted reservations', async () => {
+    for (const reservation of [{ ok: true, cached: true, observation }, { ok: false, error: 'lease_lost' }, { ok: false, error: 'investigation_busy' }, { ok: false, error: 'retrieval_budget_exhausted' }]) {
+      const db = dbFor(reservation); const collect = vi.fn();
+      const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect } as any)(req(investigation()));
+      expect(response.status).toBe(reservation.ok ? 200 : 409); expect(collect).not.toHaveBeenCalled();
+      expect(db.rpc).toHaveBeenCalledTimes(1);
+    }
+  });
+  it('does not persist out-of-scope or oversized collector output', async () => {
+    for (const bad of [{ ...observation, item_id: jobId }, { ...observation, url: 'https://other.example/' }, { ...observation, text: 'x'.repeat(6001) }]) {
+      const db = dbFor({ ok: true, item: job.input.items[0], attempt_token: lease });
+      const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect: async () => bad } as any)(req(investigation()));
+      expect(response.status).toBe(400); expect(db.rpc).toHaveBeenCalledTimes(1);
+    }
+  });
+  it('accepts live quotes only for the observed item and refuses invented research sources', () => {
+    const researchJob = { ...job, kind: 'research', observation };
+    const live: any = structuredClone(result); live.findings[0].evidence[0] = { source: 'live', url: source, quote: 'eleven points' };
+    expect(validateResult(live, researchJob)).toEqual(live);
+    for (const mutate of [
+      (r: any) => { r.findings[0].evidence[0].quote = 'nine points'; },
+      (r: any) => { r.findings[0].evidence[0].url = 'https://other.example/article'; },
+      (r: any) => { delete r.findings[0].item_id; },
+      (r: any) => { r.proposals = [{ title: 'Do this', rationale: 'Because', evidence_urls: ['https://foreign.example/'] }]; },
+    ]) { const r = structuredClone(live); mutate(r); expect(() => validateResult(r, researchJob)).toThrow(); }
+    expect(() => validateResult(live, { ...researchJob, observation: undefined })).toThrow();
+    expect(() => validateResult(live, { ...researchJob, observation: { ...observation, outcome: 'mismatch' } })).toThrow();
+    expect(() => validateResult(live, job)).toThrow();
   });
 });

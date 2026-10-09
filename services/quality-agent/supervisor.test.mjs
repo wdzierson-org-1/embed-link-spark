@@ -50,7 +50,7 @@ test('HTTP service redacts health, rejects unauthorized wake and holds authorize
  const s = createSupervisor(config, { call: async () => { await pending; return { job: null }; } });
  const server = createServer(config, s); await new Promise(r => server.listen(0, '127.0.0.1', r));
  t.after(() => new Promise(r => server.close(r))); const url = `http://127.0.0.1:${server.address().port}`;
- const health = await fetch(`${url}/health`); assert.deepEqual(await health.json(), { ok: true, ready: true, busy: false, mode: 'audit_only' });
+ const health = await fetch(`${url}/health`); assert.deepEqual(await health.json(), { ok: true, ready: true, busy: false, mode: 'evidence_review' });
  assert.equal((await fetch(`${url}/run`, { method: 'POST' })).status, 401);
  let resolved = false; const first = fetch(`${url}/run`, { method: 'POST', headers: { Authorization: `Bearer ${config.wakeToken}` } }).then(r => { resolved = true; return r; });
  await new Promise(r => setTimeout(r, 25)); assert.equal(resolved, false);

@@ -48,4 +48,17 @@ describe('hosted quality dispatch',()=>{
     const {handle,db}=setup({QUALITY_RESEARCH_ENABLED:'true'}); await handle(request());
     expect(db.rpc).toHaveBeenCalledWith('enqueue_hosted_quality_jobs',{scope_user_ids:[values.QUALITY_SCOPE_USER_IDS],include_research:true});
   });
+  it('includes live strategy outcomes and candidate URLs without claiming pixel verification',async()=>{
+    const {handle,db,fetcher}=setup();
+    const message=structuredClone(outbox) as any;
+    message.payload.results[0].retrieval={item_id:'item-123',url:'https://example.org/article',outcome:'retrieved',captured_at:'2026-10-09T12:00:00Z',source_truncated:true,attempts:[{strategy:'firecrawl_rendered',outcome:'retrieved',reason:'rendered_source',duration_ms:654}],image_candidates:[{url:'https://example.org/product.jpg',associated:true}],limitations:['image_pixels_not_verified']};
+    db.rpc.mockImplementation(async(name:string)=>({data:name==='claim_hosted_quality_email'?message:name==='finish_hosted_quality_email'?true:{enqueued:1},error:null}));
+    await handle(request());
+    const email=JSON.parse(fetcher.mock.calls.find(c=>c[0].includes('resend'))![1]!.body as string);
+    expect(email.text).toContain('Live retrieval: retrieved');
+    expect(email.text).toContain('firecrawl_rendered: retrieved (rendered_source; 654 ms)');
+    expect(email.text).toContain('https://example.org/product.jpg');
+    expect(email.text).toContain('image pixels are unverified');
+    expect(email.text).toContain('source excerpt was truncated');
+  });
 });
