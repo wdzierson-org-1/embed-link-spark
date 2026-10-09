@@ -8,6 +8,18 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-09 · Public contact address is hello@gostash.it
+
+- **Contract:** every public contact now points at **hello@gostash.it** (Will). Any surface
+  that gains a support, contact or feedback link (iOS Settings, the extension's sign-in page,
+  App Store or Web Store listings) uses this address, not a personal one.
+- **Where it changed on the web:** the site footer's Contact and the iPhone beta "Email us"
+  line (both come from `scripts/publish-site.mjs` / the prototype's `js/site.js`, re-published
+  into `public/`), the legal pages' "Questions? Email …" (`src/pages/LegalPage.tsx`) and the old
+  landing page (`src/pages/Landing.tsx`). Test fixtures and the admin seed keep the real
+  account email: those are identities, not contact details.
+- **Mail:** gostash.it's MX is Google Workspace; the hello@ mailbox or alias has to exist there.
+
 ## 2026-10-09 · A save no longer reports "Failed to add content" when its index rebuild loses to enrichment
 
 Will saved a YouTube link from the web and got "Failed to add content: Edge Function returned a

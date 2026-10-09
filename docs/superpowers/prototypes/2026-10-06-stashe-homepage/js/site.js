@@ -51,7 +51,7 @@
   </div>
   <nav class="foot-col" aria-labelledby="foot-co">
     <h2 class="px" id="foot-co">company</h2>
-    <a href="mailto:will@dzierson.com">Contact</a>
+    <a href="mailto:hello@gostash.it">Contact</a>
     <a href="https://www.gostash.it/terms">Terms</a>
     <a href="https://www.gostash.it/privacy">Privacy</a>
   </nav>

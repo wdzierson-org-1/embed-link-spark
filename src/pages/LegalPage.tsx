@@ -45,7 +45,7 @@ const LegalPage = ({ title, lastUpdated, intro, sections }: LegalPageProps) => {
 
         <footer className="mt-16 pt-8 border-t border-border">
           <p className="text-sm font-montreal text-muted-foreground">
-            Questions? Email <a href="mailto:will@dzierson.com" className="underline hover:text-foreground">will@dzierson.com</a>.
+            Questions? Email <a href="mailto:hello@gostash.it" className="underline hover:text-foreground">hello@gostash.it</a>.
           </p>
         </footer>
       </main>

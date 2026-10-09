@@ -43,11 +43,11 @@
   <div class="foot-col foot-app">
     <h2 class="px" id="foot-app">iphone app</h2>
     <a href="${pageUrl('iphone.html')}"${current('iphone')}>Stash for iPhone</a>
-    <p>In beta now. Want to try it? <a href="mailto:will@dzierson.com?subject=Stash%20for%20iPhone%20beta">Email us</a>.</p>
+    <p>In beta now. Want to try it? <a href="mailto:hello@gostash.it?subject=Stash%20for%20iPhone%20beta">Email us</a>.</p>
   </div>
   <nav class="foot-col" aria-labelledby="foot-co">
     <h2 class="px" id="foot-co">company</h2>
-    <a href="mailto:will@dzierson.com">Contact</a>
+    <a href="mailto:hello@gostash.it">Contact</a>
     <a href="https://www.gostash.it/terms">Terms</a>
     <a href="https://www.gostash.it/privacy">Privacy</a>
   </nav>
