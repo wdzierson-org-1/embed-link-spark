@@ -19,7 +19,7 @@ describe('bounded live page evidence', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [target, init] = fetcher.mock.calls[0];
     expect(target).toBe('https://api.firecrawl.dev/v2/scrape');
-    expect(JSON.parse(init.body)).toEqual({ url, formats: ['markdown', 'rawHtml'], onlyMainContent: true, maxAge: 0, waitFor: 1000, timeout: 20000, parsers: [], storeInCache: false, skipTlsVerification: false, proxy: 'auto' });
+    expect(JSON.parse(init.body)).toEqual({ url, formats: ['markdown', 'rawHtml'], onlyMainContent: true, maxAge: 0, waitFor: 1000, timeout: 11000, parsers: [], storeInCache: false, skipTlsVerification: false, proxy: 'auto' });
     expect(init.redirect).toBe('error');
     expect(result).toMatchObject({ schema_version: 1, item_id: item.id, url, outcome: 'retrieved', title, text: markdown, source_truncated: false, image_candidates: [{ url: image, associated: true }] });
     expect(result.attempts).toHaveLength(1); expect(result.attempts[0].strategy).toBe('firecrawl_rendered');
@@ -43,7 +43,7 @@ describe('bounded live page evidence', () => {
   });
   it.each(['https://www.petermillar.com/', 'https://other.example/product', url.replace('color=NAV', 'color=RED'), url.split('?')[0]])('rejects wrong source and changed variant: %s', async wrong => {
     const result = await collectLiveEvidence(item, { apiKey: 'key', fetcher: fetcherFor(response({ markdown, rawHtml: html, metadata: { title, sourceURL: url, url: wrong } })) });
-    expect(result).toMatchObject({ outcome: 'mismatch', title: '', text: '', image_candidates: [], attempts: [{ reason: 'source_identity_mismatch' }] });
+    expect(result).toMatchObject({ outcome: 'mismatch', title: '', text: '', image_candidates: [], attempts: [expect.objectContaining({ reason: 'source_identity_mismatch' }), expect.objectContaining({ strategy: 'jina_reader' })] });
   });
   it('labels unknown final URL and never treats image association as visual verification', async () => {
     const result = await collectLiveEvidence(item, { apiKey: 'key', fetcher: fetcherFor(response({ markdown, rawHtml: html, metadata: { title } })) });
@@ -57,7 +57,7 @@ describe('bounded live page evidence', () => {
     { title: 'A better way to think about AI', markdown: 'Create an account to read the full story. The author made this story available to Medium members only.' },
   ])('does not promote an authwall or challenge to retrieved content: $title', async blocked => {
     const result = await collectLiveEvidence(item, { apiKey: 'key', fetcher: fetcherFor(response({ markdown: blocked.markdown, rawHtml: '<h1>Blocked</h1>', metadata: { title: blocked.title, sourceURL: url } })) });
-    expect(result).toMatchObject({ outcome: 'blocked', text: '', image_candidates: [], attempts: [{ reason: 'access_wall' }] });
+    expect(result).toMatchObject({ outcome: 'blocked', text: '', image_candidates: [], attempts: [expect.objectContaining({ reason: 'access_wall' }), expect.objectContaining({ strategy: 'jina_reader' })] });
   });
   it('does not treat an article discussing registration as an access wall', async () => {
     const text = 'Many publishers ask visitors to create an account to read the full story. This article compares registration experiences and provides examples of effective signup forms.';
@@ -78,7 +78,7 @@ describe('bounded live page evidence', () => {
     new Response(JSON.stringify({ success: true, data: { markdown: 42 } })),
   ])('returns a safe code for a malformed provider response', async bad => {
     const result = await collectLiveEvidence(item, { apiKey: 'key', fetcher: fetcherFor(bad) });
-    expect(result).toMatchObject({ outcome: 'unavailable', attempts: [{ reason: 'invalid_provider_response' }] });
+    expect(result).toMatchObject({ outcome: 'unavailable', attempts: [expect.objectContaining({ reason: 'invalid_provider_response' }), expect.objectContaining({ strategy: 'jina_reader' })] });
   });
   it('cancels an oversized provider stream before parsing it', async () => {
     const cancel = vi.fn(); let chunks = 0;
@@ -101,6 +101,79 @@ describe('bounded live page evidence', () => {
   });
   it('never persists provider error messages or credentials', async () => {
     const result = await collectLiveEvidence(item, { apiKey: 'secret', fetcher: fetcherFor(new Response('Bearer secret at https://secret.example', { status: 429 })) });
-    expect(result).toMatchObject({ outcome: 'unavailable', attempts: [{ reason: 'provider_rate_limited' }] }); expect(JSON.stringify(result)).not.toContain('secret');
+    expect(result).toMatchObject({ outcome: 'unavailable', attempts: [expect.objectContaining({ reason: 'provider_rate_limited' }), expect.objectContaining({ strategy: 'jina_reader' })] }); expect(JSON.stringify(result)).not.toContain('secret');
+  });
+});
+
+const jinaResponse = (target = url, content = markdown, pageTitle = title) => new Response(JSON.stringify({ code: 200, data: { url: target, title: pageTitle, content } }));
+const mediumUrl = 'https://medium.com/@ifader/alighting-on-english-renaissance-poetry-f8a9e1dcf515?source=share';
+const mediumImage = 'https://cdn-images-1.medium.com/max/1075/0*cover.jpeg';
+const mediumFeed = `<rss><channel><item><guid>https://medium.com/p/f8a9e1dcf515</guid><link>${mediumUrl.split('?')[0]}</link><description><![CDATA[<p class="medium-feed-image"><a href="${mediumUrl.split('?')[0]}"><img src="${mediumImage}"></a></p>]]></description></item></channel></rss>`;
+describe('evidence-based escalation', () => {
+  it.each(['blocked', 'unavailable', 'mismatch'])('tries the reader after a %s render and keeps both strategy outcomes', async failure => {
+    const first = failure === 'blocked' ? response({ markdown: 'Sign in to read this story.', metadata: { title: 'Sign In', url } }) : failure === 'mismatch' ? response({ markdown, metadata: { title, url: 'https://www.petermillar.com/' } }) : new Response('', { status: 503 });
+    const fetcher = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(jinaResponse()) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+    const result = await collectLiveEvidence(item, { apiKey: 'firecrawl-secret', jinaApiKey: 'reader-secret', fetcher } as any);
+    expect(result).toMatchObject({ outcome: 'retrieved', text: markdown });
+    expect(result.attempts.map(a => [a.strategy, a.outcome])).toEqual([['firecrawl_rendered', failure], ['jina_reader', 'retrieved']]);
+    expect(fetcher.mock.calls[1][0]).toBe(`https://r.jina.ai/${url}`);
+    expect(fetcher.mock.calls[1][1].redirect).toBe('error');
+    expect(fetcher.mock.calls[1][1].headers.authorization).toBe('Bearer reader-secret');
+    expect(JSON.stringify(result)).not.toMatch(/firecrawl-secret|reader-secret/);
+  });
+  it('does not accept the reader response after a wrong variant or hostile redirect', async () => {
+    for (const wrong of [url.replace('color=NAV', 'color=RED'), url.split('?')[0], 'https://www.petermillar.com.evil.example/p/alpine.html']) {
+      const fetcher = vi.fn().mockResolvedValueOnce(new Response('', { status: 503 })).mockResolvedValueOnce(jinaResponse(wrong)) as unknown as typeof fetch;
+      const result = await collectLiveEvidence(item, { apiKey: 'key', fetcher });
+      expect(result).toMatchObject({ outcome: 'mismatch', text: '', image_candidates: [] });
+    }
+  });
+  it.each([
+    [mediumUrl, 'https://medium.com/p/f8a9e1dcf515'],
+    ['https://youtu.be/YGgNBcIgI4s?si=share-token', 'https://www.youtube.com/watch?v=YGgNBcIgI4s'],
+    ['https://m.youtube.com/shorts/YGgNBcIgI4s', 'https://www.youtube.com/watch?v=YGgNBcIgI4s'],
+  ])('accepts a verified same-object canonical redirect %s', async (requested, finalUrl) => {
+    const fetcher = fetcherFor(response({ markdown, rawHtml: html, metadata: { title, sourceURL: requested, url: finalUrl } }));
+    const result = await collectLiveEvidence({ ...item, url: requested }, { apiKey: 'key', fetcher });
+    expect(result.outcome).toBe('retrieved'); expect(result.attempts).toHaveLength(1); expect(result.url).toBe(requested);
+  });
+  it.each([
+    [mediumUrl, 'https://medium.com/p/aaaaaaaaaaaa'],
+    [mediumUrl, 'https://medium.com.evil.example/p/f8a9e1dcf515'],
+    [mediumUrl, 'https://medium.com/m/signin?redirect=/p/f8a9e1dcf515'],
+    ['https://youtu.be/YGgNBcIgI4s', 'https://www.youtube.com/watch?v=kYkIdXwW2AE'],
+    ['https://youtu.be/YGgNBcIgI4s', 'https://youtube.com.evil.example/watch?v=YGgNBcIgI4s'],
+    ['https://www.youtube.com/watch?v=YGgNBcIgI4s&list=PL123', 'https://www.youtube.com/watch?v=YGgNBcIgI4s'],
+  ])('rejects a mismatched canonical identity %s -> %s', async (requested, finalUrl) => {
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ markdown, metadata: { title, sourceURL: requested, url: finalUrl } })).mockResolvedValueOnce(jinaResponse(finalUrl)) as unknown as typeof fetch;
+    const result = await collectLiveEvidence({ ...item, url: requested }, { apiKey: 'key', fetcher });
+    expect(result).toMatchObject({ outcome: 'mismatch', text: '', image_candidates: [] });
+  });
+  it('rejects YouTube footer-only evidence and tries another source', async () => {
+    const videoUrl = 'https://www.youtube.com/watch?v=YGgNBcIgI4s';
+    const footer = '- YouTube About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy & Safety How YouTube works Test new features NFL Sunday Ticket &copy; 2026 Google LLC';
+    const real = 'What Is Jev? The AI Model That Does Not Generate Text. This public video description explains joint embedding architectures.';
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ markdown: footer, metadata: { title: 'YouTube', url: videoUrl } })).mockResolvedValueOnce(jinaResponse(videoUrl, real, 'What Is Jev?')) as unknown as typeof fetch;
+    const result = await collectLiveEvidence({ ...item, url: videoUrl }, { apiKey: 'key', fetcher });
+    expect(result).toMatchObject({ outcome: 'retrieved', text: real });
+    expect(result.attempts[0].reason).toBe('navigation_only');
+    expect(result.limitations).toContain('video_not_viewed');
+  });
+  it('collects exact-entry public Medium artwork without claiming a blocked article was read', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ markdown: 'Sign in to read this story.', metadata: { title: 'Sign In', url: mediumUrl } })).mockResolvedValueOnce(jinaResponse(mediumUrl, 'Sign in to read this story.', 'Sign In')).mockResolvedValueOnce(new Response(mediumFeed)) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+    const result = await collectLiveEvidence({ ...item, url: mediumUrl }, { apiKey: 'key', fetcher });
+    expect(result).toMatchObject({ outcome: 'blocked', text: '', image_candidates: [{ url: mediumImage, associated: true }] });
+    expect(result.attempts.map(a => a.strategy)).toEqual(['firecrawl_rendered', 'jina_reader', 'medium_public_feed']);
+    expect(result.limitations).toContain('public_feed_artwork_only');
+    expect(fetcher.mock.calls[2][0]).toBe('https://medium.com/feed/@ifader');
+  });
+  it('bounds the whole escalation including nonresponsive providers at 23 seconds', async () => {
+    vi.useFakeTimers(); const signals: AbortSignal[] = [];
+    const fetcher = vi.fn((_target, init) => { signals.push(init.signal); return new Promise(() => {}); }) as unknown as typeof fetch;
+    const pending = collectLiveEvidence({ ...item, url: mediumUrl }, { apiKey: 'key', fetcher });
+    await vi.advanceTimersByTimeAsync(23_100); const result = await pending;
+    expect(result.attempts).toHaveLength(3);
+    expect(result.attempts.reduce((sum, a) => sum + a.duration_ms, 0)).toBeLessThanOrEqual(23_000);
+    expect(signals.every(s => s.aborted)).toBe(true);
   });
 });

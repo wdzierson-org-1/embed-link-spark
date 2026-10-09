@@ -39,7 +39,7 @@ flowchart TD
 
 The last two arrows are the next phase, not an automatic deployment loop.
 
-## First deployable slice
+## Initial pilot (superseded by the fleet release below)
 
 - Hourly, sample two recent links and one older incomplete link in explicitly
   configured pilot accounts, falling back to a third recent link. Read captured
@@ -91,6 +91,36 @@ an existing user's saved image.
 The Sprite sleeps when idle. The external request wakes its registered Service
 and remains open during the bounded run. Postgres leases recover interrupted
 work; a timer inside a sleeping Sprite cannot provide the hourly schedule.
+
+## Fleet release — 2026-10-09
+
+The hourly auditor now rotates across all eligible accounts, one account per job,
+with up to three less recently reviewed links. It still performs at most one
+scheduled audit an hour and one investigation a day. This broadens eligibility;
+it does not mean every item is reviewed every hour. An account is eligible when
+it has a recent public link or a previously assessed incomplete link.
+
+The daily investigation can try Firecrawl, then Jina, plus exact-article Medium
+public-feed artwork under one 23-second deadline. Source-specific canonical URL
+matching accepts the same Medium article or YouTube video while retaining product
+variants and playlist context. Each strategy records its outcome and duration.
+Images remain candidates until actual storage/pixel checks establish more.
+
+The 09:00 America/New_York email now includes actual save-cohort quality states
+for all object types, incomplete source counts, and strategy attempt outcomes,
+latency and available cost data. These are separate from Hermes' sampled factual
+findings. Repeated identical detailed findings are collapsed. Other accounts'
+URLs, quotes and model free text stay out of email; their category/severity counts
+and proposal counts are included. Detailed email content is restricted to the
+configured account allowlist. Source deletion purges associated report payloads;
+the minimal delivery receipt remains to prevent duplicate sends.
+
+Next work remains: versioned experiment proposals with held-out evaluations,
+image-pixel verification, structured fact extraction and user-facing beta actions.
+Hermes does not autonomously publish code or playbooks in this release. It produces
+reviewable proposals with regression cases and acceptance checks. Open-ended web
+research, resumable multi-hour investigations and personal/cross-user graphs are
+not yet implemented.
 
 ## Improvement loop
 

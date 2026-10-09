@@ -79,17 +79,26 @@ function validateUsage(usage: any) {
 }
 function validateObservation(observation: any, item: any) {
   keys(observation, ['schema_version', 'item_id', 'url', 'captured_at', 'outcome', 'title', 'text', 'source_truncated', 'image_candidates', 'attempts', 'limitations']);
-  if (observation.schema_version !== 1 || observation.item_id !== item.id || observation.url !== item.url || !livePublicUrl(observation.url)) throw new Error('observation_out_of_scope');
+  const refused = observation.outcome === 'unavailable' && observation.title === '' && observation.text === '' && observation.source_truncated === false &&
+    Array.isArray(observation.image_candidates) && observation.image_candidates.length === 0 && Array.isArray(observation.attempts) && observation.attempts.length === 1 &&
+    observation.attempts[0]?.strategy === 'firecrawl_rendered' && observation.attempts[0]?.outcome === 'unavailable' &&
+    observation.attempts[0]?.reason === 'unsafe_url' && observation.attempts[0]?.duration_ms === 0;
+  if (Array.isArray(observation.attempts) && observation.attempts.some((a: any) => a?.reason === 'unsafe_url') && !refused) throw new Error('invalid_observation');
+  // A refusal retains exact service-owned identity for telemetry, with no retrieved content.
+  // The supervisor removes its URL and sampled item before constructing any model prompt.
+  if (observation.schema_version !== 1 || observation.item_id !== item.id || observation.url !== item.url || (!livePublicUrl(observation.url) && !refused)) throw new Error('observation_out_of_scope');
   if (new TextEncoder().encode(JSON.stringify(observation)).length > 32_000 || typeof observation.captured_at !== 'string' || observation.captured_at.length > 40 || !Number.isFinite(Date.parse(observation.captured_at)) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(observation.outcome) || typeof observation.source_truncated !== 'boolean') throw new Error('invalid_observation');
   for (const [field, max] of [['title', 400], ['text', 6000]] as const) if (typeof observation[field] !== 'string' || observation[field].length > max) throw new Error('invalid_observation');
-  list(observation.image_candidates, 5); list(observation.attempts, 1); list(observation.limitations, 10);
+  list(observation.image_candidates, 5); list(observation.attempts, 3); list(observation.limitations, 10);
   for (const candidate of observation.image_candidates) {
     keys(candidate, ['url', 'associated']);
     if (!livePublicUrl(candidate.url) || typeof candidate.associated !== 'boolean') throw new Error('invalid_observation');
   }
+  if (!observation.attempts.length) throw new Error('invalid_observation');
   for (const attempt of observation.attempts) {
     keys(attempt, ['strategy', 'outcome', 'reason', 'duration_ms']);
     for (const field of ['strategy', 'outcome', 'reason']) if (typeof attempt[field] !== 'string' || !/^[a-z0-9_]{1,80}$/.test(attempt[field])) throw new Error('invalid_observation');
+    if (!['firecrawl_rendered', 'jina_reader', 'medium_public_feed'].includes(attempt.strategy) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(attempt.outcome)) throw new Error('invalid_observation');
     if (!Number.isInteger(attempt.duration_ms) || attempt.duration_ms < 0 || attempt.duration_ms > 30_000) throw new Error('invalid_observation');
   }
   observation.limitations.forEach((value: unknown) => text(value, 1000));
@@ -122,7 +131,7 @@ export function createWorkerHandler({ db, env, collect = collectLiveEvidence, fe
         if (!reservation?.ok) return json(409, reservation || { error: 'lease_lost' });
         if (reservation.observation) return json(200, { ok: true, observation: reservation.observation });
         if (!reservation.item || !uuid.test(reservation.attempt_token)) throw new Error('invalid_reservation');
-        const observation = validateObservation(await collect(reservation.item, { apiKey, fetcher }), reservation.item);
+        const observation = validateObservation(await collect(reservation.item, { apiKey, jinaApiKey: env('JINA_API_KEY'), fetcher }), reservation.item);
         result = await call('finish_hosted_quality_investigation', { ...args, attempt_token: reservation.attempt_token, observation_payload: observation });
       } else if (body.action === 'complete') {
         const usage = validateUsage(body.usage);

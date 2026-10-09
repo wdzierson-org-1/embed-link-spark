@@ -48,16 +48,23 @@ export function jobBudget(job, now = Date.now()) {
 export function validateObservation(observation, job) {
   if (!object(observation) || JSON.stringify(observation).length > 32_000 || observation.schema_version !== 1) throw new Error('invalid_observation');
   const item = job.input.items.find(i => i.id === observation.item_id);
-  if (!item || observation.url !== item.url || !publicEvidenceUrl(observation.url)) throw new Error('evidence_out_of_scope');
+  const refused = observation.outcome === 'unavailable' && observation.title === '' && observation.text === '' && observation.source_truncated === false &&
+    Array.isArray(observation.image_candidates) && observation.image_candidates.length === 0 && Array.isArray(observation.attempts) && observation.attempts.length === 1 &&
+    observation.attempts[0]?.strategy === 'firecrawl_rendered' && observation.attempts[0]?.outcome === 'unavailable' &&
+    observation.attempts[0]?.reason === 'unsafe_url' && observation.attempts[0]?.duration_ms === 0;
+  if (Array.isArray(observation.attempts) && observation.attempts.some(a => a?.reason === 'unsafe_url') && !refused) throw new Error('invalid_observation');
+  if (!item || observation.url !== item.url || (!publicEvidenceUrl(observation.url) && !refused)) throw new Error('evidence_out_of_scope');
   if (!Number.isFinite(Date.parse(observation.captured_at)) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(observation.outcome) ||
     typeof observation.title !== 'string' || observation.title.length > 400 || typeof observation.text !== 'string' || observation.text.length > 6000 ||
     typeof observation.source_truncated !== 'boolean') throw new Error('invalid_observation');
   list(observation.image_candidates, 5); list(observation.attempts, 3); list(observation.limitations, 10);
   for (const image of observation.image_candidates) if (!object(image) || !publicEvidenceUrl(image.url) || typeof image.associated !== 'boolean') throw new Error('invalid_observation');
+  if (!observation.attempts.length) throw new Error('invalid_observation');
   for (const attempt of observation.attempts) {
     if (!object(attempt)) throw new Error('invalid_observation');
     text(attempt.strategy, 100); text(attempt.outcome, 100); text(attempt.reason, 200);
-    if (!Number.isFinite(attempt.duration_ms) || attempt.duration_ms < 0 || attempt.duration_ms > 30_000) throw new Error('invalid_observation');
+    if (!['firecrawl_rendered', 'jina_reader', 'medium_public_feed'].includes(attempt.strategy) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(attempt.outcome)) throw new Error('invalid_observation');
+    if (!Number.isInteger(attempt.duration_ms) || attempt.duration_ms < 0 || attempt.duration_ms > 30_000) throw new Error('invalid_observation');
   }
   observation.limitations.forEach(x => text(x, 1000));
   return observation;

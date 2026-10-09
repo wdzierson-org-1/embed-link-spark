@@ -11,7 +11,7 @@ const result = { schema_version: 1, summary: 'One grounded finding.', findings: 
 const env = (key: string) => ({ QUALITY_ENABLED: 'true', QUALITY_WORKER_TOKEN: 'a'.repeat(40) }[key]);
 const req = (body: unknown, token = 'a'.repeat(40)) => new Request('https://backend.example/quality-worker', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
 const complete = () => ({ action: 'complete', job_id: jobId, lease_token: lease, fence: 2, result: structuredClone(result) });
-const observation = { schema_version: 1, item_id: itemId, url: source, captured_at: '2026-10-09T12:00:00Z', outcome: 'retrieved', title: 'Live source', text: 'The current source reports eleven points.', source_truncated: false, image_candidates: [{ url: 'https://example.org/image.jpg', associated: true }], attempts: [{ strategy: 'firecrawl', outcome: 'retrieved', reason: 'page_read', duration_ms: 123 }], limitations: ['Image pixels are not verified.'] };
+const observation = { schema_version: 1, item_id: itemId, url: source, captured_at: '2026-10-09T12:00:00Z', outcome: 'retrieved', title: 'Live source', text: 'The current source reports eleven points.', source_truncated: false, image_candidates: [{ url: 'https://example.org/image.jpg', associated: true }], attempts: [{ strategy: 'firecrawl_rendered', outcome: 'retrieved', reason: 'page_read', duration_ms: 123 }], limitations: ['Image pixels are not verified.'] };
 const investigation = () => ({ action: 'investigate', job_id: jobId, lease_token: lease, fence: 2 });
 function dbFor(reply: any = { ok: true, status: 'completed', idempotent: false }) {
   return { rpc: vi.fn(async (name: string) => ({ data: name === 'hosted_quality_job_context' ? job : reply, error: null })) };
@@ -104,6 +104,47 @@ describe('hosted quality worker boundary', () => {
     for (const bad of [{ ...observation, item_id: jobId }, { ...observation, url: 'https://other.example/' }, { ...observation, text: 'x'.repeat(6001) }]) {
       const db = dbFor({ ok: true, item: job.input.items[0], attempt_token: lease });
       const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect: async () => bad } as any)(req(investigation()));
+      expect(response.status).toBe(400); expect(db.rpc).toHaveBeenCalledTimes(1);
+    }
+  });
+  it('persists all three bounded strategy attempts in one leased reservation', async () => {
+    const escalated = { ...observation, attempts: [
+      { strategy: 'firecrawl_rendered', outcome: 'blocked', reason: 'access_wall', duration_ms: 12_000 },
+      { strategy: 'jina_reader', outcome: 'retrieved', reason: 'reader_source', duration_ms: 6_000 },
+      { strategy: 'medium_public_feed', outcome: 'retrieved', reason: 'exact_entry_artwork', duration_ms: 5_000 },
+    ] };
+    const db = { rpc: vi.fn(async (name: string) => ({ data: name === 'reserve_hosted_quality_investigation' ? { ok: true, item: job.input.items[0], attempt_token: lease } : { ok: true, observation: escalated }, error: null })) };
+    const collect = vi.fn(async () => escalated);
+    const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider', JINA_API_KEY: 'test-reader' }[k] || env(k)), collect } as any)(req(investigation()));
+    expect(response.status).toBe(200); expect(db.rpc).toHaveBeenCalledTimes(2);
+    expect(collect).toHaveBeenCalledExactlyOnceWith(job.input.items[0], expect.objectContaining({ jinaApiKey: 'test-reader' }));
+    expect(await response.json()).toEqual({ ok: true, observation: escalated });
+  });
+  it('rejects excessive or invalid strategy telemetry before persistence', async () => {
+    const attempt = { strategy: 'firecrawl_rendered', outcome: 'retrieved', reason: 'rendered_source', duration_ms: 123 };
+    for (const attempts of [[], Array(4).fill(attempt), [{ ...attempt, strategy: 'arbitrary_browser' }], [{ ...attempt, outcome: 'fixed' }], [{ ...attempt, duration_ms: 0.5 }]]) {
+      const db = dbFor({ ok: true, item: job.input.items[0], attempt_token: lease });
+      const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect: async () => ({ ...observation, attempts }) } as any)(req(investigation()));
+      expect(response.status).toBe(400); expect(db.rpc).toHaveBeenCalledTimes(1);
+    }
+  });
+  it('persists a collector refusal for the exact unsafe URL without source evidence', async () => {
+    const unsafe = { ...job.input.items[0], url: 'https://example.com/?access_token=PRIVATE_CANARY' };
+    const refusal = { ...observation, url: unsafe.url, outcome: 'unavailable', title: '', text: '', image_candidates: [], source_truncated: false,
+      attempts: [{ strategy: 'firecrawl_rendered', outcome: 'unavailable', reason: 'unsafe_url', duration_ms: 0 }] };
+    const db = { rpc: vi.fn(async (name: string) => ({ data: name === 'reserve_hosted_quality_investigation' ? { ok: true, item: unsafe, attempt_token: lease } : { ok: true, observation: refusal }, error: null })) };
+    const collect = vi.fn(async () => refusal);
+    const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect } as any)(req(investigation()));
+    expect(response.status).toBe(200); expect(db.rpc).toHaveBeenCalledTimes(2);
+    expect(db.rpc.mock.calls[1][1].observation_payload).toEqual(refusal);
+  });
+  it('does not let unsafe refusal telemetry carry source text, images or further attempts', async () => {
+    const unsafe = { ...job.input.items[0], url: 'https://example.com/?access_token=PRIVATE_CANARY' };
+    const refusal = { ...observation, url: unsafe.url, outcome: 'unavailable', title: '', text: '', image_candidates: [], source_truncated: false,
+      attempts: [{ strategy: 'firecrawl_rendered', outcome: 'unavailable', reason: 'unsafe_url', duration_ms: 0 }] };
+    for (const patch of [{ title: 'secret source' }, { text: 'secret source' }, { image_candidates: observation.image_candidates }, { outcome: 'retrieved' }, { source_truncated: true }, { attempts: [...refusal.attempts, ...refusal.attempts] }, { url: 'https://example.com/?access_token=OTHER' }]) {
+      const db = dbFor({ ok: true, item: unsafe, attempt_token: lease });
+      const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect: async () => ({ ...refusal, ...patch }) } as any)(req(investigation()));
       expect(response.status).toBe(400); expect(db.rpc).toHaveBeenCalledTimes(1);
     }
   });

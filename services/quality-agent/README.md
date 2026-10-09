@@ -1,6 +1,6 @@
 # Hosted quality audit worker
 
-A Node 24 supervisor runs one bounded Hermes audit for each authenticated wake. Supabase owns jobs, leases, retries and scheduling. The Sprite does not run a cron scheduler. Hourly jobs audit captured snapshots with **no Hermes tools**. Daily research jobs first request one bounded rendered-page observation from the backend, then Hermes reviews it.
+A Node 24 supervisor runs one bounded Hermes audit for each authenticated wake. Supabase owns jobs, leases, retries and scheduling. The Sprite does not run a cron scheduler. Hourly jobs audit captured snapshots with **no Hermes tools**. Daily research jobs first request one bounded investigation from the backend, then Hermes reviews it. An investigation can try Firecrawl rendering, Jina reader fallback and exact-entry Medium public-feed artwork within a shared 23-second deadline.
 
 The pilot compares saved text and, for a daily investigation, recorded live page text. It discovers associated image URLs but does not inspect image pixels or certify Stash's displayed image.
 
@@ -87,8 +87,12 @@ The scripts and unit tests do not by themselves verify Sprite service registrati
 
 The supervisor calls `investigate` with its current job lease, never an arbitrary
 URL. Supabase selects one item from the immutable sample, reserves the bounded
-provider attempt, performs a public Firecrawl render, and records the observation.
-Only then does the supervisor give that evidence to Hermes. No Firecrawl credential
+collection, tries a public Firecrawl render (up to 12 seconds), Jina on failure
+(up to 6 seconds), and exact-entry public Medium feed artwork when needed
+(up to 5 seconds), and records each strategy outcome.
+Only then does the supervisor give that evidence to Hermes. The shared collection
+deadline remains 23 seconds; at most three collections across lease retries can
+run for one job. Feed artwork does not establish article-body access. No Firecrawl credential
 is installed on the Sprite or supplied to Hermes. Hermes still has zero tools.
 
 The investigate call is capped at 35 seconds; the provider collector caps its
@@ -102,3 +106,21 @@ hourly text audits continue. A queued research job then fails closed at the back
 retrieval gate; it cannot bypass that switch via the worker. Model requests retain
 the existing fixed-provider limits. Reports label images as candidate URLs rather
 than verified pixels or repaired cards.
+
+## Fleet scope and daily email
+
+`QUALITY_SCOPE_MODE=all_users` rotates one eligible account per hourly audit,
+prioritizing accounts and items least recently reviewed. Each context still
+contains at most three links from one account. The existing `QUALITY_SCOPE_USER_IDS`
+allowlist controls which accounts may have detailed findings in the daily email;
+other accounts contribute only aggregate issue categories, strategy outcomes and
+proposal counts. Leave scope mode unset (or `configured_users`) to use the pilot
+allowlist for sampling too. Notes and private annotations are not sampled.
+
+The daily report is prepared after 09:00 America/New_York and sent by the next
+five-minute dispatcher. It covers the previous local calendar day. Save-cohort
+quality counts include every object type across all users; unassessed items stay
+unknown. Attempt counts have a separate activity window and include old-item
+retries. These metrics are not a factual accuracy score. Source-specific findings
+remain sampled; proposals require a regression case, expected effect, acceptance
+check and limits. No generated playbook or saved-item change is auto-published.

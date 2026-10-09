@@ -1,31 +1,9 @@
+import { reportText } from './report.ts';
 import { authorized, publicEvidenceUrl } from '../quality-worker/handler.ts';
 type DB = { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: any; error: any }> };
 type Env = (name: string) => string | undefined;
 const json = (status:number,body:unknown) => new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function reportText(p:any):string {
-  const lines=[`Stash quality report — ${p.report_day}`,`Jobs: ${p.job_count}; completed: ${p.completed}; failed: ${p.failed}; pending: ${p.pending}.`,
-    'This is a bounded sample, not a population accuracy rate. Model findings are proposals; no saved items or playbooks were changed.',''];
-  for(const r of p.results||[]) {
-    lines.push(`[${r.kind}] ${r.summary}`);
-    if(r.retrieval){
-      const observation=r.retrieval;
-      lines.push(`Live retrieval: ${observation.outcome}; item ${observation.item_id}; captured ${observation.captured_at}.`, `  Source: ${observation.url}`);
-      for(const attempt of observation.attempts||[]) lines.push(`  ${attempt.strategy}: ${attempt.outcome} (${attempt.reason}; ${attempt.duration_ms} ms)`);
-      if(observation.source_truncated)lines.push('  The source excerpt was truncated.');
-      for(const candidate of observation.image_candidates||[]) lines.push(`  Image candidate: ${candidate.url} (${candidate.associated?'page association found':'association not established'}; image pixels are unverified)`);
-      for(const limitation of observation.limitations||[])lines.push(`  Retrieval limit: ${limitation}`);
-    }
-    for(const f of r.findings||[]) {
-      lines.push(`- ${f.severity}: ${f.claim}\n  Item: ${f.item_id||'operational finding'}\n  Recommendation: ${f.recommendation}`);
-      for(const e of f.evidence||[]) lines.push(`  Source${e.source==='live'?' (live)':''}: ${e.url}${e.quote?`\n  Quote: ${e.quote}`:''}`);
-    }
-    for(const proposal of r.proposals||[]) lines.push(`Proposal: ${proposal.title}\n${proposal.rationale}\n${(proposal.evidence_urls||[]).join('\n')}`);
-    for(const uncertainty of r.uncertainties||[]) lines.push(`Unknown: ${uncertainty}`);
-    lines.push(`Recorded model cost: ${typeof r.usage?.cost_usd==='number'?`USD ${r.usage.cost_usd}`:'unknown'}`,'');
-  }
-  return lines.join('\n').slice(0,100000);
-}
 export function createDispatchHandler({db,env,fetcher=fetch}:{db:DB;env:Env;fetcher?:typeof fetch}) {
   return async(req:Request):Promise<Response>=>{
     if(req.method!=='POST')return json(405,{error:'post_only'});
@@ -35,12 +13,15 @@ export function createDispatchHandler({db,env,fetcher=fetch}:{db:DB;env:Env;fetc
     try{await call('prune_hosted_quality_data',{});}catch{return json(503,{error:'quality_retention_failed'});}
     if(env('QUALITY_ENABLED')!=='true')return json(200,{status:'disabled'});
     const scope=[...new Set((env('QUALITY_SCOPE_USER_IDS')||'').split(',').map(s=>s.trim()).filter(Boolean))];
+    const scopeMode=env('QUALITY_SCOPE_MODE')||'configured_users';
     const workerUrl=env('QUALITY_WORKER_URL')||'';const wakeToken=env('QUALITY_WAKE_TOKEN');
-    if(!scope.length||scope.length>20||scope.some(s=>!uuid.test(s))||!publicEvidenceUrl(workerUrl)||!wakeToken||wakeToken.length<32)return json(503,{error:'quality_configuration_missing'});
+    if(!['configured_users','all_users'].includes(scopeMode)||(scopeMode==='configured_users'&&!scope.length)||scope.length>20||scope.some(s=>!uuid.test(s))||!publicEvidenceUrl(workerUrl)||!wakeToken||wakeToken.length<32)return json(503,{error:'quality_configuration_missing'});
     const endpoint=new URL(workerUrl);if(endpoint.search||endpoint.hash)return json(503,{error:'invalid_worker_url'});
     endpoint.pathname=`${endpoint.pathname.replace(/\/$/,'')}/run`;
     try{
-      const queue=await call('enqueue_hosted_quality_jobs',{scope_user_ids:scope,include_research:env('QUALITY_RESEARCH_ENABLED')==='true'});
+      const queue=scopeMode==='all_users'
+        ? await call('enqueue_hosted_quality_jobs_all_users',{detail_user_ids:scope,include_research:env('QUALITY_RESEARCH_ENABLED')==='true'})
+        : await call('enqueue_hosted_quality_jobs',{scope_user_ids:scope,include_research:env('QUALITY_RESEARCH_ENABLED')==='true'});
       let email='not_configured';const recipient=env('QUALITY_REPORT_RECIPIENT');
       if(recipient){
         await call('prepare_hosted_quality_report',{report_recipient:recipient});

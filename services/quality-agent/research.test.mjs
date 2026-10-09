@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateJob, validateResult } from './protocol.mjs';
+import { validateJob, validateResult, validateObservation } from './protocol.mjs';
 import { createSupervisor } from './supervisor.mjs';
 import { auditPrompt } from './runner.mjs';
 
@@ -13,7 +13,7 @@ const job = () => ({ id:'22222222-2222-4222-8222-222222222222', kind:'research',
 const observation = () => ({schema_version:1,item_id:itemId,url:item.url,captured_at:new Date(now).toISOString(),
  outcome:'retrieved',title:'Navy jacket',text:'The navy jacket costs $125.',source_truncated:false,
  image_candidates:[{url:'https://images.example.com/jacket_NAV.jpg',associated:true}],
- attempts:[{strategy:'firecrawl-render',outcome:'retrieved',reason:'source_captured',duration_ms:1000}],
+ attempts:[{strategy:'firecrawl_rendered',outcome:'retrieved',reason:'source_captured',duration_ms:1000}],
  limitations:['Image pixels are unverified.']});
 const result = () => ({schema_version:1,summary:'A fresh source was checked.',findings:[{item_id:itemId,category:'freshness',severity:'info',
  claim:'A price is available in the current source.',evidence:[{url:item.url,source:'live',quote:'The navy jacket costs $125.'}],
@@ -73,4 +73,37 @@ test('a rejected sensitive URL is not forwarded to the model in either snapshot 
  const secretUrl='https://example.com/product?api_key=PRIVATE_CANARY';
  const j={...job(),input:{schema_version:1,items:[{...item,url:secretUrl}]},observation:{...observation(),url:secretUrl,outcome:'unavailable',text:'',title:'',image_candidates:[],attempts:[{strategy:'firecrawl_rendered',outcome:'unavailable',reason:'unsafe_url',duration_ms:0}]}};
  assert.ok(!auditPrompt(j).includes('PRIVATE_CANARY'));
+});
+
+test('observation accepts three known strategies and rejects malformed telemetry',()=>{
+ const attempt=observation().attempts[0];
+ const attempts=[attempt,{...attempt,strategy:'jina_reader'},{...attempt,strategy:'medium_public_feed'}];
+ assert.deepEqual(validateObservation({...observation(),attempts},job()).attempts,attempts);
+ for(const bad of [[],[...attempts,attempt],[{...attempt,strategy:'arbitrary_browser'}],[{...attempt,outcome:'fixed'}],[{...attempt,duration_ms:0.5}]]){
+  assert.throws(()=>validateObservation({...observation(),attempts:bad},job()));
+ }
+});
+test('research prompt explains strategy escalation and feed-only evidence limits',()=>{
+ const prompt=auditPrompt({...job(),observation:observation()});
+ assert.match(prompt,/up to three bounded retrieval strategies/i);
+ assert.match(prompt,/public_feed_artwork_only/);
+ assert.doesNotMatch(prompt,/recorded ONE browser-rendering attempt/);
+});
+
+test('refused private URLs reach Hermes only as empty, redacted refusal evidence',async()=>{
+ const privateUrl='https://127.0.0.1/?token=PRIVATE_CANARY';
+ const refusal={...observation(),url:privateUrl,outcome:'unavailable',text:'',title:'',image_candidates:[],
+  attempts:[{strategy:'firecrawl_rendered',outcome:'unavailable',reason:'unsafe_url',duration_ms:0}]};
+ const j={...job(),input:{schema_version:1,items:[{...item,url:privateUrl}]}};
+ assert.deepEqual(validateObservation(refusal,j),refusal);
+ assert.ok(!auditPrompt({...j,observation:refusal}).includes('PRIVATE_CANARY'));
+ for(const patch of [{title:'secret source'},{text:'secret source'},{image_candidates:observation().image_candidates},{outcome:'retrieved'},{source_truncated:true},{attempts:[...refusal.attempts,...refusal.attempts]}]){
+  assert.throws(()=>validateObservation({...refusal,...patch},j));
+ }
+});
+test('prompt requests exact quotes and testable proposals without relaxing source evidence',()=>{
+ const prompt=auditPrompt({...job(),observation:observation()});
+ assert.match(prompt,/copy quotes verbatim/i);
+ assert.match(prompt,/concrete regression case/i);
+ assert.match(prompt,/expected effect/i);
 });

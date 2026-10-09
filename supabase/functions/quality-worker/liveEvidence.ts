@@ -1,4 +1,6 @@
 import { previewImageEvidence } from '../_shared/pagePreview.ts';
+import { inspectSourceText } from '../_shared/enrichmentQuality.ts';
+import { fetchMediumFeedPreview } from '../_shared/mediumFeedPreview.ts';
 
 type Outcome = 'retrieved' | 'blocked' | 'unavailable' | 'mismatch';
 export type LiveEvidence = {
@@ -11,7 +13,7 @@ export type LiveEvidence = {
   text: string;
   source_truncated: boolean;
   image_candidates: { url: string; associated: boolean }[];
-  attempts: { strategy: 'firecrawl_rendered'; outcome: Outcome; reason: string; duration_ms: number }[];
+  attempts: { strategy: 'firecrawl_rendered' | 'jina_reader' | 'medium_public_feed'; outcome: Outcome; reason: string; duration_ms: number }[];
   limitations: string[];
 };
 const PROVIDER_URL = 'https://api.firecrawl.dev/v2/scrape';
@@ -39,7 +41,31 @@ function sameSource(requested: string, reported: string): boolean {
   if (!livePublicUrl(reported)) return false;
   const a = new URL(requested); const b = new URL(reported);
   const host = (u: URL) => u.hostname.toLowerCase().replace(/^www\./, '');
-  const params = (u: URL) => JSON.stringify([...u.searchParams.entries()].sort(([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv)));
+  const params = (u: URL, omit: (key: string) => boolean = () => false) => JSON.stringify([...u.searchParams.entries()]
+    .filter(([key]) => !omit(key)).sort(([ak, av], [bk, bv]) => ak.localeCompare(bk) || av.localeCompare(bv)));
+  const mediumId = (u: URL) => {
+    if (host(u) !== 'medium.com' && !host(u).endsWith('.medium.com')) return null;
+    return u.pathname.match(/^\/p\/([a-f0-9]{12})\/?$/i)?.[1] ||
+      u.pathname.match(/^\/(?:@?[a-z0-9_.-]+\/)?[^/]+-([a-f0-9]{12})\/?$/i)?.[1] || null;
+  };
+  const youtubeId = (u: URL) => {
+    if (!['youtube.com', 'm.youtube.com', 'youtu.be'].includes(host(u))) return null;
+    const id = host(u) === 'youtu.be' ? u.pathname.match(/^\/([\w-]{11})\/?$/)?.[1] :
+      u.pathname === '/watch' && u.searchParams.getAll('v').length === 1 ? u.searchParams.get('v') :
+      u.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{11})\/?$/)?.[1];
+    return id && /^[\w-]{11}$/.test(id) ? id : null;
+  };
+  const medium = mediumId(a); const video = youtubeId(a);
+  // Relax canonical URL shape only for provider-owned, exact object identifiers.
+  // Unknown query parameters still have to match, including access and playlist context.
+  if (medium && mediumId(b) === medium) {
+    const tracking = (key: string) => /^(?:source|ref|utm_.+)$/.test(key);
+    return params(a, tracking) === params(b, tracking);
+  }
+  if (video && youtubeId(b) === video) {
+    const tracking = (key: string) => /^(?:v|si|feature|utm_.+)$/.test(key);
+    return params(a, tracking) === params(b, tracking);
+  }
   // Do not silently collapse product variants, access-specific paths, or query values.
   return host(a) === host(b) && a.pathname === b.pathname && params(a) === params(b);
 }
@@ -81,10 +107,17 @@ async function readProviderBody(response: Response, signal: AbortSignal): Promis
   catch { throw new CollectionError('invalid_provider_response'); }
 }
 
-/** One clean public render; no direct source/image fetch, cookies, browser actions, or writes. */
-export async function collectLiveEvidence(item: { id: string; url: string }, { apiKey, fetcher = fetch }: { apiKey: string; fetcher?: typeof fetch }): Promise<LiveEvidence> {
+type Step = { outcome: Outcome; reason: string; patch?: Partial<LiveEvidence> };
+const httpFailure = (status: number): Step => ({ outcome: 'unavailable', reason: status === 429 ? 'provider_rate_limited' :
+  status === 401 || status === 403 ? 'provider_auth_error' : status === 402 ? 'provider_credit_limit' : 'provider_http_error' });
+
+/** At most one render, one reader fallback and one exact-entry public feed check.
+ * Egress is restricted to fixed providers and Medium's public author feed.
+ * No image downloads, source cookies, browser actions or item writes. */
+export async function collectLiveEvidence(item: { id: string; url: string }, { apiKey, jinaApiKey, fetcher = fetch }: {
+  apiKey: string; jinaApiKey?: string; fetcher?: typeof fetch;
+}): Promise<LiveEvidence> {
   const started = Date.now();
-  const safe = livePublicUrl(item.url);
   const base = {
     // Preserve snapshot identity so rejected URLs can receive durable failure telemetry.
     // The backend owns this field; exclude unsafe URLs from model prompts and reports.
@@ -92,54 +125,98 @@ export async function collectLiveEvidence(item: { id: string; url: string }, { a
     title: '', text: '', source_truncated: false, image_candidates: [],
     limitations: ['public_unauthenticated_render', 'image_pixels_not_verified'],
   };
-  const finish = (outcome: Outcome, reason: string, patch: Partial<LiveEvidence> = {}): LiveEvidence => ({
-    ...base, outcome, ...patch,
-    attempts: [{ strategy: 'firecrawl_rendered', outcome, reason, duration_ms: Math.max(0, Date.now() - started) }],
-  });
-  if (!safe) return finish('unavailable', 'unsafe_url');
-  if (!apiKey?.trim()) return finish('unavailable', 'provider_unconfigured');
+  const attempts: LiveEvidence['attempts'] = [];
+  const finish = (step: Step): LiveEvidence => ({ ...base, outcome: step.outcome, ...step.patch, attempts });
+  if (!livePublicUrl(item.url) || !apiKey?.trim()) {
+    const reason = !livePublicUrl(item.url) ? 'unsafe_url' : 'provider_unconfigured';
+    attempts.push({ strategy: 'firecrawl_rendered', outcome: 'unavailable', reason, duration_ms: 0 });
+    return finish({ outcome: 'unavailable', reason });
+  }
+  if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(new URL(item.url).hostname)) base.limitations.push('video_not_viewed');
 
-  const abort = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { abort.abort(); reject(new CollectionError('provider_timeout')); }, TOTAL_TIMEOUT); });
-  try {
-    const request = async (): Promise<LiveEvidence> => {
-      // Firecrawl v2 options: https://docs.firecrawl.dev/api-reference/endpoint/scrape
-      const response = await fetcher(PROVIDER_URL, {
-        method: 'POST', redirect: 'error', signal: abort.signal,
-        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ url: item.url, formats: ['markdown', 'rawHtml'], onlyMainContent: true,
-          maxAge: 0, waitFor: 1000, timeout: 20000, parsers: [], storeInCache: false, skipTlsVerification: false, proxy: 'auto' }),
+  const run = async (strategy: LiveEvidence['attempts'][number]['strategy'], budget: number,
+    execute: (signal: AbortSignal) => Promise<Step>): Promise<Step> => {
+    const stepStarted = Date.now(); const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
+    const remaining = Math.max(0, Math.min(budget, TOTAL_TIMEOUT - (stepStarted - started)));
+    let result: Step;
+    try {
+      if (!remaining) throw new CollectionError('collection_budget_exhausted');
+      const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => {
+        controller.abort(); reject(new CollectionError('provider_timeout'));
+      }, remaining); });
+      result = await Promise.race([execute(controller.signal), deadline]);
+    } catch (error) {
+      // Provider errors may include tokens or source bodies. Persist only closed codes.
+      result = { outcome: 'unavailable', reason: error instanceof CollectionError ? error.message : controller.signal.aborted ? 'provider_timeout' : 'provider_request_failed' };
+    } finally { clearTimeout(timer); controller.abort(); }
+    attempts.push({ strategy, outcome: result.outcome, reason: result.reason, duration_ms: Math.max(0, Date.now() - stepStarted) });
+    return result;
+  };
+  const assess = (title: string, text: string, html: string, reported: unknown[], finalConfirmed: boolean, reason: string): Step => {
+    if (reported.some(value => typeof value !== 'string' || !sameSource(item.url, value))) return { outcome: 'mismatch', reason: 'source_identity_mismatch' };
+    if (isAccessWall(title, text, html)) return { outcome: 'blocked', reason: 'access_wall' };
+    const limitations = [...base.limitations];
+    if (!finalConfirmed) limitations.push('final_url_not_confirmed');
+    if (!text) return { outcome: 'unavailable', reason: 'empty_source', patch: { limitations } };
+    const quality = inspectSourceText(item.url, text);
+    if (!quality.usable) return { outcome: quality.reason === 'blocked_page' || quality.reason === 'login_page' ? 'blocked' : 'unavailable', reason: quality.reason || 'unusable_source', patch: { limitations } };
+    const candidates = previewImageEvidence({ url: item.url, html, text: quality.text, title })
+      .filter(candidate => livePublicUrl(candidate.url)).slice(0, 5);
+    return { outcome: 'retrieved', reason, patch: {
+      title: title.slice(0, 400), text: quality.text.slice(0, 6000), source_truncated: quality.text.length > 6000,
+      image_candidates: candidates, limitations,
+    } };
+  };
+  // Reserve time for alternate evidence within the same 23-second collection budget.
+  let selected = await run('firecrawl_rendered', 12_000, async signal => {
+    const response = await fetcher(PROVIDER_URL, {
+      method: 'POST', redirect: 'error', signal,
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ url: item.url, formats: ['markdown', 'rawHtml'], onlyMainContent: true,
+        maxAge: 0, waitFor: 1000, timeout: 11000, parsers: [], storeInCache: false, skipTlsVerification: false, proxy: 'auto' }),
+    });
+    if (!response.ok) { void response.body?.cancel().catch(() => {}); return httpFailure(response.status); }
+    const body = await readProviderBody(response, signal);
+    if (!object(body) || body.success !== true || !object(body.data)) throw new CollectionError('invalid_provider_response');
+    const data = body.data;
+    if ((data.markdown !== undefined && typeof data.markdown !== 'string') || (data.rawHtml !== undefined && typeof data.rawHtml !== 'string') || (data.metadata !== undefined && !object(data.metadata))) throw new CollectionError('invalid_provider_response');
+    const metadata = object(data.metadata) ? data.metadata : {};
+    if (metadata.title !== undefined && typeof metadata.title !== 'string') throw new CollectionError('invalid_provider_response');
+    if ([401, 403, 429].includes(Number(metadata.statusCode))) return { outcome: 'blocked', reason: 'access_wall' };
+    if (typeof metadata.statusCode === 'number' && metadata.statusCode >= 400) return { outcome: 'unavailable', reason: 'source_http_error' };
+    return assess(typeof metadata.title === 'string' ? metadata.title.trim() : '', typeof data.markdown === 'string' ? data.markdown.trim() : '',
+      typeof data.rawHtml === 'string' ? data.rawHtml : '',
+      [metadata.url, metadata.sourceURL].filter(value => value !== undefined && value !== null && value !== ''),
+      typeof metadata.url === 'string' && !!metadata.url, 'rendered_source');
+  });
+  if (selected.outcome !== 'retrieved') {
+    const reader = await run('jina_reader', 6_000, async signal => {
+      // JSON reader output exposes URL identity; no generated image captions or cookies.
+      const response = await fetcher(`https://r.jina.ai/${item.url}`, {
+        redirect: 'error', signal, headers: { accept: 'application/json', 'x-no-cache': 'true', 'x-timeout': '5',
+          ...(jinaApiKey?.trim() ? { authorization: `Bearer ${jinaApiKey}` } : {}) },
       });
-      if (!response.ok) {
-        void response.body?.cancel().catch(() => {});
-        return finish('unavailable', response.status === 429 ? 'provider_rate_limited' : response.status === 401 || response.status === 403 ? 'provider_auth_error' : response.status === 402 ? 'provider_credit_limit' : 'provider_http_error');
-      }
-      const body = await readProviderBody(response, abort.signal);
-      if (!object(body) || body.success !== true || !object(body.data)) throw new CollectionError('invalid_provider_response');
+      if (!response.ok) { void response.body?.cancel().catch(() => {}); return httpFailure(response.status); }
+      const body = await readProviderBody(response, signal);
+      if (!object(body) || body.code !== 200 || !object(body.data)) throw new CollectionError('invalid_provider_response');
       const data = body.data;
-      if ((data.markdown !== undefined && typeof data.markdown !== 'string') || (data.rawHtml !== undefined && typeof data.rawHtml !== 'string') || (data.metadata !== undefined && !object(data.metadata))) throw new CollectionError('invalid_provider_response');
-      const metadata = object(data.metadata) ? data.metadata : {};
-      if (metadata.title !== undefined && typeof metadata.title !== 'string') throw new CollectionError('invalid_provider_response');
-      const title = typeof metadata.title === 'string' ? metadata.title.trim() : '';
-      const text = typeof data.markdown === 'string' ? data.markdown.trim() : '';
-      const html = typeof data.rawHtml === 'string' ? data.rawHtml : '';
-      if (metadata.statusCode === 401 || metadata.statusCode === 403 || metadata.statusCode === 429 || isAccessWall(title, text, html)) return finish('blocked', 'access_wall');
-      if (typeof metadata.statusCode === 'number' && metadata.statusCode >= 400) return finish('unavailable', 'source_http_error');
-      const reported = [metadata.url, metadata.sourceURL].filter(value => value !== undefined && value !== null && value !== '');
-      if (reported.some(value => typeof value !== 'string' || !sameSource(item.url, value))) return finish('mismatch', 'source_identity_mismatch');
-      const limitations = [...base.limitations];
-      if (typeof metadata.url !== 'string' || !metadata.url) limitations.push('final_url_not_confirmed');
-      if (!text) return finish('unavailable', 'empty_source', { limitations });
-      const candidates = previewImageEvidence({ url: item.url, html, text, title })
-        .filter(candidate => livePublicUrl(candidate.url)).slice(0, 5);
-      return finish('retrieved', 'rendered_source', {
-        title: title.slice(0, 400), text: text.slice(0, 6000), source_truncated: text.length > 6000,
-        image_candidates: candidates, limitations,
-      });
-    };
-    return await Promise.race([request(), deadline]);
-  } catch (error) {
-    // Provider errors may include tokens or source bodies. Persist only our closed set of codes.
-    return finish('unavailable', error instanceof CollectionError ? error.message : abort.signal.aborted ? 'provider_timeout' : 'provider_request_failed');
-  } finally { clearTimeout(timer); abort.abort(); }
+      if (typeof data.url !== 'string' || typeof data.content !== 'string' || (data.title !== undefined && typeof data.title !== 'string')) throw new CollectionError('invalid_provider_response');
+      return assess(typeof data.title === 'string' ? data.title.trim() : '', data.content.trim(), '', [data.url], true, 'reader_source');
+    });
+    // Retain the stronger diagnostic when a later provider is merely unavailable.
+    if (reader.outcome === 'retrieved' || reader.outcome === 'mismatch' || (reader.outcome === 'blocked' && selected.outcome !== 'mismatch')) selected = reader;
+  }
+  const source = new URL(item.url);
+  if (!(selected.patch?.image_candidates?.length) && source.hostname === 'medium.com' && /^\/@[a-z0-9_.-]{1,60}\/[^/]+-[a-f0-9]{12}\/?$/i.test(source.pathname)) {
+    const feed = await run('medium_public_feed', 5_000, async signal => {
+      // The existing parser enforces matching GUID, entry URL and linked artwork.
+      const constrainedFetch: typeof fetch = (target, init = {}) => fetcher(target, { ...init, signal });
+      const image = await fetchMediumFeedPreview(item.url, constrainedFetch);
+      return image && livePublicUrl(image) ? { outcome: 'retrieved', reason: 'exact_entry_artwork', patch: { image_candidates: [{ url: image, associated: true }] } } :
+        { outcome: 'unavailable', reason: 'feed_artwork_unavailable' };
+    });
+    if (feed.patch?.image_candidates?.length) selected = { ...selected, patch: { ...selected.patch,
+      image_candidates: feed.patch.image_candidates, limitations: [...(selected.patch?.limitations || base.limitations), 'public_feed_artwork_only'] } };
+  }
+  return finish(selected);
 }

@@ -11,6 +11,44 @@ function setup(overrides: Record<string,string|undefined>={}) {
   return {db,fetcher,handle};
 }
 describe('hosted quality dispatch',()=>{
+  it('uses the bounded rotating fleet sampler only with an explicit all-users setting',async()=>{
+    const {handle,db}=setup({QUALITY_SCOPE_MODE:'all_users',QUALITY_SCOPE_USER_IDS:undefined});
+    expect((await handle(request())).status).toBe(200);
+    expect(db.rpc).toHaveBeenCalledWith('enqueue_hosted_quality_jobs_all_users',{detail_user_ids:[],include_research:false});
+    expect(db.rpc.mock.calls.some(c=>c[0]==='enqueue_hosted_quality_jobs')).toBe(false);
+    const invalid=setup({QUALITY_SCOPE_MODE:'everyone'});
+    expect((await invalid.handle(request())).status).toBe(503);
+  });
+  it('reports measured denominators separately and collapses repeated findings',async()=>{
+    const {handle,db,fetcher}=setup(); const message=structuredClone(outbox) as any;
+    message.payload.results.push(structuredClone(message.payload.results[0]));
+    message.payload.pipeline={scope:'all_users',saved_items:10,assessed:8,ready:5,partial:2,blocked:1,unsupported:0,unassessed:2,
+      by_type:[{type:'link',saved:10,partial:2,blocked:1,unassessed:2}],
+      by_source:[{source:'medium.com',saved:3,partial:2,blocked:1,unassessed:0}],
+      strategies:[{strategy:'jina_reader',attempts:4,failed:1,improved:2,avg_ms:120,cost_known:2,cost_usd:0.01}]};
+    db.rpc.mockImplementation(async(name:string)=>({data:name==='claim_hosted_quality_email'?message:name==='finish_hosted_quality_email'?true:{enqueued:1},error:null}));
+    await handle(request());
+    const email=JSON.parse(fetcher.mock.calls.find(c=>c[0].includes('resend'))![1]!.body as string);
+    expect(email.text).toContain('3 of 8 assessed saves need attention (37.5%)');
+    expect(email.text).toContain('2 unassessed');
+    expect(email.text).toContain('not a measured factual-accuracy rate');
+    expect(email.text).toContain('medium.com: 3 saves');
+    expect(email.text).toContain('jina_reader: 4 attempts; 1 failed; 2 improved');
+    expect(email.text.match(/Wrong units\./g)).toHaveLength(1);
+    expect(email.text).toContain('observed in 2 reviews');
+  });
+  it('includes fleet findings counts without treating withheld details as absent',async()=>{
+    const {handle,db,fetcher}=setup(); const message=structuredClone(outbox) as any;
+    message.payload.results=[{kind:'audit',redacted:true,summary:'Fleet review completed.',item_ids:['private-id'],findings:[],proposals:[],
+      finding_counts:[{category:'identity',severity:'warning',count:2}],proposal_count:1}];
+    db.rpc.mockImplementation(async(name:string)=>({data:name==='claim_hosted_quality_email'?message:name==='finish_hosted_quality_email'?true:{enqueued:1},error:null}));
+    await handle(request());
+    const email=JSON.parse(fetcher.mock.calls.find(c=>c[0].includes('resend'))![1]!.body as string);
+    expect(email.text).toContain('identity / warning: 2 observations');
+    expect(email.text).toContain('1 additional proposal observations');
+    expect(email.text).not.toContain('private-id');
+    expect(email.text).not.toContain('No evidence-backed playbook proposal');
+  });
   it('checks cron auth before database or network and defaults disabled',async()=>{
     const {handle,db,fetcher}=setup({QUALITY_ENABLED:undefined});
     expect((await handle(new Request('https://backend.example',{method:'POST'}))).status).toBe(401);
