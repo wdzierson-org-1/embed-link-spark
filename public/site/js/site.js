@@ -6,7 +6,7 @@
   const me = document.currentScript;
   const folder = new URL('../', me.src);
   const homeUrl = '/';
-  const pageUrl = (name) => ({"extension.html":"/extension","mcp.html":"/connect","iphone.html":"/iphone"})[name] || new URL(name, folder).href;
+  const pageUrl = (name) => ({"extension.html":"/extension","mcp.html":"/connect","iphone.html":"/iphone","contact.html":"/contact","terms.html":"/terms","privacy.html":"/privacy"})[name] || new URL(name, folder).href;
   const onHome = !!document.querySelector('.hero');
   const home = (hash = '') => (onHome ? hash || '#top' : homeUrl + hash);
   const here = document.body.dataset.page || 'home';
@@ -47,9 +47,9 @@
   </div>
   <nav class="foot-col" aria-labelledby="foot-co">
     <h2 class="px" id="foot-co">company</h2>
-    <a href="mailto:hello@gostash.it">Contact</a>
-    <a href="https://www.gostash.it/terms">Terms</a>
-    <a href="https://www.gostash.it/privacy">Privacy</a>
+    <a href="${pageUrl('contact.html')}"${current('contact')}>Contact</a>
+    <a href="${pageUrl('terms.html')}"${current('terms')}>Terms</a>
+    <a href="${pageUrl('privacy.html')}"${current('privacy')}>Privacy</a>
   </nav>
   <p class="foot-legal">© 2026 Stash</p>
 </footer>`);

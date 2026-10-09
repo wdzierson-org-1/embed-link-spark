@@ -7,8 +7,7 @@ import DesignScope from '@/components/DesignScope';
 import { AuthProvider } from '@/hooks/useAuth';
 import { SubscriptionProvider } from '@/hooks/useSubscription';
 import SiteHome from '@/pages/SiteHome';
-import Privacy from '@/pages/Privacy';
-import Terms from '@/pages/Terms';
+import SitePage from '@/pages/SitePage';
 import Pricing from '@/pages/Pricing';
 import Index from '@/pages/Index';
 import Auth from '@/pages/Auth';
@@ -48,8 +47,9 @@ function App() {
               <Routes>
                 {/* gostash.it/ is the static marketing site; "/" in the app reloads into it */}
                 <Route path="/" element={<SiteHome />} />
-                <Route path="/privacy" element={<Privacy />} />
-                <Route path="/terms" element={<Terms />} />
+                <Route path="/privacy" element={<SitePage page="privacy" />} />
+                <Route path="/terms" element={<SitePage page="terms" />} />
+                <Route path="/contact" element={<SitePage page="contact" />} />
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/home" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />

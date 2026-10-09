@@ -51,14 +51,14 @@
   </div>
   <nav class="foot-col" aria-labelledby="foot-co">
     <h2 class="px" id="foot-co">company</h2>
-    <a href="mailto:hello@gostash.it">Contact</a>
-    <a href="https://www.gostash.it/terms">Terms</a>
-    <a href="https://www.gostash.it/privacy">Privacy</a>
+    <a href="${pageUrl('contact.html')}"${current('contact')}>Contact</a>
+    <a href="${pageUrl('terms.html')}"${current('terms')}>Terms</a>
+    <a href="${pageUrl('privacy.html')}"${current('privacy')}>Privacy</a>
   </nav>
   <p class="foot-legal">© 2026 Stash</p>
 </footer>`);
 
-  const label = { home: 'stash home v0.6', extension: 'stash v0.6 · extension', mcp: 'stash v0.6 · mcp', iphone: 'stash v0.6 · iphone' }[here];
+  const label = { home: 'stash home v0.7', extension: 'stash v0.7 · extension', mcp: 'stash v0.7 · mcp', iphone: 'stash v0.7 · iphone', contact: 'stash v0.7 · contact', terms: 'stash v0.7 · terms', privacy: 'stash v0.7 · privacy' }[here];
   document.body.insertAdjacentHTML('beforeend', `
 <aside class="review" aria-label="Prototype controls">
   <span>${label}</span>

@@ -13,7 +13,7 @@ the scan bar. Where surfaces stand:
 | Surface | System | Where |
 |---|---|---|
 | Web app: library, composer, Ask, item detail, settings, conversations, public feed, discover, admin, and the way in (sign in, sign up, choose a new password) | **v2 (this file)** | `src/`, scoped by `<html data-ui="v2">` (§13) |
-| The marketing site, live since 2026-10-07: the homepage (`/`), `/extension`, `/connect` (MCP) and `/iphone` | **v2** | designed in `docs/superpowers/prototypes/2026-10-06-stashe-homepage*`; published to `public/` by `scripts/publish-site.mjs` (§12.13) |
+| The marketing site, live since 2026-10-07: the homepage (`/`), `/extension`, `/connect` (MCP), `/iphone`, `/contact`, `/terms` and `/privacy` | **v2** | designed in `docs/superpowers/prototypes/2026-10-06-stashe-homepage*`; published to `public/` by `scripts/publish-site.mjs` (§12.13) |
 | Pricing, legal and agent (OAuth) consent pages in `src/` | v1 until their redesign | `DESIGN.md` |
 | iOS app and share extension | **v2 simulator candidate** (2026-10-07) | `StashDesign.swift`; `docs/ios-design-v2-handoff.md` |
 | Chrome extension | v1 until its restyle | `DESIGN.md` |
@@ -27,7 +27,7 @@ contrast method. Don't mix the two systems on one screen.
   only) shows the real card in every state, including "A save arriving", the enrichment moment
   looping on a real card.
 - **The marketing pages:** `docs/superpowers/prototypes/2026-10-06-stashe-homepage.html` and its
-  folder (`style.css`, `js/*`, `extension.html`, `mcp.html`, `iphone.html`). Its `NOTES.md`
+  folder (`style.css`, `js/*`, `extension.html`, `mcp.html`, `iphone.html`, `contact.html`, `terms.html`, `privacy.html`). Its `NOTES.md`
   records every decision round by round.
 
 Where an implementation and this file disagree, this file wins; fix the implementation or note
@@ -892,6 +892,9 @@ homepage `dist/index.html`, so it answers `/`, and moves the app shell to `dist/
 | `/extension` | Stash it for Chrome | `extension.html` (its version and size are the stamps `extension/scripts/publish-hosted-zip.sh` rewrites) |
 | `/connect` | connect your AI (MCP); `/mcp` itself is the MCP server | `mcp.html` |
 | `/iphone` | Stash for iPhone | `iphone.html` |
+| `/contact` | write to us: one address, the usual reasons with their subjects filled in | `contact.html` |
+| `/terms` | the terms of service, word for word, with a contents window | `terms.html` |
+| `/privacy` | the privacy policy, word for word, with a contents window | `privacy.html` |
 | `/site/…` | the pages' CSS, scripts, images and fonts | the prototype folder, plus Montreal and the landing covers from `src/assets` |
 
 What publishing changes, and checks: absolute asset paths; real titles, descriptions, icons and the
