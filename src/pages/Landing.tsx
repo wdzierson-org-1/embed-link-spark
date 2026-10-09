@@ -639,9 +639,9 @@ const Landing = () => {
             Forget about forgetting.
           </p>
           <div className="flex justify-center space-x-6 text-sm font-montreal text-muted-foreground">
-            <Link to="/privacy" className="hover:text-foreground transition-colors">Privacy</Link>
-            <Link to="/terms" className="hover:text-foreground transition-colors">Terms</Link>
-            <a href="mailto:will@dzierson.com" className="hover:text-foreground transition-colors">Contact</a>
+            <a href="/privacy" className="hover:text-foreground transition-colors">Privacy</a>
+            <a href="/terms" className="hover:text-foreground transition-colors">Terms</a>
+            <a href="/contact" className="hover:text-foreground transition-colors">Contact</a>
           </div>
         </footer>
       </div>

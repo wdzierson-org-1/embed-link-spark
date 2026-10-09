@@ -1,4 +1,4 @@
-# Stash homepage — exploration v0.6 (2026-10-06)
+# Stash homepage — exploration v0.7 (2026-10-06, round 7 on 2026-10-09)
 
 Open `../2026-10-06-stashe-homepage.html` from a repo checkout, or serve the repo root
 (`python3 -m http.server 8090`) and visit
@@ -14,6 +14,17 @@ v0.6 went live at gostash.it on 2026-10-07: the homepage at `/`, and `extension.
 or these comments, with "Get Stash" opening sign-up and an "Email us" beta line where "Notify me" was
 (there's still no list behind it). The PP Mori logo licence is cleared (Will). The receipt screenshot's
 café is now illustrative. Re-publish and commit after every round that should go live.
+
+## v0.7: Will's round 7 (2026-10-09)
+
+| Ask | What changed |
+|---|---|
+| Update the contact, terms and privacy pages to match the homepage design | Three pages in this folder, published beside the others: **`contact.html`** (gostash.it/contact), **`terms.html`** (/terms) and **`privacy.html`** (/privacy). The legal text is the policy that was live in the app (`src/pages/Privacy.tsx`, `Terms.tsx`), ported **word for word**; only the presentation is new: a reading hero (kicker tag, the title, the intro as the lead, a "last updated" stamp in the machine voice), then the machine's **contents** window beside a 62ch Montreal column, and "Questions? Email hello@gostash.it" under a rule. The contact page is new: "Write to us.", the address in a machine box with copy, four windows for the usual reasons to write (something isn't working, the iPhone beta, your subscription, an idea or a complaint), each a `mailto:` with its subject filled in (the beta one matches `BETA_MAIL`), and a line pointing at the three guides. The footer's Contact, Terms and Privacy now go to these pages. In the app, `/privacy` and `/terms` reload into the static pages the way `/` does (`src/pages/SitePage.tsx`), the sign-in footer links them with plain anchors, and the old React legal pages are deleted, so the text has one source. |
+
+**Open, for Will:** the Terms say "a 14-day free trial" and "no credit card is required", and the product does
+that (`supabase/functions/create-checkout` sets `trial_period_days: 14`), but the homepage says "$4.99 a
+month" with no mention of a trial, after the round-2 "no free trial" decision. One of them should change;
+the legal text wasn't touched here.
 
 ## v0.6: Will's round 6
 
@@ -129,7 +140,7 @@ spot colour, lime `#a3f53b` by default, violet `#6d5bd0` on the toggle.
 7. **Stash is smarter saving.** Halftone close with the dotted wordmark, then the column footer.
 
 Footer pages, same system, same close: `extension.html` (install Stash it in Chrome), `mcp.html` (connect your
-AI), `iphone.html` (in beta; Notify me).
+AI), `iphone.html` (in beta; Notify me), and (v0.7) `contact.html`, `terms.html`, `privacy.html`.
 
 ## Deep links
 
@@ -191,8 +202,10 @@ illustrative café replaced it before the page went live.
    - Works with lists clients we haven't all tested.
    - On `mcp.html`, three client steps are untested: ChatGPT's Developer-mode path (from `docs/mcp/DIRECTORIES.md`), Claude Code's "open /mcp to sign in", and Cursor prompting sign-in on first use.
    - On `iphone.html`, the iOS beta needs to do what the page says, including Ask with sources and sharing from the camera.
-6. **Contact address.** v0.2's footer used hello@gostash.it, which exists nowhere in the repo. v0.3 uses
-   will@dzierson.com, the address the live landing and legal pages use. Do you want a hello@ address instead?
+6. **Contact address: settled 2026-10-09.** Every public contact is **hello@gostash.it** (Will): the footer's
+   Contact, the iPhone beta "Email us" line (`BETA_MAIL` in `scripts/publish-site.mjs`), and the app's legal
+   pages and old landing page. Earlier rounds used will@dzierson.com. The mailbox has to exist in Google
+   Workspace (gostash.it's MX) for mail to arrive.
 7. **"Notify me" is not wired.** There's no list behind it, so the form validates the address and then says
    "prototype: not sent". It needs a home, for example a small table and edge function, or a Resend audience,
    since Resend already sends the reminder email.

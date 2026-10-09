@@ -66,12 +66,12 @@ export const AuthShell = ({
       <footer className="container mx-auto flex items-center justify-between gap-4 px-4 pb-5 font-pixel text-pixel text-muted-foreground">
         <span>save it fast. find it when you need it.</span>
         <nav aria-label="Legal" className="flex gap-4">
-          <Link to="/privacy" className="hover:text-ink hover:underline">
+          <a href="/privacy" className="hover:text-ink hover:underline">
             privacy
-          </Link>
-          <Link to="/terms" className="hover:text-ink hover:underline">
+          </a>
+          <a href="/terms" className="hover:text-ink hover:underline">
             terms
-          </Link>
+          </a>
         </nav>
       </footer>
     </div>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" data-spot="lime">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · Stash exploration v0.7</title>
+<meta name="description" content="What Stash collects, what it does with it, and what it never does: no selling your data, no ads, no training AI models on your content.">
+<link rel="icon" href="logo/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body data-page="privacy">
+<!--
+  The privacy policy in the homepage's system (Will, round 7). The text is the policy that was live
+  in the app (src/pages/Privacy.tsx, last updated September 7, 2026), ported word for word; only the
+  presentation is new. Published to gostash.it/privacy by scripts/publish-site.mjs.
+-->
+<div data-site-nav></div>
+
+<main>
+  <header class="page-hero is-reading">
+    <div class="wrap">
+      <p class="kicker"><span class="tag">privacy policy</span></p>
+      <h1 class="t-page">Privacy.</h1>
+      <p class="lead">Stash exists to hold things you want to remember — which means we take holding them seriously. This page explains what we collect, what we do with it, and what we will never do with it, in plain language.</p>
+      <p class="legal-stamp"><span class="tag">last updated</span><span class="px">september 7, 2026</span></p>
+    </div>
+  </header>
+
+  <section class="page-sec" aria-label="The policy">
+    <div class="wrap legal-grid">
+      <nav class="win contents" aria-label="Contents">
+        <div class="win-bar"><span>contents</span><i></i></div>
+        <div class="win-body">
+          <a href="#collect">What we collect</a>
+          <a href="#use">How your content is used</a>
+          <a href="#services">Services we rely on</a>
+          <a href="#never">What we never do</a>
+          <a href="#delete">Deleting your data</a>
+        </div>
+      </nav>
+      <div class="legal">
+        <section id="collect">
+          <h2>What we collect</h2>
+          <p>Your account information: the email address you sign up with, and a phone number if you choose to connect WhatsApp or SMS capture.</p>
+          <p>The content you save: links, notes, images, documents, and voice recordings, along with titles, descriptions, and searchable text that Stash generates from them.</p>
+          <p>Basic usage information needed to run the service, such as subscription status and error logs.</p>
+        </section>
+        <section id="use">
+          <h2>How your content is used</h2>
+          <p>Your content is used for one purpose: making your own stash useful to you. That includes generating titles and descriptions, transcribing audio, extracting text from pages and documents, and answering questions you ask about what you’ve saved.</p>
+          <p>Everything you save is private by default. Content appears publicly only if you explicitly mark an item as public.</p>
+        </section>
+        <section id="services">
+          <h2>Services we rely on</h2>
+          <p>Stash runs on a small set of infrastructure providers that process data on our behalf:</p>
+          <ul class="ticks">
+            <li>Supabase — database, authentication, and file storage</li>
+            <li>OpenAI — generating descriptions, transcriptions, and answers from your content</li>
+            <li>Stripe — payments and subscription management (we never see your card number)</li>
+            <li>Twilio — WhatsApp and SMS capture, if you connect a phone number</li>
+            <li>Firecrawl — fetching the text of web pages you save</li>
+          </ul>
+        </section>
+        <section id="never">
+          <h2>What we never do</h2>
+          <p>We do not sell your data. We do not show you ads. We do not train AI models on your content.</p>
+        </section>
+        <section id="delete">
+          <h2>Deleting your data</h2>
+          <p>Deleting an item removes it and its derived data (descriptions, search indexes) from your stash. To delete your entire account and everything in it, open Settings → Your Information → Delete account. Deletion is immediate and permanent: every item, file, transcript, note, and conversation is removed, your phone number is unlinked, and any subscription is canceled.</p>
+        </section>
+        <p class="legal-foot">Questions about this policy? Email <a href="mailto:hello@gostash.it">hello@gostash.it</a>.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<section class="s-close is-slim" aria-label="Stash">
+  <canvas aria-hidden="true"></canvas>
+  <div class="close-mark" aria-hidden="true"></div>
+  <div data-site-footer></div>
+</section>
+
+<script src="js/site.js"></script>
+<script src="js/page.js"></script>
+<script src="js/halftone.js"></script>
+</body>
+</html>
