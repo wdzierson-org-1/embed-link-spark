@@ -26,7 +26,8 @@ export default defineConfig(({ mode }) => ({
     globals: true,
     setupFiles: "./src/test/setup.ts",
     // Git worktrees under .claude/ carry a full duplicate of src/ — never test
-    // them. extension/ runs on node:test (`cd extension && npm test`), not vitest.
-    exclude: [...configDefaults.exclude, ".claude/**", "ios/**", "extension/**"],
+    // them. extension/ and services/quality-agent run on node:test (`npm test` in each),
+    // as do the functions' *.test.mjs files — not vitest.
+    exclude: [...configDefaults.exclude, ".claude/**", "ios/**", "extension/**", "services/**", "**/*.test.mjs"],
   },
 }));
