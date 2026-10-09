@@ -84,6 +84,8 @@ interface EditItemDetailsTabProps {
   onAttributesSave?: (attributes: ItemAttributes) => Promise<void>;
   /** Saves a link's changed address */
   onUrlSave?: (url: string) => Promise<void>;
+  /** Saves an edited summary */
+  onSummarySave?: (summary: string) => Promise<void>;
 }
 
 const EditItemDetailsTab = ({
@@ -112,6 +114,7 @@ const EditItemDetailsTab = ({
   onImageChange,
   onAttributesSave,
   onUrlSave,
+  onSummarySave,
 }: EditItemDetailsTabProps) => {
   const [isEditorMaximized, setIsEditorMaximized] = useState(false);
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
@@ -280,6 +283,14 @@ const EditItemDetailsTab = ({
 
   const contentComponent = (
     <div className="mt-0 px-4 pb-8 sm:px-10">
+      {/* The source address strip leads (Will, 2026-10-09: "move the address above the title"):
+          the whole address opens it; copy, edit, open */}
+      {item?.type === 'link' && item?.url && (
+        <div className="mb-7">
+          <EditItemLinkSection url={item.url} onUrlSave={onUrlSave} />
+        </div>
+      )}
+
       {/* ── Header zone: title → description (the kind and source sit in the window bar) ── */}
       <div>
         <EditItemTitleSection
@@ -365,13 +376,6 @@ const EditItemDetailsTab = ({
         />
       )}
 
-      {/* The source address strip: the whole address opens it; copy, edit, open */}
-      {item?.type === 'link' && item?.url && (
-        <div className="mt-3">
-          <EditItemLinkSection url={item.url} onUrlSave={onUrlSave} />
-        </div>
-      )}
-
       {/* Document preview — only for document items */}
       {(item?.type === 'document' || item?.type === 'pdf') && item?.file_path && (
         <div className="mt-6">
@@ -393,6 +397,7 @@ const EditItemDetailsTab = ({
         onMaximize={() => setIsEditorMaximized(true)}
         isMobile={isMobile}
         mobileEditorReady={mobileEditorReady}
+        onSummarySave={onSummarySave}
       />
 
       {/* Attachments — only for multi-part (collection) items */}

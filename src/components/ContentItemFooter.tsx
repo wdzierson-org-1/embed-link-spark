@@ -1,10 +1,19 @@
 
 import React, { useState } from 'react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, MessageCircle, Eye, EyeOff, MapPin, Flag, Bell, BellOff } from 'lucide-react';
+import { MoreHorizontal, MessageCircle, Eye, EyeOff, MapPin, Bell, BellOff, Pin, PinOff, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { AnimatedCommentCount } from '@/components/AnimatedCommentCount';
-import CardFeedbackDialog from '@/components/CardFeedbackDialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useNow } from '@/hooks/useNow';
 import { saveItem } from '@/utils/itemOperations';
@@ -32,6 +41,8 @@ interface ContentItem {
   attributes?: ItemAttributes;
   remind_at?: string | null;
   reminder_cleared_at?: string | null;
+  pinned_at?: string | null;
+  supplemental_note?: string | null;
 }
 
 interface ContentItemFooterProps {
@@ -42,6 +53,7 @@ interface ContentItemFooterProps {
   isPublicView?: boolean;
   currentUserId?: string;
   onTogglePrivacy?: (item: ContentItem) => void;
+  onTogglePin?: (item: ContentItem) => void;
   onCommentClick?: (itemId: string) => void;
 }
 
@@ -66,13 +78,15 @@ const sourceAndFact = (item: ContentItem): { source: string; fact: string | null
 
 const ContentItemFooter = ({
   item,
+  onDeleteItem,
   onChatWithItem,
   isPublicView = false,
   currentUserId,
   onTogglePrivacy,
+  onTogglePin,
   onCommentClick
 }: ContentItemFooterProps) => {
-  const [reportOpen, setReportOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const now = useNow();
   const { toast } = useToast();
@@ -166,36 +180,39 @@ const ContentItemFooter = ({
                 Comments
               </DropdownMenuItem>
             )}
-            {showOwnerControls && (
-              <>
-                {onTogglePrivacy && (
-                  <DropdownMenuItem onClick={() => onTogglePrivacy(item)}>
-                    {item.is_public ? (
-                      <>
-                        <EyeOff className="h-4 w-4 mr-2" />
-                        Set to Private
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="h-4 w-4 mr-2" />
-                        Set to Public
-                      </>
-                    )}
-                  </DropdownMenuItem>
+            {/* The owner's actions (DESIGN-v2 §12.3): pin, share, remind, delete */}
+            {!isPublicView && onTogglePin && (
+              <DropdownMenuItem onClick={() => onTogglePin(item)}>
+                {item.pinned_at ? <PinOff className="h-4 w-4 mr-2" /> : <Pin className="h-4 w-4 mr-2" />}
+                {item.pinned_at ? 'Unpin' : 'Pin this'}
+              </DropdownMenuItem>
+            )}
+            {(showOwnerControls || !isPublicView) && onTogglePrivacy && (
+              <DropdownMenuItem onClick={() => onTogglePrivacy(item)}>
+                {item.is_public ? (
+                  <>
+                    <EyeOff className="h-4 w-4 mr-2" />
+                    Unshare from feed
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-4 w-4 mr-2" />
+                    Share to feed
+                  </>
                 )}
-              </>
+              </DropdownMenuItem>
             )}
             {!isPublicView && (
               <>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Bell className="h-4 w-4 mr-2" />
-                    {hasActiveReminder ? 'Change reminder…' : 'Remind me…'}
+                    Resurface in…
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     {REMINDER_PRESETS.map((days) => (
                       <DropdownMenuItem key={days} onClick={() => setReminder(days)}>
-                        {days === 1 ? 'In 1 day' : `In ${days} days`}
+                        {days === 1 ? '1 day' : `${days} days`}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuSubContent>
@@ -203,13 +220,13 @@ const ContentItemFooter = ({
                 {hasActiveReminder && (
                   <DropdownMenuItem onClick={removeReminder}>
                     <BellOff className="h-4 w-4 mr-2" />
-                    Remove reminder
+                    Don't resurface
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setReportOpen(true)}>
-                  <Flag className="h-4 w-4 mr-2" />
-                  Report a problem
+                <DropdownMenuItem onClick={() => setConfirmDelete(true)} className="text-error focus:bg-error focus:text-white">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete this
                 </DropdownMenuItem>
               </>
             )}
@@ -218,7 +235,25 @@ const ContentItemFooter = ({
         )}
       </div>
 
-      {!isPublicView && <CardFeedbackDialog item={item} open={reportOpen} onOpenChange={setReportOpen} />}
+      {/* The same confirmation the panel asks (see EditItemSheet) */}
+      {!isPublicView && (
+        <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this item?</AlertDialogTitle>
+              <AlertDialogDescription>
+                "{item.title || 'Untitled'}" and everything Stash knows about it will be removed. This can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => onDeleteItem(item.id)} className="bg-error hover:bg-error hover:opacity-90">
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 };

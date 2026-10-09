@@ -77,5 +77,5 @@ export const useItemSourceContent = (itemId: string | undefined, enabled: boolea
     }
   }, [itemId, isGenerating]);
 
-  return { summary, pageBody, isLoading, isGenerating, generateError, generateSummary };
+  return { summary, pageBody, isLoading, isGenerating, generateError, generateSummary, setSummary };
 };
