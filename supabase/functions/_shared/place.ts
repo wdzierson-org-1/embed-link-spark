@@ -463,12 +463,17 @@ export const readPlace = (value: unknown): PlaceAttributes | undefined => {
 // ---- addresses in a picture's own text (round 2) ----------------------------------------------
 
 const STREET_WORDS = 'Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct|Place|Pl|Highway|Hwy|Parkway|Pkwy|Square|Sq|Terrace|Ter|Circle|Cir|Trail|Trl|Broadway|Alley|Route|Rte|Turnpike|Tpke';
-// "55 Phila St", "1600 Pennsylvania Ave NW Suite 200" — the number, the name, the street word, a unit
-const STREET_LINE = new RegExp(`\\b(\\d{1,6}[A-Za-z]?)\\s+((?:[A-Z0-9][A-Za-z0-9.'’-]*\\s+){0,5}?(?:${STREET_WORDS})\\.?)(?:\\s+(?:N|S|E|W|NE|NW|SE|SW))?(?:,?\\s*(?:#|Suite|Ste\\.?|Apt\\.?|Unit|Fl\\.?|Floor)\\s*[\\w-]+)?`, 'g');
+// "55 Phila St", "1600 Pennsylvania Ave NW Suite 200", "5th Ave" — the number, the name (words,
+// or an ordinal; never a bare number or a clock's "PM", which listing screenshots put right
+// before the address: "Closes 6 PM 107 Charles St"), the street word, a unit
+// The house number never starts with 0 and never follows another number (a phone's groups)
+const STREET_LINE = new RegExp(`(?<!\\d[\\s.-])(?<![\\d:])\\b([1-9]\\d{0,5}[A-Za-z]?)\\s+((?:(?:[A-Z][A-Za-z.'’-]*|\\d{1,3}(?:st|nd|rd|th))\\s+){0,4}?(?:${STREET_WORDS})\\.?)(?:\\s+(?:N|S|E|W|NE|NW|SE|SW))?(?:,?\\s*(?:#|Suite|Ste\\.?|Apt\\.?|Unit|Fl\\.?|Floor)\\s*[\\w-]+)?`, 'g');
 // "Saratoga Springs, NY 12866" / "Brooklyn, NY" / "Washington, DC 20500-0003"
 const CITY_STATE = /([A-Z][A-Za-z.'’-]+(?:\s[A-Z][A-Za-z.'’-]+){0,3}),\s*([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?/;
-// European order: "Classensgade 4, 2100 København" / "Rue de Rivoli 12, 75001 Paris"
-const EURO_LINE = /\b([A-ZÆØÅÄÖÜ][\wæøåäöüß.'’-]{2,40}(?:\s[\wæøåäöüß.'’-]{1,30}){0,3})\s+(\d{1,4}[A-Za-z]?),?\s+(\d{4,5})\s+([A-ZÆØÅÄÖÜ][\wæøåäöüß .'’-]{2,40})\b/g;
+// European order: "Classensgade 4, 2100 København" / "Rue de Rivoli 12, 75001 Paris" — the
+// street is words (never digits, so a phone's groups cannot pose as one), then the number,
+// the postcode and a capitalised town
+const EURO_LINE = /\b([A-ZÆØÅÄÖÜ][a-zæøåäöüß.'’-]{2,40}(?:\s[A-Za-zæøåäöüß.'’-]{1,30}){0,3})\s+(\d{1,4}[A-Za-z]?),?\s+(\d{4,5})\s+([A-ZÆØÅÄÖÜ][\wæøåäöüß .'’-]{2,40})\b/g;
 
 export type AddressCandidate = { text: string; line: number; complete: boolean };
 

@@ -192,6 +192,13 @@ describe('addresses in a picture’s text (round 2)', () => {
     expect(extractPhone(ocr)).toBeUndefined();
   });
 
+  it('never takes a clock for a house number, and still reads numbered streets', () => {
+    // The vision OCR of a listing runs the hours straight into the address
+    expect(extractAddressCandidates('Yosemite Eyewear Eye care center · Open · Closes 6 PM 107 Charles St, Boston, MA 02114 (617) 227-1111')).toEqual([{ text: '107 Charles St, Boston, MA 02114', line: 0, complete: true }]);
+    expect(extractAddressCandidates('Open 10:30 AM 25 5th Ave, New York, NY 10003')).toEqual([{ text: '25 5th Ave, New York, NY 10003', line: 0, complete: true }]);
+    expect(extractAddressCandidates('Call us at 212 555 0100 Main St')).toEqual([]);
+  });
+
   it('joins a street line with the city line under it, reads phones, and prefers complete addresses', () => {
     const ocr = 'SOLEVO KITCHEN + SOCIAL\n55 Phila St\nSaratoga Springs, NY 12866\n(518) 450-7094\nsolevokitchenandsocial.com\nAlso at 12 Main Street';
     expect(extractAddressCandidates(ocr)).toEqual([
