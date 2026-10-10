@@ -3,10 +3,46 @@
 ## Integrated app
 
 The October 10 update is implemented on `codex/ios-design-v2`, building on local main
-`aa1dbfea`. The primary checkout is `/Users/will/Appdev/embed-link-spark`.
+`575deb2e`. The primary checkout is `/Users/will/Appdev/embed-link-spark`.
 The simulator gallery contains real native captures using the review account.
 
-## October 10 — revised toast and detail controls
+## October 10 — compact detail follow-up
+
+- Two-line titles expand on tap into a full editor with square Save / Cancel. Unsaved drafts
+  stay local; committed titles follow the existing durable pipeline.
+- Descriptions follow the main visual. The type badge and source Copy/Open buttons are removed.
+- Video links show Summary / Transcript only, with an honest empty state for unverified source text.
+- Share item is a compact paper toast with square X and one full-width Copy link action.
+  Existing tokens are reused and feed privacy stays unchanged.
+
+### Verification of this follow-up
+
+- **20 focused StashKit tests pass**, covering video tabs, transcript evidence, edited addresses,
+  canonical video links and conservative provider classification.
+- **Two native acceptance flows pass** across separate runs. Title coverage includes two-line
+  truncation, full draft focus, no autosave before Save, Cancel, durable Save/relaunch, preserved
+  notes/source text/privacy, media-first order, and reachable AX3 controls with the keyboard open.
+  Item sharing covers Copy feedback, anonymous access, token reuse after closing/reopening,
+  and unchanged feed privacy. Disposable review-account fixtures are cleaned up by exact ID.
+- Real native screenshots were reviewed and added to the gallery, including the AX3 title editor.
+- The verified app is installed and running on **Stash Design v2**; a simulator capture confirms
+  the owner's signed-in library remains intact. The Mac locked before the final window-foreground
+  check, so Device Hub could not be raised; select Stash Design v2 after unlocking if needed.
+
+Evidence:
+
+- Unit log: `/private/tmp/stash-detail-video-classification-green.log`
+- Native build and compiled legacy test migrations: `/private/tmp/stash-detail-refinement-final-build2.log`
+- Title acceptance: `/private/tmp/stash-detail-refinement-v4-ui.xcresult`
+- Share acceptance: `/private/tmp/stash-detail-refinement-v2-ui.xcresult` (share flow passes;
+  the earlier title scroll-helper failure is resolved in the title run above)
+
+Legacy title tests have been migrated to explicit Save and draft isolation. Autosave race
+coverage uses the description field, which retains that behavior. These migrations are compiled;
+the complete legacy UI suite has not been rerun. The earlier 958-test full StashKit result and
+playback acceptance below belong to the preceding pass.
+
+## October 10 — revised toast and detail controls (earlier pass)
 
 - Navigation remains **View, Ask, Add, Settings**.
 - Share toast: bordered media/link preview and note input, a visible retro **Share to feed**
@@ -31,9 +67,9 @@ The simulator gallery contains real native captures using the review account.
 Web reference: `app-redesign-v2` at `4315aa49`. The earlier ASCII sign-in pool,
 masonry library and rotating thinking cursor remain in place.
 
-### Verification
+### Verification of the earlier pass
 
-The current full StashKit suite passes **958 tests**. The real Safari share flow passes: feed on/off, square Save beside the pin, location status,
+The prior full StashKit suite passed **958 tests**. The real Safari share flow passes: feed on/off, square Save beside the pin, location status,
 note entry, confirmation within 500 ms and exactly one private server item. The AX3 check
 passes for first-tap note focus, pinned Save above the keyboard, touch targets and audit.
 Address-edit acceptance passes for invalid input, cancel, save, metadata cleanup, preserved

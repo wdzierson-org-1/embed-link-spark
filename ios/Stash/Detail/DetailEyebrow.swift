@@ -21,18 +21,15 @@ struct DetailEyebrow: View {
                 .foregroundStyle(StashColor.spotOnInk)
                 .frame(width: 16, height: 20)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                CardKindTag(text: cardKindLabel(for: item), inverted: true)
-                Text(source)
-                    .stashFont(.machine)
-                    .foregroundStyle(StashColor.white.opacity(0.7))
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(source)
+                .stashFont(.machine)
+                .foregroundStyle(StashColor.white.opacity(0.7))
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(cardKindLabel(for: item)), \(source)")
+        .accessibilityLabel(source)
         .accessibilityIdentifier("detail.eyebrow")
     }
 

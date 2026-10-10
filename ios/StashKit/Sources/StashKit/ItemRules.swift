@@ -59,17 +59,31 @@ public func contentTabsConfig(for type: ItemType) -> ContentTabsConfig {
     }
 }
 
-/// Video links keep ordinary page text readable until the server confirms a transcript.
+/// Video links always expose Summary and Transcript. Until the server confirms a transcript,
+/// the transcript pane stays empty; ordinary page text is never relabelled as speech.
 /// Notes remain independent of these source tabs.
 public func contentTabsConfig(for item: Item) -> ContentTabsConfig {
-    guard item.type == .link, item.attributes.link?.flavor == "video" else {
+    guard isVideoLink(item) else {
         return contentTabsConfig(for: item.type)
     }
     let summary = ContentTab(key: .summary, label: "Summary")
     let transcript = ContentTab(key: .transcript, label: "Transcript")
-    let original = ContentTab(key: .original, label: "Original Content")
-    return .init(title: "Source", defaultTab: .summary,
-                 tabs: item.attributes.hasCapturedTranscript ? [summary, transcript] : [summary, original, transcript])
+    return .init(title: "Source", defaultTab: .summary, tabs: [summary, transcript])
+}
+
+/// New links and edited addresses can have a player before enrichment supplies a flavor.
+/// Reuse playback's validated hosts and canonical precedence. Generic Instagram posts may
+/// contain photos, so only their explicit video routes qualify without a video flavor.
+private func isVideoLink(_ item: Item) -> Bool {
+    guard item.type == .link else { return false }
+    if item.attributes.link?.flavor == "video" { return true }
+    guard let source = DetailMediaRules.source(for: item), case .embed(let embed) = source else { return false }
+    switch embed.provider {
+    case .youtube, .vimeo, .loom, .tiktok:
+        return true
+    case .instagram:
+        return ["reel", "tv"].contains(embed.url.path.split(separator: "/").first.map(String.init) ?? "")
+    }
 }
 
 public extension ItemAttributes {
@@ -85,7 +99,7 @@ public extension ItemAttributes {
 /// it is a transcript; recordings already store only their transcript in this source lane.
 public func transcriptText(for item: Item) -> String? {
     guard item.type == .audio || item.type == .video
-            || (item.type == .link && item.attributes.link?.flavor == "video" && item.attributes.hasCapturedTranscript)
+            || (isVideoLink(item) && item.attributes.hasCapturedTranscript)
     else { return nil }
     return item.pageBody
 }
@@ -147,7 +161,7 @@ public func mergePreservingDetail(local: Item, incoming: Item, hasUnsavedTitle: 
     if incoming.pageBody == nil {
         // A realtime row can announce a newly captured transcript before its source body
         // is fetched. The previously loaded page may be navigation text, so don't relabel it.
-        let transcriptJustArrived = incoming.type == .link && incoming.attributes.link?.flavor == "video"
+        let transcriptJustArrived = isVideoLink(incoming)
             && !local.attributes.hasCapturedTranscript && incoming.attributes.hasCapturedTranscript
         result.pageBody = transcriptJustArrived ? nil : local.pageBody
     }

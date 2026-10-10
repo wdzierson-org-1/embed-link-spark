@@ -48,7 +48,7 @@ final class DesignV2DetailUITests: XCTestCase {
                           "Missing detail anatomy element: \(required.identifier)")
         }
         XCTAssertTrue(element("detail.urlText").label.contains("nasa.gov"))
-        XCTAssertEqual(title.value as? String, "NASA")
+        XCTAssertEqual(title.label, "NASA")
         XCTAssertTrue(element("detail.eyebrow").label.lowercased().contains("nasa.gov"))
         XCTAssertEqual(autosave.label, "changes save automatically")
         XCTAssertFalse(element("detail.details.row.saved").exists,
@@ -61,8 +61,9 @@ final class DesignV2DetailUITests: XCTestCase {
         assertAbove(title, description, "Title must precede description")
         let hero = element("detail.heroImage")
         if hero.exists {
-            assertAbove(description, hero, "Description must precede media")
-            assertAbove(hero, summaryTab, "Media must precede source tabs")
+            assertAbove(title, hero, "Title must precede media")
+            assertAbove(hero, description, "Media must precede description")
+            assertAbove(description, summaryTab, "Description must precede source tabs")
         } else {
             assertAbove(description, summaryTab, "Description must precede source tabs")
         }
@@ -76,9 +77,12 @@ final class DesignV2DetailUITests: XCTestCase {
         // Focus only: the existing item is never changed. Check both a top field and the
         // notes field below the source; the pinned footer must dismiss either keyboard.
         A11yScreens.scrollIntoView(app, title)
-        let initialTitle = title.value as? String
-        assertKeyboardDismisses(app, field: title)
-        XCTAssertEqual(title.value as? String, initialTitle)
+        let initialTitle = title.label
+        title.tap()
+        let titleEditor = element("detail.title.editor")
+        assertKeyboardDismisses(app, field: titleEditor)
+        app.buttons["detail.title.cancel"].tap()
+        XCTAssertEqual(title.label, initialTitle)
 
         A11yScreens.scrollIntoView(app, notes)
         let initialNotes = notes.value as? String

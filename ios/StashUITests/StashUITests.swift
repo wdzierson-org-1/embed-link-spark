@@ -691,15 +691,28 @@ final class StashUITests: XCTestCase {
         let epoch = Int(Date().timeIntervalSince1970)
         let editedTitle = "\(originalTitle) (edited \(epoch))"
 
-        let titleField = anyElement("detail.title")
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
+        let titleButton = app.buttons["detail.title"]
+        XCTAssertTrue(titleButton.waitForExistence(timeout: 10), "Title button not found")
+        titleButton.tap()
+        let titleField = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND (elementType == %d OR elementType == %d)",
+                                  "detail.title.editor", Int(XCUIElement.ElementType.textView.rawValue),
+                                  Int(XCUIElement.ElementType.textField.rawValue))).firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5), "Title editor not found")
         replaceText(titleField, placeholder: "Untitled", with: editedTitle)
         XCTAssertEqual(titleField.value as? String, editedTitle,
                        "Expected the title field to show the edit immediately")
 
-        // Debounce is 400ms; give the save round trip margin, then hold for the external
-        // screenshot rig (same checkpoint technique as testDetailSheets/testTagFilterSheetOpens).
-        sleep(2)
+        // The local draft becomes durable only through explicit Save.
+        let hide = app.buttons["detail.dismissKeyboard"]
+        if hide.exists { hide.tap() }
+        let save = app.buttons["detail.title.save"]
+        A11yScreens.scrollIntoView(app, save)
+        save.tap()
+        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND label == %@", editedTitle),
+                                             object: titleButton)
+        XCTAssertEqual(XCTWaiter().wait(for: [saved], timeout: 20), .completed,
+                       "Successful title Save must collapse to the committed title")
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: edit\n".data(using: .utf8)!)
         sleep(5)
 
@@ -711,9 +724,9 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(editedCard.waitForExistence(timeout: 15), "Expected the edited card to still be findable")
         editedCard.tap()
 
-        let reopenedTitleField = anyElement("detail.title")
-        XCTAssertTrue(reopenedTitleField.waitForExistence(timeout: 10), "Title field not found on reopen")
-        XCTAssertEqual(reopenedTitleField.value as? String, editedTitle,
+        let reopenedTitle = app.buttons["detail.title"]
+        XCTAssertTrue(reopenedTitle.waitForExistence(timeout: 10), "Title button not found on reopen")
+        XCTAssertEqual(reopenedTitle.label, editedTitle,
                        "Expected the edited title to have persisted across dismiss/reopen")
 
         // Notes autosave (Plan 8 Task 5: inline editor replaces the old append composer).
@@ -798,10 +811,18 @@ final class StashUITests: XCTestCase {
         // either by an explicit REST PATCH in the shell right after this run, or automatically by
         // the NEXT run's own restore-first pre-flight (top of this test) if that shell step is
         // ever skipped, or this run crashes before reaching it.
-        replaceText(reopenedTitleField, placeholder: "Untitled", with: originalTitle)
-        XCTAssertEqual(reopenedTitleField.value as? String, originalTitle,
-                       "Expected the title to be restored to exactly the original fixture title")
-        sleep(2)
+        if hide.exists { hide.tap() }
+        A11yScreens.scrollIntoView(app, titleButton)
+        titleButton.tap()
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
+        replaceText(titleField, placeholder: "Untitled", with: originalTitle)
+        if hide.exists { hide.tap() }
+        A11yScreens.scrollIntoView(app, save)
+        save.tap()
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND label == %@", originalTitle),
+                                                object: titleButton)
+        XCTAssertEqual(XCTWaiter().wait(for: [restored], timeout: 20), .completed,
+                       "Expected explicit Save to restore the canonical fixture title")
 
         app.buttons["detail.done"].tap()
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after final dismiss")
@@ -2294,7 +2315,7 @@ final class StashUITests: XCTestCase {
 
         let eyebrow = anyElement("detail.eyebrow")
         XCTAssertTrue(eyebrow.waitForExistence(timeout: 10), "Eyebrow not found")
-        XCTAssertTrue(eyebrow.label.contains("LINK"), "Expected the eyebrow to read the type LINK, got '\(eyebrow.label)'")
+        XCTAssertTrue(eyebrow.label.lowercased().contains("saved"), "Expected source and saved date in the eyebrow")
         XCTAssertTrue(eyebrow.label.contains("example.com"),
                       "Expected the eyebrow to include the domain 'example.com', got '\(eyebrow.label)'")
 
@@ -2326,7 +2347,8 @@ final class StashUITests: XCTestCase {
         let titleField = anyElement("detail.title")
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
         // Plan 16: the title wraps (a vertical-axis field), which a bare tap doesn't always focus.
-        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(titleField) }
+        titleField.tap()
+        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(anyElement("detail.title.editor")) }
 
         let dismissKeyboard = app.buttons["detail.dismissKeyboard"]
         XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
@@ -3409,9 +3431,9 @@ final class StashUITests: XCTestCase {
                           "Tap point \(tapY) should sit in card.\(index)'s bottom 10pt (frame \(frame))")
             app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: tapY)).tap()
 
-            let detailTitle = app.descendants(matching: .any)["detail.title"]
+            let detailTitle = app.buttons["detail.title"]
             XCTAssertTrue(detailTitle.waitForExistence(timeout: 10), "No detail sheet after tapping card.\(index)'s bottom edge")
-            XCTAssertEqual(detailTitle.value as? String, title(index),
+            XCTAssertEqual(detailTitle.label, title(index),
                            "Tapping the bottom edge of card.\(index) opened a different card")
             app.buttons["detail.done"].tap()
             XCTAssertTrue(card(index).waitForExistence(timeout: 10), "Expected the grid back after closing the sheet")

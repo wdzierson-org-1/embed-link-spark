@@ -2,7 +2,7 @@ import SwiftUI
 import StashKit
 import UIKit
 
-/// The source address strip: copy / edit / open, or explicit cancel / save while editing.
+/// The source address strip: address / edit, or explicit cancel / save while editing.
 /// Draft text stays local to the strip until Save. The parent owns durable committed writes.
 struct DetailURLBar: View {
     let urlString: String
@@ -14,10 +14,8 @@ struct DetailURLBar: View {
     @State private var saving = false
     @State private var needsRetry = false
     @State private var error: String?
-    @State private var copied = false
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.openURL) private var openURL
 
     private var url: URL? { URL(string: urlString) }
 
@@ -78,19 +76,11 @@ struct DetailURLBar: View {
                         .disabled(saving)
                 } else {
                     address
-                    cell(copied ? "Copied address" : "Copy address", symbol: copied ? "checkmark" : "doc.on.doc",
-                         identifier: "detail.url.copy") {
-                        UIPasteboard.general.string = urlString
-                        copied = true
-                    }
                     cell("Edit address", symbol: "pencil", identifier: "detail.url.edit") {
                         draft = urlString
                         error = nil
                         editing = true
                         focus.wrappedValue = .url
-                    }
-                    if let url {
-                        cell("Open link", symbol: "arrow.up.right", identifier: "detail.openLink") { openURL(url) }
                     }
                 }
             }
@@ -109,11 +99,7 @@ struct DetailURLBar: View {
             }
         }
         .onChange(of: urlString) { _, _ in
-            if !editing && !saving { draft = urlString; error = nil; copied = false }
-        }
-        .task(id: copied) {
-            guard copied else { return }
-            do { try await Task.sleep(for: .seconds(2)); copied = false } catch {}
+            if !editing && !saving { draft = urlString; error = nil }
         }
     }
 

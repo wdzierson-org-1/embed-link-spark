@@ -8,6 +8,26 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Compact mobile detail and Copy link toast
+
+- **Title:** two lines with a trailing ellipsis at rest, including Dynamic Type. Tapping opens
+  the complete title in a focused editor with square Save and Cancel controls. Drafts stay local
+  until Save; Cancel or dismiss discards them. Committed titles use the existing durable queue.
+- **Reading order:** source address, title, main image/player, then description. Objects without
+  media keep the description beneath the title. The header omits the type badge.
+- **Address:** the bordered source strip exposes Edit only. Existing long-press Copy/Open
+  actions and the media player's Open original fallback remain available.
+- **Video tabs:** Summary and Transcript only. Unflagged scraped page text remains stored but
+  does not appear as a transcript; a truthful empty state appears until transcript evidence arrives.
+  Ordinary article links retain Original Content.
+- **Share item:** a compact paper toast matching Share to Stash: square X, disclosure, boxed
+  link and one full-width square Copy link button with copied feedback. The prior native Share,
+  feed explanation and revoke rows are removed. Creating/reusing a link still requires explicit
+  Share, never publishes to the feed, and closing the toast never revokes it.
+
+Sources: `DetailTitleEditor`, `ItemDetailView`, `DetailEyebrow`, `DetailURLBar`,
+`ItemShareControl`, and StashKit's item-aware tab rules.
+
 ## 2026-10-10 · iOS toast refinement and video/detail parity
 
 - **Toast:** removes More options and Dictate a note. The paper toast contains a bordered

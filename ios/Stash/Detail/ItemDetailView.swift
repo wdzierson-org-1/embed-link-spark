@@ -251,10 +251,6 @@ final class DetailSheetServices: ObservableObject {
     /// bindings add to it; `saveChangedFields` empties it as it records (a field it leaves out
     /// needs no save, and must take a server value again).
     var typedSinceSave: Set<SheetTextField> = []
-    /// The title as the user last typed, pasted or dictated it into the field (Task 4e, 4d review
-    /// N-3): `keepTitleOnOneLine` resolves only a change that came from the field — never a title
-    /// the server sends while the field has focus.
-    var typedTitle: String?
 
     init(item: Item, userId: UUID) {
         editor = DetailEditorFactory.make()
@@ -322,6 +318,7 @@ struct ItemDetailView: View {
     @State private var transcriptionErrorMessage: String?
     @State private var isGeneratingSummary = false
     @State private var summaryErrorMessage: String?
+    @State private var editingTitle = false
 
     let store: ItemStore
 
@@ -426,8 +423,6 @@ struct ItemDetailView: View {
                                 .padding(.bottom, 28)
                         }
                         titleField
-                        descriptionField
-                            .padding(.top, DetailLayout.gap)
                         // Web parity (`EditItemSheet.tsx`'s `hasImage` gate): `(type === 'image'
                         // || type === 'link') && file_path` — `item.thumbnailURL` is that same
                         // "file_path present" check (`ItemRules.swift`).
@@ -439,6 +434,8 @@ struct ItemDetailView: View {
                             heroImage(url)
                                 .padding(.top, DetailLayout.gap)
                         }
+                        descriptionField
+                            .padding(.top, DetailLayout.gap)
                         ItemDetailContent(item: item, selectedTab: $selectedTab,
                                           sourceLoad: sourceLoad,
                                           onRetryDetail: { Task { await loadDetailIfNeeded() } },
@@ -525,58 +522,10 @@ struct ItemDetailView: View {
 
     // MARK: - Flow surface pieces
 
-    /// Object title (panel) per DESIGN.md: 500 · 28 / 1.2 · −0.02em, inline-editable — "no input
-    /// chrome at rest; violet wash on hover; wash + ring on focus." Touch has no hover, so the
-    /// wash/ring both key off `focusedField == .title` here.
-    ///
-    /// Plan 16: the placeholder is what the card shows once the field is left empty — the type
-    /// label ("Voice note", "Photo", …) on an audio, image, video or file item (an object-name
-    /// title opens as an empty field, see `baseline`; a cleared one is saved as "" and reads the
-    /// same, M-6), "Untitled" on any other type.
-    ///
-    /// Plan 16 (HIG + accessibility): the `panelTitle` role (28 pt, scaling with `.title`), and the
-    /// title WRAPS — a vertical-axis field — so no part of it is ever cut off (it used to scroll
-    /// sideways out of view in one line, at every size). It is still one line of text: Return
-    /// ends editing, as it did, and a pasted line break becomes a space (`keepTitleOnOneLine`).
-    /// The placeholder is `muted` (`prompt:`; the system grey is 1.7:1 and this one names the
-    /// item), and VoiceOver calls the field "Title" — not its placeholder, which would announce a
-    /// typed title as "Voice note" or "Untitled". A vertical-axis field is a text view underneath,
-    /// which a bare XCUITest `.tap()` doesn't always focus — UI tests tap until it has focus
-    /// (`tapUntilFocused`).
+    /// Two lines while reading; a full draft and explicit Save when editing.
     private var titleField: some View {
-        let placeholder = ItemDisplay.titlePlaceholder(for: snapshot)
-        return TextField("Title", text: titleBinding,
-                         prompt: Text(placeholder).foregroundStyle(StashColor.muted), axis: .vertical)
-            .stashFont(.panelTitle)
-            .stashTracking(-0.02, role: .panelTitle)
-            .foregroundStyle(StashColor.ink)
-            .textFieldStyle(.plain)
-            .submitLabel(.done)
-            .onSubmit { focusedField = nil }
-            .onChange(of: item.title) { oldTitle, newTitle in keepTitleOnOneLine(was: oldTitle, now: newTitle) }
-            .focused($focusedField, equals: .title)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(focusedField == .title ? StashColor.surface : Color.clear,
-                        in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                    // 1pt (was 2pt) — matches every other hairline/focus stroke on the sheet.
-                    .strokeBorder(focusedField == .title ? StashColor.ink : Color.clear, lineWidth: 1)
-            )
-            .overlay {
-                if focusedField == .title {
-                    Rectangle().stroke(StashColor.spot, lineWidth: 3).padding(-2).allowsHitTesting(false)
-                }
-            }
-            .accessibilityIdentifier("detail.title")
-            // Final wave: the 6pt horizontal padding above exists to grow the tap/focus target,
-            // not to push the TEXT off `DetailLayout.inset` — negating it here shifts the whole
-            // padded+background+overlay assembly left by 6pt so the glyph's own left edge lands
-            // exactly on `DetailLayout.inset` (20), flush with the eyebrow/URL bar above it,
-            // while the hit target itself keeps its full width.
-            .padding(.horizontal, -6)
-            .detailFieldTapTarget { focusedField = .title }
+        DetailTitleEditor(title: item.title ?? "", placeholder: ItemDisplay.titlePlaceholder(for: snapshot),
+                          focus: $focusedField, onSave: saveTitle, editing: $editingTitle)
     }
 
     /// Plan 16: reading text — the `reading` role, 17 pt (was 14) — in `muted` (5.38:1), with a
@@ -796,14 +745,15 @@ struct ItemDetailView: View {
                 .foregroundStyle(StashColor.destructive)
                 .accessibilityIdentifier("detail.autosave.error")
         } else {
-            StashStatusLine(text: saveStatus == .saving ? "saving…" : "changes save automatically",
+            StashStatusLine(text: saveStatus == .saving ? "saving…" :
+                            (editingTitle ? "save title to apply" : "changes save automatically"),
                             busy: saveStatus == .saving)
                 .foregroundStyle(StashColor.muted)
                 .accessibilityIdentifier("detail.autosave")
         }
     }
 
-    // MARK: - Field bindings (title/description autosave)
+    // MARK: - Explicit title/address saves and autosaving field bindings
 
     /// Only the strip's explicit Save commits an address. From that point it follows the
     /// same write-ahead queue, supersede rules and dismiss journal as every other saved field.
@@ -814,33 +764,11 @@ struct ItemDetailView: View {
         return await save(ItemPatch(url: address)).isSaved
     }
 
-    private var titleBinding: Binding<String> {
-        Binding(get: { item.title ?? "" }, set: { newValue in
-            services.typedTitle = newValue
-            services.typedSinceSave.insert(.title)
-            item.title = newValue
-            scheduleFieldSave()
-        })
-    }
-
-    /// Plan 16: the title field wraps (`axis: .vertical`), but a title is one line of text. A
-    /// vertical-axis field inserts a line break on Return, so while the user is typing in it the
-    /// change is resolved by what it inserted (StashKit's `OneLineTitleEdit`, 2b review I-1): a
-    /// bare Return — over a selection too — leaves the title as it was and ends editing, as the
-    /// single-line field did; a Return that also accepted an autocorrection keeps the correction
-    /// and ends editing; a pasted line break becomes a space. The line break is only ever on
-    /// screen for the one update this takes — the 400 ms autosave never sees it.
-    ///
-    /// Only a change that came from the field is resolved (`services.typedTitle`, Task 4e — 4d
-    /// review N-3). A title the server sends while the field has focus (an AI title, another
-    /// device) is shown as the server has it: resolved here, one ending in a line break ended
-    /// editing under the user's fingers, and the sheet then wrote its one-line copy back as if the
-    /// user had typed it. The user's own next edit of such a title still makes it one line.
-    private func keepTitleOnOneLine(was oldTitle: String?, now newTitle: String?) {
-        guard focusedField == .title, newTitle == services.typedTitle,
-              let edit = OneLineTitleEdit.resolve(old: oldTitle, new: newTitle) else { return }
-        item.title = edit.title
-        if edit.endsEditing { focusedField = nil }
+    /// The editor keeps its draft separate. Only its Save enters the durable field pipeline.
+    @MainActor
+    private func saveTitle(_ title: String) async -> Bool {
+        item.title = title
+        return await save(ItemPatch(title: title)).isSaved
     }
 
     private var descriptionBinding: Binding<String> {
@@ -1007,7 +935,7 @@ struct ItemDetailView: View {
         saveStatus = .saved
     }
 
-    /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
+    /// The debounced field autosave (400ms after the last description/sticky-note keystroke).
     /// Naturally idempotent — nothing unsaved (`DetailFieldEdits.textPatch`) is a no-op. Marked
     /// @MainActor deliberately: it's reached through `Debouncer`, its own (non-Main) actor, whose
     /// internal `Task` doesn't inherit the main actor. Quiet once the sheet has closed — the

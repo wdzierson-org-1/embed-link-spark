@@ -1,40 +1,12 @@
 import XCTest
 
-/// Plan 16, Task 4 — two bugs in Will's 2026-09-30 device screenshots:
+/// Detail regression coverage: explicit title drafts and durable Save; inline description and
+/// note autosave races; failed sharing never replayed as a surprise publish; keyboard, footer,
+/// accessibility and library search layout behavior. Title concurrency cases use description
+/// because a title's explicit Save intentionally disables its editor until the request ends.
 ///
-/// 1. A voice note's detail sheet was titled with its raw storage object name (`f200ad94-…`): the
-///    card's type-label fallback now reaches the sheet as an EMPTY title field whose placeholder is
-///    that label, and the sheet never writes a title the user didn't type.
-/// 2. The View tab's "Search your stash" pill was half covered by the first card while it hid on
-///    scroll: the pill is now the first element of the scroll content, above the cards, and
-///    scrolls away with them instead of collapsing over them.
-///
-/// And from the Task 4 review (I-1): a title typed into that empty field and then cleared again
-/// after its autosave went out — on a slow link, on a stalled one, and closed straight after the
-/// clear — stays cleared: the field never refills, and the server gets the clear, never the typed
-/// text.
-///
-/// Task 4c (re-review P-1, §9): the same on the slow link for a title retyped after its clear was
-/// sent (the server ends with the retyped title), a description reverted to its server value while
-/// the edit is in flight, and a plain note cleared and closed while its text is in flight.
-///
-/// Task 4d (4c review P-4; 2b review I-1, M-3, N-3): on a stalled link, a Sharing toggle the user
-/// saw fail — the app having left the foreground mid-flight — is never delivered later (a share
-/// never publishes the item; an un-share leaves it public with its note, as the sheet showed); the
-/// sticky note hides its keyboard with the sheet's own control, and VoiceOver hears its name once;
-/// "done" over a selected word in the wrapping title keeps the title and ends editing; at AX3 the
-/// footer drops its resting caption.
-///
-/// Task 4e (4d review A-1, B-3, B-4, N-3): a queued share turned back off in a reopened sheet and
-/// closed on the stalled link is never published; the Sharing tests prove the relaunch's flush ran
-/// (a title edit queued in the same flight lands first) before they read `is_public`; at AX3 the
-/// footer keeps still while it saves and says "Couldn't save" under Delete; a server title arriving
-/// while the title has focus is left as the server has it. Fix round 1 (review M-3): at AX5 too,
-/// and the Delete row fits a 375 pt-wide phone.
-///
-/// Self-contained like `DetailUITests` (its own sign-in and REST helpers). Seeded rows carry a
-/// `UITEST-P16-` marker and are deleted in teardown blocks, so a failed assertion can't leak them
-/// (a failed delete is reported, never swallowed); `UITEST-FIXTURE` rows are never touched.
+/// Self-contained throwaway `UITEST-P16-` rows are deleted in teardown. Permanent fixtures are
+/// never edited; a failed cleanup is reported rather than swallowed.
 final class LibraryDetailUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -60,11 +32,8 @@ final class LibraryDetailUITests: XCTestCase {
 
     // MARK: - Detail title
 
-    /// An audio row titled with a UUID object name (what an iOS share / Voice Memos upload stores):
-    /// the sheet shows an empty title field with "Voice note" as its placeholder; opening and
-    /// closing writes nothing; a title the server writes while the sheet is open (the transcription
-    /// job's AI title, via realtime) replaces the placeholder and closing still writes nothing; and a
-    /// typed title — into a field that really was empty — saves.
+    /// Object-name titles render the type label. Opening/cancelling does not persist the fallback,
+    /// realtime can replace it, and a real title reaches the server only after explicit Save.
     @MainActor
     func testAnObjectNameTitleShowsTheTypeLabelAndIsOnlyEverWrittenWhenTyped() async throws {
         let (email, password) = try credentials()
@@ -92,179 +61,153 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertTrue(quietCard.waitForExistence(timeout: 20), "Expected the seeded voice note's card")
         XCTAssertTrue(quietCard.label.contains("Voice note"), "The card reads its type label, got '\(quietCard.label)'")
 
-        // 1. Opening: an empty field with the card's label as placeholder — never the object name.
+        // Opening and cancelling the explicit editor must not publish the object-name fallback.
         tapWhenHittable(quietCard)
-        let titleField = detailTitleField(app)
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        XCTAssertTrue(showsPlaceholder("Voice note", titleField), "Expected the type label as the placeholder, got "
-                      + "placeholder '\(titleField.placeholderValue ?? "nil")', value '\((titleField.value as? String) ?? "")'")
-        XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"),
-                      "Expected an empty title field, got '\((titleField.value as? String) ?? "")'")
+        let titleLabel = app.buttons["detail.title"]
+        XCTAssertTrue(titleLabel.waitForExistence(timeout: 10), "Title button not found")
+        XCTAssertEqual(titleLabel.label, "Voice note")
+        let titleField = openTitleEditor(app)
+        XCTAssertTrue(showsPlaceholder("Voice note", titleField))
+        XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"))
         attachScreenshot(named: "task-4-detail-placeholder")
-
-        // 2. Closing without typing writes nothing (the close queues and sends anything unsaved at
-        //    once, so a few seconds is plenty for a wrong write to have landed).
+        app.buttons["detail.title.cancel"].tap()
         closeSheet(app)
         try await Task.sleep(for: .seconds(4))
         let quietTitle = try await rest.title(of: quietId)
-        XCTAssertEqual(quietTitle, quietName, "Opening and closing the sheet must not write a title")
+        XCTAssertEqual(quietTitle, quietName, "Opening and cancelling must not write a title")
 
-        // 3. A title the server writes while the sheet is open replaces the placeholder, and closing
-        //    afterwards still writes nothing.
+        // A realtime title updates the collapsed label without becoming a local edit.
         tapWhenHittable(quietCard)
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found on reopen")
-        XCTAssertTrue(showsPlaceholder("Voice note", titleField))
+        XCTAssertTrue(titleLabel.waitForExistence(timeout: 10))
+        XCTAssertEqual(titleLabel.label, "Voice note")
         let aiTitle = "\(quietMarker) AI title"
         try await rest.setTitle(of: quietId, to: aiTitle)
-        let replaced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", aiTitle), object: titleField)
+        let replaced = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", aiTitle), object: titleLabel)
         XCTAssertEqual(XCTWaiter().wait(for: [replaced], timeout: 30), .completed,
-                       "Expected the server's new title in the open sheet, got '\((titleField.value as? String) ?? "")'")
+                       "Expected the server's new title in the collapsed label")
         closeSheet(app)
         try await Task.sleep(for: .seconds(4))
         let adoptedTitle = try await rest.title(of: quietId)
         XCTAssertEqual(adoptedTitle, aiTitle, "Closing after adopting the server's title must not write one")
 
-        // 4. Typing a real title saves it — and the field held exactly what was typed (it was empty).
+        // A draft stays local until Save, even after the former autosave interval.
         let typedCard = libraryCard(app, containing: typedMarker)
         XCTAssertTrue(typedCard.waitForExistence(timeout: 20), "Expected the second seeded voice note's card")
         tapWhenHittable(typedCard)
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        XCTAssertTrue(showsPlaceholder("Voice note", titleField))
+        let typedField = openTitleEditor(app)
+        XCTAssertTrue(showsPlaceholder("Voice note", typedField))
         let typed = "Groceries \(epoch)"
-        tapUntilFocused(titleField)
-        titleField.typeText(typed)
-        XCTAssertEqual(titleField.value as? String, typed, "Expected exactly the typed title in a field that started empty")
+        typedField.typeText(typed)
+        XCTAssertEqual(typedField.value as? String, typed)
+        try await Task.sleep(for: .seconds(1))
+        let beforeSave = try await rest.title(of: typedId)
+        XCTAssertEqual(beforeSave, typedName, "An uncommitted draft must not reach the server")
+        commitTitle(app)
         closeSheet(app)
         let saved = try await rest.waitForTitle(of: typedId, equalTo: typed, timeout: 20)
-        XCTAssertTrue(saved, "Expected the typed title on the server")
+        XCTAssertTrue(saved, "Expected the explicitly saved title on the server")
     }
 
-    // MARK: - A clear after the typed title was sent (plan 16 review I-1)
+    // MARK: - Autosaved descriptions preserve the latest edit
 
-    /// Scenario B, on a stalled link (`--uitest-stall-item-writes`: every item write hangs 10 s,
-    /// then times out): "Gro" is typed, its autosave goes out and gets stuck (so it stays queued),
-    /// then the field is cleared and the sheet closed. The card must read "Voice note" (the queue
-    /// holds the clear, not "Gro"), and once the link is back the server gets the clear: an empty
-    /// title (M-6: still read as the type label, and still a placeholder the server's AI title can
-    /// replace) — never "Gro".
+    /// Description keeps autosave semantics. A typed value sent on a stalled link, then cleared
+    /// and closed, must replay the clear after relaunch rather than restore the older value.
     @MainActor
-    func testAClearedTitleIsWhatAStalledLinkDeliversLater() async throws {
+    func testAClearedDescriptionIsWhatAStalledLinkDeliversLater() async throws {
         let (email, password) = try credentials()
         let rest = try await P16Rest.signIn(email: email, password: password)
         let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-stalled"
-        let objectName = "\(UUID().uuidString.lowercased()).m4a"
-        let id = try await rest.insertItem(["type": "audio", "title": objectName, "content": "",
-                                            "description": "\(marker) seeded audio"],
-                                           attributes: ["media": ["duration_s": 5]])
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": "", "description": "Before edit"])
         deleteAtTeardown(rest, id)
 
         let app = XCUIApplication()
         signIn(app, email: email, password: password, extraArguments: ["--uitest-stall-item-writes"])
         let card = libraryCard(app, containing: marker)
-        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded voice note's card")
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
         tapWhenHittable(card)
-        let titleField = detailTitleField(app)
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        typeThenClear("Gro", in: titleField)
+        let description = descriptionField(app)
+        XCTAssertTrue(description.waitForExistence(timeout: 10), "Description field not found")
+        typeThenClearDescription("Gro", in: description)
         closeSheet(app)
 
         let cardNow = libraryCard(app, containing: marker)
         XCTAssertTrue(cardNow.waitForExistence(timeout: 10))
-        XCTAssertTrue(cardNow.label.contains("Voice note") && !cardNow.label.contains("Gro"),
-                      "The card should read its type label (the queued clear), got '\(cardNow.label)'")
+        XCTAssertFalse(cardNow.label.contains("Gro"), "The queued clear must remove the old description from the card")
+        tapWhenHittable(cardNow)
+        XCTAssertTrue(description.waitForExistence(timeout: 10))
+        XCTAssertTrue(isEmpty(description, placeholder: "Add a description…"), "Reopening must show the queued clear")
+        closeSheet(app)
 
-        // The network is back: run the app again without the switch (still signed in) — its launch
-        // refresh flushes the queue before it reads page 1.
         app.terminate()
         app.launchArguments = ["--uitest-tab-view"]
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["View"].waitForExistence(timeout: 15), "Expected the app signed in")
-        let delivered = try await rest.waitForTitle(of: id, equalTo: "", timeout: 30)
-        let serverTitle = try await rest.title(of: id)
-        XCTAssertTrue(delivered, "Expected the clear (an empty title) on the server, got '\(serverTitle ?? "nil")'")
+        let delivered = try await rest.waitFor("description", of: id, equalTo: "", timeout: 30)
+        let serverDescription = try await rest.column("description", of: id)
+        XCTAssertTrue(delivered, "Expected the clear on the server, got '\(serverDescription ?? "nil")'")
     }
 
-    /// Scenarios A and C, on a slow link that still delivers (`--uitest-slow-item-writes`: every
-    /// item write waits 3 s, then really goes out).
-    /// - A: "Gro" is typed and its autosave sent; the field is cleared while "Gro" is in flight. The
-    ///   field stays empty through the "Gro" response, and the server ends with the clear.
-    /// - C: the same, but the sheet is closed at once after the clear — the close must send it.
+    /// The old response must not refill a cleared autosave field, with the sheet either open or
+    /// closed immediately after clearing. Title Save disables its editor, so this race belongs to
+    /// the still-inline description field.
     @MainActor
-    func testAClearWhileTheTypedTitleIsStillSendingSticks() async throws {
+    func testAClearWhileTheTypedDescriptionIsStillSendingSticks() async throws {
         let (email, password) = try credentials()
         let rest = try await P16Rest.signIn(email: email, password: password)
         let epoch = Int(Date().timeIntervalSince1970)
         let sendingMarker = "UITEST-P16-\(epoch)-sending"
         let closingMarker = "UITEST-P16-\(epoch)-closing"
-        let closingId = try await rest.insertItem(["type": "audio", "title": "\(UUID().uuidString.lowercased()).m4a",
-                                                   "content": "", "description": "\(closingMarker) seeded audio"],
-                                                  attributes: ["media": ["duration_s": 5]])
+        let closingId = try await rest.insertItem(["type": "text", "title": closingMarker, "content": "", "description": ""])
         deleteAtTeardown(rest, closingId)
         try await Task.sleep(for: .milliseconds(150))
-        let sendingId = try await rest.insertItem(["type": "audio", "title": "\(UUID().uuidString.lowercased()).m4a",
-                                                   "content": "", "description": "\(sendingMarker) seeded audio"],
-                                                  attributes: ["media": ["duration_s": 5]])
+        let sendingId = try await rest.insertItem(["type": "text", "title": sendingMarker, "content": "", "description": ""])
         deleteAtTeardown(rest, sendingId)
 
         let app = XCUIApplication()
         signIn(app, email: email, password: password, extraArguments: ["--uitest-slow-item-writes"])
-        let titleField = detailTitleField(app)
-
-        // A. The "Gro" response lands ~2.5 s after the clear, the clear's own ~3 s after that.
+        let description = descriptionField(app)
         let sendingCard = libraryCard(app, containing: sendingMarker)
-        XCTAssertTrue(sendingCard.waitForExistence(timeout: 20), "Expected the first seeded voice note's card")
+        XCTAssertTrue(sendingCard.waitForExistence(timeout: 20), "Expected the first seeded card")
         tapWhenHittable(sendingCard)
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        typeThenClear("Gro", in: titleField)
+        XCTAssertTrue(description.waitForExistence(timeout: 10), "Description field not found")
+        typeThenClearDescription("Gro", in: description)
+        var sawTypedValue = false
         let watchUntil = Date().addingTimeInterval(8)
         while Date() < watchUntil {
-            let shown = (titleField.value as? String) ?? ""
-            XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"),
-                          "The cleared field refilled with '\(shown)' while the typed title was in flight")
+            XCTAssertTrue(isEmpty(description, placeholder: "Add a description…"),
+                          "The cleared description refilled while its older write was in flight")
+            if !sawTypedValue, (try? await rest.column("description", of: sendingId)) == "Gro" { sawTypedValue = true }
             usleep(250_000)
         }
-        let cleared = try await rest.waitForTitle(of: sendingId, equalTo: "", timeout: 20)
-        let sendingTitle = try await rest.title(of: sendingId)
-        XCTAssertTrue(cleared, "Expected the clear (an empty title) on the server, got '\(sendingTitle ?? "nil")'")
+        XCTAssertTrue(sawTypedValue, "The older typed value must actually land while the cleared field is watched")
+        let cleared = try await rest.waitFor("description", of: sendingId, equalTo: "", timeout: 20)
+        XCTAssertTrue(cleared, "Expected the server to end with the clear")
         closeSheet(app)
 
-        // C. Cleared, then closed at once while "Gro" is still in flight.
         let closingCard = libraryCard(app, containing: closingMarker)
-        XCTAssertTrue(closingCard.waitForExistence(timeout: 20), "Expected the second seeded voice note's card")
+        XCTAssertTrue(closingCard.waitForExistence(timeout: 20), "Expected the second seeded card")
         tapWhenHittable(closingCard)
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        typeThenClear("Gro", in: titleField)
+        XCTAssertTrue(description.waitForExistence(timeout: 10), "Description field not found")
+        typeThenClearDescription("Gro", in: description)
         closeSheet(app)
-        let closedClear = try await rest.waitForTitle(of: closingId, equalTo: "", timeout: 25)
-        let closingTitle = try await rest.title(of: closingId)
-        XCTAssertTrue(closedClear, "Expected the clear sent by the close, got '\(closingTitle ?? "nil")'")
+        let typedLanded = try await rest.waitFor("description", of: closingId, equalTo: "Gro", timeout: 15)
+        XCTAssertTrue(typedLanded, "The older write must land before the close's clear")
+        let closedClear = try await rest.waitFor("description", of: closingId, equalTo: "", timeout: 25)
+        XCTAssertTrue(closedClear, "Expected the clear sent by the close")
         let closingCardNow = libraryCard(app, containing: closingMarker)
         XCTAssertTrue(closingCardNow.waitForExistence(timeout: 10))
-        XCTAssertTrue(closingCardNow.label.contains("Voice note"), "Expected the card's type label, got '\(closingCardNow.label)'")
+        XCTAssertFalse(closingCardNow.label.contains("Gro"), "The card must not restore the older description")
     }
 
-    // MARK: - The edit queue never drops the user's last value (plan 16, Task 4c)
-
-    /// Review P-1 (E-2), on a slow link: "Gro" is typed and sent, cleared and the clear sent, then
-    /// "Gro" is typed again and the sheet closed at once — inside its debounce, so only the close's
-    /// journal holds it, with both earlier saves still in flight. The first "Gro" landing must not
-    /// drop it (equal, but older), so once the clear has landed the close's flush still delivers the
-    /// user's last word.
-    ///
-    /// The close journals from `onDisappear`, after the dismiss animation — later than 400 ms after
-    /// XCUITest's last keystroke, so with the shipping debounce the retyped title's own autosave
-    /// always went first (and delivered it). The DEBUG timing switches open the window: a 3 s field
-    /// debounce to close inside (Task 4d, review n-4: it was 1.5 s, which the close — tap plus the
-    /// dismiss animation — beat by only ~0.6 s, so on a slow simulator the old code's failure could
-    /// slip past), and an 8 s link so the first "Gro" is still in flight then.
+    /// A long debounce and slow writes expose the equal-but-newer edit race: typed, cleared,
+    /// retyped, then closed before debounce. The close must journal the final value even though
+    /// it equals the first in-flight write; that older response must not delete the newer intent.
     @MainActor
-    func testATitleRetypedAfterASentClearIsWhatTheServerEndsWith() async throws {
+    func testADescriptionRetypedAfterASentClearIsWhatTheServerEndsWith() async throws {
         let (email, password) = try credentials()
         let rest = try await P16Rest.signIn(email: email, password: password)
         let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-retyped"
-        let id = try await rest.insertItem(["type": "audio", "title": "\(UUID().uuidString.lowercased()).m4a",
-                                            "content": "", "description": "\(marker) seeded audio"],
-                                           attributes: ["media": ["duration_s": 5]])
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": "", "description": ""])
         deleteAtTeardown(rest, id)
 
         let app = XCUIApplication()
@@ -272,29 +215,31 @@ final class LibraryDetailUITests: XCTestCase {
                extraArguments: ["--uitest-slow-item-writes", "--uitest-slow-item-write-seconds", "8",
                                 "--uitest-field-debounce-seconds", "3"])
         let card = libraryCard(app, containing: marker)
-        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded voice note's card")
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
         tapWhenHittable(card)
-        let titleField = detailTitleField(app)
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        tapUntilFocused(titleField)
-        titleField.typeText("Gro")
-        usleep(3_500_000)   // past the 3 s autosave: "Gro" is on its 8 s way
-        titleField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
-        XCTAssertTrue(isEmpty(titleField, placeholder: "Voice note"), "Expected the field empty again (placeholder showing)")
-        usleep(3_500_000)   // the clear's autosave has gone out too, queued behind "Gro"
-        titleField.typeText("Gro")
-        closeSheet(app)   // well inside the retyped title's 3 s debounce; the first "Gro" still in flight
+        let description = descriptionField(app)
+        XCTAssertTrue(description.waitForExistence(timeout: 10), "Description field not found")
+        tapUntilFocused(description)
+        description.typeText("Gro")
+        usleep(3_500_000)
+        description.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3))
+        XCTAssertTrue(isEmpty(description, placeholder: "Add a description…"))
+        usleep(3_500_000)
+        description.typeText("Gro")
+        closeSheet(app)
 
-        // "Gro" lands ~8 s after it was sent and the clear ~8 s after that; writes to one item never
-        // overtake each other, so the close's flush goes out only then, and lands ~8 s later.
-        let clearLanded = try await rest.waitFor("title", of: id, equalTo: "", timeout: 30)
-        XCTAssertTrue(clearLanded, "Expected the clear (sent before the close) to land first")
-        let delivered = try await rest.waitFor("title", of: id, equalTo: "Gro", timeout: 30)
-        let serverTitle = try await rest.title(of: id)
-        XCTAssertTrue(delivered, "Expected the retyped \"Gro\" to be what the server ends with, got '\(serverTitle ?? "nil")'")
+        let firstLanded = try await rest.waitFor("description", of: id, equalTo: "Gro", timeout: 20)
+        XCTAssertTrue(firstLanded, "Expected the first typed value to land before the clear")
+        let clearLanded = try await rest.waitFor("description", of: id, equalTo: "", timeout: 30)
+        XCTAssertTrue(clearLanded, "Expected the clear sent before the close to land next")
+        let delivered = try await rest.waitFor("description", of: id, equalTo: "Gro", timeout: 30)
+        XCTAssertTrue(delivered, "Expected the retyped value to be what the server ends with")
         let cardNow = libraryCard(app, containing: marker)
         XCTAssertTrue(cardNow.waitForExistence(timeout: 10))
-        XCTAssertTrue(cardNow.label.hasPrefix("Gro"), "Expected the card titled \"Gro\", got '\(cardNow.label)'")
+        tapWhenHittable(cardNow)
+        XCTAssertTrue(description.waitForExistence(timeout: 10))
+        XCTAssertEqual(description.value as? String, "Gro", "The reopened sheet must retain the newest value")
+        closeSheet(app)
     }
 
     /// Review §9, scenario A for the description, on the slow link: " x" is typed into the seeded
@@ -561,10 +506,8 @@ final class LibraryDetailUITests: XCTestCase {
 
     // MARK: - The wrapping title and the footer (plan 16, 2b review I-1, M-3)
 
-    /// 2b review I-1 (its recipe R-1): the title wraps — a vertical-axis field — so the keyboard's
-    /// "done" reaches it as a line break. Pressed over a selected word, it must leave the title as
-    /// it was and end editing, as the single-line field did: never turn the word into a space and
-    /// keep the keyboard up (and then autosave that).
+    /// Return in the explicit title editor dismisses the keyboard without replacing a selected
+    /// word, inserting a line break, or committing the draft.
     @MainActor
     func testDoneOverASelectedWordKeepsTheTitleAndEndsEditing() async throws {
         let (email, password) = try credentials()
@@ -579,14 +522,12 @@ final class LibraryDetailUITests: XCTestCase {
         let card = libraryCard(app, containing: marker)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
         tapWhenHittable(card)
-        let title = detailTitleField(app)
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "Title field not found")
-        tapUntilFocused(title)
+        let title = openTitleEditor(app)
         title.doubleTap()   // selects the word under the tap
         title.typeText("\n")   // the keyboard's "done"
         XCTAssertEqual(title.value as? String, original, "Done over a selected word must leave the title as it was")
         XCTAssertTrue(waitUntilGone(app.buttons["detail.dismissKeyboard"], timeout: 5), "…and end editing")
-        sleep(2)   // past the 400 ms autosave
+        sleep(2)   // Return dismisses the keyboard without committing a title draft.
         let serverTitle = try await rest.title(of: id)
         XCTAssertEqual(serverTitle, original, "Nothing is saved over the title")
         closeSheet(app)
@@ -744,11 +685,11 @@ final class LibraryDetailUITests: XCTestCase {
         let delete = app.buttons["detail.delete"]
         XCTAssertTrue(delete.waitForExistence(timeout: 10), "Expected Delete item in the footer")
 
-        let title = detailTitleField(app)
-        tapUntilFocused(title)
+        let title = openTitleEditor(app)
         title.typeText(" x")   // wherever the caret is: what matters is that a save goes out
         let typed = (title.value as? String) ?? ""
         XCTAssertNotEqual(typed, marker, "Expected the title edited")
+        commitTitle(app)
         let error = app.descendants(matching: .any)["detail.autosave.error"]
         XCTAssertTrue(error.waitForExistence(timeout: 20), "Expected the failed save to say so once its PATCH times out")
         XCTAssertEqual(error.label, "Couldn't save — try again.")
@@ -761,16 +702,14 @@ final class LibraryDetailUITests: XCTestCase {
         try await relaunchAndWaitForTheFlush(app, id: id, title: typed, rest: rest)
     }
 
-    /// 4d review N-3: a title the server sends while the title field has focus (an AI title,
-    /// another device) is shown as the server has it — the field's line-break handling is for what
-    /// the user types. One ending in a line break used to end editing under the user's fingers, and
-    /// closing the sheet then wrote its one-line copy back as if the user had typed it.
+    /// A realtime server title does not replace an uncommitted local draft or dismiss its
+    /// keyboard. Cancel reveals that server title unchanged; the draft never reaches the server.
     @MainActor
     func testAServerTitleArrivingWhileTheTitleHasFocusIsLeftAsTheServerHasIt() async throws {
         let (email, password) = try credentials()
         let rest = try await P16Rest.signIn(email: email, password: password)
         let marker = "UITEST-P16-\(Int(Date().timeIntervalSince1970))-servertitle"
-        let id = try await rest.insertItem(["type": "text", "title": marker, "content": ""])
+        let id = try await rest.insertItem(["type": "text", "title": marker, "content": "", "description": "Before realtime"])
         deleteAtTeardown(rest, id)
 
         let app = XCUIApplication()
@@ -778,24 +717,34 @@ final class LibraryDetailUITests: XCTestCase {
         let card = libraryCard(app, containing: marker)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
         tapWhenHittable(card)
-        let title = detailTitleField(app)
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "Title field not found")
-        tapUntilFocused(title)
+        let title = openTitleEditor(app)
+        title.typeText(" local draft")
+        let draft = title.value as? String ?? ""
+        XCTAssertNotEqual(draft, marker)
         let hide = app.buttons["detail.dismissKeyboard"]
         XCTAssertTrue(hide.waitForExistence(timeout: 5), "Expected the title focused")
 
         let serverTitle = "\(marker) from the server\n"
-        try await rest.setTitle(of: id, to: serverTitle)   // realtime brings it to the open sheet
-        let arrived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS %@", "from the server"),
-                                                object: title)
-        XCTAssertEqual(XCTWaiter().wait(for: [arrived], timeout: 30), .completed,
-                       "Expected the server's title in the open sheet, got '\((title.value as? String) ?? "")'")
-        sleep(1)
-        XCTAssertTrue(hide.exists, "A server title ending in a line break must not end editing")
+        let serverDescription = "Realtime row arrived"
+        // A second field in the same row proves realtime was adopted while the title draft
+        // stayed open; waiting only for the REST write would not establish that ordering.
+        try await rest.setTitle(of: id, to: serverTitle, description: serverDescription)
+        let arrived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", serverDescription),
+                                                object: descriptionField(app))
+        XCTAssertEqual(XCTWaiter().wait(for: [arrived], timeout: 30), .completed)
+        XCTAssertEqual(title.value as? String, draft, "A server title must leave the local draft untouched")
+        XCTAssertTrue(hide.exists, "A server title ending in a line break must not dismiss the keyboard")
+        hide.tap()
+        let cancel = app.buttons["detail.title.cancel"]
+        A11yScreens.scrollIntoView(app, cancel)
+        cancel.tap()
+        let collapsed = app.buttons["detail.title"]
+        XCTAssertTrue(collapsed.waitForExistence(timeout: 5))
+        XCTAssertEqual(collapsed.label, serverTitle, "Cancel must reveal the full server title")
         closeSheet(app)
         try await Task.sleep(for: .seconds(4))
         let after = try await rest.title(of: id)
-        XCTAssertEqual(after, serverTitle, "Closing must not write the title back")
+        XCTAssertEqual(after, serverTitle, "Cancelling and closing must not publish the local draft")
     }
 
     // MARK: - The save error clears once what it reports has landed (batch B fix round 1)
@@ -1173,21 +1122,15 @@ final class LibraryDetailUITests: XCTestCase {
         return condition()
     }
 
-    /// Types " t" into the open sheet's title (wherever the caret lands) and waits past its 400 ms
-    /// autosave, so the edit is written ahead to the queue; returns the title as typed. On the
-    /// stalled link it fails with the item's other writes and stays queued — and once the link is
-    /// back, its landing proves the relaunch's flush ran, which carries everything queued for the
-    /// item in that same PATCH (4d review B-4: a negative read alone can't tell "never sent" from
-    /// "not flushed yet").
+    /// Explicitly commits a title alongside the stalled sharing write. Its later delivery proves
+    /// the relaunch's flush ran before the tests inspect the sharing state.
     @MainActor
     private func editTitleInTheSameFlight(_ app: XCUIApplication) -> String {
-        let title = detailTitleField(app)
-        A11yScreens.scrollIntoView(app, title)
-        tapUntilFocused(title)
+        let title = openTitleEditor(app)
         title.typeText(" t")
         let typed = (title.value as? String) ?? ""
-        XCTAssertTrue(typed.contains(" t"), "Expected \" t\" typed into the title, got '\(typed)'")
-        sleep(1)
+        XCTAssertTrue(typed.contains(" t"), "Expected the title draft to contain the edit")
+        commitTitle(app)
         return typed
     }
 
@@ -1205,26 +1148,49 @@ final class LibraryDetailUITests: XCTestCase {
         XCTAssertTrue(flushed, "Expected the relaunch's flush to deliver the queued title, got '\(serverTitle ?? "nil")'")
     }
 
-    /// Types `text` into the (empty) title field, waits past its 400 ms autosave — so the typed title
-    /// has been sent — and deletes it again, leaving the field empty (its placeholder showing).
+    /// Replaces the description, waits past autosave, then clears while that write is in flight.
+    /// The description deliberately retains the inline autosave contract.
     @MainActor
-    private func typeThenClear(_ text: String, in field: XCUIElement) {
+    private func typeThenClearDescription(_ text: String, in field: XCUIElement) {
         tapUntilFocused(field)
+        if !isEmpty(field, placeholder: "Add a description…") {
+            field.typeKey("a", modifierFlags: .command)
+        }
         field.typeText(text)
-        XCTAssertEqual(field.value as? String, text, "Expected exactly the typed title in the empty field")
+        XCTAssertEqual(field.value as? String, text, "Expected the typed description")
         sleep(1)
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: text.count))
-        XCTAssertTrue(isEmpty(field, placeholder: "Voice note"),
-                      "Expected the field empty again (placeholder showing), got '\((field.value as? String) ?? "")'")
+        XCTAssertTrue(isEmpty(field, placeholder: "Add a description…"), "Expected the description cleared")
     }
 
-    /// The detail sheet's title. Plan 16: it wraps — a vertical-axis `TextField` — which XCUITest
-    /// may report as a text view rather than a text field (like the description).
+    @MainActor
+    private func openTitleEditor(_ app: XCUIApplication) -> XCUIElement {
+        let collapsed = app.buttons["detail.title"]
+        XCTAssertTrue(collapsed.waitForExistence(timeout: 10), "Title button not found")
+        A11yScreens.scrollIntoView(app, collapsed)
+        collapsed.tap()
+        let editor = detailTitleField(app)
+        XCTAssertTrue(editor.waitForExistence(timeout: 5), "Title editor not found")
+        tapUntilFocused(editor)
+        return editor
+    }
+
+    /// Save begins the durable commit; callers choose whether to wait for the network or close.
+    @MainActor
+    private func commitTitle(_ app: XCUIApplication) {
+        let hide = app.buttons["detail.dismissKeyboard"]
+        if hide.exists { hide.tap() }
+        let save = app.buttons["detail.title.save"]
+        A11yScreens.scrollIntoView(app, save)
+        XCTAssertTrue(save.isEnabled, "Title Save must be enabled for the local draft")
+        save.tap()
+    }
+
     @MainActor
     private func detailTitleField(_ app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier == %@ AND (elementType == %d OR elementType == %d)",
-                                  "detail.title", Int(XCUIElement.ElementType.textView.rawValue),
+                                  "detail.title.editor", Int(XCUIElement.ElementType.textView.rawValue),
                                   Int(XCUIElement.ElementType.textField.rawValue)))
             .firstMatch
     }
@@ -1240,7 +1206,7 @@ final class LibraryDetailUITests: XCTestCase {
     @MainActor
     private func isEmpty(_ field: XCUIElement, placeholder: String) -> Bool {
         let value = (field.value as? String) ?? ""
-        return value.isEmpty || value == placeholder
+        return value.isEmpty || value == placeholder || value == field.placeholderValue
     }
 
     /// The detail sheet's description: a vertical-axis `TextField`, which XCUITest may report as a
@@ -1396,10 +1362,12 @@ private struct P16Rest: Sendable {
 
     /// A title write from outside the app — what the server's transcription job does when it
     /// replaces an object-name title with an AI one.
-    func setTitle(of id: String, to title: String) async throws {
+    func setTitle(of id: String, to title: String, description: String? = nil) async throws {
         var request = request("/rest/v1/items", query: [URLQueryItem(name: "id", value: "eq.\(id)")], method: "PATCH")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["title": title])
+        var values = ["title": title]
+        if let description { values["description"] = description }
+        request.httpBody = try JSONSerialization.data(withJSONObject: values)
         let (_, response) = try await Self.send(request)
         guard Self.succeeded(response) else { throw Failure(description: "title write failed for \(id)") }
     }

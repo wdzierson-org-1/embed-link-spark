@@ -74,11 +74,11 @@ final class DetailUITests: XCTestCase {
         XCTAssertTrue(libraryCard(app, titled: title).waitForExistence(timeout: 15))
     }
 
-    /// H5 on a working network: a title edit closed straight away — still inside its 400 ms
-    /// autosave debounce, so nothing has sent it yet — reaches the server anyway (the close queues
-    /// it and sends it at once), alongside a note typed just before; the list shows the new title.
+    /// Explicit title Save journals the edit before its network request completes. Closing
+    /// immediately on a slow link still delivers the committed title and the preceding note;
+    /// it must not wait for the network or discard an edit the user already chose to save.
     @MainActor
-    func testATitleClosedInsideItsDebounceStillReachesTheServer() async throws {
+    func testASavedTitleClosedImmediatelyStillReachesTheServer() async throws {
         let (email, password) = try credentials()
         let rest = try await RestSession.signIn(email: email, password: password)
         let epoch = Int(Date().timeIntervalSince1970)
@@ -88,7 +88,7 @@ final class DetailUITests: XCTestCase {
         addTeardownBlock { try? await rest.deleteItem(id: id) }
 
         let app = XCUIApplication()
-        signIn(app, email: email, password: password)
+        signIn(app, email: email, password: password, extraArguments: ["--uitest-slow-item-writes"])
         let card = libraryCard(app, titled: title)
         XCTAssertTrue(card.waitForExistence(timeout: 20), "Expected the seeded card")
         card.tap()
@@ -100,9 +100,15 @@ final class DetailUITests: XCTestCase {
         sleep(1)
         notes.typeText(marker)
 
-        let titleField = app.descendants(matching: .any)["detail.title"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
-        // Plan 16: the title wraps (a vertical-axis field), which a bare tap doesn't always focus.
+        let titleButton = app.buttons["detail.title"]
+        XCTAssertTrue(titleButton.waitForExistence(timeout: 10), "Title button not found")
+        A11yScreens.scrollIntoView(app, titleButton)
+        titleButton.tap()
+        let titleField = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND (elementType == %d OR elementType == %d)",
+                                  "detail.title.editor", Int(XCUIElement.ElementType.textView.rawValue),
+                                  Int(XCUIElement.ElementType.textField.rawValue))).firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5), "Title editor not found")
         A11yScreens.tapUntilFocused(titleField)
         titleField.typeText("Q")
         // Where a tap lands the caret in this field isn't reliable (see `testEditSmoke`), so the
@@ -110,10 +116,17 @@ final class DetailUITests: XCTestCase {
         let editedTitle = (titleField.value as? String) ?? ""
         XCTAssertNotEqual(editedTitle, title, "The title edit didn't register")
 
+        let hide = app.buttons["detail.dismissKeyboard"]
+        if hide.exists { hide.tap() }
+        let save = app.buttons["detail.title.save"]
+        A11yScreens.scrollIntoView(app, save)
+        save.tap()
         let close = app.buttons["detail.done"]
-        close.tap()   // at once: the title's debounce hasn't fired
+        let started = Date()
+        close.tap()   // at once: the explicitly committed title is still on the slow link
         let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: close)
         XCTAssertEqual(XCTWaiter().wait(for: [closed], timeout: 4), .completed, "The sheet didn't close")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4, "Closing must not wait for title Save")
 
         let delivered = try await rest.waitForRow(of: id, timeout: 20) { row in
             (row["title"] as? String) == editedTitle && ((row["content"] as? String) ?? "").contains(marker)

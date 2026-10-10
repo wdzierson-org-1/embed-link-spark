@@ -883,13 +883,17 @@ controls. In SwiftUI terms:
 - **Navigation:** View, Ask, Add, Settings, with View selected initially.
 - **Ask:** the window becomes the full screen with the same bar, tool steps, answer, citation cards
   and input row.
-- **Item detail:** the panel becomes a sheet; the 44 pt window bar, sections on ink rules, the
-  Details tree. A header Share action creates/manages an unlisted item link, separate from the
-  public feed. Existing web addresses have square Copy / Edit / Open controls; editing has
-  explicit Cancel / Save. Video and audio play inline with a square full-screen action and an
-  Open original fallback. Retain playback position when moving full screen; never autoplay on
-  opening the sheet. Video links expose Summary and Transcript; keep Original Content until
-  the server explicitly identifies the source text as a transcript.
+- **Item detail:** the panel becomes a sheet with a source/date window bar (no type badge),
+  ink rules and a Details tree. Titles use two lines with a trailing ellipsis; tapping opens
+  the full title with explicit square Save / Cancel. Drafts stay local until Save. Reading
+  order is source address → title → image/player → description → source tabs → notes.
+  Existing web addresses have a square Edit control; Copy/Open live in the long-press menu.
+  Video/audio play inline with a square full-screen action and Open original fallback. Keep
+  playback position across full screen and never autoplay. Video links show Summary / Transcript
+  only; unverified page text is never presented as a transcript. Article links keep Original Content.
+- **Share item:** the header opens a compact paper toast matching capture: rounded outer card,
+  square X, disclosure, boxed address and one full-width square black Copy link action. Unlisted
+  links remain separate from feed sharing and survive closing the toast.
 - **Settings:** the numbered index becomes the list; each section a pushed screen of white sheets.
 - Controls keep the v1 iOS rules (`DESIGN.md` › Controls (iOS)): 44 pt targets, Dynamic Type roles,
   VoiceOver names.

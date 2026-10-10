@@ -7,7 +7,7 @@ final class ItemLinkSharingUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
     @MainActor
-    func testPrivateItemLinkCanBeCopiedSharedAndRevokedWithoutPublishingToFeed() async throws {
+    func testPrivateItemLinkCanBeCopiedAndReopenedWithoutPublishingToFeed() async throws {
         let environment = ProcessInfo.processInfo.environment
         let email = try XCTUnwrap(environment["STASH_TEST_EMAIL"])
         let password = try XCTUnwrap(environment["STASH_TEST_PASSWORD"])
@@ -58,53 +58,48 @@ final class ItemLinkSharingUITests: XCTestCase {
         XCTAssertEqual(anonymous.first?.content, "Disposable share-link test note")
 
         let copy = app.buttons["detail.share.copy"]
+        let copyReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: copy)
+        XCTAssertEqual(XCTWaiter().wait(for: [copyReady], timeout: 10), .completed)
         XCTAssertTrue(copy.isHittable)
         copy.tap()
         let copied = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "Link copied"), object: copy)
         XCTAssertEqual(XCTWaiter().wait(for: [copied], timeout: 5), .completed)
         // Do not read UIPasteboard from the separate UI-test runner: iOS presents a paste
-        // permission prompt and blocks an unattended run. The exact displayed link above,
-        // the Copy confirmation, and the native Copy activity below cover this interaction.
-
-        let systemShare = app.buttons["detail.share.system"]
-        XCTAssertTrue(systemShare.isHittable, "The system-share action must be reachable")
-        systemShare.tap()
-        // Use the native share sheet's own Copy action. This exercises presentation and
-        // dismissal without selecting a person, sending a message, or leaving Stash.
-        // iOS 26/27 exposes native actions as actionGroupCell cells, not buttons.
-        // This exact identifier + label was captured in the failed run's activityCollectionView.
-        let nativeCopyCell = app.cells.matching(NSPredicate(format: "identifier == %@ AND label == %@",
-                                                           "actionGroupCell", "Copy")).firstMatch
-        let cellAppeared = nativeCopyCell.waitForExistence(timeout: 10)
-        let nativeCopy = cellAppeared ? nativeCopyCell : app.buttons["Copy"]
-        let systemSheetOpened = cellAppeared || nativeCopy.waitForExistence(timeout: 3)
-        recordSystemShareDiagnostics(app)
-        XCTAssertTrue(systemSheetOpened, "The native share sheet should expose Copy")
-        nativeCopy.tap()
-        let revoke = app.buttons["detail.share.revoke"]
-        XCTAssertTrue(revoke.waitForExistence(timeout: 10))
-        let afterActivity = try await rest.item(id: id)
-        XCTAssertEqual(afterActivity.shareToken, token, "Reopening or using a link must keep its address stable")
-        XCTAssertFalse(afterActivity.isPublic)
+        // permission prompt and blocks an unattended run. The displayed URL and the real
+        // Copy confirmation cover the interaction without accepting a cross-app prompt.
+        XCTAssertFalse(app.buttons["detail.share.system"].exists)
+        XCTAssertFalse(app.buttons["detail.share.revoke"].exists)
+        XCTAssertFalse(app.buttons["detail.share.done"].exists)
+        let close = app.buttons["detail.share.close"]
+        XCTAssertTrue(close.isHittable, "The compact panel must provide a reachable close button")
         screens.attachScreenshot(named: "item-link-sharing")
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+        let afterClose = try await rest.item(id: id)
+        XCTAssertEqual(afterClose.shareToken, token, "Closing the panel must not revoke the link")
+        XCTAssertEqual(afterClose.sharedAt, shared.sharedAt)
+        XCTAssertFalse(afterClose.isPublic)
 
-        revoke.tap()
-        XCTAssertTrue(app.buttons["detail.share.done"].waitForNonExistence(timeout: 15))
-        let revoked = try await rest.item(id: id)
-        XCTAssertNil(revoked.shareToken)
-        XCTAssertNil(revoked.sharedAt)
-        XCTAssertFalse(revoked.isPublic)
-        XCTAssertEqual(revoked.content, "Disposable share-link test note")
-        let deadLink = try await rest.sharedItem(token: token)
-        XCTAssertTrue(deadLink.isEmpty, "The anonymous read RPC must stop resolving a revoked link")
-    }
-
-    @MainActor
-    private func recordSystemShareDiagnostics(_ app: XCUIApplication) {
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "item-link-native-share-sheet"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
+        XCTAssertTrue(share.isHittable)
+        share.tap()
+        XCTAssertTrue(address.waitForExistence(timeout: 10))
+        XCTAssertEqual(address.label, url)
+        let reopened = try await rest.item(id: id)
+        XCTAssertEqual(reopened.shareToken, token, "Reopening the panel must reuse the existing link")
+        XCTAssertEqual(reopened.sharedAt, shared.sharedAt)
+        XCTAssertFalse(reopened.isPublic)
+        XCTAssertEqual(reopened.content, "Disposable share-link test note")
+        let existingLink = try await rest.sharedItem(token: token)
+        XCTAssertEqual(existingLink.map(\.id), [id])
+        let reopenedCopyReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: copy)
+        XCTAssertEqual(XCTWaiter().wait(for: [reopenedCopyReady], timeout: 10), .completed)
+        XCTAssertTrue(copy.isHittable)
+        XCTAssertEqual(copy.label, "Copy link", "A new presentation starts with the Copy action")
+        copy.tap()
+        let copiedAgain = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label CONTAINS %@", "Link copied"), object: copy)
+        XCTAssertEqual(XCTWaiter().wait(for: [copiedAgain], timeout: 5), .completed)
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 5))
     }
 }
 
