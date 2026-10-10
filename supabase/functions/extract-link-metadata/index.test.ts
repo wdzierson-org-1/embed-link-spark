@@ -1,20 +1,44 @@
 // @vitest-environment node
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ handler: null as any, html: '', jina: null as any, fetcher: vi.fn() }));
+const state = vi.hoisted(() => ({ handler: null as any, html: '', jina: null as any, crawler: null as any, wayback: null as any, fetcher: vi.fn() }));
 vi.mock('https://deno.land/x/xhr@0.1.0/mod.ts', () => ({}));
 vi.mock('https://deno.land/std@0.168.0/http/server.ts', () => ({ serve: (handler: any) => { state.handler = handler; } }));
-vi.mock('../_shared/blockedContentFallbacks.ts', async original => ({ ...await original<any>(), fetchHtml: async () => null, fetchViaJinaReader: async () => state.jina }));
+vi.mock('../_shared/blockedContentFallbacks.ts', async original => ({ ...await original<any>(), fetchHtml: async () => state.crawler, fetchViaJinaReader: async () => state.jina, fetchViaWayback: async () => state.wayback }));
 vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({ createClient: vi.fn() }));
 beforeAll(async () => {
   vi.stubGlobal('Deno', { env: { get: () => undefined } });
   vi.stubGlobal('fetch', state.fetcher);
   await import('./index.ts');
 });
-beforeEach(() => { vi.clearAllMocks(); state.jina = null; state.fetcher.mockImplementation(async () => new Response(state.html)); });
+beforeEach(() => { vi.clearAllMocks(); state.jina = null; state.crawler = null; state.wayback = null; state.fetcher.mockImplementation(async () => new Response(state.html)); });
 const url = 'https://www.petermillar.com/p/alpine-hybrid-sweater-jacket/197889736936.html';
 const image = 'https://res.cloudinary.com/petermillar/image/upload/t_pdp_main/v1787663789/MF26XS49_NAV.jpg';
 const request = (fastOnly = true, sourceUrl = url) => new Request('https://stash.example/extract-link-metadata', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: sourceUrl, fastOnly }) });
 describe('legacy metadata endpoint product image selection', () => {
+  it('preserves facts from current crawler HTML on a failed direct fetch', async () => {
+    state.fetcher.mockResolvedValue(new Response('Unavailable', { status: 403 }));
+    state.crawler = `<title>Alpine Hybrid Sweater Jacket</title><meta name="description" content="Warm wool jacket with insulated sleeves."><script type="application/ld+json">${JSON.stringify({ '@type': 'Product', name: 'Alpine Hybrid Sweater Jacket', url, sku: 'MF26XS49' })}</script>`;
+    const result = await (await state.handler(request(false))).json();
+    expect(result.objectFacts?.product?.sku).toBe('MF26XS49');
+  });
+  it('does not report archival price information as a current typed observation', async () => {
+    state.fetcher.mockResolvedValue(new Response('Unavailable', { status: 403 }));
+    state.wayback = `<title>Alpine Hybrid Sweater Jacket</title><meta name="description" content="Warm wool jacket with insulated sleeves."><script type="application/ld+json">${JSON.stringify({ '@type': 'Product', name: 'Alpine Hybrid Sweater Jacket', url, offers: { price: '500', priceCurrency: 'USD' } })}</script>`;
+    const result = await (await state.handler(request(false))).json();
+    expect(result.strategyUsed).toBe('wayback-rescue');
+    expect(result.objectFacts).toBeUndefined();
+  });
+  it('returns additive source-bound typed product facts from direct HTML', async () => {
+    state.html = `<title>Alpine Hybrid Sweater Jacket</title><meta name="description" content="Warm wool jacket."><script type="application/ld+json">${JSON.stringify({ '@type': 'Product', name: 'Alpine Hybrid Sweater Jacket', url, sku: 'MF26XS49', brand: { name: 'Peter Millar' }, offers: { price: '748.00', priceCurrency: 'USD' } })}</script>`;
+    const result = await (await state.handler(request())).json();
+    expect(result).toMatchObject({ success: true, title: 'Alpine Hybrid Sweater Jacket', objectFacts: { version: 1, beta: true, kind: 'product', product: { brand: 'Peter Millar', sku: 'MF26XS49', offer: { price: '748.00', currency: 'USD' } }, evidence: { source_url: url, method: 'json-ld' } } });
+    expect(Number.isFinite(Date.parse(result.objectFacts.evidence.observed_at))).toBe(true);
+  });
+  it('does not make typed facts from an unrelated JSON-LD recommendation', async () => {
+    state.html = `<title>Alpine Hybrid Sweater Jacket</title><meta name="description" content="Warm wool jacket."><script type="application/ld+json">${JSON.stringify({ '@type': 'Product', name: 'Another Coat', url: 'https://shop.example/other', offers: { price: '7', priceCurrency: 'USD' } })}</script>`;
+    const result = await (await state.handler(request())).json();
+    expect(result.objectFacts).toBeUndefined();
+  });
   it('does not reintroduce a rejected Medium author image through Jina summary fallback', async () => {
     const author = 'https://miro.medium.com/v2/resize:fill:128:128/1*author.jpeg';
     state.fetcher.mockResolvedValue(new Response('Unavailable', { status: 403 }));

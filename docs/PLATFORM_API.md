@@ -19,6 +19,23 @@ Get a JWT with supabase-js (`auth.signInWithPassword` / OAuth) on any platform,
 or the raw REST endpoint `POST /auth/v1/token?grant_type=password`. The item
 owner is always derived from the JWT server-side — never sent by the client.
 
+## Typed publisher facts (beta)
+
+Newly enriched product and place links may include `attributes.object_facts`.
+The version-1 product/place shape and source validators live in
+`supabase/functions/_shared/objectFacts.ts`. `evidence` records `source_url`,
+`observed_at`, `method: "json-ld"`, `extraction_version` and `schema_type`.
+Every field is optional unless required by that envelope; omitted is unknown,
+not false or free. Display prices as observed at capture and preserve currency.
+Facts describe the saved object, separate from `attributes.location` (capture
+location). Treat publisher facts as beta evidence, not verified world truth.
+
+Backend capture persists facts. Legacy clients that invoke metadata directly may
+use the owner-authenticated `set_item_object_facts` RPC with the exact saved URL,
+previous facts (or JSON null), and validated facts. It changes only that leaf and
+returns false on a stale source, concurrent edit or protected field. Preserve
+unknown attribute keys; do not overwrite the whole blob.
+
 ## Capture
 
 **Entitlement (server-enforced since 2026-09-07).** Every capture endpoint

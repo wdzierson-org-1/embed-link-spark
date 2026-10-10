@@ -1,3 +1,4 @@
+import { supabase } from "@/integrations/supabase/client";
 import { processAndInsertContent } from "./contentProcessor";
 
 const {
@@ -222,6 +223,33 @@ describe("processAndInsertContent link enrichment", () => {
     vi.useRealTimers();
   });
 
+  it("persists validated typed facts through a leaf CAS without overwriting other attributes", async () => {
+    const url = "https://shop.example/alpine";
+    const objectFacts = { version: 1, beta: true, kind: 'product', name: 'Alpine Jacket', product: { brand: 'Mountain Goods' }, evidence: { source_url: url, observed_at: '2026-10-10T14:00:00.000Z', method: 'json-ld', extraction_version: 'object-facts-v1', schema_type: 'Product' } };
+    const existing = { ...objectFacts, name: 'Previous title' };
+    insertedItemSingle.mockResolvedValue({ data: { id: 'item-link-1', title: 'Initial title', attributes: { object_facts: existing, location: { label: 'Home' } } }, error: null });
+    invokeMock.mockResolvedValue({ data: { success: true, title: 'Alpine Jacket', objectFacts }, error: null });
+    await processAndInsertContent('link', { url }, 'user-1', true, fetchItemsMock, vi.fn());
+    await vi.runOnlyPendingTimersAsync();
+    expect(supabase.rpc).toHaveBeenCalledWith('set_item_object_facts', { target_id: 'item-link-1', expected_url: url, expected_facts: existing, facts: objectFacts });
+    const updates = fromMock.mock.results.flatMap(result => result.value?.update?.mock?.calls || []);
+    expect(updates.every(([update]: any[]) => !('attributes' in update))).toBe(true);
+  });
+  it("retains the exact stored URL in the CAS evidence after canonical URL validation", async () => {
+    const url = "https://SHOP.example/alpine";
+    const facts = { version: 1, beta: true, kind: 'product', product: { sku: 'ALPINE' }, evidence: { source_url: 'https://shop.example/alpine', observed_at: '2026-10-10T14:00:00.000Z', method: 'json-ld', extraction_version: 'object-facts-v1', schema_type: 'Product' } };
+    invokeMock.mockResolvedValue({ data: { success: true, title: 'Item', objectFacts: facts }, error: null });
+    await processAndInsertContent('link', { url }, 'user-1', true, fetchItemsMock, vi.fn());
+    await vi.runOnlyPendingTimersAsync();
+    expect(supabase.rpc).toHaveBeenCalledWith('set_item_object_facts', { target_id: 'item-link-1', expected_url: url, expected_facts: null, facts: { ...facts, evidence: { ...facts.evidence, source_url: url } } });
+  });
+  it("rejects facts whose evidence belongs to another link", async () => {
+    invokeMock.mockResolvedValue({ data: { success: true, title: 'Item', objectFacts: { version: 1, beta: true, kind: 'product', product: {}, evidence: { source_url: 'https://wrong.example/item', observed_at: '2026-10-10T14:00:00.000Z', method: 'json-ld', extraction_version: 'object-facts-v1', schema_type: 'Product' } } }, error: null });
+    await processAndInsertContent('link', { url: 'https://shop.example/alpine' }, 'user-1', true, fetchItemsMock, vi.fn());
+    await vi.runOnlyPendingTimersAsync();
+    expect(supabase.rpc).not.toHaveBeenCalledWith('set_item_object_facts', expect.anything());
+    expect(invokeMock).toHaveBeenCalledWith('scrape-page-content', expect.anything());
+  });
   it("updates saved link items when deep metadata becomes available", async () => {
     invokeMock.mockResolvedValue({
       data: {

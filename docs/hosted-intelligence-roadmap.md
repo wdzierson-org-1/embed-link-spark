@@ -122,6 +122,41 @@ reviewable proposals with regression cases and acceptance checks. Open-ended web
 research, resumable multi-hour investigations and personal/cross-user graphs are
 not yet implemented.
 
+## Evidence and typed-facts release — 2026-10-10
+
+- Daily investigations now check the first associated image from an explicit public
+  CDN allowlist. The extra request has a five-second / 5 MiB budget and records
+  PNG/JPEG/WebP structure, dimensions, MIME, byte count and SHA-256. This is file
+  validation, **not full image decoding or semantic image matching**. Unsupported
+  hosts and failures remain explicit outcomes in the stored evidence and email.
+- Hermes retries receive a closed validation-error code plus corrective instructions.
+  The same three-attempt, six-model-call and 90-second limits remain. A failed quote
+  must be copied correctly or omitted, never accepted by weakening evidence checks.
+- `services/enrichment-evals/` exercises the actual selectors and source gates with
+  22 labelled cases, including positive controls. CI writes per-case outcomes and
+  implementation/corpus hashes. These are curated known regressions, not a held-out
+  benchmark or a population accuracy measurement. Candidate releases must pass this
+  gate; autonomous strategy promotion remains future work.
+- Publisher JSON-LD now supplies source-bound `attributes.object_facts` for products
+  and places. Product fields include brand, identifiers, selected variant, material,
+  price/currency and availability when supported. Place fields include address,
+  coordinates, cuisine and price range. Ambiguous objects, unrelated offers and
+  unproven selected-variant prices are omitted; archive prices are not presented as
+  newly observed prices. Facts join the item's searchable enrichment text.
+- The web detail panel shows these facts as beta, with source and observation date.
+  Compare retailers / Find similar open a web search; Open map uses the extracted
+  address or coordinates. No claim of a cheaper verified offer is made.
+- New captures through add-url (including capture/share-sheet clients), and legacy
+  web capture, persist facts using an owner-scoped atomic attribute update that
+  preserves unrelated fields and refuses stale sources, changed facts and field locks.
+  Existing saves are not bulk backfilled in this release. Native clients receive the
+  stored facts but need their own UI release to display the new section.
+
+Next: independent image-identity evaluation, consent-appropriate held-out samples,
+reviewable experiment records/canaries, controlled historical fact backfill, and
+entity links for personal grouping. Graphs and automatic playbook publishing are
+not part of this release. Daily email remains after 09:00 America/New_York.
+
 ## Improvement loop
 
 1. **Measure:** distinguish missing fields, blocked sources, wrong identity,

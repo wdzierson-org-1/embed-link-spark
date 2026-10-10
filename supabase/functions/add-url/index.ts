@@ -1,3 +1,4 @@
+import { readObjectFacts } from '../_shared/objectFacts.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
 import { afterDraining } from '../_shared/capture.ts';
@@ -514,6 +515,15 @@ Deno.serve(async (req) => {
           }
           if (Object.keys(updates).length > 0) {
             await applyCandidate(supabase, current, updates, 'capture-metadata');
+          }
+          const objectFacts = readObjectFacts(deepMeta.objectFacts, url);
+          if (objectFacts) {
+            const { error: factsError } = await supabase.rpc('set_item_object_facts', {
+              target_id: item.id, expected_url: url,
+              expected_facts: current.attributes?.object_facts ?? null,
+              facts: { ...objectFacts, evidence: { ...objectFacts.evidence, source_url: url } },
+            });
+            if (factsError) throw factsError;
           }
         }
       } catch (enrichError) {

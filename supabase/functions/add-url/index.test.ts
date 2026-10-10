@@ -1,0 +1,77 @@
+// @vitest-environment node
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const state = vi.hoisted(() => ({
+  handler: null as any,
+  row: null as any,
+  background: [] as Promise<unknown>[],
+  rpc: vi.fn(), invoke: vi.fn(),
+}));
+vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
+  createClient: () => ({
+    auth: { getUser: async () => ({ data: { user: { id: 'owner-1' } }, error: null }) },
+    from: () => ({
+      insert: (row: any) => { state.row = { id: 'item-1', ...structuredClone(row) }; return { select: () => ({ single: async () => ({ data: structuredClone(state.row), error: null }) }) }; },
+      select: () => ({ eq: () => ({ single: async () => ({ data: structuredClone(state.row), error: null }) }) }),
+    }),
+    rpc: state.rpc, functions: { invoke: state.invoke },
+  }),
+}));
+vi.mock('../_shared/agentToken.ts', () => ({ isAgentToken: () => false }));
+vi.mock('../_shared/entitlementGate.ts', () => ({ requireEntitlement: async () => null }));
+vi.mock('../_shared/youtube.ts', () => ({ resolveYouTubeLink: async () => null }));
+vi.mock('../_shared/tiktok.ts', () => ({ resolveTikTokLink: async () => null }));
+
+const source = 'https://shop.example/jacket';
+const facts = { version: 1, beta: true, kind: 'product', name: 'Alpine Jacket', product: { brand: 'Example', sku: 'ALPINE-NAV', offer: { price: '748', currency: 'USD' } },
+  evidence: { source_url: source, observed_at: '2026-10-10T12:00:00Z', method: 'json-ld', extraction_version: 'object-facts-v1', schema_type: 'Product' } };
+beforeAll(async () => {
+  vi.stubGlobal('Deno', { env: { get: () => 'test' }, serve: (handler: any) => { state.handler = handler; } });
+  vi.stubGlobal('EdgeRuntime', { waitUntil: (promise: Promise<unknown>) => state.background.push(promise) });
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('Unavailable', { status: 503 })));
+  await import('./index.ts');
+});
+beforeEach(() => {
+  vi.clearAllMocks(); state.row = null; state.background = [];
+  state.invoke.mockImplementation(async (name: string) => ({ data: name === 'extract-link-metadata' ? {
+    title: 'Alpine Jacket', description: 'A navy wool jacket with a removable insulated hood.',
+    previewImagePath: 'owner-1/previews/alpine.jpg', objectFacts: structuredClone(facts),
+  } : { success: true }, error: null }));
+  state.rpc.mockImplementation(async (name: string, args: any) => {
+    if (name === 'apply_enrichment_patch') {
+      // The real RPC compares every field in itemSnapshot, including attributes.
+      // Model that persistence boundary, rather than mocking applyCandidate success.
+      const matches = Object.entries(args.expected).every(([key, value]) => JSON.stringify(state.row[key] ?? null) === JSON.stringify(value));
+      if (matches) Object.assign(state.row, structuredClone(args.patch));
+      return { data: matches, error: null };
+    }
+    if (name === 'set_item_object_facts') {
+      const matches = args.expected_url === state.row.url && args.facts.evidence.source_url === args.expected_url &&
+        JSON.stringify(state.row.attributes?.object_facts ?? null) === JSON.stringify(args.expected_facts);
+      if (matches) state.row.attributes.object_facts = structuredClone(args.facts);
+      return { data: matches, error: null };
+    }
+    return { data: null, error: null };
+  });
+});
+async function save(body: Record<string, unknown> = {}) {
+  const response = await state.handler(new Request('https://stash.example/add-url', { method: 'POST',
+    headers: { authorization: 'Bearer owner-token', 'content-type': 'application/json' },
+    body: JSON.stringify({ url: source, attributes: { location: { name: 'Saved at home' } }, ...body }),
+  }));
+  await Promise.all(state.background); return response;
+}
+
+describe('add-url product facts and preview persistence', () => {
+  it('saves facts alongside the real title, description and owned preview under snapshot CAS', async () => {
+    expect((await save()).status).toBe(200);
+    expect(state.row).toMatchObject({ title: 'Alpine Jacket', description: 'A navy wool jacket with a removable insulated hood.', file_path: 'owner-1/previews/alpine.jpg',
+      attributes: { location: { name: 'Saved at home' }, object_facts: { kind: 'product', product: { sku: 'ALPINE-NAV', offer: { price: '748', currency: 'USD' } } } } });
+    expect(state.rpc.mock.calls.map(([name]) => name)).toEqual(['apply_enrichment_patch', 'set_item_object_facts', 'set_item_enrichment']);
+  });
+  it('preserves the user title while adding object facts and an owned preview', async () => {
+    expect((await save({ title: 'My winter shortlist' })).status).toBe(200);
+    expect(state.row).toMatchObject({ title: 'My winter shortlist', file_path: 'owner-1/previews/alpine.jpg', attributes: { enrichment: { protected_fields: { title: true } }, object_facts: { kind: 'product' } } });
+    expect(state.rpc.mock.calls.find(([name]) => name === 'apply_enrichment_patch')?.[1].patch).not.toHaveProperty('title');
+  });
+});

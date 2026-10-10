@@ -77,8 +77,44 @@ function validateUsage(usage: any) {
     (typeof usage[key] !== 'number' || !Number.isFinite(usage[key]) || usage[key] < 0 || usage[key] > (key === 'cost_usd' ? 1000 : 10_000_000) || (key !== 'cost_usd' && !Number.isInteger(usage[key])))) throw new Error('invalid_usage');
   return usage;
 }
+// Keep this bounded contract identical in the backend and hosted supervisor.
+const IMAGE_REASONS: Record<string, string[]> = {
+  usable_asset: ['raster_structure_valid'],
+  unavailable: ['unsafe_image_url', 'unsupported_image_host', 'image_not_associated', 'image_timeout',
+    'image_request_failed', 'image_http_error', 'image_redirect_rejected', 'unsupported_raster_format'],
+  invalid: ['image_too_large', 'empty_image', 'non_raster_response', 'image_mime_mismatch',
+    'invalid_raster_structure', 'image_too_small', 'image_dimensions_excessive'],
+};
+function validateImageChecks(observation: any, refused: boolean) {
+  if (observation.image_checks === undefined) return;
+  list(observation.image_checks, 1);
+  if (!observation.image_checks.length) return;
+  if (refused || !observation.limitations.includes('image_pixels_not_verified') ||
+    !observation.limitations.includes('image_decode_not_verified')) throw new Error('invalid_image_check');
+  const first = observation.image_candidates.find((image: any) => image.associated);
+  for (const check of observation.image_checks) {
+    keys(check, ['url', 'source_url', 'associated', 'strategy', 'outcome', 'reason', 'checked_at', 'duration_ms',
+      'mime_type', 'byte_length', 'width', 'height', 'sha256']);
+    if (!first || check.url !== first.url || check.source_url !== observation.url || check.associated !== true ||
+      !livePublicUrl(check.url) || !livePublicUrl(check.source_url) || check.strategy !== 'public_raster_fetch' ||
+      !Object.hasOwn(IMAGE_REASONS, check.outcome) || !IMAGE_REASONS[check.outcome].includes(check.reason) ||
+      typeof check.checked_at !== 'string' || check.checked_at.length > 40 || !Number.isFinite(Date.parse(check.checked_at)) ||
+      !Number.isInteger(check.duration_ms) || check.duration_ms < 0 || check.duration_ms > 10_000) throw new Error('invalid_image_check');
+    if (check.mime_type !== undefined && !['image/jpeg', 'image/png', 'image/webp'].includes(check.mime_type)) throw new Error('invalid_image_check');
+    if (check.byte_length !== undefined && (!Number.isInteger(check.byte_length) || check.byte_length < 1 || check.byte_length > 5 * 1024 * 1024)) throw new Error('invalid_image_check');
+    for (const field of ['width', 'height']) if (check[field] !== undefined &&
+      (!Number.isInteger(check[field]) || check[field] < 0 || check[field] > 0xffffffff)) throw new Error('invalid_image_check');
+    if ((check.width === undefined) !== (check.height === undefined)) throw new Error('invalid_image_check');
+    if (check.outcome === 'usable_asset') {
+      if (check.mime_type === undefined || check.byte_length === undefined || check.width === undefined || check.height === undefined ||
+        check.width < 100 || check.height < 60 || check.width > 12000 || check.height > 12000 || check.width * check.height > 20_000_000 ||
+        typeof check.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(check.sha256)) throw new Error('invalid_image_check');
+    } else if (check.sha256 !== undefined) throw new Error('invalid_image_check');
+  }
+}
+
 function validateObservation(observation: any, item: any) {
-  keys(observation, ['schema_version', 'item_id', 'url', 'captured_at', 'outcome', 'title', 'text', 'source_truncated', 'image_candidates', 'attempts', 'limitations']);
+  keys(observation, ['schema_version', 'item_id', 'url', 'captured_at', 'outcome', 'title', 'text', 'source_truncated', 'image_candidates', 'image_checks', 'attempts', 'limitations']);
   const refused = observation.outcome === 'unavailable' && observation.title === '' && observation.text === '' && observation.source_truncated === false &&
     Array.isArray(observation.image_candidates) && observation.image_candidates.length === 0 && Array.isArray(observation.attempts) && observation.attempts.length === 1 &&
     observation.attempts[0]?.strategy === 'firecrawl_rendered' && observation.attempts[0]?.outcome === 'unavailable' &&
@@ -102,6 +138,7 @@ function validateObservation(observation: any, item: any) {
     if (!Number.isInteger(attempt.duration_ms) || attempt.duration_ms < 0 || attempt.duration_ms > 30_000) throw new Error('invalid_observation');
   }
   observation.limitations.forEach((value: unknown) => text(value, 1000));
+  validateImageChecks(observation, refused);
   return observation;
 }
 

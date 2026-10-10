@@ -1,6 +1,7 @@
 import { previewImageEvidence } from '../_shared/pagePreview.ts';
 import { inspectSourceText } from '../_shared/enrichmentQuality.ts';
 import { fetchMediumFeedPreview } from '../_shared/mediumFeedPreview.ts';
+import { verifyImageAsset, type ImageCheck } from './imageEvidence.ts';
 
 type Outcome = 'retrieved' | 'blocked' | 'unavailable' | 'mismatch';
 export type LiveEvidence = {
@@ -13,6 +14,7 @@ export type LiveEvidence = {
   text: string;
   source_truncated: boolean;
   image_candidates: { url: string; associated: boolean }[];
+  image_checks?: ImageCheck[];
   attempts: { strategy: 'firecrawl_rendered' | 'jina_reader' | 'medium_public_feed'; outcome: Outcome; reason: string; duration_ms: number }[];
   limitations: string[];
 };
@@ -112,8 +114,9 @@ const httpFailure = (status: number): Step => ({ outcome: 'unavailable', reason:
   status === 401 || status === 403 ? 'provider_auth_error' : status === 402 ? 'provider_credit_limit' : 'provider_http_error' });
 
 /** At most one render, one reader fallback and one exact-entry public feed check.
- * Egress is restricted to fixed providers and Medium's public author feed.
- * No image downloads, source cookies, browser actions or item writes. */
+ * Page egress is restricted to fixed providers and Medium's public author feed.
+ * The first associated image gets a separate, bounded trusted-CDN asset check.
+ * No source cookies, browser actions or item writes. */
 export async function collectLiveEvidence(item: { id: string; url: string }, { apiKey, jinaApiKey, fetcher = fetch }: {
   apiKey: string; jinaApiKey?: string; fetcher?: typeof fetch;
 }): Promise<LiveEvidence> {
@@ -122,8 +125,8 @@ export async function collectLiveEvidence(item: { id: string; url: string }, { a
     // Preserve snapshot identity so rejected URLs can receive durable failure telemetry.
     // The backend owns this field; exclude unsafe URLs from model prompts and reports.
     schema_version: 1 as const, item_id: item.id, url: item.url.slice(0, 2000), captured_at: new Date().toISOString(),
-    title: '', text: '', source_truncated: false, image_candidates: [],
-    limitations: ['public_unauthenticated_render', 'image_pixels_not_verified'],
+    title: '', text: '', source_truncated: false, image_candidates: [], image_checks: [],
+    limitations: ['public_unauthenticated_render', 'image_pixels_not_verified', 'image_decode_not_verified'],
   };
   const attempts: LiveEvidence['attempts'] = [];
   const finish = (step: Step): LiveEvidence => ({ ...base, outcome: step.outcome, ...step.patch, attempts });
@@ -218,5 +221,10 @@ export async function collectLiveEvidence(item: { id: string; url: string }, { a
     if (feed.patch?.image_candidates?.length) selected = { ...selected, patch: { ...selected.patch,
       image_candidates: feed.patch.image_candidates, limitations: [...(selected.patch?.limitations || base.limitations), 'public_feed_artwork_only'] } };
   }
-  return finish(selected);
+  const result = finish(selected);
+  const candidate = result.image_candidates.find(image => image.associated);
+  // Collection keeps its 23-second budget; an asset check adds at most five
+  // seconds, within the supervisor's 35-second investigate deadline.
+  if (candidate) result.image_checks = [await verifyImageAsset(candidate, item.url, { fetcher })];
+  return result;
 }
