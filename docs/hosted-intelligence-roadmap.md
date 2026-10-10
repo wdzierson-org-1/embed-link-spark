@@ -161,6 +161,27 @@ not part of this release. Daily email remains after 09:00 America/New_York.
 
 ## Improvement loop
 
+### Proposal review release — 2026-10-10
+
+The admin dashboard at `/admin/enrichment` now makes the operational review loop
+visible. It shows save-cohort completeness, incomplete items with attempt history,
+strategy outcomes/latency/known cost, hourly reviewer health and daily email status.
+Its 24-hour/seven-day windows group current item states by New York save date;
+these are not historical accuracy measurements. Unassessed saves remain unknown.
+
+Validated model proposals enter a database review queue on result completion.
+Retained historical results are included. Admins can add notes and mark a proposal
+new, needs evidence, planned or dismissed. Each write verifies admin membership,
+the displayed revision and a request idempotency key. The original suggestion is
+immutable; review decisions are separate. Source deletion and the existing 35-day
+job retention purge the derived proposal and all notes. This queue does not merge
+similar wording, retain private evidence indefinitely, or claim an experiment ran.
+
+Next, turn selected proposals into labelled regression cases and bounded candidate
+experiments, record comparative outcomes, and canary passing changes with rollback.
+The review states intentionally stop before evaluated/released: the dashboard must
+not substitute a status label for those missing execution and measurement steps.
+
 1. **Measure:** distinguish missing fields, blocked sources, wrong identity,
    stale facts, unsupported summaries, image mismatch, and failed storage.
    Keep attempt-level strategy, reason, duration, cost, and evidence.

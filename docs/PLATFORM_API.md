@@ -502,6 +502,31 @@ supabase.channel(`items-${userId}`)
 - Public feeds: `GET /get-public-feed/<username>`, `GET /get-discover-feed`
   (anon key works for both).
 
+## Internal enrichment review
+
+`POST /admin-stats` requires a user JWT and a current `admin_users` row. The
+enrichment actions also recheck membership in service-only SQL functions. These
+are operator tools, not ordinary-member APIs:
+
+- `{ action: "enrichment", lookback_hours: 24 | 168, proposal_status?: "new" |
+  "needs_evidence" | "planned" | "dismissed", proposal_limit?: 1..50 }` returns
+  the current save-cohort counts, daily New York groupings, attempt metrics,
+  bounded incomplete-item diagnostics, hosted job/report status and retained
+  proposals. Defaults: 24 hours, all statuses, 50 proposals. Proposal history
+  spans retained jobs regardless of the save window; each shows three latest
+  reviews. See `src/utils/adminEnrichmentApi.ts` for the response shape.
+- `{ action: "review_proposal", proposal_id, expected_revision, new_status,
+  review_note, request_id }` appends a review. IDs are UUIDs; the note must be
+  1–2,000 trimmed characters. A successful write increments revision. Retry an
+  unchanged request with the same `request_id`; an edited decision needs a new
+  UUID. A stale revision or a reused UUID with a different payload returns 409.
+  The actor always comes from the verified JWT. Clients cannot set it.
+
+Neither action modifies saved items or runs/publishes a playbook. Source deletion
+and the existing 35-day hosted-job retention cascade to proposal text and notes.
+Completeness percentages exclude unassessed saves from their denominator and do
+not measure factual accuracy. Missing cost or delivery evidence stays unknown.
+
 ## Notes for future clients
 
 - Menubar widget / extension: `add-url` + `add-note` are sufficient for v1

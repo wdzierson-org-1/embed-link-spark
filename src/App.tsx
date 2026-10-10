@@ -32,6 +32,7 @@ const DesignLoadingPreview = import.meta.env.DEV
 // docs/superpowers/specs/2026-09-08-admin-dashboard-design.md). Lazy so
 // members never download it.
 const Admin = lazy(() => import('@/pages/Admin'));
+const AdminEnrichment = lazy(() => import('@/pages/AdminEnrichment'));
 const AdminUser = lazy(() => import('@/pages/AdminUser'));
 
 const queryClient = new QueryClient();
@@ -69,6 +70,10 @@ function App() {
                       <Admin />
                     </Suspense>
                   }
+                />
+                <Route
+                  path="/admin/enrichment"
+                  element={<Suspense fallback={null}><AdminEnrichment /></Suspense>}
                 />
                 <Route
                   path="/admin/users/:userId"
