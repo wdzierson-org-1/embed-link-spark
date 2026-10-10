@@ -100,6 +100,13 @@ const ContentItemHeader = ({
   };
 
   const fileUrl = getFileUrl();
+  // A document's first page, when the pipeline has made one (attributes.media.preview)
+  const documentPreviewUrl = (() => {
+    const preview = item.attributes?.media?.preview;
+    if (item.type !== 'document' || !preview?.file_path) return null;
+    if (preview.source !== 'pdf-page-1' && preview.source !== 'ooxml-thumbnail') return null;
+    return supabase.storage.from('stash-media').getPublicUrl(preview.file_path).data.publicUrl;
+  })();
   const flavor = item.attributes?.link?.flavor ?? 'generic';
   const mediaFileName = item.attributes?.media?.file_name ?? null;
   const fileFactsLine = [mimeExtensionLabel(item.mime_type), formatFileSizeChip(item.file_size)]
@@ -148,6 +155,18 @@ const ContentItemHeader = ({
       }
 
       case 'document':
+        if (documentPreviewUrl && !imageErrors.has(item.id)) {
+          // A page is portrait: contained on its blurred self, like a book cover
+          return (
+            <AspectAwareImage
+              src={documentPreviewUrl}
+              alt={item.title || 'Document'}
+              onError={() => onImageError(item.id)}
+              reading={reading}
+              arriving={arriving}
+            />
+          );
+        }
         return <DocumentHero ext={mimeExtensionLabel(item.mime_type)} reading={reading} />;
 
       case 'image': {
@@ -197,6 +216,7 @@ const ContentItemHeader = ({
   // Pictures resolve in from pixel blocks on arrival; drawn heroes print in
   const heroIsPicture =
     (item.type === 'image' && Boolean(fileUrl) && !imageErrors.has(item.id)) ||
+    (item.type === 'document' && Boolean(documentPreviewUrl) && !imageErrors.has(item.id)) ||
     (item.type === 'link' && flavor !== 'repo' && Boolean(linkCoverSource) && !linkCoverFailed && !imageErrors.has(item.id));
   const kind = kindLabel(item);
   const stateTags = !isPublicView && (

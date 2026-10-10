@@ -40,3 +40,24 @@ describe('ContentItemHeader on a PDF without its summary', () => {
     expect(onEditItem).toHaveBeenCalledWith(expect.objectContaining({ id: 'doc-1' }));
   });
 });
+
+describe('ContentItemHeader on a document with its first page', () => {
+  const withPreview = {
+    ...pdf('complete'),
+    attributes: {
+      enrichment: { status: 'complete' as const, updated_at: new Date().toISOString() },
+      media: { preview: { file_path: 'user-1/previews/doc_doc-1.png', source: 'pdf-page-1' as const, rendered_at: '2026-10-10T00:00:00Z' } },
+    },
+  };
+
+  it('shows the page as its picture instead of the drawn placeholder', () => {
+    render(<ContentItemHeader item={withPreview} imageErrors={new Set()} onImageError={() => {}} onEditItem={vi.fn()} />);
+    const picture = screen.getByRole('img', { name: 'Quarterly report' });
+    expect(picture).toHaveAttribute('src', 'https://cdn.test/report.pdf');
+  });
+
+  it('falls back to the drawn page when the picture failed to load', () => {
+    render(<ContentItemHeader item={withPreview} imageErrors={new Set(['doc-1'])} onImageError={() => {}} onEditItem={vi.fn()} />);
+    expect(screen.queryByRole('img', { name: 'Quarterly report' })).not.toBeInTheDocument();
+  });
+});

@@ -13,6 +13,7 @@ import {
 } from '../_shared/titlePolicy.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
 import { runImagePlaceStep } from '../_shared/placeEnrichment.ts';
+import { runDocumentPreviewStep } from '../_shared/documentPreview.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -210,6 +211,19 @@ Deno.serve(async (req) => {
               body: { itemId: item.id, textContent: baseline },
             });
             if (embErr) console.error('add-file: generate-embeddings failed for', item.id, embErr);
+          }
+          // The first page is the card's picture (a PDF drawn by the renderer, an Office
+          // file's own saved preview): before extraction, so it lands while the text is
+          // still being read. Never fatal to the save.
+          try {
+            const outcome = await runDocumentPreviewStep(supabase, { id: item.id, user_id: user.id, mime_type }, {
+              publicUrl,
+              rendererUrl: Deno.env.get('DOCUMENT_PREVIEW_URL') ?? 'https://www.gostash.it/api/document-preview',
+              rendererSecret: Deno.env.get('DOCUMENT_PREVIEW_SECRET'),
+            });
+            console.log('add-file: preview step', item.id, JSON.stringify(outcome));
+          } catch (previewError) {
+            console.error('add-file: preview step failed', item.id, previewError);
           }
           if (mime_type === 'application/pdf') {
             const { error: qpsErr } = await supabase.functions.invoke('quick-pdf-summary', {

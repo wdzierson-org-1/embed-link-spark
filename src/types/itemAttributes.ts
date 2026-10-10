@@ -107,6 +107,18 @@ export type TranscriptState = {
   error?: TranscriptError;
 };
 
+/**
+ * A document's first page as a picture, made by the capture pipeline
+ * (`_shared/documentPreview.ts`): `file_path` is in the person's own storage folder;
+ * `source` says how it was made (page 1 of a PDF drawn by the renderer, or the preview an
+ * Office app saved inside the package).
+ */
+export type DocumentPreview = {
+  file_path: string;
+  source: 'pdf-page-1' | 'ooxml-thumbnail';
+  rendered_at: string;
+};
+
 export type MediaAttributes = {
   /** From chip-time local analysis (HTMLMediaElement metadata) */
   duration_s?: number;
@@ -114,6 +126,7 @@ export type MediaAttributes = {
   file_name?: string;
   kind?: MediaKind;
   transcript?: TranscriptState;
+  preview?: DocumentPreview;
 };
 
 export type ItemAttributes = {

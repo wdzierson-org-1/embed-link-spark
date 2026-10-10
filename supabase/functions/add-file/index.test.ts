@@ -22,6 +22,8 @@ vi.mock('../_shared/agentToken.ts', () => ({ isAgentToken: () => false }));
 vi.mock('../_shared/entitlementGate.ts', () => ({ requireEntitlement: async () => null }));
 const placeStep = vi.hoisted(() => vi.fn(async () => ({ skipped: 'no_address' })));
 vi.mock('../_shared/placeEnrichment.ts', () => ({ runImagePlaceStep: placeStep }));
+const previewStep = vi.hoisted(() => vi.fn(async () => ({ skipped: 'renderer_not_configured' })));
+vi.mock('../_shared/documentPreview.ts', () => ({ runDocumentPreviewStep: previewStep }));
 
 beforeAll(async () => {
   vi.stubGlobal('Deno', { env: { get: () => 'https://stash.example' }, serve: (handler: any) => { state.handler = handler; } });
@@ -77,5 +79,40 @@ describe('add-file: one pipeline for every client', () => {
   it('refuses a file outside the caller’s own folder', async () => {
     expect((await save({ file_path: 'someone-else/staging/x.jpg', mime_type: 'image/jpeg' })).status).toBe(403);
     expect(invoked()).toEqual([]);
+  });
+});
+
+describe('add-file document previews', () => {
+  it('asks for a PDF’s first page before extraction, from the stored object', async () => {
+    const response = await save({ mime_type: 'application/pdf', file_path: 'owner-1/staging/deck.pdf' });
+    expect(response.status).toBe(200);
+    await Promise.all(state.background);
+    expect(previewStep).toHaveBeenCalledTimes(1);
+    const [, item, options] = previewStep.mock.calls[0] as unknown as [unknown, { id: string; user_id: string; mime_type: string }, { publicUrl: string; rendererUrl: string }];
+    expect(item).toEqual({ id: 'item-1', user_id: 'owner-1', mime_type: 'application/pdf' });
+    expect(options.publicUrl).toBe('https://stash.example/storage/v1/object/public/stash-media/owner-1/staging/deck.pdf');
+    expect(options.rendererUrl).toBe('https://stash.example');
+    const order = state.invoke.mock.calls.map(([name]) => name);
+    expect(order.indexOf('quick-pdf-summary')).toBeGreaterThan(-1);
+    expect(previewStep.mock.invocationCallOrder[0]).toBeLessThan(state.invoke.mock.invocationCallOrder[order.indexOf('quick-pdf-summary')]);
+  });
+
+  it('asks for a presentation’s saved preview too, and never for a picture', async () => {
+    await save({ mime_type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', file_path: 'owner-1/staging/deck.pptx' });
+    await Promise.all(state.background);
+    expect(previewStep).toHaveBeenCalledTimes(1);
+    previewStep.mockClear();
+    await save({ mime_type: 'image/png', file_path: 'owner-1/staging/photo.png' });
+    await Promise.all(state.background);
+    expect(previewStep).not.toHaveBeenCalled();
+  });
+
+  it('keeps the save and its extraction when the preview step throws', async () => {
+    previewStep.mockRejectedValueOnce(new Error('renderer exploded'));
+    const response = await save({ mime_type: 'application/pdf', file_path: 'owner-1/staging/deck.pdf' });
+    expect(response.status).toBe(200);
+    await Promise.all(state.background);
+    expect(state.invoke.mock.calls.map(([name]) => name)).toContain('extract-pdf-text');
+    expect(state.rpc).toHaveBeenCalledWith('set_item_enrichment', { target_id: 'item-1', next_status: 'complete' });
   });
 });
