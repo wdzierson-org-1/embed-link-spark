@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Globe,
   Lock,
@@ -27,6 +26,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import EditItemTitleSection from '@/components/EditItemTitleSection';
+import EditItemDescriptionSection from '@/components/EditItemDescriptionSection';
 import EditItemContentSection from '@/components/EditItemContentSection';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
@@ -127,19 +127,6 @@ const EditItemDetailsTab = ({
   const [isImageBusy, setIsImageBusy] = useState(false);
   const { user } = useAuth();
   const imageFileInputRef = useRef<HTMLInputElement>(null);
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
-
-  // Description grows with its content
-  const resizeDescription = () => {
-    const el = descriptionRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight + 2}px`;
-  };
-  useEffect(() => {
-    resizeDescription();
-  }, [description]);
-
   const handleReplaceImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -309,15 +296,10 @@ const EditItemDetailsTab = ({
           onSave={onTitleSave}
         />
 
-        <Textarea
-          id="edit-item-description"
-          aria-label="Description"
-          ref={descriptionRef}
-          value={description}
-          onChange={(e) => { onDescriptionChange(e.target.value); resizeDescription(); }}
-          onBlur={() => void onDescriptionSave(description)}
-          placeholder="Add a description..."
-          className="-mx-2 mt-2.5 min-h-0 w-[calc(100%+16px)] resize-none overflow-hidden rounded-none border-0 bg-transparent px-2 py-0.5 text-[15px] leading-[1.5] text-muted-foreground shadow-none transition-colors hover:bg-fill focus-visible:bg-white focus-visible:text-ink focus-visible:shadow-[inset_0_0_0_1px_var(--ink),0_0_0_3px_rgb(var(--spot-rgb))] focus-visible:ring-0 focus-visible:ring-offset-0 md:text-[15px] v2:bg-transparent v2:hover:bg-fill v2:focus-visible:bg-white v2:focus-visible:ring-0"
+        <EditItemDescriptionSection
+          description={description}
+          onDescriptionChange={onDescriptionChange}
+          onSave={onDescriptionSave}
         />
       </div>
 

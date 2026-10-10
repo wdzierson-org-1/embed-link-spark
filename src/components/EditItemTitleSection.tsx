@@ -17,8 +17,8 @@ const TITLE_BOX =
  * input chrome at rest, the soft fill on hover; editing, a white box with an ink edge and the
  * spot ring, like every place the person writes.
  *
- * Two states (ui-changes.md 2026-09-03): at rest the title is a clamped
- * two-line block with an ellipsis (the full text sits in the tooltip);
+ * Two states (ui-changes.md 2026-09-03; three lines since 2026-10-10): at rest the title is
+ * a clamped three-line block with an ellipsis (the full text sits in the tooltip);
  * clicking it swaps in an auto-growing textarea showing every line, focused
  * with the caret at the end. Blur saves the trimmed title and returns to the
  * clamped view; Enter is "done" (a title is one line — pasted newlines are
@@ -66,9 +66,9 @@ const EditItemTitleSection = ({ title, onTitleChange, onSave }: EditItemTitleSec
         aria-label="Edit title"
         title={title}
         onClick={() => setEditing(true)}
-        // No display utility here: `line-clamp-2` relies on `display: -webkit-box`,
+        // No display utility here: `line-clamp-3` relies on `display: -webkit-box`,
         // and `block`/`flex` would override it and defeat the clamp
-        className={`${TITLE_BOX} ${TITLE_TYPE} text-left line-clamp-2 break-words focus-visible:bg-fill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink`}
+        className={`${TITLE_BOX} ${TITLE_TYPE} text-left line-clamp-3 break-words focus-visible:bg-fill focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink`}
       >
         {title ? title : <span className="text-muted-foreground">Untitled</span>}
       </button>

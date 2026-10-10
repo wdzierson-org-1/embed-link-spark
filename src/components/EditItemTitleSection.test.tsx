@@ -5,12 +5,12 @@ import EditItemTitleSection from './EditItemTitleSection';
 const LONG = 'Elise Loehnen (Fissmer) on Instagram: "Comment HAMSTER and I’ll DM you a link to this month’s solo episode of PULLING THE THREAD."';
 
 describe('EditItemTitleSection', () => {
-  it('rests as a two-line clamped title, not an input', () => {
+  it('rests as a three-line clamped title, not an input', () => {
     render(<EditItemTitleSection title={LONG} onTitleChange={vi.fn()} onSave={vi.fn()} />);
     const rest = screen.getByRole('button', { name: /edit title/i });
     expect(rest).toHaveTextContent(LONG);
     expect(rest).toHaveAttribute('title', LONG);
-    expect(rest.className).toContain('line-clamp-2');
+    expect(rest.className).toContain('line-clamp-3');
     // line-clamp needs display:-webkit-box; a display utility would override it
     expect([...rest.classList].some((c) => ['block', 'flex', 'inline-block', 'grid'].includes(c))).toBe(false);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
@@ -27,7 +27,7 @@ describe('EditItemTitleSection', () => {
     const box = screen.getByRole('textbox', { name: /title/i }) as HTMLTextAreaElement;
     expect(box.value).toBe(LONG);
     expect(box).toHaveFocus();
-    expect(box.className).not.toContain('line-clamp-2');
+    expect(box.className).not.toContain('line-clamp-3');
     expect(screen.queryByRole('button', { name: /edit title/i })).not.toBeInTheDocument();
   });
 
