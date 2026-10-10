@@ -54,6 +54,13 @@ const SUMMARY_TASK: Partial<Record<SummaryInput['kind'], string>> = {
     'Produce a faithful, well-organized summary of the source: main points, key details, ' +
     'and conclusions, in plain direct prose (short paragraphs; use "-" bullets only when the ' +
     'source is list-like). Length proportional to the source, at most ~250 words. ',
+  image:
+    'You summarize a saved image (its visual description and any visible text) for the user\'s ' +
+    'personal library. Say what it shows and what the text says, faithfully; never guess who a person ' +
+    'is from their face. Plain direct prose, at most ~150 words. ',
+  text:
+    'You summarize a saved note for the user\'s personal library: its main points, faithfully, in ' +
+    'plain direct prose, at most ~150 words. ',
 };
 
 // Applies to every transcript source, whatever DB type it arrived as. Handles
@@ -149,7 +156,7 @@ export const generateSummary = async (
       max_tokens: TRANSCRIPT_KINDS.has(kind) ? 700 : 600,
       temperature: 0.2,
     }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(TRANSCRIPT_KINDS.has(kind) ? 60_000 : 20_000),
   });
 
   if (!response.ok) {

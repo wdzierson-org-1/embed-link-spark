@@ -38,3 +38,9 @@ Every explicit gold expectation must pass:
 This job does not deploy anything or auto-edit the playbook. Repository branch protection must require the job to prevent merging a failed PR. Direct backend deployments must explicitly run this gate before publishing; an Actions check alone does not intercept manual Supabase deployments. Promotion still requires review of live evidence, costs, and a rollback plan in addition to this corpus passing.
 
 Workflow reference: [GitHub Node testing documentation](https://docs.github.com/en/actions/tutorials/build-and-test-code/nodejs), [artifact retention and failure uploads](https://github.com/actions/upload-artifact).
+
+Vercel also runs the same regression command before `npm run build`, configured in
+`vercel.json`. This blocks a web deployment when a labelled regression fails even
+when GitHub Actions cannot start (the organization reported a billing lock during
+this release). It does not intercept a manual Supabase deployment. Restore GitHub
+Actions billing to receive the separate CI artifact and required-check integration.

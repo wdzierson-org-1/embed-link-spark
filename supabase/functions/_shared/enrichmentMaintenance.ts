@@ -46,14 +46,21 @@ async function getCandidate(item: EnrichmentItem, job: any, deps: Deps) {
     candidate = { strategy: page.source || 'page', text: page.success ? page.text : undefined, reason: page.success ? undefined : 'page_unavailable' };
   } else if (['image','transcribe','document'].includes(adapter)) {
     if (!config.openAiKey) return { candidate: { strategy: adapter, unavailable: true, reason: 'model_unconfigured' }, state, spent };
-    const fileUrl = await signedFile(db, item); spent = true;
+    const fileUrl = adapter === 'transcribe' ? '' : await signedFile(db, item); spent = true;
     if (adapter === 'image') {
       const result = await call('analyze-image', { imageUrl: fileUrl });
       candidate = { strategy: 'image-analysis', title: result.title, description: result.description, text: result.detected_text,
         evidence: result.description ? { visual: true, visual_text: result.description, visual_provider: 'analyze-image' } : {} };
     } else if (adapter === 'transcribe') {
-      const result = await call('transcribe-audio', { audioUrl: fileUrl, fileName: item.attributes?.media?.file_name || item.title });
-      candidate = { strategy: 'transcribe', text: result.transcription, description: result.transcription ? result.description : undefined, evidence: { transcript: !!result.transcription } };
+      // The durable transcription job owns the recording's writes and resumes
+      // chunks itself. Maintenance starts/resumes that job by item ID, then
+      // checks back; no-speech recordings must not create endless paid retries.
+      const transcript = item.attributes?.media?.transcript?.status;
+      if (transcript === 'done') candidate = { strategy: 'transcribe-job', unavailable: true, reason: 'transcript_unusable' };
+      else {
+        if (transcript !== 'pending' && transcript !== 'processing') await call('transcribe-audio', { itemId: item.id });
+        candidate = { strategy: 'transcribe-job', pending: true };
+      }
     } else {
       const result = await call(item.mime_type === 'application/pdf' ? 'extract-pdf-text' : 'extract-office-text', {
         itemId: item.id, fileUrl, fileName: item.attributes?.media?.file_name || item.title, mimeType: item.mime_type, extractOnly: true,

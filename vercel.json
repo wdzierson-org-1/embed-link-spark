@@ -1,4 +1,5 @@
 {
+  "buildCommand": "node node_modules/vitest/vitest.mjs run --config services/enrichment-evals/vitest.config.ts && npm run build",
   "rewrites": [
     { "source": "/mcp", "destination": "https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp" },
     { "source": "/mcp/:path*", "destination": "https://uqqsgmwkvslaomzxptnp.supabase.co/functions/v1/mcp/:path*" },
