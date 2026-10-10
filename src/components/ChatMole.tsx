@@ -11,6 +11,7 @@ import ReactMarkdown from 'react-markdown';
 import ChatMessageSources from './ChatMessageSources';
 import ChatMessageFeedback from './ChatMessageFeedback';
 import { bakeCitationLinks, extractLinkedItemIds, itemIdFromHref } from '@/utils/chatCitations';
+import CitationLink from '@/components/chat/CitationLink';
 import { resolveSessionTarget, SESSION_GAP_MS } from '@/utils/chatSessions';
 
 interface MoleSource {
@@ -540,12 +541,9 @@ const ChatMole = ({
                       const itemId = itemIdFromHref(href);
                       if (itemId) {
                         return (
-                          <button
-                            onClick={() => onSourceClick?.(itemId)}
-                            className="inline p-0 font-medium text-ink underline decoration-ink/40 decoration-1 underline-offset-[3px] hover:bg-spot hover:decoration-ink"
-                          >
+                          <CitationLink href={href!} itemId={itemId} onOpen={(id) => onSourceClick?.(id)}>
                             {children}
-                          </button>
+                          </CitationLink>
                         );
                       }
                       // Mid-stream (#n) targets aren't resolvable yet — show as text
