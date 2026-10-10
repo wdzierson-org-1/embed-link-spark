@@ -133,6 +133,7 @@ const Admin = () => {
       <HeaderSection user={user} />
 
       <div className="container mx-auto max-w-7xl px-4 py-8">
+        <Link to="/admin/enrichment" className="mb-5 inline-flex min-h-11 items-center border border-ink px-3 text-label text-ink hover:bg-ink hover:text-white">Enrichment review</Link>
         <div className="mb-6">
           <h1 className="text-[32px] font-semibold leading-[1.12] tracking-[-0.022em] text-[#22262f]">Members</h1>
           <p className="mt-2 max-w-xl text-sm text-[#646b76]">
