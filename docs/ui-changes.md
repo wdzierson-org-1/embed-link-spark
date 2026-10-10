@@ -38,6 +38,13 @@ first, visuals second, with pointers to specs and source.
   and `enrichmentMaintenance.transcripts.test.ts`. This entry describes the code
   change; production deployment is a separate step.
 
+## 2026-10-10 · Full-size stages: one minimize
+
+At full size a media stage showed two minimize controls — the ink bar's cell and the stage's
+hover cell (which had turned into "exit full size"). The hover cell now offers only **full
+size**, at rest; at full size the bar's **minimize** cell and Esc are the way back
+(`edit/StageFull`). iOS: a full-size stage carries one close/minimize affordance.
+
 ## 2026-10-10 · Map-based shares: `attributes.place`, the map as the picture, the location section
 
 Will: "let's enrich map-based shares … to show an embedded map as the image for the card as
