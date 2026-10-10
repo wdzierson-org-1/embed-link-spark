@@ -8,6 +8,36 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Maintenance preserves transcript evidence and source descriptions
+
+- **Contract (all platforms):** recovered link transcripts retain `page_body` and
+  `attributes.enrichment.evidence { transcript: true, capture_kind: 'transcript',
+  transcript_source, language?, duration_s?, author? }`. Maintenance now preserves
+  these fields from `scrape-page-content`'s `extractOnly` result, validates the
+  body before attaching evidence, and generates a recording-style `summary`.
+  Meaningful descriptions and existing richer transcripts survive repair.
+- **Recovery:** a usable caption no longer prevents a known YouTube or TikTok
+  video from reaching the existing transcript capture path. Pending provider IDs
+  prevent a second fallback even when that provider's key is unavailable. Successful
+  replacement clears the earlier provider failure; an extraction exception retains
+  the attempted flag and updated provider state so it cannot silently restart on
+  the next review.
+- **Instagram boundary:** successful captures receive the same evidence fix.
+  Newly retrying caption-bearing Instagram saves remains deferred until durable
+  TranscriptFetch submission and job polling are implemented. Its current HTTP 202
+  path loses the job ID, and its timeout exceeds the maintenance request deadline.
+  The two outstanding regression cases are explicit TODOs. Historical exhausted
+  jobs need a separate bounded replay that preserves pending IDs.
+- **Client coordination:** link evidence uses `enrichment.evidence.transcript`;
+  uploaded audio/video progress still uses `media.transcript`. When the link flag
+  changes, an open detail panel should clear and refetch its loaded source body and
+  summary before labeling it a transcript. This frontend follow-up was handed to
+  Claude through the shared coordination file; it is not included in this backend
+  change. Place enrichment and other attribute leaves keep their existing contracts.
+- **Implementation:** `_shared/enrichmentMaintenance.ts`, `enrichmentRepair.ts`,
+  and `enrichmentMaintenance.transcripts.test.ts`. This entry describes the code
+  change; production deployment is a separate step.
+
 ## 2026-10-10 · Map-based shares: `attributes.place`, the map as the picture, the location section
 
 Will: "let's enrich map-based shares … to show an embedded map as the image for the card as
