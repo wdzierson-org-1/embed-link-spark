@@ -8,6 +8,73 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Input panel fixes: line-aware slash commands, pictures in notes are read, documents show their first page, one minimize, three-line titles, left-aligned citations
+
+Will, 2026-10-10: six fixes to the input panel and the detail panel. Contracts first.
+
+- **Contract (all platforms): `attributes.note_images`** — the pictures inside a note,
+  described. `{ version: 1, images: [{ src, description, text?, analyzed_at }] }`, one entry
+  per `image` node of the Novel document (web addresses only; `data:` pastes are skipped), in
+  note order; `description` is what the picture shows, `text` what it says (OCR), `analyzed_at`
+  ISO. Written only by the new function **`analyze-note-images`** (`POST { itemId }`; a
+  service call or the owner's JWT) through the leaf compare-and-swap `set_item_note_images`
+  (migration `20261011090000`). Each picture is described once (`analyze-image` in its
+  no-write mode, gpt-4o vision); pictures that leave the note are dropped; a note whose
+  pictures are all known costs nothing. The text joins the search index
+  (`enrichmentSearchText`, like place facts) so Ask Stash and search find a note by what its
+  picture shows. Keyword (`fts`) search does not read attributes — a follow-up migration if
+  wanted. Callers: `add-note` after the insert (the picture text also feeds generate-title /
+  generate-description, so a note that is only a picture gets a real title), and the web's
+  item save (`utils/itemOperations`) on the same idle moment as its embedding refresh. iOS:
+  call `analyze-note-images` after saving a note that holds pictures; read the leaf with the
+  same shape; never write it. `add-note` no longer falls back to the raw JSON when a note has
+  no words (a picture alone): the fallback title is empty until the AI title lands.
+- **Contract (all platforms): `attributes.media.preview`** — a document's first page as a
+  picture: `{ file_path, source: 'pdf-page-1' | 'ooxml-thumbnail', rendered_at }`.
+  `file_path` is `<uid>/previews/doc_<itemId>.png|jpg` in `stash-media` (like rendered maps).
+  Made by `add-file`'s document branch after the response, before text extraction
+  (`_shared/documentPreview.ts`): a PDF's page 1 drawn at 1200 px by the renderer
+  **`api/document-preview`** (a Vercel Node function: pdf.js on @napi-rs/canvas; `GET
+  ?url=<public stash-media object>` with `Authorization: Bearer DOCUMENT_PREVIEW_SECRET`,
+  answers `image/png` + `X-Page-Count`; configured in add-file by `DOCUMENT_PREVIEW_URL`
+  (default `https://www.gostash.it/api/document-preview`) and `DOCUMENT_PREVIEW_SECRET`); an
+  Office file's own saved preview (`docProps/thumbnail.*` named by the package relationships
+  — PowerPoint and Keynote write one; an export without one keeps the drawn page). Other
+  `media` keys are preserved. Cards read it: a document with a preview shows it as a picture
+  (portrait, contained on its blurred self, like a book cover; `ContentItemHeader`), the
+  drawn page otherwise or when it fails to load. The panel's document stage is unchanged.
+  Share links (`api/share.ts`) don't unfurl it yet (`shared_item()` returns no attributes) —
+  follow-up. iOS: read `attributes.media.preview.file_path` for document cards.
+- **Web — slash commands format the line, not the block** (`editor/lineCommands.ts`):
+  before a block command (text, headings, lists, to-do, quote, code) the line under the
+  caret — or the lines a selection spans — is cut out of any hard-broken block (Shift+Enter
+  lines) and the format lands on it alone; blocks without hard breaks are untouched. The
+  bubble menu's H1–H3 do the same. Three defects behind "formats all of the text": lines made
+  with Shift+Enter were one paragraph; in the composer a mouse click on the menu bubbled
+  (React portal) into the wrapper's caret-to-end handler and ended the suggestion before the
+  click; in the sheet the menu (on `<body>`) sat under the modal's `pointer-events: none`, so
+  clicks fell through to the note. Fixes: wrapper handlers ignore events whose DOM target is
+  outside them; the menu swallows mousedown and takes pointer events; the sheet does not treat
+  a click on `#slash-command` as an outside interaction. Keyboard and mouse now behave the
+  same in the composer, the panel's notes and the maximized notes.
+- **Web — one minimize** (`edit/StageFull`): full size shows the bar's minimize only (the hover
+  cell is gone while full), drawn as `Minimize2`, the mirror of the cell's `Maximize2`. All
+  stages (picture, video, player, document).
+- **Web — three-line titles and descriptions** in the panel (`EditItemTitleSection`,
+  new `EditItemDescriptionSection`): at rest both are clamped to three lines with an ellipsis
+  (the title was two); a click opens the full text in an auto-growing field, focused with the
+  caret at the end; blur saves. Enter is "done" for the title, a new line for the description.
+  Both stay plain text — no slash commands there (the lane every surface reads).
+- **Web — Ask Stash citations are inline links** (`chat/CitationLink`): an `<a href="#item=…">`
+  that opens the save, instead of a `<button>` (laid out inline-block with centred text, which
+  centred every multi-line title in the answer list).
+- **Verification:** vitest (line commands, citation link, stage, title/description, note
+  images helper + parity, `analyze-note-images`, `add-note`, `add-file`, document preview
+  helper, the renderer against a synthetic and a real PDF); the three slash-command defects
+  re-run in a real browser on the dev server, composer and panel, keyboard and mouse.
+
+---
+
 ## 2026-10-10 · Map-based shares: `attributes.place`, the map as the picture, the location section
 
 Will: "let's enrich map-based shares … to show an embedded map as the image for the card as

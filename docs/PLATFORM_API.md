@@ -177,6 +177,28 @@ the JSON scaffolding. A note whose entire content is one
 HTTP(S) URL keeps its literal or user-provided title and skips AI title/description
 generation: an opaque URL is not evidence about the linked page. Use `add-url`
 for link enrichment (or `capture`, which normalizes this share-sheet case).
+A note that holds pictures (`image` nodes with web addresses) has them described
+after the response by `analyze-note-images` (below): what each shows and says
+lands in `attributes.note_images`, feeds the AI title/description along with the
+words, and joins the index. A note with no words (a picture alone) starts with an
+empty title until the AI title lands — never the JSON itself.
+
+### `POST /analyze-note-images` — describe the pictures inside a note
+
+```json
+{ "itemId": "<uuid>" }
+```
+
+Service calls or the owner's JWT. Reads the note (`items.content`), describes each
+picture it holds that isn't described yet (`analyze-image`, no writes), drops
+descriptions of pictures that left the note, and writes
+`attributes.note_images = { version: 1, images: [{ src, description, text?, analyzed_at }] }`
+through a compare-and-swap; then re-indexes the save. Answers
+`{ success: true, changed, described, pending }` (`pending`: pictures left for the
+next call — at most 8 are described per call) or `{ success: false, reason:
+"item_changed" }` when the leaf moved meanwhile (whoever moved it re-indexes). A
+note whose pictures are all known costs nothing: call it after every save of a
+note with pictures. Clients read the leaf; never write it.
 
 ### `POST /add-file` — save an uploaded file
 
@@ -202,6 +224,13 @@ until the transcription job finishes; the status then settles to `complete`
 (`attributes.media.transcript.status = "done"`) or `partial` (`"failed"`) in
 the row itself. Send the original file name as `title` and as
 `attributes.media.file_name`; the storage object name is never kept as one.
+Documents also get a picture after the response, before extraction:
+`attributes.media.preview = { file_path, source, rendered_at }` — page 1 of a PDF
+(`source: "pdf-page-1"`, drawn by the `api/document-preview` renderer) or the
+preview an Office app saved inside a `.pptx`/`.docx`/`.xlsx` package
+(`"ooxml-thumbnail"`; absent from some exports, then no preview). `file_path` is
+`<userId>/previews/doc_<itemId>.png|jpg` in `stash-media`; show it as the card's
+picture, the drawn page otherwise.
 
 ### `POST /capture` — idempotent capture (iOS)
 

@@ -748,8 +748,11 @@ ink on hover.
   from the public feed (§12.15). (Will, 2026-10-09.)
 - **The address leads** (links): the source address strip is the first thing in the body, above
   the title (Will, 2026-10-09: "move the address for the object above the title").
-- **Title:** screen title 28/1.12, inline-editable (hover: fill; editing: white, ink edge, spot ring).
-  **Description:** Montreal 15/1.5 muted, editable the same way.
+- **Title:** screen title 28/1.12, inline-editable (hover: fill; editing: white, ink edge, spot ring);
+  at rest clamped to **three lines** with an ellipsis, a click opens the whole text in an
+  auto-growing field (2026-10-10, for reels whose captions run long).
+  **Description:** Montreal 15/1.5 muted, editable the same way, the same three-line clamp at
+  rest; Enter is a new line there. Both stay plain text — no slash commands.
 - **Media** on a dotted stage with crop marks: an image as an object (2 px, line edge,
   `shadow-object`), with 36 px square replace and remove controls on hover. The picture stage is
   **448 px tall before the picture arrives and after** (its 384 px cap plus padding), so nothing
