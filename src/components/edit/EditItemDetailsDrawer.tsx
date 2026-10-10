@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { SECTION_LABEL_CLASS } from '@/components/edit/EditPanelSection';
+import { FactRow } from '@/components/edit/FactTree';
 import EditItemLocationSection from '@/components/EditItemLocationSection';
 import { domainOfUrl } from '@/utils/linkFlavor';
 import { fileBasename, fileExtensionLabel, formatBytes, formatClock } from '@/utils/itemFacts';
@@ -31,28 +32,6 @@ interface EditItemDetailsDrawerProps {
 }
 
 const FILE_BACKED_TYPES = new Set(['audio', 'video', 'image', 'document', 'pdf']);
-
-const FactRow = ({
-  label,
-  mono = false,
-  children,
-}: {
-  label: string;
-  mono?: boolean;
-  children: React.ReactNode;
-}) => (
-  // The branch glyph comes from CSS (`├─`, and `└─` on the last row) so rows can come and go
-  <div className="v2-tree-row flex items-baseline gap-3 py-[6px]">
-    <span className="flex w-[124px] flex-none items-baseline font-pixel text-pixel lowercase text-muted-foreground">{label}</span>
-    <span
-      className={`min-w-0 flex-1 [overflow-wrap:anywhere] ${
-        mono ? 'font-pixel text-pixel text-ink' : 'text-[14px] text-ink'
-      }`}
-    >
-      {children}
-    </span>
-  </div>
-);
 
 const EditItemDetailsDrawer = ({ item, onSaveAttributes }: EditItemDetailsDrawerProps) => {
   const [open, setOpen] = useState(true);

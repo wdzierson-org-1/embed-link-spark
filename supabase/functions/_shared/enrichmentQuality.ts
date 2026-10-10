@@ -1,4 +1,5 @@
 import { readObjectFacts, objectFactsSearchText } from './objectFacts.ts';
+import { placeSearchText, readPlace } from './place.ts';
 
 /** Versioned, deterministic checks. A quality score is evidence coverage, not a factuality guarantee. */
 export const QUALITY_VERSION = '2026-09-23.1';
@@ -166,10 +167,12 @@ export function enrichmentSearchText(item: EnrichmentItem): string {
   const protectedFields = item.attributes?.enrichment?.protected_fields || {};
   const contaminated = quality.status === 'blocked';
   const objectFacts = readObjectFacts(item.attributes?.object_facts, item.url || '');
+  const place = readPlace(item.attributes?.place);
   return [(!contaminated || protectedFields.title) && !isPlaceholderMetadata(item.title, item.url) && item.title,
     (!contaminated || protectedFields.description) && !isPlaceholderMetadata(item.description, item.url) && item.description,
     quality.content_usable && item.summary, item.content, item.supplemental_note,
     objectFacts && objectFactsSearchText(objectFacts),
+    place && placeSearchText(place),
     item.url, quality.content_usable && item.page_body, item.attributes?.media?.file_name,
     quality.evidence.visual && item.attributes?.enrichment?.evidence?.visual_text]
     .filter(Boolean).join('\n\n');

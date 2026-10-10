@@ -180,6 +180,32 @@ list + toolbar, the card context menu, `ios/StashUITests/*`.
 
 ---
 
+## Round 4 — places: the map as the picture, the location section (added 2026-10-10)
+
+Contract: docs/ui-changes.md 2026-10-10 "Map-based shares" and `supabase/functions/_shared/place.ts`
+(`attributes.place` v1). The pipeline owns the lane and the map; iOS only reads.
+
+### Task 7: `Place.swift` and the location section
+
+**Files:** `ios/StashKit/Sources/StashKit/Place.swift` (+ tests), `ios/Stash/Detail/LocationSection.swift`.
+
+- [ ] Decode `attributes.place` leniently (unknown keys kept on write-back; `readPlace` on the
+      web requires `version: 1`, `provider.kind` in apple-maps | google-maps | page and
+      `evidence.extraction_version == "place-v1"`).
+- [ ] The map needs nothing: it is `file_path` like any picture (`place.map.file_path` says so).
+      The kind label reads `place` for a link with the lane (`kindLabel` parity).
+- [ ] Port `src/utils/placeFacts.ts`: hours rows Monday-first (`Mon–Thu 4:00–9:00 PM`,
+      `1:00 PM–2:00 AM` past midnight), `openState` in the place's zone — **null without a
+      `timezone`, then show today's hours and never say open or closed** — directions in the
+      provider the save came from, phone formatting, rating/price labels. Unit-test with the
+      web's cases (`placeFacts.test.ts`).
+- [ ] `LocationSection` above the details tree on the detail sheet: address (opens the
+      provider's URL), hours (the machine line, chevron opens the week), phone (`tel:`),
+      website, menu, rating, price, category; cells Directions · Call · Menu · Website; the
+      muted "From Apple Maps, observed …" line. Hide the beta publisher-facts place rows when the
+      lane exists.
+- [ ] Share sheet: nothing — a map link saves like any link; the pipeline does the rest.
+
 ## Wrap
 
 - [ ] Whole-branch review against the contracts; fix wave.

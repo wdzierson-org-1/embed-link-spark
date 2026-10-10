@@ -1,5 +1,6 @@
 import type { ObjectFacts } from '../../supabase/functions/_shared/objectFacts';
 import type { ObjectIntelligence } from '../../supabase/functions/_shared/objectIntelligence';
+import type { PlaceAttributes } from '../../supabase/functions/_shared/place';
 
 /**
  * Extensible per-item attribute blob, stored in items.attributes (jsonb).
@@ -120,6 +121,12 @@ export type ItemAttributes = {
   object_facts?: ObjectFacts;
   /** Beta, source-bound facts, interpretations, and proposed interactions. */
   object_intelligence?: ObjectIntelligence;
+  /**
+   * The place a saved address stands for (map-provider links, listing pages with coordinates):
+   * where it is, when it is open, how to reach it, and the map Stash rendered as its picture.
+   * Written by the capture pipeline (`_shared/placeEnrichment.ts`), never by a client.
+   */
+  place?: PlaceAttributes;
   enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string; evidence?: EnrichmentEvidence };
   location?: CapturedLocation;
   link?: LinkAttributes;

@@ -14,6 +14,8 @@ import { embedSourceFor } from '@/utils/embeds';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
+import LocationDetailsSection from '@/components/edit/LocationDetailsSection';
+import { readPlace } from '../../supabase/functions/_shared/place';
 import ReadOnlyNovelRenderer from '@/components/ReadOnlyNovelRenderer';
 import TranscriptContent from '@/components/TranscriptContent';
 import { ReadOnlyText } from '@/components/EditItemContentSection';
@@ -228,6 +230,8 @@ const SharedItem = () => {
               )}
             </>
           )}
+
+          {save.type === 'link' && readPlace(save.attributes?.place) && <LocationDetailsSection place={readPlace(save.attributes?.place)!} />}
 
           <div className="mt-[30px]">
             <EditItemDetailsDrawer item={save} />

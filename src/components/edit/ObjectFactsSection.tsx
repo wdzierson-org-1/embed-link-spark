@@ -1,5 +1,6 @@
 import { ArrowUpRight } from 'lucide-react';
 import { readObjectFacts } from '../../../supabase/functions/_shared/objectFacts';
+import { readPlace } from '../../../supabase/functions/_shared/place';
 import { SectionHead } from './EditPanelSection';
 
 interface Props {
@@ -23,6 +24,8 @@ const Action = ({ href, children }: { href: string; children: React.ReactNode })
 export default function ObjectFactsSection({ item }: Props) {
   const facts = item.url ? readObjectFacts(item.attributes?.object_facts, item.url) : undefined;
   if (!facts) return null;
+  // The location section (attributes.place) carries a place's facts in full; no second listing
+  if (facts.kind === 'place' && readPlace(item.attributes?.place)) return null;
   const product = facts.product, place = facts.place;
   const rows: Array<[string, string | undefined]> = product ? [
     ['Brand', product.brand], ['Style / SKU', product.sku ?? product.mpn],

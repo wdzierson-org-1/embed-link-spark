@@ -8,6 +8,58 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Map-based shares: `attributes.place`, the map as the picture, the location section
+
+Will: "let's enrich map-based shares … to show an embedded map as the image for the card as
+opposed to the icon we currently show … for business listings … also add the open/closing hours,
+phone number, and link to the menu if available … a new 'location details' section, similar to
+the item details section at the bottom of the details screen." Decisions (2026-10-10): the map
+is a rendered image (Mapbox static), business facts come from the share's own page (no
+Yelp/Google lookups), map links first, screenshots and photos with addresses next.
+
+- **Contract (all platforms): `attributes.place` v1** (`supabase/functions/_shared/place.ts`;
+  web type `PlaceAttributes`). Written only by the capture pipeline, through the leaf
+  compare-and-swap `set_item_place(target_id, expected_url, expected_place, place)`
+  (migration `20261010180000`, applied): `name`, `address { lines, street, locality, region,
+  region_code, postal_code, country, country_code }`, `geo { latitude, longitude }`,
+  `timezone` (IANA, when the provider states it), `phone` (as given, E.164 when known),
+  `website`, `menu_url`, `hours` (`[{ days: [0=Sun…6], ranges: [{ open: "HH:MM", close,
+  next_day? }] }]`), `rating { score, max, count?, source }`, `price_range { level, max }`,
+  `category`, `provider { kind: apple-maps | google-maps | page, place_id?, url }` (the
+  resolved place address), `map { file_path, provider: mapbox, style, zoom, rendered_at }`,
+  `evidence { source_url, observed_at, method: map-page | map-url | json-ld,
+  extraction_version: place-v1 }`. Clients read it with `readPlace()`; unknown keys stay.
+- **The picture is the map.** When `MAPBOX_ACCESS_TOKEN` is set, the pipeline renders
+  `mapbox/light-v11` with an ink pin at the place (1200×630 @2x, attribution kept) into
+  `stash-media/<uid>/previews/map_<itemId>.png` and sets `items.file_path` to it, so the card
+  hero, the panel stage, the shared page and the link unfurl all show the map with no client
+  work. Only a picture Stash fetched itself (`…/previews/preview_*`, an earlier `map_*`) or no
+  picture gives way; a person's upload is never replaced. A map already rendered for the same
+  spot is reused.
+- **Title:** a save titled by the provider ("Apple Maps", "Google Maps") or a placeholder takes
+  the place's name (never a protected title). **Kind label:** a link with `attributes.place`
+  reads `place` on cards and in the window bar (`kindLabel`).
+- **Pipeline:** `scrape-page-content` runs the place step last (its own snapshot) for
+  map-provider addresses — Apple Maps including `maps.apple/p/…` short links, Google Maps
+  including `maps.app.goo.gl` — and for listing pages whose publisher facts carry coordinates.
+  It follows the address as a browser would (map short links answer 404 to other clients),
+  reads the resolved URL (`coordinate`, `name`, `address`, `place-id`; Google's `!3d…!4d…`,
+  `@lat,lng`, `q=`), and for Apple Maps the page's own embedded data: the hours calendar,
+  telephone, website, the Menu link, Yelp rating and count, price level, category, time zone,
+  structured address and centre. Place facts join the search text.
+- **Web — the location section** (`edit/LocationDetailsSection`), above the details drawer on
+  the panel and the shared page, in the details tree style: address (opens the provider's
+  page), hours — `open · closes 9:00 PM` / `closed · opens Fri 4:00 PM` only when the place's
+  time zone is known, else today's hours; the week expands — phone (`tel:`), website, menu,
+  rating, price, category; cells **Directions** (Apple Maps for Apple saves, Google Maps
+  otherwise) · **Call** · **Menu** · **Website**; `From Apple Maps, observed Oct 10, 2026.
+  Hours and details can change.` The beta publisher-facts section stands down for a place
+  that has the lane.
+- **iOS / macOS:** read `attributes.place` and render the same section (plan 17, round 4);
+  the map needs nothing — it is the save's picture.
+- **Next round:** screenshots and photos with an address (OCR → address → geocoder → the same
+  lane and map); a live map on the panel stage; nothing from Yelp/Google beyond the page.
+
 ## 2026-10-10 · One capture pipeline: the web composer saves through the platform API
 
 Will: "all consumers of our enrichment APIs should get the exact, high quality outcome,

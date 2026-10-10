@@ -1,6 +1,7 @@
 import { audioSubtype, isScreenshotItem, isSpreadsheetExt, mimeExtensionLabel } from './CardBits';
 import type { GlyphName } from '@/components/machine/PixelGlyph';
 import type { ItemAttributes } from '@/types/itemAttributes';
+import { readPlace } from '../../../supabase/functions/_shared/place';
 
 const LINK_FLAVOR_LABELS: Record<string, string> = {
   article: 'article',
@@ -40,6 +41,8 @@ export const kindLabel = (item: KindItem): string => {
     case 'collection':
       return 'multi-part';
     case 'link':
+      // A saved address that stands for a place (attributes.place) is a place before it is a link
+      if (readPlace(item.attributes?.place)) return 'place';
       return LINK_FLAVOR_LABELS[item.attributes?.link?.flavor ?? 'generic'] ?? 'link';
     default:
       return item.type;

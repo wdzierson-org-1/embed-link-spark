@@ -33,6 +33,8 @@ import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
 import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
 import ObjectFactsSection from '@/components/edit/ObjectFactsSection';
+import LocationDetailsSection from '@/components/edit/LocationDetailsSection';
+import { readPlace } from '../../supabase/functions/_shared/place';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemImageStage from '@/components/edit/EditItemImageStage';
@@ -422,6 +424,9 @@ const EditItemDetailsTab = ({
           </div>
         </div>
       )}
+
+      {/* The place a saved address stands for: hours, phone, menu, directions (2026-10-10) */}
+      {item?.type === 'link' && readPlace(item.attributes?.place) && <LocationDetailsSection place={readPlace(item.attributes?.place)!} />}
 
       {/* Publisher object facts are distinct from the user's capture location. */}
       {item?.type === 'link' && <ObjectFactsSection item={item} />}

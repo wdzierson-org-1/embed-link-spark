@@ -99,6 +99,19 @@ flowchart LR
   H -. future .-> I[API lookup or user-approved execution]
 ```
 
+## Places (`attributes.place`)
+
+A saved address that stands for a place — an Apple Maps or Google Maps link
+(short links included), or a listing page whose structured data carries
+coordinates — gets `attributes.place` (v1, `_shared/place.ts`): name, address,
+coordinates, time zone, phone, website, menu link, weekly hours, rating, price
+level, category, the provider and its resolved address, the rendered map, and
+evidence. The capture pipeline writes it (`set_item_place`, a leaf
+compare-and-swap; a client never does) and, when the map provider is
+configured, renders the map as the save's picture (`file_path`). Clients render
+the location section from it; "open now" is only honest when `timezone` is
+present. Unknown keys must be preserved. See `docs/ui-changes.md` 2026-10-10.
+
 ## Capture
 
 **Entitlement (server-enforced since 2026-09-07).** Every capture endpoint

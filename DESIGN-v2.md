@@ -615,6 +615,7 @@ Heroes by kind:
 | Photo, screenshot | The image, cover-cropped to its subject; portrait contained on its blurred self over ink |
 | Link with a picture | The og:image, cover-cropped; video and book links use the tall contained treatment with a 44–48 px ink square play mark |
 | Repo link | An ink plate: `> owner/repo` in Departure Mono 16.5 (the `>` in `--spot-on-ink`) and the description in Montreal 13 at 65% white |
+| Place link (Apple Maps, Google Maps, a listing with coordinates) | The map: Mapbox's light style with an ink pin at the place, rendered once by the pipeline and stored as the save's picture, cover-cropped like any og:image; the kind tag reads `place` (2026-10-10) |
 | Link without a picture | The placeholder: the kind's pixel glyph (48 px) on the dotted fill, a black label with the domain, and, once Stash has finished looking, `preview limited, saved anyway`. While Stash reads, the glyph boils (§8) |
 | A picture still downloading | The mosaic (§7), until it arrives |
 | Voice note, recording | The player on plain fill: an ink square play button (44 px; 40 for recordings), 28 ink waveform bars (played solid, unplayed at 25%), the time in Departure Mono. 116 px tall for voice notes, 96 px for recordings |
@@ -805,7 +806,7 @@ ink on hover.
   retry. It's offered only when at least 50 characters were captured (the server's floor); under
   that the tab says "Too little text was captured to summarize. It's all under Original Content."
 - **Sections**, in order (2026-10-09, Will: "move source above notes"): the **source** first, then
-  **notes**, **details** and **sharing**. Notes, details and sharing open with a lowercase Departure
+  **notes**, **location** (a place only, 2026-10-10), **details** and **sharing**. Notes, details and sharing open with a lowercase Departure
   Mono label on a 1 px ink rule. The source section has **no label**: its tabs row sits on the left
   of the rule in Departure Mono (`summary | original content` for links and documents, `transcript`
   for audio and video; the open tab is ink), and a 24 px **full-size** cell sits on the right, which
@@ -821,6 +822,16 @@ ink on hover.
   they render in the code voice on the fill with an ink underline, and a click seeks the player
   (`editor/TimestampLinks`, `edit/MediaClock`). Native audio/video and YouTube keep the clock;
   Vimeo, TikTok and Instagram players don't expose one, so the control stays away.
+- **Location** (2026-10-10, Will: "a new 'location details' section, similar to the item details
+  section"): for a save that stands for a place (`attributes.place`), above the details drawer,
+  the label `location` with `open in apple maps` at the right of its rule, then the fact tree:
+  address (a link to the provider's page), hours — the machine line `open · closes 9:00 PM` or
+  `closed · opens Fri 4:00 PM` when the place's time zone is known, else today's hours; a
+  chevron opens the week as `mon–thu  4:00–9:00 PM` rows — phone, website, menu, rating
+  (`4.1 / 5 · 295 reviews · yelp`), price (`$$$`), category; then the cells **Directions ·
+  Call · Menu · Website** (44 px, ink edge, inverting on hover, an arrow glyph); and the muted
+  line `From Apple Maps, observed Oct 10, 2026. Hours and details can change.` The map is the
+  save's picture on the stage above.
 - **Details:** open by default (Will, 2026-10-07: "leave the details expanded by default"), the
   facts as a tree; a new item opens it again. Collapsed, the head shows the common facts inline
   (`m4a · 82.3 kb · 0:03`). Only an upload lists an original file: a link's stored cover isn't one.

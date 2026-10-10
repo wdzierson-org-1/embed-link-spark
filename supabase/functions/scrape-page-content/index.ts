@@ -8,6 +8,7 @@ import { deriveTitleFromContent, generateSummary } from '../_shared/summarize.ts
 import { recoverCapturedPreview } from '../_shared/capturedPreview.ts';
 import { isTikTokVideoUrl, resolveTikTokLink } from '../_shared/tiktok.ts';
 import { creatorEvidence } from '../_shared/socialEnrichment.ts';
+import { isPlaceCandidate, runPlaceStep } from '../_shared/placeEnrichment.ts';
 
 const TIKTOK_SHORT_LINK = /tiktok\.com\/t\/|\/\/(vm|vt)\.tiktok\.com\//i;
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' };
@@ -25,6 +26,18 @@ serve(async req => {
     try { item = await requireItemAccess(req, db, itemId, ENRICHMENT_COLUMNS); }
     catch { return json({ error: 'Item not found or access denied' }, 403); }
     if (item.url !== url || item.type !== 'link') return json({ error: 'Source does not match item' }, 400);
+    // A map-provider address, or a listing page with coordinates, is a place: after the
+    // body is captured (or found missing) the place step keeps its facts and renders its map.
+    // It runs under its own fresh snapshot, so it always goes last. Never fatal to the scrape.
+    const placeStep = async () => {
+      if (extractOnly || !isPlaceCandidate(url, item.attributes)) return;
+      try {
+        const outcome = await runPlaceStep(db, itemId, url, { mapboxToken: Deno.env.get('MAPBOX_ACCESS_TOKEN') });
+        console.log('place step', itemId, 'skipped' in outcome ? outcome.skipped : `kept (${outcome.map ? 'with' : 'without'} a map)`);
+      } catch (error) {
+        console.error('place step failed', itemId, error);
+      }
+    };
     // extractOnly writes nothing and returns what each adapter answered, for diagnosis
     const trace: string[] = [];
     const capture = await extractPage(
@@ -54,6 +67,8 @@ serve(async req => {
       if (Object.keys(resolvedEvidence).length && !await applyCandidate(db, item, {}, 'tiktok-canonical', resolvedEvidence)) {
         return json({ success: false, reason: 'item_changed' });
       }
+      // A map provider's page often yields no body worth keeping; the place itself still does
+      await placeStep();
       return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}) });
     }
     if (extractOnly) return json({ success: true, ...capture, trace });
@@ -62,6 +77,7 @@ serve(async req => {
       if (Object.keys(resolvedEvidence).length && !await applyCandidate(db, item, {}, 'tiktok-canonical', resolvedEvidence)) {
         return json({ success: false, reason: 'item_changed' });
       }
+      await placeStep();
       return json({ success: true, reason: 'richer_content_preserved' });
     }
     const patch: Record<string, string> = { page_body: capture.text };
@@ -107,6 +123,7 @@ serve(async req => {
       if (recoveredPreview) await db.storage.from('stash-media').remove([recoveredPreview.path]);
       return json({ success: false, reason: 'item_changed' });
     }
+    await placeStep();
     const { data, error } = await db.functions.invoke('generate-embeddings', { body: { itemId } });
     return json({ success: !error && data?.success === true, contentLength: capture.text.length, indexed: !error && data?.success === true });
   } catch (error) {
