@@ -107,6 +107,11 @@ list + toolbar, the card context menu, `ios/StashUITests/*`.
 **Files:** `ios/StashKit/Sources/StashKit/Embeds.swift` (+ tests), `ios/Stash/Detail/MediaStage.swift`
 (new), `EmbedWebView.swift` (new).
 
+- [ ] Frame from `attributes.link.canonical_url ?? attributes.enrichment.evidence.canonical_url ?? url`
+      (`embedSourceFor` on the web): a TikTok shared from the app is a `tiktok.com/t/…` short link
+      with no video id; add-url stores the resolved address in `link.canonical_url`, and
+      enrichment (`scrape-page-content`, for saves that never passed through add-url) stores it
+      as `enrichment.evidence.canonical_url` (docs/ui-changes.md 2026-10-10).
 - [ ] Port `src/utils/embeds.ts` exactly: the same hosts, id rules and frame addresses (YouTube
       no-cookie with `enablejsapi=1`, Vimeo, Loom, TikTok long form only, Instagram
       reel/reels/p/tv → `/embed/`, Google Slides `/embed`, Figma `embed?url=`); portrait vs

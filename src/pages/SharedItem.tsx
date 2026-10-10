@@ -10,7 +10,7 @@ import ItemWindowBar from '@/components/edit/ItemWindowBar';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemImageStage from '@/components/edit/EditItemImageStage';
 import EditItemEmbedStage from '@/components/edit/EditItemEmbedStage';
-import { embedFor } from '@/utils/embeds';
+import { embedSourceFor } from '@/utils/embeds';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
@@ -147,7 +147,7 @@ const SharedItem = () => {
   const mediaUrl = publicUrlFor(save.file_path);
   const isPlayable = save.type === 'audio' || save.type === 'video';
   const hasPicture = (save.type === 'image' || save.type === 'link') && Boolean(mediaUrl);
-  const embed = save.type === 'link' ? embedFor(save.url) : null;
+  const embed = save.type === 'link' ? embedSourceFor(save) : null;
   const isDocument = save.type === 'document' || save.type === 'pdf';
 
   const view = (tab: ContentTabKey) => {

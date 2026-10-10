@@ -6,6 +6,9 @@ import { applyCandidate, ENRICHMENT_COLUMNS } from '../_shared/enrichmentStore.t
 import { isPlaceholderMetadata } from '../_shared/enrichmentQuality.ts';
 import { deriveTitleFromContent, generateSummary } from '../_shared/summarize.ts';
 import { recoverCapturedPreview } from '../_shared/capturedPreview.ts';
+import { isTikTokVideoUrl, resolveTikTokLink } from '../_shared/tiktok.ts';
+
+const TIKTOK_SHORT_LINK = /tiktok\.com\/t\/|\/\/(vm|vt)\.tiktok\.com\//i;
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
 serve(async req => {
@@ -26,7 +29,22 @@ serve(async req => {
       { firecrawl: Deno.env.get('FIRECRAWL_API_KEY'), tiktok: Deno.env.get('TIKTOK_SCRAPE_API_KEY'), reels: Deno.env.get('REELS_SCRAPE_API_KEY') },
       extractOnly ? trace : undefined,
     );
-    if (!capture) return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}) });
+    // A TikTok share short link carries no video id: record the address it resolves to, so the
+    // panel can frame the video. add-url writes the same fact as link.canonical_url for API
+    // saves; web saves only pass through here, and enrichment can only add evidence.
+    let canonicalUrl: string | null = null;
+    if (!extractOnly && isTikTokVideoUrl(url) && TIKTOK_SHORT_LINK.test(url) && !item.attributes?.link?.canonical_url && !item.attributes?.enrichment?.evidence?.canonical_url) {
+      try {
+        const resolved = await resolveTikTokLink(url);
+        if (resolved?.canonicalUrl && resolved.canonicalUrl !== url) canonicalUrl = resolved.canonicalUrl;
+      } catch (error) {
+        console.warn('tiktok canonical resolution failed', url, error);
+      }
+    }
+    if (!capture) {
+      if (canonicalUrl) await applyCandidate(db, item, {}, 'tiktok-canonical', { canonical_url: canonicalUrl });
+      return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}) });
+    }
     if (extractOnly) return json({ success: true, ...capture, trace });
     // Never replace a transcript already recovered by maintenance with a shorter page caption.
     if (item.attributes?.enrichment?.evidence?.transcript) return json({ success: true, reason: 'richer_content_preserved' });
@@ -56,6 +74,7 @@ serve(async req => {
     // `evidence.transcript` is the one flag every client reads for "page_body is a transcript"
     // (the maintenance loop's social adapter sets the same one)
     const evidence: Record<string, unknown> = { capture_kind: capture.kind };
+    if (canonicalUrl) evidence.canonical_url = canonicalUrl;
     if (isTranscript) {
       evidence.transcript = true;
       evidence.transcript_source = capture.source;

@@ -38,7 +38,7 @@ import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemImageStage from '@/components/edit/EditItemImageStage';
 import EditItemEmbedStage from '@/components/edit/EditItemEmbedStage';
 import { MediaClockProvider } from '@/components/edit/MediaClock';
-import { embedFor } from '@/utils/embeds';
+import { embedSourceFor } from '@/utils/embeds';
 import { SectionHead } from '@/components/edit/EditPanelSection';
 import { CropMarks, Spinner } from '@/components/machine/Machine';
 import CollectionAttachments from '@/components/CollectionAttachments';
@@ -265,8 +265,9 @@ const EditItemDetailsTab = ({
   }, [isMobile, content, isContentLoading, editorKey, isEditorMaximized, item?.id, showInlineImage, mobileEditorReady]);
 
   // Playable source for audio/video items (external URLs pass through as-is)
-  // A link with a player of its own plays in place of its picture
-  const embed = item?.type === 'link' ? embedFor(item.url) : null;
+  // A link with a player of its own plays in place of its picture (a share short link plays
+  // from the canonical address add-url resolved)
+  const embed = item?.type === 'link' ? embedSourceFor(item) : null;
 
   const mediaUrl = useMemo(() => {
     if (!item?.file_path || !(item.type === 'audio' || item.type === 'video')) return '';

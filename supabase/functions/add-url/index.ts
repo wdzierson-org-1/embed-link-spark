@@ -404,6 +404,11 @@ Deno.serve(async (req) => {
     const providedLink = (safeAttributes as Record<string, unknown>).link;
     const link = providedLink && typeof providedLink === 'object' && !Array.isArray(providedLink) ? providedLink as Record<string, unknown> : {};
     if (typeof link.flavor !== 'string') link.flavor = classifyLinkFlavor(url);
+    // A TikTok share short link (tiktok.com/t/…, vm.tiktok.com/…) carries no video id: keep the
+    // address oEmbed resolved it to, so the panel can frame the video (the saved url stays)
+    if (tiktok?.canonicalUrl && tiktok.canonicalUrl !== url && typeof link.canonical_url !== 'string') {
+      link.canonical_url = tiktok.canonicalUrl;
+    }
     (safeAttributes as Record<string, unknown>).link = link;
 
     // Insert the link into the items table with cleaned content

@@ -26,7 +26,7 @@ import { isReadingDocument } from '@/utils/itemAssembly';
 import ItemWindowBar from '@/components/edit/ItemWindowBar';
 import ShareControl from '@/components/edit/ShareControl';
 import { StageFullProvider } from '@/components/edit/StageFull';
-import { embedFor } from '@/utils/embeds';
+import { embedSourceFor } from '@/utils/embeds';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 interface ContentItem {
@@ -201,7 +201,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   const sheetClass = `flex h-full w-full flex-col p-0 sm:h-auto ${stageFull ? 'sm:w-screen sm:max-w-none' : 'sm:w-[800px] sm:max-w-[800px]'}`;
 
   // For image items and links with a picture or a player of their own, show inline without tabs
-  if (item?.type === 'image' || (item?.type === 'link' && (hasImage || Boolean(embedFor(item.url))))) {
+  if (item?.type === 'image' || (item?.type === 'link' && (hasImage || Boolean(embedSourceFor(item))))) {
     return (
       <TooltipProvider>
         <Sheet open={open} onOpenChange={onOpenChange}>

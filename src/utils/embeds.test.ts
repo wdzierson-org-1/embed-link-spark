@@ -1,4 +1,20 @@
-import { embedFor } from './embeds';
+import { embedFor, embedSourceFor } from './embeds';
+
+describe('embedSourceFor', () => {
+  it('plays a share short link from the canonical address add-url resolved', () => {
+    const saved = { url: 'https://www.tiktok.com/t/ZPLrLoSvK/', attributes: { link: { flavor: 'video' as const, canonical_url: 'https://www.tiktok.com/@geodesaurus/video/7681109031196364045' } } };
+    expect(embedSourceFor(saved)?.src).toBe('https://www.tiktok.com/embed/v2/7681109031196364045');
+    expect(embedSourceFor({ url: 'https://www.tiktok.com/t/ZPLrLoSvK/', attributes: { link: { flavor: 'video' as const } } })).toBeNull();
+    // Enrichment's evidence carries the same fact for saves that never passed through add-url
+    expect(
+      embedSourceFor({
+        url: 'https://www.tiktok.com/t/ZPLrNFtXt/',
+        attributes: { link: { flavor: 'video' as const }, enrichment: { status: 'complete' as const, updated_at: 'x', evidence: { canonical_url: 'https://www.tiktok.com/@theronanfarrow/video/7693569444299246861' } } },
+      })?.src,
+    ).toBe('https://www.tiktok.com/embed/v2/7693569444299246861');
+    expect(embedSourceFor({ url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', attributes: null })?.provider).toBe('youtube');
+  });
+});
 
 describe('embedFor', () => {
   it('frames YouTube through the no-cookie player, with the time API on', () => {

@@ -8,6 +8,26 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · TikTok share links play: `link.canonical_url` / `enrichment.evidence.canonical_url`
+
+Will: "tiktoks which are stashed are showing the static image in the detail panel again, as
+opposed to the embedded video. what changed?" Nothing in the embed — the saved address did.
+TikToks shared from the app arrive as `tiktok.com/t/<code>/` (or `vm.`/`vt.tiktok.com/…`),
+which carry no video id, so `embedFor` had nothing to frame; only links saved from the web
+(`/@user/video/<id>`) embedded.
+
+- **Contract (all platforms):** `add-url` already resolved TikTok links through oEmbed for the
+  card; it now also keeps the resolved address as **`attributes.link.canonical_url`**
+  (`https://www.tiktok.com/@user/video/<id>`) when the saved `url` is a short link. Web saves
+  don't pass through add-url (the composer inserts the row itself), so `scrape-page-content`
+  resolves a short link too and records it as **`attributes.enrichment.evidence.canonical_url`**
+  (enrichment can only add evidence; the maintenance loop's TikTok adapter already writes that
+  key). The saved `url` is never rewritten. Clients frame the video from
+  `link.canonical_url ?? enrichment.evidence.canonical_url ?? url` (`utils/embeds.ts`
+  `embedSourceFor(item)`); iOS does the same. Existing short-link saves (49 of 51; two videos
+  are gone) were backfilled into `link.canonical_url` (redirect → video id → oEmbed for the handle).
+- The transcript path is unaffected: SearchApi accepts the short link as is.
+
 ## 2026-10-10 · TikTok and Reel transcripts at save time; the full-screen cell goes; the share tooltip no longer opens with the panel
 
 Will: "there is a tiktok transcript api we may be able to leverage … TIKTOK_SCRAPE_API_KEY …

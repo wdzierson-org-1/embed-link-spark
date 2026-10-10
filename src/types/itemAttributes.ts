@@ -39,6 +39,12 @@ export type LinkFlavor = 'article' | 'video' | 'repo' | 'book' | 'social' | 'gen
 
 export type LinkAttributes = {
   flavor: LinkFlavor;
+  /**
+   * The address the save resolves to when the saved one is a share short link (TikTok's
+   * `tiktok.com/t/…`, `vm.tiktok.com/…`): written by add-url from oEmbed, read by the panel's
+   * embed. The saved `url` itself is never rewritten.
+   */
+  canonical_url?: string;
   /** Filled by future enrichment passes (oEmbed, source APIs) */
   author?: string;
   duration_s?: number;

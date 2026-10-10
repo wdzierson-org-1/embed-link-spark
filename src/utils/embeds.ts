@@ -19,6 +19,20 @@ export interface Embed {
   clock?: 'youtube';
 }
 
+/**
+ * The address a save plays from: its canonical URL when the saved one is a share short link —
+ * `link.canonical_url` (add-url, at save) or `enrichment.evidence.canonical_url` (enrichment,
+ * for saves that never passed through add-url) — else the saved URL.
+ */
+export const embedSourceFor = (item: {
+  url?: string | null;
+  attributes?: {
+    link?: ({ canonical_url?: string } & Record<string, unknown>) | null;
+    enrichment?: ({ evidence?: ({ canonical_url?: string } & Record<string, unknown>) | null } & Record<string, unknown>) | null;
+  } | null;
+}): Embed | null =>
+  embedFor(item.attributes?.link?.canonical_url || item.attributes?.enrichment?.evidence?.canonical_url || item.url);
+
 const LANDSCAPE = 16 / 9;
 const PORTRAIT = 9 / 16;
 
