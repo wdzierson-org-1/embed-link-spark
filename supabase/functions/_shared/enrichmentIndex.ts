@@ -1,9 +1,9 @@
-import { enrichmentSearchText, type EnrichmentItem } from './enrichmentQuality.ts';
-import { chunkSearchText, itemSnapshot, searchFingerprint } from './enrichmentStore.ts';
+import { type EnrichmentItem } from './enrichmentQuality.ts';
+import { chunkSearchText, itemSnapshot, searchFingerprint, enrichmentIndexedText } from './enrichmentStore.ts';
 
 /** Generate first, then compare-and-swap atomically. A failed provider never erases the old index. */
 export async function rebuildItemIndex(db: any, item: EnrichmentItem, apiKey: string, fetcher = fetch) {
-  const chunks = chunkSearchText(enrichmentSearchText(item));
+  const chunks = chunkSearchText(await enrichmentIndexedText(item));
   if (chunks.length > 500) throw new Error('Enrichment index exceeds chunk budget');
   const rows: Array<{ text: string; embedding: number[] }> = [];
   for (let start = 0; start < chunks.length; start += 100) {

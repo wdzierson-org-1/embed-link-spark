@@ -8,6 +8,7 @@ import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
 import { resolveTikTokLink } from '../_shared/tiktok.ts';
+import { creatorEvidence } from '../_shared/socialEnrichment.ts';
 import { isPlaceholderMetadata } from '../_shared/enrichmentQuality.ts';
 import { applyCandidate, ENRICHMENT_COLUMNS } from '../_shared/enrichmentStore.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
@@ -418,6 +419,9 @@ Deno.serve(async (req) => {
       link.canonical_url = tiktok.canonicalUrl;
     }
     (safeAttributes as Record<string, unknown>).link = link;
+    const creator = tiktok ? creatorEvidence('tiktok', {
+      name: tiktok.authorName, handle: tiktok.authorHandle, url: tiktok.authorUrl,
+    }) : {};
 
     // Insert the link into the items table with cleaned content
     const { data: item, error } = await supabase
@@ -436,7 +440,9 @@ Deno.serve(async (req) => {
         file_path: previewImagePath,
         is_public: is_public,
         visibility: is_public ? 'public' : 'private',
-        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString(), ...(customTitle ? { protected_fields: { title: true } } : {}) } },
+        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString(),
+          ...(Object.keys(creator).length ? { evidence: creator } : {}),
+          ...(customTitle ? { protected_fields: { title: true } } : {}) } },
         remind_at: remindAt
       })
       .select()

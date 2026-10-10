@@ -5,8 +5,7 @@ const state = vi.hoisted(() => ({
   handler: null as any,
   row: null as any,
   background: [] as Promise<unknown>[],
-  rpc: vi.fn(), invoke: vi.fn(),
-  tiktok: null as any,
+  rpc: vi.fn(), invoke: vi.fn(), tiktok: vi.fn(),
 }));
 vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
   createClient: () => ({
@@ -22,7 +21,7 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
 vi.mock('../_shared/agentToken.ts', () => ({ isAgentToken: () => false }));
 vi.mock('../_shared/entitlementGate.ts', () => ({ requireEntitlement: async () => null }));
 vi.mock('../_shared/youtube.ts', () => ({ resolveYouTubeLink: async () => null }));
-vi.mock('../_shared/tiktok.ts', () => ({ resolveTikTokLink: async () => state.tiktok }));
+vi.mock('../_shared/tiktok.ts', () => ({ resolveTikTokLink: state.tiktok }));
 
 const source = 'https://shop.example/jacket';
 const facts = { version: 1, beta: true, kind: 'product', name: 'Alpine Jacket', product: { brand: 'Example', sku: 'ALPINE-NAV', offer: { price: '748', currency: 'USD' } },
@@ -34,7 +33,8 @@ beforeAll(async () => {
   await import('./index.ts');
 });
 beforeEach(() => {
-  vi.clearAllMocks(); state.row = null; state.background = []; state.tiktok = null;
+  vi.clearAllMocks(); state.row = null; state.background = [];
+  state.tiktok.mockResolvedValue(null);
   state.invoke.mockImplementation(async (name: string) => ({ data: name === 'extract-link-metadata' ? {
     title: 'Alpine Jacket', description: 'A navy wool jacket with a removable insulated hood.',
     previewImagePath: 'owner-1/previews/alpine.jpg', objectFacts: structuredClone(facts),
@@ -56,6 +56,7 @@ beforeEach(() => {
     return { data: null, error: null };
   });
 });
+
 async function save(body: Record<string, unknown> = {}) {
   const response = await state.handler(new Request('https://stash.example/add-url', { method: 'POST',
     headers: { authorization: 'Bearer owner-token', 'content-type': 'application/json' },
@@ -65,6 +66,34 @@ async function save(body: Record<string, unknown> = {}) {
 }
 const invoked = () => state.invoke.mock.calls.map(([name]) => name);
 const settledStatus = () => state.rpc.mock.calls.find(([name]) => name === 'set_item_enrichment')?.[1].next_status;
+
+describe('add-url source creator evidence', () => {
+  const url = 'https://www.tiktok.com/t/SharedVideo/';
+  const caption = 'A creator describes how to prepare a tomato salad with fresh herbs.';
+  it('persists the oEmbed creator independently from descriptive prose', async () => {
+    state.tiktok.mockResolvedValue({ title: 'Tomato salad', caption, authorName: 'Recipe Author', authorHandle: 'recipe.author',
+      authorUrl: 'https://www.tiktok.com/@recipe.author', siteName: 'TikTok', canonicalUrl: 'https://www.tiktok.com/@recipe.author/video/123456789012' });
+    expect((await save({ url, title: 'Dinner idea' })).status).toBe(200);
+    expect(state.row).toMatchObject({ title: 'Dinner idea', page_body: caption, attributes: {
+      location: { name: 'Saved at home' }, enrichment: { protected_fields: { title: true }, evidence: {
+        author: 'Recipe Author', creator: { name: 'Recipe Author', handle: 'recipe.author', url: 'https://www.tiktok.com/@recipe.author', platform: 'tiktok' },
+      } },
+    } });
+    expect(state.row.attributes.enrichment.evidence).not.toHaveProperty('transcript');
+    // The scrape (transcript, summary) runs for a TikTok like for every link; only the deep
+    // metadata pass is skipped, oEmbed having covered it
+    expect(invoked()).toEqual(['generate-embeddings', 'scrape-page-content']);
+    expect(state.rpc.mock.calls.map(([name]) => name)).toEqual(['set_item_enrichment']);
+  });
+  it('does not infer a creator from a caption, user attributes or URL', async () => {
+    state.tiktok.mockResolvedValue({ title: 'A clip by @someone', caption, siteName: 'TikTok' });
+    expect((await save({ url: 'https://www.tiktok.com/@guess/video/123456789012',
+      attributes: { enrichment: { evidence: { author: 'Spoofed author', creator: { name: 'Spoofed author' } } } },
+    })).status).toBe(200);
+    expect(state.row.attributes.enrichment.evidence?.creator).toBeUndefined();
+    expect(state.row.attributes.enrichment.evidence?.author).toBeUndefined();
+  });
+});
 
 describe('add-url product facts and preview persistence', () => {
   it('saves facts alongside the real title, description and owned preview under snapshot CAS', async () => {
@@ -82,19 +111,18 @@ describe('add-url product facts and preview persistence', () => {
 
 describe('add-url TikTok: the same pipeline as every other link', () => {
   const shortLink = 'https://www.tiktok.com/t/ZTygmPyEv/';
-  beforeEach(() => {
-    state.tiktok = {
-      canonicalUrl: 'https://www.tiktok.com/@katina.bajaj/video/7685488427462167838',
-      title: 'Are our creative brains eating mental junk food?', caption: 'Are our creative brains eating mental junk food? Full caption here.',
-      description: 'TikTok by Katina Bajaj (@katina.bajaj)', image: null, siteName: 'TikTok',
-    };
-  });
+  const resolved = {
+    canonicalUrl: 'https://www.tiktok.com/@katina.bajaj/video/7685488427462167838',
+    title: 'Are our creative brains eating mental junk food?', caption: 'Are our creative brains eating mental junk food? Full caption here.',
+    description: 'TikTok by Katina Bajaj (@katina.bajaj)', image: null, siteName: 'TikTok',
+  };
+  beforeEach(() => { state.tiktok.mockResolvedValue(resolved); });
 
   it('runs the scrape (transcript, summary) after the response, skipping only the deep metadata pass oEmbed already covered', async () => {
     expect((await save({ url: shortLink })).status).toBe(200);
-    expect(state.row).toMatchObject({ page_body: state.tiktok.caption, attributes: { link: { canonical_url: state.tiktok.canonicalUrl }, enrichment: { status: 'pending' } } });
+    expect(state.row).toMatchObject({ page_body: resolved.caption, attributes: { link: { canonical_url: resolved.canonicalUrl }, enrichment: { status: 'pending' } } });
     expect(invoked()).toEqual(['generate-embeddings', 'scrape-page-content']);
-    expect(state.invoke.mock.calls.find(([name]) => name === 'scrape-page-content')?.[1].body).toEqual({ itemId: 'item-1', url: shortLink, caption: state.tiktok.caption });
+    expect(state.invoke.mock.calls.find(([name]) => name === 'scrape-page-content')?.[1].body).toEqual({ itemId: 'item-1', url: shortLink, caption: resolved.caption });
     expect(settledStatus()).toBe('complete');
   });
 
