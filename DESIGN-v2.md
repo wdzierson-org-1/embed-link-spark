@@ -869,19 +869,27 @@ controls. In SwiftUI terms:
   decrypt on arrival, the picture sharpening with `✓ filled in`. Under Reduce Motion: a still `|`,
   a sharp picture, a still glyph, no scramble.
 - **Loading:** the decrypt cycle over the same twelve lines (§12.10).
-- **Share extension (October 10):** the homepage phone's compact white toast, floating over the
+- **Share extension (October 10):** the homepage phone's compact paper toast, floating over the
   sending app: 24 pt corners, a soft native shadow, wordmark, a spot `saved` tag, 56 pt thumbnail,
-  title, machine sub-line and "Add a note". One explicit **Save** button stays reachable above
-  the keyboard. Swipe up or **More options** exposes remembered location, **Share this stash**
-  and keyboard dictation. At accessibility sizes the body scrolls while Close and Save stay
-  pinned; preserve the note field across expansion. Preview work is optional and bounded to
+  title, machine sub-line and "Add a note". The preview and note use separate white boxes with
+  hairline borders. One square **Save** button shares a row with the square location toggle,
+  separated by 12 pt. The pin reverses to white on ink when enabled; its status appears above
+  the action row. **Share to feed** is always visible with a square switch and the state line
+  **Not shared to feed** / **Sharing to feed**. No More options or Dictate a note affordance.
+  At accessibility sizes the body scrolls while Close and Save stay pinned above the keyboard;
+  preserve the note field's identity while the viewport changes. Preview work is optional and bounded to
   500 ms; show observed information only. This floating toast is the native exception to the
   square app windows, following the homepage phone reference.
 - **Navigation:** View, Ask, Add, Settings, with View selected initially.
 - **Ask:** the window becomes the full screen with the same bar, tool steps, answer, citation cards
   and input row.
 - **Item detail:** the panel becomes a sheet; the 44 pt window bar, sections on ink rules, the
-  Details tree.
+  Details tree. A header Share action creates/manages an unlisted item link, separate from the
+  public feed. Existing web addresses have square Copy / Edit / Open controls; editing has
+  explicit Cancel / Save. Video and audio play inline with a square full-screen action and an
+  Open original fallback. Retain playback position when moving full screen; never autoplay on
+  opening the sheet. Video links expose Summary and Transcript; keep Original Content until
+  the server explicitly identifies the source text as a transcript.
 - **Settings:** the numbered index becomes the list; each section a pushed screen of white sheets.
 - Controls keep the v1 iOS rules (`DESIGN.md` › Controls (iOS)): 44 pt targets, Dynamic Type roles,
   VoiceOver names.

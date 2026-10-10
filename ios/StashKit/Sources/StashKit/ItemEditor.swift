@@ -8,6 +8,7 @@ import Supabase
 // MARK: - ItemPatch
 
 public struct ItemPatch: Equatable, Sendable {
+    public var url: String?
     public var title: String?
     public var description: String?
     public var content: String?
@@ -23,7 +24,9 @@ public struct ItemPatch: Equatable, Sendable {
     public var attributes: ItemAttributes?
 
     public init(title: String? = nil, description: String? = nil, content: String? = nil,
-                supplementalNote: String? = nil, isPublic: Bool? = nil, attributes: ItemAttributes? = nil) {
+                supplementalNote: String? = nil, isPublic: Bool? = nil, attributes: ItemAttributes? = nil,
+                url: String? = nil) {
+        self.url = url
         self.title = title
         self.description = description
         self.content = content
@@ -34,7 +37,7 @@ public struct ItemPatch: Equatable, Sendable {
 
     public var isEmpty: Bool {
         title == nil && description == nil && content == nil && supplementalNote == nil
-            && isPublic == nil && attributes == nil
+            && isPublic == nil && attributes == nil && url == nil
     }
 
     /// Any of the search-relevant text fields changed — mirrors web's
@@ -67,6 +70,7 @@ public struct ItemPatch: Equatable, Sendable {
     /// be `[:]`) is written.
     public var restBody: [String: Any?] {
         var body: [String: Any?] = [:]
+        if let url { body["url"] = url }
         if let title { body["title"] = title }
         if let description { body["description"] = description }
         if let content { body["content"] = content }
@@ -376,7 +380,8 @@ public final class ItemEditor {
     public func save(itemId: UUID, patch: ItemPatch) async throws -> Item {
         guard !patch.isEmpty else { throw ItemEditorError.emptyPatch }
         return try await writeQueue.enqueue(itemId: itemId) { [patcher, refresher] in
-            let merged = try await patcher.patch(itemId: itemId, patch: patch)
+            let addressPatch = try await Self.preparingAddress(patch, itemId: itemId, patcher: patcher)
+            let merged = try await patcher.patch(itemId: itemId, patch: addressPatch)
             if patch.touchesTextFields {
                 await refresher.schedule(merged)
             }
@@ -408,7 +413,8 @@ public final class ItemEditor {
             guard let prepared = try await prepare() else { return nil }
             let (patch, context) = prepared
             guard !patch.isEmpty else { return QueuedSave(item: nil, patch: patch, context: context) }
-            let merged = try await patcher.patch(itemId: itemId, patch: patch)
+            let addressPatch = try await Self.preparingAddress(patch, itemId: itemId, patcher: patcher)
+            let merged = try await patcher.patch(itemId: itemId, patch: addressPatch)
             let saved = QueuedSave(item: merged, patch: patch, context: context)
             landed(saved)
             if patch.touchesTextFields {
@@ -416,6 +422,17 @@ public final class ItemEditor {
             }
             return saved
         }
+    }
+
+    /// Read fresh metadata in the item's write slot, including after an offline replay. The
+    /// durable queue stores URL intent only; it never carries an old link/enrichment snapshot.
+    private static func preparingAddress(_ patch: ItemPatch, itemId: UUID,
+                                         patcher: ItemPatching) async throws -> ItemPatch {
+        guard patch.url != nil else { return patch }
+        guard let current = try await patcher.currentAttributes(itemId: itemId) else {
+            throw ItemEditorError.itemNotFound
+        }
+        return LinkAddressEdit.preparing(patch, currentAttributes: current)
     }
 
     /// The row's current `attributes`, or `nil` when it no longer exists.

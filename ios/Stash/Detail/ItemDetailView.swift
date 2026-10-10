@@ -31,7 +31,7 @@ enum SaveStatus: Equatable {
 /// Plan 16 (Task 4d): `SharingSection`'s sticky note binds in the same way (`.stickyNote`) — with
 /// a focus of its own, the hide-keyboard control never appeared for it.
 enum DetailField: Hashable {
-    case title, description, notes, stickyNote
+    case title, description, notes, stickyNote, url
 }
 
 /// The editor every detail-sheet save and every pending-edit flush goes through (the sheet's own
@@ -331,6 +331,9 @@ struct ItemDetailView: View {
     @State private var selectedTab: ContentTabKey
     /// The `page_body` read (M5/L6) — see `loadDetailIfNeeded`.
     @State private var sourceLoad: DetailSourceLoad = .idle
+    /// A source job can settle while an older detail read is still returning. In that case
+    /// discard that read and fetch once more before presenting the newly classified source.
+    @State private var sourceReloadNeeded = false
     /// One shared enum-keyed `@FocusState` for every text input (final wave, item B — see
     /// `DetailField`'s own doc comment). Threaded down through `ItemDetailContent` and
     /// `SharingSection` as a `FocusState<DetailField?>.Binding`; the footer's hide-keyboard control
@@ -350,7 +353,7 @@ struct ItemDetailView: View {
         _item = State(initialValue: ItemDisplay.editableRow(start.shown))
         _snapshot = State(initialValue: start.server)
         self.store = store
-        _selectedTab = State(initialValue: contentTabsConfig(for: item.type).defaultTab)
+        _selectedTab = State(initialValue: contentTabsConfig(for: item).defaultTab)
         _services = StateObject(wrappedValue: DetailSheetServices(item: start.shown, userId: store.userId))
     }
 
@@ -406,6 +409,7 @@ struct ItemDetailView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     DetailEyebrow(item: item)
+                    ItemShareControl(itemID: item.id, userID: store.userId, isPublic: item.isPublic)
                     closeButton
                 }
                 .padding(.horizontal, 14)
@@ -417,8 +421,8 @@ struct ItemDetailView: View {
                     // rhythm); `ItemDetailContent`/`DetailsDrawer`/`SharingSection` each open with
                     // a `SectionHeader`, which supplies its own `DetailLayout.section` gap.
                     VStack(alignment: .leading, spacing: 0) {
-                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
-                            DetailURLBar(urlString: urlString)
+                        if let urlString = associatedWebAddress {
+                            DetailURLBar(urlString: urlString, focus: $focusedField, onSave: saveAddress)
                                 .padding(.bottom, 28)
                         }
                         titleField
@@ -427,7 +431,11 @@ struct ItemDetailView: View {
                         // Web parity (`EditItemSheet.tsx`'s `hasImage` gate): `(type === 'image'
                         // || type === 'link') && file_path` — `item.thumbnailURL` is that same
                         // "file_path present" check (`ItemRules.swift`).
-                        if (item.type == .image || item.type == .link), let url = item.thumbnailURL {
+                        if let source = DetailMediaRules.source(for: item) {
+                            DetailMediaStage(source: source)
+                                .id(source)
+                                .padding(.top, DetailLayout.gap)
+                        } else if (item.type == .image || item.type == .link), let url = item.thumbnailURL {
                             heroImage(url)
                                 .padding(.top, DetailLayout.gap)
                         }
@@ -504,6 +512,15 @@ struct ItemDetailView: View {
             Button("Delete", role: .destructive) { Task { await performDelete() } }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    /// Existing web addresses can be corrected on any saved object. Uploaded media continues
+    /// to use its file path; this neither creates a new address nor changes the media itself.
+    private var associatedWebAddress: String? {
+        guard let address = item.url,
+              let scheme = URLComponents(string: address)?.scheme?.lowercased(),
+              ["http", "https"].contains(scheme), LinkAddressEdit.normalize(address) != nil else { return nil }
+        return address
     }
 
     // MARK: - Flow surface pieces
@@ -787,6 +804,15 @@ struct ItemDetailView: View {
     }
 
     // MARK: - Field bindings (title/description autosave)
+
+    /// Only the strip's explicit Save commits an address. From that point it follows the
+    /// same write-ahead queue, supersede rules and dismiss journal as every other saved field.
+    @MainActor
+    private func saveAddress(_ raw: String) async -> Bool {
+        guard let address = LinkAddressEdit.normalize(raw) else { return false }
+        item = LinkAddressEdit.applying(address, to: item)
+        return await save(ItemPatch(url: address)).isSaved
+    }
 
     private var titleBinding: Binding<String> {
         Binding(get: { item.title ?? "" }, set: { newValue in
@@ -1254,6 +1280,9 @@ struct ItemDetailView: View {
     /// Whether `new` (a server row) reports the item's transcription job settled — done or failed —
     /// where `old` didn't show that same state.
     private static func transcriptJobSettled(from old: Item, to new: Item) -> Bool {
+        if new.type == .link, !old.attributes.hasCapturedTranscript, new.attributes.hasCapturedTranscript {
+            return true
+        }
         guard let job = TranscriptJobState(attributes: new.attributes), job.status == .done || job.status == .failed
         else { return false }
         return TranscriptJobState(attributes: old.attributes) != job
@@ -1477,13 +1506,24 @@ struct ItemDetailView: View {
     /// server's transcription job just replaced it). The old text stays up while the read runs.
     @MainActor
     private func loadDetailIfNeeded(force: Bool = false) async {
-        guard needsSourceContent(item.type), force || item.pageBody == nil, sourceLoad != .loading else { return }
+        guard needsSourceContent(item.type) else { return }
+        if sourceLoad == .loading {
+            if force { sourceReloadNeeded = true }
+            return
+        }
+        guard force || item.pageBody == nil else { return }
         sourceLoad = .loading
         let itemId = item.id
         let generationAtStart = services.latestGeneration
         let writesInFlightAtStart = ItemWriteQueue.shared.isBusy(itemId)
         do {
             let detail = try await SupabaseItemsFetcher().fetchDetail(id: itemId)
+            if sourceReloadNeeded {
+                sourceReloadNeeded = false
+                sourceLoad = .idle
+                if !services.isClosed { await loadDetailIfNeeded(force: true) }
+                return
+            }
             let savedSinceStart = writesInFlightAtStart || ItemWriteQueue.shared.isBusy(itemId)
                 || services.latestGeneration != generationAtStart
             if savedSinceStart {
@@ -1501,6 +1541,10 @@ struct ItemDetailView: View {
         } catch {
             // A read cancelled because the sheet went away isn't a failure worth showing.
             sourceLoad = Task.isCancelled ? .idle : .failed
+            if sourceReloadNeeded {
+                sourceReloadNeeded = false
+                if !Task.isCancelled && !services.isClosed { await loadDetailIfNeeded(force: true) }
+            }
         }
     }
 }

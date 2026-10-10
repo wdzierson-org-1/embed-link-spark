@@ -61,6 +61,7 @@ final class FakeRowServer: ItemPatching, @unchecked Sendable {
         return try lock.withLock {
             if let failure { throw failure }
             guard !hidesRows, var row = rows[itemId] else { throw ItemEditorError.itemNotFound }
+            if let url = patch.url { row.url = url }
             if let title = patch.title { row.title = title }
             if let description = patch.description { row.description = description }
             if let content = patch.content { row.content = content }

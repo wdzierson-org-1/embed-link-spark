@@ -1718,9 +1718,9 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 15))
     }
 
-    /// The compact card remains editable, its secondary options have both tap and swipe
-    /// affordances, and the public option never publishes this fixture: it is turned off again
-    /// before Save. A closed real subscription gate cancels the share instead of leaving a
+    /// The compact toast keeps feed sharing visible and Save beside the persistent pin.
+    /// The public option never publishes this fixture: it is turned off again before Save.
+    /// A closed real subscription gate cancels the share instead of leaving a
     /// parked fixture. Existing transport tests separately exercise the DEBUG gate override.
     @MainActor
     func testShareToastOptionsSavePrivateNoteWithinBudget() async throws {
@@ -1742,35 +1742,36 @@ final class StashUITests: XCTestCase {
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         let save = openStashComposeCard(in: safari, url: "example.com/?toast=\(UUID().uuidString)", note: nil)
         let preview = safari.staticTexts["share.preview.url"]
-        let more = safari.buttons["share.moreOptions"]
+        let pin = safari.buttons["share.pin"]
         let publicOption = safari.descendants(matching: .any).matching(identifier: "share.public").firstMatch
-        XCTAssertEqual(more.value as? String, "Collapsed")
-        XCTAssertFalse(publicOption.exists, "Secondary options must start collapsed")
-        XCTAssertGreaterThan(preview.frame.minY, safari.frame.height * 0.35,
-                             "The compact preview should float toward the bottom of the host")
+        XCTAssertFalse(safari.buttons["share.moreOptions"].exists)
+        XCTAssertFalse(safari.buttons["share.dictate"].exists)
+        XCTAssertTrue(publicOption.exists, "Feed choice is available without expanding the toast")
+        XCTAssertTrue(pin.isHittable)
+        XCTAssertLessThan(save.frame.maxX, pin.frame.minX, "Save and location need a visible gap")
+        XCTAssertEqual(save.frame.midY, pin.frame.midY, accuracy: 2, "Save and location belong on one line")
+        XCTAssertGreaterThan(preview.frame.minY, safari.frame.height * 0.25,
+                             "The preview should float toward the bottom of the host")
+        XCTAssertEqual(publicOption.value as? String, "0", "Each share starts off the public feed")
         attachScreenshot(named: "share-toast-compact")
 
-        more.tap()
-        XCTAssertTrue(publicOption.waitForExistence(timeout: 5))
-        XCTAssertEqual(more.value as? String, "Expanded")
-        XCTAssertEqual(publicOption.value as? String, "0", "Each share starts private")
         publicOption.tap()
         XCTAssertEqual(publicOption.value as? String, "1")
+        XCTAssertTrue(safari.staticTexts["share.public.status"].label.contains("Sharing to feed"))
         publicOption.tap()
         XCTAssertEqual(publicOption.value as? String, "0", "The fixture must stay private")
+        XCTAssertTrue(safari.staticTexts["share.public.status"].label.contains("Not shared to feed"))
 
-        more.tap()
-        XCTAssertEqual(more.value as? String, "Collapsed")
-        let swipeStart = preview.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        swipeStart.press(forDuration: 0.05, thenDragTo: swipeStart.withOffset(CGVector(dx: 0, dy: -90)))
-        XCTAssertTrue(publicOption.waitForExistence(timeout: 5), "Swiping the preview up must expose the same options")
-        XCTAssertTrue(safari.buttons["share.pin"].exists)
-        XCTAssertTrue(safari.buttons["share.dictate"].exists)
-        attachScreenshot(named: "share-toast-expanded")
+        // The extension may not have OS permission, but its remembered choice and truthful
+        // status must still work and must never disable Save.
+        if pin.value as? String == "On" { pin.tap() }
+        pin.tap()
+        XCTAssertEqual(pin.value as? String, "On")
+        XCTAssertTrue(safari.descendants(matching: .any)["share.pin.status"].exists)
+        attachScreenshot(named: "share-toast-location-on")
+        pin.tap()
+        XCTAssertEqual(pin.value as? String, "Off")
 
-        safari.buttons["share.dictate"].tap()
-        XCTAssertTrue(safari.staticTexts["share.dictate.help"].waitForExistence(timeout: 5),
-                      "Dictation must explain the keyboard microphone, without claiming to record")
         let textView = safari.textViews["share.note"]
         let noteField = textView.exists ? textView : safari.textFields["share.note"]
         tapUntilFocused(noteField)

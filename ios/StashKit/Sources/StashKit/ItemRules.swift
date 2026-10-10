@@ -51,11 +51,43 @@ public func contentTabsConfig(for type: ItemType) -> ContentTabsConfig {
         ])
     case .audio, .video:
         return .init(title: "Transcript", defaultTab: .transcript, tabs: [
+            .init(key: .summary, label: "Summary"),
             .init(key: .transcript, label: "Transcript"),
         ])
     default:
         return .init(title: "Notes", defaultTab: .notes, tabs: [.init(key: .notes, label: "Notes")])
     }
+}
+
+/// Video links keep ordinary page text readable until the server confirms a transcript.
+/// Notes remain independent of these source tabs.
+public func contentTabsConfig(for item: Item) -> ContentTabsConfig {
+    guard item.type == .link, item.attributes.link?.flavor == "video" else {
+        return contentTabsConfig(for: item.type)
+    }
+    let summary = ContentTab(key: .summary, label: "Summary")
+    let transcript = ContentTab(key: .transcript, label: "Transcript")
+    let original = ContentTab(key: .original, label: "Original Content")
+    return .init(title: "Source", defaultTab: .summary,
+                 tabs: item.attributes.hasCapturedTranscript ? [summary, transcript] : [summary, original, transcript])
+}
+
+public extension ItemAttributes {
+    var hasCapturedTranscript: Bool {
+        guard case .object(let enrichment) = extra["enrichment"],
+              case .object(let evidence) = enrichment["evidence"],
+              evidence["transcript"] == .bool(true) else { return false }
+        return true
+    }
+}
+
+/// A link's page_body can contain navigation text. Only the boolean evidence flag proves
+/// it is a transcript; recordings already store only their transcript in this source lane.
+public func transcriptText(for item: Item) -> String? {
+    guard item.type == .audio || item.type == .video
+            || (item.type == .link && item.attributes.link?.flavor == "video" && item.attributes.hasCapturedTranscript)
+    else { return nil }
+    return item.pageBody
 }
 
 /// Detail views need summary/page_body fetched (list omits page_body).
@@ -112,6 +144,12 @@ public func mergePreservingDetail(local: Item, incoming: Item, hasUnsavedTitle: 
     if hasUnsavedSupplementalNote { result.supplementalNote = local.supplementalNote }
     if hasUnsavedLocation { result.attributes = local.attributes }
     if hasUnsavedContent { result.content = local.content }
-    if incoming.pageBody == nil { result.pageBody = local.pageBody }
+    if incoming.pageBody == nil {
+        // A realtime row can announce a newly captured transcript before its source body
+        // is fetched. The previously loaded page may be navigation text, so don't relabel it.
+        let transcriptJustArrived = incoming.type == .link && incoming.attributes.link?.flavor == "video"
+            && !local.attributes.hasCapturedTranscript && incoming.attributes.hasCapturedTranscript
+        result.pageBody = transcriptJustArrived ? nil : local.pageBody
+    }
     return result
 }

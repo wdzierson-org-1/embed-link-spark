@@ -54,7 +54,7 @@ final class ItemRulesTests: XCTestCase {
 
     func testContentTabs() {
         XCTAssertEqual(contentTabsConfig(for: .link).tabs.map(\.key), [.summary, .original])
-        XCTAssertEqual(contentTabsConfig(for: .audio).tabs.map(\.key), [.transcript])
+        XCTAssertEqual(contentTabsConfig(for: .audio).tabs.map(\.key), [.summary, .transcript])
         XCTAssertEqual(contentTabsConfig(for: .audio).defaultTab, .transcript)
         XCTAssertEqual(contentTabsConfig(for: .image).tabs.map(\.key), [.notes])
     }

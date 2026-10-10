@@ -22,9 +22,7 @@ struct ShareComposeView: View {
     @State private var objects: [SharedObject] = []
     @State private var droppedCount = 0
     @State private var note = ""
-    @State private var expanded = false
     @State private var isPublic = false
-    @State private var showsDictationHelp = false
     @State private var locationCapture: LocationCapture?
     /// A saved transfer may finish an already-requested pin after the toast disappears.
     @State private var locationOwnedByTransfer = false
@@ -39,7 +37,6 @@ struct ShareComposeView: View {
     @State private var actionsHeight: CGFloat = 44
     @FocusState private var noteFocused: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     static let savedMessage = "Saved to Stash"
     static let failedMessage = "Couldn't save — try again"
@@ -51,7 +48,7 @@ struct ShareComposeView: View {
                 Spacer(minLength: 0)
                 toastContent(availableHeight: max(0, geometry.size.height - 24))
                 .frame(maxWidth: 480)
-                .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .background(StashColor.paper, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .compositingGroup()
                 .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: 8)
@@ -72,7 +69,6 @@ struct ShareComposeView: View {
             guard !Task.isCancelled else { return }
             thumbnail = image
         }
-        .onChange(of: noteFocused) { _, focused in if focused { setExpanded(true) } }
         .onDisappear {
             previewProvider.cancel()
             if !locationOwnedByTransfer { locationCapture?.stop() }
@@ -87,10 +83,9 @@ struct ShareComposeView: View {
 
         return VStack(alignment: .leading, spacing: 16) {
             header
-                .simultaneousGesture(expandGesture)
                 .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
-            // Keep dismissal and Save outside the scrolling region. In particular, expanded
+            // Keep dismissal and Save outside the scrolling region. In particular, larger
             // accessibility text must not push either control behind the note keyboard.
             // A single scroll view also preserves the note field's identity when the keyboard
             // changes the viewport; replacing it with a fitting branch drops the first focus.
@@ -123,7 +118,7 @@ struct ShareComposeView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("share.noSession")
             case .ready, .saving, .saved, .failed:
-                preview.simultaneousGesture(expandGesture)
+                preview
                 if droppedCount > 0 { droppedMessage }
                 if case .failed(let message) = phase {
                     Text(message)
@@ -131,7 +126,6 @@ struct ShareComposeView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("share.outcome")
                 }
-                Rectangle().fill(StashColor.lineSoft).frame(height: 1).accessibilityHidden(true)
                 if phase == .saved {
                     if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(note).stashFont(.reading).foregroundStyle(StashColor.muted)
@@ -140,7 +134,8 @@ struct ShareComposeView: View {
                 } else {
                     noteField
                         .disabled(phase != .ready)
-                    if expanded { expandedOptions.disabled(phase != .ready) }
+                    feedOption.disabled(phase != .ready)
+                    locationStatus
                     if phase == .ready || phase == .saving {
                         if !canAddContent { gateMessage }
                     }
@@ -174,9 +169,10 @@ struct ShareComposeView: View {
                 Button(action: cancel) {
                     Image(systemName: "xmark").font(.system(size: 14, weight: .medium))
                         .frame(width: 44, height: 44)
+                        .background(StashColor.white)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain).foregroundStyle(StashColor.muted)
+                .buttonStyle(.plain).foregroundStyle(StashColor.ink)
                 .accessibilityLabel(isFailure ? "Close" : "Cancel")
                 .accessibilityIdentifier("share.cancel")
             }
@@ -198,11 +194,13 @@ struct ShareComposeView: View {
                 }
             }
             .frame(width: 56, height: 56)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: StashRadius.object))
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(previewTitle)
-                    .stashFont(.secondaryMedium).foregroundStyle(StashColor.ink)
+                    .stashFont(previewTitle.hasPrefix("https://") || previewTitle.hasPrefix("http://")
+                               ? .code(.footnote) : .secondaryMedium)
+                    .foregroundStyle(StashColor.ink)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(previewIdentifier)
@@ -219,14 +217,24 @@ struct ShareComposeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(12)
+        .background(StashColor.white)
+        .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
     }
 
     private var previewTitle: String {
         if objects.count > 1 { return "\(objects.count) items\(phase == .saved ? " saved" : " to stash")" }
-        if let title = previewProvider.title, !title.isEmpty { return title }
+        if let title = previewProvider.title, !title.isEmpty {
+            if case .url(let value) = objects.first,
+               let host = domain(from: value),
+               title.lowercased() == host.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression).lowercased() {
+                return value
+            }
+            return title
+        }
         guard let first = objects.first else { return "Nothing to share" }
         switch first {
-        case .url(let value): return domain(from: value) ?? value
+        case .url(let value): return value
         case .text(let text): return String(text.prefix(160)) + (text.count > 160 ? "…" : "")
         case .file(_, let mime, let name, _): return name ?? (mime.hasPrefix("image/") ? "Image" : "File")
         }
@@ -236,7 +244,7 @@ struct ShareComposeView: View {
         if let summary = previewProvider.summary, !summary.isEmpty { return summary }
         guard let first = objects.first else { return "This share has no supported content." }
         switch first {
-        case .url(let url): return url
+        case .url(let url): return domain(from: url) ?? url
         case .text: return "a note for your stash"
         case .file(_, let mime, _, _):
             let status = phase == .saved ? "saved to your stash" : "ready to save"
@@ -279,98 +287,78 @@ struct ShareComposeView: View {
         TextField("Add a note", text: $note,
                   prompt: Text("Add a note").foregroundStyle(StashColor.muted), axis: .vertical)
             .focused($noteFocused).textFieldStyle(.plain).stashFont(.reading)
-            .lineLimit(1...(expanded ? 5 : 2))
-            .padding(.vertical, 10)
-            .frame(minHeight: 44, alignment: .leading)
+            .lineLimit(1...5)
+            .padding(12)
+            .frame(minHeight: 48, alignment: .leading)
+            .background(StashColor.white)
+            .overlay(Rectangle().strokeBorder(StashColor.line, lineWidth: 1))
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture().onEnded { noteFocused = true })
             .accessibilityIdentifier("share.note")
     }
 
-    private var expandedOptions: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let locationCapture {
-                Button { locationCapture.toggle() } label: {
-                    HStack(spacing: 10) {
-                        StashMapPin().stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                            .frame(width: 18, height: 18)
-                        Text("Include location").stashFont(.secondary)
-                        Spacer(minLength: 8)
-                        if locationCapture.state == .resolving { StashCursor() }
-                        Text(locationCapture.enabled ? "on" : "off").stashFont(.machine)
-                    }
-                    .foregroundStyle(StashColor.ink).frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Include your location")
-                .accessibilityValue(locationCapture.enabled ? "On" : "Off")
-                .accessibilityIdentifier("share.pin")
+    private var feedOption: some View {
+        Toggle(isOn: $isPublic) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Share to feed").stashFont(.secondaryMedium)
+                Text(isPublic ? "Sharing to feed" : "Not shared to feed")
+                    .stashFont(.machine).foregroundStyle(StashColor.muted)
+                    .accessibilityIdentifier("share.public.status")
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .toggleStyle(StashSwitchStyle())
+        .accessibilityIdentifier("share.public")
+        .accessibilityHint("Makes \(objects.count > 1 ? "these items" : "this item") public on your feed")
+    }
+
+    @ViewBuilder
+    private var locationStatus: some View {
+        if let locationCapture, locationCapture.enabled {
+            Group {
                 if case .ready(let location) = locationCapture.state {
                     Text("posted from \(location.label)")
-                        .stashFont(.machine).foregroundStyle(StashColor.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .stashFont(.machine)
                         .accessibilityIdentifier("share.pin.preview")
+                } else if locationCapture.state == .resolving {
+                    StashStatusLine(text: "finding your location…")
                 } else if locationCapture.requiresAppPermission {
-                    Text("Enable location permission in Stash to include your location here.")
-                        .stashFont(.secondary).foregroundStyle(StashColor.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if locationCapture.state == .failed {
-                    Text("Location is unavailable. Your item can still be saved.")
-                        .stashFont(.secondary).foregroundStyle(StashColor.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Enable location permission in Stash to include it here.")
+                        .stashFont(.secondary)
+                } else {
+                    Text("Location unavailable. You can still save.")
+                        .stashFont(.secondary)
                 }
             }
-            Toggle(isOn: $isPublic) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Share this stash").stashFont(.secondary)
-                    Text("Make \(objects.count > 1 ? "these items" : "this item") public.")
-                        .stashFont(.machine).foregroundStyle(StashColor.muted)
-                }
-            }
-            .toggleStyle(StashSwitchStyle())
-            .accessibilityIdentifier("share.public")
-            Button {
-                showsDictationHelp = true
-                noteFocused = true
-            } label: {
-                Label("Dictate a note", systemImage: "mic")
-                    .stashFont(.secondaryMedium).frame(minHeight: 44)
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).foregroundStyle(StashColor.ink)
-            .accessibilityHint("Shows how to use keyboard dictation in the note field")
-            .accessibilityIdentifier("share.dictate")
-            if showsDictationHelp {
-                Text("Tap the microphone on your keyboard to dictate. If dictation isn’t available, type your note.")
-                    .stashFont(.secondary).foregroundStyle(StashColor.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("share.dictate.help")
-            }
+            .foregroundStyle(StashColor.muted)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("share.pin.status")
         }
-        .padding(.top, 4)
     }
 
     private var actions: some View {
-        Group {
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(spacing: 8) { moreOptions; saveButton }
-            } else {
-                HStack(spacing: 12) { moreOptions; saveButton }
+        HStack(alignment: .center, spacing: 12) {
+            saveButton
+            if let locationCapture {
+                Button { locationCapture.toggle() } label: {
+                    StashMapPin()
+                        .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                        .frame(width: 20, height: 20)
+                        .frame(width: 52, height: 52)
+                        .foregroundStyle(locationCapture.enabled ? StashColor.white : StashColor.ink)
+                        .background(locationCapture.enabled ? StashColor.ink : StashColor.white)
+                        .overlay(Rectangle().strokeBorder(locationCapture.enabled ? StashColor.ink : StashColor.line,
+                                                         lineWidth: 1))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(phase != .ready)
+                .accessibilityLabel("Include your location")
+                .accessibilityValue(locationCapture.enabled ? "On" : "Off")
+                .accessibilityHint("Remembers your choice for future saves")
+                .accessibilityIdentifier("share.pin")
             }
         }
-    }
-
-    private var moreOptions: some View {
-        Button { setExpanded(!expanded) } label: {
-            Label(expanded ? "Less" : "More options", systemImage: expanded ? "chevron.down" : "chevron.up")
-                .stashFont(.secondary).frame(minHeight: 44)
-                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).foregroundStyle(StashColor.muted)
-        .disabled(phase != .ready)
-        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
-        .accessibilityIdentifier("share.moreOptions")
     }
 
     private var saveButton: some View {
@@ -378,10 +366,10 @@ struct ShareComposeView: View {
             Text(phase == .saving ? "Saving…" : "Save")
                 .stashFont(.textButtonProminent)
                 .padding(.horizontal, 20).padding(.vertical, 10)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 52)
                 .foregroundStyle(canSubmit || phase == .saving ? .white : StashColor.muted)
                 .background(canSubmit || phase == .saving ? StashColor.ink : StashColor.fill,
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            in: Rectangle())
         }
         .buttonStyle(.plain).disabled(!canSubmit)
         .accessibilityIdentifier("share.save")
@@ -400,18 +388,6 @@ struct ShareComposeView: View {
         Text(droppedCount == 1 ? "1 item couldn’t be read." : "\(droppedCount) items couldn’t be read.")
             .stashFont(.secondary).foregroundStyle(StashColor.muted)
             .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("share.dropped")
-    }
-
-    private var expandGesture: some Gesture {
-        DragGesture(minimumDistance: 24).onEnded { value in
-            guard phase == .ready, value.translation.height < -32,
-                  abs(value.translation.height) > abs(value.translation.width) else { return }
-            setExpanded(true)
-        }
-    }
-
-    private func setExpanded(_ value: Bool) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { expanded = value }
     }
 
     private func load() async {

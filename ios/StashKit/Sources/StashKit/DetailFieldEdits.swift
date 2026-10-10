@@ -40,7 +40,7 @@ public struct FailedSave: Equatable, Sendable {
 
 /// The detail sheet's text fields that the queue-aware rules cover.
 public enum SheetTextField: Hashable, Sendable {
-    case title, description, supplementalNote
+    case title, description, supplementalNote, url
 }
 
 /// What an open detail sheet's fields hold that the server hasn't confirmed — the ONE rule its
@@ -120,7 +120,7 @@ public struct DetailFieldEdits {
                                             typedSinceSave: Set<SheetTextField> = []) -> (row: Item, fields: Item)? {
         let latest = queue.deliveries(for: snapshot.id, after: knownDeliveries)
         let delivered = ItemPatch(title: latest.title, description: latest.description,
-                                  supplementalNote: latest.supplementalNote)
+                                  supplementalNote: latest.supplementalNote, url: latest.url)
         guard !delivered.isEmpty else { return nil }
         let row = PendingEdit(itemId: snapshot.id, patch: delivered, capturedAt: .distantPast).applied(to: snapshot)
         let pending = queue.edit(for: snapshot.id)
@@ -130,6 +130,7 @@ public struct DetailFieldEdits {
             return queue.undelivered(patch(field.value), capturedAt: field.capturedAt, itemId: snapshot.id).isEmpty
                 ? nil : field
         }
+        queued?.url = outstanding(pending?.url) { ItemPatch(url: $0) }
         queued?.title = outstanding(pending?.title) { ItemPatch(title: $0) }
         queued?.description = outstanding(pending?.description) { ItemPatch(description: $0) }
         queued?.supplementalNote = outstanding(pending?.supplementalNote) { ItemPatch(supplementalNote: $0) }
@@ -153,6 +154,7 @@ public struct DetailFieldEdits {
         local != baseline || queued != nil || inProgress
     }
 
+    private var localURL: String { local.url ?? "" }
     private var localTitle: String { local.title ?? "" }
     private var localDescription: String { local.description ?? "" }
     private var localNote: String { local.supplementalNote ?? "" }
@@ -161,6 +163,15 @@ public struct DetailFieldEdits {
     /// `carries`) is still sending it.
     private func inProgress(_ field: SheetTextField, _ carries: (ItemPatch) -> Bool) -> Bool {
         typedSinceSave.contains(field) || sending.contains(where: carries)
+    }
+
+    public var urlNeedsSave: Bool {
+        Self.needsSave(localURL, baseline: baseline.url ?? "", queued: queued?.url?.value)
+    }
+
+    public var keepsURL: Bool {
+        Self.keeps(localURL, baseline: baseline.url ?? "", queued: queued?.url?.value,
+                   inProgress: inProgress(.url) { $0.url != nil })
     }
 
     public var titleNeedsSave: Bool {
@@ -196,6 +207,7 @@ public struct DetailFieldEdits {
     /// sends and the dismiss journal starts from. A cleared sticky note is `""` (null on the wire).
     public var textPatch: ItemPatch {
         var patch = ItemPatch()
+        if urlNeedsSave { patch.url = localURL }
         if titleNeedsSave { patch.title = localTitle }
         if descriptionNeedsSave { patch.description = localDescription }
         if supplementalNoteNeedsSave { patch.supplementalNote = localNote }
@@ -208,6 +220,7 @@ public struct DetailFieldEdits {
     /// flight). Fields `sent` didn't carry are left out. Empty when nothing moved on.
     public func superseding(_ sent: ItemPatch) -> ItemPatch {
         var patch = ItemPatch()
+        if let url = sent.url, url != localURL { patch.url = localURL }
         if let title = sent.title, title != localTitle { patch.title = localTitle }
         if let description = sent.description, description != localDescription { patch.description = localDescription }
         if let note = sent.supplementalNote, note != localNote { patch.supplementalNote = localNote }
@@ -390,6 +403,7 @@ public struct DetailFieldEdits {
             hasUnsavedLocation: false,
             hasUnsavedContent: (local.content ?? "") != (baseline.content ?? "")
         )
+        if keepsURL, let url = local.url { next = LinkAddressEdit.applying(url, to: next) }
         if local.attributes.location != baseline.attributes.location {
             next.attributes.location = local.attributes.location
         }

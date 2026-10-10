@@ -8,6 +8,39 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · iOS toast refinement and video/detail parity
+
+- **Toast:** removes More options and Dictate a note. The paper toast contains a bordered
+  icon/media + title/description box, a bordered note input, and a visible square **Share to
+  feed** toggle (**Not shared to feed** / **Sharing to feed**). Square Save and location buttons
+  share one row with a gap; enabled location is white on black, with status above the row.
+  Remembered consent and the existing local durability / 500 ms preview contracts are unchanged.
+- **Playback:** native uploaded audio/video uses AVPlayer; supported video links use isolated
+  provider embeds (YouTube, Vimeo, Loom, TikTok and Instagram). Canonical URL precedence follows
+  the web: `attributes.link.canonical_url`, then `attributes.enrichment.evidence.canonical_url`,
+  then `url`. Strict host parsing rejects lookalike domains. One player moves between inline
+  and native full screen, with no automatic start and a pause on background/detail dismissal.
+  Open original remains available when an embed is unavailable.
+- **Source tabs:** video-flavor links show Summary / Original Content / Transcript before
+  `attributes.enrichment.evidence.transcript == true`, then Summary / Transcript. Only flagged
+  link `page_body` is called a transcript. Uploaded recordings retain Transcript as default
+  and add Summary. A realtime transcript flag invalidates old local page text before refetching.
+- **Item links:** header Share creates/reuses `items.share_token` + `shared_at` through an owner
+  update; `https://www.gostash.it/s/:token` uses the existing `shared_item(p_token)` read RPC.
+  Copy, native sharing and revocation do not change `is_public`. Tokens are secure random
+  10-character base62 values; writes compare the prior token to avoid revoking another client’s
+  newer link. Opening detail only reads share state.
+- **Address editing:** existing HTTP(S) URLs can be changed with explicit Save/Cancel. Bare
+  hosts gain HTTPS; unsafe schemes, whitespace and embedded credentials are rejected. URL
+  intent follows the durable edit queue. Each send/retry reads current attributes in the item's
+  serialized write slot and removes old `link` / `enrichment.evidence` facts in the same PATCH.
+  Captured `page_body`, notes, summary, media, location and unrelated metadata are preserved.
+  A changed video address receives a fresh player identity. No migration is required.
+
+Web reference: `app-redesign-v2` at `4315aa49`; native sources are
+`ShareComposeView`, `DetailMediaStage`, `DetailURLBar`, `ItemShareControl`, and StashKit's
+`DetailMediaRules`, `LinkAddressEdit`, `ItemShareService`, and item-aware content tab rules.
+
 ## 2026-10-10 · iOS share toast, remembered location and web-aligned navigation
 
 - **Save contract:** sharing into iOS Stash requires one explicit **Save** tap. `Saved`

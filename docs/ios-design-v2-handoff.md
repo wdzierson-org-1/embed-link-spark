@@ -2,61 +2,59 @@
 
 ## Integrated app
 
-The October 10 update is implemented on `codex/ios-design-v2`, based on local main
-`d9c2530c`. The primary checkout is `/Users/will/Appdev/embed-link-spark`.
+The October 10 update is implemented on `codex/ios-design-v2`, building on local main
+`aa1dbfea`. The primary checkout is `/Users/will/Appdev/embed-link-spark`.
 The simulator gallery contains real native captures using the review account.
 
-## October 10 — share toast and web alignment
+## October 10 — revised toast and detail controls
 
-- Main navigation is **View, Ask, Add, Settings**; View opens by default.
-- Detail presents URL, title, description, media, source tabs, notes, details, and sharing.
-  Source tabs, sharing controls, sticky-note typography, and the location glyph match the web.
-- The share extension floats a rounded white toast over the sending app, with an explicit
-  **Save** button. Swipe upward or tap **More options** for location, public sharing, and dictation.
-- **Share this stash** defaults off for each new share. Its choice is written into every item’s
-  durable capture payload, including offline captures; notes attach to the first item in a batch.
-- Location consent persists per account across Add and the extension until switched off.
-  Coordinates are only kept in memory; stale fixes and revoked consent are rejected. New fixes
-  publish before reverse geocoding. A resolving location gets a separate bounded 2.5-second
-  chance to attach after saving, without keeping the toast open. Permission or GPS failures
-  never block saving; a missing fix means that particular capture has no location.
-- Preview work has a **500 ms overall deadline**. Supplied titles render immediately. On a
-  connected, unconstrained, non-metered path, links try the existing fast metadata API and
-  images try existing image analysis with a small JPEG. Apple Vision extracts text locally from
-  images or a PDF’s first page. Offline OCR is labeled as observed text, not a guessed book identity.
-  Preview work never creates an item or uploads to storage, and never delays Save. Normal
-  enrichment still runs after capture. Network eligibility is a cost/path check, not a speed test.
-- Save confirms after local durability, dismisses after a 500 ms confirmation, and transfers
-  independently. Partial local-write failures stay visible with an accurate count.
-- **Dictate a note** focuses the note field and explains the keyboard microphone. It produces
-  note text; it does not attach an audio recording. Share extensions cannot record microphone
-  audio directly under Apple’s [extension restrictions](https://developer.apple.com/library/archive/documentation/General/Conceptual/ExtensibilityPG/ExtensionOverview.html).
-- The interactive sign-in preview now closes after successful authentication and starts normal
-  session observation. This fixes the preview overlay that previously hid successful logins.
+- Navigation remains **View, Ask, Add, Settings**.
+- Share toast: bordered media/link preview and note input, a visible retro **Share to feed**
+  toggle, square **Save** and location buttons on one row with a gap. Location reverses to
+  white on black when on; its status appears above Save. No More options or Dictate a note.
+- Location consent remains per-account across Add and the extension. Missing permissions or
+  GPS never block Save. Preview work remains optional with its existing 500 ms deadline;
+  durable capture and normal enrichment continue independently.
+- Detail videos play inline with a full-screen toggle. Native uploads use AVPlayer; supported
+  links use isolated provider players. Playback starts only after a tap. Full screen retains
+  the same player; leaving detail or backgrounding pauses it. Provider restrictions can still
+  require **Open original**.
+- Header **Share** creates/manages an unlisted item link. Copy, native sharing and revocation
+  use the existing backend contract and never toggle public feed visibility.
+- Video source tabs follow the web's transcript evidence flag. Summary sits beside Transcript;
+  Original Content remains until the server identifies a transcript. Generic scraped text is
+  never labeled as a transcript.
+- Existing source addresses have Copy / Edit / Open controls, with explicit Save / Cancel.
+  Address edits use the durable queue, clear metadata from the old address, and preserve
+  captured source text, notes, summary, media and location. No backend migration is needed.
 
-Presentation uses Apple’s documented `NSExtensionShareWantsFullScreenPresentation` opt-in,
-verified in Safari. See [What’s New in Sharing](https://developer.apple.com/videos/play/tech-talks/210/).
+Web reference: `app-redesign-v2` at `4315aa49`. The earlier ASCII sign-in pool,
+masonry library and rotating thinking cursor remain in place.
 
-Verification: 928 StashKit tests passed, covering durable public/private payloads, persistent
-consent and stale-fix rejection, preview rules, and deadline cancellation. Native UI tests passed
-for preview sign-in/session restoration/tab order and the real Safari share flow: expansion by
-tap/swipe, public on/off, note entry, confirmation within 500 ms, dismissal, and exactly one private
-server item. Test-created items were removed. The read-only NASA detail check passed for
-URL/title/source/notes/details/sharing order, source switching, and keyboard dismissal. The AX3 share check also passed: first-tap note
-focus, pinned Save above the keyboard, touch targets, and the accessibility audit. Physical-device
-GPS, gyroscope feel, and keyboard
-microphone input still require an iPhone check.
+### Verification
 
-Logs/results:
+The current full StashKit suite passes **958 tests**. The real Safari share flow passes: feed on/off, square Save beside the pin, location status,
+note entry, confirmation within 500 ms and exactly one private server item. The AX3 check
+passes for first-tap note focus, pinned Save above the keyboard, touch targets and audit.
+Address-edit acceptance passes for invalid input, cancel, save, metadata cleanup, preserved
+notes/source text and relaunch. The test suite uses a dedicated QA simulator and disposable
+review-account items, leaving the owner's account unchanged. Native AVPlayer and YouTube
+playback both pass real play-clock and full-screen continuity checks. Item sharing passes
+creation, copy, native sharing, anonymous access, revocation and feed-privacy checks.
 
-- `/private/tmp/stash-share-full-unit-unrestricted.log`
-- `/private/tmp/stash-share-build-final.log`
-- `/private/tmp/stash-share-ui.xcresult`
-- `/private/tmp/stash-share-acceptance-v2-ui.xcresult`
-- `/private/tmp/stash-share-large-v4-ui.xcresult`
-- `/private/tmp/stash-share-final-ui.xcresult` (share save, read-only preview and tab labels passed;
-  legacy detail anatomy could not find its pre-seeded `UITEST-FIXTURE: link one`)
-- `/private/tmp/stash-design-detail-final-v2-ui.xcresult` (existing NASA review fixture, passed)
+The verified build is installed and open on **Stash Design v2** with its existing signed-in
+library preserved. The gallery uses review-account fixtures, not the owner's private items.
+
+- Unit log: `/private/tmp/stash-detail-share-v3-unit.log`
+- Native build: `/private/tmp/stash-detail-share-v3-build7.log`
+- Toast: `/private/tmp/stash-detail-share-v3-ui.xcresult` (toast test passes; initial detail test selectors corrected afterward)
+- Larger text: `/private/tmp/stash-share-v3-large-ui.xcresult`
+- Address editing: `/private/tmp/stash-detail-share-v4-ui.xcresult` (address test passes)
+- Item-link sharing: `/private/tmp/stash-detail-share-v5-ui.xcresult` (share test passes)
+- Embedded playback: `/private/tmp/stash-detail-share-v6-ui.xcresult` (YouTube test passes)
+- Native playback: `/private/tmp/stash-detail-share-v7-ui.xcresult`
+
+Physical-device GPS and gyroscope feel still require an iPhone check.
 
 ## Review origin
 
@@ -166,7 +164,7 @@ resolves an obsolete Xcode 15 copy on this Mac, which crashes before showing a w
 Keep normal local signing enabled: the simulator needs the app's shared Keychain entitlements
 for session persistence and the share extension.
 
-## Verification
+## Original redesign verification
 
 - StashKit: **894 tests passed**, zero failures, including eight masonry cases and five fluid cases.
 - Simulator app + embedded share extension build: passed, including the final landscape-axis correction.
@@ -186,7 +184,7 @@ for session persistence and the share extension.
 
 ### Review artifacts
 
-- [Screenshot gallery](ios-design-v2/index.html) — twelve simulator captures and a motion clip.
+- [Screenshot gallery](ios-design-v2/index.html) — native simulator captures and a motion clip.
 - [Motion preview](ios-design-v2/ascii-motion.mp4) — 12 seconds of simulated left/right movement.
 - Motion/Ask UI results: `/private/tmp/stash-ios-motion-core.xcresult` (five tests).
 - Masonry/screen UI results: `/private/tmp/stash-ios-motion-layout.xcresult` (three tests).

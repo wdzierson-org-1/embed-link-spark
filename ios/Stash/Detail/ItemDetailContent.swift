@@ -81,8 +81,11 @@ struct ItemDetailContent: View {
         return action
     }
 
-    private var config: ContentTabsConfig { contentTabsConfig(for: item.type) }
+    private var config: ContentTabsConfig { contentTabsConfig(for: item) }
     private var tabs: [ContentTab] { config.tabs.filter { $0.key != .notes } }
+    private var activeTab: ContentTabKey {
+        tabs.contains(where: { $0.key == selectedTab }) ? selectedTab : config.defaultTab
+    }
     /// Audio/video items with a stored media file only (web parity: `EditItemContentSection.tsx`
     /// passes `item.file_path` straight through to `TranscriptContent`, which itself gates its
     /// button on that prop being present) — a `.link`/`.text`/etc. item, or an audio/video row
@@ -96,7 +99,7 @@ struct ItemDetailContent: View {
         // Source first, then the person's notes; each head owns its section spacing.
         VStack(alignment: .leading, spacing: 0) {
             if !tabs.isEmpty { sectionHead }
-            if showsTranscribeButton, let transcriptionErrorMessage, !transcriptionErrorMessage.isEmpty {
+            if activeTab == .transcript, showsTranscribeButton, let transcriptionErrorMessage, !transcriptionErrorMessage.isEmpty {
                 Text(transcriptionErrorMessage)
                     .stashFont(.secondary)
                     .foregroundStyle(StashColor.destructive)
@@ -105,9 +108,7 @@ struct ItemDetailContent: View {
             }
 
             VStack(alignment: .leading, spacing: DetailLayout.gap) {
-                if let first = tabs.first {
-                    tabBody(for: selectedTab == .notes ? first.key : selectedTab)
-                }
+                if !tabs.isEmpty { tabBody(for: activeTab) }
             }
 
             SectionHeader(title: "Notes")
@@ -115,6 +116,9 @@ struct ItemDetailContent: View {
             NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
                         scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
             if item.type == .collection { attachmentsSection }
+        }
+        .onChange(of: config) { _, newConfig in
+            if !newConfig.tabs.contains(where: { $0.key == selectedTab }) { selectedTab = newConfig.defaultTab }
         }
     }
 
@@ -125,9 +129,14 @@ struct ItemDetailContent: View {
             if tabs.count > 1 {
                 let pillItems = tabs.map { PillTabs<ContentTabKey>.Item($0.key, label: $0.label) }
                 PillTabs(items: pillItems, selection: Binding(
-                    get: { selectedTab == .notes ? (tabs.first?.key ?? .summary) : selectedTab },
+                    get: { activeTab },
                     set: { selectedTab = $0 }))
                     .accessibilityIdentifier("detail.tabs")
+                if activeTab == .transcript, showsTranscribeButton {
+                    transcribeButton
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             } else if let first = tabs.first {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .bottom, spacing: 12) {
@@ -216,12 +225,17 @@ struct ItemDetailContent: View {
         case .summary:
             summaryBody
         case .original:
-            sourceBody(empty: isDocument ? noDocumentText : "No page content captured from this link yet.",
+            sourceBody(text: item.pageBody,
+                       empty: isDocument ? noDocumentText : "No page content captured from this link yet.",
                        id: "detail.originalText")
         case .transcript:
-            // A job that ended `failed` (incl. `no_speech`) says so — the header's "Transcribe with
-            // speakers" is the retry — instead of "Transcription in progress…" forever.
-            sourceBody(empty: ItemDisplay.emptyTranscriptText(for: item), id: "detail.transcriptText")
+            if item.type == .link, !item.attributes.hasCapturedTranscript {
+                emptyText("No transcript for this video yet.", id: "detail.transcriptText")
+            } else {
+                sourceBody(text: transcriptText(for: item),
+                           empty: item.type == .link ? "No transcript for this video yet." : ItemDisplay.emptyTranscriptText(for: item),
+                           id: "detail.transcriptText")
+            }
         case .notes:
             NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
                         scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
@@ -229,8 +243,8 @@ struct ItemDetailContent: View {
     }
 
     /// Original/Transcript — the tabs that actually wait on `page_body`.
-    @ViewBuilder private func sourceBody(empty: String, id: String) -> some View {
-        if let text = item.pageBody, !text.isEmpty {
+    @ViewBuilder private func sourceBody(text: String?, empty: String, id: String) -> some View {
+        if let text, !text.isEmpty {
             readOnlyBlock(text, empty: empty, id: id)
         } else if sourceLoad == .loading {
             ProgressView()
@@ -244,7 +258,8 @@ struct ItemDetailContent: View {
     }
 
     private var isDocument: Bool { item.type == .document }
-    private var noSummaryYet: String { "No summary yet for this \(isDocument ? "document" : "link")." }
+    private var isRecording: Bool { item.type == .audio || item.type == .video }
+    private var noSummaryYet: String { "No summary yet for this \(isDocument ? "document" : isRecording ? "recording" : "link")." }
     private var noDocumentText: String {
         item.attributes.enrichmentStatus(at: .now) == "pending"
             ? "Content is still being extracted from this document."
@@ -274,7 +289,7 @@ struct ItemDetailContent: View {
             case .failed:
                 loadFailedState(id: "detail.summaryText")
             case .loaded:
-                emptyText(isDocument ? noDocumentText
+                emptyText(isDocument ? noDocumentText : isRecording ? "No transcript available for this recording."
                                      : "We haven't been able to read this page's content yet.",
                           id: "detail.summaryText")
             case .idle, .loading:
