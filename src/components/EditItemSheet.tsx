@@ -197,6 +197,13 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     isMobile,
   };
 
+  // The notes editor's slash menu lives outside the sheet's DOM (a popup on <body>): a click
+  // on it is not a click outside the panel (2026-10-10)
+  const keepOpenForEditorMenus = (event: CustomEvent<{ originalEvent: Event }>) => {
+    const target = event.detail.originalEvent.target;
+    if (target instanceof Element && target.closest('#slash-command')) event.preventDefault();
+  };
+
   // A stage made full size takes the sheet to the browser's width (StageFull)
   const sheetClass = `flex h-full w-full flex-col p-0 sm:h-auto ${stageFull ? 'sm:w-screen sm:max-w-none' : 'sm:w-[800px] sm:max-w-[800px]'}`;
 
@@ -205,7 +212,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     return (
       <TooltipProvider>
         <Sheet open={open} onOpenChange={onOpenChange}>
-          <SheetContent className={sheetClass} onOpenAutoFocus={focusSheetItself}>
+          <SheetContent className={sheetClass} onOpenAutoFocus={focusSheetItself} onInteractOutside={keepOpenForEditorMenus}>
             <SheetTitle className="sr-only">Edit item</SheetTitle>
             {windowBar}
             <div className="flex-1 overflow-y-auto pt-8">
@@ -228,7 +235,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className={sheetClass} onOpenAutoFocus={focusSheetItself}>
+        <SheetContent className={sheetClass} onOpenAutoFocus={focusSheetItself} onInteractOutside={keepOpenForEditorMenus}>
           <SheetTitle className="sr-only">Edit item</SheetTitle>
           {windowBar}
           <div className="flex-1 overflow-y-auto">

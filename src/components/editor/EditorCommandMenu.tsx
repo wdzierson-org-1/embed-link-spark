@@ -11,7 +11,14 @@ import { suggestionItems } from './SlashCommand';
 
 const EditorCommandMenu = () => {
   return (
-    <EditorCommand className="z-50 h-auto max-h-[330px] w-72 overflow-y-auto border border-ink bg-white shadow-print-sm transition-all">
+    // `pointer-events-auto`: the menu is appended to <body>, which a modal sheet (the item
+    // panel) sets to pointer-events: none — without it clicks fell through the menu to the
+    // note underneath. Pressing on the menu must not take focus from the editor either, or
+    // the suggestion ends before the click lands (2026-10-10).
+    <EditorCommand
+      onMouseDown={(event) => event.preventDefault()}
+      className="pointer-events-auto z-50 h-auto max-h-[330px] w-72 overflow-y-auto border border-ink bg-white shadow-print-sm transition-all"
+    >
       <div className="sticky top-0 z-[1] flex h-[22px] items-center justify-between bg-ink px-2 font-pixel text-pixel leading-none text-white">
         <span>commands</span>
         <span className="text-white/60">↑↓ ⏎</span>

@@ -12,10 +12,13 @@ import {
   TextQuote,
 } from 'lucide-react';
 import { Command, createSuggestionItems, renderItems } from 'novel';
+import { formatLine } from './lineCommands';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadImage } from '@/services/imageUploadService';
 import { toast } from 'sonner';
 
+// Block formats run on the current line only (formatLine): the slash text goes, the line is
+// cut out of any hard-broken block it sits in, then the format lands on it alone
 export const suggestionItems = createSuggestionItems([
   {
     title: "Text",
@@ -23,7 +26,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["p", "paragraph"],
     icon: <Text size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).clearNodes().run();
+      formatLine(editor, range, (chain) => chain.clearNodes());
     },
   },
   {
@@ -32,7 +35,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["todo", "task", "list", "check", "checkbox"],
     icon: <CheckSquare size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).toggleTaskList().run();
+      formatLine(editor, range, (chain) => chain.toggleTaskList());
     },
   },
   {
@@ -41,7 +44,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["title", "big", "large"],
     icon: <Heading1 size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).setNode("heading", { level: 1 }).run();
+      formatLine(editor, range, (chain) => chain.setNode('heading', { level: 1 }));
     },
   },
   {
@@ -50,7 +53,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["subtitle", "medium"],
     icon: <Heading2 size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).setNode("heading", { level: 2 }).run();
+      formatLine(editor, range, (chain) => chain.setNode('heading', { level: 2 }));
     },
   },
   {
@@ -59,7 +62,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["subtitle", "small"],
     icon: <Heading3 size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).setNode("heading", { level: 3 }).run();
+      formatLine(editor, range, (chain) => chain.setNode('heading', { level: 3 }));
     },
   },
   {
@@ -68,7 +71,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["unordered", "point"],
     icon: <List size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).toggleBulletList().run();
+      formatLine(editor, range, (chain) => chain.toggleBulletList());
     },
   },
   {
@@ -77,7 +80,7 @@ export const suggestionItems = createSuggestionItems([
     searchTerms: ["ordered"],
     icon: <ListOrdered size={18} />,
     command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).toggleOrderedList().run();
+      formatLine(editor, range, (chain) => chain.toggleOrderedList());
     },
   },
   {
@@ -85,15 +88,14 @@ export const suggestionItems = createSuggestionItems([
     description: "Capture a quote.",
     searchTerms: ["blockquote"],
     icon: <TextQuote size={18} />,
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
+    command: ({ editor, range }) => formatLine(editor, range, (chain) => chain.toggleBlockquote()),
   },
   {
     title: "Code",
     description: "Capture a code snippet.",
     searchTerms: ["codeblock"],
     icon: <Code size={18} />,
-    command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
+    command: ({ editor, range }) => formatLine(editor, range, (chain) => chain.toggleCodeBlock()),
   },
   {
     title: "Image",

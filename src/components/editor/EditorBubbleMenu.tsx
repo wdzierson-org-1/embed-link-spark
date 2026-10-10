@@ -3,6 +3,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { EditorBubble, EditorBubbleItem, useEditor } from 'novel';
+import { formatLine } from './lineCommands';
 import { 
   Bold, 
   Italic, 
@@ -50,24 +51,25 @@ const EditorBubbleMenu = () => {
     },
   ];
 
+  // Headings take the selected line(s) only, not every line of a hard-broken block
   const headingButtons = [
     {
       name: 'h1',
       label: 'H1',
       isActive: () => editor.isActive('heading', { level: 1 }),
-      action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+      action: () => formatLine(editor, null, (chain) => chain.toggleHeading({ level: 1 })),
     },
     {
       name: 'h2',
       label: 'H2',
       isActive: () => editor.isActive('heading', { level: 2 }),
-      action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+      action: () => formatLine(editor, null, (chain) => chain.toggleHeading({ level: 2 })),
     },
     {
       name: 'h3',
       label: 'H3',
       isActive: () => editor.isActive('heading', { level: 3 }),
-      action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+      action: () => formatLine(editor, null, (chain) => chain.toggleHeading({ level: 3 })),
     },
   ];
 

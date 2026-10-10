@@ -53,6 +53,10 @@ const EditorContentRenderer = ({
         // Clicking anywhere in the panel (not just the first line) focuses the
         // editor — ProseMirror's editable div doesn't always fill the box
         const target = e.target as HTMLElement;
+        // The slash menu is a React child rendered into a portal: its clicks bubble here
+        // through React, not the DOM. Moving the caret on them closed the menu before the
+        // command could run (2026-10-10).
+        if (!e.currentTarget.contains(target)) return;
         if (target.closest('.ProseMirror')) return;
         const editable = (e.currentTarget as HTMLElement).querySelector<HTMLElement>('.ProseMirror');
         if (editable) {
