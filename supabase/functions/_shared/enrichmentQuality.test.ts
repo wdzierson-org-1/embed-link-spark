@@ -87,3 +87,24 @@ describe('adaptive review policy', () => {
     expect(nextReviewHours('partial', 'hourly', 1, true)).toBe(24);
   });
 });
+
+describe('enrichmentSearchText: pictures inside a note', () => {
+  it('joins what the described pictures show and say, in note order', () => {
+    const item = {
+      type: 'text', title: 'Blood work', content: 'image + text using / command',
+      attributes: { note_images: { version: 1, images: [
+        { src: 'https://x/a.png', description: 'A blood test report in a table.', text: 'RBC 4.7', analyzed_at: 't' },
+        { src: 'https://x/b.png', description: 'The InsideTracker logo.', analyzed_at: 't' },
+      ] } },
+    } as any;
+    const text = enrichmentSearchText(item);
+    expect(text).toContain('A blood test report in a table.\nText in the image: RBC 4.7');
+    expect(text).toContain('The InsideTracker logo.');
+    expect(text.indexOf('blood test')).toBeLessThan(text.indexOf('InsideTracker'));
+  });
+
+  it('adds nothing for a note without described pictures', () => {
+    const item = { type: 'text', title: 'Words', content: 'only words', attributes: {} } as any;
+    expect(enrichmentSearchText(item)).toBe('Words\n\nonly words');
+  });
+});

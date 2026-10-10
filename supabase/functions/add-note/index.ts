@@ -4,6 +4,7 @@ import { afterDraining, singleHttpUrl } from '../_shared/capture.ts';
 import { requireEntitlement } from '../_shared/entitlementGate.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
 import { noteTitleFrom, plainNotes } from '../_shared/notes.ts';
+import { noteImageSources, noteImagesSearchText, readNoteImages } from '../_shared/noteImages.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -95,8 +96,12 @@ Deno.serve(async (req) => {
     // and iOS editors) or as plain text (SMS, share sheet). Everything derived
     // from them — the fallback title, the AI title and description, the
     // embedding text — is built from the words, never the JSON scaffolding.
-    const plain = plainNotes(content) || String(content);
+    // A document with no words (a picture alone) has no words: never the JSON itself
+    const plain = plainNotes(typeof content === 'string' ? content : JSON.stringify(content));
     const noteTitle = title || noteTitleFrom(plain);
+    // Pictures in the note are described after the save (analyze-note-images) and read like
+    // its words: by the models that title and describe it, and by the index
+    const hasPictures = noteImageSources(content).length > 0;
 
     // Insert the note into the items table
     const { data: item, error } = await supabase
@@ -148,14 +153,30 @@ Deno.serve(async (req) => {
     // same async-enrichment pipeline the web capture flow uses, so every
     // client of this endpoint gets described items for free
     const enrichAfterResponse = async () => {
+      // The pictures first: what they show and say joins the words below, so a note that is
+      // mostly a picture still gets a title and description about the picture
+      let pictureText = '';
+      if (hasPictures) {
+        try {
+          const { error: picturesError } = await supabase.functions.invoke('analyze-note-images', { body: { itemId: item.id } });
+          if (picturesError) throw picturesError;
+          const { data: described } = await supabase.from('items').select('attributes').eq('id', item.id).single();
+          pictureText = noteImagesSearchText(readNoteImages(described?.attributes));
+        } catch (picturesError) {
+          console.error('Note pictures not described (non-fatal):', picturesError);
+        }
+      }
+
       // A URL alone contains no evidence about its target. Capture promotes
       // these to add-url; direct note callers keep their note without having a
       // model invent a video's title or description from an opaque URL.
       if (singleHttpUrl(plain)) return;
+      const words = [plain, pictureText].filter((part) => part.trim()).join('\n\n');
+      if (!words.trim()) return;
       try {
         const [titleResult, descriptionResult] = await Promise.all([
-          title ? Promise.resolve(null) : supabase.functions.invoke('generate-title', { body: { content: plain } }),
-          supabase.functions.invoke('generate-description', { body: { content: plain, type: 'text' } }),
+          title ? Promise.resolve(null) : supabase.functions.invoke('generate-title', { body: { content: words } }),
+          supabase.functions.invoke('generate-description', { body: { content: words, type: 'text' } }),
         ]);
 
         const updates: Record<string, string> = {};
@@ -167,7 +188,7 @@ Deno.serve(async (req) => {
 
         await supabase.from('items').update(updates).eq('id', item.id);
 
-        const textForEmbedding = [updates.title || noteTitle, plain, updates.description]
+        const textForEmbedding = [updates.title || noteTitle, words, updates.description]
           .filter(Boolean).join(' ');
         await supabase.functions.invoke('generate-embeddings', {
           body: { itemId: item.id, textContent: textForEmbedding },

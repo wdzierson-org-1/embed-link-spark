@@ -1,5 +1,6 @@
 import { readObjectFacts, objectFactsSearchText } from './objectFacts.ts';
 import { placeSearchText, readPlace } from './place.ts';
+import { noteImagesSearchText, readNoteImages } from './noteImages.ts';
 
 /** Versioned, deterministic checks. A quality score is evidence coverage, not a factuality guarantee. */
 export const QUALITY_VERSION = '2026-09-23.1';
@@ -173,6 +174,8 @@ export function enrichmentSearchText(item: EnrichmentItem): string {
     quality.content_usable && item.summary, item.content, item.supplemental_note,
     objectFacts && objectFactsSearchText(objectFacts),
     place && placeSearchText(place),
+    // The pictures inside the note, described (attributes.note_images)
+    noteImagesSearchText(readNoteImages(item.attributes)),
     item.url, quality.content_usable && item.page_body, item.attributes?.media?.file_name,
     quality.evidence.visual && item.attributes?.enrichment?.evidence?.visual_text]
     .filter(Boolean).join('\n\n');

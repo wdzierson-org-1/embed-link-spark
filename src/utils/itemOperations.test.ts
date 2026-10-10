@@ -3,7 +3,7 @@ import { generateEmbeddings } from "./aiOperations";
 import { supabase } from "@/integrations/supabase/client";
 
 vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { from: vi.fn() },
+  supabase: { from: vi.fn(), functions: { invoke: vi.fn().mockResolvedValue({ data: {}, error: null }) } },
 }));
 
 vi.mock("./aiOperations", () => ({
@@ -118,5 +118,45 @@ describe("saveItem", () => {
 
     expect(embeddingsBuilder.delete).not.toHaveBeenCalled();
     expect(generateEmbeddings).not.toHaveBeenCalled();
+  });
+});
+
+describe("saveItem: pictures inside the note", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const picture = "https://x.supabase.co/storage/v1/object/public/stash-media/u/notes/a.png";
+  const withPicture = JSON.stringify({ type: "doc", content: [{ type: "image", attrs: { src: picture } }, { type: "paragraph", content: [{ type: "text", text: "words" }] }] });
+
+  const saveContent = async (row: Record<string, unknown>) => {
+    const itemsBuilder = makeBuilder({ data: row, error: null });
+    const embeddingsBuilder = makeBuilder({ data: null, error: null });
+    (supabase.from as ReturnType<typeof vi.fn>).mockImplementation(
+      (table: string) => (table === "items" ? itemsBuilder : embeddingsBuilder)
+    );
+    await saveItem(row.id as string, { content: row.content }, vi.fn(), vi.fn(), { showSuccessToast: false, refreshItems: false });
+    await drainEmbeddingQueue();
+  };
+
+  it("asks the platform to describe the pictures once the save has settled", async () => {
+    await saveContent({ id: "item-pic", content: withPicture, attributes: {}, url: null });
+    expect(generateEmbeddings).toHaveBeenCalledTimes(1);
+    expect(supabase.functions.invoke).toHaveBeenCalledWith("analyze-note-images", { body: { itemId: "item-pic" } });
+  });
+
+  it("asks again when the last picture was removed, so its description goes too", async () => {
+    await saveContent({ id: "item-gone", content: "words only", attributes: { note_images: { version: 1, images: [] } }, url: null });
+    expect(supabase.functions.invoke).toHaveBeenCalledWith("analyze-note-images", { body: { itemId: "item-gone" } });
+  });
+
+  it("does not ask for a note without pictures", async () => {
+    await saveContent({ id: "item-words", content: "words only", attributes: {}, url: null });
+    expect(supabase.functions.invoke).not.toHaveBeenCalled();
   });
 });

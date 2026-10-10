@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { generateEmbeddings } from './aiOperations';
 import { extractPlainTextFromNovelContent } from './contentExtractor';
+import { noteNeedsPictureAnalysis } from './noteImages';
 
 // --- Search-index refresh, decoupled from the save path ---------------------
 // Saves resolve as soon as the items PATCH lands; embedding regeneration (an
@@ -47,6 +48,14 @@ const runEmbeddingRefresh = async (itemId: string) => {
   console.log('Updating embeddings for item:', itemId);
   await supabase.from('embeddings').delete().eq('item_id', itemId);
   await generateEmbeddings(itemId, textForEmbedding);
+
+  // The pictures inside the note are described on the platform (analyze-note-images), once
+  // each, and join the index from there; the browser only asks. Same idle moment as the
+  // embeddings, so typing never asks per keystroke. Never a failed save.
+  if (noteNeedsPictureAnalysis(row)) {
+    const { error } = await supabase.functions.invoke('analyze-note-images', { body: { itemId } });
+    if (error) console.error('Note pictures not described:', error);
+  }
 };
 
 export const scheduleEmbeddingRefresh = (row: any) => {

@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   handler: null as any,
   inserted: null as Record<string, unknown> | null,
+  attributes: {} as Record<string, unknown>,
   invoke: vi.fn(),
   update: vi.fn(),
   background: [] as Promise<unknown>[],
@@ -17,6 +18,8 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
         state.inserted = row;
         return { select: () => ({ single: async () => ({ data: { id: 'item-1', ...row }, error: null }) }) };
       },
+      // The re-read after the pictures were described
+      select: () => ({ eq: () => ({ single: async () => ({ data: { attributes: state.attributes }, error: null }) }) }),
       update: (row: Record<string, unknown>) => {
         state.update(row);
         return { eq: async () => ({ error: null }) };
@@ -37,6 +40,7 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   state.inserted = null;
+  state.attributes = {};
   state.background = [];
   state.invoke.mockImplementation(async (name: string) => ({ data: name === 'generate-title' ? { title: 'Generated title' } : { description: 'Generated description' } }));
 });
@@ -95,5 +99,50 @@ describe('add-note evidence guard', () => {
       'generate-embeddings', 'generate-title', 'generate-description', 'generate-embeddings',
     ]);
     expect(state.update).toHaveBeenCalledWith({ title: 'Generated title', description: 'Generated description' });
+  });
+});
+
+describe('add-note pictures', () => {
+  const picture = 'https://x.supabase.co/storage/v1/object/public/stash-media/user-1/notes/a.png';
+  const withPicture = JSON.stringify({ type: 'doc', content: [
+    { type: 'image', attrs: { src: picture } },
+    { type: 'paragraph', content: [{ type: 'text', text: 'image + text using / command' }] },
+  ] });
+
+  it('has the pictures described first, and titles and describes the note from words and pictures', async () => {
+    state.attributes = { note_images: { version: 1, images: [{ src: picture, description: 'A blood test report in a table.', text: 'RBC 4.7', analyzed_at: 't' }] } };
+    await save(withPicture);
+    const names = state.invoke.mock.calls.map(([name]) => name);
+    expect(names).toEqual(['generate-embeddings', 'analyze-note-images', 'generate-title', 'generate-description', 'generate-embeddings']);
+    expect(state.invoke.mock.calls[1][1]).toEqual({ body: { itemId: 'item-1' } });
+    const words = 'image + text using / command\n\nA blood test report in a table.\nText in the image: RBC 4.7';
+    expect(state.invoke.mock.calls[2][1]).toEqual({ body: { content: words } });
+    expect(state.invoke.mock.calls[3][1]).toEqual({ body: { content: words, type: 'text' } });
+  });
+
+  it('still titles a note that is only a picture', async () => {
+    const onlyPicture = JSON.stringify({ type: 'doc', content: [{ type: 'image', attrs: { src: picture } }] });
+    state.attributes = { note_images: { version: 1, images: [{ src: picture, description: 'The InsideTracker logo.', analyzed_at: 't' }] } };
+    await save(onlyPicture);
+    expect(state.inserted?.title).toBe('');
+    const names = state.invoke.mock.calls.map(([name]) => name);
+    // No words to embed up front; the pictures, then the models, then the index
+    expect(names).toEqual(['analyze-note-images', 'generate-title', 'generate-description', 'generate-embeddings']);
+    expect(state.invoke.mock.calls[1][1]).toEqual({ body: { content: 'The InsideTracker logo.' } });
+    expect(state.update).toHaveBeenCalledWith({ title: 'Generated title', description: 'Generated description' });
+  });
+
+  it('does not ask for pictures a note does not have', async () => {
+    await save('plain words');
+    expect(state.invoke.mock.calls.map(([name]) => name)).not.toContain('analyze-note-images');
+  });
+
+  it('keeps going on the words when the pictures cannot be described', async () => {
+    state.invoke.mockImplementation(async (name: string) => {
+      if (name === 'analyze-note-images') return { data: null, error: new Error('down') };
+      return { data: name === 'generate-title' ? { title: 'Generated title' } : { description: 'Generated description' } };
+    });
+    await save(withPicture);
+    expect(state.invoke.mock.calls.find(([name]) => name === 'generate-title')?.[1]).toEqual({ body: { content: 'image + text using / command' } });
   });
 });
