@@ -70,6 +70,25 @@ describe('add-note evidence guard', () => {
     expect(state.invoke.mock.calls.map(([name]) => name)).toEqual(['generate-embeddings']);
   });
 
+  it('derives every field from the words of a Novel JSON note, never its scaffolding', async () => {
+    const doc = JSON.stringify({ type: 'doc', content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Buy milk for the ' }, { type: 'text', marks: [{ type: 'bold' }], text: 'weekend' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'and eggs' }] },
+    ] });
+    await save(doc);
+    expect(state.inserted).toMatchObject({ content: doc, title: 'Buy milk for the weekend' });
+    expect(state.invoke.mock.calls[0]).toEqual(['generate-embeddings', { body: { itemId: 'item-1', textContent: 'Buy milk for the weekend\nand eggs' } }]);
+    expect(state.invoke.mock.calls.find(([name]) => name === 'generate-title')?.[1]).toEqual({ body: { content: 'Buy milk for the weekend\nand eggs' } });
+  });
+
+  it('caps the fallback title at the first line, sixty characters', async () => {
+    const long = 'A'.repeat(70) + '\nsecond line';
+    await save(long);
+    expect(state.inserted?.title).toBe('A'.repeat(57) + '...');
+    await save('Short first line\nmore');
+    expect(state.inserted?.title).toBe('Short first line');
+  });
+
   it('continues asynchronous enrichment for actual prose', async () => {
     await save('Use this video for the garden project: https://youtu.be/abc123XYZ_0');
     expect(state.invoke.mock.calls.map(([name]) => name)).toEqual([

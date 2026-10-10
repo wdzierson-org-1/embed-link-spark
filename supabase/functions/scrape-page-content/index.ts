@@ -16,7 +16,9 @@ serve(async req => {
   if (req.method === 'OPTIONS') return new Response(null, { headers });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   try {
-    const { itemId, url, extractOnly = false } = await req.json();
+    // `caption`: the video's own words as the saver already knew them (add-url's oEmbed caption,
+    // which sat in page_body until the transcript takes that place)
+    const { itemId, url, extractOnly = false, caption } = await req.json();
     if (!itemId || !url) return json({ error: 'itemId and url required' }, 400);
     const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     let item;
@@ -66,8 +68,10 @@ serve(async req => {
     // A video's transcript is its content (spec 2026-09-05): summarized as a recording, and the
     // video's own description replaces the synthetic "Watch … on YouTube" line.
     const isTranscript = capture.kind === 'transcript';
-    if (isTranscript && capture.facts?.description && (isPlaceholderMetadata(item.description, url) || /\bon youtube$/i.test(item.description ?? ''))) {
-      patch.description = capture.facts.description;
+    const synthetic = isPlaceholderMetadata(item.description, url) || /\bon youtube$/i.test(item.description ?? '');
+    if (isTranscript && synthetic) {
+      const own = capture.facts?.description || (typeof caption === 'string' ? caption.replace(/\s+/g, ' ').trim().slice(0, 350) : '');
+      if (own) patch.description = own;
     }
     const key = Deno.env.get('OPENAI_API_KEY');
     if (key) {

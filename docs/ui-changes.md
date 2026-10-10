@@ -8,6 +8,56 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · One capture pipeline: the web composer saves through the platform API
+
+Will: "all consumers of our enrichment APIs should get the exact, high quality outcome,
+regardless of where the call is being made from. no browser-based shortcuts." Found while
+comparing a TikTok shared from the iOS share sheet (caption only, no transcript, "complete" 30 ms
+after insert) with the same link pasted into the web composer (transcript + summary).
+
+- **Contract (all platforms):** `add-note` / `add-url` / `add-file` are THE write path. The web
+  composer now calls them too (`src/utils/captureClient.ts`, via `useItemOperations`) and
+  inserts nothing itself; the browser orchestrates no enrichment. A save carries only what the
+  person supplied: their words (`content`, plain or Novel JSON), the address or the uploaded
+  file, `is_public`, and the structured facts known at capture (`attributes.location`,
+  `attributes.link.flavor`, `attributes.media.duration_s` / `file_name`). Everything else —
+  title, description, preview, scrape, transcript, summary, embeddings — lands behind the
+  endpoint, identically for iOS (`capture`), the extension, macOS and the web.
+- **`add-url`:** the TikTok shortcut is gone. A resolved TikTok (oEmbed caption, creator,
+  stored thumbnail, `link.canonical_url`) skips only the deep metadata pass; the scrape runs for
+  it like for every link (SearchApi transcript → `page_body`, `summary`, `evidence.transcript`).
+  A TikTok with nothing to transcribe stays `complete` (its caption is its content). The scrape
+  call carries `caption`, and `scrape-page-content` keeps it as the `description` once the
+  transcript takes `page_body` (the oEmbed line "TikTok by X (@x)" now counts as a placeholder
+  description, like "Video by X on TikTok" did). The quick fetch is bounded (8 s page / proxy,
+  12 s image) since every client — the web now included — waits on the response.
+- **`add-note`:** `content` may be a Novel/TipTap JSON document; the fallback title (first line,
+  ≤60 chars — was the first 47 characters of the raw content), the AI title/description and
+  the embeddings are built from its plain text (`_shared/notes.ts` `plainNotes` /
+  `noteTitleFrom`, mirrors the web's `plainTitleFromContent`).
+- **`add-file`:** audio/video now stay `attributes.enrichment.status = 'pending'` until the
+  transcript lands; a row trigger (`items_settle_media_enrichment`, migration
+  `20261010170000`) settles it from `attributes.media.transcript.status` (`done` → `complete`,
+  `failed` → `partial`), whichever writer sets it (the job, its sweep, a rebuild). Cards
+  therefore say "transcribing" honestly instead of "all done" with an empty transcript. The
+  caller's `attributes.media.file_name` wins over the storage object name; the web's staged
+  names (`<timestamp>-<random>.ext`) count as storage names (`isStorageTimestampName`).
+- **Web composer:** no chip-time server analysis any more (`analyze-image`, inline
+  `transcribe-audio` previews and `quick-pdf-summary` are no longer called before a save; the
+  pipeline does each once, after). Chips show the file's own facts (name, size, pages, duration,
+  the PDF's own title, a thumbnail). The card's skeleton holds the place until the endpoint
+  answers (~1 s; TikTok/YouTube via oEmbed), then the row prints in and reads "gathering more
+  info" until enrichment settles. The web now honours the server-side entitlement gate like
+  every other client (lapsed subscriptions get the endpoint's `message` in the toast; accounts
+  with no subscription still pass).
+- **Removed:** `src/utils/contentProcessor.ts`, `pdfProcessor.ts`, `mediaProcessor.ts`,
+  `enrichment.ts` (client-side inserts, PDF/office orchestration, collection attachments).
+  Legacy `type='collection'` rows still render; none can be created.
+- **Not redeployed:** `transcribe-audio` — the deployed v37 carries diarization/rebuild work
+  that is not on main; settling moved into the trigger so no function change was needed.
+- **iOS/macOS:** nothing to change. Share-sheet TikToks now get transcripts; voice memos' cards
+  settle with the transcript.
+
 ## 2026-10-10 · Object-specific enrichment data and proposed interactions (beta)
 
 - **Validation follow-up:** live canaries exposed model-rewritten quotations.

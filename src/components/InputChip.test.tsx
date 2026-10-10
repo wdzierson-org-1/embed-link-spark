@@ -32,7 +32,7 @@ describe("InputChip file rendering", () => {
         type="document"
         content={baseContent}
         onRemove={vi.fn()}
-        analysisState="analyzing"
+        analysisState="local"
         fileAnalysis={{ factsLine: "PDF · 12 pages · 0.3 MB" }}
       />
     );
@@ -69,7 +69,7 @@ describe("InputChip file rendering", () => {
     expect(screen.queryByText("uploading · 45%")).not.toBeInTheDocument();
   });
 
-  it("renders AI title, description, and thumbnail when analysis is ready", () => {
+  it("renders the document's own title and thumbnail once the local facts are in", () => {
     render(
       <InputChip
         type="document"
@@ -78,15 +78,13 @@ describe("InputChip file rendering", () => {
         analysisState="ready"
         uploadState="done"
         fileAnalysis={{
-          title: "Kahn-Cerf Internet Certificate",
-          description: "A 1988 certificate signed by Vint Cerf.",
+          metadataTitle: "Kahn-Cerf Internet Certificate",
           factsLine: "PDF · 2 pages · 0.3 MB",
           thumbnailDataUrl: "data:image/png;base64,thumb",
         }}
       />
     );
     expect(screen.getByText("Kahn-Cerf Internet Certificate")).toBeInTheDocument();
-    expect(screen.getByText("A 1988 certificate signed by Vint Cerf.")).toBeInTheDocument();
     expect(screen.queryByText("kahn-cerf-88.pdf")).not.toBeInTheDocument();
     expect(screen.queryByText("analyzing…")).not.toBeInTheDocument();
     const thumb = document.querySelector('img[src="data:image/png;base64,thumb"]');

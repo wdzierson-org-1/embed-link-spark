@@ -56,9 +56,11 @@ Consequences:
 - **Capture returns fast; enrichment lands async.** Endpoints respond in ~1s
   and enrich after the response; realtime delivers the upgrades. No client ever
   blocks a save on a model call.
-- **The endpoints are the canonical write path for every non-web client** (and
-  for web's own chat/API paths). Client-side inserts are a web-dashboard legacy
-  pattern, not the direction.
+- **The endpoints are the canonical write path for every client**, the web
+  composer included (since 2026-10-10 the browser inserts nothing and
+  orchestrates no enrichment; what a chip shows before the save is a preview,
+  never the record). Every consumer of the capture API gets the exact same
+  outcome, regardless of where the call is made from.
 - **Never fake enrichment.** Chips, badges, and metadata render only when the
   data exists. An honest "preview limited · saved anyway" beats a decorative
   placeholder.

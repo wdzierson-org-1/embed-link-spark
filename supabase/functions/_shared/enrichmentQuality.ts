@@ -44,7 +44,7 @@ export function isPlaceholderMetadata(value: string | null | undefined, url?: st
   const t = (value || '').trim().toLowerCase().replace(/[.!…]+$/, '');
   if (!t) return true;
   if (/^(instagram|login • instagram|log in • instagram|tiktok(?: - make your day)?|youtube|client challenge|just a moment|access denied|403 forbidden|error|found)$/.test(t)) return true;
-  if (/^(create an account or log in to instagram|video by .+ on tiktok|tiktok video|link from |saved from )/.test(t)) return true;
+  if (/^(create an account or log in to instagram|video by .+ on tiktok|tiktok by .+|tiktok video|link from |saved from )/.test(t)) return true;
   if (/inferred from (?:the )?link|page couldn't be read|unable to access (?:external )?links/.test(t)) return true;
   if (url) {
     try { if (hostIs(new URL(url).hostname, 'linkedin.com') && /^(?:sign up|log in|login|join now)\s*[|–—-]\s*linkedin$/.test(t)) return true; } catch { /* invalid URL */ }

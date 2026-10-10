@@ -151,12 +151,14 @@ Deno.serve(async (req) => {
           const durationS = typeof media.duration_s === 'number' ? media.duration_s : null;
           const kind =
             type === 'video' ? 'video' : durationS !== null && durationS >= 600 ? 'recording' : 'voice_note';
-          // The original filename is metadata worth keeping — but only a
-          // real one, never our own storage timestamp/UUID object names.
+          // The original filename is metadata worth keeping: the caller's
+          // attributes.media.file_name is that name (the web and iOS send it);
+          // the storage object's name only counts when it is a real one, never
+          // our own timestamp/UUID/staging object names.
+          const callerName = typeof media.file_name === 'string' && media.file_name.trim() ? media.file_name.trim() : undefined;
           const meaningfulName =
             !isStorageTimestampName(fileName) && !isUuidObjectName(fileName) ? fileName : undefined;
-          const fileNameForMedia =
-            meaningfulName ?? (typeof media.file_name === 'string' ? media.file_name : undefined);
+          const fileNameForMedia = callerName ?? meaningfulName;
           await supabase
             .from('items')
             .update({
@@ -234,8 +236,13 @@ Deno.serve(async (req) => {
         status = 'partial';
         console.error('add-file enrichment failed (non-fatal):', e);
       } finally {
-        const { error: statusError } = await supabase.rpc('set_item_enrichment', { target_id: item.id, next_status: status });
-        if (statusError) console.error('Failed to settle enrichment:', statusError);
+        // Audio and video are still being transcribed when this returns: the
+        // transcribe-audio job settles their status when it finishes (complete)
+        // or gives up (partial). Everything else is done here.
+        if (type !== 'audio' && type !== 'video') {
+          const { error: statusError } = await supabase.rpc('set_item_enrichment', { target_id: item.id, next_status: status });
+          if (statusError) console.error('Failed to settle enrichment:', statusError);
+        }
       }
     };
 

@@ -51,7 +51,7 @@ describe('content quality regressions', () => {
     expect(sourceIdentity({ type: 'link', url: 'https://tiktok.com.attacker.test/video/1' }).source).not.toBe('tiktok');
   });
   it('recognizes platform placeholders but retains descriptive titles', () => {
-    for (const s of ['Instagram', 'TikTok - Make Your Day', 'Video by JMM Collector on TikTok']) expect(isPlaceholderMetadata(s)).toBe(true);
+    for (const s of ['Instagram', 'TikTok - Make Your Day', 'Video by JMM Collector on TikTok', 'TikTok by Katina Bajaj (@katina.bajaj)']) expect(isPlaceholderMetadata(s)).toBe(true);
     expect(isPlaceholderMetadata('How Instagram changed photography')).toBe(false);
   });
   it('generalizes evidence requirements without demanding OCR from a photo or a summary from a note', () => {

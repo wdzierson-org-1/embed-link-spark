@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { validateUuid } from '@/utils/tempIdGenerator';
 import { saveItem, deleteItem } from '@/utils/itemOperations';
 import { createSkeletonItem } from '@/utils/optimisticItemHandler';
-import { processAndInsertContent } from '@/utils/contentProcessor';
+import { captureContent, type CaptureInput, type CaptureKind } from '@/utils/captureClient';
 
 export const useItemOperations = (
   fetchItems: () => Promise<void>,
@@ -34,7 +34,7 @@ export const useItemOperations = (
     // Handle skeleton/optimistic item creation
     if (data.isOptimistic && data.showSkeleton) {
       const skeletonItem = createSkeletonItem(type, data, user.id);
-      
+
       if (addOptimisticItem) {
         addOptimisticItem(skeletonItem);
       }
@@ -42,38 +42,29 @@ export const useItemOperations = (
     }
 
     try {
-      // Create and add optimistic item for immediate feedback
-      const skeletonData = {
-        title: data.title || (type === 'collection' ? 'Collection' : 'New Item'),
-        file: data.file
-      };
-      const skeletonItem = createSkeletonItem(type, skeletonData, user.id);
-      
+      // A skeleton holds the card's place while the platform saves
+      const skeletonItem = createSkeletonItem(type, { title: data.title, file: data.file }, user.id);
       if (addOptimisticItem) {
         addOptimisticItem(skeletonItem);
       }
 
-      await processAndInsertContent(
-        type, 
-        data, 
-        user.id, 
-        !!session, 
-        fetchItems, 
-        showToast,
-        clearSkeletonItems
-      );
-
-      // Success toast will be shown when skeleton is replaced with real item
-      // This prevents duplicate success messages
+      // The platform (add-note / add-url / add-file) saves and enriches — the same pipeline
+      // every client gets. The card prints in from the row once the endpoint answers; realtime
+      // then delivers each upgrade as enrichment lands.
+      await captureContent(type as CaptureKind, data as CaptureInput, user.id);
+      if (clearSkeletonItems) {
+        clearSkeletonItems();
+      }
+      await fetchItems();
 
     } catch (error: any) {
       console.error('Error in handleAddContent:', error);
-      
+
       // Clear skeleton items on error
       if (clearSkeletonItems) {
         clearSkeletonItems();
       }
-      
+
       // Say what went wrong: a bare "failed" hid the cause from the person and from us
       let errorMessage = error?.message ? `Failed to add content: ${error.message}` : 'Failed to add content';
       if (error.message?.includes('Session expired')) {
@@ -81,18 +72,18 @@ export const useItemOperations = (
       } else if (error.message?.includes('RLS')) {
         errorMessage = "Permission denied. Please refresh and try again.";
       }
-      
+
       toast({
         title: "Error",
         description: errorMessage,
         variant: "destructive",
       });
     }
-  }, [user, session, fetchItems, showToast, addOptimisticItem, clearSkeletonItems, toast]);
+  }, [user, session, fetchItems, addOptimisticItem, clearSkeletonItems, toast]);
 
   const handleSaveItem = useCallback(async (
-    id: string, 
-    updates: any, 
+    id: string,
+    updates: any,
     options: { showSuccessToast?: boolean; refreshItems?: boolean } = {}
   ) => {
     // Validate the ID before proceeding
@@ -105,7 +96,7 @@ export const useItemOperations = (
       });
       return;
     }
-    
+
     await saveItem(id, updates, fetchItems, showToast, options);
   }, [fetchItems, showToast, toast]);
 
@@ -120,7 +111,7 @@ export const useItemOperations = (
       });
       return;
     }
-    
+
     await deleteItem(id, fetchItems, showToast);
   }, [fetchItems, showToast, toast]);
 

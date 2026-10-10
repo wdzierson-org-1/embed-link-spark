@@ -136,12 +136,16 @@ returned item includes `remind_at`, `reminder_cleared_at`,
 { "url": "https://…", "content": "optional note about it", "is_public": false }
 ```
 
-Returns `{ success, item }` fast (title/description from a quick fetch).
-Everything else continues server-side after the response: deep metadata with
-the blocked-site rescue cascade (crawler UA → Jina Reader → Wayback → URL
-inference), preview image storage, full-page scrape into `page_body`, and
-embeddings. Clients never wait on enrichment — realtime (below) delivers the
-upgrades.
+Returns `{ success, item }` fast (title/description from a quick fetch, bounded
+at 8 s for the page and 12 s for its image; YouTube and TikTok resolve from
+oEmbed alone). Everything else continues server-side after the response: deep
+metadata with the blocked-site rescue cascade (crawler UA → Jina Reader →
+Wayback → URL inference), preview image storage, full-page scrape into
+`page_body` — for YouTube, TikTok and Instagram Reels that is the transcript
+(`attributes.enrichment.evidence.transcript = true`), with a recording-style
+`summary` — and embeddings. Every link gets this, whichever client saved it;
+a TikTok with nothing to transcribe still settles `complete` with its caption.
+Clients never wait on enrichment — realtime (below) delivers the upgrades.
 
 `tags: …` at the end of `content` becomes item tags.
 
@@ -151,8 +155,11 @@ upgrades.
 { "content": "the note", "title": "optional", "is_public": false }
 ```
 
-Returns `{ success, note }` immediately with a derived title; AI title +
-description + re-embed land asynchronously. A note whose entire content is one
+Returns `{ success, note }` immediately with a derived title (the first line,
+at most 60 characters); AI title + description + re-embed land asynchronously.
+`content` may be plain text or a Novel/TipTap JSON document (what the web and
+iOS editors store): every derived field is built from its plain text, never
+the JSON scaffolding. A note whose entire content is one
 HTTP(S) URL keeps its literal or user-provided title and skips AI title/description
 generation: an opaque URL is not evidence about the linked page. Use `add-url`
 for link enrichment (or `capture`, which normalizes this share-sheet case).
@@ -176,7 +183,11 @@ XML (`.pptx`/`.docx`/`.xlsx`) gets text extraction via the same page_body/
 summary/description contract; anything else settles immediately with an AI
 description (`summary` mirrors `description` — no `page_body`). Realtime
 delivers the upgrades. `file_path` must sit inside the caller's own folder
-(403 otherwise).
+(403 otherwise). Audio/video keep `attributes.enrichment.status = "pending"`
+until the transcription job finishes; the status then settles to `complete`
+(`attributes.media.transcript.status = "done"`) or `partial` (`"failed"`) in
+the row itself. Send the original file name as `title` and as
+`attributes.media.file_name`; the storage object name is never kept as one.
 
 ### `POST /capture` — idempotent capture (iOS)
 
@@ -185,10 +196,11 @@ safe to retry. The client generates a `capture_id` (UUID) once per capture and
 sends the same id on every attempt, from any process, at any time; the server
 never creates a second item for it. **iOS routes every capture through
 `capture`** (its Outbox entry id is the `capture_id`, so foreground sends,
-background transfers and later drains can all retry blindly). **Web, the
-browser extension and macOS still call `add-*` directly** — those endpoints are
-unchanged, and `capture` forwards to them with the caller's own JWT, so
-enrichment, paywall and every other server behavior are identical.
+background transfers and later drains can all retry blindly). **The web
+composer, the browser extension and macOS call `add-*` directly** (since
+2026-10-10 the web inserts nothing itself), and `capture` forwards to the same
+endpoints with the caller's own JWT, so enrichment, paywall and every other
+server behavior are identical for every client.
 
 Standard auth headers. The body is either `application/json` (the meta object)
 or `multipart/form-data` with a `meta` part (the JSON string) and a `file` part
