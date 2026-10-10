@@ -6,6 +6,15 @@ const errorPage = "TikTok Log in Couldn't find this page Check out more trending
 const youtube = 'https://www.youtube.com/watch?v=YGgNBcIgI4s';
 const youtubeFooter = '- YouTube About Press Copyright Contact us Creators Advertise Developers Terms Privacy Policy & Safety How YouTube works Test new features NFL Sunday Ticket &copy; 2026 Google LLC';
 describe('content quality regressions', () => {
+  it('rejects LinkedIn signup bodies but preserves profiles with login chrome', () => {
+    const url = 'https://www.linkedin.com/in/example/';
+    const signup = 'Sign Up | LinkedIn 750 million+ members | Manage your professional identity. Build and engage with your professional network. Access knowledge, insights and opportunities. ' + 'User Agreement Privacy Policy '.repeat(20);
+    expect(inspectSourceText(url, signup)).toMatchObject({ usable: false, reason: 'login_page' });
+    expect(isPlaceholderMetadata('Sign Up | LinkedIn', url)).toBe(true);
+    const real = 'Scott Jenson | LinkedIn Product strategist and designer, previously at Google. Experience: product design, user research, interaction design. Sign up to view full profile.';
+    expect(inspectSourceText(url, real).usable).toBe(true);
+    expect(inspectSourceText('https://example.org/review', signup).usable).toBe(true);
+  });
   it('rejects the YouTube footer-only page returned for a saved video', () => {
     expect(inspectSourceText(youtube, youtubeFooter)).toMatchObject({ usable: false, reason: 'navigation_only', text: '' });
     expect(assessEnrichment({ type: 'link', url: youtube, title: 'Useful video', page_body: youtubeFooter }, true).content_usable).toBe(false);
@@ -42,7 +51,7 @@ describe('content quality regressions', () => {
     expect(sourceIdentity({ type: 'link', url: 'https://tiktok.com.attacker.test/video/1' }).source).not.toBe('tiktok');
   });
   it('recognizes platform placeholders but retains descriptive titles', () => {
-    for (const s of ['Instagram', 'TikTok - Make Your Day', 'Video by JMM Collector on TikTok']) expect(isPlaceholderMetadata(s)).toBe(true);
+    for (const s of ['Instagram', 'TikTok - Make Your Day', 'Video by JMM Collector on TikTok', 'TikTok by Katina Bajaj (@katina.bajaj)']) expect(isPlaceholderMetadata(s)).toBe(true);
     expect(isPlaceholderMetadata('How Instagram changed photography')).toBe(false);
   });
   it('generalizes evidence requirements without demanding OCR from a photo or a summary from a note', () => {
@@ -50,6 +59,13 @@ describe('content quality regressions', () => {
     expect(assessEnrichment({ type: 'text', title: 'Buy milk', content: 'Buy milk' }, true).status).toBe('ready');
     expect(assessEnrichment({ type: 'audio', title: 'Meeting', description: 'Discussion' }, true).status).toBe('partial');
     expect(assessEnrichment({ type: 'document', mime_type: 'application/octet-stream' }, false).status).toBe('unsupported');
+  });
+  it('indexes source-bound product facts and omits stale facts after a URL edit', () => {
+    const url='https://example.org/jacket';
+    const facts={version:1,beta:true,kind:'product',product:{brand:'Acme',sku:'NAV-123',material:'Merino wool'},evidence:{source_url:url,observed_at:'2026-10-10T00:00:00Z',method:'json-ld',extraction_version:'object-facts-v1',schema_type:'Product'}};
+    const item={type:'link',url,attributes:{object_facts:facts}};
+    expect(enrichmentSearchText(item)).toContain('NAV-123');
+    expect(enrichmentSearchText({...item,url:'https://example.org/other'})).not.toContain('NAV-123');
   });
   it('keeps user notes and drops contaminated generated text during indexing', () => {
     const text = enrichmentSearchText({ type: 'link', url: tik, title: 'TikTok - Make Your Day', page_body: errorPage, summary: 'TikTok company information', content: 'Glasses I liked' });

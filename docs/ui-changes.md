@@ -8,6 +8,350 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Maintenance preserves transcript evidence and source descriptions
+
+- **Contract (all platforms):** recovered link transcripts retain `page_body` and
+  `attributes.enrichment.evidence { transcript: true, capture_kind: 'transcript',
+  transcript_source, language?, duration_s?, author? }`. Maintenance now preserves
+  these fields from `scrape-page-content`'s `extractOnly` result, validates the
+  body before attaching evidence, and generates a recording-style `summary`.
+  Meaningful descriptions and existing richer transcripts survive repair.
+- **Recovery:** a usable caption no longer prevents a known YouTube or TikTok
+  video from reaching the existing transcript capture path. Pending provider IDs
+  prevent a second fallback even when that provider's key is unavailable. Successful
+  replacement clears the earlier provider failure; an extraction exception retains
+  the attempted flag and updated provider state so it cannot silently restart on
+  the next review.
+- **Instagram boundary:** successful captures receive the same evidence fix.
+  Newly retrying caption-bearing Instagram saves remains deferred until durable
+  TranscriptFetch submission and job polling are implemented. Its current HTTP 202
+  path loses the job ID, and its timeout exceeds the maintenance request deadline.
+  The two outstanding regression cases are explicit TODOs. Historical exhausted
+  jobs need a separate bounded replay that preserves pending IDs.
+- **Client coordination:** link evidence uses `enrichment.evidence.transcript`;
+  uploaded audio/video progress still uses `media.transcript`. When the link flag
+  changes, an open detail panel should clear and refetch its loaded source body and
+  summary before labeling it a transcript. This frontend follow-up was handed to
+  Claude through the shared coordination file; it is not included in this backend
+  change. Place enrichment and other attribute leaves keep their existing contracts.
+- **Implementation:** `_shared/enrichmentMaintenance.ts`, `enrichmentRepair.ts`,
+  and `enrichmentMaintenance.transcripts.test.ts`. This entry describes the code
+  change; production deployment is a separate step.
+
+## 2026-10-10 · Full-size stages: one minimize
+
+At full size a media stage showed two minimize controls — the ink bar's cell and the stage's
+hover cell (which had turned into "exit full size"). The hover cell now offers only **full
+size**, at rest; at full size the bar's **minimize** cell and Esc are the way back
+(`edit/StageFull`). iOS: a full-size stage carries one close/minimize affordance.
+
+## 2026-10-10 · Map-based shares: `attributes.place`, the map as the picture, the location section
+
+Will: "let's enrich map-based shares … to show an embedded map as the image for the card as
+opposed to the icon we currently show … for business listings … also add the open/closing hours,
+phone number, and link to the menu if available … a new 'location details' section, similar to
+the item details section at the bottom of the details screen." Decisions (2026-10-10): the map
+is a rendered image (Mapbox static), business facts come from the share's own page (no
+Yelp/Google lookups), map links first, screenshots and photos with addresses next.
+
+- **Contract (all platforms): `attributes.place` v1** (`supabase/functions/_shared/place.ts`;
+  web type `PlaceAttributes`). Written only by the capture pipeline, through the leaf
+  compare-and-swap `set_item_place(target_id, expected_url, expected_place, place)`
+  (migration `20261010180000`, applied): `name`, `address { lines, street, locality, region,
+  region_code, postal_code, country, country_code }`, `geo { latitude, longitude }`,
+  `timezone` (IANA, when the provider states it), `phone` (as given, E.164 when known),
+  `website`, `menu_url`, `hours` (`[{ days: [0=Sun…6], ranges: [{ open: "HH:MM", close,
+  next_day? }] }]`), `rating { score, max, count?, source }`, `price_range { level, max }`,
+  `category`, `provider { kind: apple-maps | google-maps | page, place_id?, url }` (the
+  resolved place address), `map { file_path, provider: mapbox, style, zoom, rendered_at }`,
+  `evidence { source_url, observed_at, method: map-page | map-url | json-ld,
+  extraction_version: place-v1 }`. Clients read it with `readPlace()`; unknown keys stay.
+- **The picture is the map.** When `MAPBOX_ACCESS_TOKEN` is set, the pipeline renders
+  `mapbox/light-v11` with an ink pin at the place (1200×630 @2x, attribution kept) into
+  `stash-media/<uid>/previews/map_<itemId>.png` and sets `items.file_path` to it, so the card
+  hero, the panel stage, the shared page and the link unfurl all show the map with no client
+  work. Only a picture Stash fetched itself (`…/previews/preview_*`, an earlier `map_*`) or no
+  picture gives way; a person's upload is never replaced. A map already rendered for the same
+  spot is reused.
+- **Title:** a save titled by the provider ("Apple Maps", "Google Maps") or a placeholder takes
+  the place's name (never a protected title). **Kind label:** a link with `attributes.place`
+  reads `place` on cards and in the window bar (`kindLabel`).
+- **Pipeline:** `scrape-page-content` runs the place step last (its own snapshot) for
+  map-provider addresses — Apple Maps including `maps.apple/p/…` short links, Google Maps
+  including `maps.app.goo.gl` — and for listing pages whose publisher facts carry coordinates.
+  It follows the address as a browser would (map short links answer 404 to other clients),
+  reads the resolved URL (`coordinate`, `name`, `address`, `place-id`; Google's `!3d…!4d…`,
+  `@lat,lng`, `q=`), and for Apple Maps the page's own embedded data: the hours calendar,
+  telephone, website, the Menu link, Yelp rating and count, price level, category, time zone,
+  structured address and centre. Place facts join the search text.
+- **Web — the location section** (`edit/LocationDetailsSection`), above the details drawer on
+  the panel and the shared page, in the details tree style: address (opens the provider's
+  page), hours — `open · closes 9:00 PM` / `closed · opens Fri 4:00 PM` only when the place's
+  time zone is known, else today's hours; the week expands — phone (`tel:`), website, menu,
+  rating, price, category; cells **Directions** (Apple Maps for Apple saves, Google Maps
+  otherwise) · **Call** · **Menu** · **Website**; `From Apple Maps, observed Oct 10, 2026.
+  Hours and details can change.` The beta publisher-facts section stands down for a place
+  that has the lane.
+- **iOS / macOS:** read `attributes.place` and render the same section (plan 17, round 4);
+  the map needs nothing — it is the save's picture.
+- **Round 2 (same day) — pictures with an address.** After `analyze-image` has read a picture,
+  `add-file` runs the image place step (`runImagePlaceStep`): street addresses in the picture's
+  own text (OCR in `page_body`, the vision description) — "107 Charles St, Boston, MA 02114",
+  a street line with the city line under it, European "Classensgade 4, 2100 København" — are
+  confirmed with Mapbox Geocoding v6 (`types=address`, `autocomplete=false`; only `exact` /
+  `high` matches count) and kept as the same lane with **`provider.kind: 'ocr'`**,
+  `evidence.method: 'ocr-geocode'`, `evidence.source_url: 'stash-media:<file_path>'`, the
+  phone and website written in the text, and the map in `place.map`. **The photo stays the
+  save's picture**: the location section shows the map itself (an object, 520 px wide at most)
+  above the rows; `open in google maps` and Directions use Google Maps. Without
+  `MAPBOX_ACCESS_TOKEN` the step records what it would have looked up and keeps nothing. The
+  section now renders for any save that has the lane (`readPlace`), not only links; the kind
+  label stays `photo` / `screenshot`. Migration `20261010190000` widens `set_item_place`
+  (applied). iOS: same section on an image's detail sheet, map from `place.map.file_path`.
+- **Later:** a live map on the panel stage; nothing from Yelp/Google beyond the page.
+
+## 2026-10-10 · One capture pipeline: the web composer saves through the platform API
+
+Will: "all consumers of our enrichment APIs should get the exact, high quality outcome,
+regardless of where the call is being made from. no browser-based shortcuts." Found while
+comparing a TikTok shared from the iOS share sheet (caption only, no transcript, "complete" 30 ms
+after insert) with the same link pasted into the web composer (transcript + summary).
+
+- **Contract (all platforms):** `add-note` / `add-url` / `add-file` are THE write path. The web
+  composer now calls them too (`src/utils/captureClient.ts`, via `useItemOperations`) and
+  inserts nothing itself; the browser orchestrates no enrichment. A save carries only what the
+  person supplied: their words (`content`, plain or Novel JSON), the address or the uploaded
+  file, `is_public`, and the structured facts known at capture (`attributes.location`,
+  `attributes.link.flavor`, `attributes.media.duration_s` / `file_name`). Everything else —
+  title, description, preview, scrape, transcript, summary, embeddings — lands behind the
+  endpoint, identically for iOS (`capture`), the extension, macOS and the web.
+- **`add-url`:** the TikTok shortcut is gone. A resolved TikTok (oEmbed caption, creator,
+  stored thumbnail, `link.canonical_url`) skips only the deep metadata pass; the scrape runs for
+  it like for every link (SearchApi transcript → `page_body`, `summary`, `evidence.transcript`).
+  A TikTok with nothing to transcribe stays `complete` (its caption is its content). The scrape
+  call carries `caption`, and `scrape-page-content` keeps it as the `description` once the
+  transcript takes `page_body` (the oEmbed line "TikTok by X (@x)" now counts as a placeholder
+  description, like "Video by X on TikTok" did). The quick fetch is bounded (8 s page / proxy,
+  12 s image) since every client — the web now included — waits on the response.
+- **`add-note`:** `content` may be a Novel/TipTap JSON document; the fallback title (first line,
+  ≤60 chars — was the first 47 characters of the raw content), the AI title/description and
+  the embeddings are built from its plain text (`_shared/notes.ts` `plainNotes` /
+  `noteTitleFrom`, mirrors the web's `plainTitleFromContent`).
+- **`add-file`:** audio/video now stay `attributes.enrichment.status = 'pending'` until the
+  transcript lands; a row trigger (`items_settle_media_enrichment`, migration
+  `20261010170000`) settles it from `attributes.media.transcript.status` (`done` → `complete`,
+  `failed` → `partial`), whichever writer sets it (the job, its sweep, a rebuild). Cards
+  therefore say "transcribing" honestly instead of "all done" with an empty transcript. The
+  caller's `attributes.media.file_name` wins over the storage object name; the web's staged
+  names (`<timestamp>-<random>.ext`) count as storage names (`isStorageTimestampName`).
+- **Web composer:** no chip-time server analysis any more (`analyze-image`, inline
+  `transcribe-audio` previews and `quick-pdf-summary` are no longer called before a save; the
+  pipeline does each once, after). Chips show the file's own facts (name, size, pages, duration,
+  the PDF's own title, a thumbnail). The card's skeleton holds the place until the endpoint
+  answers (~1 s; TikTok/YouTube via oEmbed), then the row prints in and reads "gathering more
+  info" until enrichment settles. The web now honours the server-side entitlement gate like
+  every other client (lapsed subscriptions get the endpoint's `message` in the toast; accounts
+  with no subscription still pass).
+- **Removed:** `src/utils/contentProcessor.ts`, `pdfProcessor.ts`, `mediaProcessor.ts`,
+  `enrichment.ts` (client-side inserts, PDF/office orchestration, collection attachments).
+  Legacy `type='collection'` rows still render; none can be created.
+- **Not redeployed:** `transcribe-audio` — the deployed v37 carries diarization/rebuild work
+  that is not on main; settling moved into the trigger so no function change was needed.
+- **iOS/macOS:** nothing to change. Share-sheet TikToks now get transcripts; voice memos' cards
+  settle with the transcript.
+
+## 2026-10-10 · Object-specific enrichment data and proposed interactions (beta)
+
+- **Validation follow-up:** live canaries exposed model-rewritten quotations.
+  The model now selects server-owned passage IDs; the server supplies quotations.
+  Whitespace-only differences resolve to original spans, while paraphrases and
+  incorrect attribution remain rejected. Unused quotations cannot invalidate
+  otherwise supported facts. Failure diagnostics contain codes, not private text.
+- **Contract:** new `attributes.object_intelligence` v1 separates model
+  interpretation (recipe/travel/product/place/paper/book/event/general), quoted
+  source facts, and a closed catalog of proposed interactions. This is additive;
+  storage `type`, existing `object_facts`, card layout and detail panel remain
+  compatible. See `docs/PLATFORM_API.md` and `_shared/objectIntelligence.ts`.
+- **Evidence:** recipe ingredients/steps, travel places/stays, product attributes,
+  and other typed fields require exact source quotations. Prices require validated
+  publisher facts. Unknown details remain absent. Visual descriptions and generated
+  summaries are not used as raw evidence. Stays/packing lists/price comparisons
+  that require further work are proposals, not completed research.
+- **Interaction contract:** `capabilities` includes readiness, prerequisites and
+  draft/read/write effect. Grocery orders and calendar writes require confirmation.
+  This supplies future web interactions/canvas nodes; it does not yet add buttons,
+  execute integrations, or create derivative items.
+- **Capture:** explicit TikTok and social-provider creators now survive as
+  `enrichment.evidence.author` and `creator: {name?,handle?,url?,platform}`. Missing
+  identities stay absent; the existing metadata request supplies these fields.
+- **Hosted processing:** a service-only queue runs every five minutes with capped
+  model calls and bounded retries, including for already-complete cards. It writes
+  with source/concurrency checks and records `object-intelligence-v1` attempts in
+  the enrichment dashboard. Latest 100 items seed the initial cohort; new source
+  captures and revisions enqueue automatically. No client or local Codex process
+  needs to remain open.
+
+## 2026-10-10 · TikTok share links play: `link.canonical_url` / `enrichment.evidence.canonical_url`
+
+Will: "tiktoks which are stashed are showing the static image in the detail panel again, as
+opposed to the embedded video. what changed?" Nothing in the embed — the saved address did.
+TikToks shared from the app arrive as `tiktok.com/t/<code>/` (or `vm.`/`vt.tiktok.com/…`),
+which carry no video id, so `embedFor` had nothing to frame; only links saved from the web
+(`/@user/video/<id>`) embedded.
+
+- **Contract (all platforms):** `add-url` already resolved TikTok links through oEmbed for the
+  card; it now also keeps the resolved address as **`attributes.link.canonical_url`**
+  (`https://www.tiktok.com/@user/video/<id>`) when the saved `url` is a short link. Web saves
+  don't pass through add-url (the composer inserts the row itself), so `scrape-page-content`
+  resolves a short link too and records it as **`attributes.enrichment.evidence.canonical_url`**
+  (enrichment can only add evidence; the maintenance loop's TikTok adapter already writes that
+  key). The saved `url` is never rewritten. Clients frame the video from
+  `link.canonical_url ?? enrichment.evidence.canonical_url ?? url` (`utils/embeds.ts`
+  `embedSourceFor(item)`); iOS does the same. Existing short-link saves (49 of 51; two videos
+  are gone) were backfilled into `link.canonical_url` (redirect → video id → oEmbed for the handle).
+- The transcript path is unaffected: SearchApi accepts the short link as is.
+
+## 2026-10-10 · TikTok and Reel transcripts at save time; the full-screen cell goes; the share tooltip no longer opens with the panel
+
+Will: "there is a tiktok transcript api we may be able to leverage … TIKTOK_SCRAPE_API_KEY …
+searchapi.io … for instagram reels, let's use transcriptfetch.com … REELS_SCRAPE_API_KEY";
+"get rid of the full screen button on the detail screen"; the `share` tooltip "appears to the
+left of the panel" when it opens; "notify the enrichment agent".
+
+- **Transcripts (server; every client reads the same contract as the YouTube entry below):**
+  `scrape-page-content` now captures a TikTok's transcript through SearchApi's
+  `tiktok_transcripts` engine (long and short links) and an Instagram Reel's / video post's
+  through TranscriptFetch (inline for Reels; a 202 for long media is not awaited at save time).
+  `page_body` = the transcript, `summary` recording-style, `evidence { transcript: true,
+  transcript_source: 'searchapi-tiktok' | 'transcriptfetch-instagram', language, duration_s? }`;
+  a Reel's caption becomes the description when the saved one was a placeholder. Without a
+  transcript the save behaves as before. Verified live on both. Handoff for the enrichment
+  pipeline: `docs/hosted-intelligence-transcripts-2026-10-10.md`.
+- **Web:** the stages keep only **full size** (the browser-fullscreen cell is gone; players
+  carry their own). Opening the panel now focuses the sheet itself rather than its first cell,
+  so the share cell's tooltip no longer opens — and gets placed mid-slide — on open.
+- iOS: full screen stays the platform's own presentation (plan 17, Task 4); nothing else changes.
+## 2026-10-10 · Admin enrichment review and proposal triage
+
+- `/admin/enrichment`, linked from Members, shows all-account completeness for
+  saves in the last 24 hours or seven days: assessed/unassessed denominators,
+  New York save cohorts, sources, object types, strategy outcomes and recorded
+  latency/cost. These are current recorded states, not factual-accuracy rates or
+  historical snapshots. Up to 30 incomplete saves expose five recent attempts.
+- The hosted review queue now projects validated proposals into
+  `hosted_quality_proposals`. Existing retained results are backfilled; future
+  completed results enter atomically. Each occurrence retains its original
+  job and source links; similar suggestions are not automatically merged.
+- Admins can record `new`, `needs_evidence`, `planned` or `dismissed` plus a
+  required note. Decisions append a reviewer/revision history. Conflicts require
+  refresh, and unchanged transport retries use the same idempotency key.
+  Triage does not change saves, run experiments or deploy a strategy.
+- `admin-stats` accepts `enrichment` and `review_proposal` actions. Both require
+  the authenticated caller's current `admin_users` membership at the endpoint
+  and SQL boundaries. Actors cannot be supplied by a client. Details are never
+  exposed to ordinary members. Native clients need no change.
+- Proposals and review notes follow the source audit's 35-day lifetime and
+  cascade on source deletion. The dashboard displays the three latest notes;
+  all retained notes remain in the database. Email stays after 09:00 New York;
+  provider acceptance is displayed separately from inbox delivery.
+
+## 2026-10-10 · The panel plays the media: embeds, a PDF reader, a transcript tab, full size / full screen, timestamped notes
+
+Will: "move from static images on the details panel to an embedded, playable version of the
+media. for youtube videos, embed the video … for tiktoks, attempt to embed the tiktok rather than
+a screenshot. for papers/docs, insert a PDF reader and load the PDF itself. for PPTX or HTML slides,
+allow the user to step through the slides. if an embedded version of the item is not available, use
+an image"; "for videos, youtube, audio, tiktok, reels, include a new tab (beside summary and
+original content) … which includes a transcript of the media"; "media items in the detail panel
+should be able to be made full browser height/width, or full screen"; "let's start to explore
+controls that will allow for [annotation]". Decisions: Office files through Microsoft's viewer;
+the transcript tab now, the link-transcript pipeline revived (Firecrawl, spec 2026-09-05);
+timestamped notes on media first; HTML slides = both web decks and uploaded `.html`.
+
+**Contracts (all platforms):**
+- **Embeds** (`src/utils/embeds.ts` `embedFor(url)`): a link plays in place of its picture when
+  its URL is one of — YouTube (`watch?v=`, `youtu.be/`, `/shorts/` → `youtube-nocookie.com/embed/<id>`),
+  Vimeo (`player.vimeo.com/video/<id>`), Loom (`/share/<id>` → `/embed/<id>`), TikTok (only the
+  long form `/@user/video/<id>` → `tiktok.com/embed/v2/<id>`; `vm.tiktok.com` and `/t/` short links
+  carry no id and keep the picture), Instagram (`/reel|/reels|/p|/tv/<code>` → `instagram.com/<kind>/<code>/embed/`),
+  Google Slides (`/presentation/d/<id>/embed`), Figma (`figma.com/embed?url=`). Anything else
+  keeps the picture. Phone-shaped players (TikTok, Reels, Shorts) sit centred at phone width
+  (340 × 604); the rest take the stage's width at 16:9. iOS: port the same table to StashKit and
+  load the same addresses in a WKWebView.
+- **Documents** (`edit/EditItemDocumentStage` `documentKind(filePath, mime)`): `pdf` → an inline
+  reader (pdf.js; one page at a time, previous/next, `page 3 of 12`, ← → keys); `office`
+  (`pptx/ppt/docx/doc/xlsx/xls` by mime or extension) → Microsoft's viewer
+  `https://view.officeapps.live.com/op/embed.aspx?src=<public file URL>` (it fetches the file from
+  our public bucket — a third party sees the document; Will's call); `html` → the file in a frame
+  with `sandbox="allow-scripts allow-pointer-lock allow-presentation"` (an opaque origin: no
+  cookies, storage, forms, popups or navigation); anything else keeps only download/open. iOS:
+  PDFKit for PDFs, the same viewer address for Office files, a WKWebView with a non-persistent
+  store for HTML.
+- **Transcript tab for video links** (`utils/editPanelTabs.ts`, flavor-aware per spec 2026-09-05):
+  a link whose `attributes.link.flavor === 'video'` gets `summary | original content | transcript`;
+  once enrichment has captured a transcript into `page_body` it sets
+  **`attributes.enrichment.evidence.transcript = true`** (plus `transcript_source`, and
+  `duration_s` / `author` when known) and the tab set becomes `summary | transcript` (the
+  transcript is the original content). Until then the tab says "No transcript for this video
+  yet." Recordings keep their single `transcript` tab. Clients must never invent a transcript
+  from `page_body` without the flag (a YouTube page body before this was navigation chrome).
+  **Pipeline (server, 2026-10-10):** `scrape-page-content` → `_shared/pageExtraction` now calls
+  Firecrawl **v2** and, for a YouTube watch/live/youtu.be URL, parses the transcript out of the
+  markdown (`_shared/youtubeTranscript.ts`): `page_body` = caption lines (≤ 200k chars),
+  `summary` = a recording-style summary (`kind: 'video'`), `description` = the video's own first
+  paragraph when the saved one was synthetic ("Watch … on YouTube"); no transcript (Shorts,
+  captions off, Firecrawl down) → nothing is written and the cascade is **never** run for
+  YouTube. TikTok/Instagram transcripts come from the maintenance loop's Supadata adapter
+  (`_shared/socialEnrichment.ts`) once `SUPADATA_API_KEY` is set and repairs are enabled — the
+  same flag.
+- **Timestamped notes** (`utils/timestamps.ts`): a note may carry `[m:ss]` or `[h:mm:ss]` markers
+  as **plain text** in `content`. Players make them live: a marker is a seek point into the
+  save's media, and while a player reports its position the notes head offers `+ note at 1:42`,
+  which appends `[1:42] ` to the note (a new paragraph when the note has text; the empty note's
+  first line otherwise) and focuses it. Web: `editor/TimestampLinks` decorates markers
+  (`.stash-timestamp`, `data-seconds`) and dispatches `stash:seek`; `edit/MediaClock` carries the
+  clock between the player and the notes; native `<audio>`/`<video>` and the YouTube player
+  (iframe API over postMessage) report time and seek; Vimeo/TikTok/Instagram don't (no control
+  shown). iOS: render markers tappable in the notes, seek `AVPlayer`/the YouTube web player, and
+  offer the same `+ note at` while playing.
+
+**Behaviour (web):**
+- **Stages** (`edit/StageFull`): every media stage — picture, video, embed, document — has two
+  hover cells top-right: **full size** (the item panel goes as wide as the browser and the stage
+  fills it, with an ink bar naming it and a minimize cell; Esc returns, caught before the sheet
+  can close) and **full screen** (the browser's fullscreen API on the stage). The media element
+  is never remounted: a playing video keeps playing. On the shared page the stage fills the
+  viewport instead of a sheet. The picture's replace/remove cells moved to its bottom-right.
+- The shared page (`/s/<token>`) shows the same embeds and document reader, read-only.
+- Not done: TikTok/Instagram short links (no id in the URL — resolving them is server work);
+  reveal.js/other HTML decks on the web (framing can't be verified from the browser; needs a
+  server probe of `X-Frame-Options`/`frame-ancestors`); transcripts for links (pipeline above).
+- Tests: `utils/embeds.test.ts`, `utils/timestamps.test.ts`, `utils/editPanelTabs.video.test.ts`,
+  `edit/StageFull.test.tsx`, `edit/EditItemDocumentStage.test.tsx`, `editor/TimestampLinks.test.ts`,
+  `EditItemContentSection.test.tsx` (transcript tab, `+ note at`).
+- Design: DESIGN-v2 §10 (strings), §12.8 (stages, transcript tab, timestamped notes). The
+  annotation exploration: `docs/superpowers/specs/2026-10-10-panel-annotation-exploration.md`.
+  iOS: `docs/superpowers/plans/2026-10-10-ios-plan-17-embedded-media-transcripts-annotations.md`.
+## 2026-10-10 · Beta product and place details from publisher data
+
+- `attributes.object_facts` is a version-1 additive product/place envelope, defined
+  in `supabase/functions/_shared/objectFacts.ts`. It includes JSON-LD source URL,
+  observation time and extraction version; preserve all unknown attribute keys.
+- New link captures store supported facts server-side. The web detail panel displays
+  a beta Product details / Place details section with source and observation date.
+  Price at capture is historical publisher data, not a fresh retailer quote.
+- Compare retailers / Find similar open external searches (including known variant
+  terms). Open map uses extracted coordinates/address. No order, calendar event or
+  price comparison executes silently. Native clients can mirror these actions.
+- `set_item_object_facts(target_id, expected_url, expected_facts, facts)` returns a
+  boolean; false means source/ownership/field-lock/concurrency validation failed.
+  It updates only the facts leaf, preserves capture location and user attributes,
+  and queues indexing. Never use the place address as the user's capture location.
+- Invalid, unknown-version or URL-mismatched facts are hidden. Unresolved variant
+  prices, multiple ambiguous objects and historical archive prices are omitted.
+- Native binaries are not released by this web/backend change. Existing saves are
+  not bulk backfilled; facts appear on newly enriched supported links.
+
 ## 2026-10-10 · Compact mobile detail and Copy link toast
 
 - **Title:** two lines with a trailing ellipsis at rest, including Dynamic Type. Tapping opens

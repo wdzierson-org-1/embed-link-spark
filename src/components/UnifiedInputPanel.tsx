@@ -52,7 +52,7 @@ interface InputItem {
   fileAnalysis?: FileAnalysis;
   uploadState?: 'uploading' | 'done' | 'failed';
   uploadProgress?: number;
-  analysisState?: 'local' | 'analyzing' | 'ready';
+  analysisState?: 'local' | 'ready';
 }
 
 const ANALYSIS_SUBMIT_TIMEOUT_MS = 20000;
@@ -673,9 +673,8 @@ const UnifiedInputPanel = ({
       analysisState: 'local',
     }]);
 
-    // Chip-time understanding starts immediately (local facts + staged upload +
-    // cloud summary); without a signed-in user the chip stays static and the
-    // save path handles everything as before.
+    // Chip-time understanding starts immediately (local facts + staged upload);
+    // without a signed-in user the chip stays static and the save uploads.
     if (user?.id) {
       const handle = analyzeDroppedFile(file, fileType, user.id, (update) =>
         applyChipUpdate(itemId, update)
@@ -706,9 +705,9 @@ const UnifiedInputPanel = ({
     setInputItems(prev => prev.filter(candidate => candidate.id !== id));
   };
 
-  // Submit reuses whatever the chip pipeline produced; if it's still running,
-  // wait briefly rather than redoing the work — past the timeout the save path
-  // simply falls back to today's post-save processing.
+  // Submit reuses the chip's staged upload and local facts; if they're still
+  // in flight, wait briefly rather than uploading twice — past the timeout the
+  // save simply uploads the file itself.
   const resolveFileAnalysis = async (item: InputItem): Promise<FileAnalysis | undefined> => {
     const handle = fileAnalysisHandlesRef.current.get(item.id);
     if (!handle) return item.fileAnalysis;
@@ -778,12 +777,18 @@ const UnifiedInputPanel = ({
 
       // One object per stash item, always. A capture with no objects is a text
       // note; a capture with N objects saves N items (collections are retired —
-      // legacy ones still render, new ones are never created). The note and its
-      // "posted from" line ride on the first object.
+      // legacy ones still render, new ones are never created). The note rides
+      // on the first object.
+      //
+      // Every save goes to the platform (add-note / add-url / add-file) and
+      // carries only what the person supplied: their words, the address or the
+      // file, the public toggle and the structured facts known here (location,
+      // link flavor, a file's duration and name). The chip's previews are for
+      // the chip; the saved object's title, description, preview, transcript
+      // and summary come from the platform's pipeline, like every other client's.
       if (itemsToProcess.length === 0) {
         await onAddContent('text', {
           content: noteContent,
-          type: 'text',
           attributes: buildAttributes()
         });
       } else {
@@ -795,18 +800,7 @@ const UnifiedInputPanel = ({
             const url = objectItem.content.url as string;
             await onAddContent('link', {
               url,
-              title: objectItem.ogData?.title || objectItem.content.title || url,
-              // description stays the object's own (og/AI); the user's note is
-              // the annotation and lives in content like every other type
-              description: objectItem.ogData?.description,
               content: isFirst && noteHasContent ? noteContent : undefined,
-              previewImagePath: objectItem.ogData?.previewImagePath,
-              ogData: {
-                ...objectItem.ogData,
-                // Ensure we have image fallback for contentProcessor
-                image: objectItem.ogData?.previewImageUrl || objectItem.ogData?.image
-              },
-              type: 'link',
               is_public: isPublic,
               attributes: buildAttributes({ link: { flavor: classifyLinkFlavor(url) } })
             });
@@ -816,16 +810,8 @@ const UnifiedInputPanel = ({
             await onAddContent(objectItem.type, {
               file: objectItem.content.file,
               uploadedFilePath: analysis?.uploadedFilePath,
-              title: analysis?.title || analysis?.metadataTitle || objectItem.content.name,
-              description: analysis?.description,
-              // content = the user's note (rich JSON when formatted); the chip
-              // transcript is source material and belongs in page_body
+              title: objectItem.content.name,
               content: isFirst && noteHasContent ? noteContent : undefined,
-              page_body: analysis?.transcription,
-              detectedText: analysis?.detectedText,
-              tags: analysis?.tags,
-              snippet: analysis?.snippet,
-              type: objectItem.type,
               is_public: isPublic,
               attributes: buildAttributes({
                 media: {

@@ -1,3 +1,6 @@
+import { readObjectFacts, objectFactsSearchText } from './objectFacts.ts';
+import { placeSearchText, readPlace } from './place.ts';
+
 /** Versioned, deterministic checks. A quality score is evidence coverage, not a factuality guarantee. */
 export const QUALITY_VERSION = '2026-09-23.1';
 export type ObjectType = 'link' | 'text' | 'image' | 'audio' | 'video' | 'document';
@@ -42,9 +45,10 @@ export function isPlaceholderMetadata(value: string | null | undefined, url?: st
   const t = (value || '').trim().toLowerCase().replace(/[.!…]+$/, '');
   if (!t) return true;
   if (/^(instagram|login • instagram|log in • instagram|tiktok(?: - make your day)?|youtube|client challenge|just a moment|access denied|403 forbidden|error|found)$/.test(t)) return true;
-  if (/^(create an account or log in to instagram|video by .+ on tiktok|tiktok video|link from |saved from )/.test(t)) return true;
+  if (/^(create an account or log in to instagram|video by .+ on tiktok|tiktok by .+|tiktok video|link from |saved from )/.test(t)) return true;
   if (/inferred from (?:the )?link|page couldn't be read|unable to access (?:external )?links/.test(t)) return true;
   if (url) {
+    try { if (hostIs(new URL(url).hostname, 'linkedin.com') && /^(?:sign up|log in|login|join now)\s*[|–—-]\s*linkedin$/.test(t)) return true; } catch { /* invalid URL */ }
     if (t === url.toLowerCase()) return true;
     try { const h = new URL(url).hostname.toLowerCase(); if (t === h || t === h.replace(/^www\./, '')) return true; } catch { /* invalid URLs assessed separately */ }
   }
@@ -66,6 +70,7 @@ export function inspectSourceText(url: string, body: string | null | undefined, 
   const { source, kind: objectKind } = sourceIdentity({ type: 'link', url });
   const start = text.slice(0, 900);
   if (/^(?:.{0,100})?(just a moment|access denied|client challenge|checking your browser|verify you are human)/i.test(start)) return fail('blocked_page');
+  if (hostIs(source, 'linkedin.com') && /^(?:sign up|log in|login|join now)\s*[|–—-]\s*linkedin\b/i.test(start) && /manage your professional identity|build and engage with your professional network/i.test(start)) return fail('login_page');
   if (source === 'tiktok' && /couldn['’]t find this page|video currently unavailable|this video is unavailable/i.test(start)) return fail('unavailable_page');
   if (source === 'instagram' && /sorry,? this page isn['’]t available|the link you followed may be broken/i.test(start)) return fail('unavailable_page');
   if (source === 'youtube' && /skip navigation|sign in to confirm you['’]re not a bot/i.test(start) && !/\btranscript\b.{20}/i.test(text)) return fail('navigation_only');
@@ -161,9 +166,13 @@ export function enrichmentSearchText(item: EnrichmentItem): string {
   const quality = assessEnrichment(item);
   const protectedFields = item.attributes?.enrichment?.protected_fields || {};
   const contaminated = quality.status === 'blocked';
+  const objectFacts = readObjectFacts(item.attributes?.object_facts, item.url || '');
+  const place = readPlace(item.attributes?.place);
   return [(!contaminated || protectedFields.title) && !isPlaceholderMetadata(item.title, item.url) && item.title,
     (!contaminated || protectedFields.description) && !isPlaceholderMetadata(item.description, item.url) && item.description,
     quality.content_usable && item.summary, item.content, item.supplemental_note,
+    objectFacts && objectFactsSearchText(objectFacts),
+    place && placeSearchText(place),
     item.url, quality.content_usable && item.page_body, item.attributes?.media?.file_name,
     quality.evidence.visual && item.attributes?.enrichment?.evidence?.visual_text]
     .filter(Boolean).join('\n\n');

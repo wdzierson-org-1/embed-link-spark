@@ -25,7 +25,7 @@ interface InputChipProps {
   fileAnalysis?: FileAnalysis;
   uploadState?: 'uploading' | 'done' | 'failed';
   uploadProgress?: number;
-  analysisState?: 'local' | 'analyzing' | 'ready';
+  analysisState?: 'local' | 'ready';
 }
 
 const PROGRESS_BAR_MIN_BYTES = 3 * 1024 * 1024;
@@ -54,7 +54,7 @@ interface FileChipContentProps {
   fileAnalysis?: FileAnalysis;
   uploadState?: 'uploading' | 'done' | 'failed';
   uploadProgress?: number;
-  analysisState?: 'local' | 'analyzing' | 'ready';
+  analysisState?: 'local' | 'ready';
   isTransitioning: boolean;
 }
 
@@ -70,10 +70,12 @@ const FileChipContent = ({
   const objectUrl = useFileObjectUrl(type === 'image' ? content.file : undefined);
   const thumbnailUrl = fileAnalysis?.thumbnailDataUrl || objectUrl;
 
-  const title = fileAnalysis?.title || fileAnalysis?.metadataTitle || content.name;
+  // The chip shows what the file itself says (its own title, pages, duration, a thumbnail);
+  // the saved object's title and description come from the platform after the save
+  const title = fileAnalysis?.metadataTitle || content.name;
   const factsLine =
     fileAnalysis?.factsLine || (content.size ? formatMb(content.size) : undefined);
-  const isBusy = analysisState === 'local' || analysisState === 'analyzing';
+  const isBusy = analysisState === 'local';
   const showPercent =
     uploadState === 'uploading' && (content.size ?? 0) >= PROGRESS_BAR_MIN_BYTES;
 
@@ -105,11 +107,6 @@ const FileChipContent = ({
         }`}
       >
         <div className="line-clamp-2 text-sm font-medium leading-tight text-ink">{title}</div>
-        {fileAnalysis?.description && (
-          <div className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground">
-            {fileAnalysis.description}
-          </div>
-        )}
         {factsLine && (
           <div className="mt-0.5 truncate font-pixel text-pixel text-muted-foreground">{factsLine}</div>
         )}
@@ -137,7 +134,7 @@ const InputChip = ({ type, content, onRemove, ogData, metadataStatus, fileAnalys
   const metadataSignature =
     type === 'link'
       ? `${ogData?.title || ''}|${ogData?.description || ''}|${ogData?.image || ''}|${ogData?.previewImageUrl || ''}`
-      : `${fileAnalysis?.title || ''}|${fileAnalysis?.description || ''}|${fileAnalysis?.factsLine || ''}|${fileAnalysis?.thumbnailDataUrl ? 't' : ''}`;
+      : `${fileAnalysis?.metadataTitle || ''}|${fileAnalysis?.factsLine || ''}|${fileAnalysis?.thumbnailDataUrl ? 't' : ''}`;
   const previousSignatureRef = useRef(metadataSignature);
   const [isMetadataTransitioning, setIsMetadataTransitioning] = useState(false);
 

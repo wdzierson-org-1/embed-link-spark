@@ -48,6 +48,16 @@ export const plainNotes = (content: string | null | undefined): string => {
   return trimmed;
 };
 
+/**
+ * The title a note gets until the AI title lands: its first line, capped. Mirrors the web's
+ * `plainTitleFromContent` (src/utils/itemTitle.ts); keep the two in step.
+ */
+export const noteTitleFrom = (plain: string, maxLength = 60): string => {
+  const firstLine = plain.trim().split('\n')[0].trim();
+  if (firstLine.length <= maxLength) return firstLine;
+  return `${firstLine.slice(0, maxLength - 3)}...`;
+};
+
 /** One-line rendering for result lists: whitespace collapsed, capped. */
 export const notesSnippet = (content: string | null | undefined, maxChars: number): string | null => {
   const text = plainNotes(content).replace(/\s+/g, ' ').trim();

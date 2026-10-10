@@ -7,9 +7,12 @@ import EditItemContentEditor from '@/components/EditItemContentEditor';
 import MaximizedSource from '@/components/edit/MaximizedSource';
 import { SectionHead } from '@/components/edit/EditPanelSection';
 import { canSummarizeSource, useItemSourceContent } from '@/hooks/useItemSourceContent';
-import { getContentTabsConfig, needsSourceContent, type ContentTabKey } from '@/utils/editPanelTabs';
+import { getContentTabsConfig, hasCapturedTranscript, needsSourceContent, type ContentTabKey } from '@/utils/editPanelTabs';
 import { enrichmentState } from '@/utils/itemAssembly';
 import { noteIsEmpty } from '@/utils/noteContent';
+import { formatTimestamp, timestampMarker } from '@/utils/timestamps';
+import { useMediaClock } from '@/components/edit/MediaClock';
+import type { EditorInstance } from 'novel';
 import {
   isTranscribing,
   transcribingLabel,
@@ -200,13 +203,13 @@ const EditItemContentSection = ({
   mobileEditorReady,
   onSummarySave,
 }: EditItemContentSectionProps) => {
-  const config = getContentTabsConfig(item?.type);
+  const config = getContentTabsConfig(item);
   const [activeTab, setActiveTab] = useState<ContentTabKey>(config.defaultTab);
   const [sourceMaximized, setSourceMaximized] = useState(false);
 
   // Reset to the type's default tab when switching items
   useEffect(() => {
-    setActiveTab(getContentTabsConfig(item?.type).defaultTab);
+    setActiveTab(getContentTabsConfig(item).defaultTab);
     setSourceMaximized(false);
   }, [item?.id, item?.type]);
 
@@ -224,6 +227,8 @@ const EditItemContentSection = ({
   } = useItemSourceContent(item?.id, needsSourceContent(item?.type), transcriptRefreshKey(transcript));
 
   const isDocument = item?.type === 'document' || item?.type === 'pdf';
+  // A video link's transcript lives in page_body only once enrichment has captured one
+  const linkTranscribed = hasCapturedTranscript(item?.attributes);
   // Only pending enrichment is still extracting. Once it settles with no text (the extraction
   // failed, e.g. a PDF over OpenAI's 50 MB limit), "still being extracted" would be false.
   const noDocumentText = item && enrichmentState(item, Date.now()) === 'pending'
@@ -245,6 +250,42 @@ const EditItemContentSection = ({
   const [notesFocused, setNotesFocused] = useState(false);
   const notesRef = useRef<HTMLDivElement>(null);
   const wantsFocus = useRef(false);
+
+  // Timestamped notes (docs/ui-changes.md 2026-10-10): while a player on the panel reports its
+  // time, the notes head offers `+ note at 1:42`; it drops a `[1:42]` marker into the note
+  const clock = useMediaClock();
+  const notesEditorRef = useRef<EditorInstance | null>(null);
+  const insertTimestamp = useCallback((seconds: number): boolean => {
+    const editor = notesEditorRef.current;
+    if (!editor) return false;
+    const marker = `${timestampMarker(seconds)} `;
+    const chain = editor.chain().focus('end');
+    if (editor.isEmpty) chain.insertContent(marker);
+    else chain.insertContent({ type: 'paragraph', content: [{ type: 'text', text: marker }] });
+    chain.run();
+    return true;
+  }, []);
+  // A note asked for before the editor exists (the empty one-liner) lands as soon as it does
+  const pendingStamp = useRef<number | null>(null);
+  const addTimestampNote = () => {
+    const seconds = clock.seconds;
+    if (seconds === null) return;
+    if (insertTimestamp(seconds)) return;
+    pendingStamp.current = seconds;
+    wantsFocus.current = false;
+    setNotesOpen(true);
+  };
+  const onNotesEditorReady = useCallback(
+    (editor: EditorInstance) => {
+      notesEditorRef.current = editor;
+      if (pendingStamp.current !== null) {
+        const seconds = pendingStamp.current;
+        pendingStamp.current = null;
+        insertTimestamp(seconds);
+      }
+    },
+    [insertTimestamp],
+  );
 
   useEffect(() => {
     setNotesOpen(false);
@@ -319,6 +360,7 @@ const EditItemContentSection = ({
             editorInstanceKey={editorKey}
             isMaximized={false}
             inline
+            onEditorReady={onNotesEditorReady}
           />
         </div>
       )}
@@ -374,6 +416,12 @@ const EditItemContentSection = ({
 
   const transcriptView = isSourceLoading ? (
     <LoadingState />
+  ) : item?.type === 'link' ? (
+    linkTranscribed && pageBody ? (
+      <TranscriptContent key={item.id} itemId={item.id} transcript={pageBody} />
+    ) : (
+      <TabEmptyState>No transcript for this video yet.</TabEmptyState>
+    )
   ) : pageBody && item ? (
     <>
       {transcript && isTranscribing(transcript) && (
@@ -436,10 +484,21 @@ const EditItemContentSection = ({
 
       <section className="mt-[30px]" aria-label="Notes">
         <SectionHead label="Notes" aside={
-          <button onClick={onMaximize} title="Maximize editor" aria-label="Maximize editor"
-            className="grid h-6 w-6 place-items-center text-muted-foreground hover:bg-ink hover:text-white">
-            <Maximize className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {clock.seconds !== null && (
+              <button
+                type="button"
+                onClick={addTimestampNote}
+                className="h-6 px-1.5 font-pixel text-pixel leading-none text-muted-foreground transition-colors hover:bg-ink hover:text-white"
+              >
+                + note at {formatTimestamp(clock.seconds)}
+              </button>
+            )}
+            <button onClick={onMaximize} title="Maximize editor" aria-label="Maximize editor"
+              className="grid h-6 w-6 place-items-center text-muted-foreground hover:bg-ink hover:text-white">
+              <Maximize className="h-3.5 w-3.5" />
+            </button>
+          </div>
         } />
         <div className="mt-3.5">{notesEditor}</div>
       </section>

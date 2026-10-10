@@ -19,6 +19,104 @@ Get a JWT with supabase-js (`auth.signInWithPassword` / OAuth) on any platform,
 or the raw REST endpoint `POST /auth/v1/token?grant_type=password`. The item
 owner is always derived from the JWT server-side — never sent by the client.
 
+## Typed publisher facts (beta)
+
+Newly enriched product and place links may include `attributes.object_facts`.
+The version-1 product/place shape and source validators live in
+`supabase/functions/_shared/objectFacts.ts`. `evidence` records `source_url`,
+`observed_at`, `method: "json-ld"`, `extraction_version` and `schema_type`.
+Every field is optional unless required by that envelope; omitted is unknown,
+not false or free. Display prices as observed at capture and preserve currency.
+Facts describe the saved object, separate from `attributes.location` (capture
+location). Treat publisher facts as beta evidence, not verified world truth.
+
+Backend capture persists facts. Legacy clients that invoke metadata directly may
+use the owner-authenticated `set_item_object_facts` RPC with the exact saved URL,
+previous facts (or JSON null), and validated facts. It changes only that leaf and
+returns false on a stale source, concurrent edit or protected field. Preserve
+unknown attribute keys; do not overwrite the whole blob.
+
+## Object intelligence (beta)
+
+`attributes.object_intelligence` is an additive, server-generated version-1 envelope.
+Storage type stays the same: a TikTok is still a `link`, while
+`interpretation.kind` may be `recipe` or `travel`. Clients receive it through the
+existing item reads and realtime updates. Preserve this leaf when changing other
+attributes. The authoritative TypeScript/schema contract is
+`supabase/functions/_shared/objectIntelligence.ts`.
+
+- **Interpretation:** semantic kind, short summary, and topics. These are model
+  interpretations, not independently verified facts.
+- **Facts:** optional creator and one typed group: recipe, travel, product, place,
+  paper, book, or event. Each value has `evidence_ids` linking to exact quotations
+  in captured text or validated publisher facts. Omitted means unknown. Quotation
+  validation establishes traceability, not guaranteed attribution or correctness.
+- **Evidence:** source block IDs (`page_body`, `content`, `publisher_facts`,
+  `creator_metadata`), quotations, and an envelope source fingerprint. Generated
+  descriptions/summaries, user annotations on other objects, and visual guesses
+  are excluded. Image facts need OCR; an image's appearance alone is insufficient
+  for this first version.
+  The model selects numbered captured passages; the server constructs the
+  quotations. Formatting whitespace may differ in a proposed value, but stored
+  values resolve back to the original source span. Word or attribution changes
+  remain invalid. Diagnostics record closed rejection codes, never source text.
+- **Capabilities:** a closed catalog of proposed interactions, with `id`,
+  `status`, `effect`, `prerequisites`, and `requires_confirmation`. `source_ready`
+  means enough captured facts to draft an artifact, not an installed tool or an
+  executed action. `needs_lookup` requires a subsequent source/API lookup;
+  `needs_more_content` requires additional evidence or user details. External
+  writes (grocery orders, calendar changes) require explicit confirmation.
+
+Recipes can expose ingredients, steps, servings and duration; travel can expose
+destinations, mentioned places, stays and duration; products can expose identity,
+brand, color, materials, variant and an observed publisher price. A packing list
+or itinerary is a proposed derivative, never fabricated source content. Travel
+mentions do not mean visits or current location; product saves do not mean ownership.
+`processed_at` is extraction time, not a price freshness check. Product price and
+currency require validated `object_facts` evidence; its `evidence.observed_at`
+remains the capture timestamp. Price comparison needs new matching-variant offers.
+
+A private Supabase worker runs every five minutes, after a two-minute source
+settling delay, independently of basic-card repair. Source changes requeue work;
+an unchanged source hash reuses a valid result. The initial budget is two model
+calls per run, 24 per UTC hour, and 200 per UTC day (three attempts per source).
+Backlogs can delay completion. The initial backfill covers the latest 100 items;
+new saves and source updates enter automatically across all clients. The worker
+honors `enrichment.protected_fields.object_intelligence`, uses compare-and-swap
+to reject stale writes, and preserves unrelated attributes. Failures retain prior
+data; consumers must validate the source fingerprint before using old results.
+Current source-bound facts and semantic kind enter search; capability names and
+uncreated artifacts do not.
+
+This release prepares data and interaction proposals. The canvas, interaction UI,
+API lookups and artifact execution are subsequent features.
+
+```mermaid
+flowchart LR
+  A[Save from any client] --> B[Capture page / transcript / OCR / note]
+  B --> C[Durable source-change queue]
+  C --> D[Hosted worker every 5 minutes]
+  D --> E[Reuse current result or extract typed attributes]
+  E --> F[Validate evidence and reject stale writes]
+  F --> G[Item attributes + search index + realtime]
+  G -. future .-> H[Web actions and canvas nodes]
+  H -. future .-> I[API lookup or user-approved execution]
+```
+
+## Places (`attributes.place`)
+
+A saved address that stands for a place — an Apple Maps or Google Maps link
+(short links included), a listing page whose structured data carries
+coordinates, or a picture whose own text carries a street address confirmed by
+the geocoder (`provider.kind: "ocr"`) — gets `attributes.place` (v1, `_shared/place.ts`): name, address,
+coordinates, time zone, phone, website, menu link, weekly hours, rating, price
+level, category, the provider and its resolved address, the rendered map, and
+evidence. The capture pipeline writes it (`set_item_place`, a leaf
+compare-and-swap; a client never does) and, when the map provider is
+configured, renders the map as the save's picture (`file_path`). Clients render
+the location section from it; "open now" is only honest when `timezone` is
+present. Unknown keys must be preserved. See `docs/ui-changes.md` 2026-10-10.
+
 ## Capture
 
 **Entitlement (server-enforced since 2026-09-07).** Every capture endpoint
@@ -52,12 +150,16 @@ returned item includes `remind_at`, `reminder_cleared_at`,
 { "url": "https://…", "content": "optional note about it", "is_public": false }
 ```
 
-Returns `{ success, item }` fast (title/description from a quick fetch).
-Everything else continues server-side after the response: deep metadata with
-the blocked-site rescue cascade (crawler UA → Jina Reader → Wayback → URL
-inference), preview image storage, full-page scrape into `page_body`, and
-embeddings. Clients never wait on enrichment — realtime (below) delivers the
-upgrades.
+Returns `{ success, item }` fast (title/description from a quick fetch, bounded
+at 8 s for the page and 12 s for its image; YouTube and TikTok resolve from
+oEmbed alone). Everything else continues server-side after the response: deep
+metadata with the blocked-site rescue cascade (crawler UA → Jina Reader →
+Wayback → URL inference), preview image storage, full-page scrape into
+`page_body` — for YouTube, TikTok and Instagram Reels that is the transcript
+(`attributes.enrichment.evidence.transcript = true`), with a recording-style
+`summary` — and embeddings. Every link gets this, whichever client saved it;
+a TikTok with nothing to transcribe still settles `complete` with its caption.
+Clients never wait on enrichment — realtime (below) delivers the upgrades.
 
 `tags: …` at the end of `content` becomes item tags.
 
@@ -67,8 +169,11 @@ upgrades.
 { "content": "the note", "title": "optional", "is_public": false }
 ```
 
-Returns `{ success, note }` immediately with a derived title; AI title +
-description + re-embed land asynchronously. A note whose entire content is one
+Returns `{ success, note }` immediately with a derived title (the first line,
+at most 60 characters); AI title + description + re-embed land asynchronously.
+`content` may be plain text or a Novel/TipTap JSON document (what the web and
+iOS editors store): every derived field is built from its plain text, never
+the JSON scaffolding. A note whose entire content is one
 HTTP(S) URL keeps its literal or user-provided title and skips AI title/description
 generation: an opaque URL is not evidence about the linked page. Use `add-url`
 for link enrichment (or `capture`, which normalizes this share-sheet case).
@@ -92,7 +197,11 @@ XML (`.pptx`/`.docx`/`.xlsx`) gets text extraction via the same page_body/
 summary/description contract; anything else settles immediately with an AI
 description (`summary` mirrors `description` — no `page_body`). Realtime
 delivers the upgrades. `file_path` must sit inside the caller's own folder
-(403 otherwise).
+(403 otherwise). Audio/video keep `attributes.enrichment.status = "pending"`
+until the transcription job finishes; the status then settles to `complete`
+(`attributes.media.transcript.status = "done"`) or `partial` (`"failed"`) in
+the row itself. Send the original file name as `title` and as
+`attributes.media.file_name`; the storage object name is never kept as one.
 
 ### `POST /capture` — idempotent capture (iOS)
 
@@ -101,10 +210,11 @@ safe to retry. The client generates a `capture_id` (UUID) once per capture and
 sends the same id on every attempt, from any process, at any time; the server
 never creates a second item for it. **iOS routes every capture through
 `capture`** (its Outbox entry id is the `capture_id`, so foreground sends,
-background transfers and later drains can all retry blindly). **Web, the
-browser extension and macOS still call `add-*` directly** — those endpoints are
-unchanged, and `capture` forwards to them with the caller's own JWT, so
-enrichment, paywall and every other server behavior are identical.
+background transfers and later drains can all retry blindly). **The web
+composer, the browser extension and macOS call `add-*` directly** (since
+2026-10-10 the web inserts nothing itself), and `capture` forwards to the same
+endpoints with the caller's own JWT, so enrichment, paywall and every other
+server behavior are identical for every client.
 
 Standard auth headers. The body is either `application/json` (the meta object)
 or `multipart/form-data` with a `meta` part (the JSON string) and a `file` part
@@ -484,6 +594,31 @@ supabase.channel(`items-${userId}`)
   registration via `user_phone_numbers`.
 - Public feeds: `GET /get-public-feed/<username>`, `GET /get-discover-feed`
   (anon key works for both).
+
+## Internal enrichment review
+
+`POST /admin-stats` requires a user JWT and a current `admin_users` row. The
+enrichment actions also recheck membership in service-only SQL functions. These
+are operator tools, not ordinary-member APIs:
+
+- `{ action: "enrichment", lookback_hours: 24 | 168, proposal_status?: "new" |
+  "needs_evidence" | "planned" | "dismissed", proposal_limit?: 1..50 }` returns
+  the current save-cohort counts, daily New York groupings, attempt metrics,
+  bounded incomplete-item diagnostics, hosted job/report status and retained
+  proposals. Defaults: 24 hours, all statuses, 50 proposals. Proposal history
+  spans retained jobs regardless of the save window; each shows three latest
+  reviews. See `src/utils/adminEnrichmentApi.ts` for the response shape.
+- `{ action: "review_proposal", proposal_id, expected_revision, new_status,
+  review_note, request_id }` appends a review. IDs are UUIDs; the note must be
+  1–2,000 trimmed characters. A successful write increments revision. Retry an
+  unchanged request with the same `request_id`; an edited decision needs a new
+  UUID. A stale revision or a reused UUID with a different payload returns 409.
+  The actor always comes from the verified JWT. Clients cannot set it.
+
+Neither action modifies saved items or runs/publishes a playbook. Source deletion
+and the existing 35-day hosted-job retention cascade to proposal text and notes.
+Completeness percentages exclude unassessed saves from their denominator and do
+not measure factual accuracy. Missing cost or delivery evidence stays unknown.
 
 ## Notes for future clients
 

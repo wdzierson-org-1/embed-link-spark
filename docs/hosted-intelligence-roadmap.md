@@ -122,7 +122,73 @@ reviewable proposals with regression cases and acceptance checks. Open-ended web
 research, resumable multi-hour investigations and personal/cross-user graphs are
 not yet implemented.
 
+## Evidence and typed-facts release — 2026-10-10
+
+- Daily investigations now check the first associated image from an explicit public
+  CDN allowlist. The extra request has a five-second / 5 MiB budget and records
+  PNG/JPEG/WebP structure, dimensions, MIME, byte count and SHA-256. This is file
+  validation, **not full image decoding or semantic image matching**. Unsupported
+  hosts and failures remain explicit outcomes in the stored evidence and email.
+- The model proxy enforces a closed JSON response schema, while exact quotes and
+  item/source scope still pass independent checks. Hermes retries receive a closed
+  validation-error code plus corrective instructions.
+  The same three-attempt, six-model-call and 90-second limits remain. A failed quote
+  must be copied correctly or omitted, never accepted by weakening evidence checks.
+- `services/enrichment-evals/` exercises the actual selectors and source gates with
+  22 labelled cases, including positive controls. CI writes per-case outcomes and
+  implementation/corpus hashes. These are curated known regressions, not a held-out
+  benchmark or a population accuracy measurement. Candidate releases must pass this
+  gate; autonomous strategy promotion remains future work.
+- Publisher JSON-LD now supplies source-bound `attributes.object_facts` for products
+  and places. Product fields include brand, identifiers, selected variant, material,
+  price/currency and availability when supported. Place fields include address,
+  coordinates, cuisine and price range. Ambiguous objects, unrelated offers and
+  unproven selected-variant prices are omitted; archive prices are not presented as
+  newly observed prices. Facts join the item's searchable enrichment text.
+- The web detail panel shows these facts as beta, with source and observation date.
+  Compare retailers / Find similar open a web search; Open map uses the extracted
+  address or coordinates. No claim of a cheaper verified offer is made.
+- New captures through add-url (including capture/share-sheet clients), and legacy
+  web capture, persist facts using an owner-scoped atomic attribute update that
+  preserves unrelated fields and refuses stale sources, changed facts and field locks.
+  Existing saves are not bulk backfilled in this release. Native clients receive the
+  stored facts but need their own UI release to display the new section.
+
+Next: independent image-identity evaluation, consent-appropriate held-out samples,
+reviewable experiment records/canaries, controlled historical fact backfill, and
+entity links for personal grouping. Graphs and automatic playbook publishing are
+not part of this release. Daily email remains after 09:00 America/New_York.
+
+## Transcript providers at save time — 2026-10-10 (handoff from the web agent)
+
+YouTube (Firecrawl v2, fresh scrape), TikTok (SearchApi `tiktok_transcripts`) and Instagram
+Reels (TranscriptFetch) transcripts are captured in `scrape-page-content` at save time and
+marked with `attributes.enrichment.evidence.transcript = true`. The maintenance loop's
+Supadata step, the TranscriptFetch 202 case, the chrome backfill and the evidence checks
+are yours to align: see `docs/hosted-intelligence-transcripts-2026-10-10.md`.
+
 ## Improvement loop
+
+### Proposal review release — 2026-10-10
+
+The admin dashboard at `/admin/enrichment` now makes the operational review loop
+visible. It shows save-cohort completeness, incomplete items with attempt history,
+strategy outcomes/latency/known cost, hourly reviewer health and daily email status.
+Its 24-hour/seven-day windows group current item states by New York save date;
+these are not historical accuracy measurements. Unassessed saves remain unknown.
+
+Validated model proposals enter a database review queue on result completion.
+Retained historical results are included. Admins can add notes and mark a proposal
+new, needs evidence, planned or dismissed. Each write verifies admin membership,
+the displayed revision and a request idempotency key. The original suggestion is
+immutable; review decisions are separate. Source deletion and the existing 35-day
+job retention purge the derived proposal and all notes. This queue does not merge
+similar wording, retain private evidence indefinitely, or claim an experiment ran.
+
+Next, turn selected proposals into labelled regression cases and bounded candidate
+experiments, record comparative outcomes, and canary passing changes with rollback.
+The review states intentionally stop before evaluated/released: the dashboard must
+not substitute a status label for those missing execution and measurement steps.
 
 1. **Measure:** distinguish missing fields, blocked sources, wrong identity,
    stale facts, unsupported summaries, image mismatch, and failed storage.

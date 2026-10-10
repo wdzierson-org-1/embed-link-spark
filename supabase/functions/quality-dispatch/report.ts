@@ -70,6 +70,7 @@ export function reportText(p: any): string {
     for (const a of o.attempts || []) lines.push(`  ${a.strategy}: ${a.outcome} (${a.reason}; ${a.duration_ms} ms)`);
     if (o.source_truncated) lines.push('  The source excerpt was truncated.');
     for (const candidate of o.image_candidates || []) lines.push(`  Image candidate: ${candidate.url} (${candidate.associated ? 'page association found' : 'association not established'}; image pixels are unverified)`);
+    for (const check of o.image_checks || []) lines.push(`  Image asset check: ${check.outcome} (${check.reason}; ${check.duration_ms} ms)${check.width && check.height ? `; ${check.width} × ${check.height}; ${check.byte_length} bytes` : ''}. File structure only; visual match and full decoding are unverified.`);
     for (const limitation of o.limitations || []) lines.push(`  Retrieval limit: ${limitation}`);
   }
   lines.push('', 'PROPOSED PLAYBOOK IMPROVEMENTS');

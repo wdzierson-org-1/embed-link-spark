@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Object intelligence on the details screen · prototype v0.1</title>
+<style>
+@font-face { font-family: "Montreal"; src: url(../../../src/assets/fonts/PPNeueMontreal-Book.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Montreal"; src: url(../../../src/assets/fonts/PPNeueMontreal-BookItalic.woff2) format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Montreal"; src: url(../../../src/assets/fonts/PPNeueMontreal-Medium.woff2) format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Pixel"; src: url(../../../src/assets/fonts/DepartureMono-Regular.woff2) format("woff2"); font-display: block; }
+@font-face { font-family: "Code"; src: url(../../../src/assets/fonts/JetBrainsMono-Regular.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+
+:root {
+  --paper: #f3f4f1; --white: #fff; --ink: #000; --ink-soft: #262626; --muted: #5c6159;
+  --line: #d5d8d1; --line-soft: #e5e7e2; --fill: #ecede9; --dot: rgba(0,0,0,.13);
+  --spot: #a3f53b; --on-spot: #000; --spot-on-ink: #a3f53b; --error: #a1281c;
+}
+* { box-sizing: border-box; }
+html { background: var(--paper); color: var(--ink); }
+body { margin: 0; font: 400 15px/1.45 "Montreal", system-ui, sans-serif; letter-spacing: -.005em; }
+.pixel { font-family: "Pixel", monospace; font-size: 11px; line-height: 1.45; letter-spacing: 0; text-transform: lowercase; }
+.code { font-family: "Code", monospace; font-size: 12.5px; }
+a { color: inherit; }
+
+.page { max-width: 1240px; margin: 0 auto; padding: 36px 28px 80px; }
+.eyebrow { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; color: var(--muted); }
+.eyebrow .tag { background: var(--ink); color: var(--white); padding: 2px 6px; }
+h1 { font-size: clamp(36px, 4.6vw, 60px); line-height: .94; font-weight: 500; letter-spacing: -.045em; margin: 18px 0 14px; max-width: 18ch; }
+.lead { max-width: 62ch; color: var(--muted); font-size: 17px; line-height: 1.45; margin: 0 0 28px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 3px; border-bottom: 1px solid var(--ink); padding-bottom: 0; margin-bottom: 26px; }
+.tabs button { font: inherit; height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.tabs button.pixel { font-family: "Pixel", monospace; font-size: 11px; }
+.tabs button:hover { background: var(--fill); color: var(--ink); }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--white); }
+
+.stage { display: grid; grid-template-columns: minmax(0, 800px) minmax(300px, 1fr); gap: 36px; align-items: start; }
+@media (max-width: 1000px) { .stage { grid-template-columns: 1fr; } }
+
+/* The panel, as a window */
+.panel { background: var(--white); border: 1px solid var(--ink); box-shadow: 0 2px 0 var(--ink); }
+.bar { height: 44px; background: var(--ink); color: var(--white); display: flex; align-items: center; gap: 12px; padding: 0 14px; }
+.bar .sym { color: var(--spot-on-ink); font-style: italic; font-weight: 500; }
+.bar .kind { background: var(--white); color: var(--ink); padding: 2px 6px; }
+.bar .dim { color: rgba(255,255,255,.6); }
+.body { padding: 26px 32px 30px; }
+.title { font-size: 28px; line-height: 1.12; font-weight: 500; letter-spacing: -.03em; margin: 0 0 8px; }
+.desc { color: var(--muted); margin: 0 0 6px; max-width: 70ch; }
+.summary { margin: 0; color: var(--muted); font-size: 14px; }
+.summary b { color: var(--ink); font-weight: 500; }
+
+.section { margin-top: 30px; }
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--ink); padding-bottom: 6px; min-height: 28px; }
+.head .pixel { color: var(--ink); }
+.head .aside { color: var(--muted); display: flex; gap: 10px; align-items: center; }
+.head .beta { background: var(--ink); color: var(--white); padding: 2px 6px; }
+.tree { margin-top: 8px; }
+.row { display: flex; align-items: baseline; gap: 12px; padding: 6px 0; position: relative; padding-left: 26px; }
+.row::before { content: "├─"; position: absolute; left: 0; top: 7px; font-family: "Pixel", monospace; font-size: 11px; color: var(--muted); }
+.row:last-child::before { content: "└─"; }
+.row .label { width: 124px; flex: none; color: var(--muted); }
+.row .value { min-width: 0; flex: 1; font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.row ol, .row ul { margin: 0; padding-left: 18px; }
+.row li { margin: 2px 0; }
+
+/* A fact is a verbatim span: it opens its quote */
+.fact { font: inherit; color: inherit; background: transparent; border: 0; padding: 0 2px; margin: 0 -2px; cursor: help; text-align: left;
+  text-decoration: underline; text-decoration-color: rgba(0,0,0,.25); text-underline-offset: 3px; text-decoration-style: dotted; }
+.fact:hover, .fact:focus-visible, .fact[aria-expanded="true"] { background: var(--fill); text-decoration-color: var(--ink); outline: none; }
+.quote { display: none; margin: 8px 0 4px; border: 1px solid var(--ink); background: var(--white); box-shadow: 0 2px 0 var(--ink); max-width: 560px; }
+.quote.open { display: block; }
+.quote .qbar { background: var(--ink); color: var(--white); padding: 4px 8px; display: flex; justify-content: space-between; gap: 10px; }
+.quote .qbar .where { color: var(--spot-on-ink); }
+.quote p { margin: 0; padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--ink); font-style: italic; }
+.quote p mark { background: var(--spot); color: var(--on-spot); font-style: normal; padding: 0 1px; }
+.quote .qfoot { padding: 6px 12px 8px; color: var(--muted); }
+
+.cells { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cell { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid var(--ink); background: var(--white); color: var(--ink); font-size: 13px; cursor: pointer; text-decoration: none; }
+.cell:hover { background: var(--ink); color: var(--white); }
+.cell.draft::after { content: "→ draft"; font-family: "Pixel", monospace; font-size: 11px; opacity: .7; }
+.cell.muted { border-color: var(--line); color: var(--muted); cursor: default; }
+.cell.muted:hover { background: var(--white); color: var(--muted); }
+.cell.muted .why { font-family: "Pixel", monospace; font-size: 11px; }
+.cell.confirm { border-style: dashed; }
+.cell.confirm::after { content: "asks first"; font-family: "Pixel", monospace; font-size: 11px; opacity: .7; }
+.foot { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.foot a { text-decoration: underline; text-underline-offset: 2px; }
+.wrong { margin-top: 10px; }
+.wrong button { font: inherit; font-size: 12px; color: var(--muted); background: transparent; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.wrong button:hover { color: var(--ink); }
+.topics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.topics span { border: 1px solid var(--line); padding: 2px 6px; color: var(--muted); }
+
+/* Aside: the card and the notes */
+.aside-col { display: grid; gap: 22px; }
+.note { border: 1px solid var(--line); background: var(--white); padding: 16px 18px; }
+.note h3 { margin: 0 0 8px; font-size: 15px; font-weight: 500; }
+.note p, .note li { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 8px; }
+.note ol { padding-left: 18px; margin: 0; }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.card { background: var(--white); border: 1px solid var(--line); box-shadow: 0 2px 0 var(--line); }
+.hero { height: 120px; background: var(--ink) radial-gradient(circle at 30% 40%, #3a3a3a, #000 70%); position: relative; }
+.hero .ktag { position: absolute; top: 10px; left: 10px; background: var(--ink); color: var(--white); padding: 2px 6px; }
+.hero .ktag.spot { color: var(--spot-on-ink); }
+.card .cbody { padding: 14px 16px 12px; }
+.card .ctitle { font-size: 16px; font-weight: 500; line-height: 1.2; letter-spacing: -.018em; margin: 0 0 6px; }
+.card .cmeta { color: var(--muted); border-top: 1px solid var(--line-soft); padding-top: 8px; margin-top: 10px; display: flex; justify-content: space-between; gap: 10px; }
+.caption { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.sample { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow pixel">
+    <span class="tag">prototype</span><span>object intelligence on the details screen</span><span>v0.1 · 2026-10-10</span><span>exploring</span>
+  </div>
+  <h1>What Stash knows, shown as facts.</h1>
+  <p class="lead">Codex's object intelligence gives every save a semantic kind, verbatim facts with the passage they came from, and a closed list of possible next actions. This page proposes how the details screen shows it: a facts section per kind in the details-tree style, each value opening its quote; the kind tag reading the semantic kind; and next actions as cells that are honest about what they still need. The data on this page is from your own saves except the recipe, which is a sample.</p>
+
+  <div class="tabs" role="tablist" aria-label="Kinds" id="tabs"></div>
+
+  <div class="stage">
+    <div class="panel" id="panel"></div>
+    <div class="aside-col">
+      <div class="note">
+        <h3>The kind tag reads the semantic kind</h3>
+        <div class="cards">
+          <div class="card"><div class="hero"><span class="ktag pixel">video</span></div><div class="cbody"><p class="ctitle">One-pan lemon orzo with burst tomatoes</p><div class="cmeta pixel"><span>tiktok.com</span><span>oct 10</span></div></div></div>
+          <div class="card"><div class="hero"><span class="ktag pixel">recipe</span></div><div class="cbody"><p class="ctitle">One-pan lemon orzo with burst tomatoes</p><div class="cmeta pixel"><span>tiktok.com</span><span>oct 10</span></div></div></div>
+        </div>
+        <p class="caption">Today (left): the storage kind. Proposed (right): the object's kind when one is known — recipe, product, paper, book, event, travel, place — on the card's tag and in the panel's window bar. "general" keeps the storage kind.</p>
+      </div>
+      <div class="note">
+        <h3>Four proposals</h3>
+        <ol>
+          <li><b>A facts section per kind</b>, labelled by the kind, in the tree the details drawer uses. Every value is a verbatim span; hover or tap opens the passage it came from, with the source named (the page, the transcript, the caption, the picture's text). Honest by design: nothing paraphrased is a fact.</li>
+          <li><b>The kind tag reads the semantic kind</b> (left), and the summary's topics sit under the section head as hairline tags.</li>
+          <li><b>Next actions as cells</b> from the capabilities list: a <i>source-ready draft</i> is an ink cell that makes a draft note (shopping list, recipe card, itinerary, study guide, flash cards); a lookup that <i>needs a provider</i> is a muted cell that names what it needs; an <i>external write</i> (calendar, grocery order) is dashed and always asks first.</li>
+          <li><b>A footnote per section</b>: "from the page · read Oct 10, 2026", and a "wrong kind?" link, because a misread (see the event example) should be one tap to correct.</li>
+        </ol>
+      </div>
+      <div class="note">
+        <h3>What to decide</h3>
+        <ol>
+          <li>Section placement: above notes (facts first) or above details (as drawn)?</li>
+          <li>Should the quote open on hover, or only on tap (quieter)?</li>
+          <li>Which drafts to ship first: shopping list and recipe card seem the clearest wins.</li>
+          <li>Whether "wrong kind?" writes a protected override or just hides the section.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = {
+  recipe: {
+    label: 'recipe', sample: true, kindToday: 'video', title: 'One-pan lemon orzo with burst tomatoes', source: 'tiktok.com', date: 'oct 10 2026',
+    description: 'A weeknight pasta that cooks in the pan it is served from.',
+    summary: 'A one-pan orzo recipe with cherry tomatoes, lemon and feta, from a short video.', topics: ['weeknight', 'pasta', 'vegetarian', 'one-pan'],
+    sourceName: 'the transcript',
+    rows: [
+      ['Serves', [['4', 'Serves <mark>4</mark>, takes about 25 minutes start to finish.']]],
+      ['Time', [['25 minutes', 'Serves 4, takes about <mark>25 minutes</mark> start to finish.']]],
+      ['Cuisine', [['Mediterranean', 'It is very <mark>Mediterranean</mark>: lemon, olive oil, feta, oregano.']]],
+      ['Ingredients', { list: 'ul', items: [
+        ['1 cup orzo', 'You need <mark>1 cup orzo</mark>, a pint of cherry tomatoes, one lemon, two cloves of garlic, feta and oregano.'],
+        ['1 pint cherry tomatoes', 'You need 1 cup orzo, <mark>a pint of cherry tomatoes</mark>, one lemon, two cloves of garlic, feta and oregano.'],
+        ['1 lemon', 'You need 1 cup orzo, a pint of cherry tomatoes, <mark>one lemon</mark>, two cloves of garlic, feta and oregano.'],
+        ['2 cloves garlic', '…one lemon, <mark>two cloves of garlic</mark>, feta and oregano.'],
+        ['feta', '…two cloves of garlic, <mark>feta</mark> and oregano.'],
+        ['oregano', '…two cloves of garlic, feta and <mark>oregano</mark>.'],
+      ] }],
+      ['Steps', { list: 'ol', items: [
+        ['Blister the tomatoes in olive oil until they burst.', '<mark>Blister the tomatoes in olive oil until they burst.</mark> Then the garlic, thirty seconds.'],
+        ['Add garlic for thirty seconds, then the orzo and two cups of water.', 'Then the garlic, thirty seconds. <mark>Add the orzo and two cups of water.</mark>'],
+        ['Simmer ten minutes, stirring.', '<mark>Simmer ten minutes, stirring</mark> so it does not stick.'],
+        ['Off the heat: lemon zest and juice, feta, oregano.', '<mark>Off the heat: lemon zest and juice, feta, oregano.</mark> Done.'],
+      ] }],
+    ],
+    cells: [
+      { id: 'Shopping list', kind: 'draft' }, { id: 'Recipe card', kind: 'draft' },
+      { id: 'Order groceries', kind: 'confirm', why: 'needs a store connection' },
+      { id: 'Similar recipes', kind: 'muted', why: 'needs a search provider' },
+    ],
+  },
+  product: {
+    label: 'product', kindToday: 'link', title: 'Wool Interlock Johnny-Collar Polo Sweater', source: 'vince.com', date: 'oct 9 2026',
+    description: 'A best-selling sweater in 100% wool, light ink blue.',
+    summary: 'The Wool Interlock Johnny-Collar Polo Sweater is a best-selling item made from 100% wool, available in light ink blue, and priced at $248.00.', topics: ['sweater', 'wool', 'clothing', "men's wear"],
+    sourceName: 'the publisher’s facts',
+    rows: [
+      ['Name', [['Wool Interlock Johnny-Collar Polo Sweater', '{"kind":"product","name":"<mark>Wool Interlock Johnny-Collar Polo Sweater</mark>","product":{"sku":"M19819120BLIGHTINKBLUE","color":"LIGHT INK BLUE","material":"100% Wool.","offer":{"price":"248.00","currency":"USD"}}}']]],
+      ['Style / SKU', [['M19819120BLIGHTINKBLUE', '…"product":{"sku":"<mark>M19819120BLIGHTINKBLUE</mark>","color":"LIGHT INK BLUE"…']]],
+      ['Color', [['LIGHT INK BLUE', '…"color":"<mark>LIGHT INK BLUE</mark>","material":"100% Wool."…']]],
+      ['Material', [['100% Wool.', '…"material":"<mark>100% Wool.</mark>","offer":{"price":"248.00","currency":"USD"}…']]],
+      ['Price at capture', [['248.00 USD', '…"offer":{"price":"<mark>248.00</mark>","currency":"<mark>USD</mark>"}}} — a publisher price, observed Oct 9; prices change.']]],
+    ],
+    cells: [
+      { id: 'Find similar', kind: 'muted', why: 'needs a search provider' },
+      { id: 'Compare prices', kind: 'muted', why: 'needs current retailer offers' },
+      { id: 'More in this color', kind: 'muted', why: 'needs a search provider' },
+    ],
+  },
+  paper: {
+    label: 'paper', kindToday: 'article', title: 'Why You See Everything but Remember Almost Nothing', source: 'lindseymackereth.substack.com', date: 'oct 9 2026',
+    description: 'The strange connection between high pattern recognition and poor sequential recall.',
+    summary: 'An exploration of the relationship between high pattern recognition abilities and poor sequential recall, discussing how this phenomenon is a coherent consequence of brain structure.', topics: ['memory', 'cognition', 'pattern recognition', 'neuroscience'],
+    sourceName: 'the page',
+    rows: [
+      ['Title', [['Why You See Everything but Remember Almost Nothing', '# <mark>Why You See Everything but Remember Almost Nothing</mark>\n### The strange connection between high pattern recognition and poor sequential recall.']]],
+      ['Authors', [['Lindsey Mackereth', '[<mark>Lindsey Mackereth</mark>](https://substack.com/@lindseymackereth) · Sep 28, 2026 · Paid']]],
+      ['Findings', { list: 'ul', items: [
+        ['The strange connection between high pattern recognition and poor sequential recall.', '### <mark>The strange connection between high pattern recognition and poor sequential recall.</mark>'],
+        ['This is not a contradiction or evidence that you are somehow brilliant in one room and absent in another.', '<mark>This is not a contradiction or evidence that you are somehow brilliant in one room and absent in another.</mark> It is a completely coherent consequence of how your brain is actually built…'],
+        ['It shows up in specific and recognizable ways:', 'It isn’t that you weren’t paying attention. <mark>It shows up in specific and recognizable ways:</mark> — This post is for paid subscribers'],
+      ] }],
+    ],
+    cells: [
+      { id: 'Study guide', kind: 'draft' }, { id: 'Flash cards', kind: 'draft' },
+      { id: 'Similar papers', kind: 'muted', why: 'needs a research provider' },
+    ],
+  },
+  book: {
+    label: 'book', kindToday: 'photo', title: 'Image of “Contagious” Book Cover', source: 'jpg · 1.8 mb', date: 'oct 8 2026',
+    description: 'A bestselling book that explores why certain ideas and products go viral, written by Jonah Berger.',
+    summary: 'A bestselling book that explores why certain ideas and products go viral.', topics: ['bestseller', 'viral marketing', 'psychology', 'social influence'],
+    sourceName: 'the picture’s text',
+    rows: [
+      ['Title', [['Contagious, WHY THINGS CATCH ON', 'NEW YORK TIMES BESTSELLER, <mark>Contagious, WHY THINGS CATCH ON</mark>, JONAH BERGER, “Jonah Berger knows more about what makes information \'go viral\' than anyone in the world.” — DANIEL GILBERT']]],
+      ['Authors', [['JONAH BERGER', 'NEW YORK TIMES BESTSELLER, Contagious, WHY THINGS CATCH ON, <mark>JONAH BERGER</mark>, “Jonah Berger knows more about what makes information \'go viral\'…']]],
+    ],
+    cells: [
+      { id: 'Find the edition', kind: 'muted', why: 'needs a book catalog' },
+      { id: 'Ratings', kind: 'muted', why: 'needs a ratings provider' },
+    ],
+  },
+  event: {
+    label: 'event', kindToday: 'article', misread: true, title: 'I Built 3 SaaS Apps to $200K MRR: Here’s My Exact Playbook', source: 'starterstory.com', date: 'oct 7 2026',
+    description: 'Mike shares his experience building multiple SaaS applications and outlines a 10-step playbook.',
+    summary: 'Mike shares his experience building multiple SaaS applications and outlines a 10-step playbook for success in the SaaS industry.', topics: ['SaaS', 'entrepreneurship', 'playbook', 'case study'],
+    sourceName: 'the page',
+    rows: [
+      ['Name', [['I Built 3 SaaS Apps to $200K MRR: Here\'s My Exact Playbook', '# <mark>I Built 3 SaaS Apps to $200K MRR: Here\'s My Exact Playbook</mark>']]],
+      ['When', [['Nov 2, 2025', 'Published <mark>Nov 2, 2025</mark> · Starter Story']]],
+      ['Where', [['Starter Story', 'Published Nov 2, 2025 · <mark>Starter Story</mark>']]],
+      ['Organizer', [['Mike', '<mark>Mike</mark> shares how he built three SaaS apps…']]],
+    ],
+    cells: [
+      { id: 'Add to calendar', kind: 'confirm', why: 'needs a calendar connection' },
+    ],
+  },
+  travel: {
+    label: 'travel', kindToday: 'video', title: 'I still think about the butter here😍 but this restaurant is beautiful and its service is…', source: 'tiktok.com', date: 'oct 10 2026',
+    description: 'A positive review of a restaurant in Paris, highlighting its beauty and wonderful service.',
+    summary: 'A positive review of a restaurant in Paris, highlighting its beauty and wonderful service, along with a mention of the butter.', topics: ['Paris', 'restaurant', 'food', 'travel'],
+    sourceName: 'the caption',
+    rows: [
+      ['Destination', [['Paris', 'I still think about the butter here😍 but this restaurant is beautiful and its service is wonderful which in <mark>Paris</mark> means a lot #paris #parisfrance']]],
+      ['Places', { list: 'ul', items: [['restaurant', '…but this <mark>restaurant</mark> is beautiful and its service is wonderful…']] }],
+    ],
+    cells: [
+      { id: 'Itinerary', kind: 'draft' },
+      { id: 'Map of the places', kind: 'muted', why: 'needs a map provider' },
+      { id: 'Places to stay', kind: 'muted', why: 'needs travel dates' },
+      { id: 'Packing list', kind: 'muted', why: 'needs travel dates and length' },
+    ],
+  },
+  place: {
+    label: 'place', kindToday: 'video', title: 'The best hotel resort in America? Blackberry Farm, Tennessee', source: 'tiktok.com', date: 'oct 10 2026',
+    description: 'Blackberry Farm is highlighted as the best hotel resort in America, located in Tennessee.',
+    summary: 'Blackberry Farm is highlighted as the best hotel resort in America, located in Tennessee.', topics: ['luxury hotel', 'resort', 'Tennessee'],
+    sourceName: 'the caption',
+    rows: [
+      ['Name', [['Blackberry Farm', '#greenscreen The best hotel resort in America? <mark>Blackberry Farm</mark>, Tennessee📍 #luxuryhotel #resort']]],
+    ],
+    cells: [
+      { id: 'Map of this place', kind: 'muted', why: 'needs a map provider' },
+    ],
+    placeNote: 'When the save is a map link, the shipped location section already lists address, hours, phone, menu and directions from attributes.place; a place read from a caption like this one only has a name, so the cell says what it still needs.',
+  },
+};
+
+const KINDS = Object.keys(DATA);
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const quoteHtml = (q) => esc(q).replace(/&lt;mark&gt;/g, '<mark>').replace(/&lt;\/mark&gt;/g, '</mark>').replace(/\n/g, '<br>');
+
+const factHtml = (value, quote, source) => `<span class="factwrap"><button type="button" class="fact" aria-expanded="false" data-quote="${esc(quote)}" data-source="${esc(source)}">${esc(value)}</button></span>`;
+
+function render(kind) {
+  const d = DATA[kind];
+  const rows = d.rows.map(([label, content]) => {
+    let value;
+    if (Array.isArray(content)) value = content.map(([v, q]) => factHtml(v, q, d.sourceName)).join(', ');
+    else value = `<${content.list}>${content.items.map(([v, q]) => `<li>${factHtml(v, q, d.sourceName)}</li>`).join('')}</${content.list}>`;
+    return `<div class="row"><span class="label pixel">${esc(label)}</span><span class="value">${value}</span></div>`;
+  }).join('');
+  const cells = d.cells.map((c) => {
+    if (c.kind === 'draft') return `<a class="cell draft" href="#">${esc(c.id)}</a>`;
+    if (c.kind === 'confirm') return `<a class="cell confirm" href="#" title="${esc(c.why)}">${esc(c.id)}</a>`;
+    return `<span class="cell muted">${esc(c.id)} <span class="why">· ${esc(c.why)}</span></span>`;
+  }).join('');
+  document.getElementById('panel').innerHTML = `
+    <div class="bar pixel"><span class="sym">A</span><span class="kind">${esc(d.label)}</span><span>${esc(d.source)}</span><span class="dim">saved ${esc(d.date)}</span></div>
+    <div class="body">
+      <h2 class="title">${esc(d.title)}</h2>
+      <p class="desc">${esc(d.description)}</p>
+      <div class="section">
+        <div class="head"><span class="pixel">${esc(d.label)}${d.sample ? ' <span class="sample">· sample</span>' : ''}</span><span class="aside pixel"><span class="beta">beta</span>from ${esc(d.sourceName)}</span></div>
+        <div class="topics pixel">${d.topics.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
+        <div class="tree">${rows}</div>
+        <div class="quote" id="quote"><div class="qbar pixel"><span>the passage</span><span class="where" id="qwhere"></span></div><p id="qtext"></p><div class="qfoot pixel">a fact is a verbatim span of what stash captured · nothing is inferred</div></div>
+        <div class="cells">${cells}</div>
+        <p class="foot">${d.placeNote ? esc(d.placeNote) + ' ' : ''}Read from ${esc(d.sourceName)} on Oct 10, 2026. Drafts become notes you can edit; lookups and writes happen only when you ask.</p>
+        <div class="wrong">${d.misread ? '<button type="button">Not an event? Change the kind</button> <span class="pixel sample">· this page is a case study the model read as an event — the quote shows it in one tap</span>' : '<button type="button">Wrong kind?</button>'}</div>
+      </div>
+    </div>`;
+  document.querySelectorAll('.fact').forEach((b) => {
+    b.addEventListener('click', () => toggleQuote(b));
+    b.addEventListener('mouseenter', () => showQuote(b));
+  });
+}
+
+let openFact = null;
+function showQuote(b) {
+  const box = document.getElementById('quote');
+  document.getElementById('qtext').innerHTML = quoteHtml(b.dataset.quote);
+  document.getElementById('qwhere').textContent = b.dataset.source;
+  const row = b.closest('.row');
+  row.after(box);
+  box.classList.add('open');
+  document.querySelectorAll('.fact[aria-expanded="true"]').forEach((f) => f.setAttribute('aria-expanded', 'false'));
+  b.setAttribute('aria-expanded', 'true');
+}
+function toggleQuote(b) {
+  const box = document.getElementById('quote');
+  if (openFact === b && box.classList.contains('open')) { box.classList.remove('open'); b.setAttribute('aria-expanded', 'false'); openFact = null; return; }
+  showQuote(b); openFact = b;
+}
+
+function select(kind, push = true) {
+  document.querySelectorAll('#tabs button').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.kind === kind)));
+  render(kind);
+  if (push) history.replaceState(null, '', `#kind=${kind}`);
+}
+document.getElementById('tabs').innerHTML = KINDS.map((k) => `<button type="button" role="tab" class="pixel" data-kind="${k}" aria-selected="false">${k}</button>`).join('');
+document.querySelectorAll('#tabs button').forEach((t) => t.addEventListener('click', () => select(t.dataset.kind)));
+const initial = (location.hash.match(/kind=([a-z]+)/) || [])[1];
+select(KINDS.includes(initial) ? initial : 'recipe', false);
+</script>
+</body>
+</html>

@@ -532,7 +532,7 @@ once, and the shared beat never strands one mid-effect.
 | Composer chips | `| fetching more details…`, `| reading the link…`, `| analyzing…`, `| uploading…`, `| uploading · 45%` | `posted from Brooklyn, New York`, `finding your location…` |
 | The composer | | `type / for commands` (only while it's focused); the drop veil says `drop to save` |
 | Ask | `| searching your stash…` (before the first word), `| writing the answer…` (streaming) | `✓ searched your stash · 3 saves`, `answers from your 59 saves`, `also from`, `⌖ show 3 sources` / `showing` |
-| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again`; the address strip's `cancel`; the share cell `share` / `shared · anyone with the link` and its window `✓ link copied · anyone with it can view`, `anyone with the link can view`, `not on your feed · read only`, `copy link`, `✕ couldn't update the link. try again` |
+| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again`; the address strip's `cancel`; the share cell `share` / `shared · anyone with the link` and its window `✓ link copied · anyone with it can view`, `anyone with the link can view`, `not on your feed · read only`, `copy link`, `✕ couldn't update the link. try again`; the stages' `full size` / `exit full size`, `minimize`, the reader's `page 3 of 12`, `couldn't open this pdf here. open or download it below`; the notes rule's `+ note at 1:42` |
 | The shared page (§12.15) | `opening the save…` | `from @will’s stash`; a dead link: "This link no longer works." |
 | Settings | `| loading your settings…`, `| checking your plan…`, `| checking for agents…` | `signed in as …`, `connected 3 days ago · last used 1 hour ago`, `activity.log` |
 | The loading screen | `> opening your stash`, then eleven more, decrypting in the code voice (§12.10) | |
@@ -615,6 +615,7 @@ Heroes by kind:
 | Photo, screenshot | The image, cover-cropped to its subject; portrait contained on its blurred self over ink |
 | Link with a picture | The og:image, cover-cropped; video and book links use the tall contained treatment with a 44–48 px ink square play mark |
 | Repo link | An ink plate: `> owner/repo` in Departure Mono 16.5 (the `>` in `--spot-on-ink`) and the description in Montreal 13 at 65% white |
+| Place link (Apple Maps, Google Maps, a listing with coordinates) | The map: Mapbox's light style with an ink pin at the place, rendered once by the pipeline and stored as the save's picture, cover-cropped like any og:image; the kind tag reads `place` (2026-10-10) |
 | Link without a picture | The placeholder: the kind's pixel glyph (48 px) on the dotted fill, a black label with the domain, and, once Stash has finished looking, `preview limited, saved anyway`. While Stash reads, the glyph boils (§8) |
 | A picture still downloading | The mosaic (§7), until it arrives |
 | Voice note, recording | The player on plain fill: an ink square play button (44 px; 40 for recordings), 28 ink waveform bars (played solid, unplayed at 25%), the time in Departure Mono. 116 px tall for voice notes, 96 px for recordings |
@@ -761,6 +762,19 @@ ink on hover.
   2026-10-07: "the detail panel should show the video"). Audio uses the **player strip**: plain fill
   with a line edge, a 44 px ink play button, 40 ink bars, times in Departure Mono, a 28 px square
   speed control (`1×`, `1.5×`, `2×`) and `download original` (`edit/EditItemMediaZone`).
+- **The media plays** (2026-10-10, Will: "an embedded, playable version of the media"). A link
+  whose URL is a YouTube, Vimeo, Loom, TikTok, Instagram, Google Slides or Figma address gets its
+  own player on the dotted stage in place of its picture (`edit/EditItemEmbedStage`; landscape
+  players take the stage's width at 16:9, phone-shaped ones sit centred at 340 px); anything
+  else keeps the picture. An upload gets **the document stage** (`edit/EditItemDocumentStage`):
+  a PDF as a reader (one page at a time, `‹ page 3 of 12 ›` in the machine voice, ← → keys), an
+  Office file in Microsoft's viewer (slides step), an HTML upload in a sandboxed frame.
+- **Every stage has a hover cell** top-right (36 px, white, ink edge; `edit/StageFull`):
+  **full size** — the panel widens to the browser and the stage fills it, with an ink bar naming
+  the stage (`picture`, `video`, `youtube video`, `pdf`, `slides`) and a minimize cell; Esc or
+  minimize returns. The media element never remounts, so a playing video keeps playing. (A
+  browser-fullscreen cell shipped and was dropped the same day, 2026-10-10: players carry their
+  own.) The picture's replace/remove cells sit bottom-right.
 - **Source address:** the machine strip: favicon and the whole address in JetBrains Mono 12.5 as
   one link, then 40 px cells: **copy** (tooltip `copy address`; after a click the cell shows a
   check and says `copied` for two seconds), **edit** (`edit address`; the strip becomes a field in
@@ -792,13 +806,32 @@ ink on hover.
   retry. It's offered only when at least 50 characters were captured (the server's floor); under
   that the tab says "Too little text was captured to summarize. It's all under Original Content."
 - **Sections**, in order (2026-10-09, Will: "move source above notes"): the **source** first, then
-  **notes**, **details** and **sharing**. Notes, details and sharing open with a lowercase Departure
+  **notes**, **location** (a place only, 2026-10-10), **details** and **sharing**. Notes, details and sharing open with a lowercase Departure
   Mono label on a 1 px ink rule. The source section has **no label**: its tabs row sits on the left
   of the rule in Departure Mono (`summary | original content` for links and documents, `transcript`
   for audio and video; the open tab is ink), and a 24 px **full-size** cell sits on the right, which
   opens the active tab full size (`edit/MaximizedSource`: the window chrome the notes' maximize
   uses, an ink bar naming the tab, a minimize control, a reading column; Esc or minimize returns).
-  Empty source tabs are small dotted stages.
+  Empty source tabs are small dotted stages. **A video link** (YouTube, TikTok, a reel…) also
+  gets a **transcript** tab (`summary | original content | transcript`; once a transcript is
+  captured it is the original content and the tab set is `summary | transcript`); until the
+  pipeline lands it says "No transcript for this video yet." (2026-10-10).
+- **Timestamped notes** (2026-10-10, the first annotation): while a player on the panel reports
+  its time, the notes rule offers `+ note at 1:42` in the machine voice; it drops a `[1:42]`
+  marker into the note and focuses it. Markers are plain text that every client can read; here
+  they render in the code voice on the fill with an ink underline, and a click seeks the player
+  (`editor/TimestampLinks`, `edit/MediaClock`). Native audio/video and YouTube keep the clock;
+  Vimeo, TikTok and Instagram players don't expose one, so the control stays away.
+- **Location** (2026-10-10, Will: "a new 'location details' section, similar to the item details
+  section"): for a save that stands for a place (`attributes.place`), above the details drawer,
+  the label `location` with `open in apple maps` at the right of its rule, then the fact tree:
+  address (a link to the provider's page), hours — the machine line `open · closes 9:00 PM` or
+  `closed · opens Fri 4:00 PM` when the place's time zone is known, else today's hours; a
+  chevron opens the week as `mon–thu  4:00–9:00 PM` rows — phone, website, menu, rating
+  (`4.1 / 5 · 295 reviews · yelp`), price (`$$$`), category; then the cells **Directions ·
+  Call · Menu · Website** (44 px, ink edge, inverting on hover, an arrow glyph); and the muted
+  line `From Apple Maps, observed Oct 10, 2026. Hours and details can change.` The map is the
+  save's picture on the stage above.
 - **Details:** open by default (Will, 2026-10-07: "leave the details expanded by default"), the
   facts as a tree; a new item opens it again. Collapsed, the head shows the common facts inline
   (`m4a · 82.3 kb · 0:03`). Only an upload lists an original file: a link's stored cover isn't one.

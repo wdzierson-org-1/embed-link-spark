@@ -7,16 +7,22 @@ const previewCache = new Map<string, string>();
 
 const RENDER_WIDTH = 1200; // ~2x the edit panel's content width, crisp on retina
 
+/** pdf.js with its worker wired, loaded once and only when a PDF is on screen */
+export const loadPdfjs = async () => {
+  const pdfjs = await import('pdfjs-dist');
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+    pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  }
+  return pdfjs;
+};
+
 export const renderPdfFirstPage = async (fileUrl: string): Promise<string | null> => {
   const cached = previewCache.get(fileUrl);
   if (cached) return cached;
 
   try {
-    const pdfjs = await import('pdfjs-dist');
-    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-      const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
-      pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-    }
+    const pdfjs = await loadPdfjs();
 
     const doc = await pdfjs.getDocument({ url: fileUrl }).promise;
     try {

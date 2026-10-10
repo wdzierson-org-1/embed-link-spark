@@ -1,3 +1,7 @@
+import type { ObjectFacts } from '../../supabase/functions/_shared/objectFacts';
+import type { ObjectIntelligence } from '../../supabase/functions/_shared/objectIntelligence';
+import type { PlaceAttributes } from '../../supabase/functions/_shared/place';
+
 /**
  * Extensible per-item attribute blob, stored in items.attributes (jsonb).
  *
@@ -37,11 +41,37 @@ export type LinkFlavor = 'article' | 'video' | 'repo' | 'book' | 'social' | 'gen
 
 export type LinkAttributes = {
   flavor: LinkFlavor;
+  /**
+   * The address the save resolves to when the saved one is a share short link (TikTok's
+   * `tiktok.com/t/…`, `vm.tiktok.com/…`): written by add-url from oEmbed, read by the panel's
+   * embed. The saved `url` itself is never rewritten.
+   */
+  canonical_url?: string;
   /** Filled by future enrichment passes (oEmbed, source APIs) */
   author?: string;
   duration_s?: number;
   stars?: number;
   read_time_min?: number;
+};
+
+/**
+ * What enrichment knows about how `page_body` was captured (written by the server through
+ * `apply_enrichment_patch`'s evidence merge). `transcript: true` is the one flag every client
+ * reads for "this page_body is a transcript" — set by `scrape-page-content` for YouTube
+ * (Firecrawl, spec 2026-09-05) and by the maintenance loop's social adapter (Supadata).
+ */
+export type EnrichmentEvidence = {
+  transcript?: boolean;
+  transcript_source?: string;
+  capture_kind?: string;
+  duration_s?: number;
+  author?: string;
+  /** The social adapter's own marks (TikTok/Instagram captions, Supadata visual notes) */
+  creator?: { name?: string; handle?: string; url?: string; platform: 'tiktok' | 'instagram' | 'youtube' };
+  caption?: boolean;
+  canonical_url?: string;
+  visual?: boolean;
+  visual_text?: string;
 };
 
 /**
@@ -87,7 +117,17 @@ export type MediaAttributes = {
 };
 
 export type ItemAttributes = {
-  enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string };
+  /** Publisher structured facts, with source evidence; separate from the capture location. */
+  object_facts?: ObjectFacts;
+  /** Beta, source-bound facts, interpretations, and proposed interactions. */
+  object_intelligence?: ObjectIntelligence;
+  /**
+   * The place a saved address stands for (map-provider links, listing pages with coordinates):
+   * where it is, when it is open, how to reach it, and the map Stash rendered as its picture.
+   * Written by the capture pipeline (`_shared/placeEnrichment.ts`), never by a client.
+   */
+  place?: PlaceAttributes;
+  enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string; evidence?: EnrichmentEvidence };
   location?: CapturedLocation;
   link?: LinkAttributes;
   media?: MediaAttributes;

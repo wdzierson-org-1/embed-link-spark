@@ -1,3 +1,4 @@
+import { readObjectFacts } from '../_shared/objectFacts.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.2';
 import { isAgentToken } from '../_shared/agentToken.ts';
 import { afterDraining } from '../_shared/capture.ts';
@@ -7,6 +8,7 @@ import { classifyLinkFlavor } from '../_shared/linkFlavor.ts';
 import { isBlockedPageTitle, verifyRemoteImage } from '../_shared/blockedContentFallbacks.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
 import { resolveTikTokLink } from '../_shared/tiktok.ts';
+import { creatorEvidence } from '../_shared/socialEnrichment.ts';
 import { isPlaceholderMetadata } from '../_shared/enrichmentQuality.ts';
 import { applyCandidate, ENRICHMENT_COLUMNS } from '../_shared/enrichmentStore.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
@@ -39,6 +41,12 @@ const parseMetaContent = (html: string, property: string): string | null => {
   return null;
 };
 
+// The quick fetch runs before the response, and every client (the web composer included)
+// waits on it: a page that hangs must not hang the save. The deep pass after the response
+// has its own rescue cascade for whatever the quick fetch could not get.
+const PAGE_FETCH_TIMEOUT_MS = 8_000;
+const IMAGE_FETCH_TIMEOUT_MS = 12_000;
+
 const extractMetaFromHtml = (html: string) => {
   const cleanHtml = html.replace(/\n/g, ' ').replace(/\s+/g, ' ');
   
@@ -70,11 +78,12 @@ const downloadAndStoreImage = async (imageUrl: string, userId: string, supabase:
   
   try {
     console.log('Downloading image from:', imageUrl);
-    const response = await fetch(imageUrl, { 
+    const response = await fetch(imageUrl, {
       mode: 'cors',
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; Notes2MeBot/1.0)'
-      }
+      },
+      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
     });
     
     if (!response.ok) {
@@ -332,7 +341,8 @@ Deno.serve(async (req) => {
         const response = await fetch(url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (compatible; Notes2MeBot/1.0)'
-          }
+          },
+          signal: AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS),
         });
 
         if (response.ok) {
@@ -359,7 +369,7 @@ Deno.serve(async (req) => {
         // Try with a proxy service as fallback
         try {
           const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-          const proxyResponse = await fetch(proxyUrl);
+          const proxyResponse = await fetch(proxyUrl, { signal: AbortSignal.timeout(PAGE_FETCH_TIMEOUT_MS) });
 
           if (proxyResponse.ok) {
             const proxyData = await proxyResponse.json();
@@ -403,7 +413,15 @@ Deno.serve(async (req) => {
     const providedLink = (safeAttributes as Record<string, unknown>).link;
     const link = providedLink && typeof providedLink === 'object' && !Array.isArray(providedLink) ? providedLink as Record<string, unknown> : {};
     if (typeof link.flavor !== 'string') link.flavor = classifyLinkFlavor(url);
+    // A TikTok share short link (tiktok.com/t/…, vm.tiktok.com/…) carries no video id: keep the
+    // address oEmbed resolved it to, so the panel can frame the video (the saved url stays)
+    if (tiktok?.canonicalUrl && tiktok.canonicalUrl !== url && typeof link.canonical_url !== 'string') {
+      link.canonical_url = tiktok.canonicalUrl;
+    }
     (safeAttributes as Record<string, unknown>).link = link;
+    const creator = tiktok ? creatorEvidence('tiktok', {
+      name: tiktok.authorName, handle: tiktok.authorHandle, url: tiktok.authorUrl,
+    }) : {};
 
     // Insert the link into the items table with cleaned content
     const { data: item, error } = await supabase
@@ -422,7 +440,9 @@ Deno.serve(async (req) => {
         file_path: previewImagePath,
         is_public: is_public,
         visibility: is_public ? 'public' : 'private',
-        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString(), ...(customTitle ? { protected_fields: { title: true } } : {}) } },
+        attributes: { ...safeAttributes, enrichment: { status: 'pending', updated_at: new Date().toISOString(),
+          ...(Object.keys(creator).length ? { evidence: creator } : {}),
+          ...(customTitle ? { protected_fields: { title: true } } : {}) } },
         remind_at: remindAt
       })
       .select()
@@ -475,57 +495,70 @@ Deno.serve(async (req) => {
 
     // Full enrichment continues after the response: deep metadata (with the
     // blocked-site rescue cascade and stored preview image) plus the page
-    // scrape that feeds embeddings. Every client of this endpoint — web chat
-    // mole, menubar widget, browser extension, iOS — gets the same pipeline.
+    // scrape that captures the source — transcript, summary, embeddings. This
+    // is THE pipeline: every client — the web composer, the browser extension,
+    // the menubar widget, iOS through `capture` — gets exactly the same one.
     const enrichAfterResponse = async () => {
       let status = 'complete';
-      // A resolved TikTok is already complete (caption in page_body, creator,
-      // stored thumbnail); its page is a crawler shell, so the deep pass and
-      // the scrape could only fail and mark the card "partial"
-      if (tiktok?.caption) {
-        const { error: statusError } = await supabase.rpc('set_item_enrichment', { target_id: item.id, next_status: status });
-        if (statusError) console.error('Failed to settle enrichment:', statusError);
-        return;
-      }
-      try {
-        const { data: deepMeta, error: deepError } = await supabase.functions.invoke('extract-link-metadata', {
-          body: { url, userId: targetUserId, fastOnly: false },
-        });
-        if (deepError) throw deepError;
-        if (deepMeta) {
-          const { data: current, error: currentError } = await supabase.from('items').select(ENRICHMENT_COLUMNS).eq('id', item.id).single();
-          if (currentError) throw currentError;
-          const updates: Record<string, string> = {};
-          if (!customTitle && isPlaceholderMetadata(current.title, url) && deepMeta.title && !isPlaceholderMetadata(deepMeta.title, url) && !isBlockedPageTitle(deepMeta.title)) {
-            const deepTitle = cleanOptionalMetaTitle(deepMeta.title, deepMeta.description);
-            if (deepTitle) updates.title = deepTitle;
+      // oEmbed already gave a resolved TikTok its caption, creator and stored
+      // thumbnail, and its page is a crawler shell the deep metadata pass could
+      // only misread, so that pass is skipped. The scrape below still runs: it
+      // is where the transcript (and the summary built on it) comes from.
+      if (!tiktok) {
+        try {
+          const { data: deepMeta, error: deepError } = await supabase.functions.invoke('extract-link-metadata', {
+            body: { url, userId: targetUserId, fastOnly: false },
+          });
+          if (deepError) throw deepError;
+          if (deepMeta) {
+            const { data: current, error: currentError } = await supabase.from('items').select(ENRICHMENT_COLUMNS).eq('id', item.id).single();
+            if (currentError) throw currentError;
+            const updates: Record<string, string> = {};
+            if (!customTitle && isPlaceholderMetadata(current.title, url) && deepMeta.title && !isPlaceholderMetadata(deepMeta.title, url) && !isBlockedPageTitle(deepMeta.title)) {
+              const deepTitle = cleanOptionalMetaTitle(deepMeta.title, deepMeta.description);
+              if (deepTitle) updates.title = deepTitle;
+            }
+            if (isPlaceholderMetadata(current.description, url) && deepMeta.description && !isPlaceholderMetadata(deepMeta.description, url)) {
+              updates.description = cleanMetaText(deepMeta.description);
+            }
+            // Prefer the copy we stored in our own bucket; a raw external URL is
+            // last resort and only when it verifiably serves an image right now
+            let bestImage = deepMeta.previewImagePath || deepMeta.previewImagePublicUrl || null;
+            if (!bestImage && deepMeta.image && await verifyRemoteImage(deepMeta.image)) {
+              bestImage = deepMeta.image;
+            }
+            if (!current.file_path && bestImage) {
+              updates.file_path = bestImage;
+            }
+            if (Object.keys(updates).length > 0) {
+              await applyCandidate(supabase, current, updates, 'capture-metadata');
+            }
+            const objectFacts = readObjectFacts(deepMeta.objectFacts, url);
+            if (objectFacts) {
+              const { error: factsError } = await supabase.rpc('set_item_object_facts', {
+                target_id: item.id, expected_url: url,
+                expected_facts: current.attributes?.object_facts ?? null,
+                facts: { ...objectFacts, evidence: { ...objectFacts.evidence, source_url: url } },
+              });
+              if (factsError) throw factsError;
+            }
           }
-          if (isPlaceholderMetadata(current.description, url) && deepMeta.description && !isPlaceholderMetadata(deepMeta.description, url)) {
-            updates.description = cleanMetaText(deepMeta.description);
-          }
-          // Prefer the copy we stored in our own bucket; a raw external URL is
-          // last resort and only when it verifiably serves an image right now
-          let bestImage = deepMeta.previewImagePath || deepMeta.previewImagePublicUrl || null;
-          if (!bestImage && deepMeta.image && await verifyRemoteImage(deepMeta.image)) {
-            bestImage = deepMeta.image;
-          }
-          if (!current.file_path && bestImage) {
-            updates.file_path = bestImage;
-          }
-          if (Object.keys(updates).length > 0) {
-            await applyCandidate(supabase, current, updates, 'capture-metadata');
-          }
+        } catch (enrichError) {
+          status = 'partial';
+          console.error('Deep enrichment failed (non-fatal):', enrichError);
         }
-      } catch (enrichError) {
-        status = 'partial';
-        console.error('Deep enrichment failed (non-fatal):', enrichError);
       }
 
       try {
         const { data: scrape, error: scrapeError } = await supabase.functions.invoke('scrape-page-content', {
-          body: { itemId: item.id, url },
+          // The caption is the video's own words: the scrape keeps it as the
+          // description once the transcript takes its place in page_body
+          body: { itemId: item.id, url, ...(tiktok?.caption ? { caption: tiktok.caption } : {}) },
         });
-        if (scrapeError || scrape?.success === false) status = 'partial';
+        // A TikTok with nothing to transcribe (no speech, no captions) is still
+        // complete: its caption is its content and is already in page_body
+        const captionIsTheContent = Boolean(tiktok?.caption) && scrape?.reason === 'No usable source content';
+        if (scrapeError || (scrape?.success === false && !captionIsTheContent)) status = 'partial';
       } catch (scrapeError) {
         status = 'partial';
         console.error('Page scrape failed (non-fatal):', scrapeError);

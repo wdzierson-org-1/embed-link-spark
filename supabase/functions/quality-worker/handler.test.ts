@@ -163,3 +163,71 @@ describe('hosted quality worker boundary', () => {
     expect(() => validateResult(live, job)).toThrow();
   });
 });
+
+const assetUrl = 'https://media.licdn.com/dms/image/v2/person/photo.jpg';
+const assetCheck = () => ({ url: assetUrl, source_url: source, associated: true,
+  strategy: 'public_raster_fetch', outcome: 'usable_asset', reason: 'raster_structure_valid',
+  checked_at: '2026-10-10T12:00:00Z', duration_ms: 125, mime_type: 'image/jpeg',
+  byte_length: 1000, width: 400, height: 400, sha256: 'a'.repeat(64) });
+const checkedObservation = () => ({ ...structuredClone(observation),
+  image_candidates: [{ url: assetUrl, associated: true }], image_checks: [assetCheck()],
+  limitations: ['image_pixels_not_verified', 'image_decode_not_verified'] });
+const invalidAssetMutations = [
+  ['second check', (o: any) => o.image_checks.push(assetCheck())],
+  ['unrelated source', (o: any) => { o.image_checks[0].source_url = 'https://other.example/article'; }],
+  ['unrelated image', (o: any) => { o.image_checks[0].url = 'https://media.licdn.com/other.jpg'; }],
+  ['unassociated image', (o: any) => { o.image_candidates[0].associated = false; }],
+  ['second associated candidate', (o: any) => { o.image_candidates.unshift({ url: 'https://media.licdn.com/first.jpg', associated: true }); }],
+  ['claimed visual match', (o: any) => { o.image_checks[0].visual_match = true; }],
+  ['unknown top level field', (o: any) => { o.visual_match = true; }],
+  ['unknown strategy', (o: any) => { o.image_checks[0].strategy = 'browser_magic'; }],
+  ['unknown outcome', (o: any) => { o.image_checks[0].outcome = 'matched'; }],
+  ['unknown reason', (o: any) => { o.image_checks[0].reason = 'secret from exception'; }],
+  ['wrong reason/outcome pair', (o: any) => { o.image_checks[0].reason = 'image_timeout'; }],
+  ['missing hash', (o: any) => { delete o.image_checks[0].sha256; }],
+  ['invalid hash', (o: any) => { o.image_checks[0].sha256 = 'xxx'; }],
+  ['missing dimensions', (o: any) => { delete o.image_checks[0].width; }],
+  ['tiny usable asset', (o: any) => { o.image_checks[0].width = 1; }],
+  ['large usable asset', (o: any) => { o.image_checks[0].width = 12001; }],
+  ['pixel budget overflow', (o: any) => { o.image_checks[0].width = 10000; o.image_checks[0].height = 10000; }],
+  ['missing bytes', (o: any) => { delete o.image_checks[0].byte_length; }],
+  ['excess bytes', (o: any) => { o.image_checks[0].byte_length = 5242881; }],
+  ['fractional bytes', (o: any) => { o.image_checks[0].byte_length = 100.1; }],
+  ['zero bytes', (o: any) => { o.image_checks[0].byte_length = 0; }],
+  ['unsupported MIME', (o: any) => { o.image_checks[0].mime_type = 'image/svg+xml'; }],
+  ['missing MIME', (o: any) => { delete o.image_checks[0].mime_type; }],
+  ['invalid timestamp', (o: any) => { o.image_checks[0].checked_at = 'yesterday'; }],
+  ['excess duration', (o: any) => { o.image_checks[0].duration_ms = 10001; }],
+  ['negative duration', (o: any) => { o.image_checks[0].duration_ms = -1; }],
+  ['fractional duration', (o: any) => { o.image_checks[0].duration_ms = 0.1; }],
+  ['missing interpretation limit', (o: any) => { o.limitations = []; }],
+  ['failed check with success hash', (o: any) => { o.image_checks[0].outcome = 'invalid'; o.image_checks[0].reason = 'image_too_small'; }],
+  ['check containing credential URL', (o: any) => { const target = assetUrl + '?token=secret'; o.image_candidates[0].url = target; o.image_checks[0].url = target; }],
+];
+
+describe('image check persistence contract', () => {
+  const send = async (value: any, savedItem = job.input.items[0]) => {
+    const db = dbFor({ ok: true, item: savedItem, attempt_token: lease });
+    const response = await createWorkerHandler({ db, env: (k: string) => ({ QUALITY_RESEARCH_ENABLED: 'true', FIRECRAWL_API_KEY: 'test-provider' }[k] || env(k)), collect: async () => value } as any)(req(investigation()));
+    return { response, db };
+  };
+  it('persists bounded asset evidence without changing source text', async () => {
+    const value = checkedObservation(); const { response, db } = await send(value);
+    expect(response.status).toBe(200); expect(db.rpc.mock.calls[1][1].observation_payload).toEqual(value);
+  });
+  it.each(invalidAssetMutations)('rejects %s before persistence', async (_name, mutate) => {
+    const value = checkedObservation(); (mutate as (o: any) => void)(value);
+    const { response, db } = await send(value); expect(response.status).toBe(400); expect(db.rpc).toHaveBeenCalledTimes(1);
+  });
+  it('accepts unavailable and invalid results without inventing metadata', async () => {
+    for (const [outcome, reason] of [['unavailable', 'unsupported_image_host'], ['unavailable', 'image_timeout'], ['invalid', 'non_raster_response']]) {
+      const value: any = checkedObservation(); value.image_checks = [{ url: assetUrl, source_url: source, associated: true, strategy: 'public_raster_fetch', outcome, reason, checked_at: '2026-10-10T12:00:00Z', duration_ms: 20 }];
+      expect((await send(value)).response.status).toBe(200);
+    }
+  });
+  it('forbids image checks on refused unsafe sources', async () => {
+    const unsafe = { ...job.input.items[0], url: 'https://example.org/?access_token=secret' };
+    const value = { ...checkedObservation(), url: unsafe.url, outcome: 'unavailable', title: '', text: '', image_candidates: [], attempts: [{ strategy: 'firecrawl_rendered', outcome: 'unavailable', reason: 'unsafe_url', duration_ms: 0 }] };
+    const { response, db } = await send(value, unsafe); expect(response.status).toBe(400); expect(db.rpc).toHaveBeenCalledTimes(1);
+  });
+});

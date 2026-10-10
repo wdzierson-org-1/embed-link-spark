@@ -784,3 +784,17 @@
     animation: none;
   }
 }
+
+/* Timestamped notes (docs/ui-changes.md 2026-10-10): a [m:ss] marker in a note seeks the save's player */
+.stash-timestamp {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.85em;
+  padding: 0 0.3em;
+  background: var(--fill, #ecede9);
+  border-bottom: 1px solid var(--ink);
+  cursor: pointer;
+}
+.stash-timestamp:hover {
+  background: var(--ink);
+  color: #fff;
+}

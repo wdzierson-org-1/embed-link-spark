@@ -1,21 +1,144 @@
 import { CRAWLER_UA, fetchHtml, fetchViaJinaReader, fetchViaWayback, htmlToText } from './blockedContentFallbacks.ts';
 import { inspectSourceText, sourceIdentity } from './enrichmentQuality.ts';
-export async function extractPage(url: string, firecrawlKey?: string) {
-  const accepted = (text: string | null | undefined, source: string) => {
+import { getYouTubeVideoId } from './youtube.ts';
+import { parseYouTubeMarkdown } from './youtubeTranscript.ts';
+import { fetchInstagramTranscript, fetchTikTokTranscript, type SocialTranscript } from './socialTranscripts.ts';
+
+export interface PageCapture {
+  text: string;
+  kind: 'page' | 'caption' | 'transcript' | 'ocr';
+  source: string;
+  /** A video's own facts, read beside its transcript */
+  facts?: { description?: string | null; durationS?: number | null; author?: string | null; language?: string | null };
+}
+
+/** The provider keys the extraction may use; a bare string is the Firecrawl key (older callers) */
+export interface ExtractionKeys {
+  firecrawl?: string;
+  tiktok?: string;
+  reels?: string;
+}
+
+/**
+ * Firecrawl v2: the same `data.markdown` shape as v1, plus the YouTube post-processor, which
+ * writes the video's facts, description and transcript into the markdown (watch, live, youtu.be;
+ * not Shorts). The language follows `location.languages[0]`.
+ */
+const scrapeWithFirecrawl = async (url: string, key: string, trace?: string[], options: { fresh?: boolean } = {}): Promise<string | null> => {
+  const response = await fetch('https://api.firecrawl.dev/v2/scrape', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url,
+      formats: ['markdown'],
+      onlyMainContent: true,
+      location: { languages: ['en'] },
+      // v2 serves a recent scrape from its cache by default; the YouTube post-processor
+      // (description + transcript) only runs on a fresh scrape, so a video asks for one
+      ...(options.fresh ? { maxAge: 0 } : {}),
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => '')).slice(0, 200);
+    console.warn('firecrawl', response.status, url, detail);
+    trace?.push(`firecrawl ${response.status}: ${detail}`);
+    return null;
+  }
+  const payload = await response.json();
+  const markdown = payload?.data?.markdown;
+  if (typeof markdown !== 'string') {
+    trace?.push(`firecrawl 200 without markdown: ${JSON.stringify(payload).slice(0, 200)}`);
+    return null;
+  }
+  trace?.push(`firecrawl 200: ${markdown.length} chars; headings: ${markdown.split('\n').filter((l) => /^#{1,4}\s/.test(l)).slice(0, 8).join(' | ')}`);
+  return markdown;
+};
+
+const transcriptCapture = (url: string, source: string, transcript: SocialTranscript | null): PageCapture | null => {
+  if (!transcript) return null;
+  const checked = inspectSourceText(url, transcript.text, 'transcript');
+  if (!checked.usable) return null;
+  return {
+    text: checked.text,
+    kind: 'transcript',
+    source,
+    facts: { description: transcript.description ?? null, durationS: transcript.durationS ?? null, author: transcript.author ?? null, language: transcript.language ?? null },
+  };
+};
+
+/**
+ * What a link's page is worth keeping. A video's content is its transcript: YouTube through
+ * Firecrawl (never the chrome cascade), TikTok through SearchApi, Instagram Reels through
+ * TranscriptFetch — each only when its key is set; a social video without a transcript falls
+ * through to the cascade as before. `trace` (optional) collects what each adapter answered,
+ * surfaced by scrape-page-content's extractOnly.
+ */
+export async function extractPage(url: string, keysOrFirecrawlKey?: ExtractionKeys | string, trace?: string[]): Promise<PageCapture | null> {
+  const keys: ExtractionKeys = typeof keysOrFirecrawlKey === 'string' ? { firecrawl: keysOrFirecrawlKey } : keysOrFirecrawlKey ?? {};
+  const accepted = (text: string | null | undefined, source: string): PageCapture | null => {
     const result = inspectSourceText(url, text);
     return result.usable ? { text: result.text.slice(0, 50_000), kind: result.kind, source } : null;
   };
-  if (firecrawlKey) {
+
+  // A YouTube video's content is its transcript. Firecrawl is the only source that yields one;
+  // the cascade below only ever yields YouTube's chrome, so it is never tried for a video
+  // (spec 2026-09-05: an honest empty state beats a decorative one).
+  const youtubeId = getYouTubeVideoId(url);
+  if (youtubeId) {
+    if (!keys.firecrawl) {
+      trace?.push('youtube: no firecrawl key');
+      return null;
+    }
     try {
-      const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
-        method: 'POST', headers: { Authorization: `Bearer ${firecrawlKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, formats: ['markdown'], onlyMainContent: true }), signal: AbortSignal.timeout(15_000),
-      });
-      if (response.ok) {
-        const result = accepted((await response.json())?.data?.markdown, 'firecrawl');
-        if (result) return result;
+      const parsed = parseYouTubeMarkdown(await scrapeWithFirecrawl(url, keys.firecrawl, trace, { fresh: true }));
+      if (!parsed.transcript) {
+        console.warn('youtube transcript unavailable', url);
+        trace?.push('youtube: no transcript section');
+        return null;
       }
-    } catch { /* Try the next approved adapter. */ }
+      const checked = inspectSourceText(url, parsed.transcript, 'transcript');
+      if (!checked.usable) return null;
+      return {
+        text: checked.text,
+        kind: 'transcript',
+        source: 'firecrawl-youtube',
+        facts: { description: parsed.description, durationS: parsed.durationS, author: parsed.author, language: 'en' },
+      };
+    } catch (error) {
+      console.warn('firecrawl youtube failed', url, error);
+      return null;
+    }
+  }
+
+  const identity = sourceIdentity({ type: 'link', url });
+  if (identity.source === 'tiktok' && identity.kind === 'video' && keys.tiktok) {
+    try {
+      const capture = transcriptCapture(url, 'searchapi-tiktok', await fetchTikTokTranscript(url, keys.tiktok, fetch, trace));
+      if (capture) return capture;
+    } catch (error) {
+      console.warn('searchapi tiktok failed', url, error);
+      trace?.push(`searchapi failed: ${String(error).slice(0, 120)}`);
+    }
+  }
+  if (identity.source === 'instagram' && (identity.kind === 'video' || identity.kind === 'post') && keys.reels) {
+    try {
+      const capture = transcriptCapture(url, 'transcriptfetch-instagram', await fetchInstagramTranscript(url, keys.reels, fetch, trace));
+      if (capture) return capture;
+    } catch (error) {
+      console.warn('transcriptfetch instagram failed', url, error);
+      trace?.push(`transcriptfetch failed: ${String(error).slice(0, 120)}`);
+    }
+  }
+
+  if (keys.firecrawl) {
+    try {
+      const result = accepted(await scrapeWithFirecrawl(url, keys.firecrawl, trace), 'firecrawl');
+      if (result) return result;
+    } catch (error) {
+      trace?.push(`firecrawl failed: ${String(error).slice(0, 120)}`);
+      /* Try the next approved adapter. */
+    }
   }
   for (const [ua, name] of [
     ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36', 'direct-fetch'],
@@ -29,7 +152,7 @@ export async function extractPage(url: string, firecrawlKey?: string) {
   const reader = accepted(jina?.content, 'jina-reader');
   if (reader) return reader;
   // An archived article can be useful; archived social chrome rarely identifies the saved post.
-  if (!['tiktok', 'instagram', 'youtube'].includes(sourceIdentity({ type: 'link', url }).source)) {
+  if (!['tiktok', 'instagram', 'youtube'].includes(identity.source)) {
     const html = await fetchViaWayback(url);
     const archive = accepted(html ? htmlToText(html) : null, 'wayback-snapshot');
     if (archive) return archive;

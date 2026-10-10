@@ -1,6 +1,15 @@
 # YouTube transcript enrichment — design
 
-**Date:** 2026-09-05 · **Status:** awaiting Will's review · **Scope:** backend
+> **2026-10-10 update:** implemented per §3–§5 with one change: the transcript flag is
+> `attributes.enrichment.evidence.transcript = true` (the flag the maintenance loop's Supadata
+> adapter already writes), not `attributes.link.transcript`; `duration_s`/`author` ride in the
+> same evidence blob. `FIRECRAWL_API_KEY` was already set. The web transcript tab shipped the
+> same day (docs/ui-changes.md 2026-10-10). The backfill (§8) has not been run. Later that day
+> TikTok (SearchApi) and Instagram Reels (TranscriptFetch) joined the same save-time path with
+> the same flag, so §3.6's "Supadata later" is superseded —
+> see `docs/hosted-intelligence-transcripts-2026-10-10.md`.
+
+**Date:** 2026-09-05 · **Status:** implemented 2026-10-10 (see update) · **Scope:** backend
 (`scrape-page-content`), web detail sheet, iOS detail sheet, one-off backfill.
 
 Companion to the thumbnail fix shipped the same day (`_shared/youtube.ts`,

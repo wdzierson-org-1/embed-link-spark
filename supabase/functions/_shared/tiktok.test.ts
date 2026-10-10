@@ -74,6 +74,7 @@ describe('resolveTikTokLink', () => {
       caption: OEMBED.title,
       authorName: 'Garth | Psychotherapist',
       authorHandle: 'garthgarthgarth',
+      authorUrl: OEMBED.author_url,
       description: 'TikTok by Garth | Psychotherapist (@garthgarthgarth)',
       image: OEMBED.thumbnail_url,
       siteName: 'TikTok',
@@ -122,6 +123,18 @@ describe('resolveTikTokLink', () => {
     expect(result?.caption).toBeUndefined();
     expect(result?.description).toBe('TikTok by Garth | Psychotherapist (@garthgarthgarth)');
   });
+  it('retains an explicit handle even if other oEmbed fields are absent', async () => {
+    const result = await resolveTikTokLink(SHORTLINK, fakeFetch({ [oembedUrl(SHORTLINK)]: { status: 200, body: { author_unique_id: 'author' } } }));
+    expect(result?.authorHandle).toBe('author');
+    expect(result?.authorName).toBeUndefined();
+    expect(result?.authorUrl).toBeUndefined();
+  });
+  it.each(['https://elsewhere.example/@author', 'javascript:alert(1)', 'https://user:secret@www.tiktok.com/@author',
+    'https://www.tiktok.com/@author?token=secret'])('does not persist an unsafe creator URL: %s', async (author_url) => {
+      const result = await resolveTikTokLink(SHORTLINK, fakeFetch({ [oembedUrl(SHORTLINK)]: { status: 200, body: { ...OEMBED, author_url } } }));
+      expect(result?.authorUrl).toBeUndefined();
+      expect(result?.canonicalUrl).toBeUndefined();
+    });
 });
 
 describe('tikTokCaption (maintenance social adapter)', () => {
@@ -131,6 +144,7 @@ describe('tikTokCaption (maintenance social adapter)', () => {
     expect(result).toEqual({
       text: OEMBED.title,
       canonical: 'https://www.tiktok.com/@garthgarthgarth/video/7689915860990905622',
+      evidence: { author: OEMBED.author_name, creator: { name: OEMBED.author_name, handle: OEMBED.author_unique_id, url: OEMBED.author_url, platform: 'tiktok' } },
     });
   });
 });

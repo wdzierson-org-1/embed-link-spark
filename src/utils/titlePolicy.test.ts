@@ -46,7 +46,9 @@ describe('isPlaceholderTitle', () => {
 describe('isStorageTimestampName / isUuidObjectName', () => {
   it('matches only the generated shapes', () => {
     expect(isStorageTimestampName('1724900000000.webm')).toBe(true);
+    expect(isStorageTimestampName('1760000000000-ab12cd.m4a')).toBe(true); // the composer's staged upload
     expect(isStorageTimestampName('my-audio.webm')).toBe(false);
+    expect(isStorageTimestampName('2024-report.pdf')).toBe(false);
     expect(isUuidObjectName('72322570-a4bc-4515-935c-ff384090f068.m4a')).toBe(true);
     expect(isUuidObjectName('interview-with-sam.m4a')).toBe(false);
   });

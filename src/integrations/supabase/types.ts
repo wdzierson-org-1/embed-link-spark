@@ -718,6 +718,7 @@ export type Database = {
         }[]
       }
       set_item_enrichment: { Args: { target_id: string; next_status: string }; Returns: undefined }
+      set_item_object_facts: { Args: { target_id: string; expected_url: string; expected_facts: Json; facts: Json }; Returns: boolean }
       follow_user: { Args: { target_id: string }; Returns: boolean }
       get_follower_count: { Args: { user_id: string }; Returns: number }
       get_following_count: { Args: { user_id: string }; Returns: number }

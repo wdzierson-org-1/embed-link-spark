@@ -19,6 +19,7 @@ import {
 } from '../_shared/blockedContentFallbacks.ts';
 import { isPageChromeImage, previewImageCandidates } from '../_shared/pagePreview.ts';
 import { fetchMediumFeedPreview } from '../_shared/mediumFeedPreview.ts';
+import { extractObjectFacts, type ObjectFacts } from '../_shared/objectFacts.ts';
 import { resolveYouTubeLink } from '../_shared/youtube.ts';
 
 const corsHeaders = {
@@ -27,6 +28,7 @@ const corsHeaders = {
 };
 
 interface MetadataResult {
+  objectFacts?: ObjectFacts;
   title?: string;
   description?: string;
   image?: string;
@@ -491,7 +493,7 @@ const isLikelyAuthWall = (metadata: Partial<MetadataResult>, originalUrl: string
   return false;
 };
 
-const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: string) => {
+const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: string): Promise<Partial<MetadataResult>> => {
   const cleanHtml = html.replace(/\n/g, ' ').replace(/\s+/g, ' ');
   
   // Try platform-specific extraction first for better results
@@ -656,7 +658,8 @@ const extractMetaFromHtml = async (html: string, originalUrl: string, finalUrl: 
     image: image?.trim(),
     siteName: siteName?.trim(),
     videoUrl: videoUrl?.trim(),
-    strategyUsed: 'html-meta-parse'
+    strategyUsed: 'html-meta-parse',
+    objectFacts: extractObjectFacts({ url: originalUrl, html }),
   };
 };
 
@@ -838,7 +841,7 @@ const isWeakOrBlockedMetadata = (metadata: { title?: string | null; description?
 const rescueBlockedMetadata = async (
   originalUrl: string,
   finalResolvedUrl: string
-): Promise<Record<string, string | undefined> | null> => {
+): Promise<Partial<MetadataResult> | null> => {
   // Tier 2: crawler UA — beats plain UA-sniffing blockers
   const crawlerHtml = await fetchHtml(originalUrl, CRAWLER_UA, 8_000);
   if (crawlerHtml && !looksBlocked(crawlerHtml)) {
@@ -879,7 +882,10 @@ const rescueBlockedMetadata = async (
   if (waybackHtml) {
     const meta = await extractMetaFromHtml(waybackHtml, originalUrl, finalResolvedUrl);
     if (meta.title && !isGenericTitle(meta.title, originalUrl)) {
-      return { ...meta, strategyUsed: 'wayback-rescue' };
+      // A historic page is useful preview evidence, but its prices and opening
+      // information must not be represented as a current observation.
+      const { objectFacts: _historicFacts, ...preview } = meta;
+      return { ...preview, strategyUsed: 'wayback-rescue' };
     }
   }
 
@@ -1154,6 +1160,7 @@ serve(async (req) => {
         previewImagePublicUrl,
         siteName: metadata.siteName || validUrl.hostname,
         videoUrl: metadata.videoUrl,
+        objectFacts: metadata.objectFacts,
         strategyUsed: metadata.strategyUsed || 'html-meta-parse',
         traceId,
         url: url,
@@ -1195,6 +1202,7 @@ serve(async (req) => {
               image: rescuedImage && !isPageChromeImage(rescuedImage) ? rescuedImage : undefined,
               siteName: rescued.siteName || fallbackUrl.hostname,
               strategyUsed: rescued.strategyUsed,
+              objectFacts: rescued.objectFacts,
               traceId,
               url: originalUrl,
               success: true,

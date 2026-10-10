@@ -1,6 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import EditItemMediaZone from './EditItemMediaZone';
 
+// The stage's full-size / full-screen cells carry tooltips; no provider is mounted here
+vi.mock('@/components/ui/tooltip', () => ({
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: () => null,
+}));
+
 const SRC = 'https://example.supabase.co/storage/v1/object/public/stash-media/u/clip.mp4';
 
 it('shows a video as a video: playable on the stage, with the original to download', () => {

@@ -9,14 +9,18 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import ItemWindowBar from '@/components/edit/ItemWindowBar';
 import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemImageStage from '@/components/edit/EditItemImageStage';
+import EditItemEmbedStage from '@/components/edit/EditItemEmbedStage';
+import { embedSourceFor } from '@/utils/embeds';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
+import LocationDetailsSection from '@/components/edit/LocationDetailsSection';
+import { readPlace } from '../../supabase/functions/_shared/place';
 import ReadOnlyNovelRenderer from '@/components/ReadOnlyNovelRenderer';
 import TranscriptContent from '@/components/TranscriptContent';
 import { ReadOnlyText } from '@/components/EditItemContentSection';
 import { SectionHead } from '@/components/edit/EditPanelSection';
-import { getContentTabsConfig, type ContentTabKey } from '@/utils/editPanelTabs';
+import { getContentTabsConfig, hasCapturedTranscript, type ContentTabKey } from '@/utils/editPanelTabs';
 import { noteIsEmpty } from '@/utils/noteContent';
 import { SHARE_TOKEN_PATTERN } from '@/utils/shareToken';
 import type { ItemAttributes } from '@/types/itemAttributes';
@@ -145,6 +149,7 @@ const SharedItem = () => {
   const mediaUrl = publicUrlFor(save.file_path);
   const isPlayable = save.type === 'audio' || save.type === 'video';
   const hasPicture = (save.type === 'image' || save.type === 'link') && Boolean(mediaUrl);
+  const embed = save.type === 'link' ? embedSourceFor(save) : null;
   const isDocument = save.type === 'document' || save.type === 'pdf';
 
   const view = (tab: ContentTabKey) => {
@@ -154,6 +159,7 @@ const SharedItem = () => {
     if (tab === 'original') {
       return save.page_body ? <ReadOnlyText text={save.page_body} capped={false} /> : <EmptyTab>No page content was captured.</EmptyTab>;
     }
+    if (save.type === 'link' && !hasCapturedTranscript(save.attributes)) return <EmptyTab>No transcript for this video yet.</EmptyTab>;
     return <TranscriptContent itemId={save.id} transcript={save.page_body} />;
   };
 
@@ -174,7 +180,11 @@ const SharedItem = () => {
           )}
 
           {isPlayable && mediaUrl && <EditItemMediaZone item={save} src={mediaUrl} title={save.title ?? undefined} />}
-          {hasPicture && <EditItemImageStage src={mediaUrl} alt={save.title || 'Picture'} />}
+          {embed ? (
+            <EditItemEmbedStage embed={embed} title={save.title ?? undefined} />
+          ) : (
+            hasPicture && <EditItemImageStage src={mediaUrl} alt={save.title || 'Picture'} />
+          )}
           {isDocument && save.file_path && (
             <div className="mt-6">
               <EditItemDocumentSection filePath={save.file_path} fileName={save.title ?? undefined} mimeType={save.mime_type ?? undefined} />
@@ -220,6 +230,8 @@ const SharedItem = () => {
               )}
             </>
           )}
+
+          {readPlace(save.attributes?.place) && <LocationDetailsSection place={readPlace(save.attributes?.place)!} />}
 
           <div className="mt-[30px]">
             <EditItemDetailsDrawer item={save} />
