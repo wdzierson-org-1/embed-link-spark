@@ -33,7 +33,7 @@ describe('a YouTube video (spec 2026-09-05)', () => {
       kind: 'transcript',
       source: 'firecrawl-youtube',
       text: 'Pick ripe tomatoes, salt them,\nand finish with olive oil.',
-      youtube: { description: 'A quick salad.', durationS: 150, author: 'Chef' },
+      facts: { description: 'A quick salad.', durationS: 150, author: 'Chef' },
     });
     const [calledUrl, init] = (fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
     expect(calledUrl).toBe('https://api.firecrawl.dev/v2/scrape');
@@ -59,6 +59,35 @@ describe('a YouTube video (spec 2026-09-05)', () => {
   it('survives a Firecrawl failure', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('timeout')));
     expect(await extractPage(youtube, 'test-key')).toBeNull();
+  });
+});
+
+describe('short-form video (Will, 2026-10-10)', () => {
+  const tiktok = 'https://www.tiktok.com/@geodesaurus/video/7694829447538576670';
+  const reel = 'https://www.instagram.com/reel/DdzpI9os_Wg/';
+  const byUrl = (answers: Record<string, unknown>) =>
+    vi.fn(async (input: string | URL | Request) => {
+      const key = Object.keys(answers).find((prefix) => String(input).startsWith(prefix));
+      return new Response(JSON.stringify(key ? answers[key] : { error: 'unexpected' }), { status: key ? 200 : 500 });
+    });
+
+  it('a TikTok is its transcript from SearchApi, with the language', async () => {
+    vi.stubGlobal('fetch', byUrl({ 'https://www.searchapi.io/': { transcripts: [{ text: 'A dinosaur fact.' }, { text: 'Another one.' }], available_languages: [{ lang: 'en', is_selected: true }] } }));
+    expect(await extractPage(tiktok, { tiktok: 'tk', firecrawl: 'fc' })).toMatchObject({ kind: 'transcript', source: 'searchapi-tiktok', text: 'A dinosaur fact.\nAnother one.', facts: { language: 'en' } });
+    expect(adapters.html).not.toHaveBeenCalled();
+  });
+
+  it('a Reel is its transcript from TranscriptFetch, with the caption as its description', async () => {
+    vi.stubGlobal('fetch', byUrl({ 'https://transcriptfetch.com/': { ok: true, data: { text: 'An asteroid might get interesting.', language: 'en', title: 'Asteroid watch', duration: 38.6 } } }));
+    expect(await extractPage(reel, { reels: 'rf' })).toMatchObject({ kind: 'transcript', source: 'transcriptfetch-instagram', facts: { description: 'Asteroid watch', durationS: 39, language: 'en' } });
+  });
+
+  it('without a key, or without a transcript, a social video falls through to the cascade as before', async () => {
+    adapters.html.mockResolvedValue('');
+    adapters.jina.mockResolvedValue({ content: 'A long enough caption to count as usable page text for this video post.' });
+    expect(await extractPage(tiktok, { firecrawl: undefined })).toMatchObject({ source: 'jina-reader' });
+    vi.stubGlobal('fetch', byUrl({ 'https://www.searchapi.io/': { transcripts: [] } }));
+    expect(await extractPage(tiktok, { tiktok: 'tk' })).toMatchObject({ source: 'jina-reader' });
   });
 });
 

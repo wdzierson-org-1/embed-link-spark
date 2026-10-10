@@ -1,12 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Expand, Maximize2, Minimize } from 'lucide-react';
+import { Maximize2, Minimize } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
- * A media stage can be made **full size** (the panel goes as wide as the browser and the stage
- * fills it; Esc or minimize returns) or **full screen** (the browser's own fullscreen, on the
- * stage element). DESIGN-v2 §12.8; Will, 2026-10-10: "media items in the detail panel should be
- * able to be made full browser height/width, or full screen".
+ * A media stage can be made **full size**: the panel goes as wide as the browser and the stage
+ * fills it; Esc or minimize returns. DESIGN-v2 §12.8; Will, 2026-10-10: "media items in the
+ * detail panel should be able to be made full browser height/width" (the browser's own
+ * fullscreen cell was dropped the same day: players carry their own).
  *
  * Inside the item panel a provider shares the full-size flag so the sheet can widen; the stage
  * then sits `absolute inset-0` over the sheet. Without a provider (the shared page) the stage
@@ -46,7 +46,6 @@ const useEscape = (active: boolean, onEscape: () => void) => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (document.fullscreenElement) return; // the browser leaves fullscreen on its own
       event.stopPropagation();
       event.preventDefault();
       onEscape();
@@ -60,35 +59,22 @@ const cell =
   'grid h-9 w-9 place-items-center border border-ink bg-white text-ink transition-colors hover:bg-ink hover:text-white focus-visible:bg-ink focus-visible:text-white focus-visible:outline-none';
 
 /**
- * The two cells on a stage (top-right, visible on hover like the picture's own controls) and the
- * logic behind them. `stageRef` is the element that goes fullscreen.
+ * The full-size cell on a stage (top-right, visible on hover like the picture's own controls)
+ * and the logic behind it.
  */
 export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) => {
   const { full, setFull, position } = useStageFull();
-  const [fullscreen, setFullscreen] = useState(false);
   const leaveFull = useCallback(() => setFull(false), [setFull]);
   useEscape(full, leaveFull);
-
-  useEffect(() => {
-    const onChange = () => setFullscreen(document.fullscreenElement === stageRef.current && stageRef.current !== null);
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, [stageRef]);
 
   // Leaving the stage (another item, the sheet closing) leaves full size too
   useEffect(() => () => setFull(false), [setFull]);
 
-  const goFullscreen = useCallback(() => {
-    const element = stageRef.current as (HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }) | null;
-    if (!element) return;
-    const request = element.requestFullscreen ?? element.webkitRequestFullscreen;
-    if (request) void request.call(element).catch(() => {});
-  }, [stageRef]);
-
-  const canFullscreen = typeof document !== 'undefined' && (document.fullscreenEnabled || Boolean((document as { webkitFullscreenEnabled?: boolean }).webkitFullscreenEnabled));
-
   const controls = (
-    <div className="absolute right-3 top-3 z-[5] flex gap-1.5 opacity-0 transition-opacity group-hover/stage:opacity-100 group-focus-within/stage:opacity-100 [@media(hover:none)]:opacity-100">
+    <div
+      key="controls"
+      className="absolute right-3 top-3 z-[5] flex gap-1.5 opacity-0 transition-opacity group-hover/stage:opacity-100 group-focus-within/stage:opacity-100 [@media(hover:none)]:opacity-100"
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <button type="button" onClick={() => setFull(!full)} aria-label={full ? 'Exit full size' : 'Full size'} className={cell}>
@@ -97,16 +83,6 @@ export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) 
         </TooltipTrigger>
         <TooltipContent side="bottom">{full ? 'exit full size' : 'full size'}</TooltipContent>
       </Tooltip>
-      {canFullscreen && !fullscreen && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button type="button" onClick={goFullscreen} aria-label="Full screen" className={cell}>
-              <Expand className="h-4 w-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">full screen</TooltipContent>
-        </Tooltip>
-      )}
     </div>
   );
 
@@ -125,15 +101,13 @@ export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) 
   ) : null;
 
   /** The stage root's classes: the dotted stage at rest; the whole sheet or page when full */
-  const rootClass = full
-    ? `${position} inset-0 z-20 flex flex-col bg-background group/stage [&:fullscreen]:bg-background`
-    : 'group/stage v2-dots relative mx-2.5 mt-8 [&:fullscreen]:flex [&:fullscreen]:items-center [&:fullscreen]:justify-center [&:fullscreen]:bg-background';
+  const rootClass = full ? `${position} inset-0 z-20 flex flex-col bg-background group/stage` : 'group/stage v2-dots relative mx-2.5 mt-8';
 
-  return { full, fullscreen, controls, bar, rootClass, leaveFull };
+  return { full, controls, bar, rootClass, leaveFull };
 };
 
 /** Keeps a stage's element identity stable while its wrappers change: keyed children only */
-export const StageRoot = React.forwardRef<HTMLDivElement, { className: string; children: React.ReactNode; 'data-testid'?: string }>(
+export const StageRoot = React.forwardRef<HTMLDivElement, { className: string; children: React.ReactNode; 'data-testid'?: string; 'data-kind'?: string }>(
   ({ className, children, ...rest }, ref) => (
     <div ref={ref} className={className} {...rest}>
       {children}

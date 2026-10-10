@@ -2,13 +2,21 @@ import { CRAWLER_UA, fetchHtml, fetchViaJinaReader, fetchViaWayback, htmlToText 
 import { inspectSourceText, sourceIdentity } from './enrichmentQuality.ts';
 import { getYouTubeVideoId } from './youtube.ts';
 import { parseYouTubeMarkdown } from './youtubeTranscript.ts';
+import { fetchInstagramTranscript, fetchTikTokTranscript, type SocialTranscript } from './socialTranscripts.ts';
 
 export interface PageCapture {
   text: string;
   kind: 'page' | 'caption' | 'transcript' | 'ocr';
   source: string;
-  /** A YouTube video's own facts, read beside its transcript (spec 2026-09-05) */
-  youtube?: { description: string | null; durationS: number | null; author: string | null };
+  /** A video's own facts, read beside its transcript */
+  facts?: { description?: string | null; durationS?: number | null; author?: string | null; language?: string | null };
+}
+
+/** The provider keys the extraction may use; a bare string is the Firecrawl key (older callers) */
+export interface ExtractionKeys {
+  firecrawl?: string;
+  tiktok?: string;
+  reels?: string;
 }
 
 /**
@@ -47,8 +55,27 @@ const scrapeWithFirecrawl = async (url: string, key: string, trace?: string[], o
   return markdown;
 };
 
-/** `trace` (optional) collects what each adapter answered — surfaced by scrape-page-content's extractOnly */
-export async function extractPage(url: string, firecrawlKey?: string, trace?: string[]): Promise<PageCapture | null> {
+const transcriptCapture = (url: string, source: string, transcript: SocialTranscript | null): PageCapture | null => {
+  if (!transcript) return null;
+  const checked = inspectSourceText(url, transcript.text, 'transcript');
+  if (!checked.usable) return null;
+  return {
+    text: checked.text,
+    kind: 'transcript',
+    source,
+    facts: { description: transcript.description ?? null, durationS: transcript.durationS ?? null, author: transcript.author ?? null, language: transcript.language ?? null },
+  };
+};
+
+/**
+ * What a link's page is worth keeping. A video's content is its transcript: YouTube through
+ * Firecrawl (never the chrome cascade), TikTok through SearchApi, Instagram Reels through
+ * TranscriptFetch — each only when its key is set; a social video without a transcript falls
+ * through to the cascade as before. `trace` (optional) collects what each adapter answered,
+ * surfaced by scrape-page-content's extractOnly.
+ */
+export async function extractPage(url: string, keysOrFirecrawlKey?: ExtractionKeys | string, trace?: string[]): Promise<PageCapture | null> {
+  const keys: ExtractionKeys = typeof keysOrFirecrawlKey === 'string' ? { firecrawl: keysOrFirecrawlKey } : keysOrFirecrawlKey ?? {};
   const accepted = (text: string | null | undefined, source: string): PageCapture | null => {
     const result = inspectSourceText(url, text);
     return result.usable ? { text: result.text.slice(0, 50_000), kind: result.kind, source } : null;
@@ -59,12 +86,12 @@ export async function extractPage(url: string, firecrawlKey?: string, trace?: st
   // (spec 2026-09-05: an honest empty state beats a decorative one).
   const youtubeId = getYouTubeVideoId(url);
   if (youtubeId) {
-    if (!firecrawlKey) {
+    if (!keys.firecrawl) {
       trace?.push('youtube: no firecrawl key');
       return null;
     }
     try {
-      const parsed = parseYouTubeMarkdown(await scrapeWithFirecrawl(url, firecrawlKey, trace, { fresh: true }));
+      const parsed = parseYouTubeMarkdown(await scrapeWithFirecrawl(url, keys.firecrawl, trace, { fresh: true }));
       if (!parsed.transcript) {
         console.warn('youtube transcript unavailable', url);
         trace?.push('youtube: no transcript section');
@@ -76,7 +103,7 @@ export async function extractPage(url: string, firecrawlKey?: string, trace?: st
         text: checked.text,
         kind: 'transcript',
         source: 'firecrawl-youtube',
-        youtube: { description: parsed.description, durationS: parsed.durationS, author: parsed.author },
+        facts: { description: parsed.description, durationS: parsed.durationS, author: parsed.author, language: 'en' },
       };
     } catch (error) {
       console.warn('firecrawl youtube failed', url, error);
@@ -84,9 +111,29 @@ export async function extractPage(url: string, firecrawlKey?: string, trace?: st
     }
   }
 
-  if (firecrawlKey) {
+  const identity = sourceIdentity({ type: 'link', url });
+  if (identity.source === 'tiktok' && identity.kind === 'video' && keys.tiktok) {
     try {
-      const result = accepted(await scrapeWithFirecrawl(url, firecrawlKey, trace), 'firecrawl');
+      const capture = transcriptCapture(url, 'searchapi-tiktok', await fetchTikTokTranscript(url, keys.tiktok, fetch, trace));
+      if (capture) return capture;
+    } catch (error) {
+      console.warn('searchapi tiktok failed', url, error);
+      trace?.push(`searchapi failed: ${String(error).slice(0, 120)}`);
+    }
+  }
+  if (identity.source === 'instagram' && (identity.kind === 'video' || identity.kind === 'post') && keys.reels) {
+    try {
+      const capture = transcriptCapture(url, 'transcriptfetch-instagram', await fetchInstagramTranscript(url, keys.reels, fetch, trace));
+      if (capture) return capture;
+    } catch (error) {
+      console.warn('transcriptfetch instagram failed', url, error);
+      trace?.push(`transcriptfetch failed: ${String(error).slice(0, 120)}`);
+    }
+  }
+
+  if (keys.firecrawl) {
+    try {
+      const result = accepted(await scrapeWithFirecrawl(url, keys.firecrawl, trace), 'firecrawl');
       if (result) return result;
     } catch (error) {
       trace?.push(`firecrawl failed: ${String(error).slice(0, 120)}`);
@@ -105,7 +152,7 @@ export async function extractPage(url: string, firecrawlKey?: string, trace?: st
   const reader = accepted(jina?.content, 'jina-reader');
   if (reader) return reader;
   // An archived article can be useful; archived social chrome rarely identifies the saved post.
-  if (!['tiktok', 'instagram', 'youtube'].includes(sourceIdentity({ type: 'link', url }).source)) {
+  if (!['tiktok', 'instagram', 'youtube'].includes(identity.source)) {
     const html = await fetchViaWayback(url);
     const archive = accepted(html ? htmlToText(html) : null, 'wayback-snapshot');
     if (archive) return archive;

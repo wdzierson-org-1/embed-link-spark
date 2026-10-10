@@ -148,10 +148,11 @@ list + toolbar, the card context menu, `ios/StashUITests/*`.
 
 **Files:** `MediaStage.swift`, `ItemDetailView.swift`.
 
-- [ ] A full-screen cell on every stage (44 pt target): video → `AVPlayerViewController`
-      full screen; embeds, documents and pictures → a `fullScreenCover` with the same view
-      (keep the view instance: a playing embed must not reload), an ink bar naming the stage and
-      a close/minimize cell; the system swipe-to-dismiss closes it.
+- [ ] A full-size cell on every stage (44 pt target; the web calls it "full size" and has no
+      separate browser-fullscreen cell any more): video → `AVPlayerViewController` full screen;
+      embeds, documents and pictures → a `fullScreenCover` with the same view (keep the view
+      instance: a playing embed must not reload), an ink bar naming the stage and a
+      close/minimize cell; the system swipe-to-dismiss closes it.
 
 ### Task 5: The media clock and timestamped notes
 

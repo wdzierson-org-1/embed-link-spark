@@ -8,6 +8,27 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · TikTok and Reel transcripts at save time; the full-screen cell goes; the share tooltip no longer opens with the panel
+
+Will: "there is a tiktok transcript api we may be able to leverage … TIKTOK_SCRAPE_API_KEY …
+searchapi.io … for instagram reels, let's use transcriptfetch.com … REELS_SCRAPE_API_KEY";
+"get rid of the full screen button on the detail screen"; the `share` tooltip "appears to the
+left of the panel" when it opens; "notify the enrichment agent".
+
+- **Transcripts (server; every client reads the same contract as the YouTube entry below):**
+  `scrape-page-content` now captures a TikTok's transcript through SearchApi's
+  `tiktok_transcripts` engine (long and short links) and an Instagram Reel's / video post's
+  through TranscriptFetch (inline for Reels; a 202 for long media is not awaited at save time).
+  `page_body` = the transcript, `summary` recording-style, `evidence { transcript: true,
+  transcript_source: 'searchapi-tiktok' | 'transcriptfetch-instagram', language, duration_s? }`;
+  a Reel's caption becomes the description when the saved one was a placeholder. Without a
+  transcript the save behaves as before. Verified live on both. Handoff for the enrichment
+  pipeline: `docs/hosted-intelligence-transcripts-2026-10-10.md`.
+- **Web:** the stages keep only **full size** (the browser-fullscreen cell is gone; players
+  carry their own). Opening the panel now focuses the sheet itself rather than its first cell,
+  so the share cell's tooltip no longer opens — and gets placed mid-slide — on open.
+- iOS: full screen stays the platform's own presentation (plan 17, Task 4); nothing else changes.
+
 ## 2026-10-10 · The panel plays the media: embeds, a PDF reader, a transcript tab, full size / full screen, timestamped notes
 
 Will: "move from static images on the details panel to an embedded, playable version of the

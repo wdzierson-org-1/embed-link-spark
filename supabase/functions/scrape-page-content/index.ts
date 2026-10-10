@@ -21,7 +21,11 @@ serve(async req => {
     if (item.url !== url || item.type !== 'link') return json({ error: 'Source does not match item' }, 400);
     // extractOnly writes nothing and returns what each adapter answered, for diagnosis
     const trace: string[] = [];
-    const capture = await extractPage(url, Deno.env.get('FIRECRAWL_API_KEY'), extractOnly ? trace : undefined);
+    const capture = await extractPage(
+      url,
+      { firecrawl: Deno.env.get('FIRECRAWL_API_KEY'), tiktok: Deno.env.get('TIKTOK_SCRAPE_API_KEY'), reels: Deno.env.get('REELS_SCRAPE_API_KEY') },
+      extractOnly ? trace : undefined,
+    );
     if (!capture) return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}) });
     if (extractOnly) return json({ success: true, ...capture, trace });
     // Never replace a transcript already recovered by maintenance with a shorter page caption.
@@ -30,8 +34,8 @@ serve(async req => {
     // A video's transcript is its content (spec 2026-09-05): summarized as a recording, and the
     // video's own description replaces the synthetic "Watch … on YouTube" line.
     const isTranscript = capture.kind === 'transcript';
-    if (isTranscript && capture.youtube?.description && (isPlaceholderMetadata(item.description, url) || /\bon youtube$/i.test(item.description ?? ''))) {
-      patch.description = capture.youtube.description;
+    if (isTranscript && capture.facts?.description && (isPlaceholderMetadata(item.description, url) || /\bon youtube$/i.test(item.description ?? ''))) {
+      patch.description = capture.facts.description;
     }
     const key = Deno.env.get('OPENAI_API_KEY');
     if (key) {
@@ -55,8 +59,9 @@ serve(async req => {
     if (isTranscript) {
       evidence.transcript = true;
       evidence.transcript_source = capture.source;
-      if (capture.youtube?.durationS) evidence.duration_s = capture.youtube.durationS;
-      if (capture.youtube?.author) evidence.author = capture.youtube.author;
+      if (capture.facts?.language) evidence.language = capture.facts.language;
+      if (capture.facts?.durationS) evidence.duration_s = capture.facts.durationS;
+      if (capture.facts?.author) evidence.author = capture.facts.author;
     }
     const applied = await applyCandidate(db, item, patch, capture.source, evidence);
     if (!applied) {

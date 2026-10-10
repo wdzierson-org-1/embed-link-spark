@@ -123,6 +123,14 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
 
   const [stageFull, setStageFull] = useState(false);
 
+  // Opening focuses the sheet itself, not its first cell: the share cell's tooltip would open on
+  // that focus and be placed while the sheet is still sliding in (Will, 2026-10-10: "the label
+  // for the share button appears to the left of the panel")
+  const focusSheetItself = (event: Event) => {
+    event.preventDefault();
+    (event.currentTarget as HTMLElement | null)?.focus?.();
+  };
+
   // The window bar (DESIGN-v2: Stash's own furniture is a window): what this save is and
   // where it came from, in the machine voice. The share cell, then the sheet's close, sit at
   // its right end.
@@ -197,7 +205,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
     return (
       <TooltipProvider>
         <Sheet open={open} onOpenChange={onOpenChange}>
-          <SheetContent className={sheetClass}>
+          <SheetContent className={sheetClass} onOpenAutoFocus={focusSheetItself}>
             <SheetTitle className="sr-only">Edit item</SheetTitle>
             {windowBar}
             <div className="flex-1 overflow-y-auto pt-8">
@@ -220,7 +228,7 @@ const EditItemSheet = ({ open, onOpenChange, item, onSave, onDelete }: EditItemS
   return (
     <TooltipProvider>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className={sheetClass}>
+        <SheetContent className={sheetClass} onOpenAutoFocus={focusSheetItself}>
           <SheetTitle className="sr-only">Edit item</SheetTitle>
           {windowBar}
           <div className="flex-1 overflow-y-auto">

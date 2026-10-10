@@ -532,7 +532,7 @@ once, and the shared beat never strands one mid-effect.
 | Composer chips | `| fetching more details…`, `| reading the link…`, `| analyzing…`, `| uploading…`, `| uploading · 45%` | `posted from Brooklyn, New York`, `finding your location…` |
 | The composer | | `type / for commands` (only while it's focused); the drop veil says `drop to save` |
 | Ask | `| searching your stash…` (before the first word), `| writing the answer…` (streaming) | `✓ searched your stash · 3 saves`, `answers from your 59 saves`, `also from`, `⌖ show 3 sources` / `showing` |
-| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again`; the address strip's `cancel`; the share cell `share` / `shared · anyone with the link` and its window `✓ link copied · anyone with it can view`, `anyone with the link can view`, `not on your feed · read only`, `copy link`, `✕ couldn't update the link. try again`; the stages' `full size` / `exit full size`, `full screen`, `minimize`, the reader's `page 3 of 12`, `couldn't open this pdf here. open or download it below`; the notes rule's `+ note at 1:42` |
+| The item panel | `| saving…`, `| loading the editor…`, `| summarizing…`, `| transcribing… part 2 of 4` | `✓ saved 9:41 pm`, `changes save automatically`, `type / for formatting`, `download original`; the address strip's `copy address` / `copied`, `edit address` / `save address`, `enter saves · esc cancels`, `✕ that doesn't look like a web address`; a failed summary: `couldn't summarize this. try again` or `nothing captured to summarize yet` (error tone); an edited summary: `saving the summary…`, `couldn't save the summary. try again`; the address strip's `cancel`; the share cell `share` / `shared · anyone with the link` and its window `✓ link copied · anyone with it can view`, `anyone with the link can view`, `not on your feed · read only`, `copy link`, `✕ couldn't update the link. try again`; the stages' `full size` / `exit full size`, `minimize`, the reader's `page 3 of 12`, `couldn't open this pdf here. open or download it below`; the notes rule's `+ note at 1:42` |
 | The shared page (§12.15) | `opening the save…` | `from @will’s stash`; a dead link: "This link no longer works." |
 | Settings | `| loading your settings…`, `| checking your plan…`, `| checking for agents…` | `signed in as …`, `connected 3 days ago · last used 1 hour ago`, `activity.log` |
 | The loading screen | `> opening your stash`, then eleven more, decrypting in the code voice (§12.10) | |
@@ -768,11 +768,12 @@ ink on hover.
   else keeps the picture. An upload gets **the document stage** (`edit/EditItemDocumentStage`):
   a PDF as a reader (one page at a time, `‹ page 3 of 12 ›` in the machine voice, ← → keys), an
   Office file in Microsoft's viewer (slides step), an HTML upload in a sandboxed frame.
-- **Every stage has two hover cells** top-right (36 px, white, ink edge; `edit/StageFull`):
+- **Every stage has a hover cell** top-right (36 px, white, ink edge; `edit/StageFull`):
   **full size** — the panel widens to the browser and the stage fills it, with an ink bar naming
   the stage (`picture`, `video`, `youtube video`, `pdf`, `slides`) and a minimize cell; Esc or
-  minimize returns — and **full screen**, the browser's own. The media element never remounts,
-  so a playing video keeps playing. The picture's replace/remove cells sit bottom-right.
+  minimize returns. The media element never remounts, so a playing video keeps playing. (A
+  browser-fullscreen cell shipped and was dropped the same day, 2026-10-10: players carry their
+  own.) The picture's replace/remove cells sit bottom-right.
 - **Source address:** the machine strip: favicon and the whole address in JetBrains Mono 12.5 as
   one link, then 40 px cells: **copy** (tooltip `copy address`; after a click the cell shows a
   check and says `copied` for two seconds), **edit** (`edit address`; the strip becomes a field in

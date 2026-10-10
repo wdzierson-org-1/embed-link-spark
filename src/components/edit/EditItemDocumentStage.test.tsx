@@ -62,7 +62,7 @@ describe('the document stage', () => {
     expect(page).toHaveAttribute('src', 'https://cdn.example/deck.html');
   });
 
-  it('offers full size and full screen like every stage', async () => {
+  it('offers full size like every stage', async () => {
     render(<EditItemDocumentStage url="https://cdn.example/a.pdf" kind="pdf" title="a.pdf" />);
     await screen.findByText('page 1 of 3');
     await act(async () => {

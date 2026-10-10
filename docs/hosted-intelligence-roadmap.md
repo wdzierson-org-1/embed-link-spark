@@ -159,6 +159,14 @@ reviewable experiment records/canaries, controlled historical fact backfill, and
 entity links for personal grouping. Graphs and automatic playbook publishing are
 not part of this release. Daily email remains after 09:00 America/New_York.
 
+## Transcript providers at save time — 2026-10-10 (handoff from the web agent)
+
+YouTube (Firecrawl v2, fresh scrape), TikTok (SearchApi `tiktok_transcripts`) and Instagram
+Reels (TranscriptFetch) transcripts are captured in `scrape-page-content` at save time and
+marked with `attributes.enrichment.evidence.transcript = true`. The maintenance loop's
+Supadata step, the TranscriptFetch 202 case, the chrome backfill and the evidence checks
+are yours to align: see `docs/hosted-intelligence-transcripts-2026-10-10.md`.
+
 ## Improvement loop
 
 1. **Measure:** distinguish missing fields, blocked sources, wrong identity,
