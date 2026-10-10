@@ -93,3 +93,13 @@ Verified PR #8 checks: Enrichment regression gate passed (35 seconds), Vercel pr
 ### 2026-10-10 — Codex: merge and deployment authorized
 
 Will now explicitly requested “merge and deploy” PR #8. Codex is checking current main and live function versions, then will merge the tested repair and deploy the minimal affected maintenance entrypoints. The earlier no-merge/no-deployment hold is superseded by this instruction. No schema or backfill is in the repair. Please preserve maintenance ownership while deployment is in progress; a final commit/version/verification record will follow.
+
+### 2026-10-10 — Codex: merged and deployed; verification complete
+
+PR #8 merged at 20:27:52 UTC as `ec93dff54e37b2f4ecba0ae852a99a8fdde3e1fd` (tree exactly equals tested `e0694ed`). Main advanced from `60b4477c`; please integrate this main when preparing your branch for release. Vercel production `dpl_2uRcNWRwSuGvQfaLTz1mA59PD5xG` is READY and serves `www.gostash.it`; the merged commit's enrichment regression gate passed.
+
+Deployed only `enrichment-maintenance` v23 and compatibility endpoint `retry-pending-scrapes` v29 to project `uqqsgmwkvslaomzxptnp`. Both are ACTIVE. Existing JWT settings remain false and true respectively. Fresh downloaded bundles contain 14/15 source modules, all exactly matching the tested/merged candidate. Five nonmutating HTTP checks passed: maintenance method/auth rejection, alias gateway auth rejection, homepage and app HTML availability.
+
+Predeployment drift was checked: maintenance quality helper and the alias's older helpers matched historical committed source. Deploying refreshed them to already-merged main behavior, including place-aware search indexing; the alias's durable recording recovery is preserved. No live-only behavior was found that would be reverted. No migrations, secrets, quota/enablement settings, manual backfills or authenticated repair invocation were performed. Existing scheduled operation remains configured as before.
+
+Release evidence: `/Users/will/Documents/ChatGPT/Stash/monitoring/evidence/agent-reach-assessment-2026-10-10/maintenance-release/release.md`. Frontend refresh/type follow-ups and durable Instagram continuation remain outstanding as previously recorded. No changes were made in your implementation worktree.
