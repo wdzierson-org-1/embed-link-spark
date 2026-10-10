@@ -334,6 +334,43 @@ export const extractApplePlacePage = (html: string): ApplePlacePage => {
   return compact(out);
 };
 
+/**
+ * The Apple Maps place page as the capture step keeps it (Firecrawl's markdown): its links carry
+ * the resolved place address (coordinate, name, address, place id), the action row
+ * (`[Call](tel:…) [Website](…) [Menu](…)`), the category line and the Yelp score. Hours and
+ * the time zone only live in the page's HTML, so this is the fallback when that is out of reach.
+ */
+export type AppleMarkdownPage = ApplePlacePage & { urlFacts?: PlaceUrlFacts; placeUrl?: string };
+
+export const extractAppleMarkdown = (markdown: string): AppleMarkdownPage => {
+  const text = markdown.slice(0, 400_000);
+  const out: AppleMarkdownPage = {};
+  for (const match of text.matchAll(/https:\/\/maps\.apple\.com\/place\?[^\s)\]"']+/g)) {
+    const candidate = match[0].replace(/&amp;/g, '&').replace(/#$/, '');
+    const facts = parseAppleMapsUrl(candidate);
+    if (facts.geo) {
+      out.urlFacts = facts;
+      out.placeUrl = candidate;
+      out.geo = facts.geo;
+      out.name = facts.name;
+      if (facts.address) out.address = { lines: [facts.address] };
+      break;
+    }
+  }
+  const action = (label: string): string | undefined =>
+    text.match(new RegExp(`\\[${label}\\]\\(([^)\\s]+)\\)`, 'i'))?.[1];
+  const tel = action('Call');
+  if (tel?.startsWith('tel:')) out.phone = clean(decodeURIComponent(tel.slice(4)), 40);
+  out.website = webAddress(action('Website'));
+  out.menu_url = webAddress(action('Menu'));
+  // "Italian Cuisine · [Saratoga Springs, NY](…)" under the name
+  const category = text.match(/^([^\n\[\]·]{2,60}) · \[/m)?.[1]?.trim();
+  if (category && !/^https?:/.test(category)) out.category = clean(category, 80);
+  const yelp = text.match(/\nYELP\s*\n+\((\d[\d,]*)\)\s*\n+(\d(?:\.\d)?)\s*\n/);
+  if (yelp) out.rating = { score: Number(yelp[2]), max: 5, count: Number(yelp[1].replace(/,/g, '')), source: 'yelp' };
+  return compact(out);
+};
+
 const priceLevelFrom = (range: string | undefined): PlaceAttributes['price_range'] | undefined => {
   const symbols = range?.trim().match(/^([$€£¥])\1{0,3}$/);
   return symbols ? { level: range!.trim().length, max: 4 } : undefined;
@@ -345,6 +382,8 @@ export type BuildPlaceInput = {
   /** Where the saved address led once followed (the share short link's target) */
   resolvedUrl?: string;
   html?: string;
+  /** The page as the capture step kept it (markdown), when the HTML was out of reach */
+  markdown?: string;
   objectFacts?: ObjectFacts;
   observedAt?: string;
 };
@@ -353,12 +392,16 @@ export type BuildPlaceInput = {
 export const buildPlace = (input: BuildPlaceInput): PlaceAttributes | undefined => {
   const provider: PlaceProviderKind | null = mapProviderOf(input.resolvedUrl) ?? mapProviderOf(input.url) ?? (input.objectFacts?.place ? 'page' : null);
   if (!provider) return undefined;
+  const fromMarkdown = provider === 'apple-maps' && input.markdown ? extractAppleMarkdown(input.markdown) : undefined;
   const fromUrl: PlaceUrlFacts = provider === 'apple-maps'
-    ? { ...parseAppleMapsUrl(input.url), ...parseAppleMapsUrl(input.resolvedUrl) }
+    ? { ...(fromMarkdown?.urlFacts ?? {}), ...parseAppleMapsUrl(input.url), ...parseAppleMapsUrl(input.resolvedUrl) }
     : provider === 'google-maps'
       ? { ...parseGoogleMapsUrl(input.url), ...parseGoogleMapsUrl(input.resolvedUrl) }
       : {};
-  const page = provider === 'apple-maps' && input.html ? extractApplePlacePage(input.html) : undefined;
+  const fromHtml = provider === 'apple-maps' && input.html ? extractApplePlacePage(input.html) : undefined;
+  // The HTML's facts win; the markdown fills what it did not reach
+  const { urlFacts: _urlFacts, placeUrl: linkedPlaceUrl, ...markdownFacts } = fromMarkdown ?? {};
+  const page: ApplePlacePage | undefined = fromHtml || fromMarkdown ? { ...markdownFacts, ...compact(fromHtml ?? {}) } : undefined;
   const facts = input.objectFacts?.place;
   const factsAddress: PlaceAddress | undefined = facts?.address
     ? compact({ street: facts.address.street_address, locality: facts.address.locality, region: facts.address.region, postal_code: facts.address.postal_code, country: facts.address.country })
@@ -368,7 +411,10 @@ export const buildPlace = (input: BuildPlaceInput): PlaceAttributes | undefined 
   const address = page?.address ?? (fromUrl.address ? { lines: [fromUrl.address] } : factsAddress);
   if (!name && !geo && !address) return undefined;
   const observed = input.observedAt ? new Date(input.observedAt) : new Date();
-  const providerUrl = parseUrl(input.resolvedUrl)?.href ?? parseUrl(input.url)?.href ?? input.url;
+  // The provider's own place address: the resolved one when it names the place (Apple sends
+  // some clients to maps.apple.com/unsupported), else the one the page linked to itself
+  const resolvedNamesPlace = mapProviderOf(input.resolvedUrl) && (provider !== 'apple-maps' || Object.keys(parseAppleMapsUrl(input.resolvedUrl)).length > 0);
+  const providerUrl = (resolvedNamesPlace && parseUrl(input.resolvedUrl)?.href) || (linkedPlaceUrl && parseUrl(linkedPlaceUrl)?.href) || parseUrl(input.url)?.href || input.url;
   return compact({
     version: 1 as const,
     name,
@@ -386,7 +432,7 @@ export const buildPlace = (input: BuildPlaceInput): PlaceAttributes | undefined 
     evidence: {
       source_url: input.url,
       observed_at: (Number.isFinite(observed.getTime()) ? observed : new Date()).toISOString(),
-      method: page && Object.keys(page).length ? 'map-page' : provider === 'page' ? 'json-ld' : 'map-url',
+      method: (fromHtml && Object.keys(fromHtml).length) || (fromMarkdown && Object.keys(fromMarkdown).length) ? 'map-page' : provider === 'page' ? 'json-ld' : 'map-url',
       extraction_version: PLACE_EXTRACTION_VERSION,
     },
   });

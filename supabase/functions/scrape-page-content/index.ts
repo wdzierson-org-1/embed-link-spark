@@ -29,12 +29,18 @@ serve(async req => {
     // A map-provider address, or a listing page with coordinates, is a place: after the
     // body is captured (or found missing) the place step keeps its facts and renders its map.
     // It runs under its own fresh snapshot, so it always goes last. Never fatal to the scrape.
+    // Its outcome rides on the response as `place`, for diagnosis (never the facts themselves)
+    let placeOutcome: Record<string, unknown> | null = null;
     const placeStep = async () => {
       if (extractOnly || !isPlaceCandidate(url, item.attributes)) return;
       try {
-        const outcome = await runPlaceStep(db, itemId, url, { mapboxToken: Deno.env.get('MAPBOX_ACCESS_TOKEN') });
-        console.log('place step', itemId, 'skipped' in outcome ? outcome.skipped : `kept (${outcome.map ? 'with' : 'without'} a map)`);
+        const outcome = await runPlaceStep(db, itemId, url, { mapboxToken: Deno.env.get('MAPBOX_ACCESS_TOKEN'), firecrawlKey: Deno.env.get('FIRECRAWL_API_KEY') });
+        placeOutcome = 'skipped' in outcome
+          ? { skipped: outcome.skipped, ...(outcome.detail ?? {}) }
+          : { kept: true, map: outcome.map ?? null, method: outcome.place.evidence.method, resolved: outcome.place.provider.url, hours: outcome.place.hours?.length ?? 0 };
+        console.log('place step', itemId, JSON.stringify(placeOutcome));
       } catch (error) {
+        placeOutcome = { error: error instanceof Error ? error.message : String(error) };
         console.error('place step failed', itemId, error);
       }
     };
@@ -69,7 +75,7 @@ serve(async req => {
       }
       // A map provider's page often yields no body worth keeping; the place itself still does
       await placeStep();
-      return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}) });
+      return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}), ...(placeOutcome ? { place: placeOutcome } : {}) });
     }
     if (extractOnly) return json({ success: true, ...capture, trace });
     // Never replace a transcript already recovered by maintenance with a shorter page caption.
@@ -78,7 +84,7 @@ serve(async req => {
         return json({ success: false, reason: 'item_changed' });
       }
       await placeStep();
-      return json({ success: true, reason: 'richer_content_preserved' });
+      return json({ success: true, reason: 'richer_content_preserved', ...(placeOutcome ? { place: placeOutcome } : {}) });
     }
     const patch: Record<string, string> = { page_body: capture.text };
     // A video's transcript is its content (spec 2026-09-05): summarized as a recording, and the
@@ -125,7 +131,7 @@ serve(async req => {
     }
     await placeStep();
     const { data, error } = await db.functions.invoke('generate-embeddings', { body: { itemId } });
-    return json({ success: !error && data?.success === true, contentLength: capture.text.length, indexed: !error && data?.success === true });
+    return json({ success: !error && data?.success === true, contentLength: capture.text.length, indexed: !error && data?.success === true, ...(placeOutcome ? { place: placeOutcome } : {}) });
   } catch (error) {
     console.error('scrape-page-content failed', error);
     return json({ success: false, reason: 'Extraction failed' }, 500);

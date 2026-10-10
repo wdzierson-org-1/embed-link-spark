@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildPlace, extractApplePlacePage, isProviderTitle, mapProviderOf, mapboxStaticUrl, parseAppleMapsUrl, parseGoogleMapsUrl, placeSearchText, readPlace,
+  buildPlace, extractAppleMarkdown, extractApplePlacePage, isProviderTitle, mapProviderOf, mapboxStaticUrl, parseAppleMapsUrl, parseGoogleMapsUrl, placeSearchText, readPlace,
 } from './place.ts';
 
 const resolvedApple = 'https://maps.apple.com/place?address=55%20Phila%20St,%20Saratoga%20Springs,%20NY%20%2012866,%20United%20States&coordinate=43.080499,-73.783109&name=Solevo%20Kitchen%20+%20Social&place-id=I6DF1454FE08462BE&map=explore';
@@ -84,6 +84,66 @@ describe('extractApplePlacePage', () => {
 
   it('finds nothing in a page without the place structures', () => {
     expect(extractApplePlacePage('<html><body><h1>Apple Maps</h1></body></html>')).toEqual({});
+  });
+});
+
+// The capture step's markdown of the same page (Firecrawl), trimmed to the lines that matter
+const appleMarkdown = `A
+
+# Apple Maps
+
+# Solevo Kitchen + Social
+
+Italian Cuisine · [Saratoga Springs, NY](https://maps.apple.com/place?auid=1513877882049639045&lsp=9902)
+
+[Directions](https://maps.apple.com/directions?destination=Solevo%20Kitchen%20%2B%20Social&mode=driving) [Call](tel:+15184507094) [Website](http://www.solevokitchenandsocial.com/) [Menu](https://www.yelp.com/biz/solevo-kitchen-and-social-saratoga-springs-2?utm_campaign=action_link_view_menu_photos&utm_medium=feed_v2&utm_source=apple#menu_photos)
+
+HOURS
+
+Closed
+
+YELP
+
+(295)
+
+4.1
+
+ACCEPTS
+
+COST
+
+$$$$
+
+[Yelp](https://maps.apple.com/place?address=55%20Phila%20St,%20Saratoga%20Springs,%20NY%20%2012866,%20United%20States&coordinate=43.080499,-73.783109&name=Solevo%20Kitchen%20+%20Social&place-id=I6DF1454FE08462BE&map=explore#)
+
+## Ratings & Reviews
+`;
+
+describe('extractAppleMarkdown', () => {
+  it('reads the place from the links and action row the capture kept', () => {
+    const page = extractAppleMarkdown(appleMarkdown);
+    expect(page).toMatchObject({
+      name: 'Solevo Kitchen + Social',
+      geo: { latitude: 43.080499, longitude: -73.783109 },
+      address: { lines: ['55 Phila St, Saratoga Springs, NY 12866, United States'] },
+      phone: '+15184507094',
+      website: 'http://www.solevokitchenandsocial.com/',
+      menu_url: 'https://www.yelp.com/biz/solevo-kitchen-and-social-saratoga-springs-2?utm_campaign=action_link_view_menu_photos&utm_medium=feed_v2&utm_source=apple#menu_photos',
+      category: 'Italian Cuisine',
+      rating: { score: 4.1, max: 5, count: 295, source: 'yelp' },
+      urlFacts: { placeId: 'I6DF1454FE08462BE' },
+    });
+    expect(page).not.toHaveProperty('hours');
+  });
+
+  it('is the fallback when the page itself is out of reach, and yields to the page when both exist', () => {
+    const fromMarkdown = buildPlace({ url: 'https://maps.apple/p/7mJUJoBjKam4Ns', markdown: appleMarkdown, observedAt: '2026-10-10T12:00:00Z' });
+    expect(fromMarkdown).toMatchObject({ name: 'Solevo Kitchen + Social', geo: { latitude: 43.080499 }, phone: '+15184507094', provider: { kind: 'apple-maps', place_id: 'I6DF1454FE08462BE', url: expect.stringContaining('https://maps.apple.com/place?address=') }, evidence: { method: 'map-page' } });
+    expect(fromMarkdown).not.toHaveProperty('hours');
+    const both = buildPlace({ url: 'https://maps.apple/p/7mJUJoBjKam4Ns', resolvedUrl: resolvedApple, html: applePage, markdown: appleMarkdown });
+    expect(both?.hours).toHaveLength(4);
+    expect(both?.timezone).toBe('America/New_York');
+    expect(both?.address?.street).toBe('55 Phila St');
   });
 });
 

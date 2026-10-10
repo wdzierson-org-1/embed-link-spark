@@ -6,7 +6,7 @@ const resolvedApple = 'https://maps.apple.com/place?address=55%20Phila%20St%2C%2
 const applePage = `<html><body><a class="sc-unified-action-row-item" href="https://www.yelp.com/biz/solevo?x=1#menu_photos"><div class="sc-unified-action-row-title">Menu</div></a>
 <script>var d = {"value":[{"entity":{"type":"BUSINESS","telephone":"+15184507094","url":"http://www.solevokitchenandsocial.com","name":[{"locale":"en-US","stringValue":"Solevo Kitchen + Social"}]}}],"hours":{"calendar":[{"daysIndex":[1,2,3,4],"timeRanges":[{"from":57600,"to":75600}]}]},"placeInfo":{"center":{"lat":43.0804988,"lng":-73.7831086},"timezone":{"identifier":"America/New_York"}}};</script></body></html>`;
 
-type Row = { id: string; user_id: string; type: string; url: string; title: string; file_path: string | null; attributes: Record<string, unknown> };
+type Row = { id: string; user_id: string; type: string; url: string; title: string; file_path: string | null; page_body?: string | null; attributes: Record<string, unknown> };
 
 const makeDb = (row: Row, options: { rpcAnswer?: boolean } = {}) => {
   const calls = { rpc: [] as Array<[string, Record<string, unknown>]>, uploads: [] as string[], removed: [] as string[], patches: [] as Record<string, unknown>[] };
@@ -123,6 +123,56 @@ describe('runPlaceStep', () => {
     expect(fetcher).not.toHaveBeenCalled();
     expect(isPlaceCandidate(row.url, row.attributes)).toBe(false);
     expect(isPlaceCandidate(shortLink, {})).toBe(true);
+  });
+
+  it('reaches the page through Firecrawl when the provider refuses the function’s own address', async () => {
+    const row = baseRow();
+    const refusing = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === shortLink) return ({ ok: false, status: 404, url, headers: { get: () => 'text/html' }, text: async () => '' }) as unknown as Response;
+      if (url === 'https://api.firecrawl.dev/v2/scrape') {
+        expect(JSON.parse(String(init?.body))).toMatchObject({ url: shortLink, formats: ['rawHtml'] });
+        expect((init?.headers as Record<string, string>).Authorization).toBe('Bearer fc-test');
+        return ({ ok: true, status: 200, url, headers: { get: () => 'application/json' }, json: async () => ({ data: { rawHtml: applePage, metadata: { url: resolvedApple } } }) }) as unknown as Response;
+      }
+      if (url.startsWith('https://api.mapbox.com/')) return pngResponse() as unknown as Response;
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    const { db, calls } = makeDb(row);
+    const result = await runPlaceStep(db, 'item-1', shortLink, { mapboxToken: 'pk.test', firecrawlKey: 'fc-test', fetcher: refusing });
+    expect('place' in result && result.place).toMatchObject({ name: 'Solevo Kitchen + Social', hours: [{ days: [1, 2, 3, 4] }], provider: { url: resolvedApple }, evidence: { method: 'map-page' } });
+    expect(calls.uploads).toHaveLength(1);
+  });
+
+  it('treats Apple’s "unsupported" shell as no page and asks Firecrawl for the real one', async () => {
+    const row = baseRow();
+    const shell = (url: string) => ({ ok: true, status: 200, url, headers: { get: () => 'text/html' }, text: async () => '<html><body>Unsupported browser</body></html>' }) as unknown as Response;
+    const crawling = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === shortLink) return shell('https://maps.apple.com/unsupported');
+      if (url === 'https://api.firecrawl.dev/v2/scrape') return ({ ok: true, status: 200, url, headers: { get: () => 'application/json' }, json: async () => ({ data: { rawHtml: applePage, metadata: { url: resolvedApple } } }) }) as unknown as Response;
+      if (url.startsWith('https://api.mapbox.com/')) return pngResponse() as unknown as Response;
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    const { db } = makeDb(row);
+    const result = await runPlaceStep(db, 'item-1', shortLink, { mapboxToken: 'pk.test', firecrawlKey: 'fc-test', fetcher: crawling });
+    expect('place' in result && result.place).toMatchObject({ hours: [{ days: [1, 2, 3, 4] }], timezone: 'America/New_York', provider: { url: resolvedApple } });
+  });
+
+  it('falls back to the captured markdown when neither the page nor Firecrawl can be reached', async () => {
+    const row = { ...baseRow(), page_body: `# Solevo Kitchen + Social\n\nItalian Cuisine · [Saratoga Springs, NY](https://maps.apple.com/place?auid=1)\n\n[Call](tel:+15184507094) [Website](http://www.solevokitchenandsocial.com/)\n\n[Yelp](https://maps.apple.com/place?address=55%20Phila%20St,%20Saratoga%20Springs,%20NY&coordinate=43.080499,-73.783109&name=Solevo%20Kitchen%20+%20Social&place-id=I6DF1454FE08462BE&map=explore#)\n` };
+    const refusing = vi.fn(async (input: string | URL | Request) => String(input).startsWith('https://api.mapbox.com/') ? pngResponse() as unknown as Response : ({ ok: false, status: 404, url: String(input), headers: { get: () => 'text/html' }, text: async () => '' }) as unknown as Response);
+    const { db, calls } = makeDb(row);
+    const result = await runPlaceStep(db, 'item-1', shortLink, { mapboxToken: 'pk.test', fetcher: refusing });
+    expect('place' in result && result.place).toMatchObject({ name: 'Solevo Kitchen + Social', phone: '+15184507094', category: 'Italian Cuisine', geo: { latitude: 43.080499, longitude: -73.783109 }, provider: { kind: 'apple-maps', place_id: 'I6DF1454FE08462BE' }, evidence: { method: 'map-page' } });
+    expect(calls.patches[0]).toEqual({ file_path: 'owner-1/previews/map_item-1.png', title: 'Solevo Kitchen + Social' });
+  });
+
+  it('says what it saw when nothing could be found', async () => {
+    const row = baseRow();
+    const refusing = vi.fn(async (input: string | URL | Request) => ({ ok: false, status: 404, url: String(input), headers: { get: () => 'text/html' }, text: async () => '' }) as unknown as Response);
+    const { db } = makeDb(row);
+    expect(await runPlaceStep(db, 'item-1', shortLink, { fetcher: refusing })).toEqual({ skipped: 'nothing_found', detail: { resolved: shortLink, status: 404, via: 'direct', html: 0, markdown: 0 } });
   });
 
   it('keeps going from the URL when the provider refuses the page', async () => {

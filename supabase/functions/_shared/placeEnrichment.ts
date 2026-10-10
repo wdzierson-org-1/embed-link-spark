@@ -19,35 +19,77 @@ export const MAP_ZOOM = 15;
 
 export type PlaceStepEnv = {
   mapboxToken?: string;
+  /** Firecrawl reaches pages that refuse the function's own address (map short links do) */
+  firecrawlKey?: string;
   fetcher?: typeof fetch;
   now?: () => Date;
 };
 
-export type PlaceStepResult = { place: PlaceAttributes; map?: string } | { skipped: string };
+export type PlaceStepResult = { place: PlaceAttributes; map?: string } | { skipped: string; detail?: Record<string, unknown> };
 
 type Fetcher = typeof fetch;
 type ItemRow = {
-  id: string; user_id: string; type: string; url: string | null; title: string | null; file_path: string | null;
+  id: string; user_id: string; type: string; url: string | null; title: string | null; file_path: string | null; page_body: string | null;
   attributes?: Record<string, unknown> | null;
 };
 
+export type ResolvedPage = { resolvedUrl: string; html?: string; status?: number; via?: 'direct' | 'firecrawl' };
+
+/** The page's HTML through Firecrawl, which browses from addresses providers accept */
+const firecrawlHtml = async (url: string, key: string, fetcher: Fetcher): Promise<{ html: string; resolvedUrl?: string } | null> => {
+  try {
+    const response = await fetcher('https://api.firecrawl.dev/v2/scrape', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, formats: ['rawHtml'], onlyMainContent: false, location: { languages: ['en'] } }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) {
+      console.warn('place: firecrawl refused', response.status, url);
+      return null;
+    }
+    const payload = await response.json();
+    const html = payload?.data?.rawHtml;
+    if (typeof html !== 'string' || !html) return null;
+    const metadata = payload?.data?.metadata ?? {};
+    const resolvedUrl = [metadata.url, metadata.sourceURL].find((candidate) => typeof candidate === 'string' && candidate);
+    return { html: html.slice(0, PAGE_CAP_BYTES), resolvedUrl };
+  } catch (error) {
+    console.warn('place: firecrawl failed', url, error instanceof Error ? error.message : error);
+    return null;
+  }
+};
+
+/** Whether an Apple Maps answer is the place page itself, not the "unsupported" shell it sends some clients */
+const isApplePlacePage = (resolvedUrl: string, html: string | undefined): boolean =>
+  !/maps\.apple\.com\/unsupported/i.test(resolvedUrl) && !!html && /"placeInfo"|"structuredAddress"|"calendar":/.test(html);
+
 /** A saved address, followed as a browser follows it (map short links refuse other clients) */
-export async function resolvePlacePage(url: string, fetcher: Fetcher = fetch): Promise<{ resolvedUrl: string; html?: string }> {
+export async function resolvePlacePage(url: string, fetcher: Fetcher = fetch, firecrawlKey?: string): Promise<ResolvedPage> {
+  let direct: ResolvedPage = { resolvedUrl: url };
   try {
     const response = await fetcher(url, {
       headers: { 'User-Agent': BROWSER_UA, Accept: 'text/html,application/xhtml+xml,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9' },
       redirect: 'follow',
       signal: AbortSignal.timeout(12_000),
     });
-    const resolvedUrl = response.url || url;
-    if (!response.ok) return { resolvedUrl };
-    if (!/text\/html/i.test(response.headers.get('content-type') ?? '')) return { resolvedUrl };
-    const html = (await response.text()).slice(0, PAGE_CAP_BYTES);
-    return { resolvedUrl, html };
+    direct = { resolvedUrl: response.url || url, status: response.status, via: 'direct' };
+    if (response.ok && /text\/html/i.test(response.headers.get('content-type') ?? '')) {
+      direct.html = (await response.text()).slice(0, PAGE_CAP_BYTES);
+    }
   } catch (error) {
     console.warn('place: the address could not be followed', url, error instanceof Error ? error.message : error);
-    return { resolvedUrl: url };
   }
+  const good = direct.html && (mapProviderOf(url) !== 'apple-maps' || isApplePlacePage(direct.resolvedUrl, direct.html));
+  if (good) return direct;
+  if (firecrawlKey) {
+    const crawled = await firecrawlHtml(url, firecrawlKey, fetcher);
+    if (crawled) {
+      const resolvedUrl = crawled.resolvedUrl && !/maps\.apple\.com\/unsupported/i.test(crawled.resolvedUrl) ? crawled.resolvedUrl : direct.resolvedUrl;
+      return { resolvedUrl, html: crawled.html, status: direct.status, via: 'firecrawl' };
+    }
+  }
+  return direct;
 }
 
 /** Renders the map and stores it next to the save's other previews; null when it could not */
@@ -98,9 +140,12 @@ export async function runPlaceStep(db: any, itemId: string, url: string, env: Pl
   if (!provider && !objectFacts?.place?.geo) return { skipped: 'not_a_place' };
 
   const existing = readPlace(row.attributes?.place);
-  const resolved = provider ? await resolvePlacePage(url, fetcher) : { resolvedUrl: url };
-  const place = buildPlace({ url, resolvedUrl: resolved.resolvedUrl, html: resolved.html, objectFacts, observedAt: nowIso() });
-  if (!place) return { skipped: 'nothing_found' };
+  const resolved: ResolvedPage = provider ? await resolvePlacePage(url, fetcher, env.firecrawlKey) : { resolvedUrl: url };
+  // The capture step's markdown of an Apple Maps page links to the place itself: a fallback
+  // source when the page could not be fetched here
+  const markdown = provider === 'apple-maps' && row.page_body?.includes('maps.apple.com/place?') ? row.page_body : undefined;
+  const place = buildPlace({ url, resolvedUrl: resolved.resolvedUrl, html: resolved.html, markdown, objectFacts, observedAt: nowIso() });
+  if (!place) return { skipped: 'nothing_found', detail: { resolved: resolved.resolvedUrl, status: resolved.status ?? null, via: resolved.via ?? null, html: resolved.html?.length ?? 0, markdown: markdown?.length ?? 0 } };
 
   // A map already rendered for the same spot is kept; otherwise one is rendered when the
   // token allows and the save's picture is Stash's own to replace (never a person's upload)
