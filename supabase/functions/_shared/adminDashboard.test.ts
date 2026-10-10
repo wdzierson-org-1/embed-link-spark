@@ -25,6 +25,38 @@ describe('parseAdminRequest', () => {
     expect(parseAdminRequest(null)).toEqual({ error: 'unknown action' });
     expect(parseAdminRequest('users')).toEqual({ error: 'unknown action' });
   });
+
+  it('accepts bounded enrichment windows and proposal filters', () => {
+    expect(parseAdminRequest({ action: 'enrichment' })).toEqual({ action: 'enrichment', lookbackHours: 24, proposalStatus: null, proposalLimit: 50 });
+    expect(parseAdminRequest({ action: 'enrichment', lookback_hours: 168, proposal_status: 'needs_evidence', proposal_limit: 10 }))
+      .toEqual({ action: 'enrichment', lookbackHours: 168, proposalStatus: 'needs_evidence', proposalLimit: 10 });
+  });
+
+  it.each([
+    { lookback_hours: 1 }, { lookback_hours: '24' }, { lookback_hours: null },
+    { proposal_status: 'published' }, { proposal_limit: 51 }, { proposal_limit: 0 }, { proposal_limit: 1.5 },
+    { actor_user_id: UUID }, { evidence_urls: ['https://example.com'] },
+  ])('rejects an invalid enrichment request: %o', (patch) => {
+    expect(parseAdminRequest({ action: 'enrichment', ...patch })).toHaveProperty('error');
+  });
+
+  it('accepts an evidence-preserving proposal triage request', () => {
+    expect(parseAdminRequest({ action: 'review_proposal', proposal_id: UUID, expected_revision: 0,
+      new_status: 'planned', review_note: '  Reproduce against a held-out fixture.  ', request_id: UUID }))
+      .toEqual({ action: 'review_proposal', proposalId: UUID, expectedRevision: 0, newStatus: 'planned',
+        reviewNote: 'Reproduce against a held-out fixture.', requestId: UUID });
+  });
+
+  it.each([
+    { proposal_id: 'nope' }, { expected_revision: -1 }, { expected_revision: 1.5 },
+    { expected_revision: Number.MAX_SAFE_INTEGER + 1 }, { new_status: 'published' },
+    { review_note: '' }, { review_note: '  ' }, { review_note: 'x'.repeat(2001) },
+    { review_note: null }, { request_id: 'nope' }, { actor_user_id: UUID },
+    { evidence_urls: ['https://example.com'] }, { title: 'Changed evidence' },
+  ])('rejects an invalid or evidence-changing review: %o', (patch) => {
+    expect(parseAdminRequest({ action: 'review_proposal', proposal_id: UUID, expected_revision: 0,
+      new_status: 'needs_evidence', review_note: 'Needs a source check.', request_id: UUID, ...patch })).toHaveProperty('error');
+  });
 });
 
 describe('ADMIN_ITEM_COLUMNS', () => {

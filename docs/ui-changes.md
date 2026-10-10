@@ -28,6 +28,29 @@ left of the panel" when it opens; "notify the enrichment agent".
   carry their own). Opening the panel now focuses the sheet itself rather than its first cell,
   so the share cell's tooltip no longer opens — and gets placed mid-slide — on open.
 - iOS: full screen stays the platform's own presentation (plan 17, Task 4); nothing else changes.
+## 2026-10-10 · Admin enrichment review and proposal triage
+
+- `/admin/enrichment`, linked from Members, shows all-account completeness for
+  saves in the last 24 hours or seven days: assessed/unassessed denominators,
+  New York save cohorts, sources, object types, strategy outcomes and recorded
+  latency/cost. These are current recorded states, not factual-accuracy rates or
+  historical snapshots. Up to 30 incomplete saves expose five recent attempts.
+- The hosted review queue now projects validated proposals into
+  `hosted_quality_proposals`. Existing retained results are backfilled; future
+  completed results enter atomically. Each occurrence retains its original
+  job and source links; similar suggestions are not automatically merged.
+- Admins can record `new`, `needs_evidence`, `planned` or `dismissed` plus a
+  required note. Decisions append a reviewer/revision history. Conflicts require
+  refresh, and unchanged transport retries use the same idempotency key.
+  Triage does not change saves, run experiments or deploy a strategy.
+- `admin-stats` accepts `enrichment` and `review_proposal` actions. Both require
+  the authenticated caller's current `admin_users` membership at the endpoint
+  and SQL boundaries. Actors cannot be supplied by a client. Details are never
+  exposed to ordinary members. Native clients need no change.
+- Proposals and review notes follow the source audit's 35-day lifetime and
+  cascade on source deletion. The dashboard displays the three latest notes;
+  all retained notes remain in the database. Email stays after 09:00 New York;
+  provider acceptance is displayed separately from inbox delivery.
 
 ## 2026-10-10 · The panel plays the media: embeds, a PDF reader, a transcript tab, full size / full screen, timestamped notes
 
