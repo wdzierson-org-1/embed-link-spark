@@ -48,6 +48,9 @@ export async function runObjectIntelligenceWorker({ db, config, index, extract =
   const counts = { completed: 0, extracted: 0, reused: 0, deferred: 0, failed: 0, skipped: 0 };
   try {
     const jobs = checked<any[]>(await db.rpc('claim_object_intelligence_jobs', { run_token: run, batch_size: 10 })) || [];
+    // SQL chooses due work in order, but UPDATE RETURNING does not guarantee that
+    // order. Preserve fairness before spending the run's two provider calls.
+    jobs.sort((a, b) => (Date.parse(a.next_run_at) - Date.parse(b.next_run_at)) || String(a.item_id).localeCompare(String(b.item_id)));
     for (const job of jobs) {
       const jobStarted = now();
       let outcome = 'deferred'; let reason: string | null = null; let delay = 300;

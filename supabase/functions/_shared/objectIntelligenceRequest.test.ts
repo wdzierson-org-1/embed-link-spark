@@ -44,13 +44,17 @@ describe('server-owned object intelligence citation requests', () => {
     expect(request.prompt).toContain('never imply the extracted list or instructions are complete');
   });
 
-  it('uses a single shared reference enum and keeps all schema objects closed', () => {
+  it('uses one reference enum per evidence role and keeps all schema objects closed', () => {
     const before = JSON.stringify(OBJECT_INTELLIGENCE_OUTPUT_SCHEMA);
     const { schema, prompt } = buildObjectIntelligenceRequest(recipeSource);
     expect(schema.required).toEqual(['interpretation', 'facts']);
     expect(schema.properties).not.toHaveProperty('evidence');
-    expect(schema.$defs).toEqual({ evidence_id: { type: 'string', enum: ['e1', 'e2'] } });
-    let references = 0, referenceEnums = 0;
+    expect(schema.$defs).toEqual({
+      object_evidence_id: { type: 'string', enum: ['e1'] },
+      creator_evidence_id: { type: 'string', enum: ['e2'] },
+    });
+    let references = 0;
+    const enumIds: string[] = [];
     const visit = (node: any) => {
       if (!node || typeof node !== 'object') return;
       if (node.type === 'object') {
@@ -59,17 +63,59 @@ describe('server-owned object intelligence citation requests', () => {
       }
       if (node.properties?.evidence_ids) {
         references++;
-        expect(node.properties.evidence_ids.items).toEqual({ $ref: '#/$defs/evidence_id' });
+        expect(['#/$defs/object_evidence_id', '#/$defs/creator_evidence_id']).toContain(node.properties.evidence_ids.items.$ref);
       }
-      if (node.enum?.includes('e1')) referenceEnums++;
+      if (node.enum?.some((entry: string) => /^e[1-9][0-9]*$/.test(entry))) enumIds.push(...node.enum);
       Object.values(node).forEach(visit);
     };
     visit(schema);
     expect(references).toBeGreaterThan(20);
-    expect(referenceEnums).toBe(1);
+    expect(enumIds.sort()).toEqual(['e1', 'e2']);
     expect(prompt).toContain('Do not output an evidence array');
     expect(prompt).toContain('untrusted data');
     expect(JSON.stringify(OBJECT_INTELLIGENCE_OUTPUT_SCHEMA)).toBe(before);
+  });
+
+  it('disallows body references for creators and creator references for every object fact in the schema', () => {
+    const { schema } = buildObjectIntelligenceRequest(recipeSource);
+    const evidenceRules = (node: any): any[] => {
+      if (!node || typeof node !== 'object') return [];
+      return [...(node.properties?.evidence_ids ? [node.properties.evidence_ids] : []), ...Object.values(node).flatMap(evidenceRules)];
+    };
+    const allowed = (rule: any, ids: string[]) => {
+      const definition = rule.items.$ref.replace('#/$defs/', '');
+      return ids.every(id => schema.$defs[definition].enum.includes(id));
+    };
+    const fields = schema.properties.facts.properties;
+    const creatorRules = evidenceRules(fields.creator);
+    expect(creatorRules).toHaveLength(1);
+    expect(allowed(creatorRules[0], ['e2'])).toBe(true);
+    expect(allowed(creatorRules[0], ['e1'])).toBe(false);
+    expect(allowed(creatorRules[0], ['e2', 'e1'])).toBe(false);
+    const objectRules = Object.entries(fields).filter(([key]) => key !== 'creator').flatMap(([, value]) => evidenceRules(value));
+    expect(objectRules.length).toBeGreaterThan(20);
+    for (const rule of objectRules) {
+      expect(allowed(rule, ['e1'])).toBe(true);
+      expect(allowed(rule, ['e2'])).toBe(false);
+      expect(allowed(rule, ['e1', 'e2'])).toBe(false);
+    }
+  });
+
+  it('requires a null creator when no creator metadata was captured', () => {
+    const { schema } = buildObjectIntelligenceRequest(source([recipeSource.sources[0]]));
+    expect(schema.properties.facts.properties.creator).toEqual({ type: 'null' });
+    expect(schema.properties.facts.required).toContain('creator');
+    expect(schema.$defs).toEqual({ object_evidence_id: { type: 'string', enum: ['e1'] } });
+    expect(JSON.stringify(schema)).not.toContain('creator_evidence_id');
+  });
+
+  it('keeps an empty object evidence lane null rather than creating an invalid empty enum', () => {
+    const { schema } = buildObjectIntelligenceRequest(source([recipeSource.sources[1]]));
+    for (const [key, value] of Object.entries(schema.properties.facts.properties)) {
+      if (key !== 'creator') expect(value).toEqual({ type: 'null' });
+    }
+    expect(schema.$defs).toEqual({ creator_evidence_id: { type: 'string', enum: ['e1'] } });
+    expect(JSON.stringify(schema)).not.toContain('object_evidence_id');
   });
 
   it('covers all 40,000 source characters in overlapping exact snippets within both limits', () => {
@@ -81,6 +127,13 @@ describe('server-owned object intelligence citation requests', () => {
     const request = buildObjectIntelligenceRequest(source(blocks));
     expect(request.sources.length).toBeLessThanOrEqual(250);
     expect(request.sources.map(block => block.id)).toEqual(request.sources.map((_, index) => `e${index + 1}`));
+    const definedIds = Object.values(request.schema.$defs).flatMap((definition: any) => definition.enum);
+    expect(definedIds).toHaveLength(request.sources.length);
+    expect(new Set(definedIds).size).toBe(request.sources.length);
+    for (const block of request.sources) {
+      const definition = block.kind === 'creator_metadata' ? 'creator_evidence_id' : 'object_evidence_id';
+      expect(request.schema.$defs[definition].enum).toContain(block.id);
+    }
     for (const block of blocks) {
       const snippets = request.sources.filter(candidate => candidate.kind === block.kind);
       let previousStart = -1, previousEnd = 0;

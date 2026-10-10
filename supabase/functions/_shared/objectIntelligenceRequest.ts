@@ -69,17 +69,30 @@ export function buildObjectIntelligenceRequest(source: ObjectIntelligenceSource)
   const schema: Record<string, any> = structuredClone(OBJECT_INTELLIGENCE_OUTPUT_SCHEMA);
   delete schema.properties.evidence;
   schema.required = schema.required.filter((key: string) => key !== 'evidence');
-  // One enum avoids repeating up to 250 values at each fact leaf, which would
-  // exceed the provider's total schema enum limit.
-  schema.$defs = { evidence_id: { type: 'string', enum: refs.map(entry => entry.id) } };
-  const replaceReferences = (node: unknown) => {
-    if (Array.isArray(node)) { node.forEach(replaceReferences); return; }
+  // Disjoint enums constrain attribution before generation and list each ID
+  // once, avoiding the provider's total enum limit at repeated fact leaves.
+  const objectIds = refs.filter(entry => entry.kind !== 'creator_metadata').map(entry => entry.id);
+  const creatorIds = refs.filter(entry => entry.kind === 'creator_metadata').map(entry => entry.id);
+  schema.$defs = {
+    ...(objectIds.length ? { object_evidence_id: { type: 'string', enum: objectIds } } : {}),
+    ...(creatorIds.length ? { creator_evidence_id: { type: 'string', enum: creatorIds } } : {}),
+  };
+  const replaceReferences = (node: unknown, definition: string) => {
+    if (Array.isArray(node)) { node.forEach(entry => replaceReferences(entry, definition)); return; }
     const object = record(node); if (!object) return;
     const properties = record(object.properties), evidenceIds = record(properties?.evidence_ids);
-    if (evidenceIds) evidenceIds.items = { $ref: '#/$defs/evidence_id' };
-    Object.values(object).forEach(replaceReferences);
+    if (evidenceIds) evidenceIds.items = { $ref: `#/$defs/${definition}` };
+    Object.values(object).forEach(entry => replaceReferences(entry, definition));
   };
-  replaceReferences(schema.properties.facts);
+  const fields = schema.properties.facts.properties;
+  for (const [key, field] of Object.entries(fields)) {
+    const creator = key === 'creator';
+    if (!(creator ? creatorIds : objectIds).length) { fields[key] = { type: 'null' }; continue; }
+    // The base schema reuses one fact object. Clone each branch separately so
+    // changing a creator reference cannot also change an object reference.
+    fields[key] = structuredClone(field);
+    replaceReferences(fields[key], creator ? 'creator_evidence_id' : 'object_evidence_id');
+  }
   return {
     sources: refs.map(entry => ({ id: entry.id, kind: entry.kind, text: entry.quote, truncated: entry.truncated })), schema, prompt: PROMPT,
     materialize(output) {
