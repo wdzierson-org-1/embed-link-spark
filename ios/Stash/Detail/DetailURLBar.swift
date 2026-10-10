@@ -2,29 +2,20 @@ import SwiftUI
 import StashKit
 import UIKit
 
-/// Hairline link row — port of the web's `EditItemLinkSection.tsx`: favicon (Google's favicon
-/// service, `faviconURL(for:)`) · mono URL · trailing external-link icon that opens the URL.
-/// Replaces the old system-blue "Open Link" button. Link items only.
-///
-/// Plan 16 (HIG + accessibility):
-/// - The URL is `mono(.footnote)` and scales. At the standard text sizes it keeps its one line,
-///   shortened in the MIDDLE (the domain and the end of the path stay readable), and the full URL
-///   is always one long press away: the context menu previews it whole, wrapped, with Copy link.
-///   VoiceOver reads the whole URL either way. At the accessibility sizes one line would leave a
-///   few characters, so it wraps — but to three lines at most, still shortened in the middle (2b
-///   fix wave: the whole address took about 8 lines of 33 pt mono at AX3, ~300 pt of the sheet),
-///   and without its scheme, so the host starts line 1 (`displayedURL`). The long-press preview
-///   breaks the URL after "/", "." and "-", never mid-word with a hyphen (`breakableURL`).
-/// - "Open link" takes taps across 44×44 pt and names itself for VoiceOver and the Large Content
-///   Viewer; its glyph is `muted` (`faint`, 2.79:1, is decorative-only). It's a `Button` that
-///   opens the URL (`openURL`, what a `Link` does): a `Link` keeps its 20×18 pt glyph as its
-///   target even with the 44 pt overhang on its label (measured — Xcode's audit still flagged it),
-///   while a button takes the overhang (`.stashPlain`).
+/// The source address strip: address / edit, or explicit cancel / save while editing.
+/// Draft text stays local to the strip until Save. The parent owns durable committed writes.
 struct DetailURLBar: View {
     let urlString: String
+    var focus: FocusState<DetailField?>.Binding
+    var onSave: (String) async -> Bool
+
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var saving = false
+    @State private var needsRetry = false
+    @State private var error: String?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.openURL) private var openURL
 
     private var url: URL? { URL(string: urlString) }
 
@@ -60,73 +51,134 @@ struct DetailURLBar: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 0) {
+                if editing {
+                    TextField("Source address", text: $draft)
+                        .stashFont(.code(.footnote))
+                        .textContentType(.URL)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 44)
+                        .focused(focus, equals: .url)
+                        .disabled(saving)
+                        .accessibilityIdentifier("detail.url.editor")
+                        .onSubmit { commit() }
+                        .onChange(of: draft) { _, _ in error = nil }
+                    cell("Cancel editing address", symbol: "xmark", identifier: "detail.url.cancel",
+                         color: StashColor.destructive) { cancel() }
+                        .disabled(saving)
+                    cell("Save address", symbol: "checkmark", identifier: "detail.url.save",
+                         fill: StashColor.spot) { commit() }
+                        .disabled(saving)
+                } else {
+                    address
+                    cell("Edit address", symbol: "pencil", identifier: "detail.url.edit") {
+                        draft = urlString
+                        error = nil
+                        editing = true
+                        focus.wrappedValue = .url
+                    }
+                }
+            }
+            .frame(minHeight: 44)
+            .background(StashColor.surface, in: barShape)
+            .overlay(barShape.strokeBorder(StashColor.ink, lineWidth: 1))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("detail.urlBar")
+
+            if let error {
+                Text(error).stashFont(.secondary).foregroundStyle(StashColor.destructive)
+                    .accessibilityIdentifier("detail.url.error")
+            } else if saving {
+                StashStatusLine(text: "saving address", busy: true)
+                    .accessibilityIdentifier("detail.url.saving")
+            }
+        }
+        .onChange(of: urlString) { _, _ in
+            if !editing && !saving { draft = urlString; error = nil }
+        }
+    }
+
+    private var address: some View {
         HStack(spacing: 10) {
             AsyncImage(url: faviconURL(for: urlString)) { phase in
-                if case .success(let image) = phase {
-                    image.resizable()
-                } else {
-                    Color.clear
-                }
+                if case .success(let image) = phase { image.resizable() } else { Color.clear }
             }
             .frame(width: 16, height: 16)
             .clipShape(RoundedRectangle(cornerRadius: StashRadius.object))
-            .padding(.leading, 12)
             .accessibilityHidden(true)
-
             Text(displayedURL)
                 .stashFont(.code(.footnote))
                 .foregroundStyle(StashColor.ink)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // VoiceOver reads the whole URL, scheme included, at every size.
                 .accessibilityLabel(urlString)
                 .accessibilityIdentifier("detail.urlText")
-
-            if let url {
-                Button {
-                    openURL(url)
-                } label: {
-                    Image(systemName: "arrow.up.right.square")
-                        .foregroundStyle(StashColor.white)
-                        .frame(width: 44, height: 44)
-                        .background(StashColor.ink)
-                }
-                .buttonStyle(.stashPlain)
-                .stashIconControl("Open link", systemImage: "arrow.up.right.square")
-                .accessibilityIdentifier("detail.openLink")
-            }
         }
-        .frame(minHeight: 44)
-        .background(StashColor.surface, in: barShape)
-        .overlay(barShape.strokeBorder(StashColor.ink, lineWidth: 1))
-        // The full-URL affordance: a long press anywhere on the bar.
-        .contentShape(.contextMenuPreview, barShape)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
         .contextMenu {
-            Button {
-                UIPasteboard.general.string = urlString
-            } label: {
-                Label("Copy link", systemImage: "doc.on.doc")
-            }
-            if let url {
-                Link(destination: url) {
-                    Label("Open link", systemImage: "arrow.up.right.square")
-                }
-            }
+            Button { UIPasteboard.general.string = urlString } label: { Label("Copy link", systemImage: "doc.on.doc") }
+            if let url { Link(destination: url) { Label("Open link", systemImage: "arrow.up.right.square") } }
         } preview: {
-            // A definite width: the menu sizes its preview from the view's ideal size, and with only
-            // a maximum width the URL's ideal is ONE line — the box came out one line tall and cut
-            // the rest off (2b fix wave, measured on iOS 17.2: three lines of URL in a 47 pt box).
             Text(breakableURL)
-                .stashFont(.mono(.footnote))
-                .foregroundStyle(StashColor.ink)
+                .stashFont(.code(.footnote)).foregroundStyle(StashColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(width: 300, alignment: .leading)
-                .padding(16)
+                .frame(width: 300, alignment: .leading).padding(16)
                 .accessibilityLabel(urlString)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("detail.urlBar")
+    }
+
+    private func cell(_ label: String, symbol: String, identifier: String,
+                      color: Color = StashColor.ink, fill: Color = StashColor.surface,
+                      action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).foregroundStyle(color)
+                .frame(width: 44, height: 44).background(fill)
+                .overlay(alignment: .leading) { Rectangle().fill(StashColor.ink).frame(width: 1) }
+        }
+        .buttonStyle(.stashPlain)
+        .stashIconControl(label, systemImage: symbol)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func cancel() {
+        editing = false
+        needsRetry = false
+        draft = urlString
+        error = nil
+        focus.wrappedValue = nil
+    }
+
+    private func commit() {
+        guard !saving else { return }
+        guard let next = LinkAddressEdit.normalize(draft) else {
+            error = "That doesn't look like a web address."
+            focus.wrappedValue = .url
+            return
+        }
+        if next == urlString && !needsRetry { cancel(); return }
+        saving = true
+        error = nil
+        focus.wrappedValue = nil
+        Task {
+            let saved = await onSave(next)
+            saving = false
+            needsRetry = !saved
+            if saved {
+                editing = false
+                draft = next
+            } else {
+                error = "Couldn't sync the address. Kept on this device for retry."
+            }
+        }
     }
 
     private var barShape: RoundedRectangle {

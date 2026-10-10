@@ -38,6 +38,7 @@ public struct PendingField<Value: Codable & Equatable & Sendable>: Codable, Equa
 public struct PendingEdit: Codable, Equatable, Sendable {
     public let itemId: UUID
     public var title: PendingField<String>?
+    public var url: PendingField<String>?
     public var description: PendingField<String>?
     public var content: PendingField<String>?
     public var supplementalNote: PendingField<String>?
@@ -68,12 +69,12 @@ public struct PendingEdit: Codable, Equatable, Sendable {
 
     public var isEmpty: Bool {
         title == nil && description == nil && content == nil && supplementalNote == nil
-            && isPublic == nil && attributes == nil
+            && isPublic == nil && attributes == nil && url == nil
     }
 
     /// The latest capture of any queued field (`.distantPast` when empty).
     var latestCapture: Date {
-        [title?.capturedAt, description?.capturedAt, content?.capturedAt, supplementalNote?.capturedAt,
+        [url?.capturedAt, title?.capturedAt, description?.capturedAt, content?.capturedAt, supplementalNote?.capturedAt,
          isPublic?.capturedAt, attributes?.capturedAt].compactMap { $0 }.max() ?? .distantPast
     }
 
@@ -84,7 +85,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
 
     /// The queued columns' names — for logs; never their values (the user's words stay private).
     public var fieldNames: [String] {
-        [(title != nil, "title"), (description != nil, "description"), (content != nil, "content"),
+        [(url != nil, "url"), (title != nil, "title"), (description != nil, "description"), (content != nil, "content"),
          (supplementalNote != nil, "supplemental_note"), (isPublic != nil, "is_public"),
          (attributes != nil, "attributes.location")]
             .filter(\.0).map(\.1)
@@ -94,7 +95,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     /// out on purpose — see the type's doc comment and `PendingEdits.flush`.
     public var fieldPatch: ItemPatch {
         ItemPatch(title: title?.value, description: description?.value, content: content?.value,
-                  supplementalNote: supplementalNote?.value, isPublic: isPublic?.value)
+                  supplementalNote: supplementalNote?.value, isPublic: isPublic?.value, url: url?.value)
     }
 
     /// `item` as the user last left it: every queued value laid over the server's row.
@@ -106,6 +107,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
         if let supplementalNote { result.supplementalNote = supplementalNote.value.isEmpty ? nil : supplementalNote.value }
         if let isPublic { result.isPublic = isPublic.value }
         if let attributes { result.attributes.location = attributes.value.location }
+        if let url { result = LinkAddressEdit.applying(url.value, to: result) }
         return result
     }
 
@@ -119,6 +121,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     @discardableResult
     mutating func merge(_ patch: ItemPatch, capturedAt: Date) -> Bool {
         let before = self
+        url = Self.newer(url, patch.url, capturedAt)
         title = Self.newer(title, patch.title, capturedAt)
         description = Self.newer(description, patch.description, capturedAt)
         content = Self.newer(content, patch.content, capturedAt)
@@ -146,6 +149,7 @@ public struct PendingEdit: Codable, Equatable, Sendable {
     @discardableResult
     mutating func removeSent(_ sent: PendingEdit) -> Bool {
         let before = self
+        url = Self.stillPending(url, after: sent.url)
         title = Self.stillPending(title, after: sent.title)
         description = Self.stillPending(description, after: sent.description)
         content = Self.stillPending(content, after: sent.content)
@@ -346,7 +350,7 @@ public final class PendingEdits {
         }
         return ItemPatch(title: since(landed.title), description: since(landed.description),
                          content: since(landed.content), supplementalNote: since(landed.supplementalNote),
-                         isPublic: since(landed.isPublic), attributes: since(landed.attributes))
+                         isPublic: since(landed.isPublic), attributes: since(landed.attributes), url: since(landed.url))
     }
 
     /// Takes back a queued Sharing value other than `shown` — what the detail sheet's switch shows,
@@ -469,6 +473,7 @@ public final class PendingEdits {
         }
         var kept = patch
         var holds = patch
+        if patch.url != nil, let value = overtaking(landed.url) { kept.url = nil; holds.url = value }
         if patch.title != nil, let value = overtaking(landed.title) { kept.title = nil; holds.title = value }
         if patch.description != nil, let value = overtaking(landed.description) {
             kept.description = nil
@@ -501,6 +506,7 @@ public final class PendingEdits {
             if let known, known.capturedAt > capture { return known }
             return DeliveredField(value: value, capturedAt: capture, sequence: sequence)
         }
+        landed.url = newest(landed.url, patch.url, captures.url?.capturedAt)
         landed.title = newest(landed.title, patch.title, captures.title?.capturedAt)
         landed.description = newest(landed.description, patch.description, captures.description?.capturedAt)
         landed.content = newest(landed.content, patch.content, captures.content?.capturedAt)
@@ -721,6 +727,7 @@ public struct SheetSave: Equatable, Sendable {
 /// record of what a later, older patch must not overwrite, of what the server holds for a field
 /// such a patch leaves out, and of what a row read earlier doesn't show.
 struct DeliveredFields: Equatable, Sendable {
+    var url: DeliveredField<String>?
     var title: DeliveredField<String>?
     var description: DeliveredField<String>?
     var content: DeliveredField<String>?

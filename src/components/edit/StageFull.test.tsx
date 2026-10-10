@@ -28,9 +28,10 @@ it('rests on the dotted stage; full size fills the page, names itself in a bar, 
   fireEvent.click(screen.getByRole('button', { name: 'Full size' }));
   expect(stage.className).toContain('fixed inset-0');
   expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('picture');
-  // One way back: the bar's minimize; the hover cell is gone
+  // One way back: the bar's minimize. The hover cell is gone, so nothing reads as a duplicate
   expect(screen.getAllByRole('button')).toHaveLength(1);
-  expect(screen.getByRole('button', { name: 'Minimize' })).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: /minimize|exit full size/i })).toHaveLength(1);
+  expect(screen.queryByRole('button', { name: 'Full size' })).not.toBeInTheDocument();
   // The media element is the same node: a playing video keeps playing
   expect(screen.getByTestId('media')).toBe(media);
   fireEvent.keyDown(window, { key: 'Escape' });

@@ -42,6 +42,8 @@
 		<string>com.apple.share-services</string>
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+		<key>NSExtensionShareWantsFullScreenPresentation</key>
+		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Stash tags saves with where you were — only when you turn the pin on.</string>

@@ -39,6 +39,30 @@ final class ShareIntakeTests: XCTestCase {
         return try store.stage(from: source, fileExtension: ext)
     }
 
+    func testPublicShareChoiceSurvivesDurableHandoffForEveryObject() async throws {
+        let server = FakeCaptureServer()
+        let store = StagedFileStore(userId: userId, directory: stagingDir)
+        let file = try stageFile(store: store, bytes: Data("image".utf8), ext: "jpg")
+        let intake = makeIntake(server: server, staging: store)
+        let objects: [SharedObject] = [.url("https://example.com"), .text("A note"),
+            .file(stagedURL: file, mimeType: "image/jpeg", fileName: "book.jpg", durationS: nil)]
+        let entries = await intake.enqueueForTransfer(objects, note: "Remember", location: nil,
+                                                      status: .pending, isPublic: true)
+        XCTAssertEqual(entries.count, 3)
+        XCTAssertEqual(entries.map { $0.payload["is_public"] }, ["true", "true", "true"])
+        let persisted = await Outbox(directory: dir).pending()
+        XCTAssertEqual(persisted.map { $0.payload["is_public"] }, ["true", "true", "true"])
+        XCTAssertTrue(server.captures.isEmpty)
+    }
+
+    func testPublicShareChoiceReachesForegroundCapture() async {
+        let server = FakeCaptureServer()
+        let result = await makeIntake(server: server).submit([.url("https://example.com")],
+                                                           note: nil, location: nil, isPublic: true)
+        XCTAssertEqual(result.saved, 1)
+        XCTAssertEqual(server.captures.first?.meta["is_public"] as? Bool, true)
+    }
+
     // MARK: - url + note
 
     func testYouTubeURLSharedAsPlainTextSendsURLCapture() async {

@@ -719,11 +719,10 @@ final class A11yAppUITests: XCTestCase {
         let noteView = safari.textViews["share.note"], noteField = safari.textFields["share.note"]
         let note = noteView.exists ? noteView : noteField
         if note.exists {
-            // First a tap in the note card's padding, just above its text line: the whole card is
-            // the note's target, not only its line (plan 16).
-            let em = UIFontMetrics(forTextStyle: .body).scaledValue(for: 17, compatibleWith: variant.traits)
+            // The toast's inline note uses a full-width target, without the retired note
+            // card's outer padding. Exercise the top-right edge inside its reported bounds.
             let before = note.frame
-            A11yScreens.tap(safari, at: CGPoint(x: before.midX, y: before.midY - (em * 0.6 + 5)))
+            A11yScreens.tap(safari, at: CGPoint(x: before.maxX - 6, y: before.minY + 6))
             let paddingTapFocused = Self.waitForKeyboardFocus(note)
             if !paddingTapFocused { A11yScreens.tapUntilFocused(note) }
             sleep(1)
@@ -737,7 +736,7 @@ final class A11yAppUITests: XCTestCase {
                   + "focused=\(focused): save=\(save.frame) "
                   + "keyboard=\(keyboard.exists ? "\(keyboard.frame)" : "none (hardware keyboard)")")
             XCTAssertTrue(focused, "\(token): the note should take the keyboard")
-            XCTAssertTrue(paddingTapFocused, "\(token): a tap in the note card's padding should focus the note")
+            XCTAssertTrue(paddingTapFocused, "\(token): a tap near the note field's edge should focus the note")
         } else {
             XCTFail("\(token): the note field didn't render")
         }
@@ -749,7 +748,7 @@ final class A11yAppUITests: XCTestCase {
 
     // MARK: - Tab bar
 
-    /// The tab bar's items are named for VoiceOver (Add, Ask, View, Settings). NOT part of the
+    /// The tab bar's items are named for VoiceOver (View, Ask, Add, Settings). NOT part of the
     /// normal run: `TEST_RUNNER_A11Y_LCV_PROBE=1` also long-presses the Settings tab for 8 s at AX3
     /// while the host shoots the simulator every second — the system tab bar's own Large Content
     /// Viewer (XCUITest can't look at the screen during a press).
@@ -761,7 +760,7 @@ final class A11yAppUITests: XCTestCase {
         let tabs = app.tabBars.firstMatch.buttons
         let labels = tabs.allElementsBoundByIndex.map(\.label)
         print("A11Y tabs labels=\(labels) identifiers=\(tabs.allElementsBoundByIndex.map(\.identifier))")
-        XCTAssertEqual(labels, ["Add", "Ask", "View", "Settings"], "Tab bar items should be named for VoiceOver")
+        XCTAssertEqual(labels, ["View", "Ask", "Add", "Settings"], "Tab bar items should be named for VoiceOver")
         shoot("tabbar", .ax3)
         guard ProcessInfo.processInfo.environment["A11Y_LCV_PROBE"] == "1" else { return }
         let settings = app.tabBars.buttons["Settings"]
@@ -926,7 +925,7 @@ final class A11yAppUITests: XCTestCase {
         func flatten(_ node: XCUIElementSnapshot) -> [XCUIElementSnapshot] { [node] + node.children.flatMap(flatten) }
         let nodes = (try? app.snapshot()).map(flatten) ?? []
         let barFrame = nodes.first { $0.elementType == .tabBar }?.frame ?? .null
-        // Includes the bar's own items (Add, Ask, View, Settings), which read fine on it.
+        // Includes the bar's own items (View, Ask, Add, Settings), which read fine on it.
         let underBar = barFrame.isNull ? [] : nodes.filter {
             ($0.elementType == .staticText || $0.elementType == .button) && Self.overlaps($0.frame, barFrame)
         }

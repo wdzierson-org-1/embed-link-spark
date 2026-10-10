@@ -31,6 +31,14 @@ final class StashAppDelegate: NSObject, UIApplicationDelegate {
 struct StashApp: App {
     @UIApplicationDelegateAdaptor(StashAppDelegate.self) private var appDelegate
     @State private var session = SessionStore()
+    @State private var authenticatedInPreview = false
+    @State private var signInPreviewActive: Bool = {
+        #if DEBUG
+        UITestHooks.signInPreviewEnabled
+        #else
+        false
+        #endif
+    }()
     // Constructed once here and handed down via environment (Task 5's scope: the plumbing +
     // launch/foreground refresh). Settings' own 30s while-visible polling is Task 7's addition on
     // top of this same instance.
@@ -79,10 +87,14 @@ struct StashApp: App {
                 if UITestHooks.typeSpecimenEnabled {
                     TypeSpecimenView()
                         .zIndex(2)
-                } else if UITestHooks.signInPreviewEnabled {
+                } else if signInPreviewActive {
                     // Exercise the real form/pool without restoring or clearing the saved
-                    // account. A normal launch still follows the session switch above.
-                    SignInView()
+                    // account until the user explicitly signs in. Then start normal auth
+                    // observation and remove this overlay.
+                    SignInView(onAuthenticated: {
+                        authenticatedInPreview = true
+                        signInPreviewActive = false
+                    })
                         .zIndex(2)
                 }
                 #endif
@@ -110,14 +122,14 @@ struct StashApp: App {
                     showHowToStash = true
                 }
             }
-            .task {
+            .task(id: signInPreviewActive) {
                 #if DEBUG
                 // Standalone previews touch neither auth nor shared test preferences, so an
                 // existing account remains available on the next ordinary launch.
-                if UITestHooks.typeSpecimenEnabled || UITestHooks.signInPreviewEnabled { return }
+                if UITestHooks.typeSpecimenEnabled || signInPreviewActive { return }
                 UITestHooks.applyShareExtensionOverrides()
                 #endif
-                await session.start()
+                await session.start(skipAuthenticationReset: authenticatedInPreview)
             }
             // "Launch refresh": fires once the session actually resolves to signed-in, whether
             // that's a cold launch restoring a Keychain session or a fresh sign-in from

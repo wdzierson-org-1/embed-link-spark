@@ -888,7 +888,7 @@ ink on hover.
   (under two days, or paused) the strip takes the spot field. Minimized, a one-line Departure Mono
   strip.
 
-### 12.11 iOS (next), and the share extension
+### 12.11 iOS and the share extension
 
 The web app is the reference; parity means the same states, words and hierarchy, with native
 controls. In SwiftUI terms:
@@ -905,13 +905,31 @@ controls. In SwiftUI terms:
   decrypt on arrival, the picture sharpening with `✓ filled in`. Under Reduce Motion: a still `|`,
   a sharp picture, a still glyph, no scramble.
 - **Loading:** the decrypt cycle over the same twelve lines (§12.10).
-- **Share extension:** the prototype's save panel: the wordmark, a `saving` / `saved` tag (the spot
-  when saved), a thumbnail, the title, the cursor sub-line (`| reading the cover…`, then the
-  finding), and "Add a note".
+- **Share extension (October 10):** the homepage phone's compact paper toast, floating over the
+  sending app: 24 pt corners, a soft native shadow, wordmark, a spot `saved` tag, 56 pt thumbnail,
+  title, machine sub-line and "Add a note". The preview and note use separate white boxes with
+  hairline borders. One square **Save** button shares a row with the square location toggle,
+  separated by 12 pt. The pin reverses to white on ink when enabled; its status appears above
+  the action row. **Share to feed** is always visible with a square switch and the state line
+  **Not shared to feed** / **Sharing to feed**. No More options or Dictate a note affordance.
+  At accessibility sizes the body scrolls while Close and Save stay pinned above the keyboard;
+  preserve the note field's identity while the viewport changes. Preview work is optional and bounded to
+  500 ms; show observed information only. This floating toast is the native exception to the
+  square app windows, following the homepage phone reference.
+- **Navigation:** View, Ask, Add, Settings, with View selected initially.
 - **Ask:** the window becomes the full screen with the same bar, tool steps, answer, citation cards
   and input row.
-- **Item detail:** the panel becomes a sheet; the 44 pt window bar, sections on ink rules, the
-  Details tree.
+- **Item detail:** the panel becomes a sheet with a source/date window bar (no type badge),
+  ink rules and a Details tree. Titles use two lines with a trailing ellipsis; tapping opens
+  the full title with explicit square Save / Cancel. Drafts stay local until Save. Reading
+  order is source address → title → image/player → description → source tabs → notes.
+  Existing web addresses have a square Edit control; Copy/Open live in the long-press menu.
+  Video/audio play inline with a square full-screen action and Open original fallback. Keep
+  playback position across full screen and never autoplay. Video links show Summary / Transcript
+  only; unverified page text is never presented as a transcript. Article links keep Original Content.
+- **Share item:** the header opens a compact paper toast matching capture: rounded outer card,
+  square X, disclosure, boxed address and one full-width square black Copy link action. Unlisted
+  links remain separate from feed sharing and survive closing the toast.
 - **Settings:** the numbered index becomes the list; each section a pushed screen of white sheets.
 - Controls keep the v1 iOS rules (`DESIGN.md` › Controls (iOS)): 44 pt targets, Dynamic Type roles,
   VoiceOver names.

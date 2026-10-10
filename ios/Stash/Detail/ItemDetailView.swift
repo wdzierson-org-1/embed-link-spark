@@ -31,7 +31,7 @@ enum SaveStatus: Equatable {
 /// Plan 16 (Task 4d): `SharingSection`'s sticky note binds in the same way (`.stickyNote`) — with
 /// a focus of its own, the hide-keyboard control never appeared for it.
 enum DetailField: Hashable {
-    case title, description, notes, stickyNote
+    case title, description, notes, stickyNote, url
 }
 
 /// The editor every detail-sheet save and every pending-edit flush goes through (the sheet's own
@@ -251,10 +251,6 @@ final class DetailSheetServices: ObservableObject {
     /// bindings add to it; `saveChangedFields` empties it as it records (a field it leaves out
     /// needs no save, and must take a server value again).
     var typedSinceSave: Set<SheetTextField> = []
-    /// The title as the user last typed, pasted or dictated it into the field (Task 4e, 4d review
-    /// N-3): `keepTitleOnOneLine` resolves only a change that came from the field — never a title
-    /// the server sends while the field has focus.
-    var typedTitle: String?
 
     init(item: Item, userId: UUID) {
         editor = DetailEditorFactory.make()
@@ -287,7 +283,7 @@ final class DetailSheetServices: ObservableObject {
 
 /// Detail sheet presented from a Library card tap, rebuilt to DESIGN.md's detail-panel anatomy
 /// (`§Components`, "Detail panel"): one scrolling flow surface — eyebrow (`DetailEyebrow`) →
-/// inline-editable title/description → contained media → URL bar (`DetailURLBar`, link items) →
+/// URL bar (`DetailURLBar`, link items) → inline-editable title/description → contained media →
 /// content tabs (`ItemDetailContent`) → Details drawer (`DetailsDrawer`, which also owns the
 /// editable location row as its own "Location" fact — Fix round 1, review finding #1: the web
 /// only ever mounts the location editor inside this drawer, never a second time near the top, so
@@ -322,6 +318,7 @@ struct ItemDetailView: View {
     @State private var transcriptionErrorMessage: String?
     @State private var isGeneratingSummary = false
     @State private var summaryErrorMessage: String?
+    @State private var editingTitle = false
 
     let store: ItemStore
 
@@ -331,6 +328,9 @@ struct ItemDetailView: View {
     @State private var selectedTab: ContentTabKey
     /// The `page_body` read (M5/L6) — see `loadDetailIfNeeded`.
     @State private var sourceLoad: DetailSourceLoad = .idle
+    /// A source job can settle while an older detail read is still returning. In that case
+    /// discard that read and fetch once more before presenting the newly classified source.
+    @State private var sourceReloadNeeded = false
     /// One shared enum-keyed `@FocusState` for every text input (final wave, item B — see
     /// `DetailField`'s own doc comment). Threaded down through `ItemDetailContent` and
     /// `SharingSection` as a `FocusState<DetailField?>.Binding`; the footer's hide-keyboard control
@@ -350,7 +350,7 @@ struct ItemDetailView: View {
         _item = State(initialValue: ItemDisplay.editableRow(start.shown))
         _snapshot = State(initialValue: start.server)
         self.store = store
-        _selectedTab = State(initialValue: contentTabsConfig(for: item.type).defaultTab)
+        _selectedTab = State(initialValue: contentTabsConfig(for: item).defaultTab)
         _services = StateObject(wrappedValue: DetailSheetServices(item: start.shown, userId: store.userId))
     }
 
@@ -406,6 +406,7 @@ struct ItemDetailView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     DetailEyebrow(item: item)
+                    ItemShareControl(itemID: item.id, userID: store.userId, isPublic: item.isPublic)
                     closeButton
                 }
                 .padding(.horizontal, 14)
@@ -417,20 +418,24 @@ struct ItemDetailView: View {
                     // rhythm); `ItemDetailContent`/`DetailsDrawer`/`SharingSection` each open with
                     // a `SectionHeader`, which supplies its own `DetailLayout.section` gap.
                     VStack(alignment: .leading, spacing: 0) {
+                        if let urlString = associatedWebAddress {
+                            DetailURLBar(urlString: urlString, focus: $focusedField, onSave: saveAddress)
+                                .padding(.bottom, 28)
+                        }
                         titleField
-                        descriptionField
-                            .padding(.top, DetailLayout.gap)
                         // Web parity (`EditItemSheet.tsx`'s `hasImage` gate): `(type === 'image'
                         // || type === 'link') && file_path` — `item.thumbnailURL` is that same
                         // "file_path present" check (`ItemRules.swift`).
-                        if (item.type == .image || item.type == .link), let url = item.thumbnailURL {
+                        if let source = DetailMediaRules.source(for: item) {
+                            DetailMediaStage(source: source)
+                                .id(source)
+                                .padding(.top, DetailLayout.gap)
+                        } else if (item.type == .image || item.type == .link), let url = item.thumbnailURL {
                             heroImage(url)
                                 .padding(.top, DetailLayout.gap)
                         }
-                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
-                            DetailURLBar(urlString: urlString)
-                                .padding(.top, DetailLayout.gap)
-                        }
+                        descriptionField
+                            .padding(.top, DetailLayout.gap)
                         ItemDetailContent(item: item, selectedTab: $selectedTab,
                                           sourceLoad: sourceLoad,
                                           onRetryDetail: { Task { await loadDetailIfNeeded() } },
@@ -506,60 +511,21 @@ struct ItemDetailView: View {
         }
     }
 
+    /// Existing web addresses can be corrected on any saved object. Uploaded media continues
+    /// to use its file path; this neither creates a new address nor changes the media itself.
+    private var associatedWebAddress: String? {
+        guard let address = item.url,
+              let scheme = URLComponents(string: address)?.scheme?.lowercased(),
+              ["http", "https"].contains(scheme), LinkAddressEdit.normalize(address) != nil else { return nil }
+        return address
+    }
+
     // MARK: - Flow surface pieces
 
-    /// Object title (panel) per DESIGN.md: 500 · 28 / 1.2 · −0.02em, inline-editable — "no input
-    /// chrome at rest; violet wash on hover; wash + ring on focus." Touch has no hover, so the
-    /// wash/ring both key off `focusedField == .title` here.
-    ///
-    /// Plan 16: the placeholder is what the card shows once the field is left empty — the type
-    /// label ("Voice note", "Photo", …) on an audio, image, video or file item (an object-name
-    /// title opens as an empty field, see `baseline`; a cleared one is saved as "" and reads the
-    /// same, M-6), "Untitled" on any other type.
-    ///
-    /// Plan 16 (HIG + accessibility): the `panelTitle` role (28 pt, scaling with `.title`), and the
-    /// title WRAPS — a vertical-axis field — so no part of it is ever cut off (it used to scroll
-    /// sideways out of view in one line, at every size). It is still one line of text: Return
-    /// ends editing, as it did, and a pasted line break becomes a space (`keepTitleOnOneLine`).
-    /// The placeholder is `muted` (`prompt:`; the system grey is 1.7:1 and this one names the
-    /// item), and VoiceOver calls the field "Title" — not its placeholder, which would announce a
-    /// typed title as "Voice note" or "Untitled". A vertical-axis field is a text view underneath,
-    /// which a bare XCUITest `.tap()` doesn't always focus — UI tests tap until it has focus
-    /// (`tapUntilFocused`).
+    /// Two lines while reading; a full draft and explicit Save when editing.
     private var titleField: some View {
-        let placeholder = ItemDisplay.titlePlaceholder(for: snapshot)
-        return TextField("Title", text: titleBinding,
-                         prompt: Text(placeholder).foregroundStyle(StashColor.muted), axis: .vertical)
-            .stashFont(.panelTitle)
-            .stashTracking(-0.02, role: .panelTitle)
-            .foregroundStyle(StashColor.ink)
-            .textFieldStyle(.plain)
-            .submitLabel(.done)
-            .onSubmit { focusedField = nil }
-            .onChange(of: item.title) { oldTitle, newTitle in keepTitleOnOneLine(was: oldTitle, now: newTitle) }
-            .focused($focusedField, equals: .title)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(focusedField == .title ? StashColor.surface : Color.clear,
-                        in: RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: StashRadius.input, style: .continuous)
-                    // 1pt (was 2pt) — matches every other hairline/focus stroke on the sheet.
-                    .strokeBorder(focusedField == .title ? StashColor.ink : Color.clear, lineWidth: 1)
-            )
-            .overlay {
-                if focusedField == .title {
-                    Rectangle().stroke(StashColor.spot, lineWidth: 3).padding(-2).allowsHitTesting(false)
-                }
-            }
-            .accessibilityIdentifier("detail.title")
-            // Final wave: the 6pt horizontal padding above exists to grow the tap/focus target,
-            // not to push the TEXT off `DetailLayout.inset` — negating it here shifts the whole
-            // padded+background+overlay assembly left by 6pt so the glyph's own left edge lands
-            // exactly on `DetailLayout.inset` (20), flush with the eyebrow/URL bar above it,
-            // while the hit target itself keeps its full width.
-            .padding(.horizontal, -6)
-            .detailFieldTapTarget { focusedField = .title }
+        DetailTitleEditor(title: item.title ?? "", placeholder: ItemDisplay.titlePlaceholder(for: snapshot),
+                          focus: $focusedField, onSave: saveTitle, editing: $editingTitle)
     }
 
     /// Plan 16: reading text — the `reading` role, 17 pt (was 14) — in `muted` (5.38:1), with a
@@ -779,42 +745,30 @@ struct ItemDetailView: View {
                 .foregroundStyle(StashColor.destructive)
                 .accessibilityIdentifier("detail.autosave.error")
         } else {
-            StashStatusLine(text: saveStatus == .saving ? "saving…" : "changes save automatically",
+            StashStatusLine(text: saveStatus == .saving ? "saving…" :
+                            (editingTitle ? "save title to apply" : "changes save automatically"),
                             busy: saveStatus == .saving)
                 .foregroundStyle(StashColor.muted)
                 .accessibilityIdentifier("detail.autosave")
         }
     }
 
-    // MARK: - Field bindings (title/description autosave)
+    // MARK: - Explicit title/address saves and autosaving field bindings
 
-    private var titleBinding: Binding<String> {
-        Binding(get: { item.title ?? "" }, set: { newValue in
-            services.typedTitle = newValue
-            services.typedSinceSave.insert(.title)
-            item.title = newValue
-            scheduleFieldSave()
-        })
+    /// Only the strip's explicit Save commits an address. From that point it follows the
+    /// same write-ahead queue, supersede rules and dismiss journal as every other saved field.
+    @MainActor
+    private func saveAddress(_ raw: String) async -> Bool {
+        guard let address = LinkAddressEdit.normalize(raw) else { return false }
+        item = LinkAddressEdit.applying(address, to: item)
+        return await save(ItemPatch(url: address)).isSaved
     }
 
-    /// Plan 16: the title field wraps (`axis: .vertical`), but a title is one line of text. A
-    /// vertical-axis field inserts a line break on Return, so while the user is typing in it the
-    /// change is resolved by what it inserted (StashKit's `OneLineTitleEdit`, 2b review I-1): a
-    /// bare Return — over a selection too — leaves the title as it was and ends editing, as the
-    /// single-line field did; a Return that also accepted an autocorrection keeps the correction
-    /// and ends editing; a pasted line break becomes a space. The line break is only ever on
-    /// screen for the one update this takes — the 400 ms autosave never sees it.
-    ///
-    /// Only a change that came from the field is resolved (`services.typedTitle`, Task 4e — 4d
-    /// review N-3). A title the server sends while the field has focus (an AI title, another
-    /// device) is shown as the server has it: resolved here, one ending in a line break ended
-    /// editing under the user's fingers, and the sheet then wrote its one-line copy back as if the
-    /// user had typed it. The user's own next edit of such a title still makes it one line.
-    private func keepTitleOnOneLine(was oldTitle: String?, now newTitle: String?) {
-        guard focusedField == .title, newTitle == services.typedTitle,
-              let edit = OneLineTitleEdit.resolve(old: oldTitle, new: newTitle) else { return }
-        item.title = edit.title
-        if edit.endsEditing { focusedField = nil }
+    /// The editor keeps its draft separate. Only its Save enters the durable field pipeline.
+    @MainActor
+    private func saveTitle(_ title: String) async -> Bool {
+        item.title = title
+        return await save(ItemPatch(title: title)).isSaved
     }
 
     private var descriptionBinding: Binding<String> {
@@ -981,7 +935,7 @@ struct ItemDetailView: View {
         saveStatus = .saved
     }
 
-    /// The debounced field autosave (400ms after the last title/description/sticky keystroke).
+    /// The debounced field autosave (400ms after the last description/sticky-note keystroke).
     /// Naturally idempotent — nothing unsaved (`DetailFieldEdits.textPatch`) is a no-op. Marked
     /// @MainActor deliberately: it's reached through `Debouncer`, its own (non-Main) actor, whose
     /// internal `Task` doesn't inherit the main actor. Quiet once the sheet has closed — the
@@ -1254,6 +1208,9 @@ struct ItemDetailView: View {
     /// Whether `new` (a server row) reports the item's transcription job settled — done or failed —
     /// where `old` didn't show that same state.
     private static func transcriptJobSettled(from old: Item, to new: Item) -> Bool {
+        if new.type == .link, !old.attributes.hasCapturedTranscript, new.attributes.hasCapturedTranscript {
+            return true
+        }
         guard let job = TranscriptJobState(attributes: new.attributes), job.status == .done || job.status == .failed
         else { return false }
         return TranscriptJobState(attributes: old.attributes) != job
@@ -1477,13 +1434,24 @@ struct ItemDetailView: View {
     /// server's transcription job just replaced it). The old text stays up while the read runs.
     @MainActor
     private func loadDetailIfNeeded(force: Bool = false) async {
-        guard needsSourceContent(item.type), force || item.pageBody == nil, sourceLoad != .loading else { return }
+        guard needsSourceContent(item.type) else { return }
+        if sourceLoad == .loading {
+            if force { sourceReloadNeeded = true }
+            return
+        }
+        guard force || item.pageBody == nil else { return }
         sourceLoad = .loading
         let itemId = item.id
         let generationAtStart = services.latestGeneration
         let writesInFlightAtStart = ItemWriteQueue.shared.isBusy(itemId)
         do {
             let detail = try await SupabaseItemsFetcher().fetchDetail(id: itemId)
+            if sourceReloadNeeded {
+                sourceReloadNeeded = false
+                sourceLoad = .idle
+                if !services.isClosed { await loadDetailIfNeeded(force: true) }
+                return
+            }
             let savedSinceStart = writesInFlightAtStart || ItemWriteQueue.shared.isBusy(itemId)
                 || services.latestGeneration != generationAtStart
             if savedSinceStart {
@@ -1501,6 +1469,10 @@ struct ItemDetailView: View {
         } catch {
             // A read cancelled because the sheet went away isn't a failure worth showing.
             sourceLoad = Task.isCancelled ? .idle : .failed
+            if sourceReloadNeeded {
+                sourceReloadNeeded = false
+                if !Task.isCancelled && !services.isClosed { await loadDetailIfNeeded(force: true) }
+            }
         }
     }
 }

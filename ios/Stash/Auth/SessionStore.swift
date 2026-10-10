@@ -44,13 +44,13 @@ final class SessionStore {
     private(set) var profileLoad: ProfileLoad = .idle
     @ObservationIgnored private var profileTask: Task<Void, Never>?
 
-    func start() async {
+    func start(skipAuthenticationReset: Bool = false) async {
         #if DEBUG
         var startSignedOut = false
         // UI-test repeatability: the Keychain session survives app uninstall/reinstall
         // on the Simulator, so a UI test that signs in once would silently skip the
         // sign-in screen on every subsequent run. Let the UI test force a clean slate.
-        if CommandLine.arguments.contains("--uitest-reset-auth") {
+        if !skipAuthenticationReset && CommandLine.arguments.contains("--uitest-reset-auth") {
             // Web parity (plan-4 Task 6b, commit 166b7c6: "local-scope sign-out"): sign out
             // locally without broadcast to other sessions — matches web's LogoutButton behavior.
             try? await StashClient.shared.auth.signOut(scope: .local)
@@ -143,12 +143,15 @@ final class SessionStore {
         Task { try? await StashClient.shared.auth.signOut(scope: .local) }
     }
 
-    func signIn(email: String, password: String) async {
+    @discardableResult
+    func signIn(email: String, password: String) async -> Bool {
         errorMessage = nil
         do {
             _ = try await StashClient.shared.auth.signIn(email: email, password: password)
+            return true
         } catch {
             errorMessage = "Sign-in failed. Check your email and password."
+            return false
         }
     }
 
@@ -160,7 +163,8 @@ final class SessionStore {
     /// `user_profiles` row itself; inserting from the client too would race the trigger.
     /// `authStateChanges` (see `start()`) picks up the resulting sign-in the same way `signIn`
     /// does — supabase-swift's `signUp` updates the session and emits `.signedIn` internally.
-    func signUp(email: String, password: String, username: String, phone: String?) async {
+    @discardableResult
+    func signUp(email: String, password: String, username: String, phone: String?) async -> Bool {
         errorMessage = nil
         do {
             let metadata: [String: AnyJSON] = [
@@ -194,20 +198,27 @@ final class SessionStore {
                 // Fire-and-forget, matching web's own nested try/catch (see doc comment above) —
                 // `_ =` silences "result of 'try?' is unused" (`.execute()` returns a
                 // non-Void `PostgrestResponse`); the response itself is intentionally discarded.
-                _ = try? await StashClient.shared.from("user_phone_numbers")
-                    .upsert(phoneBody, onConflict: "phone_number")
-                    .execute()
-                try? await StashClient.shared.functions.invoke(
-                    "send-welcome-message",
-                    options: FunctionInvokeOptions(body: ["phoneNumber": AnyJSON.string(cleanPhone)])
-                )
+                Task {
+                    _ = try? await StashClient.shared.from("user_phone_numbers")
+                        .upsert(phoneBody, onConflict: "phone_number")
+                        .execute()
+                    try? await StashClient.shared.functions.invoke(
+                        "send-welcome-message",
+                        options: FunctionInvokeOptions(body: ["phoneNumber": AnyJSON.string(cleanPhone)])
+                    )
+                }
             }
+            if response.session == nil {
+                errorMessage = "Check your email to confirm your account, then sign in."
+            }
+            return response.session != nil
         } catch {
             // Web parity (`Auth.tsx handleSignUp`'s toast uses `error.message` verbatim):
             // surface the real Supabase message (e.g. "User already registered") when there is
             // one; the generic string is only a fallback for an empty/unlocalized error.
             let message = error.localizedDescription
             errorMessage = message.isEmpty ? "Sign-up failed. Check your details and try again." : message
+            return false
         }
     }
 

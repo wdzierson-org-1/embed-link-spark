@@ -2,9 +2,95 @@
 
 ## Integrated app
 
-The approved UI is integrated into local `main` at `68c128ad` by fast-forward from
-`07208635`. The primary checkout is `/Users/will/Appdev/embed-link-spark`.
-The review branch and its simulator gallery remain available as the original review record.
+The October 10 update is implemented on `codex/ios-design-v2`, building on local main
+`575deb2e`. The primary checkout is `/Users/will/Appdev/embed-link-spark`.
+The simulator gallery contains real native captures using the review account.
+
+## October 10 — compact detail follow-up
+
+- Two-line titles expand on tap into a full editor with square Save / Cancel. Unsaved drafts
+  stay local; committed titles follow the existing durable pipeline.
+- Descriptions follow the main visual. The type badge and source Copy/Open buttons are removed.
+- Video links show Summary / Transcript only, with an honest empty state for unverified source text.
+- Share item is a compact paper toast with square X and one full-width Copy link action.
+  Existing tokens are reused and feed privacy stays unchanged.
+
+### Verification of this follow-up
+
+- **20 focused StashKit tests pass**, covering video tabs, transcript evidence, edited addresses,
+  canonical video links and conservative provider classification.
+- **Two native acceptance flows pass** across separate runs. Title coverage includes two-line
+  truncation, full draft focus, no autosave before Save, Cancel, durable Save/relaunch, preserved
+  notes/source text/privacy, media-first order, and reachable AX3 controls with the keyboard open.
+  Item sharing covers Copy feedback, anonymous access, token reuse after closing/reopening,
+  and unchanged feed privacy. Disposable review-account fixtures are cleaned up by exact ID.
+- Real native screenshots were reviewed and added to the gallery, including the AX3 title editor.
+- The verified app is installed and running on **Stash Design v2**; a simulator capture confirms
+  the owner's signed-in library remains intact. The Mac locked before the final window-foreground
+  check, so Device Hub could not be raised; select Stash Design v2 after unlocking if needed.
+
+Evidence:
+
+- Unit log: `/private/tmp/stash-detail-video-classification-green.log`
+- Native build and compiled legacy test migrations: `/private/tmp/stash-detail-refinement-final-build2.log`
+- Title acceptance: `/private/tmp/stash-detail-refinement-v4-ui.xcresult`
+- Share acceptance: `/private/tmp/stash-detail-refinement-v2-ui.xcresult` (share flow passes;
+  the earlier title scroll-helper failure is resolved in the title run above)
+
+Legacy title tests have been migrated to explicit Save and draft isolation. Autosave race
+coverage uses the description field, which retains that behavior. These migrations are compiled;
+the complete legacy UI suite has not been rerun. The earlier 958-test full StashKit result and
+playback acceptance below belong to the preceding pass.
+
+## October 10 — revised toast and detail controls (earlier pass)
+
+- Navigation remains **View, Ask, Add, Settings**.
+- Share toast: bordered media/link preview and note input, a visible retro **Share to feed**
+  toggle, square **Save** and location buttons on one row with a gap. Location reverses to
+  white on black when on; its status appears above Save. No More options or Dictate a note.
+- Location consent remains per-account across Add and the extension. Missing permissions or
+  GPS never block Save. Preview work remains optional with its existing 500 ms deadline;
+  durable capture and normal enrichment continue independently.
+- Detail videos play inline with a full-screen toggle. Native uploads use AVPlayer; supported
+  links use isolated provider players. Playback starts only after a tap. Full screen retains
+  the same player; leaving detail or backgrounding pauses it. Provider restrictions can still
+  require **Open original**.
+- Header **Share** creates/manages an unlisted item link. Copy, native sharing and revocation
+  use the existing backend contract and never toggle public feed visibility.
+- Video source tabs follow the web's transcript evidence flag. Summary sits beside Transcript;
+  Original Content remains until the server identifies a transcript. Generic scraped text is
+  never labeled as a transcript.
+- Existing source addresses have Copy / Edit / Open controls, with explicit Save / Cancel.
+  Address edits use the durable queue, clear metadata from the old address, and preserve
+  captured source text, notes, summary, media and location. No backend migration is needed.
+
+Web reference: `app-redesign-v2` at `4315aa49`. The earlier ASCII sign-in pool,
+masonry library and rotating thinking cursor remain in place.
+
+### Verification of the earlier pass
+
+The prior full StashKit suite passed **958 tests**. The real Safari share flow passes: feed on/off, square Save beside the pin, location status,
+note entry, confirmation within 500 ms and exactly one private server item. The AX3 check
+passes for first-tap note focus, pinned Save above the keyboard, touch targets and audit.
+Address-edit acceptance passes for invalid input, cancel, save, metadata cleanup, preserved
+notes/source text and relaunch. The test suite uses a dedicated QA simulator and disposable
+review-account items, leaving the owner's account unchanged. Native AVPlayer and YouTube
+playback both pass real play-clock and full-screen continuity checks. Item sharing passes
+creation, copy, native sharing, anonymous access, revocation and feed-privacy checks.
+
+The verified build is installed and open on **Stash Design v2** with its existing signed-in
+library preserved. The gallery uses review-account fixtures, not the owner's private items.
+
+- Unit log: `/private/tmp/stash-detail-share-v3-unit.log`
+- Native build: `/private/tmp/stash-detail-share-v3-build7.log`
+- Toast: `/private/tmp/stash-detail-share-v3-ui.xcresult` (toast test passes; initial detail test selectors corrected afterward)
+- Larger text: `/private/tmp/stash-share-v3-large-ui.xcresult`
+- Address editing: `/private/tmp/stash-detail-share-v4-ui.xcresult` (address test passes)
+- Item-link sharing: `/private/tmp/stash-detail-share-v5-ui.xcresult` (share test passes)
+- Embedded playback: `/private/tmp/stash-detail-share-v6-ui.xcresult` (YouTube test passes)
+- Native playback: `/private/tmp/stash-detail-share-v7-ui.xcresult`
+
+Physical-device GPS and gyroscope feel still require an iPhone check.
 
 ## Review origin
 
@@ -74,8 +160,8 @@ water using the same 600-particle native budget. Dot fade and noise-dithered sph
 the homepage texture. The motion mapper preserves upward/sideways gravity, adds a directional
 angular impulse, smooths sensor jitter, and fades a weak downward pull in only when held flat.
 
-`--uitest-preview-signin` is a DEBUG-only standalone login preview that does not start or clear
-the saved session. Pair it with `--uitest-pool-motion-demo` to demonstrate clockwise/counterclockwise
+`--uitest-preview-signin` is a DEBUG-only standalone login preview that leaves the saved
+session untouched until the user explicitly signs in. Successful authentication now exits the preview. Pair it with `--uitest-pool-motion-demo` to demonstrate clockwise/counterclockwise
 samples in the simulator. These samples pass through the same mapper as the physical sensor.
 Remove the launch arguments to return to the saved account. Actual sensor feel still needs an iPhone.
 
@@ -114,7 +200,7 @@ resolves an obsolete Xcode 15 copy on this Mac, which crashes before showing a w
 Keep normal local signing enabled: the simulator needs the app's shared Keychain entitlements
 for session persistence and the share extension.
 
-## Verification
+## Original redesign verification
 
 - StashKit: **894 tests passed**, zero failures, including eight masonry cases and five fluid cases.
 - Simulator app + embedded share extension build: passed, including the final landscape-axis correction.
@@ -134,7 +220,7 @@ for session persistence and the share extension.
 
 ### Review artifacts
 
-- [Screenshot gallery](ios-design-v2/index.html) — twelve simulator captures and a motion clip.
+- [Screenshot gallery](ios-design-v2/index.html) — native simulator captures and a motion clip.
 - [Motion preview](ios-design-v2/ascii-motion.mp4) — 12 seconds of simulated left/right movement.
 - Motion/Ask UI results: `/private/tmp/stash-ios-motion-core.xcresult` (five tests).
 - Masonry/screen UI results: `/private/tmp/stash-ios-motion-layout.xcresult` (three tests).

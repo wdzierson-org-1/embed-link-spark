@@ -130,6 +130,16 @@ export type MediaAttributes = {
 };
 
 export type ItemAttributes = {
+  /** User-reviewed derivative note. Provenance metadata is not source verification. */
+  derived_from?: {
+    version: 1;
+    item_id: string;
+    source_fingerprint: string;
+    action: 'shopping_list' | 'recipe_card' | 'itinerary';
+    draft_version: 1;
+    created_at: string;
+    edited: boolean;
+  };
   /** Publisher structured facts, with source evidence; separate from the capture location. */
   object_facts?: ObjectFacts;
   /** Beta, source-bound facts, interpretations, and proposed interactions. */

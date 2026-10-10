@@ -33,6 +33,9 @@ import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
 import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
 import ObjectFactsSection from '@/components/edit/ObjectFactsSection';
+import ObjectIntelligenceSection from '@/components/edit/ObjectIntelligenceSection';
+import { readObjectFacts } from '../../supabase/functions/_shared/objectFacts';
+import type { ObjectIntelligence } from '../../supabase/functions/_shared/objectIntelligence';
 import LocationDetailsSection from '@/components/edit/LocationDetailsSection';
 import { readPlace } from '../../supabase/functions/_shared/place';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
@@ -51,6 +54,7 @@ interface ContentItem {
   title?: string;
   description?: string;
   content?: string;
+  page_body?: string;
   file_path?: string;
   type?: string;
   tags?: string[];
@@ -126,6 +130,37 @@ const EditItemDetailsTab = ({
   const [mobileEditorReady, setMobileEditorReady] = useState(false);
   const [isImageBusy, setIsImageBusy] = useState(false);
   const { user } = useAuth();
+  const [currentIntelligence, setCurrentIntelligence] = useState<{ itemId: string; value: ObjectIntelligence | null } | null>(null);
+  const handleIntelligenceReady = React.useCallback((value: ObjectIntelligence | null) => {
+    if (item?.id) setCurrentIntelligence({ itemId: item.id, value });
+  }, [item?.id]);
+  // Publisher facts keep their capture date and existing retailer/map actions.
+  // Avoid repeating only the exact values already visible in that section.
+  const hiddenFactPaths = useMemo(() => {
+    if (!item?.url || item.type !== 'link' || currentIntelligence?.itemId !== item.id) return [];
+    const publisher = readObjectFacts(item.attributes?.object_facts, item.url);
+    const facts = currentIntelligence.value?.facts;
+    if (!publisher || !facts) return [];
+    const hidden: string[] = [];
+    if (publisher.product && facts.product) {
+      for (const field of ['brand', 'color', 'size', 'material'] as const) {
+        if (publisher.product[field] && publisher.product[field] === facts.product[field]?.value) hidden.push(`product.${field}`);
+      }
+      if ((publisher.product.sku ?? publisher.product.mpn) === facts.product.sku?.value && facts.product.sku) hidden.push('product.sku');
+      if (publisher.product.offer?.price === facts.product.price?.value && publisher.product.offer?.currency === facts.product.currency?.value) {
+        hidden.push('product.price', 'product.currency');
+      }
+    }
+    // The normalized location section replaces publisher facts when a place exists.
+    // It does not render every publisher field (for example cuisine).
+    if (publisher.place && facts.place && !readPlace(item.attributes?.place)) {
+      const address = publisher.place.address ? Object.values(publisher.place.address).filter(Boolean).join(', ') : undefined;
+      for (const [field, value] of [['address', address], ['cuisine', publisher.place.cuisine?.join(', ')], ['price_range', publisher.place.price_range]] as const) {
+        if (value && value === facts.place[field]?.value) hidden.push(`place.${field}`);
+      }
+    }
+    return hidden;
+  }, [item, currentIntelligence]);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const handleReplaceImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -413,6 +448,12 @@ const EditItemDetailsTab = ({
 
       {/* Publisher object facts are distinct from the user's capture location. */}
       {item?.type === 'link' && <ObjectFactsSection item={item} />}
+
+      {/* Validated source facts and explicit, user-reviewed derivative drafts. */}
+      {item && user && item.type !== 'collection' && <ObjectIntelligenceSection
+        key={item.id} item={item} userId={user.id}
+        onReady={handleIntelligenceReady} hiddenFactPaths={hiddenFactPaths}
+      />}
 
       {/* ── Details drawer: format facts, filename, source, location ── */}
       {item && <EditItemDetailsDrawer item={item} onSaveAttributes={onAttributesSave} />}

@@ -13,7 +13,7 @@ import XCTest
 ///   xxxLarge, AX3 and Bold Text, with Xcode's accessibility audit run on every screen (`A11Y
 ///   audit …` lines, contrast findings with the real pixels; the report judges each);
 /// - the contracts the pass set, measured: detail reading text at 17 pt and growing with the text
-///   size; the title wrapping instead of cutting off; every detail control taking taps across at
+///   size; the compact title exposing its full accessible label and editor; every detail control taking taps across at
 ///   least 44×44 pt; the footer and the Details facts stacking at the accessibility sizes; the
 ///   scrolled-away search field staying reachable (and, in a by-hand probe, real VoiceOver
 ///   bringing its row back).
@@ -161,10 +161,9 @@ final class A11yDetailLibraryUITests: XCTestCase {
             closeDetail(app)
 
             openDetail(app, query: seeded.marker, cardText: seeded.audioWords, variant: variant)
-            let title = titleField(app)
-            XCTAssertTrue(title.waitForExistence(timeout: 10), "\(variant): no title field")
-            XCTAssertTrue(title.placeholderValue == "Voice note" || (title.value as? String) == "Voice note",
-                          "\(variant): expected the Voice note placeholder, got '\(title.placeholderValue ?? "nil")'")
+            let title = app.buttons["detail.title"]
+            XCTAssertTrue(title.waitForExistence(timeout: 10), "\(variant): no title button")
+            XCTAssertEqual(title.label, "Voice note", "\(variant): expected the type-label fallback")
             // The transcript (`page_body`) is read after the sheet opens and moves everything below
             // it: audit once it's in.
             let transcript = firstElement(app, "detail.transcriptText")
@@ -319,25 +318,32 @@ final class A11yDetailLibraryUITests: XCTestCase {
                 XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "The keyboard didn't go away")
             }
 
-            let title = titleField(app)
-            XCTAssertTrue(title.waitForExistence(timeout: 10), "\(variant): no title field")
-            let titleText = (title.value as? String) ?? ""
+            let title = app.buttons["detail.title"]
+            XCTAssertTrue(title.waitForExistence(timeout: 10), "\(variant): no title button")
+            let titleText = title.label
             XCTAssertTrue(titleText.contains("Field guide"), "\(variant): unexpected title '\(titleText)'")
             let window = app.windows.firstMatch.frame
             XCTAssertLessThanOrEqual(title.frame.maxX, window.maxX, "\(variant): the title runs off the sheet")
+            let category: UIContentSizeCategory = variant == .ax3 ? .accessibilityExtraLarge : .large
+            let traits = UITraitCollection(preferredContentSizeCategory: category)
+            let twoLineCap = UIFontMetrics(forTextStyle: .title1).scaledValue(for: 84, compatibleWith: traits)
+            XCTAssertLessThanOrEqual(title.frame.height, twoLineCap,
+                                    "\(variant): the collapsed title must remain capped at two scaled lines")
             if variant == .ax3 {
-                // At AX3 this 50-odd-character title can't fit one line: it must wrap, not scroll away.
-                XCTAssertGreaterThan(title.frame.height, 80,
-                                     "\(variant): expected the long title to wrap onto several lines, got \(title.frame)")
+                XCTAssertGreaterThan(title.frame.height, 80, "The two-line title must still grow with Dynamic Type")
             } else {
-                // It wraps, but it's one line of text: Return ends editing and adds no line break.
-                A11yScreens.tapUntilFocused(title)
+                title.tap()
+                let editor = titleField(app)
+                XCTAssertTrue(editor.waitForExistence(timeout: 5))
+                A11yScreens.tapUntilFocused(editor)
                 let hideKeyboard = app.buttons["detail.dismissKeyboard"]
-                XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 5), "\(variant): the title didn't take focus")
-                title.typeText("\n")
+                XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 5), "\(variant): the editor didn't take focus")
+                editor.typeText("\n")
                 let ended = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: hideKeyboard)
-                XCTAssertEqual(XCTWaiter().wait(for: [ended], timeout: 5), .completed, "\(variant): Return should end editing")
-                XCTAssertEqual(title.value as? String, titleText, "\(variant): Return must not change the title")
+                XCTAssertEqual(XCTWaiter().wait(for: [ended], timeout: 5), .completed, "\(variant): Return should dismiss the keyboard")
+                XCTAssertEqual(editor.value as? String, titleText, "\(variant): Return must not change the draft")
+                app.buttons["detail.title.cancel"].tap()
+                XCTAssertEqual(title.label, titleText, "Cancel must leave the stored title unchanged")
             }
             closeDetail(app)
         }
@@ -350,7 +356,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
     }
 
     /// Every control on the detail sheet takes taps across at least 44×44 pt (its accessibility
-    /// frame is its target): the close ×, "Open link", "Delete item", the Details header, "Add a
+    /// frame is its target): the close ×, "Edit address", "Delete item", the Details header, "Add a
     /// location", the hide-keyboard circle — and a tap 5 pt past the close circle's edge still
     /// closes the sheet. Xcode's hit-region audit finds nothing on the sheet at Large.
     @MainActor
@@ -363,7 +369,7 @@ final class A11yDetailLibraryUITests: XCTestCase {
         let close = app.buttons["detail.done"]
         assertTarget(close, "Close")
         XCTAssertEqual(close.label, "Close")
-        assertTarget(element(app, "detail.openLink"), "Open link")
+        assertTarget(element(app, "detail.url.edit"), "Edit address")
         let delete = app.buttons["detail.delete"]
         assertTarget(delete, "Delete item")
 
@@ -376,14 +382,21 @@ final class A11yDetailLibraryUITests: XCTestCase {
             return true
         }
 
-        // At the top of the sheet: the title field, and the footer's hide-keyboard circle it shows.
+        // The compact title opens the explicit editor and the pinned keyboard dismissal.
+        let titleButton = app.buttons["detail.title"]
+        assertTarget(titleButton, "Edit title")
+        titleButton.tap()
         let title = titleField(app)
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
         A11yScreens.tapUntilFocused(title)
         assertTarget(app.buttons["detail.dismissKeyboard"], "Hide keyboard")
         app.buttons["detail.dismissKeyboard"].tap()
         let keyboardGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
                                                      object: app.buttons["detail.dismissKeyboard"])
         XCTAssertEqual(XCTWaiter().wait(for: [keyboardGone], timeout: 5), .completed, "Hide keyboard didn't")
+        assertTarget(app.buttons["detail.title.cancel"], "Cancel title edit")
+        assertTarget(app.buttons["detail.title.save"], "Save title")
+        app.buttons["detail.title.cancel"].tap()
 
         let details = element(app, "detail.details")
         A11yScreens.scrollIntoView(app, details)
@@ -1011,9 +1024,9 @@ final class A11yDetailLibraryUITests: XCTestCase {
             .firstMatch
     }
 
-    /// The title: a vertical-axis field (plan 16), which XCUITest may report as a text view.
+    /// The explicit title editor, available after tapping the collapsed title button.
     @MainActor
-    private func titleField(_ app: XCUIApplication) -> XCUIElement { field(app, "detail.title") }
+    private func titleField(_ app: XCUIApplication) -> XCUIElement { field(app, "detail.title.editor") }
 
     @MainActor
     private func descriptionField(_ app: XCUIApplication) -> XCUIElement { field(app, "detail.description") }

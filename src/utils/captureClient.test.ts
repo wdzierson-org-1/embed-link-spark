@@ -1,12 +1,13 @@
 import { captureContent, describeFunctionError } from './captureClient';
 
-const { invokeMock, uploadMock } = vi.hoisted(() => ({
+const { invokeMock, uploadMock, sessionMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   uploadMock: vi.fn(),
+  sessionMock: vi.fn(),
 }));
 
 vi.mock('@/integrations/supabase/client', () => ({
-  supabase: { functions: { invoke: invokeMock } },
+  supabase: { functions: { invoke: invokeMock }, auth: { getSession: sessionMock } },
 }));
 vi.mock('@/utils/fileUploader', () => ({ uploadFile: uploadMock }));
 
@@ -15,7 +16,25 @@ const answered = (payload: Record<string, unknown>) => ({ data: payload, error: 
 describe('captureContent — the web composer saves through the platform API', () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    sessionMock.mockReset().mockResolvedValue({ data: { session: { user: { id: 'user-1' }, access_token: 'owner-token' } }, error: null });
     uploadMock.mockReset().mockResolvedValue('user-1/1700000000000.pdf');
+  });
+
+  it('refuses to save the prior owner’s draft after the active account changes', async () => {
+    sessionMock.mockResolvedValue({ data: { session: { user: { id: 'user-2' }, access_token: 'different-owner-token' } }, error: null });
+    invokeMock.mockResolvedValue(answered({ note: { id: 'wrong-owner-note' } }));
+    await expect(captureContent('text', { content: 'Private source-derived draft' }, 'user-1')).rejects.toThrow('account changed');
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('binds the request to the checked owner token even if preparation outlives an account switch', async () => {
+    uploadMock.mockImplementation(async () => {
+      sessionMock.mockResolvedValue({ data: { session: { user: { id: 'user-2' }, access_token: 'different-owner-token' } }, error: null });
+      return 'user-1/file.pdf';
+    });
+    invokeMock.mockResolvedValue(answered({ item: { id: 'owner-file' } }));
+    await captureContent('document', { file: new File(['original file'], 'file.pdf') }, 'user-1');
+    expect(invokeMock).toHaveBeenCalledWith('add-file', expect.objectContaining({ headers: { Authorization: 'Bearer owner-token' } }));
   });
 
   it('saves a note through add-note with only the words and the structured facts', async () => {
@@ -25,6 +44,7 @@ describe('captureContent — the web composer saves through the platform API', (
     const item = await captureContent('text', { content: doc, attributes: { location: { name: 'Home' } } as never }, 'user-1');
 
     expect(invokeMock).toHaveBeenCalledWith('add-note', {
+      headers: { Authorization: 'Bearer owner-token' },
       body: { content: doc, is_public: false, attributes: { location: { name: 'Home' } } },
     });
     expect(item.id).toBe('note-1');
@@ -63,6 +83,7 @@ describe('captureContent — the web composer saves through the platform API', (
 
     expect(uploadMock).not.toHaveBeenCalled();
     expect(invokeMock).toHaveBeenCalledWith('add-file', {
+      headers: { Authorization: 'Bearer owner-token' },
       body: {
         file_path: 'user-1/staging/123-abc.m4a',
         mime_type: 'audio/mp4',
@@ -89,6 +110,23 @@ describe('captureContent — the web composer saves through the platform API', (
     invokeMock.mockResolvedValue({ data: null, error: Object.assign(new Error('Edge Function returned a non-2xx status code'), { context }) });
 
     await expect(captureContent('link', { url: 'https://example.com' }, 'user-1')).rejects.toThrow('Your trial has ended.');
+  });
+
+  it.each([
+    [403, 'subscription_required', 'subscription_required'],
+    [403, 'session_required', 'session_required'],
+    [401, 'unauthorized', 'session_required'],
+    [403, 'private_provider_code', 'request_failed'],
+  ])('keeps only the closed refusal code and status for %s %s', async (status, serverCode, code) => {
+    const context = new Response(JSON.stringify({ error: serverCode, message: 'Endpoint message' }), { status });
+    invokeMock.mockResolvedValue({ data: null, error: Object.assign(new Error('non-2xx'), { context }) });
+    await expect(captureContent('text', { content: 'Draft' }, 'user-1')).rejects.toMatchObject({ code, status, message: 'Endpoint message' });
+  });
+
+  it('reports a missing local session without invoking capture', async () => {
+    sessionMock.mockResolvedValue({ data: { session: null }, error: null });
+    await expect(captureContent('text', { content: 'Draft' }, 'user-1')).rejects.toMatchObject({ code: 'session_required', status: 401, message: 'Sign in again to save this.' });
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it('refuses an empty note or a file-less file save before calling anything', async () => {

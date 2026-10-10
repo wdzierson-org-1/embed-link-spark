@@ -145,6 +145,7 @@ struct SharingSection: View {
             .foregroundStyle(item.isPublic ? StashColor.white : StashColor.ink)
             .frame(width: 40, height: 40)
             .background(item.isPublic ? StashColor.ink : StashColor.fill)
+            .overlay(Rectangle().strokeBorder(item.isPublic ? StashColor.ink : StashColor.line, lineWidth: 1))
             .accessibilityHidden(true)
     }
 
@@ -187,9 +188,12 @@ struct SharingSection: View {
                 } label: {
                     Image(systemName: didCopyFeedLink ? "checkmark" : "doc.on.doc")
                         .font(.system(size: copyGlyphSize, weight: .medium))
-                        .foregroundStyle(StashColor.white)
+                        .foregroundStyle(StashColor.ink)
                         .frame(width: 44, height: 44)
-                        .background(StashColor.ink)
+                        .background(StashColor.surface)
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(StashColor.ink).frame(width: 1)
+                        }
                 }
                 .buttonStyle(.stashPlain)
                 .stashIconControl(didCopyFeedLink ? "Copied" : "Copy public feed link",
@@ -230,6 +234,7 @@ struct SharingSection: View {
             TextField("Sticky note", text: $supplementalNote,
                       prompt: Text("Add a quick note…").foregroundStyle(StashColor.muted), axis: .vertical)
                 .stashFont(.reading)
+                .italic()
                 .textFieldStyle(.plain)
                 .focused(focus, equals: .stickyNote)
                 .padding(10)

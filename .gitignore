@@ -45,3 +45,4 @@ new_site/
 
 # Chrome Web Store submission package (built by extension/scripts/package.sh)
 extension/*.zip
+.vercel

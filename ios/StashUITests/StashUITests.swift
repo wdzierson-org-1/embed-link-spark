@@ -691,15 +691,28 @@ final class StashUITests: XCTestCase {
         let epoch = Int(Date().timeIntervalSince1970)
         let editedTitle = "\(originalTitle) (edited \(epoch))"
 
-        let titleField = anyElement("detail.title")
-        XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
+        let titleButton = app.buttons["detail.title"]
+        XCTAssertTrue(titleButton.waitForExistence(timeout: 10), "Title button not found")
+        titleButton.tap()
+        let titleField = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND (elementType == %d OR elementType == %d)",
+                                  "detail.title.editor", Int(XCUIElement.ElementType.textView.rawValue),
+                                  Int(XCUIElement.ElementType.textField.rawValue))).firstMatch
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5), "Title editor not found")
         replaceText(titleField, placeholder: "Untitled", with: editedTitle)
         XCTAssertEqual(titleField.value as? String, editedTitle,
                        "Expected the title field to show the edit immediately")
 
-        // Debounce is 400ms; give the save round trip margin, then hold for the external
-        // screenshot rig (same checkpoint technique as testDetailSheets/testTagFilterSheetOpens).
-        sleep(2)
+        // The local draft becomes durable only through explicit Save.
+        let hide = app.buttons["detail.dismissKeyboard"]
+        if hide.exists { hide.tap() }
+        let save = app.buttons["detail.title.save"]
+        A11yScreens.scrollIntoView(app, save)
+        save.tap()
+        let saved = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND label == %@", editedTitle),
+                                             object: titleButton)
+        XCTAssertEqual(XCTWaiter().wait(for: [saved], timeout: 20), .completed,
+                       "Successful title Save must collapse to the committed title")
         FileHandle.standardError.write("SCREENSHOT_CHECKPOINT: edit\n".data(using: .utf8)!)
         sleep(5)
 
@@ -711,9 +724,9 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(editedCard.waitForExistence(timeout: 15), "Expected the edited card to still be findable")
         editedCard.tap()
 
-        let reopenedTitleField = anyElement("detail.title")
-        XCTAssertTrue(reopenedTitleField.waitForExistence(timeout: 10), "Title field not found on reopen")
-        XCTAssertEqual(reopenedTitleField.value as? String, editedTitle,
+        let reopenedTitle = app.buttons["detail.title"]
+        XCTAssertTrue(reopenedTitle.waitForExistence(timeout: 10), "Title button not found on reopen")
+        XCTAssertEqual(reopenedTitle.label, editedTitle,
                        "Expected the edited title to have persisted across dismiss/reopen")
 
         // Notes autosave (Plan 8 Task 5: inline editor replaces the old append composer).
@@ -798,10 +811,18 @@ final class StashUITests: XCTestCase {
         // either by an explicit REST PATCH in the shell right after this run, or automatically by
         // the NEXT run's own restore-first pre-flight (top of this test) if that shell step is
         // ever skipped, or this run crashes before reaching it.
-        replaceText(reopenedTitleField, placeholder: "Untitled", with: originalTitle)
-        XCTAssertEqual(reopenedTitleField.value as? String, originalTitle,
-                       "Expected the title to be restored to exactly the original fixture title")
-        sleep(2)
+        if hide.exists { hide.tap() }
+        A11yScreens.scrollIntoView(app, titleButton)
+        titleButton.tap()
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
+        replaceText(titleField, placeholder: "Untitled", with: originalTitle)
+        if hide.exists { hide.tap() }
+        A11yScreens.scrollIntoView(app, save)
+        save.tap()
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND label == %@", originalTitle),
+                                                object: titleButton)
+        XCTAssertEqual(XCTWaiter().wait(for: [restored], timeout: 20), .completed,
+                       "Expected explicit Save to restore the canonical fixture title")
 
         app.buttons["detail.done"].tap()
         XCTAssertTrue(searchField.waitForExistence(timeout: 10), "Expected the library after final dismiss")
@@ -1718,6 +1739,88 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 15))
     }
 
+    /// The compact toast keeps feed sharing visible and Save beside the persistent pin.
+    /// The public option never publishes this fixture: it is turned off again before Save.
+    /// A closed real subscription gate cancels the share instead of leaving a
+    /// parked fixture. Existing transport tests separately exercise the DEBUG gate override.
+    @MainActor
+    func testShareToastOptionsSavePrivateNoteWithinBudget() async throws {
+        let (email, password) = try testCredentials()
+        let marker = "UITEST-TOAST: \(UUID().uuidString)"
+        addTeardownBlock {
+            for row in (try? await self.itemsWithNote(marker, email: email, password: password)) ?? [] {
+                if let id = row["id"] as? String { try? await self.deleteSharedItem(id: id, email: email, password: password) }
+            }
+        }
+        let app = XCUIApplication()
+        // Only the visual hold is lengthened for automation; the confirmation's measured
+        // latency still comes from the extension's real durable-write boundary.
+        launchSignedIn(app, arguments: ["--uitest-share-confirmation-hold=3000"], email: email, password: password)
+        let settings = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", "Settings")).firstMatch
+        if settings.waitForExistence(timeout: 5) { settings.tap() }
+        _ = app.descendants(matching: .any)["settings.subscription.status"].waitForExistence(timeout: 15)
+
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        let save = openStashComposeCard(in: safari, url: "example.com/?toast=\(UUID().uuidString)", note: nil)
+        let preview = safari.staticTexts["share.preview.url"]
+        let pin = safari.buttons["share.pin"]
+        let publicOption = safari.descendants(matching: .any).matching(identifier: "share.public").firstMatch
+        XCTAssertFalse(safari.buttons["share.moreOptions"].exists)
+        XCTAssertFalse(safari.buttons["share.dictate"].exists)
+        XCTAssertTrue(publicOption.exists, "Feed choice is available without expanding the toast")
+        XCTAssertTrue(pin.isHittable)
+        XCTAssertLessThan(save.frame.maxX, pin.frame.minX, "Save and location need a visible gap")
+        XCTAssertEqual(save.frame.midY, pin.frame.midY, accuracy: 2, "Save and location belong on one line")
+        XCTAssertGreaterThan(preview.frame.minY, safari.frame.height * 0.25,
+                             "The preview should float toward the bottom of the host")
+        XCTAssertEqual(publicOption.value as? String, "0", "Each share starts off the public feed")
+        attachScreenshot(named: "share-toast-compact")
+
+        publicOption.tap()
+        XCTAssertEqual(publicOption.value as? String, "1")
+        XCTAssertTrue(safari.staticTexts["share.public.status"].label.contains("Sharing to feed"))
+        publicOption.tap()
+        XCTAssertEqual(publicOption.value as? String, "0", "The fixture must stay private")
+        XCTAssertTrue(safari.staticTexts["share.public.status"].label.contains("Not shared to feed"))
+
+        // The extension may not have OS permission, but its remembered choice and truthful
+        // status must still work and must never disable Save.
+        if pin.value as? String == "On" { pin.tap() }
+        pin.tap()
+        XCTAssertEqual(pin.value as? String, "On")
+        XCTAssertTrue(safari.descendants(matching: .any)["share.pin.status"].exists)
+        attachScreenshot(named: "share-toast-location-on")
+        pin.tap()
+        XCTAssertEqual(pin.value as? String, "Off")
+
+        let textView = safari.textViews["share.note"]
+        let noteField = textView.exists ? textView : safari.textFields["share.note"]
+        tapUntilFocused(noteField)
+        noteField.typeText(marker)
+        XCTAssertEqual(noteField.value as? String, marker)
+        XCTAssertEqual(publicOption.value as? String, "0")
+
+        let content = safari.scrollViews["share.content"]
+        for _ in 0..<3 where !save.isHittable && content.exists { content.swipeUp() }
+        guard save.isEnabled else {
+            let cancel = safari.buttons["share.cancel"]
+            for _ in 0..<3 where !cancel.isHittable && content.exists { content.swipeDown() }
+            XCTAssertTrue(cancel.isHittable, "Close must remain reachable when saving is unavailable")
+            cancel.tap()
+            XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 10))
+            throw XCTSkip("The real subscription gate is closed; the editable toast was verified without saving a fixture")
+        }
+        XCTAssertTrue(save.isHittable, "Save must remain reachable with the note keyboard open")
+        let confirmation = try XCTUnwrap(tapSaveAndTimeConfirmation(save, in: safari, screenshot: "share-toast-saved"))
+        XCTAssertEqual(confirmation.text, "Saved to Stash")
+        XCTAssertLessThanOrEqual(try XCTUnwrap(confirmation.measuredMs), 500,
+                                 "Preview enrichment and network must not delay durable confirmation")
+        XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 10))
+        let rows = try await waitForItemsWithNote(marker, email: email, password: password, timeout: 25)
+        XCTAssertEqual(rows.count, 1, "The note must attach to exactly one saved link")
+        XCTAssertEqual(rows.first?["is_public"] as? Bool, false)
+    }
+
     @MainActor
     func testShareExtensionURLSmoke() async throws {
         let (email, password) = try testCredentials()
@@ -2212,7 +2315,7 @@ final class StashUITests: XCTestCase {
 
         let eyebrow = anyElement("detail.eyebrow")
         XCTAssertTrue(eyebrow.waitForExistence(timeout: 10), "Eyebrow not found")
-        XCTAssertTrue(eyebrow.label.contains("LINK"), "Expected the eyebrow to read the type LINK, got '\(eyebrow.label)'")
+        XCTAssertTrue(eyebrow.label.lowercased().contains("saved"), "Expected source and saved date in the eyebrow")
         XCTAssertTrue(eyebrow.label.contains("example.com"),
                       "Expected the eyebrow to include the domain 'example.com', got '\(eyebrow.label)'")
 
@@ -2244,7 +2347,8 @@ final class StashUITests: XCTestCase {
         let titleField = anyElement("detail.title")
         XCTAssertTrue(titleField.waitForExistence(timeout: 10), "Title field not found")
         // Plan 16: the title wraps (a vertical-axis field), which a bare tap doesn't always focus.
-        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(titleField) }
+        titleField.tap()
+        MainActor.assumeIsolated { A11yScreens.tapUntilFocused(anyElement("detail.title.editor")) }
 
         let dismissKeyboard = app.buttons["detail.dismissKeyboard"]
         XCTAssertTrue(dismissKeyboard.waitForExistence(timeout: 10),
@@ -3028,7 +3132,7 @@ final class StashUITests: XCTestCase {
             var request = URLRequest(
                 url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
                     .appending(queryItems: [URLQueryItem(name: column, value: "eq.\(marker)"),
-                                            URLQueryItem(name: "select", value: "id,url,type")]))
+                                            URLQueryItem(name: "select", value: "id,url,type,is_public")]))
             request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             let (data, response) = try await Self.restData(for: request)
@@ -3327,9 +3431,9 @@ final class StashUITests: XCTestCase {
                           "Tap point \(tapY) should sit in card.\(index)'s bottom 10pt (frame \(frame))")
             app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: tapY)).tap()
 
-            let detailTitle = app.descendants(matching: .any)["detail.title"]
+            let detailTitle = app.buttons["detail.title"]
             XCTAssertTrue(detailTitle.waitForExistence(timeout: 10), "No detail sheet after tapping card.\(index)'s bottom edge")
-            XCTAssertEqual(detailTitle.value as? String, title(index),
+            XCTAssertEqual(detailTitle.label, title(index),
                            "Tapping the bottom edge of card.\(index) opened a different card")
             app.buttons["detail.done"].tap()
             XCTAssertTrue(card(index).waitForExistence(timeout: 10), "Expected the grid back after closing the sheet")

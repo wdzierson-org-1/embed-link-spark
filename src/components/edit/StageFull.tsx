@@ -70,8 +70,8 @@ export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) 
   // Leaving the stage (another item, the sheet closing) leaves full size too
   useEffect(() => () => setFull(false), [setFull]);
 
-  // Full size has one way back, in the bar; the hover cell goes (two minimize controls sat
-  // side by side, Will 2026-10-10: "we only need one")
+  // At rest the hover cell offers full size; at full size the bar's minimize is the one way
+  // back (a second minimize over the stage read as a duplicate — Will, 2026-10-10)
   const controls = full ? null : (
     <div
       key="controls"

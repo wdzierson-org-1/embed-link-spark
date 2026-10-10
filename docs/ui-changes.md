@@ -74,6 +74,70 @@ Will, 2026-10-10: six fixes to the input panel and the detail panel. Contracts f
   re-run in a real browser on the dev server, composer and panel, keyboard and mouse.
 
 ---
+## 2026-10-10 · Interact with enriched objects: facts, sources, and editable drafts
+
+- **Contract (all platforms):** new owner-authenticated `object-interactions`
+  endpoint validates current `object_intelligence` against the captured source.
+  `inspect` returns ready/pending/unavailable; `draft` accepts a current fingerprint
+  and a supported source-ready capability. See `PLATFORM_API.md` for payloads,
+  errors, ownership and entitlement rules. No model, source mutation, or external
+  action is triggered by inspecting or creating a draft.
+- **First draft actions:** shopping lists from captured recipe ingredients,
+  recipe cards from ingredients and steps, and itinerary outlines from mentioned
+  destinations/places/stays. Preserve source quantities and ordering. Missing
+  ingredients, hours, routes, bookings and day assignments are never invented.
+- **Web:** the item panel gains a beta section with discrete attributes,
+  expandable source quotations, and an inline editable draft. Copy and Save are
+  explicit. Saves use `add-note`, are private by default, and retain a
+  `derived_from` relation to the source/fingerprint/action plus whether the draft
+  was edited. They are ordinary notes, never container objects. Existing publisher
+  product/place details and lookup links remain; equal facts are not repeated.
+- **State handling:** source updates cannot overwrite draft edits; earlier-source
+  previews say so. Item switches ignore late responses. Failed saves preserve the
+  draft; a completed or pending save cannot be submitted again from that preview.
+  Only queued work is described as pending, with bounded visible refreshes.
+  Capture checks and pins the intended owner's session token before preparing the
+  request. Subscription/session failures link to Settings/sign-in and preserve edits.
+- **Parity:** backend contract is shared; the new controls ship on the web first.
+  Native clients can expose the same actions. An infinite canvas and API-powered
+  retailer, grocery, booking or calendar integrations remain future work.
+
+## 2026-10-10 · Maintenance preserves transcript evidence and source descriptions
+
+- **Contract (all platforms):** recovered link transcripts retain `page_body` and
+  `attributes.enrichment.evidence { transcript: true, capture_kind: 'transcript',
+  transcript_source, language?, duration_s?, author? }`. Maintenance now preserves
+  these fields from `scrape-page-content`'s `extractOnly` result, validates the
+  body before attaching evidence, and generates a recording-style `summary`.
+  Meaningful descriptions and existing richer transcripts survive repair.
+- **Recovery:** a usable caption no longer prevents a known YouTube or TikTok
+  video from reaching the existing transcript capture path. Pending provider IDs
+  prevent a second fallback even when that provider's key is unavailable. Successful
+  replacement clears the earlier provider failure; an extraction exception retains
+  the attempted flag and updated provider state so it cannot silently restart on
+  the next review.
+- **Instagram boundary:** successful captures receive the same evidence fix.
+  Newly retrying caption-bearing Instagram saves remains deferred until durable
+  TranscriptFetch submission and job polling are implemented. Its current HTTP 202
+  path loses the job ID, and its timeout exceeds the maintenance request deadline.
+  The two outstanding regression cases are explicit TODOs. Historical exhausted
+  jobs need a separate bounded replay that preserves pending IDs.
+- **Client coordination:** link evidence uses `enrichment.evidence.transcript`;
+  uploaded audio/video progress still uses `media.transcript`. When the link flag
+  changes, an open detail panel should clear and refetch its loaded source body and
+  summary before labeling it a transcript. This frontend follow-up was handed to
+  Claude through the shared coordination file; it is not included in this backend
+  change. Place enrichment and other attribute leaves keep their existing contracts.
+- **Implementation:** `_shared/enrichmentMaintenance.ts`, `enrichmentRepair.ts`,
+  and `enrichmentMaintenance.transcripts.test.ts`. This entry describes the code
+  change; production deployment is a separate step.
+
+## 2026-10-10 · Full-size stages: one minimize
+
+At full size a media stage showed two minimize controls — the ink bar's cell and the stage's
+hover cell (which had turned into "exit full size"). The hover cell now offers only **full
+size**, at rest; at full size the bar's **minimize** cell and Esc are the way back
+(`edit/StageFull`). iOS: a full-size stage carries one close/minimize affordance.
 
 ## 2026-10-10 · Map-based shares: `attributes.place`, the map as the picture, the location section
 
@@ -381,6 +445,101 @@ timestamped notes on media first; HTML slides = both web decks and uploaded `.ht
   prices, multiple ambiguous objects and historical archive prices are omitted.
 - Native binaries are not released by this web/backend change. Existing saves are
   not bulk backfilled; facts appear on newly enriched supported links.
+
+## 2026-10-10 · Compact mobile detail and Copy link toast
+
+- **Title:** two lines with a trailing ellipsis at rest, including Dynamic Type. Tapping opens
+  the complete title in a focused editor with square Save and Cancel controls. Drafts stay local
+  until Save; Cancel or dismiss discards them. Committed titles use the existing durable queue.
+- **Reading order:** source address, title, main image/player, then description. Objects without
+  media keep the description beneath the title. The header omits the type badge.
+- **Address:** the bordered source strip exposes Edit only. Existing long-press Copy/Open
+  actions and the media player's Open original fallback remain available.
+- **Video tabs:** Summary and Transcript only. Unflagged scraped page text remains stored but
+  does not appear as a transcript; a truthful empty state appears until transcript evidence arrives.
+  Ordinary article links retain Original Content.
+- **Share item:** a compact paper toast matching Share to Stash: square X, disclosure, boxed
+  link and one full-width square Copy link button with copied feedback. The prior native Share,
+  feed explanation and revoke rows are removed. Creating/reusing a link still requires explicit
+  Share, never publishes to the feed, and closing the toast never revokes it.
+
+Sources: `DetailTitleEditor`, `ItemDetailView`, `DetailEyebrow`, `DetailURLBar`,
+`ItemShareControl`, and StashKit's item-aware tab rules.
+
+## 2026-10-10 · iOS toast refinement and video/detail parity
+
+- **Toast:** removes More options and Dictate a note. The paper toast contains a bordered
+  icon/media + title/description box, a bordered note input, and a visible square **Share to
+  feed** toggle (**Not shared to feed** / **Sharing to feed**). Square Save and location buttons
+  share one row with a gap; enabled location is white on black, with status above the row.
+  Remembered consent and the existing local durability / 500 ms preview contracts are unchanged.
+- **Playback:** native uploaded audio/video uses AVPlayer; supported video links use isolated
+  provider embeds (YouTube, Vimeo, Loom, TikTok and Instagram). Canonical URL precedence follows
+  the web: `attributes.link.canonical_url`, then `attributes.enrichment.evidence.canonical_url`,
+  then `url`. Strict host parsing rejects lookalike domains. One player moves between inline
+  and native full screen, with no automatic start and a pause on background/detail dismissal.
+  Open original remains available when an embed is unavailable.
+- **Source tabs:** video-flavor links show Summary / Original Content / Transcript before
+  `attributes.enrichment.evidence.transcript == true`, then Summary / Transcript. Only flagged
+  link `page_body` is called a transcript. Uploaded recordings retain Transcript as default
+  and add Summary. A realtime transcript flag invalidates old local page text before refetching.
+- **Item links:** header Share creates/reuses `items.share_token` + `shared_at` through an owner
+  update; `https://www.gostash.it/s/:token` uses the existing `shared_item(p_token)` read RPC.
+  Copy, native sharing and revocation do not change `is_public`. Tokens are secure random
+  10-character base62 values; writes compare the prior token to avoid revoking another client’s
+  newer link. Opening detail only reads share state.
+- **Address editing:** existing HTTP(S) URLs can be changed with explicit Save/Cancel. Bare
+  hosts gain HTTPS; unsafe schemes, whitespace and embedded credentials are rejected. URL
+  intent follows the durable edit queue. Each send/retry reads current attributes in the item's
+  serialized write slot and removes old `link` / `enrichment.evidence` facts in the same PATCH.
+  Captured `page_body`, notes, summary, media, location and unrelated metadata are preserved.
+  A changed video address receives a fresh player identity. No migration is required.
+
+Web reference: `app-redesign-v2` at `4315aa49`; native sources are
+`ShareComposeView`, `DetailMediaStage`, `DetailURLBar`, `ItemShareControl`, and StashKit's
+`DetailMediaRules`, `LinkAddressEdit`, `ItemShareService`, and item-aware content tab rules.
+
+## 2026-10-10 · iOS share toast, remembered location and web-aligned navigation
+
+- **Save contract:** sharing into iOS Stash requires one explicit **Save** tap. `Saved`
+  means every supported item was durably written to the local Outbox; upload and enrichment
+  continue independently. The confirmation closes after 500 ms from persistence, without
+  waiting for the network. A partial or failed write stays open with an accurate error and
+  never shows the saved badge. The associated note belongs to the first item, not a separate
+  capture. `ShareIntake.enqueueForTransfer` accepts `isPublic: Bool = false`; **Share this
+  stash** starts off on each share and carries `is_public` through queued/background saves.
+- **Location contract:** Add and the extension share an opt-in per account in App Group
+  preferences (`capture.location.v1.<user-id>`), default off. Only the consent bit and revision
+  persist; coordinates remain in memory. Reopening either surface respects that choice and
+  warms an already-authorized fix. The extension never requests OS permission. Turning the
+  option off invalidates the cached fix; a resolving pin may attach within a separate 2.5 s
+  worker after Save, with consent rechecked, without delaying confirmation.
+- **Preview contract:** optional display-only work has a single 500 ms deadline and rejects
+  late results. Supplied titles and local fallbacks appear immediately; bounded local OCR can
+  read an image or the first PDF page. Link metadata/small-image analysis runs only with an
+  existing valid token and an unmetered, unconstrained connection. Preview work creates no
+  item or storage upload, never refreshes auth, and never writes inferred text into the saved
+  note. Save does not await it.
+- **Platform divergence:** **Dictate a note** focuses the note field and explains the keyboard
+  microphone. iOS Share extensions cannot record microphone audio; there is no extension
+  recorder or audio attachment. Dictated text follows the same first-item note contract as
+  typed text.
+- **Native presentation:** a compact white rounded toast floats over the sending app, with
+  a 56 pt preview, machine-type summary and lime saved badge. Swipe up or **More options**
+  exposes location, public sharing and dictation. Close and Save sit outside the scrolling
+  body so larger text and the note keyboard keep those controls reachable.
+- **Navigation/details:** tabs are **View, Ask, Add, Settings**, opening on View. A link's
+  address leads its detail panel; source tabs/content precede Notes. Sharing controls and the
+  map pin follow the web treatment while retaining native touch targets and Dynamic Type.
+- **Auth preview:** the DEBUG sign-in preview preserves the stored session while viewing it.
+  A successful explicit sign-in/sign-up exits preview and starts normal session observation;
+  failed authentication stays in the form. The preview can no longer trap a successful login.
+
+Sources: `ios/StashShareExtension/{ShareComposeView,SharePreviewProvider}.swift`,
+`ios/StashKit/Sources/StashKit/{ShareIntake,CaptureLocationPreference,SharePreviewRules}.swift`,
+`ios/Stash/Capture/LocationCapture.swift`, `ios/Stash/{MainTabView,StashApp}.swift`, and
+`ios/Stash/Detail/`. Coverage includes share preview rules, location consent/cache rules,
+queued public payloads, real Safari share acceptance, and preview-to-auth navigation.
 
 ## 2026-10-09 · Share links unfurl with the save's title, description and picture
 
