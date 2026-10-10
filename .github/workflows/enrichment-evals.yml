@@ -35,6 +35,7 @@ jobs:
           node node_modules/vitest/vitest.mjs run
           supabase/functions/_shared/objectIntelligence.test.ts
           supabase/functions/_shared/objectIntelligenceWorker.test.ts
+          supabase/functions/_shared/objectIntelligenceRequest.test.ts
           supabase/functions/_shared/objectIntelligenceIndex.test.ts
           supabase/functions/_shared/socialEnrichment.test.ts
           supabase/functions/_shared/tiktok.test.ts
