@@ -13,6 +13,11 @@
  */
 import { timingSafeEqual } from 'node:crypto';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+// The worker, imported statically: pdf.js otherwise loads it through a computed dynamic import
+// that Vercel's file tracer cannot follow — the deployed bundle lacked pdf.worker.mjs and every
+// render failed ("Setting up fake worker failed", 2026-10-10). Imported, it registers itself as
+// the in-thread handler and no worker file is looked up at all.
+import 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 
 const STORAGE_PUBLIC = 'https://uqqsgmwkvslaomzxptnp.supabase.co/storage/v1/object/public/stash-media/';

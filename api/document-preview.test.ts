@@ -55,6 +55,18 @@ describe('renderFirstPage', () => {
     expect(page.pages).toBe(1);
   });
 
+  it('renders without looking up a worker file (the deployed bundle has none to find)', async () => {
+    const { GlobalWorkerOptions } = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const before = GlobalWorkerOptions.workerSrc;
+    GlobalWorkerOptions.workerSrc = '/nowhere/pdf.worker.mjs';
+    try {
+      const page = await renderFirstPage(syntheticPdf(), 200);
+      expect(page.width).toBe(200);
+    } finally {
+      GlobalWorkerOptions.workerSrc = before;
+    }
+  });
+
   it('refuses what is not a PDF', async () => {
     await expect(renderFirstPage(new Uint8Array(Buffer.from('PK\u0003\u0004 not a pdf')))).rejects.toThrow();
   });
