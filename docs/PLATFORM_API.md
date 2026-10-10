@@ -56,6 +56,10 @@ attributes. The authoritative TypeScript/schema contract is
   descriptions/summaries, user annotations on other objects, and visual guesses
   are excluded. Image facts need OCR; an image's appearance alone is insufficient
   for this first version.
+  The model selects numbered captured passages; the server constructs the
+  quotations. Formatting whitespace may differ in a proposed value, but stored
+  values resolve back to the original source span. Word or attribution changes
+  remain invalid. Diagnostics record closed rejection codes, never source text.
 - **Capabilities:** a closed catalog of proposed interactions, with `id`,
   `status`, `effect`, `prerequisites`, and `requires_confirmation`. `source_ready`
   means enough captured facts to draft an artifact, not an installed tool or an

@@ -5,27 +5,32 @@ import { buildObjectIntelligenceSource, objectIntelligenceFingerprint, parseObje
 const note = () => ({ id: 'item', user_id: 'owner', type: 'text', content: 'Pasta recipe: penne, cherry tomatoes, basil and olive oil. Blister the tomatoes in oil, then toss with cooked penne and basil.', attributes: {} as Record<string, any> });
 const output = { interpretation: { kind: 'recipe', summary: 'Pasta with tomatoes and basil.', topics: ['pasta'] }, facts: { recipe: { ingredients: [{ value: 'penne', evidence_ids: ['e1'] }] } }, evidence: [{ id: 'e1', source_id: 'content', quote: 'penne, cherry tomatoes, basil and olive oil' }] };
 
-async function harness(options: { item?: any; attempts?: number; reserve?: boolean; commit?: boolean; index?: boolean; extractError?: boolean; enabled?: boolean } = {}) {
+async function harness(options: { item?: any; items?: any[]; jobs?: any[]; reserveLimit?: number; attempts?: number; reserve?: boolean; commit?: boolean; index?: boolean; extractError?: boolean; extractErrorCode?: string; enabled?: boolean } = {}) {
   const item = options.item || note();
+  const items = [item, ...(options.items || [])];
   const job = { item_id: item.id, revision: 1, lease_token: 'lease', attempts: options.attempts || 0 };
   const attempts: any[] = [];
+  let reservations = 0;
   const rpc = vi.fn(async (name: string, args?: any) => {
     if (name === 'begin_object_intelligence_run') return { data: 'run' };
-    if (name === 'claim_object_intelligence_jobs') return { data: [job] };
-    if (name === 'reserve_object_intelligence_call') return { data: options.reserve !== false };
+    if (name === 'claim_object_intelligence_jobs') return { data: options.jobs || [job] };
+    if (name === 'reserve_object_intelligence_call') return { data: options.reserve !== false && ++reservations <= (options.reserveLimit ?? Infinity) };
     if (name === 'commit_object_intelligence') {
       if (options.commit === false) return { data: false };
-      item.attributes = { ...item.attributes, object_intelligence: args.intelligence };
+      const target = items.find(candidate => candidate.id === args.target_id)!;
+      target.attributes = { ...target.attributes, object_intelligence: args.intelligence };
     }
     return { data: true };
   });
   const db = { rpc, from: (table: string) => {
-    const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: item }),
+    let selectedId = item.id;
+    const query = { select: () => query, eq: (_field: string, id: string) => { selectedId = id; return query; }, maybeSingle: async () => ({ data: items.find(candidate => candidate.id === selectedId) }),
       insert: async (entry: any) => { attempts.push(entry); return { data: null }; } };
     return query;
   } };
   const extract = vi.fn(async (_key: string, source: any, fingerprint: string) => {
     if (options.extractError) throw new Error('provider body with private source text');
+    if (options.extractErrorCode) throw new Error(options.extractErrorCode);
     const sourceId = source.sources.find((s: any) => s.text.includes('penne')).id;
     return parseObjectIntelligenceOutput({ ...output, evidence: [{ ...output.evidence[0], source_id: sourceId }] }, source, fingerprint)!;
   });
@@ -35,6 +40,16 @@ async function harness(options: { item?: any; attempts?: number; reserve?: boole
 }
 
 describe('hosted object intelligence pass', () => {
+  it('uses the limited calls on the oldest due jobs even when UPDATE RETURNING rows arrive unordered', async () => {
+    const first = { ...note(), id: 'first' }, second = { ...note(), id: 'second' }, last = { ...note(), id: 'last' };
+    const jobs = [last, first, second].map(item => ({ item_id: item.id, revision: 1, lease_token: item.id, attempts: 0,
+      next_run_at: item.id === 'last' ? '2026-10-10T10:00:00Z' : item.id === 'first' ? '2026-10-10T08:00:00Z' : '2026-10-10T09:00:00Z' }));
+    const h = await harness({ item: first, items: [second, last], jobs, reserveLimit: 2 });
+    expect(first.attributes.object_intelligence).toBeTruthy();
+    expect(second.attributes.object_intelligence).toBeTruthy();
+    expect(last.attributes.object_intelligence).toBeUndefined();
+    expect(h.result).toMatchObject({ completed: 2, deferred: 1, failed: 0 });
+  });
   it('enriches a complete note independently of basic card quality and records the attempt', async () => {
     const h = await harness();
     expect(h.extract).toHaveBeenCalledTimes(1);
@@ -82,6 +97,11 @@ describe('hosted object intelligence pass', () => {
     expect(JSON.stringify(h.attempts)).not.toContain('private source');
     expect(h.rpc).toHaveBeenCalledWith('end_object_intelligence_run', { token: 'run' });
   });
+  it('records a closed validation code while retaining the stable queue failure category', async () => {
+    const h = await harness({ extractErrorCode: 'extraction_evidence_quote_not_in_source' });
+    expect(h.attempts[0].reasons).toEqual(['extraction_evidence_quote_not_in_source']);
+    expect(h.rpc).toHaveBeenCalledWith('finish_object_intelligence_job', expect.objectContaining({ failure_code: 'object_intelligence_extraction_failed' }));
+  });
   it('waits for source evidence and does not infer facts from a generated description', async () => {
     const h = await harness({ item: { id: 'i', user_id: 'u', type: 'image', description: 'A leather bag', attributes: {} } });
     expect(h.extract).not.toHaveBeenCalled();
@@ -97,8 +117,7 @@ describe('object intelligence model boundary', () => {
   });
   it('uses constrained JSON output, no tool access, and sends only the source projection', async () => {
     const source = buildObjectIntelligenceSource(note())!;
-    const sourceId = source.sources[0].id;
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...output, evidence: [{ ...output.evidence[0], source_id: sourceId }] }) } }] })));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ interpretation: output.interpretation, facts: output.facts }) } }] })));
     const result = await extractObjectIntelligence('test', source, await objectIntelligenceFingerprint(source), fetcher);
     expect(result?.facts.recipe).toBeTruthy();
     const body = JSON.parse((fetcher.mock.calls[0] as any)[1].body);
