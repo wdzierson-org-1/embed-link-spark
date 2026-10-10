@@ -21,8 +21,8 @@ describe('server-owned object intelligence citation requests', () => {
   it('reconstructs exact source evidence from selected IDs and preserves every claimed fact', () => {
     const request = buildObjectIntelligenceRequest(recipeSource);
     expect(request.sources).toEqual([
-      { id: 'e1', kind: 'transcript', text: recipeSource.sources[0].text },
-      { id: 'e2', kind: 'creator_metadata', text: recipeSource.sources[1].text },
+      { id: 'e1', kind: 'transcript', text: recipeSource.sources[0].text, truncated: false },
+      { id: 'e2', kind: 'creator_metadata', text: recipeSource.sources[1].text, truncated: false },
     ]);
     const candidate = output();
     const materialized = request.materialize(candidate);
@@ -33,6 +33,15 @@ describe('server-owned object intelligence citation requests', () => {
     ]);
     expect(validateObjectIntelligenceOutput(materialized, recipeSource, fingerprint).ok).toBe(true);
     expect(candidate).not.toHaveProperty('evidence');
+  });
+
+  it('preserves incomplete capture metadata across every snippet', () => {
+    const partial = source([{ id: 'page_body', kind: 'transcript', text: 'Captured recipe instructions. '.repeat(40) }]);
+    partial.sources[0].truncated = true;
+    const request = buildObjectIntelligenceRequest(partial);
+    expect(request.sources.length).toBeGreaterThan(1);
+    expect(request.sources.every(block => block.truncated)).toBe(true);
+    expect(request.prompt).toContain('never imply the extracted list or instructions are complete');
   });
 
   it('uses a single shared reference enum and keeps all schema objects closed', () => {
