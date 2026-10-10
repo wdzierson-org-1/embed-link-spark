@@ -8,6 +8,48 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · iOS share toast, remembered location and web-aligned navigation
+
+- **Save contract:** sharing into iOS Stash requires one explicit **Save** tap. `Saved`
+  means every supported item was durably written to the local Outbox; upload and enrichment
+  continue independently. The confirmation closes after 500 ms from persistence, without
+  waiting for the network. A partial or failed write stays open with an accurate error and
+  never shows the saved badge. The associated note belongs to the first item, not a separate
+  capture. `ShareIntake.enqueueForTransfer` accepts `isPublic: Bool = false`; **Share this
+  stash** starts off on each share and carries `is_public` through queued/background saves.
+- **Location contract:** Add and the extension share an opt-in per account in App Group
+  preferences (`capture.location.v1.<user-id>`), default off. Only the consent bit and revision
+  persist; coordinates remain in memory. Reopening either surface respects that choice and
+  warms an already-authorized fix. The extension never requests OS permission. Turning the
+  option off invalidates the cached fix; a resolving pin may attach within a separate 2.5 s
+  worker after Save, with consent rechecked, without delaying confirmation.
+- **Preview contract:** optional display-only work has a single 500 ms deadline and rejects
+  late results. Supplied titles and local fallbacks appear immediately; bounded local OCR can
+  read an image or the first PDF page. Link metadata/small-image analysis runs only with an
+  existing valid token and an unmetered, unconstrained connection. Preview work creates no
+  item or storage upload, never refreshes auth, and never writes inferred text into the saved
+  note. Save does not await it.
+- **Platform divergence:** **Dictate a note** focuses the note field and explains the keyboard
+  microphone. iOS Share extensions cannot record microphone audio; there is no extension
+  recorder or audio attachment. Dictated text follows the same first-item note contract as
+  typed text.
+- **Native presentation:** a compact white rounded toast floats over the sending app, with
+  a 56 pt preview, machine-type summary and lime saved badge. Swipe up or **More options**
+  exposes location, public sharing and dictation. Close and Save sit outside the scrolling
+  body so larger text and the note keyboard keep those controls reachable.
+- **Navigation/details:** tabs are **View, Ask, Add, Settings**, opening on View. A link's
+  address leads its detail panel; source tabs/content precede Notes. Sharing controls and the
+  map pin follow the web treatment while retaining native touch targets and Dynamic Type.
+- **Auth preview:** the DEBUG sign-in preview preserves the stored session while viewing it.
+  A successful explicit sign-in/sign-up exits preview and starts normal session observation;
+  failed authentication stays in the form. The preview can no longer trap a successful login.
+
+Sources: `ios/StashShareExtension/{ShareComposeView,SharePreviewProvider}.swift`,
+`ios/StashKit/Sources/StashKit/{ShareIntake,CaptureLocationPreference,SharePreviewRules}.swift`,
+`ios/Stash/Capture/LocationCapture.swift`, `ios/Stash/{MainTabView,StashApp}.swift`, and
+`ios/Stash/Detail/`. Coverage includes share preview rules, location consent/cache rules,
+queued public payloads, real Safari share acceptance, and preview-to-auth navigation.
+
 ## 2026-10-09 · Share links unfurl with the save's title, description and picture
 
 Will: "update our opengraph card info for items which are shared from the details panel to

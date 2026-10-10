@@ -99,7 +99,7 @@ public struct ShareIntake: Sendable {
     ///   - location: Threads into EVERY unit's `attributes.location`, unconditionally — this is a
     ///     plain value here (unlike `CaptureViewModel.pendingLocation`), since resolving an
     ///     in-flight pin is the extension's (T7) job, before this is ever called.
-    public func submit(_ objects: [SharedObject], note: String?, location: CapturedLocation?) async -> ShareIntakeResult {
+    public func submit(_ objects: [SharedObject], note: String?, location: CapturedLocation?, isPublic: Bool = false) async -> ShareIntakeResult {
         var result = ShareIntakeResult()
 
         // 1. Persist EVERY object before any network call (plan 15 review) — the share sheet can be
@@ -107,7 +107,7 @@ public struct ShareIntake: Sendable {
         //    an earlier one uploads would be lost (or, for a file, only come back through
         //    `sweepOrphans` without its note or location).
         var queued: [(id: UUID, stagedFile: URL?)] = []
-        for unit in units(for: objects, note: note, location: location) {
+        for unit in units(for: objects, note: note, location: location, isPublic: isPublic) {
             guard let entry = try? await outbox.enqueue(unit.kind, payload: unit.payload) else {
                 // The Outbox write itself failed. Counted, never silent. A staged file is left in
                 // place: `sweepOrphans` is the recovery net on the app's next launch.
@@ -151,9 +151,9 @@ public struct ShareIntake: Sendable {
     /// session (`start` re-stamps them `.transferring`). Should the hand-off never happen, the app's
     /// drain sends them.
     public func enqueueForTransfer(_ objects: [SharedObject], note: String?, location: CapturedLocation?,
-                                   status: OutboxEntry.Status = .transferring) async -> [OutboxEntry] {
+                                   status: OutboxEntry.Status = .transferring, isPublic: Bool = false) async -> [OutboxEntry] {
         var entries: [OutboxEntry] = []
-        for unit in units(for: objects, note: note, location: location) {
+        for unit in units(for: objects, note: note, location: location, isPublic: isPublic) {
             if let entry = try? await outbox.enqueue(unit.kind, payload: unit.payload, status: status) {
                 entries.append(entry)
             }
@@ -287,11 +287,11 @@ public struct ShareIntake: Sendable {
         let stagedFile: URL?
     }
 
-    private func units(for objects: [SharedObject], note: String?, location: CapturedLocation?) -> [Unit] {
+    private func units(for objects: [SharedObject], note: String?, location: CapturedLocation?, isPublic: Bool) -> [Unit] {
         let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveNote = (trimmed?.isEmpty ?? true) ? nil : trimmed
         return objects.enumerated().map { index, object in
-            unit(for: object, note: index == 0 ? effectiveNote : nil, location: location)
+            unit(for: object, note: index == 0 ? effectiveNote : nil, location: location, isPublic: isPublic)
         }
     }
 
@@ -301,21 +301,21 @@ public struct ShareIntake: Sendable {
     /// AUGMENTS it: `appendNoteParagraph` (TipTapAppend.swift — written for the since-retired
     /// "append to an existing item" composer) treats the shared text as the existing body and the
     /// typed note as a new paragraph appended after it, so neither is ever silently dropped.
-    private func unit(for object: SharedObject, note: String?, location: CapturedLocation?) -> Unit {
+    private func unit(for object: SharedObject, note: String?, location: CapturedLocation?, isPublic: Bool) -> Unit {
         // Also normalize at the durable boundary: direct callers and both transfer lanes must
         // send the same URL payload, even if they did not use ProviderLoader's ordering helper.
         switch Self.normalizeSharedObject(object) {
         case .url(let url):
-            var payload = ["url": url, "content": note ?? "", "is_public": "false"]
+            var payload = ["url": url, "content": note ?? "", "is_public": isPublic ? "true" : "false"]
             if let json = attributesJSONString(buildAttributes(location: location)) { payload["attributes_json"] = json }
             return Unit(kind: .url, payload: payload, stagedFile: nil)
         case .text(let text):
             let content = note.map { appendNoteParagraph(to: text, note: $0) } ?? text
-            var payload = ["content": content, "is_public": "false"]
+            var payload = ["content": content, "is_public": isPublic ? "true" : "false"]
             if let json = attributesJSONString(buildAttributes(location: location)) { payload["attributes_json"] = json }
             return Unit(kind: .note, payload: payload, stagedFile: nil)
         case .file(let stagedURL, let mimeType, let fileName, let durationS):
-            var payload = ["local_file_path": stagedURL.path, "mime_type": mimeType, "is_public": "false"]
+            var payload = ["local_file_path": stagedURL.path, "mime_type": mimeType, "is_public": isPublic ? "true" : "false"]
             // Attributes only (`StagedFileStore.fileSize`), never `Data(contentsOf:)`.
             if let size = staging.fileSize(of: stagedURL) { payload["file_size"] = String(size) }
             if let fileName, !fileName.isEmpty { payload["file_name"] = fileName }

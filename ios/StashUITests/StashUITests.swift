@@ -1718,6 +1718,87 @@ final class StashUITests: XCTestCase {
         XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 15))
     }
 
+    /// The compact card remains editable, its secondary options have both tap and swipe
+    /// affordances, and the public option never publishes this fixture: it is turned off again
+    /// before Save. A closed real subscription gate cancels the share instead of leaving a
+    /// parked fixture. Existing transport tests separately exercise the DEBUG gate override.
+    @MainActor
+    func testShareToastOptionsSavePrivateNoteWithinBudget() async throws {
+        let (email, password) = try testCredentials()
+        let marker = "UITEST-TOAST: \(UUID().uuidString)"
+        addTeardownBlock {
+            for row in (try? await self.itemsWithNote(marker, email: email, password: password)) ?? [] {
+                if let id = row["id"] as? String { try? await self.deleteSharedItem(id: id, email: email, password: password) }
+            }
+        }
+        let app = XCUIApplication()
+        // Only the visual hold is lengthened for automation; the confirmation's measured
+        // latency still comes from the extension's real durable-write boundary.
+        launchSignedIn(app, arguments: ["--uitest-share-confirmation-hold=3000"], email: email, password: password)
+        let settings = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", "Settings")).firstMatch
+        if settings.waitForExistence(timeout: 5) { settings.tap() }
+        _ = app.descendants(matching: .any)["settings.subscription.status"].waitForExistence(timeout: 15)
+
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        let save = openStashComposeCard(in: safari, url: "example.com/?toast=\(UUID().uuidString)", note: nil)
+        let preview = safari.staticTexts["share.preview.url"]
+        let more = safari.buttons["share.moreOptions"]
+        let publicOption = safari.descendants(matching: .any).matching(identifier: "share.public").firstMatch
+        XCTAssertEqual(more.value as? String, "Collapsed")
+        XCTAssertFalse(publicOption.exists, "Secondary options must start collapsed")
+        XCTAssertGreaterThan(preview.frame.minY, safari.frame.height * 0.35,
+                             "The compact preview should float toward the bottom of the host")
+        attachScreenshot(named: "share-toast-compact")
+
+        more.tap()
+        XCTAssertTrue(publicOption.waitForExistence(timeout: 5))
+        XCTAssertEqual(more.value as? String, "Expanded")
+        XCTAssertEqual(publicOption.value as? String, "0", "Each share starts private")
+        publicOption.tap()
+        XCTAssertEqual(publicOption.value as? String, "1")
+        publicOption.tap()
+        XCTAssertEqual(publicOption.value as? String, "0", "The fixture must stay private")
+
+        more.tap()
+        XCTAssertEqual(more.value as? String, "Collapsed")
+        let swipeStart = preview.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeStart.withOffset(CGVector(dx: 0, dy: -90)))
+        XCTAssertTrue(publicOption.waitForExistence(timeout: 5), "Swiping the preview up must expose the same options")
+        XCTAssertTrue(safari.buttons["share.pin"].exists)
+        XCTAssertTrue(safari.buttons["share.dictate"].exists)
+        attachScreenshot(named: "share-toast-expanded")
+
+        safari.buttons["share.dictate"].tap()
+        XCTAssertTrue(safari.staticTexts["share.dictate.help"].waitForExistence(timeout: 5),
+                      "Dictation must explain the keyboard microphone, without claiming to record")
+        let textView = safari.textViews["share.note"]
+        let noteField = textView.exists ? textView : safari.textFields["share.note"]
+        tapUntilFocused(noteField)
+        noteField.typeText(marker)
+        XCTAssertEqual(noteField.value as? String, marker)
+        XCTAssertEqual(publicOption.value as? String, "0")
+
+        let content = safari.scrollViews["share.content"]
+        for _ in 0..<3 where !save.isHittable && content.exists { content.swipeUp() }
+        guard save.isEnabled else {
+            let cancel = safari.buttons["share.cancel"]
+            for _ in 0..<3 where !cancel.isHittable && content.exists { content.swipeDown() }
+            XCTAssertTrue(cancel.isHittable, "Close must remain reachable when saving is unavailable")
+            cancel.tap()
+            XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 10))
+            throw XCTSkip("The real subscription gate is closed; the editable toast was verified without saving a fixture")
+        }
+        XCTAssertTrue(save.isHittable, "Save must remain reachable with the note keyboard open")
+        let confirmation = try XCTUnwrap(tapSaveAndTimeConfirmation(save, in: safari, screenshot: "share-toast-saved"))
+        XCTAssertEqual(confirmation.text, "Saved to Stash")
+        XCTAssertLessThanOrEqual(try XCTUnwrap(confirmation.measuredMs), 500,
+                                 "Preview enrichment and network must not delay durable confirmation")
+        XCTAssertTrue(waitForShareCardGone(in: safari, timeout: 10))
+        let rows = try await waitForItemsWithNote(marker, email: email, password: password, timeout: 25)
+        XCTAssertEqual(rows.count, 1, "The note must attach to exactly one saved link")
+        XCTAssertEqual(rows.first?["is_public"] as? Bool, false)
+    }
+
     @MainActor
     func testShareExtensionURLSmoke() async throws {
         let (email, password) = try testCredentials()
@@ -3028,7 +3109,7 @@ final class StashUITests: XCTestCase {
             var request = URLRequest(
                 url: Self.fixtureRepairBaseURL.appending(path: "/rest/v1/items")
                     .appending(queryItems: [URLQueryItem(name: column, value: "eq.\(marker)"),
-                                            URLQueryItem(name: "select", value: "id,url,type")]))
+                                            URLQueryItem(name: "select", value: "id,url,type,is_public")]))
             request.setValue(Self.fixtureRepairAnonKey, forHTTPHeaderField: "apikey")
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             let (data, response) = try await Self.restData(for: request)

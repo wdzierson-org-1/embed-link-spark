@@ -120,7 +120,7 @@ enum A11yTab {
 
     var launchArguments: [String] {
         switch self {
-        case .add: []
+        case .add: ["--uitest-tab-add"]
         case .ask: ["--uitest-tab-ask"]
         case .view: ["--uitest-tab-view"]
         case .settings: ["--uitest-tab-settings"]

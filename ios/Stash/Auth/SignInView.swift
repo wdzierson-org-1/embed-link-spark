@@ -11,6 +11,7 @@ import SwiftUI
 /// which tab is active. Only genuinely NEW elements (the tabs themselves, username, phone) get
 /// the brief's `auth.*` namespace.
 struct SignInView: View {
+    var onAuthenticated: () -> Void = {}
     @Environment(SessionStore.self) private var session
     @State private var email = ""
     @State private var password = ""
@@ -412,14 +413,16 @@ struct SignInView: View {
     private func submit() async {
         busy = true
         defer { busy = false }
+        let authenticated: Bool
         switch mode {
         case .signIn:
-            await session.signIn(email: email, password: password)
+            authenticated = await session.signIn(email: email, password: password)
         case .signUp:
             let trimmedPhone = phone.trimmingCharacters(in: .whitespaces)
-            await session.signUp(email: email, password: password, username: username,
+            authenticated = await session.signUp(email: email, password: password, username: username,
                                   phone: trimmedPhone.isEmpty ? nil : trimmedPhone)
         }
+        if authenticated { onAuthenticated() }
     }
 }
 

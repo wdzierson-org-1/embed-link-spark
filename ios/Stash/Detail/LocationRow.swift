@@ -52,7 +52,8 @@ struct LocationRow: View {
     private var addButton: some View {
         Button(action: startEditing) {
             HStack(spacing: 4) {
-                Image(systemName: "mappin.and.ellipse")
+                StashMapPin().stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                        .frame(width: 16, height: 16).accessibilityHidden(true)
                 Text("Add a location")
             }
             .stashFont(.inlineButton)
@@ -73,7 +74,8 @@ struct LocationRow: View {
         HStack(spacing: 16) {
             Button(action: startEditing) {
                 HStack(spacing: 4) {
-                    Image(systemName: "mappin.and.ellipse")
+                    StashMapPin().stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                        .frame(width: 16, height: 16).accessibilityHidden(true)
                     Text("posted from \(location.label)")
                 }
                 .stashFont(.meta)
@@ -108,7 +110,8 @@ struct LocationRow: View {
     /// a person types into reads at more than the 13 pt fact it edits — its pin a size with it.
     private var editingField: some View {
         HStack(spacing: 6) {
-            Image(systemName: "mappin.and.ellipse")
+            StashMapPin().stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                        .frame(width: 16, height: 16).accessibilityHidden(true)
                 .stashFont(.secondary)
                 .foregroundStyle(StashColor.muted)
                 .accessibilityHidden(true)

@@ -26,6 +26,16 @@ final class ShareViewController: UIViewController {
     private let abandonTracker = ShareAbandonTracker()
     private var hosting: UIHostingController<ShareComposeView>?
 
+    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
+        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+        modalPresentationStyle = .overFullScreen
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        modalPresentationStyle = .overFullScreen
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -37,6 +47,11 @@ final class ShareViewController: UIViewController {
         // way, so both the container view and the hosting controller's own view are locked at
         // the UIKit trait level as a belt-and-suspenders match to the app's rule.
         view.overrideUserInterfaceStyle = .light
+        // The SwiftUI surface draws only its floating toast. Keep the containing views
+        // transparent so the sending app can remain visible around it.
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        view.accessibilityViewIsModal = true
 
         let compose = ShareComposeView(
             inputItems: extensionContext?.inputItems as? [NSExtensionItem] ?? [],
@@ -46,6 +61,8 @@ final class ShareViewController: UIViewController {
             })
         let hosting = UIHostingController(rootView: compose)
         hosting.view.overrideUserInterfaceStyle = .light
+        hosting.view.backgroundColor = .clear
+        hosting.view.isOpaque = false
         addChild(hosting)
         hosting.view.frame = view.bounds
         hosting.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]

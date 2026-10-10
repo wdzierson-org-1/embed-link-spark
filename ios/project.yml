@@ -97,6 +97,7 @@ targets:
       # separate from its host app's, so the app's catalog isn't visible here).
       - path: Stash/Design/StashDesign.swift
       - path: Stash/Design/StashType.swift
+      - path: Stash/Design/StashMapPin.swift
       # Plan 7 Task 2: PP Neue Montreal TTFs — an appex has its own bundle (can't read the host
       # app's), so the four font files must physically ship inside StashShareExtension.appex too.
       # Plan 9 Task 0: PP Editorial New excluded — app-target-only face (see project.yml's Stash
@@ -148,6 +149,8 @@ targets:
         # to show if this process ever DID need to prompt.
         NSLocationWhenInUseUsageDescription: "Stash tags saves with where you were — only when you turn the pin on."
         NSExtension:
+          # Apple’s share-extension full-screen opt-in avoids the enclosing form sheet.
+          NSExtensionShareWantsFullScreenPresentation: true
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:

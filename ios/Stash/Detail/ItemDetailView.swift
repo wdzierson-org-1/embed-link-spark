@@ -287,7 +287,7 @@ final class DetailSheetServices: ObservableObject {
 
 /// Detail sheet presented from a Library card tap, rebuilt to DESIGN.md's detail-panel anatomy
 /// (`§Components`, "Detail panel"): one scrolling flow surface — eyebrow (`DetailEyebrow`) →
-/// inline-editable title/description → contained media → URL bar (`DetailURLBar`, link items) →
+/// URL bar (`DetailURLBar`, link items) → inline-editable title/description → contained media →
 /// content tabs (`ItemDetailContent`) → Details drawer (`DetailsDrawer`, which also owns the
 /// editable location row as its own "Location" fact — Fix round 1, review finding #1: the web
 /// only ever mounts the location editor inside this drawer, never a second time near the top, so
@@ -417,6 +417,10 @@ struct ItemDetailView: View {
                     // rhythm); `ItemDetailContent`/`DetailsDrawer`/`SharingSection` each open with
                     // a `SectionHeader`, which supplies its own `DetailLayout.section` gap.
                     VStack(alignment: .leading, spacing: 0) {
+                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
+                            DetailURLBar(urlString: urlString)
+                                .padding(.bottom, 28)
+                        }
                         titleField
                         descriptionField
                             .padding(.top, DetailLayout.gap)
@@ -425,10 +429,6 @@ struct ItemDetailView: View {
                         // "file_path present" check (`ItemRules.swift`).
                         if (item.type == .image || item.type == .link), let url = item.thumbnailURL {
                             heroImage(url)
-                                .padding(.top, DetailLayout.gap)
-                        }
-                        if item.type == .link, let urlString = item.url, !urlString.isEmpty {
-                            DetailURLBar(urlString: urlString)
                                 .padding(.top, DetailLayout.gap)
                         }
                         ItemDetailContent(item: item, selectedTab: $selectedTab,

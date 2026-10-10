@@ -93,15 +93,8 @@ struct ItemDetailContent: View {
     }
 
     var body: some View {
-        // Outer spacing 0 — `sectionHead` is a `SectionHeader`, which already carries its own
-        // top/bottom rhythm (`DetailLayout.section`/`.gap`); a nonzero outer spacing here would
-        // double-count on top of that. `DetailLayout.gap` moves down onto the inner group instead,
-        // unchanged in value from this VStack's own spacing before this fix round.
+        // Source first, then the person's notes; each head owns its section spacing.
         VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(title: "Notes")
-                .accessibilityIdentifier("detail.notes.heading")
-            NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
-                        scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
             if !tabs.isEmpty { sectionHead }
             if showsTranscribeButton, let transcriptionErrorMessage, !transcriptionErrorMessage.isEmpty {
                 Text(transcriptionErrorMessage)
@@ -115,44 +108,53 @@ struct ItemDetailContent: View {
                 if let first = tabs.first {
                     tabBody(for: selectedTab == .notes ? first.key : selectedTab)
                 }
-
-                if item.type == .collection {
-                    attachmentsSection
-                }
             }
+
+            SectionHeader(title: "Notes")
+                .accessibilityIdentifier("detail.notes.heading")
+            NotesEditor(item: item, model: notesModel, isFocused: notesFocused,
+                        scheduleFlush: scheduleNotesFlush, flushNow: flushNotesNow)
+            if item.type == .collection { attachmentsSection }
         }
     }
 
-    /// `SectionHeader`'s `accessory` slot (own full-width line below the label, above the rule) —
-    /// not `trailing` (inline with the label) — is what `PillTabs` needs here; see that type's own
-    /// doc comment for why (three tabs wrapped mid-word at 393pt when squeezed onto the label's
-    /// row, confirmed live pre-dating this fix round).
-    ///
-    /// `trailing` used to carry this section's own hide-keyboard control (plan 12 feedback round
-    /// 3, Task 1). Final wave (F7, whole-branch review): moved to `ItemDetailView.footerBar`
-    /// instead — the notes header sits roughly 400pt below the title/description fields on a
-    /// typical item, so a control there was a long reach back down to it when the FIELD being
-    /// dismissed was the title/description, not notes. The footer is pinned and always on
-    /// screen regardless of scroll position, so it's reachable no matter which of the three
-    /// fields is focused. `trailing` is empty now — kept as a named slot (not deleted) in case a
-    /// future section-local control needs it.
+    /// Source tabs sit directly on the rule, ahead of the person's notes. Keep the
+    /// native 44pt targets and let the transcript action reflow at large text sizes.
     private var sectionHead: some View {
-        SectionHeader(title: config.title, trailing: {
-            // Plan 14 Task 2: this used to be an always-empty named slot (see the doc comment
-            // above on why it was retired, not deleted, in an earlier round) — "Transcribe with
-            // speakers" is the first control to actually need it. Audio/video's `contentTabsConfig`
-            // never has more than one tab, so this and `accessory`'s `PillTabs` never compete for
-            // the same header.
-            if showsTranscribeButton {
-                transcribeButton
-            }
-        }, accessory: {
+        VStack(alignment: .leading, spacing: 0) {
             if tabs.count > 1 {
                 let pillItems = tabs.map { PillTabs<ContentTabKey>.Item($0.key, label: $0.label) }
-                PillTabs(items: pillItems, selection: $selectedTab)
+                PillTabs(items: pillItems, selection: Binding(
+                    get: { selectedTab == .notes ? (tabs.first?.key ?? .summary) : selectedTab },
+                    set: { selectedTab = $0 }))
                     .accessibilityIdentifier("detail.tabs")
+            } else if let first = tabs.first {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .bottom, spacing: 12) {
+                        sourceLabel(first.label)
+                        Spacer(minLength: 8)
+                        if showsTranscribeButton { transcribeButton }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        sourceLabel(first.label)
+                        if showsTranscribeButton { transcribeButton }
+                    }
+                }
             }
-        })
+            Rectangle().fill(StashColor.ink).frame(height: 1)
+        }
+        .padding(.top, DetailLayout.section)
+        .padding(.bottom, DetailLayout.gap)
+    }
+
+    private func sourceLabel(_ label: String) -> some View {
+        Text(label.lowercased())
+            .stashFont(.machine)
+            .foregroundStyle(StashColor.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(StashColor.ink)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// Text button (DESIGN.md's "muted text + glyph" affordance family, same spirit as the card's
@@ -214,7 +216,8 @@ struct ItemDetailContent: View {
         case .summary:
             summaryBody
         case .original:
-            sourceBody(empty: "Nothing captured yet", id: "detail.originalText")
+            sourceBody(empty: isDocument ? noDocumentText : "No page content captured from this link yet.",
+                       id: "detail.originalText")
         case .transcript:
             // A job that ended `failed` (incl. `no_speech`) says so — the header's "Transcribe with
             // speakers" is the retry — instead of "Transcription in progress…" forever.
@@ -242,6 +245,11 @@ struct ItemDetailContent: View {
 
     private var isDocument: Bool { item.type == .document }
     private var noSummaryYet: String { "No summary yet for this \(isDocument ? "document" : "link")." }
+    private var noDocumentText: String {
+        item.attributes.enrichmentStatus(at: .now) == "pending"
+            ? "Content is still being extracted from this document."
+            : "We couldn't read the text in this document."
+    }
 
     /// M5: a summary is a list column, so it's on screen the moment the sheet opens — never behind
     /// the `page_body` spinner. An empty one offers "Generate summary" (web parity,
@@ -266,7 +274,7 @@ struct ItemDetailContent: View {
             case .failed:
                 loadFailedState(id: "detail.summaryText")
             case .loaded:
-                emptyText(isDocument ? "Content is still being extracted from this document."
+                emptyText(isDocument ? noDocumentText
                                      : "We haven't been able to read this page's content yet.",
                           id: "detail.summaryText")
             case .idle, .loading:

@@ -19,6 +19,8 @@ struct CaptureComposerView: View {
     @State private var toast: CaptureToast?
     @State private var toastToken = UUID()
     @State private var showLocationAlert = false
+    @State private var locationRequestedByTap = false
+    @State private var locationSurfaceVisible = false
 
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showCameraPicker = false
@@ -52,7 +54,7 @@ struct CaptureComposerView: View {
         // until after `init` assigns it) so BOTH `_locationCapture` and the closure captured below
         // reference the exact same instance. Same custom-init/State(initialValue:) shape
         // LibraryView uses to build its ItemStore.
-        let capture = LocationCapture()
+        let capture = LocationCapture(userId: userId)
         _locationCapture = State(initialValue: capture)
         // Plan 15: photos are prepared inside StashKit (`ImagePreparation` — ImageIO-only, ≤ 2560 px
         // JPEG, orientation applied, metadata dropped) as part of `submit()`, so the app no longer
@@ -181,6 +183,8 @@ struct CaptureComposerView: View {
                             // inline between the buttons, where it had no room to breathe.
                             if case .ready(let location) = locationCapture.state {
                                 pinPreview(location.label)
+                            } else if locationCapture.enabled {
+                                locationStatus
                             }
                             bottomBar
                         }
@@ -212,6 +216,17 @@ struct CaptureComposerView: View {
             }
         }
         .overlay(alignment: .bottom) { toastView }
+        .onAppear {
+            locationSurfaceVisible = true
+            if scenePhase == .active { locationCapture.resume() }
+        }
+        .onDisappear {
+            locationSurfaceVisible = false
+            locationCapture.stop()
+        }
+        .onChange(of: editorFocused) { _, focused in
+            if focused { locationCapture.warmIfEnabled() }
+        }
         .task {
             // UI-test hook only (`--uitest-import-file=`; always empty in Release builds).
             let syntheticImports = CaptureTestHooks.takeSyntheticImports()
@@ -220,6 +235,8 @@ struct CaptureComposerView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active { Task { await viewModel.drainOutbox() } }
+            if newPhase == .active, locationSurfaceVisible { locationCapture.resume() }
+            else { locationCapture.stop() }
         }
         // Plan 14 T3 (Outbox park-on-403): the moment `SubscriptionStore.refresh()` reports
         // `canAddContent == true` again — self-heal trial, a resumed subscription checked on
@@ -247,7 +264,11 @@ struct CaptureComposerView: View {
         // auth denied) surfaces here — `locationCapture.toggle()` itself never presents UI, it only
         // updates `state`, so this is the one place that turns `.failed` into the brief's alert.
         .onChange(of: locationCapture.state) { _, newState in
-            if newState == .failed { showLocationAlert = true }
+            if newState == .failed, locationRequestedByTap {
+                showLocationAlert = true
+                locationRequestedByTap = false
+            }
+            if case .ready = newState { locationRequestedByTap = false }
         }
         .alert("Couldn't find your location", isPresented: $showLocationAlert) {
             // Only offered when the failure was specifically an auth denial (Task 6 brief: "auth
@@ -259,7 +280,9 @@ struct CaptureComposerView: View {
             }
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Location unavailable — allow location access in Settings to tag saves with a place.")
+            Text(locationCapture.authDenied
+                 ? "Location access is off in Settings. You can still save without a location."
+                 : "Your location isn't available right now. You can still save without it.")
         }
         .onChange(of: selectedPhotoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -458,21 +481,51 @@ struct CaptureComposerView: View {
 
     private var pinButton: some View {
         let state = locationCapture.state
-        let engaged = if case .ready = state { true } else { state == .resolving }
+        let engaged = locationCapture.enabled
         return Button {
+            locationRequestedByTap = !engaged
             locationCapture.toggle()
         } label: {
-            CircleIcon(systemImage: "mappin", active: engaged, busy: state == .resolving)
+            StashMapPin()
+                .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .frame(width: 18, height: 18)
+                .foregroundStyle(engaged ? StashColor.white : StashColor.muted)
+                .frame(width: 44, height: 44)
+                .background(engaged ? StashColor.ink : StashColor.surface)
+                .overlay(Rectangle().strokeBorder(engaged ? StashColor.ink : StashColor.line, lineWidth: 1))
         }
         // A toggle: VoiceOver hears "Include your location, On/Off" (web parity: the composer's
         // "Include your location"), not a colour.
         .stashIconControl("Include your location", systemImage: "mappin", isOn: engaged)
+        .accessibilityHint(state == .failed ? "Location unavailable. Saving is still available." : "Applies to future captures until turned off")
         .accessibilityIdentifier("capture.pin")
+    }
+
+    private var locationStatus: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if locationCapture.state == .resolving {
+                StashStatusLine(text: "Finding your location")
+            } else if locationCapture.state == .failed {
+                Text("Location unavailable").stashFont(.secondary).foregroundStyle(StashColor.muted)
+                if locationCapture.authDenied {
+                    Button("Open Settings", action: openLocationSettings).stashFont(.inlineButton)
+                        .buttonStyle(.stashPlain)
+                } else {
+                    Button(locationCapture.permissionRequired ? "Allow location" : "Retry") {
+                        locationRequestedByTap = true
+                        locationCapture.enable()
+                    }
+                    .stashFont(.inlineButton).buttonStyle(.stashPlain)
+                }
+            }
+        }
+        .accessibilityIdentifier("capture.pin.status")
     }
 
     private func pinPreview(_ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: "mappin.circle.fill")
+            StashMapPin().stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .frame(width: 14, height: 14).accessibilityHidden(true)
             // One line while it fits beside the controls; at accessibility sizes the place wraps
             // (up to three lines) rather than truncating to a word.
             Text("posted from \(label)")
@@ -502,6 +555,7 @@ struct CaptureComposerView: View {
     private var saveButton: some View {
         Button {
             editorFocused = false
+            locationCapture.warmIfEnabled()
             Task { await submit() }
         } label: {
             CircleSubmitIcon(hot: canSubmit && subscription.canAddContent && !isSubmitting && !isAddingAttachments,

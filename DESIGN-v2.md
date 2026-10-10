@@ -852,7 +852,7 @@ ink on hover.
   (under two days, or paused) the strip takes the spot field. Minimized, a one-line Departure Mono
   strip.
 
-### 12.11 iOS (next), and the share extension
+### 12.11 iOS and the share extension
 
 The web app is the reference; parity means the same states, words and hierarchy, with native
 controls. In SwiftUI terms:
@@ -869,9 +869,15 @@ controls. In SwiftUI terms:
   decrypt on arrival, the picture sharpening with `✓ filled in`. Under Reduce Motion: a still `|`,
   a sharp picture, a still glyph, no scramble.
 - **Loading:** the decrypt cycle over the same twelve lines (§12.10).
-- **Share extension:** the prototype's save panel: the wordmark, a `saving` / `saved` tag (the spot
-  when saved), a thumbnail, the title, the cursor sub-line (`| reading the cover…`, then the
-  finding), and "Add a note".
+- **Share extension (October 10):** the homepage phone's compact white toast, floating over the
+  sending app: 24 pt corners, a soft native shadow, wordmark, a spot `saved` tag, 56 pt thumbnail,
+  title, machine sub-line and "Add a note". One explicit **Save** button stays reachable above
+  the keyboard. Swipe up or **More options** exposes remembered location, **Share this stash**
+  and keyboard dictation. At accessibility sizes the body scrolls while Close and Save stay
+  pinned; preserve the note field across expansion. Preview work is optional and bounded to
+  500 ms; show observed information only. This floating toast is the native exception to the
+  square app windows, following the homepage phone reference.
+- **Navigation:** View, Ask, Add, Settings, with View selected initially.
 - **Ask:** the window becomes the full screen with the same bar, tool steps, answer, citation cards
   and input row.
 - **Item detail:** the panel becomes a sheet; the 44 pt window bar, sections on ink rules, the
