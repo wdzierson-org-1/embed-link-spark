@@ -88,8 +88,9 @@ data; consumers must validate the source fingerprint before using old results.
 Current source-bound facts and semantic kind enter search; capability names and
 uncreated artifacts do not.
 
-This release prepares data and interaction proposals. The canvas, interaction UI,
-API lookups and artifact execution are subsequent features.
+The web detail panel exposes current facts and the first source-backed drafts
+through `object-interactions` below. The canvas, API lookups, ordering, bookings,
+and other external actions remain subsequent features.
 
 ```mermaid
 flowchart LR
@@ -99,9 +100,66 @@ flowchart LR
   D --> E[Reuse current result or extract typed attributes]
   E --> F[Validate evidence and reject stale writes]
   F --> G[Item attributes + search index + realtime]
-  G -. future .-> H[Web actions and canvas nodes]
-  H -. future .-> I[API lookup or user-approved execution]
+  G --> H[Web facts and editable drafts]
+  H --> I[Copy or explicitly save a private note]
+  H -. future .-> J[Canvas and API-powered actions]
 ```
+
+### Object interactions (beta)
+
+`POST /functions/v1/object-interactions` accepts an authenticated user's session
+JWT and JSON (maximum 8 KiB). It checks item ownership, including for public
+items; agent tokens and service-role credentials are not alternate user access.
+Responses are private and `Cache-Control: no-store`.
+
+- **Inspect:** `{ "operation": "inspect", "item_id": "<uuid>" }` returns
+  `{ "status": "ready", "intelligence": <validated ObjectIntelligence> }`, or
+  `{ "status": "pending" | "unavailable" }`. It revalidates the stored envelope
+  against the current source fingerprint. Only queued/processing work with usable
+  evidence is pending. Opening a panel does not enqueue extraction or call a model.
+- **Draft:** `{ "operation": "draft", "item_id": "<uuid>", "action":
+  "shopping_list" | "recipe_card" | "itinerary", "source_fingerprint": "<64-hex>" }`.
+  Requires a current envelope and a `source_ready` draft capability with no missing
+  prerequisites, plus the existing capture/Ask entitlement. Returns `{ "draft":
+  { "version": 1, "action", "title", "content", "source_item_id",
+  "source_fingerprint", "created_at", "evidence_ids": [], "notices": [] } }`.
+  Drafts are assembled from captured facts without another model call. Ingredient
+  quantities and recipe steps remain as captured. An itinerary is a starter outline
+  of mentioned places/stays in source order; it has no invented route, hours,
+  bookings, or assignment to days. Missing facts are not filled in.
+- **Errors:** `400 invalid_request`, `401 unauthorized`, `403 session_required`
+  (or the standard `subscription_required` entitlement response), `404 item_not_found`,
+  `409 source_changed | intelligence_unavailable | action_unavailable`,
+  `413 request_too_large`, `415 json_required`, or `503 object_interactions_unavailable`.
+  Method errors are `405`; preflight is `204`. No private source text appears in errors.
+
+Clients let the person review/edit the draft before copying or saving. **Save**
+calls the existing `add-note` endpoint with their accepted title/content,
+`is_public: false`, and optional provenance:
+
+```json
+{
+  "derived_from": {
+    "version": 1,
+    "item_id": "<source item uuid>",
+    "source_fingerprint": "<source fingerprint used for this draft>",
+    "action": "shopping_list",
+    "draft_version": 1,
+    "created_at": "<draft generation timestamp>",
+    "edited": true
+  }
+}
+```
+
+`derived_from` is user-supplied provenance, not proof of independent verification.
+Preserve it with other unknown attribute leaves. Saving creates an ordinary private
+note through the shared capture pipeline; the source object remains unchanged.
+The web capture client checks the current session against the intended owner and
+pins that session token to the request, so an account switch during preparation
+cannot save a private draft into the newly selected account.
+A previously opened draft may be retained after a source update, but the UI must
+identify it as based on an earlier source and must not label it current. External
+orders, calendar writes and similar actions are not performed by this endpoint.
 
 ## Places (`attributes.place`)
 
