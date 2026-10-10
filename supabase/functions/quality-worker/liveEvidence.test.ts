@@ -16,7 +16,7 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('bounded live page evidence', () => {
   it('preserves the saved product variant and renders once through the fixed provider', async () => {
     const fetcher = fetcherFor(); const result = await collectLiveEvidence(item, { apiKey: 'private-provider-key', fetcher });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     const [target, init] = fetcher.mock.calls[0];
     expect(target).toBe('https://api.firecrawl.dev/v2/scrape');
     expect(JSON.parse(init.body)).toEqual({ url, formats: ['markdown', 'rawHtml'], onlyMainContent: true, maxAge: 0, waitFor: 1000, timeout: 11000, parsers: [], storeInCache: false, skipTlsVerification: false, proxy: 'auto' });
@@ -175,5 +175,44 @@ describe('evidence-based escalation', () => {
     expect(result.attempts).toHaveLength(3);
     expect(result.attempts.reduce((sum, a) => sum + a.duration_ms, 0)).toBeLessThanOrEqual(23_000);
     expect(signals.every(s => s.aborted)).toBe(true);
+  });
+});
+
+describe('live candidate asset verification', () => {
+  it('checks only the first associated candidate and preserves source identity', async () => {
+    const second = image.replace('MF26XS49_NAV', 'MF26XS49_NAV_2');
+    const severalImages = html.replace('\"image\":\"' + image + '\"', '\"image\":' + JSON.stringify([image, second]));
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ markdown, rawHtml: severalImages, metadata: { title, url } })).mockResolvedValueOnce(new Response('<html>not an image</html>', { headers: { 'content-type': 'text/html' } })) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+    const result = await collectLiveEvidence(item, { apiKey: 'private-provider-key', fetcher });
+    expect(fetcher.mock.calls.map(call => call[0])).toEqual(['https://api.firecrawl.dev/v2/scrape', image]);
+    expect(result.image_checks).toEqual([expect.objectContaining({ url: image, source_url: url, associated: true, strategy: 'public_raster_fetch', outcome: 'invalid', reason: 'non_raster_response' })]);
+    expect(result.outcome).toBe('retrieved'); expect(result.text).toBe(markdown);
+    expect(result.limitations).toContain('image_pixels_not_verified'); expect(result.limitations).toContain('image_decode_not_verified');
+    expect(JSON.stringify(fetcher.mock.calls[1])).not.toContain('private-provider-key');
+  });
+  it('does not make a speculative image request when the page has no associated artwork', async () => {
+    const fetcher = fetcherFor(response({ markdown: 'A useful article body explaining public previews and image evidence in enough detail to count as substantive source text.', metadata: { title, url } }));
+    const result = await collectLiveEvidence(item, { apiKey: 'key', fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(result.image_checks).toEqual([]);
+  });
+  it('records unsupported image hosts without fetching arbitrary URLs', async () => {
+    const unknown = 'https://arbitrary.example/image.jpg';
+    const fetcher = fetcherFor(response({ markdown: markdown.replaceAll(image, unknown), rawHtml: html.replaceAll(image, unknown), metadata: { title, url } }));
+    const result = await collectLiveEvidence(item, { apiKey: 'key', fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(result.image_checks).toEqual([expect.objectContaining({ outcome: 'unavailable', reason: 'unsupported_image_host' })]);
+  });
+  it('adds at most five seconds to the existing collection deadline', async () => {
+    vi.useFakeTimers(); const signals: AbortSignal[] = [];
+    const fetcher = vi.fn(async (target, init) => {
+      signals.push(init.signal);
+      if (target === 'https://api.firecrawl.dev/v2/scrape') {
+        await new Promise(resolve => setTimeout(resolve, 11_000)); return response();
+      }
+      return new Promise(() => {});
+    }) as unknown as typeof fetch;
+    const pending = collectLiveEvidence(item, { apiKey: 'key', fetcher });
+    await vi.advanceTimersByTimeAsync(16_001); const result = await pending;
+    expect(result.image_checks).toEqual([expect.objectContaining({ outcome: 'unavailable', reason: 'image_timeout', duration_ms: 5000 })]);
+    expect(result.attempts[0].duration_ms).toBe(11000); expect(signals.every(signal => signal.aborted)).toBe(true);
   });
 });

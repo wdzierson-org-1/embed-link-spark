@@ -1,3 +1,5 @@
+import type { ObjectFacts } from '../../supabase/functions/_shared/objectFacts';
+
 /**
  * Extensible per-item attribute blob, stored in items.attributes (jsonb).
  *
@@ -93,6 +95,8 @@ export type MediaAttributes = {
 };
 
 export type ItemAttributes = {
+  /** Publisher structured facts, with source evidence; separate from the capture location. */
+  object_facts?: ObjectFacts;
   enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string };
   location?: CapturedLocation;
   link?: LinkAttributes;

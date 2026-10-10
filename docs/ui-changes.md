@@ -77,6 +77,25 @@ timestamped notes on media first; HTML slides = both web decks and uploaded `.ht
 - Design: DESIGN-v2 §10 (strings), §12.8 (stages, transcript tab, timestamped notes). The
   annotation exploration: `docs/superpowers/specs/2026-10-10-panel-annotation-exploration.md`.
   iOS: `docs/superpowers/plans/2026-10-10-ios-plan-17-embedded-media-transcripts-annotations.md`.
+## 2026-10-10 · Beta product and place details from publisher data
+
+- `attributes.object_facts` is a version-1 additive product/place envelope, defined
+  in `supabase/functions/_shared/objectFacts.ts`. It includes JSON-LD source URL,
+  observation time and extraction version; preserve all unknown attribute keys.
+- New link captures store supported facts server-side. The web detail panel displays
+  a beta Product details / Place details section with source and observation date.
+  Price at capture is historical publisher data, not a fresh retailer quote.
+- Compare retailers / Find similar open external searches (including known variant
+  terms). Open map uses extracted coordinates/address. No order, calendar event or
+  price comparison executes silently. Native clients can mirror these actions.
+- `set_item_object_facts(target_id, expected_url, expected_facts, facts)` returns a
+  boolean; false means source/ownership/field-lock/concurrency validation failed.
+  It updates only the facts leaf, preserves capture location and user attributes,
+  and queues indexing. Never use the place address as the user's capture location.
+- Invalid, unknown-version or URL-mismatched facts are hidden. Unresolved variant
+  prices, multiple ambiguous objects and historical archive prices are omitted.
+- Native binaries are not released by this web/backend change. Existing saves are
+  not bulk backfilled; facts appear on newly enriched supported links.
 
 ## 2026-10-09 · Share links unfurl with the save's title, description and picture
 

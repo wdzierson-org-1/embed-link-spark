@@ -8,7 +8,8 @@ import { uploadFile } from '@/utils/fileUploader';
 import { generateTitle } from '@/utils/titleGenerator';
 import { extractPlainTextFromNovelContent } from '@/utils/contentExtractor';
 import { plainTitleFromContent, sanitizeItemTitle } from '@/utils/itemTitle';
-import type { Database } from '@/integrations/supabase/types';
+import { readObjectFacts, type ObjectFacts } from '../../supabase/functions/_shared/objectFacts';
+import type { Database, Json } from '@/integrations/supabase/types';
 import type { ItemAttributes } from '@/types/itemAttributes';
 
 type ItemType = Database['public']['Enums']['item_type'];
@@ -46,6 +47,7 @@ interface ContentData {
 }
 
 interface ExtractedLinkMetadata {
+  objectFacts?: ObjectFacts;
   title?: string;
   description?: string;
   image?: string;
@@ -116,6 +118,7 @@ const extractLinkMetadata = async (url: string, userId: string): Promise<Extract
       previewImagePath: data.previewImagePath,
       previewImagePublicUrl: data.previewImagePublicUrl,
       siteName: data.siteName,
+      objectFacts: readObjectFacts(data.objectFacts, url),
     };
   } catch (error) {
     console.error('Error extracting link metadata for enrichment:', error);
@@ -269,7 +272,7 @@ const enrichSavedLinkItem = async (
   itemId: string,
   url: string,
   userId: string,
-  existing: { title?: string | null; description?: string | null; file_path?: string | null },
+  existing: { title?: string | null; description?: string | null; file_path?: string | null; attributes?: unknown },
   fetchItems: () => Promise<void>
 ) => {
   let status = 'complete';
@@ -287,6 +290,16 @@ const enrichSavedLinkItem = async (
     if (Object.keys(updates).length > 0) {
       const { error } = await supabase.from('items').update(updates).eq('id', itemId);
       if (error) throw error;
+    }
+    if (metadata.objectFacts) {
+      // Preserve unrelated attributes and edits that landed while metadata was fetched.
+      const previous = existing.attributes && typeof existing.attributes === 'object' && !Array.isArray(existing.attributes)
+        ? (existing.attributes as Record<string, Json>).object_facts ?? null : null;
+      const { error } = await supabase.rpc('set_item_object_facts', {
+        target_id: itemId, expected_url: url, expected_facts: previous,
+        facts: { ...metadata.objectFacts, evidence: { ...metadata.objectFacts.evidence, source_url: url } },
+      });
+      if (error) console.warn('Could not save publisher facts:', error);
     }
     // Keep the card pending through the source/summary pass, even if metadata
     // was already present and did not need to change.
@@ -501,6 +514,7 @@ export const processAndInsertContent = async (
           title: insertedItem.title,
           description: insertedItem.description,
           file_path: insertedItem.file_path,
+          attributes: insertedItem.attributes,
         },
         fetchItems
       );

@@ -1,0 +1,8 @@
+{
+  "evaluator_version": "enrichment-evals-v1",
+  "playbook_version": "2026-10-10.1",
+  "corpus_version": "curated-regressions-v1",
+  "corpus_kind": "curated_regression",
+  "held_out": false,
+  "limits": "Minimized public-page regressions and synthetic controls. Not an independent held-out sample, a visual similarity test, or a population accuracy estimate. No live fetches or private saved content."
+}
