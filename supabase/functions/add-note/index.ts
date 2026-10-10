@@ -3,6 +3,7 @@ import { isAgentToken } from '../_shared/agentToken.ts';
 import { afterDraining, singleHttpUrl } from '../_shared/capture.ts';
 import { requireEntitlement } from '../_shared/entitlementGate.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
+import { noteTitleFrom, plainNotes } from '../_shared/notes.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -90,8 +91,12 @@ Deno.serve(async (req) => {
 
     const targetUserId = user.id;
 
-    // Generate a title if not provided
-    const noteTitle = title || (content.length > 50 ? content.substring(0, 47) + '...' : content);
+    // The person's words may arrive as a Novel/TipTap JSON document (the web
+    // and iOS editors) or as plain text (SMS, share sheet). Everything derived
+    // from them — the fallback title, the AI title and description, the
+    // embedding text — is built from the words, never the JSON scaffolding.
+    const plain = plainNotes(content) || String(content);
+    const noteTitle = title || noteTitleFrom(plain);
 
     // Insert the note into the items table
     const { data: item, error } = await supabase
@@ -124,12 +129,12 @@ Deno.serve(async (req) => {
     console.log('Note created successfully:', item.id);
 
     // Generate embeddings for the content
-    if (content.trim()) {
+    if (plain.trim()) {
       try {
         await supabase.functions.invoke('generate-embeddings', {
           body: {
             itemId: item.id,
-            textContent: content
+            textContent: plain
           }
         });
         console.log('Embeddings generated for note:', item.id);
@@ -146,11 +151,11 @@ Deno.serve(async (req) => {
       // A URL alone contains no evidence about its target. Capture promotes
       // these to add-url; direct note callers keep their note without having a
       // model invent a video's title or description from an opaque URL.
-      if (singleHttpUrl(content)) return;
+      if (singleHttpUrl(plain)) return;
       try {
         const [titleResult, descriptionResult] = await Promise.all([
-          title ? Promise.resolve(null) : supabase.functions.invoke('generate-title', { body: { content } }),
-          supabase.functions.invoke('generate-description', { body: { content, type: 'text' } }),
+          title ? Promise.resolve(null) : supabase.functions.invoke('generate-title', { body: { content: plain } }),
+          supabase.functions.invoke('generate-description', { body: { content: plain, type: 'text' } }),
         ]);
 
         const updates: Record<string, string> = {};
@@ -162,7 +167,7 @@ Deno.serve(async (req) => {
 
         await supabase.from('items').update(updates).eq('id', item.id);
 
-        const textForEmbedding = [updates.title || noteTitle, content, updates.description]
+        const textForEmbedding = [updates.title || noteTitle, plain, updates.description]
           .filter(Boolean).join(' ');
         await supabase.functions.invoke('generate-embeddings', {
           body: { itemId: item.id, textContent: textForEmbedding },

@@ -1,20 +1,15 @@
-// Orchestrates chip-time file understanding, mirroring hydrateLinkMetadata's
-// role for links: local extraction and staged upload run in parallel from t0,
-// then the per-type edge function turns the uploaded file (plus any locally
-// extracted snippet) into a smart title/summary. Every stage is non-fatal.
+// Chip-time file understanding: the local facts (pages, duration, dimensions, the PDF's own
+// title, a thumbnail) and the staged upload run in parallel from t0, so the chip can say what
+// it holds and the save needs no second upload. Nothing here enriches — titles, descriptions,
+// OCR, transcripts and summaries come from the platform's add-file pipeline after the save,
+// the same for every client (docs/ETHOS.md). Every stage is non-fatal.
 
-import { supabase } from '@/integrations/supabase/client';
 import { analyzeFileLocally, type LocalFileFacts } from './localFileAnalysis';
 import { uploadToStaging } from './stagedUploader';
 
 export type ChipFileKind = 'image' | 'video' | 'audio' | 'document';
 
 export interface FileAnalysis extends LocalFileFacts {
-  title?: string;
-  description?: string;
-  transcription?: string;
-  detectedText?: string;
-  tags?: string[];
   uploadedFilePath?: string;
 }
 
@@ -22,7 +17,8 @@ export interface ChipAnalysisUpdate {
   analysis?: Partial<FileAnalysis>;
   uploadState?: 'uploading' | 'done' | 'failed';
   uploadProgress?: number;
-  analysisState?: 'local' | 'analyzing' | 'ready';
+  /** `local` while the file is being read; `ready` once the chip knows all it will */
+  analysisState?: 'local' | 'ready';
 }
 
 export interface ChipAnalysisHandle {
@@ -30,59 +26,9 @@ export interface ChipAnalysisHandle {
   abort: () => void;
 }
 
-// Mirrors transcribe-audio's INLINE_MAX_BYTES (24 MiB, under OpenAI's 25 MiB)
-export const PREVIEW_MAX_BYTES = 24 * 1024 * 1024;
-
-const getPublicUrl = (path: string): string =>
-  supabase.storage.from('stash-media').getPublicUrl(path).data.publicUrl;
-
-const analyzeUploadedFile = async (
-  file: File,
-  kind: ChipFileKind,
-  uploadedPath: string,
-  snippet: string | undefined
-): Promise<Partial<FileAnalysis> | null> => {
-  if (kind === 'image') {
-    const { data, error } = await supabase.functions.invoke('analyze-image', {
-      body: { imageUrl: getPublicUrl(uploadedPath) },
-    });
-    if (error || !data?.success) return null;
-    const detected =
-      typeof data.detected_text === 'string' &&
-      data.detected_text.trim() &&
-      data.detected_text.trim().toLowerCase() !== 'none'
-        ? data.detected_text.trim()
-        : undefined;
-    // Vision titles ("Screenshot of X" / "Image of X") replace filename
-    // titles; the filename itself rides in attributes.media.file_name
-    const title =
-      typeof data.title === 'string' && data.title.trim() ? data.title.trim() : undefined;
-    return { title, description: data.description, detectedText: detected, tags: data.tags };
-  }
-
-  if (kind === 'audio') {
-    // The inline preview only fits under OpenAI's upload cap; bigger files
-    // are transcribed by the server-side job after save (chunked, async)
-    if (file.size > PREVIEW_MAX_BYTES) return null;
-    const { data, error } = await supabase.functions.invoke('transcribe-audio', {
-      body: { audioUrl: getPublicUrl(uploadedPath), fileName: file.name },
-    });
-    if (error || !data || data.deferred) return null;
-    return { description: data.description, transcription: data.transcription };
-  }
-
-  // Documents (PDF and everything else): content-based when we have a snippet,
-  // filename-based guess otherwise — same graceful ladder as before.
-  const { data, error } = await supabase.functions.invoke('quick-pdf-summary', {
-    body: { fileName: file.name, snippet },
-  });
-  if (error || !data) return null;
-  return { title: data.title, description: data.description };
-};
-
 export const analyzeDroppedFile = (
   file: File,
-  kind: ChipFileKind,
+  _kind: ChipFileKind,
   userId: string,
   onUpdate: (update: ChipAnalysisUpdate) => void
 ): ChipAnalysisHandle => {
@@ -118,28 +64,17 @@ export const analyzeDroppedFile = (
     emit({ analysisState: 'local' });
     await localRun;
 
-    let uploadedPath: string | null = null;
     try {
-      uploadedPath = await uploadRun;
+      await uploadRun;
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return accumulated;
       }
-      console.error('Staged upload failed (chip will fall back to save-time upload):', error);
+      console.error('Staged upload failed (the save will upload instead):', error);
       emit({ uploadState: 'failed' });
     }
 
     if (controller.signal.aborted) return accumulated;
-
-    if (uploadedPath && kind !== 'video') {
-      emit({ analysisState: 'analyzing' });
-      try {
-        const serverAnalysis = await analyzeUploadedFile(file, kind, uploadedPath, accumulated.snippet);
-        if (serverAnalysis) emit({ analysis: serverAnalysis });
-      } catch (error) {
-        console.error('Chip server analysis failed (non-fatal):', error);
-      }
-    }
 
     emit({ analysisState: 'ready' });
     return accumulated;

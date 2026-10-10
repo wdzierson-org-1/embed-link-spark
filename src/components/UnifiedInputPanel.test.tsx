@@ -155,7 +155,7 @@ describe("UnifiedInputPanel", () => {
     expect(screen.queryByText("type / for commands")).not.toBeInTheDocument();
   });
 
-  it("stores the note as content (annotation), keeps og description, and stamps flavor", async () => {
+  it("stores the note as content (annotation) and stamps flavor — the chip's preview metadata never travels", async () => {
     invokeMock.mockResolvedValue({
       data: { success: true, title: "Example", description: "OG description" },
       error: null,
@@ -173,9 +173,12 @@ describe("UnifiedInputPanel", () => {
     const [type, payload] = onAddContent.mock.calls[0];
     expect(type).toBe("link");
     // URL stripped from the note; note is the annotation in content
-    expect(payload.content).toBe("great read");
-    expect(payload.description).toBe("OG description");
-    expect(payload.attributes.link.flavor).toBe("generic");
+    expect(payload).toEqual({
+      url: "https://example.com",
+      content: "great read",
+      is_public: false,
+      attributes: { link: { flavor: "generic" } },
+    });
   });
 
   it("sends no content when the note text is only the URL", async () => {
@@ -194,8 +197,9 @@ describe("UnifiedInputPanel", () => {
 
     await waitFor(() => expect(onAddContent).toHaveBeenCalled());
     const [, payload] = onAddContent.mock.calls[0];
+    expect(payload.url).toBe("https://example.com");
     expect(payload.content).toBeUndefined();
-    expect(payload.description).toBe("OG description");
+    expect(payload).not.toHaveProperty("description");
   });
 
   it("requests fast metadata first for detected links", async () => {
@@ -289,7 +293,7 @@ describe("UnifiedInputPanel", () => {
     expect(deepCalls).toHaveLength(0);
   });
 
-  it("submits fast metadata immediately after the chip settles", async () => {
+  it("submits the address as soon as the chip settles, without the chip's preview title", async () => {
     invokeMock.mockImplementation((_name: string, payload: { body: { fastOnly?: boolean } }) => {
       if (payload.body.fastOnly) {
         return Promise.resolve({
@@ -317,12 +321,10 @@ describe("UnifiedInputPanel", () => {
     await waitFor(() => {
       expect(onAddContent).toHaveBeenCalledWith(
         "link",
-        expect.objectContaining({
-          url: "https://example.com",
-          title: "Immediate title",
-        })
+        expect.objectContaining({ url: "https://example.com" })
       );
     });
+    expect(onAddContent.mock.calls[0][1]).not.toHaveProperty("title");
   });
 
   it("uses fallback metadata even when the edge response marks success false", async () => {
@@ -587,8 +589,8 @@ describe("UnifiedInputPanel file chips", () => {
     await waitFor(() => expect(analyzeDroppedFileMock).toHaveBeenCalled());
 
     act(() => {
-      chipDriver.onUpdate?.({ analysis: { factsLine: "PDF · 12 pages · 0.3 MB" }, analysisState: "analyzing" });
-      chipDriver.onUpdate?.({ analysis: { title: "Kahn-Cerf Certificate", description: "A 1988 certificate." } });
+      chipDriver.onUpdate?.({ analysis: { factsLine: "PDF · 12 pages · 0.3 MB" }, analysisState: "local" });
+      chipDriver.onUpdate?.({ analysis: { metadataTitle: "Kahn-Cerf Certificate" }, analysisState: "ready" });
     });
 
     expect(await screen.findByText("PDF · 12 pages · 0.3 MB")).toBeInTheDocument();
@@ -610,15 +612,15 @@ describe("UnifiedInputPanel file chips", () => {
     expect(removeStagedFileMock).toHaveBeenCalledWith("user-1/staging/1-abc.pdf");
   });
 
-  it("passes chip analysis through to onAddContent for a single media item", async () => {
+  it("hands a media item to onAddContent as the file, its staged upload, its name and its facts — nothing enriched", async () => {
     const onAddContent = renderPanel();
-    dropFile(new File(["aud"], "memo.m4a", { type: "audio/mp4" }));
+    const file = new File(["aud"], "memo.m4a", { type: "audio/mp4" });
+    dropFile(file);
     await waitFor(() => expect(analyzeDroppedFileMock).toHaveBeenCalled());
 
     chipDriver.resolveDone?.({
       uploadedFilePath: "user-1/staging/2-def.m4a",
-      description: "Voice memo about the contract",
-      transcription: "full transcript",
+      durationSeconds: 204.4,
       factsLine: "Audio · 3:24",
     });
 
@@ -627,13 +629,14 @@ describe("UnifiedInputPanel file chips", () => {
     await waitFor(() => expect(onAddContent).toHaveBeenCalled());
     const [type, payload] = onAddContent.mock.calls[0];
     expect(type).toBe("audio");
-    expect(payload.uploadedFilePath).toBe("user-1/staging/2-def.m4a");
-    expect(payload.description).toBe("Voice memo about the contract");
-    // Transcript is source material (page_body); content stays the user's note
-    expect(payload.page_body).toBe("full transcript");
-    expect(payload.content).toBeUndefined();
-    expect(payload.title).toBe("memo.m4a");
-    expect(payload.attributes.media.file_name).toBe("memo.m4a");
+    expect(payload).toEqual({
+      file,
+      uploadedFilePath: "user-1/staging/2-def.m4a",
+      title: "memo.m4a",
+      content: undefined,
+      is_public: false,
+      attributes: { media: { duration_s: 204, file_name: "memo.m4a" } },
+    });
   });
 
   it("keeps a note with a single media item (no collection)", async () => {
@@ -641,11 +644,7 @@ describe("UnifiedInputPanel file chips", () => {
     dropFile(new File(["aud"], "memo.m4a", { type: "audio/mp4" }));
     await waitFor(() => expect(analyzeDroppedFileMock).toHaveBeenCalled());
 
-    chipDriver.resolveDone?.({
-      uploadedFilePath: "user-1/staging/2-def.m4a",
-      description: "Voice memo about the contract",
-      transcription: "full transcript",
-    });
+    chipDriver.resolveDone?.({ uploadedFilePath: "user-1/staging/2-def.m4a" });
 
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "call notes from tuesday" } });
@@ -656,7 +655,7 @@ describe("UnifiedInputPanel file chips", () => {
     const [type, payload] = onAddContent.mock.calls[0];
     expect(type).toBe("audio");
     expect(payload.content).toBe("call notes from tuesday");
-    expect(payload.page_body).toBe("full transcript");
+    expect(payload.uploadedFilePath).toBe("user-1/staging/2-def.m4a");
   });
 });
 

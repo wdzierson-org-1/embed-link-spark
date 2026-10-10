@@ -14,10 +14,11 @@
 // content is too personal to surface as a library card title.
 export const KEEP_FILENAME_TOKEN = 'KEEP_FILENAME';
 
-// Storage object names our clients generate (`${Date.now()}.ext`) carry no
-// meaning — they get replaced but are never worth preserving as file_name.
+// Storage object names our clients generate (`${Date.now()}.ext`, and the web
+// composer's staged `${Date.now()}-${random}.ext`) carry no meaning — they get
+// replaced but are never worth preserving as file_name.
 export const isStorageTimestampName = (name: string): boolean =>
-  /^\d{10,17}\.[a-z0-9]+$/i.test(name.trim());
+  /^\d{10,17}(-[a-z0-9]{4,10})?\.[a-z0-9]+$/i.test(name.trim());
 
 // UUID object names (iOS share extension, Voice Memos shares:
 // `72322570-a4bc-4515-935c-ff384090f068.m4a`) — same deal: replaceable,
