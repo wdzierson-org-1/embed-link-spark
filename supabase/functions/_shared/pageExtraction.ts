@@ -16,22 +16,39 @@ export interface PageCapture {
  * writes the video's facts, description and transcript into the markdown (watch, live, youtu.be;
  * not Shorts). The language follows `location.languages[0]`.
  */
-const scrapeWithFirecrawl = async (url: string, key: string): Promise<string | null> => {
+const scrapeWithFirecrawl = async (url: string, key: string, trace?: string[], options: { fresh?: boolean } = {}): Promise<string | null> => {
   const response = await fetch('https://api.firecrawl.dev/v2/scrape', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, formats: ['markdown'], onlyMainContent: true, location: { languages: ['en'] } }),
+    body: JSON.stringify({
+      url,
+      formats: ['markdown'],
+      onlyMainContent: true,
+      location: { languages: ['en'] },
+      // v2 serves a recent scrape from its cache by default; the YouTube post-processor
+      // (description + transcript) only runs on a fresh scrape, so a video asks for one
+      ...(options.fresh ? { maxAge: 0 } : {}),
+    }),
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) {
-    console.warn('firecrawl', response.status, url);
+    const detail = (await response.text().catch(() => '')).slice(0, 200);
+    console.warn('firecrawl', response.status, url, detail);
+    trace?.push(`firecrawl ${response.status}: ${detail}`);
     return null;
   }
-  const markdown = (await response.json())?.data?.markdown;
-  return typeof markdown === 'string' ? markdown : null;
+  const payload = await response.json();
+  const markdown = payload?.data?.markdown;
+  if (typeof markdown !== 'string') {
+    trace?.push(`firecrawl 200 without markdown: ${JSON.stringify(payload).slice(0, 200)}`);
+    return null;
+  }
+  trace?.push(`firecrawl 200: ${markdown.length} chars; headings: ${markdown.split('\n').filter((l) => /^#{1,4}\s/.test(l)).slice(0, 8).join(' | ')}`);
+  return markdown;
 };
 
-export async function extractPage(url: string, firecrawlKey?: string): Promise<PageCapture | null> {
+/** `trace` (optional) collects what each adapter answered — surfaced by scrape-page-content's extractOnly */
+export async function extractPage(url: string, firecrawlKey?: string, trace?: string[]): Promise<PageCapture | null> {
   const accepted = (text: string | null | undefined, source: string): PageCapture | null => {
     const result = inspectSourceText(url, text);
     return result.usable ? { text: result.text.slice(0, 50_000), kind: result.kind, source } : null;
@@ -42,11 +59,15 @@ export async function extractPage(url: string, firecrawlKey?: string): Promise<P
   // (spec 2026-09-05: an honest empty state beats a decorative one).
   const youtubeId = getYouTubeVideoId(url);
   if (youtubeId) {
-    if (!firecrawlKey) return null;
+    if (!firecrawlKey) {
+      trace?.push('youtube: no firecrawl key');
+      return null;
+    }
     try {
-      const parsed = parseYouTubeMarkdown(await scrapeWithFirecrawl(url, firecrawlKey));
+      const parsed = parseYouTubeMarkdown(await scrapeWithFirecrawl(url, firecrawlKey, trace, { fresh: true }));
       if (!parsed.transcript) {
         console.warn('youtube transcript unavailable', url);
+        trace?.push('youtube: no transcript section');
         return null;
       }
       const checked = inspectSourceText(url, parsed.transcript, 'transcript');
@@ -65,9 +86,12 @@ export async function extractPage(url: string, firecrawlKey?: string): Promise<P
 
   if (firecrawlKey) {
     try {
-      const result = accepted(await scrapeWithFirecrawl(url, firecrawlKey), 'firecrawl');
+      const result = accepted(await scrapeWithFirecrawl(url, firecrawlKey, trace), 'firecrawl');
       if (result) return result;
-    } catch { /* Try the next approved adapter. */ }
+    } catch (error) {
+      trace?.push(`firecrawl failed: ${String(error).slice(0, 120)}`);
+      /* Try the next approved adapter. */
+    }
   }
   for (const [ua, name] of [
     ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36', 'direct-fetch'],

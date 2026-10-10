@@ -37,7 +37,8 @@ describe('a YouTube video (spec 2026-09-05)', () => {
     });
     const [calledUrl, init] = (fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
     expect(calledUrl).toBe('https://api.firecrawl.dev/v2/scrape');
-    expect(JSON.parse(init.body as string)).toMatchObject({ url: youtube, formats: ['markdown'], onlyMainContent: true, location: { languages: ['en'] } });
+    // A fresh scrape: Firecrawl's cache holds the plain watch page, without the transcript
+    expect(JSON.parse(init.body as string)).toMatchObject({ url: youtube, formats: ['markdown'], onlyMainContent: true, location: { languages: ['en'] }, maxAge: 0 });
     expect(adapters.html).not.toHaveBeenCalled();
     expect(adapters.jina).not.toHaveBeenCalled();
   });
@@ -66,6 +67,8 @@ describe('any other page', () => {
     vi.stubGlobal('fetch', firecrawl('Pick ripe tomatoes, salt them, and finish with olive oil. A longer article follows here.'));
     expect(await extractPage(article, 'test-key')).toMatchObject({ source: 'firecrawl', kind: 'page' });
     expect(adapters.html).not.toHaveBeenCalled();
+    // Ordinary pages may come from Firecrawl's cache
+    expect(JSON.parse((fetch as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0][1].body as string)).not.toHaveProperty('maxAge');
   });
 
   it('continues past an unusable provider result through the cascade', async () => {

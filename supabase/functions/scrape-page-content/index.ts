@@ -19,9 +19,11 @@ serve(async req => {
     try { item = await requireItemAccess(req, db, itemId, ENRICHMENT_COLUMNS); }
     catch { return json({ error: 'Item not found or access denied' }, 403); }
     if (item.url !== url || item.type !== 'link') return json({ error: 'Source does not match item' }, 400);
-    const capture = await extractPage(url, Deno.env.get('FIRECRAWL_API_KEY'));
-    if (!capture) return json({ success: false, reason: 'No usable source content' });
-    if (extractOnly) return json({ success: true, ...capture });
+    // extractOnly writes nothing and returns what each adapter answered, for diagnosis
+    const trace: string[] = [];
+    const capture = await extractPage(url, Deno.env.get('FIRECRAWL_API_KEY'), extractOnly ? trace : undefined);
+    if (!capture) return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}) });
+    if (extractOnly) return json({ success: true, ...capture, trace });
     // Never replace a transcript already recovered by maintenance with a shorter page caption.
     if (item.attributes?.enrichment?.evidence?.transcript) return json({ success: true, reason: 'richer_content_preserved' });
     const patch: Record<string, string> = { page_body: capture.text };
