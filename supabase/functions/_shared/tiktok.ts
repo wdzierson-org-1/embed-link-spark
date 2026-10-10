@@ -25,6 +25,8 @@ export type TikTokLinkMetadata = {
   caption?: string;
   authorName?: string;
   authorHandle?: string;
+  /** Explicit oEmbed creator profile URL, never inferred from the saved URL. */
+  authorUrl?: string;
   description?: string;
   image?: string;
   siteName: 'TikTok';
@@ -134,9 +136,14 @@ export const resolveTikTokLink = async (
   const authorName = text(data.author_name);
   const authorHandle = text(data.author_unique_id);
   const image = text(data.thumbnail_url);
-  if (!caption && !authorName && !image) return null;
+  if (!caption && !authorName && !authorHandle && !image) return null;
 
-  const authorUrl = text(data.author_url);
+  let authorUrl: string | undefined;
+  try {
+    const supplied = new URL(text(data.author_url) ?? '');
+    if (supplied.protocol === 'https:' && isTikTokHost(supplied.hostname) && !supplied.username && !supplied.password &&
+      !supplied.port && !supplied.search && !supplied.hash && /^\/@[^/]+\/?$/.test(supplied.pathname)) authorUrl = supplied.href.replace(/\/$/, '');
+  } catch { /* Creator details may be absent. */ }
   const videoId = text(data.embed_product_id);
   const canonicalUrl = authorUrl && videoId && /^\d+$/.test(videoId) ? `${authorUrl}/video/${videoId}` : undefined;
   const creator = authorName && authorHandle && authorName !== authorHandle
@@ -149,6 +156,7 @@ export const resolveTikTokLink = async (
     caption,
     authorName,
     authorHandle,
+    authorUrl,
     description: creator ? `TikTok by ${creator}` : undefined,
     image,
     siteName: 'TikTok',

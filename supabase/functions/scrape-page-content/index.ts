@@ -7,6 +7,7 @@ import { isPlaceholderMetadata } from '../_shared/enrichmentQuality.ts';
 import { deriveTitleFromContent, generateSummary } from '../_shared/summarize.ts';
 import { recoverCapturedPreview } from '../_shared/capturedPreview.ts';
 import { isTikTokVideoUrl, resolveTikTokLink } from '../_shared/tiktok.ts';
+import { creatorEvidence } from '../_shared/socialEnrichment.ts';
 
 const TIKTOK_SHORT_LINK = /tiktok\.com\/t\/|\/\/(vm|vt)\.tiktok\.com\//i;
 const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Content-Type': 'application/json' };
@@ -32,22 +33,35 @@ serve(async req => {
     // A TikTok share short link carries no video id: record the address it resolves to, so the
     // panel can frame the video. add-url writes the same fact as link.canonical_url for API
     // saves; web saves only pass through here, and enrichment can only add evidence.
-    let canonicalUrl: string | null = null;
+    // Preserve the explicit creator fields from that same lookup with no extra request.
+    const resolvedEvidence: Record<string, unknown> = {};
     if (!extractOnly && isTikTokVideoUrl(url) && TIKTOK_SHORT_LINK.test(url) && !item.attributes?.link?.canonical_url && !item.attributes?.enrichment?.evidence?.canonical_url) {
       try {
         const resolved = await resolveTikTokLink(url);
-        if (resolved?.canonicalUrl && resolved.canonicalUrl !== url) canonicalUrl = resolved.canonicalUrl;
+        if (resolved) {
+          if (resolved.canonicalUrl && resolved.canonicalUrl !== url) resolvedEvidence.canonical_url = resolved.canonicalUrl;
+          Object.assign(resolvedEvidence, creatorEvidence('tiktok', {
+            name: resolved.authorName, handle: resolved.authorHandle, url: resolved.authorUrl,
+          }));
+        }
       } catch (error) {
         console.warn('tiktok canonical resolution failed', url, error);
       }
     }
     if (!capture) {
-      if (canonicalUrl) await applyCandidate(db, item, {}, 'tiktok-canonical', { canonical_url: canonicalUrl });
+      if (Object.keys(resolvedEvidence).length && !await applyCandidate(db, item, {}, 'tiktok-canonical', resolvedEvidence)) {
+        return json({ success: false, reason: 'item_changed' });
+      }
       return json({ success: false, reason: 'No usable source content', ...(extractOnly ? { trace } : {}) });
     }
     if (extractOnly) return json({ success: true, ...capture, trace });
     // Never replace a transcript already recovered by maintenance with a shorter page caption.
-    if (item.attributes?.enrichment?.evidence?.transcript) return json({ success: true, reason: 'richer_content_preserved' });
+    if (item.attributes?.enrichment?.evidence?.transcript) {
+      if (Object.keys(resolvedEvidence).length && !await applyCandidate(db, item, {}, 'tiktok-canonical', resolvedEvidence)) {
+        return json({ success: false, reason: 'item_changed' });
+      }
+      return json({ success: true, reason: 'richer_content_preserved' });
+    }
     const patch: Record<string, string> = { page_body: capture.text };
     // A video's transcript is its content (spec 2026-09-05): summarized as a recording, and the
     // video's own description replaces the synthetic "Watch … on YouTube" line.
@@ -73,8 +87,9 @@ serve(async req => {
     if (recoveredPreview) patch.file_path = recoveredPreview.path;
     // `evidence.transcript` is the one flag every client reads for "page_body is a transcript"
     // (the maintenance loop's social adapter sets the same one)
-    const evidence: Record<string, unknown> = { capture_kind: capture.kind };
-    if (canonicalUrl) evidence.canonical_url = canonicalUrl;
+    // Merge creator and body evidence in one write: changing attributes first
+    // would invalidate the original item snapshot used by applyCandidate.
+    const evidence: Record<string, unknown> = { ...resolvedEvidence, capture_kind: capture.kind };
     if (isTranscript) {
       evidence.transcript = true;
       evidence.transcript_source = capture.source;

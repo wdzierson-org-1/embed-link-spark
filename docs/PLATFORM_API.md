@@ -36,6 +36,69 @@ previous facts (or JSON null), and validated facts. It changes only that leaf an
 returns false on a stale source, concurrent edit or protected field. Preserve
 unknown attribute keys; do not overwrite the whole blob.
 
+## Object intelligence (beta)
+
+`attributes.object_intelligence` is an additive, server-generated version-1 envelope.
+Storage type stays the same: a TikTok is still a `link`, while
+`interpretation.kind` may be `recipe` or `travel`. Clients receive it through the
+existing item reads and realtime updates. Preserve this leaf when changing other
+attributes. The authoritative TypeScript/schema contract is
+`supabase/functions/_shared/objectIntelligence.ts`.
+
+- **Interpretation:** semantic kind, short summary, and topics. These are model
+  interpretations, not independently verified facts.
+- **Facts:** optional creator and one typed group: recipe, travel, product, place,
+  paper, book, or event. Each value has `evidence_ids` linking to exact quotations
+  in captured text or validated publisher facts. Omitted means unknown. Quotation
+  validation establishes traceability, not guaranteed attribution or correctness.
+- **Evidence:** source block IDs (`page_body`, `content`, `publisher_facts`,
+  `creator_metadata`), quotations, and an envelope source fingerprint. Generated
+  descriptions/summaries, user annotations on other objects, and visual guesses
+  are excluded. Image facts need OCR; an image's appearance alone is insufficient
+  for this first version.
+- **Capabilities:** a closed catalog of proposed interactions, with `id`,
+  `status`, `effect`, `prerequisites`, and `requires_confirmation`. `source_ready`
+  means enough captured facts to draft an artifact, not an installed tool or an
+  executed action. `needs_lookup` requires a subsequent source/API lookup;
+  `needs_more_content` requires additional evidence or user details. External
+  writes (grocery orders, calendar changes) require explicit confirmation.
+
+Recipes can expose ingredients, steps, servings and duration; travel can expose
+destinations, mentioned places, stays and duration; products can expose identity,
+brand, color, materials, variant and an observed publisher price. A packing list
+or itinerary is a proposed derivative, never fabricated source content. Travel
+mentions do not mean visits or current location; product saves do not mean ownership.
+`processed_at` is extraction time, not a price freshness check. Product price and
+currency require validated `object_facts` evidence; its `evidence.observed_at`
+remains the capture timestamp. Price comparison needs new matching-variant offers.
+
+A private Supabase worker runs every five minutes, after a two-minute source
+settling delay, independently of basic-card repair. Source changes requeue work;
+an unchanged source hash reuses a valid result. The initial budget is two model
+calls per run, 24 per UTC hour, and 200 per UTC day (three attempts per source).
+Backlogs can delay completion. The initial backfill covers the latest 100 items;
+new saves and source updates enter automatically across all clients. The worker
+honors `enrichment.protected_fields.object_intelligence`, uses compare-and-swap
+to reject stale writes, and preserves unrelated attributes. Failures retain prior
+data; consumers must validate the source fingerprint before using old results.
+Current source-bound facts and semantic kind enter search; capability names and
+uncreated artifacts do not.
+
+This release prepares data and interaction proposals. The canvas, interaction UI,
+API lookups and artifact execution are subsequent features.
+
+```mermaid
+flowchart LR
+  A[Save from any client] --> B[Capture page / transcript / OCR / note]
+  B --> C[Durable source-change queue]
+  C --> D[Hosted worker every 5 minutes]
+  D --> E[Reuse current result or extract typed attributes]
+  E --> F[Validate evidence and reject stale writes]
+  F --> G[Item attributes + search index + realtime]
+  G -. future .-> H[Web actions and canvas nodes]
+  H -. future .-> I[API lookup or user-approved execution]
+```
+
 ## Capture
 
 **Entitlement (server-enforced since 2026-09-07).** Every capture endpoint

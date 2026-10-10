@@ -17,13 +17,45 @@ const transcriptText = (value: unknown): string => typeof value === 'string' ? v
   ? value.map(x => typeof x?.text === 'string' ? x.text : '').filter(Boolean).join('\n') : '';
 const jobExpired = (job: ProviderJob, now: number) => job.polls >= 12 || now - Date.parse(job.started) > 48 * 3600_000;
 
+export interface SourceCreator {
+  name?: string; handle?: string; url?: string; platform: 'tiktok' | 'instagram' | 'youtube';
+}
+export interface CreatorEvidence { author?: string; creator?: SourceCreator; }
+const creatorText = (value: unknown, max: number): string | undefined =>
+  typeof value === 'string' && value.trim() && value.trim().length <= max && !/[\u0000-\u001f\u007f]/.test(value)
+    ? value.trim() : undefined;
+
+/** Preserve explicit provider fields; captions, account IDs and avatars are not creator identities. */
+export function creatorEvidence(platform: string, fields: { name?: unknown; handle?: unknown; url?: unknown }): CreatorEvidence {
+  if (platform !== 'tiktok' && platform !== 'instagram' && platform !== 'youtube') return {};
+  const name = creatorText(fields.name, 200);
+  const rawHandle = creatorText(fields.handle, 101)?.replace(/^@/, '');
+  const handle = rawHandle && /^[\p{L}\p{N}_.-]{1,100}$/u.test(rawHandle) ? rawHandle : undefined;
+  let url: string | undefined;
+  const suppliedUrl = creatorText(fields.url, 2000);
+  if (suppliedUrl) {
+    try {
+      const parsed = new URL(suppliedUrl);
+      const host = parsed.hostname.replace(/^(www|m)\./, '');
+      if (parsed.protocol === 'https:' && !parsed.username && !parsed.password && !parsed.port && !parsed.search && !parsed.hash &&
+        host === `${platform}.com` && parsed.pathname !== '/') url = parsed.href;
+    } catch { /* Omit unusable provider URLs without inventing a replacement. */ }
+  }
+  if (!name && !handle && !url) return {};
+  return {
+    ...(name || handle ? { author: name || `@${handle}` } : {}),
+    creator: { ...(name ? { name } : {}), ...(handle ? { handle } : {}), ...(url ? { url } : {}), platform },
+  };
+}
+
 /** Public oEmbed is a free caption fallback (shortlinks included; see _shared/tiktok.ts). */
-export async function tikTokCaption(url: string, fetcher = fetch): Promise<{ text: string; canonical: string } | null> {
+export async function tikTokCaption(url: string, fetcher = fetch): Promise<{ text: string; canonical: string; evidence: CreatorEvidence } | null> {
   const resolved = await resolveTikTokLink(url, fetcher);
   if (!resolved?.caption) return null;
   const canonical = resolved.canonicalUrl ?? url;
   const checked = inspectSourceText(canonical, resolved.caption, 'caption');
-  return checked.usable ? { text: checked.text, canonical } : null;
+  return checked.usable ? { text: checked.text, canonical,
+    evidence: creatorEvidence('tiktok', { name: resolved.authorName, handle: resolved.authorHandle, url: resolved.authorUrl }) } : null;
 }
 
 /** Resumable provider jobs: a 202 result is pending evidence, never a successful extraction. */
@@ -47,7 +79,7 @@ export async function recoverSocial(item: EnrichmentItem, previous: SocialState,
       out.spent = true; state.oembed_done = true;
       try {
         const result = await tikTokCaption(url, fetcher);
-        if (result) { out.text = result.text; out.evidence = { caption: true, canonical_url: result.canonical }; out.strategy = 'tiktok-oembed'; }
+        if (result) { out.text = result.text; out.evidence = { caption: true, canonical_url: result.canonical, ...result.evidence }; out.strategy = 'tiktok-oembed'; }
       } catch { out.reason = 'oembed_failed'; }
     }
     return { ...out, unavailable: true, reason: out.reason || 'social_provider_unconfigured' };
@@ -58,6 +90,12 @@ export async function recoverSocial(item: EnrichmentItem, previous: SocialState,
       const { data } = await request(`/metadata?url=${encodeURIComponent(url)}`);
       // Refuse an unrelated object returned by a provider redirect.
       if (data.url && sourceIdentity({ type: 'link', url: data.url }).source !== source.source) throw new Error('social_source_mismatch');
+      const author = data.author;
+      if (author && typeof author === 'object' && !Array.isArray(author)) {
+        Object.assign(out.evidence, creatorEvidence(source.source, {
+          name: author.displayName ?? author.name, handle: author.username, url: author.url,
+        }));
+      }
       const checked = inspectSourceText(url, data.description || data.title, 'caption');
       if (checked.usable) { out.text = checked.text; out.evidence.caption = true; }
       state.metadata = true;

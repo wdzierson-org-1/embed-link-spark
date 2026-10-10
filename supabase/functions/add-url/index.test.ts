@@ -5,7 +5,7 @@ const state = vi.hoisted(() => ({
   handler: null as any,
   row: null as any,
   background: [] as Promise<unknown>[],
-  rpc: vi.fn(), invoke: vi.fn(),
+  rpc: vi.fn(), invoke: vi.fn(), tiktok: vi.fn(),
 }));
 vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
   createClient: () => ({
@@ -20,7 +20,7 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
 vi.mock('../_shared/agentToken.ts', () => ({ isAgentToken: () => false }));
 vi.mock('../_shared/entitlementGate.ts', () => ({ requireEntitlement: async () => null }));
 vi.mock('../_shared/youtube.ts', () => ({ resolveYouTubeLink: async () => null }));
-vi.mock('../_shared/tiktok.ts', () => ({ resolveTikTokLink: async () => null }));
+vi.mock('../_shared/tiktok.ts', () => ({ resolveTikTokLink: state.tiktok }));
 
 const source = 'https://shop.example/jacket';
 const facts = { version: 1, beta: true, kind: 'product', name: 'Alpine Jacket', product: { brand: 'Example', sku: 'ALPINE-NAV', offer: { price: '748', currency: 'USD' } },
@@ -33,6 +33,7 @@ beforeAll(async () => {
 });
 beforeEach(() => {
   vi.clearAllMocks(); state.row = null; state.background = [];
+  state.tiktok.mockResolvedValue(null);
   state.invoke.mockImplementation(async (name: string) => ({ data: name === 'extract-link-metadata' ? {
     title: 'Alpine Jacket', description: 'A navy wool jacket with a removable insulated hood.',
     previewImagePath: 'owner-1/previews/alpine.jpg', objectFacts: structuredClone(facts),
@@ -52,6 +53,32 @@ beforeEach(() => {
       return { data: matches, error: null };
     }
     return { data: null, error: null };
+  });
+});
+
+describe('add-url source creator evidence', () => {
+  const url = 'https://www.tiktok.com/t/SharedVideo/';
+  const caption = 'A creator describes how to prepare a tomato salad with fresh herbs.';
+  it('persists the oEmbed creator independently from descriptive prose', async () => {
+    state.tiktok.mockResolvedValue({ title: 'Tomato salad', caption, authorName: 'Recipe Author', authorHandle: 'recipe.author',
+      authorUrl: 'https://www.tiktok.com/@recipe.author', siteName: 'TikTok', canonicalUrl: 'https://www.tiktok.com/@recipe.author/video/123456789012' });
+    expect((await save({ url, title: 'Dinner idea' })).status).toBe(200);
+    expect(state.row).toMatchObject({ title: 'Dinner idea', page_body: caption, attributes: {
+      location: { name: 'Saved at home' }, enrichment: { protected_fields: { title: true }, evidence: {
+        author: 'Recipe Author', creator: { name: 'Recipe Author', handle: 'recipe.author', url: 'https://www.tiktok.com/@recipe.author', platform: 'tiktok' },
+      } },
+    } });
+    expect(state.row.attributes.enrichment.evidence).not.toHaveProperty('transcript');
+    expect(state.invoke.mock.calls.map(([name]) => name)).toEqual(['generate-embeddings']);
+    expect(state.rpc.mock.calls.map(([name]) => name)).toEqual(['set_item_enrichment']);
+  });
+  it('does not infer a creator from a caption, user attributes or URL', async () => {
+    state.tiktok.mockResolvedValue({ title: 'A clip by @someone', caption, siteName: 'TikTok' });
+    expect((await save({ url: 'https://www.tiktok.com/@guess/video/123456789012',
+      attributes: { enrichment: { evidence: { author: 'Spoofed author', creator: { name: 'Spoofed author' } } } },
+    })).status).toBe(200);
+    expect(state.row.attributes.enrichment.evidence?.creator).toBeUndefined();
+    expect(state.row.attributes.enrichment.evidence?.author).toBeUndefined();
   });
 });
 async function save(body: Record<string, unknown> = {}) {

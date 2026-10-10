@@ -8,6 +8,32 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Object-specific enrichment data and proposed interactions (beta)
+
+- **Contract:** new `attributes.object_intelligence` v1 separates model
+  interpretation (recipe/travel/product/place/paper/book/event/general), quoted
+  source facts, and a closed catalog of proposed interactions. This is additive;
+  storage `type`, existing `object_facts`, card layout and detail panel remain
+  compatible. See `docs/PLATFORM_API.md` and `_shared/objectIntelligence.ts`.
+- **Evidence:** recipe ingredients/steps, travel places/stays, product attributes,
+  and other typed fields require exact source quotations. Prices require validated
+  publisher facts. Unknown details remain absent. Visual descriptions and generated
+  summaries are not used as raw evidence. Stays/packing lists/price comparisons
+  that require further work are proposals, not completed research.
+- **Interaction contract:** `capabilities` includes readiness, prerequisites and
+  draft/read/write effect. Grocery orders and calendar writes require confirmation.
+  This supplies future web interactions/canvas nodes; it does not yet add buttons,
+  execute integrations, or create derivative items.
+- **Capture:** explicit TikTok and social-provider creators now survive as
+  `enrichment.evidence.author` and `creator: {name?,handle?,url?,platform}`. Missing
+  identities stay absent; the existing metadata request supplies these fields.
+- **Hosted processing:** a service-only queue runs every five minutes with capped
+  model calls and bounded retries, including for already-complete cards. It writes
+  with source/concurrency checks and records `object-intelligence-v1` attempts in
+  the enrichment dashboard. Latest 100 items seed the initial cohort; new source
+  captures and revisions enqueue automatically. No client or local Codex process
+  needs to remain open.
+
 ## 2026-10-10 · TikTok share links play: `link.canonical_url` / `enrichment.evidence.canonical_url`
 
 Will: "tiktoks which are stashed are showing the static image in the detail panel again, as

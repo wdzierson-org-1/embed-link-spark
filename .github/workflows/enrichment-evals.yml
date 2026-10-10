@@ -30,6 +30,16 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Evaluate fixed gold cases without live providers
         run: node node_modules/vitest/vitest.mjs run --config services/enrichment-evals/vitest.config.ts
+      - name: Verify grounded object intelligence and creator capture
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          supabase/functions/_shared/objectIntelligence.test.ts
+          supabase/functions/_shared/objectIntelligenceWorker.test.ts
+          supabase/functions/_shared/objectIntelligenceIndex.test.ts
+          supabase/functions/_shared/socialEnrichment.test.ts
+          supabase/functions/_shared/tiktok.test.ts
+          supabase/functions/add-url/index.test.ts
+          supabase/functions/scrape-page-content/index.test.ts
       - name: Save per-case evaluation results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
