@@ -129,7 +129,9 @@ not yet implemented.
   PNG/JPEG/WebP structure, dimensions, MIME, byte count and SHA-256. This is file
   validation, **not full image decoding or semantic image matching**. Unsupported
   hosts and failures remain explicit outcomes in the stored evidence and email.
-- Hermes retries receive a closed validation-error code plus corrective instructions.
+- The model proxy enforces a closed JSON response schema, while exact quotes and
+  item/source scope still pass independent checks. Hermes retries receive a closed
+  validation-error code plus corrective instructions.
   The same three-attempt, six-model-call and 90-second limits remain. A failed quote
   must be copied correctly or omitted, never accepted by weakening evidence checks.
 - `services/enrichment-evals/` exercises the actual selectors and source gates with

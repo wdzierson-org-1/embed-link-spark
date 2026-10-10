@@ -32,7 +32,7 @@ describe('bounded public image asset evidence', () => {
   it('does not send provider credentials or follow redirects', async () => {
     const fetcher = vi.fn().mockResolvedValue(imageResponse()); await verifyImageAsset({ url, associated: true }, source, { fetcher });
     expect(fetcher).toHaveBeenCalledOnce(); const [target, init] = fetcher.mock.calls[0];
-    expect(target).toBe(url); expect(init).toMatchObject({ redirect: 'error', credentials: 'omit', method: 'GET' });
+    expect(target).toBe(url); expect(init).toMatchObject({ redirect: 'manual', credentials: 'omit', method: 'GET' });
     expect(JSON.stringify(init.headers)).not.toMatch(/authorization|cookie|apikey/i);
   });
   it.each([

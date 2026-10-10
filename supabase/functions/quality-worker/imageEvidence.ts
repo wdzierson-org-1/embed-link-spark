@@ -169,7 +169,7 @@ export async function verifyImageAsset(candidate: { url: string; associated: boo
   const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const execute = async () => {
-      const response = await fetcher(candidate.url, { method: 'GET', redirect: 'error', credentials: 'omit', signal: controller.signal,
+      const response = await fetcher(candidate.url, { method: 'GET', redirect: 'manual', credentials: 'omit', signal: controller.signal,
         headers: { Accept: 'image/jpeg,image/png,image/webp', 'User-Agent': 'StashImageEvidence/1.0' } });
       const refuse = (reason: string, outcome: 'invalid' | 'unavailable' = 'unavailable'): never => {
         void response.body?.cancel().catch(() => {}); throw new ImageError(reason, outcome);
