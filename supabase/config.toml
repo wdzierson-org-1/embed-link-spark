@@ -116,3 +116,7 @@ verify_jwt = false
 
 [functions.quality-dispatch]
 verify_jwt = false
+
+# Source-grounded structured attributes; private cron/service authentication.
+[functions.object-intelligence-worker]
+verify_jwt = false

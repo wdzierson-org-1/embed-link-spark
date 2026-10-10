@@ -1,13 +1,23 @@
 import { enrichmentSearchText, type EnrichmentItem, QUALITY_VERSION } from './enrichmentQuality.ts';
+import { buildObjectIntelligenceSource, objectIntelligenceFingerprint, readObjectIntelligence, objectIntelligenceSearchText } from './objectIntelligence.ts';
 
 export const ENRICHMENT_COLUMNS = 'id,user_id,type,url,title,description,summary,content,supplemental_note,page_body,file_path,mime_type,created_at,attributes';
 export function itemSnapshot(item: EnrichmentItem): Record<string, unknown> {
-  return Object.fromEntries(['type','url','title','description','summary','content','supplemental_note','page_body','file_path','mime_type','attributes']
-    .map(key => [key, (item as Record<string, unknown>)[key] ?? null]));
+  return Object.fromEntries((['type','url','title','description','summary','content','supplemental_note','page_body','file_path','mime_type','attributes'] as const)
+    .map(key => [key, item[key] ?? null]));
 }
 export async function searchFingerprint(item: EnrichmentItem): Promise<string> {
-  const bytes = new TextEncoder().encode(`${QUALITY_VERSION}\n${enrichmentSearchText(item)}`);
+  const bytes = new TextEncoder().encode(`${QUALITY_VERSION}\n${await enrichmentIndexedText(item)}`);
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+/** Only intelligence bound to the current source can contribute retrieval terms. */
+export async function enrichmentIndexedText(item: EnrichmentItem): Promise<string> {
+  const base = enrichmentSearchText(item);
+  if (!item.attributes?.object_intelligence) return base;
+  const source = buildObjectIntelligenceSource(item);
+  if (!source) return base;
+  const intelligence = readObjectIntelligence(item.attributes.object_intelligence, source, await objectIntelligenceFingerprint(source));
+  return intelligence ? [base, objectIntelligenceSearchText(intelligence)].filter(Boolean).join('\n\n') : base;
 }
 export function chunkSearchText(text: string): string[] {
   const cleaned = text.trim().replace(/[^\S\n]+/g, ' ').replace(/\n{3,}/g, '\n\n');

@@ -1,4 +1,5 @@
 import type { ObjectFacts } from '../../supabase/functions/_shared/objectFacts';
+import type { ObjectIntelligence } from '../../supabase/functions/_shared/objectIntelligence';
 
 /**
  * Extensible per-item attribute blob, stored in items.attributes (jsonb).
@@ -65,6 +66,7 @@ export type EnrichmentEvidence = {
   duration_s?: number;
   author?: string;
   /** The social adapter's own marks (TikTok/Instagram captions, Supadata visual notes) */
+  creator?: { name?: string; handle?: string; url?: string; platform: 'tiktok' | 'instagram' | 'youtube' };
   caption?: boolean;
   canonical_url?: string;
   visual?: boolean;
@@ -116,6 +118,8 @@ export type MediaAttributes = {
 export type ItemAttributes = {
   /** Publisher structured facts, with source evidence; separate from the capture location. */
   object_facts?: ObjectFacts;
+  /** Beta, source-bound facts, interpretations, and proposed interactions. */
+  object_intelligence?: ObjectIntelligence;
   enrichment?: { status: 'pending' | 'complete' | 'partial'; updated_at: string; evidence?: EnrichmentEvidence };
   location?: CapturedLocation;
   link?: LinkAttributes;
