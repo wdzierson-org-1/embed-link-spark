@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Maximize2, Minimize } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
@@ -60,7 +60,7 @@ const cell =
 
 /**
  * The full-size cell on a stage (top-right, visible on hover like the picture's own controls)
- * and the logic behind it.
+ * and the logic behind it. Full size shows the bar's minimize only.
  */
 export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) => {
   const { full, setFull, position } = useStageFull();
@@ -70,18 +70,20 @@ export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) 
   // Leaving the stage (another item, the sheet closing) leaves full size too
   useEffect(() => () => setFull(false), [setFull]);
 
-  const controls = (
+  // Full size has one way back, in the bar; the hover cell goes (two minimize controls sat
+  // side by side, Will 2026-10-10: "we only need one")
+  const controls = full ? null : (
     <div
       key="controls"
       className="absolute right-3 top-3 z-[5] flex gap-1.5 opacity-0 transition-opacity group-hover/stage:opacity-100 group-focus-within/stage:opacity-100 [@media(hover:none)]:opacity-100"
     >
       <Tooltip>
         <TooltipTrigger asChild>
-          <button type="button" onClick={() => setFull(!full)} aria-label={full ? 'Exit full size' : 'Full size'} className={cell}>
-            {full ? <Minimize className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          <button type="button" onClick={() => setFull(true)} aria-label="Full size" className={cell}>
+            <Maximize2 className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{full ? 'exit full size' : 'full size'}</TooltipContent>
+        <TooltipContent side="bottom">full size</TooltipContent>
       </Tooltip>
     </div>
   );
@@ -95,7 +97,8 @@ export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) 
         aria-label="Minimize"
         className="grid h-8 w-8 flex-none place-items-center text-white transition-colors hover:bg-white hover:text-ink"
       >
-        <Minimize className="h-4 w-4" />
+        {/* The mirror of the full-size cell's Maximize2: two arrows pointing inward */}
+        <Minimize2 className="h-4 w-4" />
       </button>
     </div>
   ) : null;

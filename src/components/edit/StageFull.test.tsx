@@ -28,6 +28,9 @@ it('rests on the dotted stage; full size fills the page, names itself in a bar, 
   fireEvent.click(screen.getByRole('button', { name: 'Full size' }));
   expect(stage.className).toContain('fixed inset-0');
   expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('picture');
+  // One way back: the bar's minimize; the hover cell is gone
+  expect(screen.getAllByRole('button')).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Minimize' })).toBeInTheDocument();
   // The media element is the same node: a playing video keeps playing
   expect(screen.getByTestId('media')).toBe(media);
   fireEvent.keyDown(window, { key: 'Escape' });
