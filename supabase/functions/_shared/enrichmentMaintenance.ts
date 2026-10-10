@@ -1,5 +1,5 @@
-import { assessEnrichment, reviewCadence, nextReviewHours, QUALITY_VERSION, type EnrichmentItem } from './enrichmentQuality.ts';
-import { prepareRepair, selectRepairAdapter, type RepairCandidate } from './enrichmentRepair.ts';
+import { assessEnrichment, isPlaceholderMetadata, reviewCadence, nextReviewHours, QUALITY_VERSION, type EnrichmentItem } from './enrichmentQuality.ts';
+import { pageCaptureCandidate, prepareRepair, selectRepairAdapter, type RepairCandidate } from './enrichmentRepair.ts';
 import { recoverSocial } from './socialEnrichment.ts';
 import { applyCandidate, ENRICHMENT_COLUMNS, searchFingerprint } from './enrichmentStore.ts';
 import { deriveTitleFromContent, generateSummary, summaryKindFor } from './summarize.ts';
@@ -35,15 +35,28 @@ async function getCandidate(item: EnrichmentItem, job: any, deps: Deps) {
     const sourceItem = assessEnrichment(item).status === 'blocked' ? { ...item, page_body: null } : item;
     const social = await recoverSocial(sourceItem, state, { apiKey: config.socialKey, visualEnabled: config.visualEnabled });
     state = social.state; spent = social.spent; candidate = social;
-    if (!social.text && !assessEnrichment(item).content_usable && !state.page_attempted && !social.pending) {
+    const prepared = prepareRepair(item, social);
+    const projected = assessEnrichment({ ...item, ...prepared.patch, attributes: { ...item.attributes,
+      enrichment: { ...item.attributes?.enrichment, evidence: { ...item.attributes?.enrichment?.evidence, ...prepared.evidence } } } });
+    // A usable caption does not cover a known video's spoken content. Instagram's
+    // expanded recovery waits for durable TranscriptFetch jobs; keep its prior eligibility.
+    const missingVideo = ['youtube', 'tiktok'].includes(projected.source) && projected.kind === 'video' && projected.reasons.includes('missing_media_evidence');
+    const missingContent = !social.text && !assessEnrichment(item).content_usable;
+    if ((missingContent || missingVideo) && !state.page_attempted && !social.pending && !state.transcript && !state.visual) {
       state = { ...state, page_attempted: true }; spent = true;
-      const page = await call('scrape-page-content', { itemId: item.id, url: item.url, extractOnly: true });
-      if (page.success && page.text) candidate = { ...social, text: page.text, strategy: page.source };
+      try {
+        const page = await call('scrape-page-content', { itemId: item.id, url: item.url, extractOnly: true });
+        const capture = pageCaptureCandidate(item, page);
+        if (capture) candidate = { ...social, ...capture, evidence: { ...prepared.evidence, ...capture.evidence }, pending: false, unavailable: false, reason: undefined };
+      } catch {
+        // Return the attempt marker and latest provider state even if the caller times out.
+        candidate = { ...social, unavailable: false, reason: 'page_capture_failed' };
+      }
     }
   } else if (adapter === 'page') {
     spent = true;
     const page = await call('scrape-page-content', { itemId: item.id, url: item.url, extractOnly: true });
-    candidate = { strategy: page.source || 'page', text: page.success ? page.text : undefined, reason: page.success ? undefined : 'page_unavailable' };
+    candidate = pageCaptureCandidate(item, page) || { strategy: 'page', reason: 'page_unavailable' };
   } else if (['image','transcribe','document'].includes(adapter)) {
     if (!config.openAiKey) return { candidate: { strategy: adapter, unavailable: true, reason: 'model_unconfigured' }, state, spent };
     const fileUrl = adapter === 'transcribe' ? '' : await signedFile(db, item); spent = true;
@@ -123,11 +136,14 @@ export async function runEnrichmentMaintenance(deps: Deps) {
                 // which is recorded as a failed attempt below rather than guessing
                 // a prompt — a wrong guess writes a bad summary into someone's
                 // library, and skipping is always recoverable.
-                const summaryKind = summaryKindFor(item.type);
+                const summaryKind = item.type === 'link' && prepared.sourceIsTranscript ? 'video' : summaryKindFor(item.type);
                 if (summaryKind === undefined) unmappedType = item.type;
                 if (summaryKind) {
                   const summary = await generateSummary(config.openAiKey, { sourceText: prepared.sourceText, kind: summaryKind, title: prepared.patch.title || item.title, url: item.url });
-                  if (summary) { prepared.patch.summary = summary; prepared.patch.description = summary.slice(0, 350); }
+                  if (summary) {
+                    prepared.patch.summary = summary;
+                    if (!prepared.patch.description && isPlaceholderMetadata(item.description, item.url)) prepared.patch.description = summary.slice(0, 350);
+                  }
                 }
               }
               if (Object.keys(prepared.patch).length || Object.keys(prepared.evidence).length) {
