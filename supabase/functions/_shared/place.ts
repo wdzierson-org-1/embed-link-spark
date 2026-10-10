@@ -9,7 +9,7 @@
 
 import type { ObjectFacts } from './objectFacts.ts';
 
-/** `ocr`: an address read from a picture's own text and geocoded (round 2) */
+/** `ocr`: an address read from a picture's own text and confirmed by the geocoder (round 2) */
 export type PlaceProviderKind = 'apple-maps' | 'google-maps' | 'page' | 'ocr';
 export type PlaceGeo = { latitude: number; longitude: number };
 /** `open`/`close` are "HH:MM" in the place's own day; `next_day` marks a close past midnight */

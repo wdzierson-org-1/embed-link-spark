@@ -70,18 +70,20 @@ export const useStage = (stageRef: React.RefObject<HTMLElement>, title: string) 
   // Leaving the stage (another item, the sheet closing) leaves full size too
   useEffect(() => () => setFull(false), [setFull]);
 
-  const controls = (
+  // At rest the hover cell offers full size; at full size the bar's minimize is the one way
+  // back (a second minimize over the stage read as a duplicate — Will, 2026-10-10)
+  const controls = full ? null : (
     <div
       key="controls"
       className="absolute right-3 top-3 z-[5] flex gap-1.5 opacity-0 transition-opacity group-hover/stage:opacity-100 group-focus-within/stage:opacity-100 [@media(hover:none)]:opacity-100"
     >
       <Tooltip>
         <TooltipTrigger asChild>
-          <button type="button" onClick={() => setFull(!full)} aria-label={full ? 'Exit full size' : 'Full size'} className={cell}>
-            {full ? <Minimize className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          <button type="button" onClick={() => setFull(true)} aria-label="Full size" className={cell}>
+            <Maximize2 className="h-4 w-4" />
           </button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{full ? 'exit full size' : 'full size'}</TooltipContent>
+        <TooltipContent side="bottom">full size</TooltipContent>
       </Tooltip>
     </div>
   );
