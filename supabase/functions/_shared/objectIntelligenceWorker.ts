@@ -1,19 +1,22 @@
 import {
-  buildObjectIntelligenceSource, objectIntelligenceFingerprint, parseObjectIntelligenceOutput, readObjectIntelligence,
-  OBJECT_INTELLIGENCE_VERSION, OBJECT_INTELLIGENCE_PROMPT, OBJECT_INTELLIGENCE_OUTPUT_SCHEMA,
+  buildObjectIntelligenceSource, objectIntelligenceFingerprint, validateObjectIntelligenceOutput, readObjectIntelligence,
+  OBJECT_INTELLIGENCE_VALIDATION_REASONS,
+  OBJECT_INTELLIGENCE_VERSION,
   type ObjectIntelligence, type ObjectIntelligenceSource,
 } from './objectIntelligence.ts';
 import { ENRICHMENT_COLUMNS, itemSnapshot } from './enrichmentStore.ts';
 import { assessEnrichment, QUALITY_VERSION, type EnrichmentItem } from './enrichmentQuality.ts';
+import { buildObjectIntelligenceRequest } from './objectIntelligenceRequest.ts';
 
 /** A closed extraction call: no browsing, tools, user identity, or generated summaries. */
 export async function extractObjectIntelligence(apiKey: string, source: ObjectIntelligenceSource, fingerprint: string, fetcher = fetch): Promise<ObjectIntelligence> {
+  const request = buildObjectIntelligenceRequest(source);
   const response = await fetcher('https://api.openai.com/v1/chat/completions', {
     method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'gpt-4o-mini', temperature: 0, max_tokens: 4500,
-      response_format: { type: 'json_schema', json_schema: { name: 'stash_object_intelligence', strict: true, schema: OBJECT_INTELLIGENCE_OUTPUT_SCHEMA } },
-      messages: [{ role: 'system', content: OBJECT_INTELLIGENCE_PROMPT },
-        { role: 'user', content: JSON.stringify({ format: source.identity.type, sources: source.sources }) }],
+      response_format: { type: 'json_schema', json_schema: { name: 'stash_object_intelligence', strict: true, schema: request.schema } },
+      messages: [{ role: 'system', content: request.prompt },
+        { role: 'user', content: JSON.stringify({ format: source.identity.type, sources: request.sources }) }],
     }), signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) throw new Error(`object_intelligence_provider_http_${response.status}`);
@@ -22,9 +25,9 @@ export async function extractObjectIntelligence(apiKey: string, source: ObjectIn
   const body = JSON.parse(text);
   const choice = body?.choices?.[0];
   if (choice?.finish_reason !== 'stop' || choice?.message?.refusal || typeof choice?.message?.content !== 'string') throw new Error('extraction_response_incomplete');
-  const intelligence = parseObjectIntelligenceOutput(JSON.parse(choice.message.content), source, fingerprint);
-  if (!intelligence) throw new Error('extraction_evidence_invalid');
-  return intelligence;
+  const result = validateObjectIntelligenceOutput(request.materialize(JSON.parse(choice.message.content)), source, fingerprint);
+  if ('reason' in result) throw new Error(`extraction_evidence_${result.reason}`);
+  return result.value;
 }
 
 interface Config { enabled: boolean; apiKey?: string; dailyLimit: number; hourlyLimit: number; }
@@ -87,6 +90,8 @@ export async function runObjectIntelligenceWorker({ db, config, index, extract =
         // Never retain provider bodies, private source text, signed URLs, or credentials in diagnostics.
         reason = stage === 'extraction' ? 'object_intelligence_extraction_failed' : stage === 'index' ? 'object_intelligence_index_failed' : 'object_intelligence_persistence_failed';
         if (stage === 'extraction' && error instanceof Error && /^object_intelligence_provider_http_[1-5][0-9]{2}$/.test(error.message)) reason = error.message;
+        if (stage === 'extraction' && error instanceof Error && ['extraction_response_invalid', 'extraction_response_incomplete', 'extraction_evidence_invalid'].includes(error.message)) reason = error.message;
+        if (stage === 'extraction' && error instanceof Error && OBJECT_INTELLIGENCE_VALIDATION_REASONS.some(code => error.message === `extraction_evidence_${code}`)) reason = error.message;
         outcome = 'retry'; delay = 3600; counts.failed++;
       } finally {
         try {
@@ -99,7 +104,8 @@ export async function runObjectIntelligenceWorker({ db, config, index, extract =
           }
         } finally {
           checked(await db.rpc('finish_object_intelligence_job', { target_id: job.item_id, token: job.lease_token,
-            expected_revision: job.revision, outcome, delay_seconds: delay, failure_code: reason }));
+            expected_revision: job.revision, outcome, delay_seconds: delay,
+            failure_code: reason?.startsWith('extraction_') ? 'object_intelligence_extraction_failed' : reason }));
         }
       }
     }

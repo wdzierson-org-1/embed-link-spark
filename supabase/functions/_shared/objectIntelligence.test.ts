@@ -3,6 +3,7 @@ import {
   buildObjectIntelligenceSource, objectIntelligenceFingerprint, parseObjectIntelligenceOutput,
   readObjectIntelligence, objectIntelligenceSearchText, OBJECT_INTELLIGENCE_VERSION,
   OBJECT_INTELLIGENCE_OUTPUT_SCHEMA,
+  validateObjectIntelligenceOutput, OBJECT_INTELLIGENCE_VALIDATION_REASONS,
 } from './objectIntelligence';
 import { extractObjectFacts } from './objectFacts';
 
@@ -207,6 +208,36 @@ describe('grounded object intelligence output', () => {
     expect(result!.facts.recipe).not.toHaveProperty('servings');
     expect(result!.evidence.map(x => x.id)).toEqual(['e1', 'e2']);
   });
+  it('ignores unused invented quotations while preserving every grounded fact', async () => {
+    const output = recipeOutput();
+    output.evidence.push({ id: 'e3', source_id: 'page_body', quote: 'An invented quotation that is not referenced by any fact.' });
+    const { result } = await extract(recipeItem(), output);
+    expect(result?.facts.recipe?.ingredients).toHaveLength(5);
+    expect(result?.evidence.map(x => x.id)).toEqual(['e1', 'e2']);
+    const general = { interpretation: { kind: 'general', summary: 'A saved pasta video.', topics: [] }, facts: {}, evidence: output.evidence.slice(2) };
+    expect((await extract(recipeItem(), general)).result?.evidence).toEqual([]);
+  });
+  it('resolves whitespace-only model quotations and values back to exact original source spans', async () => {
+    const content = 'Ingredients: cherry\u00a0tomatoes,\n  olive oil. Cook for 20\r\nminutes.';
+    const source = buildObjectIntelligenceSource({ type: 'text', content })!;
+    const output = { interpretation: { kind: 'recipe', summary: 'Tomatoes cooked in olive oil.', topics: [] }, facts: { recipe: { ingredients: [value('cherry tomatoes'), value('olive oil')], duration: value('20 minutes') } },
+      evidence: [{ id: 'e1', source_id: 'content', quote: 'Ingredients: cherry tomatoes, olive oil. Cook for 20 minutes.' }] };
+    const fingerprint = await objectIntelligenceFingerprint(source);
+    const result = parseObjectIntelligenceOutput(output, source, fingerprint)!;
+    expect(result?.evidence[0].quote).toBe(content);
+    expect(result?.facts.recipe?.ingredients?.[0].value).toBe('cherry\u00a0tomatoes');
+    expect(result?.facts.recipe?.duration?.value).toBe('20\r\nminutes');
+    expect(readObjectIntelligence(result, source, fingerprint)).toEqual(result);
+  });
+  it.each(['Blister cherry tomatoes IN olive oil', 'Cook cherry tomatoes in olive oil', 'Blister cherry tomatoes; in olive oil'])('still rejects a referenced quote with word/case/punctuation edits: %s', async quote => {
+    const output = recipeOutput(); output.evidence[0].quote = quote;
+    expect((await extract(recipeItem(), output)).result).toBeUndefined();
+  });
+  it('rejects a whitespace match whose original span exceeds the existing quote bound', async () => {
+    const source = buildObjectIntelligenceSource({ type: 'text', content: `tomatoes${' '.repeat(400)}basil` })!;
+    const output = { interpretation: { kind: 'recipe', summary: 'Two ingredients.', topics: [] }, facts: { recipe: { ingredients: [value('tomatoes')] } }, evidence: [{ id: 'e1', source_id: 'content', quote: 'tomatoes basil' }] };
+    expect(validateObjectIntelligenceOutput(output, source, await objectIntelligenceFingerprint(source))).toEqual({ ok: false, reason: 'quote_not_in_source' });
+  });
   it('provides a closed strict-output schema with nullable unknown facts', () => {
     const visit = (schema: any) => {
       if (!schema || typeof schema !== 'object') return;
@@ -226,5 +257,39 @@ describe('grounded object intelligence output', () => {
     expect(search).toContain('penne');
     expect(search).toContain('@supper');
     expect(search).not.toMatch(/shopping_list|grocery_order|2026-10|quick tomato/);
+  });
+});
+
+describe('content-free object intelligence validation diagnostics', () => {
+  it('returns the same successful envelope as the compatibility parser', async () => {
+    const { source, fingerprint, result } = await extract();
+    expect(validateObjectIntelligenceOutput(recipeOutput(), source, fingerprint, '2026-10-10T10:00:00Z')).toEqual({ ok: true, value: result });
+  });
+  it.each([
+    ['root_shape', (output: any) => { output.command = 'private malicious instruction'; }],
+    ['interpretation', (output: any) => { output.interpretation.summary = ''; }],
+    ['evidence_shape', (output: any) => { output.evidence[0].quote = ''; }],
+    ['source_missing', (output: any) => { output.evidence[0].source_id = 'private_missing_source'; }],
+    ['quote_not_in_source', (output: any) => { output.evidence[0].quote = 'Private invented quote about lobster.'; }],
+    ['fact_shape', (output: any) => { output.facts.recipe.ingredients[0].unknown = 'private value'; }],
+    ['evidence_reference', (output: any) => { output.facts.recipe.ingredients[0].evidence_ids = ['private_missing_id']; }],
+    ['evidence_lane', (output: any) => { output.facts.recipe.ingredients[0].evidence_ids = ['e1', 'e2']; }],
+    ['value_not_in_quote', (output: any) => { output.facts.recipe.ingredients[0].value = 'Private invented lobster.'; }],
+    ['fact_group', (output: any) => { output.interpretation.kind = 'travel'; }],
+  ] as const)('returns only the closed %s reason for rejected output', async (reason, mutate) => {
+    const { source, fingerprint } = await extract();
+    const output = recipeOutput(); mutate(output);
+    const validation = validateObjectIntelligenceOutput(output, source, fingerprint);
+    expect(validation).toEqual({ ok: false, reason });
+    expect(OBJECT_INTELLIGENCE_VALIDATION_REASONS).toContain(reason);
+    expect(JSON.stringify(validation)).not.toContain('private');
+    expect(parseObjectIntelligenceOutput(output, source, fingerprint)).toBeUndefined();
+  });
+  it('distinguishes invalid binding from an oversized envelope without echoing input', async () => {
+    const { source, fingerprint } = await extract();
+    expect(validateObjectIntelligenceOutput(recipeOutput(), source, 'invalid')).toEqual({ ok: false, reason: 'input_binding' });
+    const output = recipeOutput();
+    output.evidence = Array.from({ length: 48 }, (_, index) => ({ id: `e${index + 1}`, source_id: 'page_body', quote: 'x'.repeat(1000) }));
+    expect(validateObjectIntelligenceOutput(output, source, fingerprint)).toEqual({ ok: false, reason: 'envelope_size' });
   });
 });

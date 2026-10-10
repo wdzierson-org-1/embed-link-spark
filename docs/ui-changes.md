@@ -10,6 +10,11 @@ first, visuals second, with pointers to specs and source.
 
 ## 2026-10-10 · Object-specific enrichment data and proposed interactions (beta)
 
+- **Validation follow-up:** live canaries exposed model-rewritten quotations.
+  The model now selects server-owned passage IDs; the server supplies quotations.
+  Whitespace-only differences resolve to original spans, while paraphrases and
+  incorrect attribution remain rejected. Unused quotations cannot invalidate
+  otherwise supported facts. Failure diagnostics contain codes, not private text.
 - **Contract:** new `attributes.object_intelligence` v1 separates model
   interpretation (recipe/travel/product/place/paper/book/event/general), quoted
   source facts, and a closed catalog of proposed interactions. This is additive;

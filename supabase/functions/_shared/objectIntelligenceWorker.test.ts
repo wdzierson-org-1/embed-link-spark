@@ -5,7 +5,7 @@ import { buildObjectIntelligenceSource, objectIntelligenceFingerprint, parseObje
 const note = () => ({ id: 'item', user_id: 'owner', type: 'text', content: 'Pasta recipe: penne, cherry tomatoes, basil and olive oil. Blister the tomatoes in oil, then toss with cooked penne and basil.', attributes: {} as Record<string, any> });
 const output = { interpretation: { kind: 'recipe', summary: 'Pasta with tomatoes and basil.', topics: ['pasta'] }, facts: { recipe: { ingredients: [{ value: 'penne', evidence_ids: ['e1'] }] } }, evidence: [{ id: 'e1', source_id: 'content', quote: 'penne, cherry tomatoes, basil and olive oil' }] };
 
-async function harness(options: { item?: any; attempts?: number; reserve?: boolean; commit?: boolean; index?: boolean; extractError?: boolean; enabled?: boolean } = {}) {
+async function harness(options: { item?: any; attempts?: number; reserve?: boolean; commit?: boolean; index?: boolean; extractError?: boolean; extractErrorCode?: string; enabled?: boolean } = {}) {
   const item = options.item || note();
   const job = { item_id: item.id, revision: 1, lease_token: 'lease', attempts: options.attempts || 0 };
   const attempts: any[] = [];
@@ -26,6 +26,7 @@ async function harness(options: { item?: any; attempts?: number; reserve?: boole
   } };
   const extract = vi.fn(async (_key: string, source: any, fingerprint: string) => {
     if (options.extractError) throw new Error('provider body with private source text');
+    if (options.extractErrorCode) throw new Error(options.extractErrorCode);
     const sourceId = source.sources.find((s: any) => s.text.includes('penne')).id;
     return parseObjectIntelligenceOutput({ ...output, evidence: [{ ...output.evidence[0], source_id: sourceId }] }, source, fingerprint)!;
   });
@@ -82,6 +83,11 @@ describe('hosted object intelligence pass', () => {
     expect(JSON.stringify(h.attempts)).not.toContain('private source');
     expect(h.rpc).toHaveBeenCalledWith('end_object_intelligence_run', { token: 'run' });
   });
+  it('records a closed validation code while retaining the stable queue failure category', async () => {
+    const h = await harness({ extractErrorCode: 'extraction_evidence_quote_not_in_source' });
+    expect(h.attempts[0].reasons).toEqual(['extraction_evidence_quote_not_in_source']);
+    expect(h.rpc).toHaveBeenCalledWith('finish_object_intelligence_job', expect.objectContaining({ failure_code: 'object_intelligence_extraction_failed' }));
+  });
   it('waits for source evidence and does not infer facts from a generated description', async () => {
     const h = await harness({ item: { id: 'i', user_id: 'u', type: 'image', description: 'A leather bag', attributes: {} } });
     expect(h.extract).not.toHaveBeenCalled();
@@ -97,8 +103,7 @@ describe('object intelligence model boundary', () => {
   });
   it('uses constrained JSON output, no tool access, and sends only the source projection', async () => {
     const source = buildObjectIntelligenceSource(note())!;
-    const sourceId = source.sources[0].id;
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...output, evidence: [{ ...output.evidence[0], source_id: sourceId }] }) } }] })));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ interpretation: output.interpretation, facts: output.facts }) } }] })));
     const result = await extractObjectIntelligence('test', source, await objectIntelligenceFingerprint(source), fetcher);
     expect(result?.facts.recipe).toBeTruthy();
     const body = JSON.parse((fetcher.mock.calls[0] as any)[1].body);
