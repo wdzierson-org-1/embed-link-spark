@@ -1,0 +1,40 @@
+name: Enrichment evaluation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enrichment-evals-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression-gate:
+    name: Enrichment regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6; verified against upstream tag
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Evaluate fixed gold cases without live providers
+        run: node node_modules/vitest/vitest.mjs run --config services/enrichment-evals/vitest.config.ts
+      - name: Save per-case evaluation results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: enrichment-evaluation-${{ github.sha }}
+          path: services/enrichment-evals/artifacts/enrichment-evaluation.json
+          if-no-files-found: error
+          retention-days: 30

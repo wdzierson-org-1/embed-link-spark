@@ -18,12 +18,17 @@ export function authorized(actual, token) {
 // A syntax gate, not a DNS/egress guard. Retrieval is owned by the backend;
 // Hermes has no browsing tools or retrieval-provider credential.
 export function publicEvidenceUrl(value) {
-  if (typeof value !== 'string' || value.length > 2000) return false;
+  if (typeof value !== 'string' || value.length > 2000 || /[\s\\]/.test(value)) return false;
   try {
-    const u = new URL(value); const h = u.hostname.toLowerCase();
-    return u.protocol === 'https:' && !u.username && !u.password && (!u.port || u.port === '443') &&
-      h.includes('.') && !h.includes(':') && !/^\d+(\.\d+)*$/.test(h) &&
-      !/(^|\.)(localhost|local|internal|invalid)$/.test(h);
+    const parsed = new URL(value); const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || (parsed.port && parsed.port !== '443') ||
+      !host.includes('.') || host.includes(':') || /^\d+(\.\d+)*$/.test(host) ||
+      /(^|\.)(localhost|local|internal|invalid|test|onion|arpa)$/.test(host) || host.endsWith('.')) return false;
+    const sensitive = /^(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|key|api[_-]?key|code|password|pass|secret|signature|sig|session(?:id|_id)?|auth(?:orization)?|jwt|x-amz-.*|x-goog-.*)$/i;
+    if ([...parsed.searchParams.keys()].some(key => sensitive.test(key))) return false;
+    // Fragments can contain OAuth credentials even though they are not sent in HTTP requests.
+    if (sensitive.test(parsed.hash.slice(1).split('=')[0]) || /(?:^|[?&])(?:access_token|token|password|secret|signature)=/i.test(parsed.hash.slice(1))) return false;
+    return true;
   } catch { return false; }
 }
 
@@ -45,8 +50,45 @@ export function jobBudget(job, now = Date.now()) {
   return { maxTurns: Math.min(HARD_MAX_TURNS, job.budget.max_turns), runMs };
 }
 
+// Keep this bounded contract identical in the backend and hosted supervisor.
+const IMAGE_REASONS = {
+  usable_asset: ['raster_structure_valid'],
+  unavailable: ['unsafe_image_url', 'unsupported_image_host', 'image_not_associated', 'image_timeout',
+    'image_request_failed', 'image_http_error', 'image_redirect_rejected', 'unsupported_raster_format'],
+  invalid: ['image_too_large', 'empty_image', 'non_raster_response', 'image_mime_mismatch',
+    'invalid_raster_structure', 'image_too_small', 'image_dimensions_excessive'],
+};
+function validateImageChecks(observation, refused) {
+  if (observation.image_checks === undefined) return;
+  list(observation.image_checks, 1);
+  if (!observation.image_checks.length) return;
+  if (refused || !observation.limitations.includes('image_pixels_not_verified') ||
+    !observation.limitations.includes('image_decode_not_verified')) throw new Error('invalid_image_check');
+  const first = observation.image_candidates.find(image => image.associated);
+  for (const check of observation.image_checks) {
+    keys(check, ['url', 'source_url', 'associated', 'strategy', 'outcome', 'reason', 'checked_at', 'duration_ms',
+      'mime_type', 'byte_length', 'width', 'height', 'sha256']);
+    if (!first || check.url !== first.url || check.source_url !== observation.url || check.associated !== true ||
+      !publicEvidenceUrl(check.url) || !publicEvidenceUrl(check.source_url) || check.strategy !== 'public_raster_fetch' ||
+      !Object.hasOwn(IMAGE_REASONS, check.outcome) || !IMAGE_REASONS[check.outcome].includes(check.reason) ||
+      typeof check.checked_at !== 'string' || check.checked_at.length > 40 || !Number.isFinite(Date.parse(check.checked_at)) ||
+      !Number.isInteger(check.duration_ms) || check.duration_ms < 0 || check.duration_ms > 10_000) throw new Error('invalid_image_check');
+    if (check.mime_type !== undefined && !['image/jpeg', 'image/png', 'image/webp'].includes(check.mime_type)) throw new Error('invalid_image_check');
+    if (check.byte_length !== undefined && (!Number.isInteger(check.byte_length) || check.byte_length < 1 || check.byte_length > 5 * 1024 * 1024)) throw new Error('invalid_image_check');
+    for (const field of ['width', 'height']) if (check[field] !== undefined &&
+      (!Number.isInteger(check[field]) || check[field] < 0 || check[field] > 0xffffffff)) throw new Error('invalid_image_check');
+    if ((check.width === undefined) !== (check.height === undefined)) throw new Error('invalid_image_check');
+    if (check.outcome === 'usable_asset') {
+      if (check.mime_type === undefined || check.byte_length === undefined || check.width === undefined || check.height === undefined ||
+        check.width < 100 || check.height < 60 || check.width > 12000 || check.height > 12000 || check.width * check.height > 20_000_000 ||
+        typeof check.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(check.sha256)) throw new Error('invalid_image_check');
+    } else if (check.sha256 !== undefined) throw new Error('invalid_image_check');
+  }
+}
+
 export function validateObservation(observation, job) {
-  if (!object(observation) || JSON.stringify(observation).length > 32_000 || observation.schema_version !== 1) throw new Error('invalid_observation');
+  keys(observation, ['schema_version', 'item_id', 'url', 'captured_at', 'outcome', 'title', 'text', 'source_truncated', 'image_candidates', 'image_checks', 'attempts', 'limitations']);
+  if (Buffer.byteLength(JSON.stringify(observation)) > 32_000 || observation.schema_version !== 1) throw new Error('invalid_observation');
   const item = job.input.items.find(i => i.id === observation.item_id);
   const refused = observation.outcome === 'unavailable' && observation.title === '' && observation.text === '' && observation.source_truncated === false &&
     Array.isArray(observation.image_candidates) && observation.image_candidates.length === 0 && Array.isArray(observation.attempts) && observation.attempts.length === 1 &&
@@ -54,19 +96,23 @@ export function validateObservation(observation, job) {
     observation.attempts[0]?.reason === 'unsafe_url' && observation.attempts[0]?.duration_ms === 0;
   if (Array.isArray(observation.attempts) && observation.attempts.some(a => a?.reason === 'unsafe_url') && !refused) throw new Error('invalid_observation');
   if (!item || observation.url !== item.url || (!publicEvidenceUrl(observation.url) && !refused)) throw new Error('evidence_out_of_scope');
-  if (!Number.isFinite(Date.parse(observation.captured_at)) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(observation.outcome) ||
+  if (typeof observation.captured_at !== 'string' || observation.captured_at.length > 40 || !Number.isFinite(Date.parse(observation.captured_at)) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(observation.outcome) ||
     typeof observation.title !== 'string' || observation.title.length > 400 || typeof observation.text !== 'string' || observation.text.length > 6000 ||
     typeof observation.source_truncated !== 'boolean') throw new Error('invalid_observation');
   list(observation.image_candidates, 5); list(observation.attempts, 3); list(observation.limitations, 10);
-  for (const image of observation.image_candidates) if (!object(image) || !publicEvidenceUrl(image.url) || typeof image.associated !== 'boolean') throw new Error('invalid_observation');
+  for (const image of observation.image_candidates) {
+    keys(image, ['url', 'associated']);
+    if (!publicEvidenceUrl(image.url) || typeof image.associated !== 'boolean') throw new Error('invalid_observation');
+  }
   if (!observation.attempts.length) throw new Error('invalid_observation');
   for (const attempt of observation.attempts) {
-    if (!object(attempt)) throw new Error('invalid_observation');
-    text(attempt.strategy, 100); text(attempt.outcome, 100); text(attempt.reason, 200);
+    keys(attempt, ['strategy', 'outcome', 'reason', 'duration_ms']);
+    for (const field of ['strategy', 'outcome', 'reason']) if (typeof attempt[field] !== 'string' || !/^[a-z0-9_]{1,80}$/.test(attempt[field])) throw new Error('invalid_observation');
     if (!['firecrawl_rendered', 'jina_reader', 'medium_public_feed'].includes(attempt.strategy) || !['retrieved', 'blocked', 'unavailable', 'mismatch'].includes(attempt.outcome)) throw new Error('invalid_observation');
     if (!Number.isInteger(attempt.duration_ms) || attempt.duration_ms < 0 || attempt.duration_ms > 30_000) throw new Error('invalid_observation');
   }
   observation.limitations.forEach(x => text(x, 1000));
+  validateImageChecks(observation, refused);
   return observation;
 }
 

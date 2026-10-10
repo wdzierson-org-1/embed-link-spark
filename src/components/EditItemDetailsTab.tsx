@@ -32,6 +32,7 @@ import EditItemLinkSection from '@/components/EditItemLinkSection';
 import EditItemDocumentSection from '@/components/EditItemDocumentSection';
 import MaximizedEditor from '@/components/MaximizedEditor';
 import EditItemSupplementalNoteSection from '@/components/EditItemSupplementalNoteSection';
+import ObjectFactsSection from '@/components/edit/ObjectFactsSection';
 import EditItemDetailsDrawer from '@/components/edit/EditItemDetailsDrawer';
 import EditItemMediaZone from '@/components/edit/EditItemMediaZone';
 import EditItemImageStage from '@/components/edit/EditItemImageStage';
@@ -413,6 +414,9 @@ const EditItemDetailsTab = ({
           </div>
         </div>
       )}
+
+      {/* Publisher object facts are distinct from the user's capture location. */}
+      {item?.type === 'link' && <ObjectFactsSection item={item} />}
 
       {/* ── Details drawer: format facts, filename, source, location ── */}
       {item && <EditItemDetailsDrawer item={item} onSaveAttributes={onAttributesSave} />}

@@ -76,12 +76,32 @@ describe('summarize prompt/cap/budget selection', () => {
     }
   });
 
-  it('never emits an undefined prompt for a kind with no hand-written task', async () => {
+  it('never emits an undefined prompt for images and notes', async () => {
     for (const kind of ['image', 'text']) {
       const r = await send(kind, 'a source long enough to be worth summarizing');
       expect(r.system, kind).not.toContain('undefined');
-      expect(r.system, kind).toContain(`a saved ${kind}`);
+      expect(r.system, kind).toContain(`a saved ${kind === 'text' ? 'note' : kind}`);
     }
+  });
+
+  it('preserves the live image and note instructions when maintenance is redeployed', async () => {
+    const image = await send('image', 'A diagram with some visible labels.');
+    expect(image.system).toContain('what the text says');
+    expect(image.system).toContain('never guess who a person is from their face');
+    expect(image.system).toContain('at most ~150 words');
+    const note = await send('text', 'A short note about a meeting.');
+    expect(note.system).toContain('at most ~150 words');
+  });
+
+  it('preserves the live 60 second recording timeout while keeping pages at 20 seconds', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      for (const kind of [...TRANSCRIPT, ...NON_TRANSCRIPT]) {
+        timeout.mockClear();
+        await send(kind, 'Some captured source text.');
+        expect(timeout).toHaveBeenCalledWith(TRANSCRIPT.includes(kind as never) ? 60_000 : 20_000);
+      }
+    } finally { timeout.mockRestore(); }
   });
 
   it('tells the model the source is untrusted, for every kind', async () => {
