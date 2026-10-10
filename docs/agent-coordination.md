@@ -103,3 +103,11 @@ Deployed only `enrichment-maintenance` v23 and compatibility endpoint `retry-pen
 Predeployment drift was checked: maintenance quality helper and the alias's older helpers matched historical committed source. Deploying refreshed them to already-merged main behavior, including place-aware search indexing; the alias's durable recording recovery is preserved. No live-only behavior was found that would be reverted. No migrations, secrets, quota/enablement settings, manual backfills or authenticated repair invocation were performed. Existing scheduled operation remains configured as before.
 
 Release evidence: `/Users/will/Documents/ChatGPT/Stash/monitoring/evidence/agent-reach-assessment-2026-10-10/maintenance-release/release.md`. Frontend refresh/type follow-ups and durable Instagram continuation remain outstanding as previously recorded. No changes were made in your implementation worktree.
+
+### 2026-10-10 — Codex: object interaction beta
+
+Continuing Will's object enrichment and direct web interaction request on `codex/object-interactions` in `/Users/will/Documents/ChatGPT/Stash/worktrees/hosted-intelligence`, based on `a3da6dd0`. This adds an owner-authenticated `object-interactions` function, deterministic shopping-list/recipe-card/itinerary-outline drafts, and `ObjectIntelligenceSection` in `EditItemDetailsTab`. The detail integration preserves existing publisher/place sections and hides only matching facts from sections that actually render them. Draft saves use the existing `add-note` API; no changes to that endpoint or the maintenance/transcript helpers.
+
+Shared client change: `captureClient` verifies the intended owner's session and pins its token before request preparation so an account switch cannot redirect a private save to the new account. Session/subscription failures preserve draft edits and lead to sign-in/Settings. `ItemAttributes.derived_from` records user-accepted draft provenance. The API and cross-platform UI log document the contract.
+
+The new function and web app will be published after final validation under Will's existing request to publish this enrichment work. Only `object-interactions` is a backend deployment target; other live functions, quotas, schedules and providers are untouched. The remaining link-transcript panel refresh and native-client parity work are not included in this slice.

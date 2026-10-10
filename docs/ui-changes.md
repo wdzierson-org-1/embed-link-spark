@@ -8,6 +8,34 @@ first, visuals second, with pointers to specs and source.
 
 ---
 
+## 2026-10-10 · Interact with enriched objects: facts, sources, and editable drafts
+
+- **Contract (all platforms):** new owner-authenticated `object-interactions`
+  endpoint validates current `object_intelligence` against the captured source.
+  `inspect` returns ready/pending/unavailable; `draft` accepts a current fingerprint
+  and a supported source-ready capability. See `PLATFORM_API.md` for payloads,
+  errors, ownership and entitlement rules. No model, source mutation, or external
+  action is triggered by inspecting or creating a draft.
+- **First draft actions:** shopping lists from captured recipe ingredients,
+  recipe cards from ingredients and steps, and itinerary outlines from mentioned
+  destinations/places/stays. Preserve source quantities and ordering. Missing
+  ingredients, hours, routes, bookings and day assignments are never invented.
+- **Web:** the item panel gains a beta section with discrete attributes,
+  expandable source quotations, and an inline editable draft. Copy and Save are
+  explicit. Saves use `add-note`, are private by default, and retain a
+  `derived_from` relation to the source/fingerprint/action plus whether the draft
+  was edited. They are ordinary notes, never container objects. Existing publisher
+  product/place details and lookup links remain; equal facts are not repeated.
+- **State handling:** source updates cannot overwrite draft edits; earlier-source
+  previews say so. Item switches ignore late responses. Failed saves preserve the
+  draft; a completed or pending save cannot be submitted again from that preview.
+  Only queued work is described as pending, with bounded visible refreshes.
+  Capture checks and pins the intended owner's session token before preparing the
+  request. Subscription/session failures link to Settings/sign-in and preserve edits.
+- **Parity:** backend contract is shared; the new controls ship on the web first.
+  Native clients can expose the same actions. An infinite canvas and API-powered
+  retailer, grocery, booking or calendar integrations remain future work.
+
 ## 2026-10-10 · Maintenance preserves transcript evidence and source descriptions
 
 - **Contract (all platforms):** recovered link transcripts retain `page_body` and

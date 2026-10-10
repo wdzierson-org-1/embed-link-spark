@@ -35,6 +35,24 @@ export interface CapturedItem {
   [key: string]: unknown;
 }
 
+/** Stable classifications for callers that can offer a specific recovery path. */
+export type CaptureErrorCode = 'subscription_required' | 'session_required' | 'account_changed' | 'request_failed';
+export class CaptureError extends Error {
+  constructor(public readonly code: CaptureErrorCode, public readonly status: number | null, message: string) { super(message); }
+}
+
+const captureFailure = async (error: unknown): Promise<CaptureError> => {
+  const context = (error as { context?: Response } | null)?.context;
+  const status = typeof context?.status === 'number' ? context.status : null;
+  let serverCode: unknown;
+  // Clone before the existing message reader consumes the response; arbitrary
+  // provider codes never become action/state classifications in the client.
+  try { serverCode = (await context?.clone().json())?.error; } catch { /* Use the generic class. */ }
+  const code: CaptureErrorCode = status === 401 || (status === 403 && serverCode === 'session_required') ? 'session_required'
+    : status === 403 && serverCode === 'subscription_required' ? 'subscription_required' : 'request_failed';
+  return new CaptureError(code, status, await describeFunctionError(error));
+};
+
 type Endpoint = 'add-note' | 'add-url' | 'add-file';
 
 const ENDPOINTS: Record<CaptureKind, Endpoint> = {
@@ -98,10 +116,17 @@ const bodyFor = async (kind: CaptureKind, input: CaptureInput, userId: string): 
 
 /** Save through the platform; resolves to the row the endpoint created (enrichment follows) */
 export const captureContent = async (kind: CaptureKind, input: CaptureInput, userId: string): Promise<CapturedItem> => {
+  // Bind the request to the owner who began the save. The SDK otherwise resolves
+  // its global token later, which can belong to a different account after a switch.
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session?.access_token) throw new CaptureError('session_required', 401, 'Sign in again to save this.');
+  if (session.user.id !== userId) throw new CaptureError('account_changed', null, 'Your account changed. Reopen the item before saving.');
   const endpoint = endpointFor(kind);
   const body = await bodyFor(kind, input, userId);
-  const { data, error } = await supabase.functions.invoke(endpoint, { body });
-  if (error) throw new Error(await describeFunctionError(error));
+  const { data, error } = await supabase.functions.invoke(endpoint, {
+    body, headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  if (error) throw await captureFailure(error);
   const item = (data?.item ?? data?.note) as CapturedItem | undefined;
   if (!item?.id) throw new Error(`${endpoint} answered without the saved item`);
   return item;
