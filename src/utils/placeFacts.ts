@@ -106,8 +106,18 @@ export const openLabel = (state: OpenState): string => {
   return `closed · opens ${when}${formatClock(state.opens.at)}`;
 };
 
+/** Where the facts came from, for the footnote */
 export const providerName = (place: PlaceAttributes): string =>
-  place.provider.kind === 'apple-maps' ? 'Apple Maps' : place.provider.kind === 'google-maps' ? 'Google Maps' : hostOf(place.provider.url) ?? 'the page';
+  place.provider.kind === 'apple-maps' ? 'Apple Maps'
+    : place.provider.kind === 'google-maps' ? 'Google Maps'
+      : place.provider.kind === 'ocr' ? 'the picture’s text'
+        : hostOf(place.provider.url) ?? 'the page';
+
+/** Where "open in …" leads: the provider's map, or Google Maps for a place read from a picture */
+export const openInLabel = (place: PlaceAttributes): string =>
+  place.provider.kind === 'apple-maps' ? 'apple maps'
+    : place.provider.kind === 'google-maps' || place.provider.kind === 'ocr' ? 'google maps'
+      : hostOf(place.provider.url) ?? 'the page';
 
 export const hostOf = (url: string | undefined): string | undefined => {
   try {

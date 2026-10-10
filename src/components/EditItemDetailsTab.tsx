@@ -425,8 +425,9 @@ const EditItemDetailsTab = ({
         </div>
       )}
 
-      {/* The place a saved address stands for: hours, phone, menu, directions (2026-10-10) */}
-      {item?.type === 'link' && readPlace(item.attributes?.place) && <LocationDetailsSection place={readPlace(item.attributes?.place)!} />}
+      {/* The place a save stands for — a map link, a listing, a picture with an address: hours,
+          phone, menu, directions (2026-10-10) */}
+      {item && readPlace(item.attributes?.place) && <LocationDetailsSection place={readPlace(item.attributes?.place)!} />}
 
       {/* Publisher object facts are distinct from the user's capture location. */}
       {item?.type === 'link' && <ObjectFactsSection item={item} />}

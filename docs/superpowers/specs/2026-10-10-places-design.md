@@ -1,7 +1,8 @@
 # Places: map-based shares, the map as the picture, the location section
 
-**Date:** 2026-10-10 · **Status:** round 1 built (map links); round 2 (images with addresses)
-next · **Owner:** web + pipeline; iOS mirrors (plan 17, round 4)
+**Date:** 2026-10-10 · **Status:** round 1 (map links) and round 2 (pictures with an address)
+built; the map render and the geocoder wait on `MAPBOX_ACCESS_TOKEN` · **Owner:** web +
+pipeline; iOS mirrors (plan 17, round 4)
 
 ## The ask
 
@@ -63,14 +64,17 @@ Never fatal to the scrape. Place facts join `enrichmentSearchText`.
   provider the save came from, phone formatting, labels.
 - `kindLabel` reads `place` for a link with the lane; the publisher-facts section stands down.
 
-## Round 2 — images with addresses (next)
+## Round 2 — pictures with an address (built the same day)
 
-Screenshots and photos whose OCR text (`page_body` from `analyze-image`) contains an address:
-detect candidates (street number + street + locality/region/postal patterns, phone lines),
-geocode with Mapbox Geocoding (same token), write the same lane with `provider.kind: 'page'`
-… (`method: 'ocr-geocode'` to be added), render the map **without** replacing the image —
-the photo stays the picture; the map sits in the location section instead. `set_item_place`
-already admits `type = 'image'`.
+`add-file` → after `analyze-image` → `runImagePlaceStep`: candidates from the OCR text and the
+vision description (`extractAddressCandidates`: US "number street-word [, City, ST ZIP]" on
+one line or across two, European "Street 4, 2100 City"; `extractPhone`, `extractWebsite`),
+confirmed with Mapbox Geocoding v6 (`types=address`, `autocomplete=false`, `limit=1`; only
+`exact` / `high` `match_code.confidence`), then the lane with `provider.kind: 'ocr'`,
+`evidence.method: 'ocr-geocode'`, `evidence.source_url: 'stash-media:<file_path>'`, and the
+map in `place.map` only — the photo stays the picture, the section shows the map. Migration
+`20261010190000` widens `set_item_place`. Without the token the step keeps nothing and
+reports the candidates it would have looked up.
 
 ## Later
 

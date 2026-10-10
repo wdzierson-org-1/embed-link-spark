@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildPlace, extractAppleMarkdown, extractApplePlacePage, isProviderTitle, mapProviderOf, mapboxStaticUrl, parseAppleMapsUrl, parseGoogleMapsUrl, placeSearchText, readPlace,
+  buildOcrPlace, buildPlace, extractAddressCandidates, extractAppleMarkdown, extractApplePlacePage, extractPhone, extractWebsite, isProviderTitle, mapProviderOf,
+  mapboxGeocodeUrl, mapboxStaticUrl, parseAppleMapsUrl, parseGoogleMapsUrl, placeSearchText, readGeocode, readPlace,
 } from './place.ts';
 
 const resolvedApple = 'https://maps.apple.com/place?address=55%20Phila%20St,%20Saratoga%20Springs,%20NY%20%2012866,%20United%20States&coordinate=43.080499,-73.783109&name=Solevo%20Kitchen%20+%20Social&place-id=I6DF1454FE08462BE&map=explore';
@@ -180,6 +181,61 @@ describe('buildPlace', () => {
   it('is nothing for an ordinary page', () => {
     expect(buildPlace({ url: 'https://example.com/article' })).toBeUndefined();
     expect(buildPlace({ url: 'https://maps.apple/p/7mJUJoBjKam4Ns' })).toBeUndefined();
+  });
+});
+
+describe('addresses in a picture’s text (round 2)', () => {
+  it('finds a listing screenshot’s address on one line, the city and state with it', () => {
+    const ocr = 'Yosemite Eyewear, 5.0 (64) - Eye care center - Closed, Overview, Reviews, Photos, Services, Call, Directions, Text, Website, Share, Closed - Opens 10 AM, 107 Charles St, Boston, MA 02114, 5.0 ★★★★★ - 64 Reviews, Make appointment - eyecloudpro.com, Text message';
+    expect(extractAddressCandidates(ocr)).toEqual([{ text: '107 Charles St, Boston, MA 02114', line: 0, complete: true }]);
+    expect(extractWebsite(ocr)).toBe('https://eyecloudpro.com/');
+    expect(extractPhone(ocr)).toBeUndefined();
+  });
+
+  it('joins a street line with the city line under it, reads phones, and prefers complete addresses', () => {
+    const ocr = 'SOLEVO KITCHEN + SOCIAL\n55 Phila St\nSaratoga Springs, NY 12866\n(518) 450-7094\nsolevokitchenandsocial.com\nAlso at 12 Main Street';
+    expect(extractAddressCandidates(ocr)).toEqual([
+      { text: '55 Phila St, Saratoga Springs, NY 12866', line: 1, complete: true },
+      { text: '12 Main Street', line: 5, complete: false },
+    ]);
+    expect(extractPhone(ocr)).toBe('+15184507094');
+    expect(extractWebsite(ocr)).toBe('https://solevokitchenandsocial.com/');
+  });
+
+  it('reads a European address written street-first, and leaves prose alone', () => {
+    expect(extractAddressCandidates('Classensgade 4, 2100 København\nOpen daily')).toEqual([{ text: 'Classensgade 4, 2100 København', line: 0, complete: true }]);
+    expect(extractAddressCandidates('We walked 3 miles down the road to the lake.')).toEqual([]);
+    expect(extractAddressCandidates(null)).toEqual([]);
+    expect(extractWebsite('follow us on instagram.com/solevo')).toBeUndefined();
+  });
+
+  it('accepts only confident street addresses from the geocoder', () => {
+    const feature = (props: Record<string, unknown>) => ({ features: [{ geometry: { coordinates: [-71.0675, 42.3598] }, properties: props }] });
+    expect(readGeocode(feature({ feature_type: 'address', full_address: '107 Charles Street, Boston, Massachusetts 02114, United States', match_code: { confidence: 'exact' },
+      context: { street: { name: 'Charles Street' }, postcode: { name: '02114' }, place: { name: 'Boston' }, region: { name: 'Massachusetts', region_code: 'MA' }, country: { name: 'United States', country_code: 'us' } } }))).toEqual({
+      geo: { latitude: 42.3598, longitude: -71.0675 }, full_address: '107 Charles Street, Boston, Massachusetts 02114, United States', confidence: 'exact', feature_type: 'address',
+      context: { street: 'Charles Street', postcode: '02114', locality: 'Boston', region: 'Massachusetts', region_code: 'MA', country: 'United States', country_code: 'us' },
+    });
+    expect(readGeocode(feature({ feature_type: 'address', match_code: { confidence: 'low' } }))).toBeUndefined();
+    expect(readGeocode(feature({ feature_type: 'place', match_code: { confidence: 'exact' } }))).toBeUndefined();
+    expect(readGeocode({ features: [] })).toBeUndefined();
+    expect(mapboxGeocodeUrl('107 Charles St, Boston, MA 02114', 'pk.t')).toBe('https://api.mapbox.com/search/geocode/v6/forward?q=107%20Charles%20St%2C%20Boston%2C%20MA%2002114&limit=1&autocomplete=false&types=address&access_token=pk.t');
+  });
+
+  it('builds the lane for a picture from the confirmed address', () => {
+    const place = buildOcrPlace({
+      filePath: 'owner-1/staging/1-abc.png', candidate: { text: '107 Charles St, Boston, MA 02114', line: 0, complete: true },
+      geocoded: { geo: { latitude: 42.3598, longitude: -71.0675 }, full_address: '107 Charles Street, Boston, Massachusetts 02114, United States', confidence: 'exact', feature_type: 'address', context: { street: 'Charles Street', postcode: '02114', locality: 'Boston', region: 'Massachusetts', region_code: 'MA', country: 'United States', country_code: 'us' } },
+      phone: '+16175550100', website: 'https://eyecloudpro.com/', observedAt: '2026-10-10T12:00:00Z',
+    });
+    expect(place).toEqual({
+      version: 1,
+      address: { lines: ['107 Charles Street, Boston, Massachusetts 02114, United States'], street: '107 Charles St', locality: 'Boston', region: 'Massachusetts', region_code: 'MA', postal_code: '02114', country: 'United States', country_code: 'US' },
+      geo: { latitude: 42.3598, longitude: -71.0675 }, phone: '+16175550100', website: 'https://eyecloudpro.com/',
+      provider: { kind: 'ocr', url: 'https://www.google.com/maps/search/?api=1&query=42.3598%2C-71.0675' },
+      evidence: { source_url: 'stash-media:owner-1/staging/1-abc.png', observed_at: '2026-10-10T12:00:00.000Z', method: 'ocr-geocode', extraction_version: 'place-v1' },
+    });
+    expect(readPlace(place)).toEqual(place);
   });
 });
 

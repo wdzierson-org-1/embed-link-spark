@@ -3,8 +3,9 @@ import { ArrowUpRight, ChevronDown } from 'lucide-react';
 import { SectionHead } from './EditPanelSection';
 import { FactRow } from './FactTree';
 import type { PlaceAttributes } from '../../../supabase/functions/_shared/place';
+import { SUPABASE_URL } from '@/integrations/supabase/client';
 import {
-  addressLines, directionsUrl, formatPhone, hostOf, hoursRows, openLabel, openState, priceLabel, providerName, ratingLabel, telHref,
+  addressLines, directionsUrl, formatPhone, hostOf, hoursRows, openInLabel, openLabel, openState, priceLabel, providerName, ratingLabel, telHref,
 } from '@/utils/placeFacts';
 
 interface Props {
@@ -54,6 +55,11 @@ export default function LocationDetailsSection({ place }: Props) {
   const observedLabel = Number.isNaN(observed.getTime()) ? '' : observed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const hasFacts = lines.length > 0 || rows.length > 0 || place.phone || place.website || place.menu_url || place.rating || place.price_range || place.category;
   if (!hasFacts && !directions) return null;
+  // A place read from a picture's own text keeps the photo as the save's picture, so its map
+  // sits here instead; a map link's map is the picture on the stage above
+  const mapInSection = place.provider.kind === 'ocr' && place.map?.file_path
+    ? `${SUPABASE_URL}/storage/v1/object/public/stash-media/${place.map.file_path}`
+    : undefined;
 
   return (
     <section className="mt-[30px]" aria-label="Location details">
@@ -61,10 +67,15 @@ export default function LocationDetailsSection({ place }: Props) {
         label="location"
         aside={
           <a href={place.provider.url} target="_blank" rel="noopener noreferrer" className="font-pixel text-pixel lowercase text-muted-foreground hover:text-ink hover:underline">
-            open in {provider.toLowerCase()}
+            open in {openInLabel(place)}
           </a>
         }
       />
+      {mapInSection && (
+        <a href={place.provider.url} target="_blank" rel="noopener noreferrer" className="mt-3 block max-w-[520px]">
+          <img src={mapInSection} alt={`Map of ${lines.join(', ') || 'the place'}`} className="block w-full border border-line shadow-object" loading="lazy" />
+        </a>
+      )}
       <div className="v2-tree mt-2">
         {lines.length > 0 && (
           <FactRow label="Address">
@@ -125,7 +136,7 @@ export default function LocationDetailsSection({ place }: Props) {
         {place.website && <Cell href={place.website}>Website</Cell>}
       </div>
       <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
-        From {provider}{observedLabel ? `, observed ${observedLabel}` : ''}. Hours and details can change.
+        From {provider}{place.provider.kind === 'ocr' ? ', confirmed on the map' : ''}{observedLabel ? `, observed ${observedLabel}` : ''}. Hours and details can change.
       </p>
     </section>
   );

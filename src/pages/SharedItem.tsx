@@ -231,7 +231,7 @@ const SharedItem = () => {
             </>
           )}
 
-          {save.type === 'link' && readPlace(save.attributes?.place) && <LocationDetailsSection place={readPlace(save.attributes?.place)!} />}
+          {readPlace(save.attributes?.place) && <LocationDetailsSection place={readPlace(save.attributes?.place)!} />}
 
           <div className="mt-[30px]">
             <EditItemDetailsDrawer item={save} />

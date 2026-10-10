@@ -9,7 +9,8 @@
 
 import type { ObjectFacts } from './objectFacts.ts';
 
-export type PlaceProviderKind = 'apple-maps' | 'google-maps' | 'page';
+/** `ocr`: an address read from a picture's own text and geocoded (round 2) */
+export type PlaceProviderKind = 'apple-maps' | 'google-maps' | 'page' | 'ocr';
 export type PlaceGeo = { latitude: number; longitude: number };
 /** `open`/`close` are "HH:MM" in the place's own day; `next_day` marks a close past midnight */
 export type PlaceHoursRange = { open: string; close: string; next_day?: boolean };
@@ -42,7 +43,7 @@ export type PlaceAttributes = {
   provider: { kind: PlaceProviderKind; place_id?: string; url: string };
   /** The rendered map Stash stored as the save's picture (items.file_path points at it too) */
   map?: { file_path: string; provider: 'mapbox'; style: string; zoom: number; rendered_at: string };
-  evidence: { source_url: string; observed_at: string; method: 'map-page' | 'map-url' | 'json-ld'; extraction_version: 'place-v1' };
+  evidence: { source_url: string; observed_at: string; method: 'map-page' | 'map-url' | 'json-ld' | 'ocr-geocode'; extraction_version: 'place-v1' };
 };
 
 export const PLACE_EXTRACTION_VERSION = 'place-v1' as const;
@@ -455,8 +456,140 @@ export const readPlace = (value: unknown): PlaceAttributes | undefined => {
   const provider = record(root?.provider);
   const evidence = record(root?.evidence);
   if (!root || root.version !== 1 || !provider || !evidence || evidence.extraction_version !== PLACE_EXTRACTION_VERSION) return undefined;
-  if (!['apple-maps', 'google-maps', 'page'].includes(String(provider.kind))) return undefined;
+  if (!['apple-maps', 'google-maps', 'page', 'ocr'].includes(String(provider.kind))) return undefined;
   return root as unknown as PlaceAttributes;
+};
+
+// ---- addresses in a picture's own text (round 2) ----------------------------------------------
+
+const STREET_WORDS = 'Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct|Place|Pl|Highway|Hwy|Parkway|Pkwy|Square|Sq|Terrace|Ter|Circle|Cir|Trail|Trl|Broadway|Alley|Route|Rte|Turnpike|Tpke';
+// "55 Phila St", "1600 Pennsylvania Ave NW Suite 200" — the number, the name, the street word, a unit
+const STREET_LINE = new RegExp(`\\b(\\d{1,6}[A-Za-z]?)\\s+((?:[A-Z0-9][A-Za-z0-9.'’-]*\\s+){0,5}?(?:${STREET_WORDS})\\.?)(?:\\s+(?:N|S|E|W|NE|NW|SE|SW))?(?:,?\\s*(?:#|Suite|Ste\\.?|Apt\\.?|Unit|Fl\\.?|Floor)\\s*[\\w-]+)?`, 'g');
+// "Saratoga Springs, NY 12866" / "Brooklyn, NY" / "Washington, DC 20500-0003"
+const CITY_STATE = /([A-Z][A-Za-z.'’-]+(?:\s[A-Z][A-Za-z.'’-]+){0,3}),\s*([A-Z]{2})(?:\s+(\d{5}(?:-\d{4})?))?/;
+// European order: "Classensgade 4, 2100 København" / "Rue de Rivoli 12, 75001 Paris"
+const EURO_LINE = /\b([A-ZÆØÅÄÖÜ][\wæøåäöüß.'’-]{2,40}(?:\s[\wæøåäöüß.'’-]{1,30}){0,3})\s+(\d{1,4}[A-Za-z]?),?\s+(\d{4,5})\s+([A-ZÆØÅÄÖÜ][\wæøåäöüß .'’-]{2,40})\b/g;
+
+export type AddressCandidate = { text: string; line: number; complete: boolean };
+
+/** Street addresses a picture's text seems to carry, best first; never more than three */
+export const extractAddressCandidates = (text: string | null | undefined): AddressCandidate[] => {
+  if (!text) return [];
+  const lines = text.replace(/\r/g, '').split('\n').map((line) => line.replace(/\s+/g, ' ').trim());
+  const found: AddressCandidate[] = [];
+  const push = (candidate: AddressCandidate) => {
+    const key = candidate.text.toLowerCase();
+    if (!found.some((entry) => entry.text.toLowerCase() === key)) found.push(candidate);
+  };
+  lines.forEach((line, index) => {
+    for (const match of line.matchAll(STREET_LINE)) {
+      const street = match[0].trim();
+      const after = line.slice((match.index ?? 0) + match[0].length);
+      const sameLine = after.match(CITY_STATE);
+      const nextLine = !sameLine && lines[index + 1] ? lines[index + 1].match(CITY_STATE) : null;
+      const cityPart = sameLine ?? nextLine;
+      const city = cityPart ? `${cityPart[1]}, ${cityPart[2]}${cityPart[3] ? ` ${cityPart[3]}` : ''}` : '';
+      push({ text: city ? `${street}, ${city}` : street, line: index, complete: Boolean(city) });
+    }
+    for (const match of line.matchAll(EURO_LINE)) {
+      push({ text: `${match[1]} ${match[2]}, ${match[3]} ${match[4]}`.trim(), line: index, complete: true });
+    }
+  });
+  return found.sort((a, b) => Number(b.complete) - Number(a.complete) || a.line - b.line).slice(0, 3);
+};
+
+/** The first phone number written in the text, digits and a leading + only */
+export const extractPhone = (text: string | null | undefined): string | undefined => {
+  const match = text?.match(/(?:\+\d{1,2}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/);
+  if (!match) return undefined;
+  const digits = match[0].replace(/[^+\d]/g, '');
+  return digits.length >= 10 ? (digits.startsWith('+') ? digits : digits.length === 10 ? `+1${digits}` : `+${digits}`) : undefined;
+};
+
+/** The first web address written in the text */
+export const extractWebsite = (text: string | null | undefined): string | undefined => {
+  const match = text?.match(/\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|co|io|us|uk|ca|de|fr|dk|nl|es|it|restaurant|cafe|bar|nyc|me|shop))\b(\/[^\s]*)?/i);
+  if (!match) return undefined;
+  const host = match[1].toLowerCase();
+  if (/^(instagram|facebook|tiktok|twitter|x|youtube|yelp|google|apple|gmail|icloud)\./.test(host)) return undefined;
+  return webAddress(`https://${host}${match[2] ?? ''}`);
+};
+
+export type Geocoded = {
+  geo: PlaceGeo;
+  full_address?: string;
+  confidence?: string;
+  feature_type?: string;
+  context?: { street?: string; postcode?: string; locality?: string; region?: string; region_code?: string; country?: string; country_code?: string };
+};
+
+/** A Mapbox Geocoding v6 forward request for one address, exact matches only */
+export const mapboxGeocodeUrl = (query: string, token: string): string =>
+  `https://api.mapbox.com/search/geocode/v6/forward?q=${encodeURIComponent(query)}&limit=1&autocomplete=false&types=address&access_token=${encodeURIComponent(token)}`;
+
+/** The one feature a geocode answer carries, when it is a confident address */
+export const readGeocode = (payload: unknown): Geocoded | undefined => {
+  const feature = record((record(payload)?.features as unknown[] | undefined)?.[0]);
+  const geometry = record(feature?.geometry);
+  const properties = record(feature?.properties);
+  const coords = Array.isArray(geometry?.coordinates) ? geometry!.coordinates : [];
+  const geo = typeof coords[1] === 'number' && typeof coords[0] === 'number' ? geoFrom(coords[1], coords[0]) : undefined;
+  if (!geo || !properties) return undefined;
+  const confidence = clean(record(properties.match_code)?.confidence, 20);
+  const featureType = clean(properties.feature_type, 40);
+  if (featureType !== 'address' || !confidence || !['exact', 'high'].includes(confidence)) return undefined;
+  const context = record(properties.context) ?? {};
+  const name = (key: string, field = 'name') => clean(record(context[key])?.[field], 120);
+  return compact({
+    geo,
+    full_address: clean(properties.full_address, 300),
+    confidence,
+    feature_type: featureType,
+    context: compact({
+      street: name('street'), postcode: name('postcode'), locality: name('place'), region: name('region'), region_code: name('region', 'region_code'),
+      country: name('country'), country_code: name('country', 'country_code'),
+    }),
+  });
+};
+
+export type OcrPlaceInput = {
+  filePath: string;
+  candidate: AddressCandidate;
+  geocoded: Geocoded;
+  phone?: string;
+  website?: string;
+  observedAt?: string;
+};
+
+/** The place a picture's text names, once its address is confirmed on the map */
+export const buildOcrPlace = (input: OcrPlaceInput): PlaceAttributes => {
+  const observed = input.observedAt ? new Date(input.observedAt) : new Date();
+  const g = input.geocoded;
+  const lines = [g.full_address ?? input.candidate.text];
+  const point = `${g.geo.latitude},${g.geo.longitude}`;
+  return compact({
+    version: 1 as const,
+    address: compact({
+      lines,
+      street: g.context?.street ? input.candidate.text.split(',')[0] : undefined,
+      locality: g.context?.locality,
+      region: g.context?.region,
+      region_code: g.context?.region_code,
+      postal_code: g.context?.postcode,
+      country: g.context?.country,
+      country_code: g.context?.country_code?.toUpperCase(),
+    }),
+    geo: g.geo,
+    phone: input.phone,
+    website: input.website,
+    provider: { kind: 'ocr' as const, url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(point)}` },
+    evidence: {
+      source_url: `stash-media:${input.filePath}`,
+      observed_at: (Number.isFinite(observed.getTime()) ? observed : new Date()).toISOString(),
+      method: 'ocr-geocode' as const,
+      extraction_version: PLACE_EXTRACTION_VERSION,
+    },
+  });
 };
 
 /** The facts worth finding the save by */

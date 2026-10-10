@@ -12,6 +12,7 @@ import {
   transcriptTitleSystemPrompt,
 } from '../_shared/titlePolicy.ts';
 import { parseRemindAt } from '../_shared/reminders.ts';
+import { runImagePlaceStep } from '../_shared/placeEnrichment.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -131,6 +132,17 @@ Deno.serve(async (req) => {
           });
           if (imgErr || imageResult?.success === false) status = 'partial';
           if (imgErr) console.error('add-file: analyze-image failed for', item.id, imgErr);
+          // A picture whose text names a street address is a place too: once the address
+          // is confirmed on the map, the lane and the map join the save (the photo stays
+          // its picture). Never fatal to the save.
+          if (!imgErr) {
+            try {
+              const outcome = await runImagePlaceStep(supabase, item.id, { mapboxToken: Deno.env.get('MAPBOX_ACCESS_TOKEN') });
+              console.log('add-file: place step', item.id, JSON.stringify('skipped' in outcome ? outcome : { kept: true, map: outcome.map ?? null }));
+            } catch (placeError) {
+              console.error('add-file: place step failed', item.id, placeError);
+            }
+          }
         } else if (type === 'audio' || type === 'video') {
           // What we know now lands now: attributes.media.kind (the subtype
           // clients render against — voice_note < 10 min or unknown duration,

@@ -20,6 +20,8 @@ vi.mock('https://esm.sh/@supabase/supabase-js@2.50.2', () => ({
 }));
 vi.mock('../_shared/agentToken.ts', () => ({ isAgentToken: () => false }));
 vi.mock('../_shared/entitlementGate.ts', () => ({ requireEntitlement: async () => null }));
+const placeStep = vi.hoisted(() => vi.fn(async () => ({ skipped: 'no_address' })));
+vi.mock('../_shared/placeEnrichment.ts', () => ({ runImagePlaceStep: placeStep }));
 
 beforeAll(async () => {
   vi.stubGlobal('Deno', { env: { get: () => 'https://stash.example' }, serve: (handler: any) => { state.handler = handler; } });
@@ -47,6 +49,15 @@ describe('add-file: one pipeline for every client', () => {
     expect(state.row).toMatchObject({ type: 'image', title: 'photo.jpg', attributes: { enrichment: { status: 'pending' } } });
     expect(invoked()).toEqual(['analyze-image']);
     expect(settled()).toEqual(['complete']);
+    // After the picture is read, its text is checked for an address (the place step)
+    expect(placeStep).toHaveBeenCalledWith(expect.anything(), 'item-1', { mapboxToken: 'https://stash.example' });
+  });
+
+  it('skips the place step when the picture could not be read', async () => {
+    state.invoke.mockResolvedValue({ data: null, error: new Error('vision down') });
+    await save({ file_path: 'owner-1/staging/123-abc.jpg', mime_type: 'image/jpeg', title: 'photo.jpg' });
+    expect(placeStep).not.toHaveBeenCalled();
+    expect(settled()).toEqual(['partial']);
   });
 
   it('starts the transcription job for audio and leaves the status for the job to settle', async () => {

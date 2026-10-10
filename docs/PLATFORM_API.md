@@ -106,8 +106,9 @@ flowchart LR
 ## Places (`attributes.place`)
 
 A saved address that stands for a place — an Apple Maps or Google Maps link
-(short links included), or a listing page whose structured data carries
-coordinates — gets `attributes.place` (v1, `_shared/place.ts`): name, address,
+(short links included), a listing page whose structured data carries
+coordinates, or a picture whose own text carries a street address confirmed by
+the geocoder (`provider.kind: "ocr"`) — gets `attributes.place` (v1, `_shared/place.ts`): name, address,
 coordinates, time zone, phone, website, menu link, weekly hours, rating, price
 level, category, the provider and its resolved address, the rendered map, and
 evidence. The capture pipeline writes it (`set_item_place`, a leaf

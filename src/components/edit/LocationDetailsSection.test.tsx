@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import LocationDetailsSection from './LocationDetailsSection';
 import type { PlaceAttributes } from '../../../supabase/functions/_shared/place';
 
+vi.mock('@/integrations/supabase/client', () => ({ SUPABASE_URL: 'https://example.supabase.co' }));
+
 const place: PlaceAttributes = {
   version: 1,
   name: 'Solevo Kitchen + Social',
@@ -65,6 +67,24 @@ describe('LocationDetailsSection', () => {
     render(<LocationDetailsSection place={{ ...place, timezone: undefined }} />);
     const button = screen.getByRole('button', { name: /Fri 4:00–10:00 PM/ });
     expect(button.textContent).not.toMatch(/open ·|closed ·/);
+  });
+
+  it('shows the map inside the section for a place read from a picture, which keeps its photo', () => {
+    const fromPicture: PlaceAttributes = {
+      version: 1,
+      address: { lines: ['107 Charles Street, Boston, Massachusetts 02114, United States'] },
+      geo: { latitude: 42.3598, longitude: -71.0675 },
+      website: 'https://eyecloudpro.com/',
+      provider: { kind: 'ocr', url: 'https://www.google.com/maps/search/?api=1&query=42.3598%2C-71.0675' },
+      map: { file_path: 'u/previews/map_9.png', provider: 'mapbox', style: 'mapbox/light-v11', zoom: 15, rendered_at: '2026-10-10T12:00:00.000Z' },
+      evidence: { source_url: 'stash-media:u/staging/9.png', observed_at: '2026-10-10T12:00:00.000Z', method: 'ocr-geocode', extraction_version: 'place-v1' },
+    };
+    render(<LocationDetailsSection place={fromPicture} />);
+    expect(screen.getByRole('img', { name: 'Map of 107 Charles Street, Boston, Massachusetts 02114, United States' })).toHaveAttribute('src', 'https://example.supabase.co/storage/v1/object/public/stash-media/u/previews/map_9.png');
+    expect(screen.getByRole('link', { name: 'open in google maps' })).toHaveAttribute('href', fromPicture.provider.url);
+    expect(screen.getByRole('link', { name: /Directions/ })).toHaveAttribute('href', 'https://www.google.com/maps/dir/?api=1&destination=42.3598%2C-71.0675');
+    expect(screen.getByText(/From the picture’s text, confirmed on the map, observed Oct 10, 2026/)).toBeInTheDocument();
+    expect(screen.queryByText('Hours')).not.toBeInTheDocument();
   });
 
   it('renders nothing for a place with no facts and no coordinates', () => {

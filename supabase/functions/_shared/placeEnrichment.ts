@@ -9,7 +9,10 @@
 import { ENRICHMENT_COLUMNS, applyCandidate } from './enrichmentStore.ts';
 import { isPlaceholderMetadata } from './enrichmentQuality.ts';
 import { readObjectFacts } from './objectFacts.ts';
-import { buildPlace, isProviderTitle, mapProviderOf, mapboxStaticUrl, readPlace, type PlaceAttributes, type PlaceGeo } from './place.ts';
+import {
+  buildOcrPlace, buildPlace, extractAddressCandidates, extractPhone, extractWebsite, isProviderTitle, mapProviderOf, mapboxGeocodeUrl, mapboxStaticUrl,
+  readGeocode, readPlace, type AddressCandidate, type Geocoded, type PlaceAttributes, type PlaceGeo,
+} from './place.ts';
 
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
 const PAGE_CAP_BYTES = 1_500_000;
@@ -127,6 +130,67 @@ const pictureIsReplaceable = (filePath: string | null | undefined): boolean =>
 /** Whether this save could be a place at all — cheap enough to decide before any I/O */
 export const isPlaceCandidate = (url: string | null | undefined, attributes: Record<string, unknown> | null | undefined): boolean =>
   !!mapProviderOf(url) || !!readObjectFacts(attributes?.object_facts, url ?? '')?.place?.geo;
+
+/** One address on the map, or nothing: only an exact or high-confidence street address counts */
+export async function geocodeAddress(query: string, token: string, fetcher: Fetcher = fetch): Promise<Geocoded | undefined> {
+  try {
+    const response = await fetcher(mapboxGeocodeUrl(query, token), { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) {
+      console.warn('place: geocoder refused', response.status);
+      return undefined;
+    }
+    return readGeocode(await response.json());
+  } catch (error) {
+    console.warn('place: geocoding failed', error instanceof Error ? error.message : error);
+    return undefined;
+  }
+}
+
+/**
+ * Round 2: a picture whose own text (OCR, the vision description) carries a street address.
+ * The address is confirmed on the map before anything is kept; the photo stays the save's
+ * picture and the map lives in the lane (`place.map`) for the location section.
+ */
+// deno-lint-ignore no-explicit-any
+export async function runImagePlaceStep(db: any, itemId: string, env: PlaceStepEnv = {}): Promise<PlaceStepResult> {
+  const fetcher = env.fetcher ?? fetch;
+  const nowIso = () => (env.now?.() ?? new Date()).toISOString();
+  const { data: item, error } = await db.from('items').select(ENRICHMENT_COLUMNS).eq('id', itemId).single();
+  if (error || !item) return { skipped: 'item_missing' };
+  const row = item as ItemRow & { description?: string | null };
+  if (row.type !== 'image' || !row.file_path) return { skipped: 'not_an_image' };
+  const text = [row.page_body, row.description].filter((part): part is string => typeof part === 'string' && !!part.trim()).join('\n');
+  const candidates = extractAddressCandidates(text);
+  if (!candidates.length) return { skipped: 'no_address' };
+  const detail = { candidates: candidates.map((candidate) => candidate.text) };
+  if (!env.mapboxToken) return { skipped: 'no_geocoder', detail };
+
+  let geocoded: Geocoded | undefined;
+  let candidate: AddressCandidate | undefined;
+  for (const next of candidates) {
+    geocoded = await geocodeAddress(next.text, env.mapboxToken, fetcher);
+    if (geocoded) { candidate = next; break; }
+  }
+  if (!geocoded || !candidate) return { skipped: 'unconfirmed', detail };
+
+  const existing = readPlace(row.attributes?.place);
+  const place = buildOcrPlace({ filePath: row.file_path, candidate, geocoded, phone: extractPhone(text), website: extractWebsite(text), observedAt: nowIso() });
+  const keepMap = existing?.map && sameSpot(existing.geo, place.geo) ? existing.map : undefined;
+  let mapPath = keepMap?.file_path;
+  if (!mapPath && place.geo) mapPath = (await renderMapSnapshot(db, row.user_id, itemId, place.geo, env.mapboxToken, fetcher)) ?? undefined;
+  if (keepMap) place.map = keepMap;
+  else if (mapPath) place.map = { file_path: mapPath, provider: 'mapbox', style: MAP_STYLE, zoom: MAP_ZOOM, rendered_at: nowIso() };
+
+  const { data: written, error: rpcError } = await db.rpc('set_item_place', {
+    target_id: itemId, expected_url: null, expected_place: existing ?? null, place,
+  });
+  if (rpcError) throw rpcError;
+  if (written !== true) {
+    if (mapPath && !keepMap) await db.storage.from('stash-media').remove([mapPath]);
+    return { skipped: 'item_changed' };
+  }
+  return { place, map: mapPath };
+}
 
 // deno-lint-ignore no-explicit-any
 export async function runPlaceStep(db: any, itemId: string, url: string, env: PlaceStepEnv = {}): Promise<PlaceStepResult> {

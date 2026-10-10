@@ -21,6 +21,12 @@ stays reachable in git history.
 - Prototypes are explorations, not specs. A chosen direction becomes a `DESIGN.md` and
   `docs/ui-changes.md` change before any code moves.
 
+## 2026-10-10
+
+| Prototype | Version | Status | What it shows | Related |
+|---|---|---|---|---|
+| [object-intelligence-facts](2026-10-10-object-intelligence-facts.html) | v0.1 | awaiting pick | How Codex's `attributes.object_intelligence` could show on the details screen (Will, 2026-10-10: "please propose ways to share this information on the details screen"; he chose a prototype before any build). The panel as a window, one kind at a time: a **facts section per kind** in the details-tree style (recipe, product, paper, book, event, travel, place), every value a verbatim span that opens **the passage it came from** on hover or tap, with the source named; the **kind tag reading the semantic kind** (a "video" card becoming "recipe"); **next actions as cells** from the capabilities list — source-ready drafts in ink, lookups that need a provider muted and naming what they need, external writes dashed and "asks first"; a footnote and a "wrong kind?" link (the event example is a real misread from his saves). Data from his own object-intelligence rows except the recipe (a sample). Deep links `#kind=recipe\|product\|paper\|book\|event\|travel\|place`. Render: `2026-10-10-object-intelligence-facts.png`. | `supabase/functions/_shared/objectIntelligence.ts`; ui-changes 2026-10-10 "Object-specific enrichment data" (Codex); DESIGN-v2 §12.8 |
+
 ## 2026-10-06
 
 | Prototype | Version | Status | What it shows | Related |

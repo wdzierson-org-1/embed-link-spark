@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { isPlaceCandidate, runPlaceStep } from './placeEnrichment.ts';
+import { isPlaceCandidate, runImagePlaceStep, runPlaceStep } from './placeEnrichment.ts';
 
 const shortLink = 'https://maps.apple/p/7mJUJoBjKam4Ns';
 const resolvedApple = 'https://maps.apple.com/place?address=55%20Phila%20St%2C%20Saratoga%20Springs%2C%20NY%20%2012866%2C%20United%20States&coordinate=43.080499,-73.783109&name=Solevo%20Kitchen%20+%20Social&place-id=I6DF1454FE08462BE&map=explore';
@@ -175,6 +175,56 @@ describe('runPlaceStep', () => {
     expect(await runPlaceStep(db, 'item-1', shortLink, { fetcher: refusing })).toEqual({ skipped: 'nothing_found', detail: { resolved: shortLink, status: 404, via: 'direct', html: 0, markdown: 0 } });
   });
 
+  it('keeps going from the URL when the provider refuses the page (continued below)', () => {});
+});
+
+describe('runImagePlaceStep — a picture whose text names an address', () => {
+  const geocodeAnswer = { features: [{ geometry: { coordinates: [-71.0675, 42.3598] }, properties: { feature_type: 'address', full_address: '107 Charles Street, Boston, Massachusetts 02114, United States', match_code: { confidence: 'exact' },
+    context: { street: { name: 'Charles Street' }, postcode: { name: '02114' }, place: { name: 'Boston' }, region: { name: 'Massachusetts', region_code: 'MA' }, country: { name: 'United States', country_code: 'us' } } } }] };
+  const imageRow = (): Row => ({ id: 'item-9', user_id: 'owner-1', type: 'image', url: '', title: 'Screenshot of Yosemite Eyewear', file_path: 'owner-1/staging/9-abc.png',
+    page_body: 'Yosemite Eyewear, 5.0 (64) - Eye care center - Closed - Opens 10 AM, 107 Charles St, Boston, MA 02114, Make appointment - eyecloudpro.com', attributes: { enrichment: { status: 'pending' } } });
+  const geocoding = vi.fn(async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.startsWith('https://api.mapbox.com/search/geocode/v6/forward')) return ({ ok: true, status: 200, url, headers: { get: () => 'application/json' }, json: async () => geocodeAnswer }) as unknown as Response;
+    if (url.startsWith('https://api.mapbox.com/styles/')) return pngResponse() as unknown as Response;
+    throw new Error(`unexpected fetch ${url}`);
+  });
+  beforeEach(() => { geocoding.mockClear(); });
+
+  it('confirms the address on the map, keeps the place and its map, and leaves the photo as the picture', async () => {
+    const row = imageRow();
+    const { db, calls } = makeDb(row);
+    const result = await runImagePlaceStep(db, 'item-9', { mapboxToken: 'pk.test', fetcher: geocoding, now: () => new Date('2026-10-10T12:00:00Z') });
+    expect('place' in result && result.place).toMatchObject({
+      address: { lines: ['107 Charles Street, Boston, Massachusetts 02114, United States'], locality: 'Boston', region_code: 'MA', postal_code: '02114' },
+      geo: { latitude: 42.3598, longitude: -71.0675 }, website: 'https://eyecloudpro.com/',
+      provider: { kind: 'ocr' }, map: { file_path: 'owner-1/previews/map_item-9.png' },
+      evidence: { source_url: 'stash-media:owner-1/staging/9-abc.png', method: 'ocr-geocode' },
+    });
+    expect(calls.rpc.find(([name]) => name === 'set_item_place')?.[1]).toMatchObject({ target_id: 'item-9', expected_url: null, expected_place: null });
+    expect(calls.patches).toEqual([]);
+    expect(row.file_path).toBe('owner-1/staging/9-abc.png');
+    expect(String(geocoding.mock.calls[0][0])).toContain('q=107%20Charles%20St%2C%20Boston%2C%20MA%2002114');
+  });
+
+  it('says what it would have looked up when no geocoder is configured, and does nothing without an address', async () => {
+    const { db: withAddress } = makeDb(imageRow());
+    expect(await runImagePlaceStep(withAddress, 'item-9', { fetcher: geocoding })).toEqual({ skipped: 'no_geocoder', detail: { candidates: ['107 Charles St, Boston, MA 02114'] } });
+    const { db: plain } = makeDb({ ...imageRow(), page_body: 'A sunset over the harbour' });
+    expect(await runImagePlaceStep(plain, 'item-9', { mapboxToken: 'pk.test', fetcher: geocoding })).toEqual({ skipped: 'no_address' });
+    expect(geocoding).not.toHaveBeenCalled();
+  });
+
+  it('keeps nothing when the geocoder is not confident', async () => {
+    const vague = vi.fn(async (input: string | URL | Request) => ({ ok: true, status: 200, url: String(input), headers: { get: () => 'application/json' }, json: async () => ({ features: [{ geometry: { coordinates: [1, 2] }, properties: { feature_type: 'address', match_code: { confidence: 'low' } } }] }) }) as unknown as Response);
+    const { db, calls } = makeDb(imageRow());
+    expect(await runImagePlaceStep(db, 'item-9', { mapboxToken: 'pk.test', fetcher: vague })).toEqual({ skipped: 'unconfirmed', detail: { candidates: ['107 Charles St, Boston, MA 02114'] } });
+    expect(calls.rpc).toEqual([]);
+    expect(calls.uploads).toEqual([]);
+  });
+});
+
+describe('runPlaceStep (continued)', () => {
   it('keeps going from the URL when the provider refuses the page', async () => {
     const row = { ...baseRow(), url: 'https://www.google.com/maps/place/Blue+Bottle/@37.78,-122.4,17z/data=!8m2!3d37.782!4d-122.406' };
     const refusing = vi.fn(async (input: string | URL | Request) => String(input).startsWith('https://api.mapbox.com/') ? pngResponse() as unknown as Response : ({ ok: false, status: 429, url: String(input), headers: { get: () => 'text/html' }, text: async () => '' }) as unknown as Response);

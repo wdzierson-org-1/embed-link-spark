@@ -57,8 +57,21 @@ Yelp/Google lookups), map links first, screenshots and photos with addresses nex
   that has the lane.
 - **iOS / macOS:** read `attributes.place` and render the same section (plan 17, round 4);
   the map needs nothing — it is the save's picture.
-- **Next round:** screenshots and photos with an address (OCR → address → geocoder → the same
-  lane and map); a live map on the panel stage; nothing from Yelp/Google beyond the page.
+- **Round 2 (same day) — pictures with an address.** After `analyze-image` has read a picture,
+  `add-file` runs the image place step (`runImagePlaceStep`): street addresses in the picture's
+  own text (OCR in `page_body`, the vision description) — "107 Charles St, Boston, MA 02114",
+  a street line with the city line under it, European "Classensgade 4, 2100 København" — are
+  confirmed with Mapbox Geocoding v6 (`types=address`, `autocomplete=false`; only `exact` /
+  `high` matches count) and kept as the same lane with **`provider.kind: 'ocr'`**,
+  `evidence.method: 'ocr-geocode'`, `evidence.source_url: 'stash-media:<file_path>'`, the
+  phone and website written in the text, and the map in `place.map`. **The photo stays the
+  save's picture**: the location section shows the map itself (an object, 520 px wide at most)
+  above the rows; `open in google maps` and Directions use Google Maps. Without
+  `MAPBOX_ACCESS_TOKEN` the step records what it would have looked up and keeps nothing. The
+  section now renders for any save that has the lane (`readPlace`), not only links; the kind
+  label stays `photo` / `screenshot`. Migration `20261010190000` widens `set_item_place`
+  (applied). iOS: same section on an image's detail sheet, map from `place.map.file_path`.
+- **Later:** a live map on the panel stage; nothing from Yelp/Google beyond the page.
 
 ## 2026-10-10 · One capture pipeline: the web composer saves through the platform API
 

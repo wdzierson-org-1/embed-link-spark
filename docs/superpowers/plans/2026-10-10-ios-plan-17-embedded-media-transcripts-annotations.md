@@ -205,6 +205,11 @@ Contract: docs/ui-changes.md 2026-10-10 "Map-based shares" and `supabase/functio
       muted "From Apple Maps, observed …" line. Hide the beta publisher-facts place rows when the
       lane exists.
 - [ ] Share sheet: nothing — a map link saves like any link; the pipeline does the rest.
+- [ ] A picture with an address (`provider.kind == "ocr"`): the same section on the image's
+      sheet, with the map (`place.map.file_path`, a public storage object) shown inside the
+      section above the rows — the photo stays the picture; "open in google maps" and
+      Directions use `provider.url` / Google Maps; the footnote reads "From the picture's
+      text, confirmed on the map".
 
 ## Wrap
 

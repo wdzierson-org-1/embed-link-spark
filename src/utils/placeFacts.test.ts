@@ -1,4 +1,4 @@
-import { addressLines, directionsUrl, formatDays, formatPhone, formatRange, hoursRows, openLabel, openState, priceLabel, ratingLabel } from './placeFacts';
+import { addressLines, directionsUrl, formatDays, formatPhone, formatRange, hoursRows, openInLabel, openLabel, openState, priceLabel, providerName, ratingLabel } from './placeFacts';
 import type { PlaceAttributes, PlaceHours } from '../../supabase/functions/_shared/place';
 
 const hours: PlaceHours = [
@@ -63,6 +63,16 @@ describe('addresses and labels', () => {
     expect(directionsUrl(place)).toBe('https://maps.apple.com/?daddr=43.080499%2C-73.783109&q=Solevo%20Kitchen%20%2B%20Social');
     expect(directionsUrl({ ...place, provider: { kind: 'google-maps', url: 'x' } })).toBe('https://www.google.com/maps/dir/?api=1&destination=43.080499%2C-73.783109');
     expect(directionsUrl({ ...place, geo: undefined })).toBeUndefined();
+  });
+
+  it('names the source and the map a place opens in, for a picture-read place too', () => {
+    expect(providerName(place)).toBe('Apple Maps');
+    expect(openInLabel(place)).toBe('apple maps');
+    const fromPicture = { ...place, provider: { kind: 'ocr' as const, url: 'https://www.google.com/maps/search/?api=1&query=1%2C2' } };
+    expect(providerName(fromPicture)).toBe('the picture’s text');
+    expect(openInLabel(fromPicture)).toBe('google maps');
+    expect(directionsUrl(fromPicture)).toBe('https://www.google.com/maps/dir/?api=1&destination=43.080499%2C-73.783109');
+    expect(providerName({ ...place, provider: { kind: 'page', url: 'https://www.yelp.com/biz/x' } })).toBe('yelp.com');
   });
 
   it('formats phones, ratings and prices', () => {
